@@ -58,6 +58,48 @@ export type {
   ContentPart,
 } from "./lib/seams";
 
+// Database + search
+export { openDatabase, initVecSupport, hasVecSupport, getMeta, setMeta } from "./lib/db";
+export type { SchemaOptions } from "./lib/db";
+export { hybridSearch, filterSearch } from "./lib/search-engine";
+export type { SearchDeps, SearchResponse } from "./lib/search-engine";
+
+// Indexing + content pipeline
+export {
+  indexAll,
+  getMarkdownFiles,
+  getAssetFiles,
+  extractWikiLinks,
+  resolveWikiLink,
+} from "./lib/indexer";
+export type { IndexStats, IndexOptions } from "./lib/indexer";
+export { ingest, classifyContent } from "./lib/ingestion";
+export type { IngestOutcome, IngestContext, Classification } from "./lib/ingestion";
+export { audit } from "./lib/auditor";
+export type { AuditOptions } from "./lib/auditor";
+export { validate, checkIndexDrift } from "./lib/validate";
+export type { ValidationIssue } from "./lib/validate";
+export { archiveDocument } from "./lib/archiver";
+export type { ArchiveOptions, ArchiveResult } from "./lib/archiver";
+export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker";
+export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter";
+export { safeResolve } from "./lib/safe-path";
+
+// Providers + enrichment
+export { createEnrichment } from "./lib/enrichment";
+export type { Enrichment } from "./lib/enrichment";
+export {
+  resolveEmbeddingProvider,
+  resolveCompletionProvider,
+  resolveAgentRunner,
+} from "./lib/registry";
+
+// Skills distribution
+export { discoverSkills } from "./lib/skills/discover";
+export { syncSkills, installBinLinks } from "./lib/skills/sync";
+export { lintSkills } from "./lib/skills/lint";
+export { BUILTIN_EMITTERS } from "./lib/skills";
+
 // Data types
 export type {
   Document,
