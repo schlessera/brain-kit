@@ -46,7 +46,7 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | P5.2 | @brainform/ui-backend-claude | **done** | SDK ^0.3.207 (verified superset); per-turn closures replace handler singletons; 25 tests |
 | P5.3 | @brainform/ui-backend-pi | **done** | curated 9-tool surface, in-tool permission gate, extensions off; 33 tests |
 | P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
-| P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | in progress | brainui-pr-builder agent; branch brainform/phase-5-generalization; PR ONLY, no merge |
+| P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | **done — awaiting Alain's review** | schlessera/brain-ui PR #2, NOT merged; main untouched |
 
 Phase-5 additional decisions:
 - pi listProfiles has NO ModelRegistry fallback (would list ~1700 models with an OpenRouter
@@ -133,10 +133,14 @@ Phase-5 design decisions:
 2. Check the status board; pick the lowest unfinished workstream.
 3. Research findings land in `research/` — check for updates before re-verifying.
 4. Open items, in rough order:
-   - Alain reviews schlessera/brain PR #1 (phase 1). Phase 2 (module boundaries in his repo)
-     only after that merges.
-   - brain-ui generalization (plan/03 + 04 §3–6): ui-sdk, AgentBackend, ui-backend-pi +
-     ui-backend-claude, password auth, x-forwarded-for fix — separate repo, not started.
+   - **Alain reviews** schlessera/brain PR #1 (phase 1) and schlessera/brain-ui PR #2
+     (phase 5). Phase 2 (module boundaries in his repo) only after PR #1 merges.
+   - **Alain external action**: rotate the Deepgram key in brain-ui's working-tree .env
+     (gitignored, never committed, but live during dev — flagged in PR #2 body).
+   - brain-ui PR #2 caveats to resolve at release: @brainform/* deps are UNPUBLISHED — the
+     branch uses file:../brainform overrides marked TODO(release); `brain module list
+     --json` does not yet expose the cron field (entrypoint module-cron loop is a graceful
+     no-op until it does — small core follow-up).
    - pi-ai-backed CompletionProvider built-in (factory API, pins 0.80.6).
    - Verify `pi -p`/`gemini -p` runner flags (marked unverified in cli-runners.ts).
    - Release wiring: changesets + per-package bun publish (research/tooling-versions.md);
