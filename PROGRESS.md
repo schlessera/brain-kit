@@ -28,12 +28,12 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | 3 | Core: config system + taxonomy resolver | **done** | replaces the three type→dir maps; 22 tests |
 | 4 | Core: generic libs port | **done** | db/search/chunker/frontmatter/reranker/safe-path/context-assembler/archiver + LLM seam layer |
 | 5 | Core: indexer/ingestion/auditor/validate genericized | **done** | provider-swap force-gated; trailing-slash dir links added |
-| 6 | Core: CLI registry + commands + MCP server | in progress | cli-builder agent |
+| 6 | Core: CLI registry + commands + MCP server | **done** | registry + 22 core commands + 8 MCP tools; cli/mcp contract tests green |
 | 7 | Module system + jobs/speaking/finance packages | **done** | 207 pkg tests; criteria-driven jobs scoring |
 | 8 | Skills: sync + emitters + hooks + core suite + lint | **done** | 12 core skills + 8 speaking skills |
-| 9 | Onboarding primitives (setup/doctor/init/import/lint) | in progress | part of cli-builder scope |
-| 10 | Fixture corpus + contract tests + CI + leakage grep | mostly done | corpus + CI + leak sweep done; contract tests land with CLI |
-| 11 | Docs + CONTRACT.md + template content | in progress | CONTRACT/SECURITY/template done; docs-writer agent on docs/ |
+| 9 | Onboarding primitives (setup/doctor/init/import/lint) | **done** | setup/doctor(11 checks)/init/import/skills/module/config; onboarding tests green |
+| 10 | Fixture corpus + contract tests + CI + leakage grep | **done** | CLI/MCP/onboarding contract tests keyless; extended sweep procedure |
+| 11 | Docs + CONTRACT.md + template content | **done** | 13 docs incl. cli.md/mcp.md written from the implemented surface |
 | 12 | brain repo PR: phase 1 (config in place) | in progress | brain-pr-builder agent; branch brainform/phase-1-config |
 | 13 | brain-ui generalization (phase 5) | not started | separate repo, later sessions |
 
@@ -76,6 +76,16 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 - CONTRACT.md, docs/integration-contract.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md.
 - Wave-1 build agents dispatched: libs-porter (generic libs), llm-porter (providers/enrichment/
   registry), skills-porter (sync/emitters/lint/hooks), template-builder, fixtures-builder.
+- Wave 2: indexer-porter (indexer/ingestion/auditor/validate), modules-builder (3 packages via
+  forks), core-skills-author (12 skills), cli-builder (CLI+MCP+onboarding), docs-writer.
+- All monorepo workstreams landed: 233 tests green keyless, strict tsc clean, CI green.
+- Found + fixed driving the real funnel: init --default now writes dependency-free
+  brain.config.json (the .ts starter broke Tier-0 in a bare dir).
+- **Lesson recorded**: `grep … || echo CLEAN` conflates "no match" with "grep error" — a
+  clobbered pattern file (shared scratchpad) produced a FALSE clean sweep once. Sweeps must
+  check grep's exit code explicitly (1 = clean, 0 = hits, ≥2 = error) and use a
+  session-unique pattern filename.
+- brain-pr-builder still running: phase-1 config PR in ~/brain (branch brainform/phase-1-config).
 
 ## Next steps (for a fresh session)
 
