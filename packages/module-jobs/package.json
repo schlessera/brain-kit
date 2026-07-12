@@ -10,13 +10,15 @@
   },
   "files": [
     "src",
-    "skills"
+    "docs"
   ],
   "scripts": {
     "test": "bun test tests"
   },
   "dependencies": {
-    "@brainform/core": "workspace:*"
+    "@brainform/core": "workspace:*",
+    "gray-matter": "^4.0.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
