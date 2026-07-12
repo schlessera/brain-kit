@@ -44,14 +44,32 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
   Reason: user prioritized brainform completeness; brain repo receives phase-1 PR separately
   (unmerged, review-gated), so his daily driver is never at risk. Drift risk handled by
   building core first, then deriving the brain PR from the same taxonomy/config shapes.
+- 2026-07-12: **pi-ai has no embeddings API** (verified from 0.80.6 tarballs) → plan/00 open
+  item resolved: EmbeddingProvider built-ins stay hand-rolled (gemini #1). pi-ai remains the
+  planned foundation for a completions provider + ui-backend-pi; pins 0.80.6 (all three pkgs).
+  Details appended to research/pi-omp.md.
+- 2026-07-12: TypeScript pinned ^6.0.3 (not researcher-suggested 5.9.3, not 7.x): 6.0.3 is
+  proven in the reference brain repo and this monorepo, and we ship TS source (no .d.ts emit),
+  so TS7-emit concerns don't apply. All other pins per research/tooling-versions.md.
+- 2026-07-12: playwright/sharp/pptxgenjs NOT needed by any ported code (verified by grep —
+  jobs browser-scrape uses raw CDP over HTTP; those deps serve personal skills only). Module
+  packages stay dependency-lean; plan/01's "playwright → module-jobs" is obsolete.
+- 2026-07-12: archiver/ingestion decouple from the indexer via an injected `reindex` hook
+  (CLI wires indexAll in) — removes a hard import cycle, behavior identical.
 
 ## Session log
 
 ### Session 1 — 2026-07-12
 
 - Read all plan/research docs; environment recon (bun 1.3.14, gh authed, both repos reachable).
-- Dispatched research agents: pi SDK/pi-ai verification; npm names + tooling versions.
+- Research agents returned verified reports → research/tooling-versions.md + pi-omp.md update.
+  npm names free; brainform-template repo must be created at launch; changesets needs the
+  bun-publish workaround; macOS sqlite-vec needs a doctor check (setCustomSQLite).
 - Housekeeping: PROGRESS.md, README.md rewrite, AGENTS.md, .gitignore.
+- Monorepo scaffold + config system + taxonomy resolver + module loader + context (22 tests).
+- CONTRACT.md, docs/integration-contract.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md.
+- Wave-1 build agents dispatched: libs-porter (generic libs), llm-porter (providers/enrichment/
+  registry), skills-porter (sync/emitters/lint/hooks), template-builder, fixtures-builder.
 
 ## Next steps (for a fresh session)
 

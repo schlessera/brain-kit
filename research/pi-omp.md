@@ -1,6 +1,30 @@
 # Research: pi framework & oh-my-pi (OMP)
 
-Date: 2026-07-12. Question: should brainform build on the pi agent framework instead of the Claude Agent SDK, and is the full OMP fork needed or only subsystems? Conclusion: **build on upstream pi subsystems (no fork); keep Claude Agent SDK as backend #2; OMP optional post-v1.** Decision recorded in plan/00-overview.md (decision 9); architecture in plan/04-extensibility.md.
+Date: 2026-07-12.
+
+> **2026-07-12 implementation-time verification (live, from 0.80.6 tarballs + GitHub):**
+> - Pin all three packages at **0.80.6** (lockstep, published 2026-07-09). Repo now
+>   `earendil-works/pi`; maintainers badlogic + mitsuhiko; ~69.7k stars, very active.
+> - **pi-ai has NO embeddings API** (chat + image-gen only; "only includes models that
+>   support tool calling"). → Open item resolved: EmbeddingProvider built-ins stay
+>   hand-rolled (gemini first); pi-ai is a completions-only foundation.
+> - pi-ai ~0.80 split its global API onto `@earendil-works/pi-ai/compat`; root now
+>   favors `createModels()` + provider factories. Build against the factory API.
+> - **No built-in MCP client** in pi-coding-agent (intentional). ui-backend-pi wraps
+>   brain tools via `customTools`/`defineTool` (TypeBox schemas) as planned; core's MCP
+>   server is for Claude Code / other MCP hosts, not pi.
+> - `createAgentSession` options confirmed: `noTools: "all"|"builtin"`, `tools`/
+>   `excludeTools`, `customTools`, `resourceLoader`. Overrides (`skillsOverride`,
+>   `agentsFilesOverride`, `systemPromptOverride`, …) live on `DefaultResourceLoaderOptions`
+>   — construct a `DefaultResourceLoader` and pass it as `resourceLoader`.
+> - Skills discovery confirmed: `.agents/skills/` in cwd **and all ancestors to git root**,
+>   plus `~/.agents/skills/`, `.pi/skills/`, `~/.pi/agent/skills/`; dirs with SKILL.md;
+>   AGENTS.md **and** CLAUDE.md both read as context files.
+> - Anthropic subscription-OAuth: earlier hard block resolved; OAuth login works in
+>   third-party harnesses BUT bills per-token from "extra usage", NOT against Pro/Max
+>   plan limits (providers.md verbatim). → Decision 9 (two backends) unchanged: flat-rate
+>   economics still require the Claude Agent SDK backend.
+> - SessionManager confirmed: JSONL append-only trees; `list()` then `open(path)`. Question: should brainform build on the pi agent framework instead of the Claude Agent SDK, and is the full OMP fork needed or only subsystems? Conclusion: **build on upstream pi subsystems (no fork); keep Claude Agent SDK as backend #2; OMP optional post-v1.** Decision recorded in plan/00-overview.md (decision 9); architecture in plan/04-extensibility.md.
 
 ## Upstream pi (`earendil-works/pi`, formerly `badlogic/pi-mono`)
 
