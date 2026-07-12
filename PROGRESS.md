@@ -56,6 +56,12 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
   packages stay dependency-lean; plan/01's "playwright → module-jobs" is obsolete.
 - 2026-07-12: archiver/ingestion decouple from the indexer via an injected `reindex` hook
   (CLI wires indexAll in) — removes a hard import cycle, behavior identical.
+- 2026-07-12: Extended leak sweep instituted (user directive: nothing personal may cross
+  over from schlessera/brain). Procedure documented in AGENTS.md — patterns re-derived
+  from ~/brain each run, never committed here. First run caught and fixed two leaks that
+  the 5-name CI gate could not see (a personal talk slug in taxonomy.test.ts, an
+  opportunity slug in fixtures/README.md). Sweep is a mandatory step when accepting any
+  agent-ported code and a release gate before the public cut.
 
 ## Session log
 

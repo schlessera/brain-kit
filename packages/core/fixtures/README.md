@@ -105,7 +105,7 @@ resolve.
 > The directory link uses the **trailing-slash** form `[[…/]]`. The ported resolver
 > must strip the trailing slash and resolve to the directory's anchor. The upstream
 > reference resolver (`scripts/lib/incremental-indexer.ts`) handled the *bare* dir
-> name (`[[a-team]]`) but not the trailing-slash form — this fixture is the spec for
+> name (`[[bookshelf]]`) but not the trailing-slash form — this fixture is the spec for
 > that behavior.
 
 The only unresolved links in the whole corpus are the two intentional

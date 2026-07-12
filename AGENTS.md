@@ -20,6 +20,17 @@ coding agents. This repo is the core monorepo (packages) plus the planning docs 
   `alain|schlesser|carole|buffy|wyvern`, no client names, no personal infra (IPs, domains,
   tailnets). Fixtures use the fictional persona "Alex Example". `plan/` and `research/` are
   exempt (they document the scrub and are excluded from the public cut).
+- **Extended leak sweep** (run after every port from `~/brain`, and before any release):
+  CI only gates the five core names — client names/IPs must NOT appear in a public CI file,
+  so the full pattern list lives OUTSIDE this repo. Re-derive it fresh each time from
+  `~/brain`: family/colleague names (`me/family/`, `network/people/`, search-golden tests),
+  client slugs (`clients/` subdirs), `scripts/eval/queries.jsonl` names (people, hotels,
+  routers, products), infra identifiers (VPS IP, domains, tailnet from CLAUDE.md +
+  brain-ui), personal GitHub orgs (`refresh-catalog.ts` DEFAULT_OWNERS), personal talk/
+  conference slugs and vocabulary (`talks/`, `wordcamp|cloudfest`). Write the patterns to a
+  scratchpad file, grep the tree minus `plan/ research/ PROGRESS.md AGENTS.md`, fix hits.
+- **At the public release cut**: `plan/`, `research/`, `PROGRESS.md` are dropped and this
+  AGENTS.md is rewritten for the public repo (it currently references the private setup).
 - **Verify technical decisions online** (npm registry, upstream docs) before building on them;
   record findings in `research/` with dates and source URLs.
 - **Markdown is the source of truth; brain.db is disposable** (`brain index --force`

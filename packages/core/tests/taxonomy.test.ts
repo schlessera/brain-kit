@@ -148,10 +148,10 @@ describe("reference brain shape (modules + user config)", () => {
   test("reproduces historical deriveAssetTitle", () => {
     expect(tax.assetTitleFor("me/media-kit/photography/head.jpg")).toBe("Photography: head");
     expect(tax.assetTitleFor("me/media-kit/one-pager.pdf")).toBe("Media Kit: one-pager");
-    expect(tax.assetTitleFor("talks/the-agentic-stack/slides/05.png")).toBe(
-      "Slide: 05 (the-agentic-stack)"
+    expect(tax.assetTitleFor("talks/woodworking-basics/slides/05.png")).toBe(
+      "Slide: 05 (woodworking-basics)"
     );
-    expect(tax.assetTitleFor("talks/the-agentic-stack/poster.pdf")).toBe("Talk Asset: poster");
+    expect(tax.assetTitleFor("talks/woodworking-basics/poster.pdf")).toBe("Talk Asset: poster");
     // Prefix rules match the containing dir: nested files match "career/",
     // a direct child of career/ falls through to the generic dir label
     // (verbatim historical deriveAssetTitle semantics).
