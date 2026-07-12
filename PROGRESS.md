@@ -63,8 +63,20 @@ host-queued).
 | claude backend: session map, scoped frames, writeLock at approval→tool_result window | **done** |
 | pi backend: per-session tools (shared TurnContext eliminated), native followUp, writeLock | **done** |
 | rev-2 cross-backend contract suite (resume-collision busy, parallel sessions, scoped frames) | **done** |
-| brain-ui PR #2 follow-up commits (host turn map, cap, queue, client demux) | in progress |
+| brain-ui PR #2 follow-up commits (host turn map, cap, queue, client demux) | **done — on PR #2** |
 | brain repo | no changes needed — analysis posted as comment on PR #1 |
+
+Parallel-sessions delivery notes (PR #2, commits dd14592 + e28d292; independently verified:
+branch typechecks clean, main untouched):
+- Host: per-session turn slots with own AbortController+timeout; MAX_CONCURRENT_SESSIONS
+  (default 3) → SESSION_LIMIT error frame; cancel honors sessionId (ambiguous → error);
+  follow-up = backend.followUp() when capable, else host queue (cap 5) with status:queued.
+- Client: frame demux by sessionId; background frames update run-state badges; composer
+  sends follow-ups mid-stream with a capability-driven "Follows up live"/"Will queue" hint.
+- Known v1 limitations (documented in PR body): switching to a running background session
+  re-syncs its transcript from the server (session_resume) instead of keeping full live
+  client-side buffers — candidate follow-up for perfectly instant switches; narrow race
+  when starting a brand-new conversation while another streams (active-id transition).
 
 Phase-5 additional decisions:
 - pi listProfiles has NO ModelRegistry fallback (would list ~1700 models with an OpenRouter
