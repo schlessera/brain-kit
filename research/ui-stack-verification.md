@@ -2,6 +2,7 @@
 
 Method: npm registry, extracted tarball `.d.ts` diffs, official docs. For the
 phase-5 work (ui-sdk, backends, brain-ui PR). Extends research/pi-omp.md.
+Companion with deeper SDK API notes: research/ui-stack-versions.md.
 
 ## @anthropic-ai/claude-agent-sdk
 
