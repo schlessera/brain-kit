@@ -1,0 +1,63 @@
+import { openDatabase, initVecSupport } from "../../lib/db";
+import { indexAll } from "../../lib/indexer";
+import { audit } from "../../lib/auditor";
+import type { CoreCommand } from "../types";
+import { emit, embeddingDims } from "../io";
+
+const HELP = `brain maintain — routine maintenance (cron-friendly)
+
+Runs, in order: incremental index (+embeddings when a key is configured), then
+an audit snapshot. Exits 2 if any step failed. Module cron jobs are separate
+(advisory manifest entries consumed by the container entrypoint).`;
+
+export const maintainCommand: CoreCommand = {
+  summary: "Run routine maintenance: incremental index + audit snapshot",
+  helpBlock: HELP,
+  async run(_args, cli): Promise<number> {
+    const report: Array<{ step: string; result: string }> = [];
+    const dims = embeddingDims(cli.embeddings);
+
+    // 1. Incremental index (+embeddings when available — self-heals vectors).
+    try {
+      const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
+      await initVecSupport(db, dims);
+      const wantEmbeddings = !!cli.embeddings;
+      const stats = await indexAll(db, {
+        root: cli.brain.root,
+        taxonomy: cli.brain.taxonomy,
+        force: false,
+        quiet: true,
+        embeddings: wantEmbeddings,
+        provider: wantEmbeddings ? cli.embeddings : undefined,
+        enrichment: wantEmbeddings ? cli.enrichment : undefined,
+      });
+      db.close();
+      report.push({
+        step: "index",
+        result: `ok — ${stats.added} added, ${stats.updated} updated, ${stats.deleted} deleted, ${stats.embeddings} embeddings`,
+      });
+    } catch (e) {
+      report.push({ step: "index", result: `FAILED — ${(e as Error).message}` });
+    }
+
+    // 2. Audit snapshot.
+    try {
+      const db = openDatabase(cli.brain.dbPath, { readonly: true });
+      const issues = audit(db, cli.brain.taxonomy);
+      db.close();
+      const errors = issues.filter((i) => i.severity === "error").length;
+      const warnings = issues.filter((i) => i.severity === "warning").length;
+      const infos = issues.filter((i) => i.severity === "info").length;
+      report.push({ step: "audit", result: `${errors} error(s), ${warnings} warning(s), ${infos} info(s)` });
+    } catch (e) {
+      report.push({ step: "audit", result: `FAILED — ${(e as Error).message}` });
+    }
+
+    emit(cli.json, report, () => {
+      console.log("Maintenance run:\n");
+      for (const r of report) console.log(`  ${r.step.padEnd(10)} ${r.result}`);
+    });
+
+    return report.some((r) => r.result.startsWith("FAILED")) ? 2 : 0;
+  },
+};
