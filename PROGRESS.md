@@ -43,10 +43,17 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 |---|---|---|---|
 | P5.0 | UI-stack research (Claude Agent SDK, Bun.password, hono, Deepgram, pi session APIs) | in progress | ui-research agent |
 | P5.1 | @brainform/ui-sdk (protocol + AgentBackend/SpeechProvider + client registries) | **done** | protocol ported with vendor-hint cleanup; startTurn contract; 10 tests |
-| P5.2 | @brainform/ui-backend-claude | in progress | claude-backend-builder agent |
-| P5.3 | @brainform/ui-backend-pi | in progress | pi-backend-builder agent |
-| P5.4 | Backend contract test (both backends, one suite) | pending | after P5.2/P5.3 |
-| P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | pending | branch brainform/phase-5-generalization; PR ONLY, no merge |
+| P5.2 | @brainform/ui-backend-claude | **done** | SDK ^0.3.207 (verified superset); per-turn closures replace handler singletons; 25 tests |
+| P5.3 | @brainform/ui-backend-pi | **done** | curated 9-tool surface, in-tool permission gate, extensions off; 33 tests |
+| P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
+| P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | in progress | brainui-pr-builder agent; branch brainform/phase-5-generalization; PR ONLY, no merge |
+
+Phase-5 additional decisions:
+- pi listProfiles has NO ModelRegistry fallback (would list ~1700 models with an OpenRouter
+  key — env-dependent and unusable as a picker). Profiles are explicit configuration; ad-hoc
+  "vendor/modelId" profileIds still resolve.
+- Both backends expose @internal injection seams (queryFn / sessionFactory) so the contract
+  suite drives real startTurn paths keylessly.
 
 Phase-5 design decisions:
 - The wire protocol is published from @brainform/ui-sdk/protocol; brain-ui's shared/ becomes a
