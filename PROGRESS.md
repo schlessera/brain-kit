@@ -22,19 +22,19 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 
 | # | Workstream | Status | Notes |
 |---|---|---|---|
-| 0 | Online verification (pi SDK, npm, tooling) | in progress | research agents dispatched 2026-07-12 |
-| 1 | Repo housekeeping (README, AGENTS.md, PROGRESS.md) | in progress | |
-| 2 | Monorepo scaffold (workspaces, tsconfig) | pending | |
-| 3 | Core: config system + taxonomy resolver | pending | |
-| 4 | Core: generic libs port | pending | |
-| 5 | Core: indexer/ingestion/auditor/validate genericized | pending | |
-| 6 | Core: CLI registry + commands + MCP server | pending | |
-| 7 | Module system + jobs/speaking/finance packages | pending | |
-| 8 | Skills: sync + emitters + hooks + core suite + lint | pending | |
-| 9 | Onboarding primitives (setup/doctor/init/import/lint) | pending | |
-| 10 | Fixture corpus + contract tests + CI + leakage grep | pending | |
-| 11 | Docs + CONTRACT.md + template content | pending | |
-| 12 | brain repo PR: phase 1 (config in place) | pending | PR only, no merge |
+| 0 | Online verification (pi SDK, npm, tooling) | **done** | research/tooling-versions.md + pi-omp.md update |
+| 1 | Repo housekeeping (README, AGENTS.md, PROGRESS.md) | **done** | |
+| 2 | Monorepo scaffold (workspaces, tsconfig) | **done** | hoisted linker forced (bunfig.toml) |
+| 3 | Core: config system + taxonomy resolver | **done** | replaces the three type→dir maps; 22 tests |
+| 4 | Core: generic libs port | **done** | db/search/chunker/frontmatter/reranker/safe-path/context-assembler/archiver + LLM seam layer |
+| 5 | Core: indexer/ingestion/auditor/validate genericized | **done** | provider-swap force-gated; trailing-slash dir links added |
+| 6 | Core: CLI registry + commands + MCP server | in progress | cli-builder agent |
+| 7 | Module system + jobs/speaking/finance packages | **done** | 207 pkg tests; criteria-driven jobs scoring |
+| 8 | Skills: sync + emitters + hooks + core suite + lint | **done** | 12 core skills + 8 speaking skills |
+| 9 | Onboarding primitives (setup/doctor/init/import/lint) | in progress | part of cli-builder scope |
+| 10 | Fixture corpus + contract tests + CI + leakage grep | mostly done | corpus + CI + leak sweep done; contract tests land with CLI |
+| 11 | Docs + CONTRACT.md + template content | in progress | CONTRACT/SECURITY/template done; docs-writer agent on docs/ |
+| 12 | brain repo PR: phase 1 (config in place) | in progress | brain-pr-builder agent; branch brainform/phase-1-config |
 | 13 | brain-ui generalization (phase 5) | not started | separate repo, later sessions |
 
 ## Plan deviations / decisions made during implementation
