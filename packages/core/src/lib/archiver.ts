@@ -1,7 +1,10 @@
+import type { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import matter from "gray-matter";
 
+import { openDatabase, initVecSupport } from "./db";
+import { EMBEDDING_DIMENSIONS } from "./models";
 import { stringifyDocument } from "./frontmatter";
 import { safeResolve } from "./safe-path";
 
@@ -15,13 +18,15 @@ export interface ArchiveResult {
 
 export interface ArchiveOptions {
   dryRun?: boolean;
+  db?: Database;
   /**
-   * Reindex hook run after the archive write (skipped on dryRun). The CLI wires
-   * this to the incremental indexer; left undefined, the file is archived but
-   * the index is not refreshed. Injected so this module does not hard-couple to
-   * the indexer.
+   * Reindex the brain after the archive write (skipped on dryRun). The CLI
+   * wires this to the incremental indexer's indexAll(); injected so this module
+   * does not hard-couple to the indexer. Same shape ingestion.ts uses.
    */
-  reindex?: () => Promise<void>;
+  reindex?: (db: Database) => Promise<unknown>;
+  /** Embedding dimensions for the vec table when opening a fresh db (fallback path). */
+  embeddingDimensions?: number;
 }
 
 function today(): string {
@@ -67,8 +72,19 @@ export async function archiveDocument(
     renameSync(fullPath, archiveFullPath);
   }
 
+  // Reindex is injected (indexAll lives in the indexer, another module). The
+  // caller may hand in an open db; otherwise open one, load vec support, and
+  // close it — mirroring the original two-branch behaviour.
   if (options?.reindex) {
-    await options.reindex();
+    if (options.db) {
+      await options.reindex(options.db);
+    } else {
+      const dimensions = options.embeddingDimensions ?? EMBEDDING_DIMENSIONS;
+      const db = openDatabase(resolve(root, "brain.db"), { embeddingDimensions: dimensions });
+      await initVecSupport(db, dimensions);
+      await options.reindex(db);
+      db.close();
+    }
   }
 
   return { path: finalPath, status: "archived", moved: willMove, updated: today() };
