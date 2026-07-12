@@ -142,6 +142,13 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     agentRunner: z.union([z.string(), agentRunnerValue]).optional(),
+    skills: z
+      .object({
+        /** Extra skill emitters to run on `brain skills sync` (claude always runs; add "codex", "gemini"). */
+        emitters: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
     /** package name or ./local/path → module config block (validated by the module's configSchema). */
     modules: z.record(z.string(), z.unknown()).optional(),
   })
