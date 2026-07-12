@@ -31,7 +31,9 @@ export interface LintFinding {
 
 const CLAUDE_ONLY_TOOLS = ["AskUserQuestion", "TodoWrite", "EnterPlanMode"];
 const CLAUDE_SPECIFIC_KEYS = ["allowed-tools", "disable-model-invocation"];
-const SHELL_FENCE_LANGS = new Set(["", "sh", "bash", "shell", "zsh", "console"]);
+// Only explicitly-tagged shell fences are linted: untagged fences carry ASCII
+// trees, file listings, and sample output far more often than commands.
+const SHELL_FENCE_LANGS = new Set(["sh", "bash", "shell", "zsh", "console"]);
 const SHELL_KEYWORDS = new Set([
   "if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac",
   "function", "return", "exit", "cd", "echo", "true", "false", "set", "export",
