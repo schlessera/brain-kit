@@ -38,6 +38,16 @@ export interface TranscriptStore {
 export function createTranscriptStore(dir: string): TranscriptStore {
   mkdirSync(dir, { recursive: true });
 
+  // Strictly monotonic per store instance: bursts of appends within one
+  // millisecond would otherwise tie on Date.now() and make list() ordering
+  // nondeterministic.
+  let lastTs = 0;
+  const nextTs = () => {
+    const now = Date.now();
+    lastTs = now > lastTs ? now : lastTs + 1;
+    return lastTs;
+  };
+
   const fileOf = (id: string) => join(dir, `${id}.jsonl`);
 
   const readRecords = (id: string): (MetaRecord | MessageRecord)[] => {
@@ -56,7 +66,7 @@ export function createTranscriptStore(dir: string): TranscriptStore {
         kind: "meta",
         id,
         title: opts.title ?? null,
-        createdAt: Date.now(),
+        createdAt: nextTs(),
       };
       appendFileSync(fileOf(id), `${JSON.stringify(meta)}\n`, "utf-8");
       return id;
@@ -68,7 +78,7 @@ export function createTranscriptStore(dir: string): TranscriptStore {
       }
       const record: MessageRecord = {
         kind: "message",
-        ts: Date.now(),
+        ts: nextTs(),
         message,
         ...(opts.costUsd !== undefined ? { costUsd: opts.costUsd } : {}),
       };
