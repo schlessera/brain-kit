@@ -7,7 +7,12 @@
  */
 
 export { createPiBackend, PI_BACKEND_ID, mapPiEvent } from "./backend";
-export type { CreatePiBackendOptions, PiProfile } from "./backend";
+export type {
+  CreatePiBackendOptions,
+  PiProfile,
+  PiSessionLike,
+  PiSessionFactory,
+} from "./backend";
 
 export { createBrainAccess } from "./brain-access";
 export type { BrainAccess } from "./brain-access";

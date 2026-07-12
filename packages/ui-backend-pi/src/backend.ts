@@ -45,6 +45,25 @@ import { listPiSessions, getPiHistory } from "./history";
 
 export const PI_BACKEND_ID = "pi";
 
+/**
+ * The slice of pi's AgentSession this backend drives — also the injection
+ * surface for the cross-backend contract tests (no live model needed).
+ */
+export interface PiSessionLike {
+  readonly sessionId: string;
+  subscribe(listener: (ev: AgentSessionEvent) => void): () => void;
+  prompt(text: string, opts?: { images?: ImageContent[] }): Promise<unknown>;
+  abort(): Promise<void>;
+  getSessionStats(): { cost: number };
+  dispose(): void;
+}
+
+/** @internal Test seam — replaces createAgentSession-based session acquisition. */
+export interface PiSessionFactory {
+  newSession(profileId?: string): Promise<PiSessionLike>;
+  openSession(sessionId: string): Promise<PiSessionLike>;
+}
+
 export interface PiProfile {
   /** Opaque profile id surfaced to the client (travels the wire as providerId). */
   id: string;
@@ -71,6 +90,8 @@ export interface CreatePiBackendOptions {
    * CLAUDE.md context files always load regardless.
    */
   loadExtensions?: boolean;
+  /** @internal Test seam — inject session acquisition (contract tests). */
+  sessionFactory?: PiSessionFactory;
 }
 
 const CAPABILITIES: BackendCapabilities = {
@@ -96,7 +117,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   const tools = createBrainTools({ brain, turn });
 
   let busy = false;
-  let current: { session: AgentSession; id: string } | null = null;
+  let current: { session: PiSessionLike; id: string } | null = null;
 
   // Shared resource loader + settings, built once and reused. Disabling
   // extensions keeps the tool surface curated; skills + context files still load.
@@ -155,8 +176,9 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     }
   }
 
-  async function newSession(profileId?: string): Promise<AgentSession> {
+  async function newSession(profileId?: string): Promise<PiSessionLike> {
     const spec = resolveModelSpec(profileId);
+    if (options.sessionFactory) return options.sessionFactory.newSession(profileId);
     const sm = SessionManager.create(brainPath, sessionDir);
     const resources = await getSharedResources();
     const { session } = await createAgentSession({
@@ -172,7 +194,8 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     return session;
   }
 
-  async function openSession(sessionId: string): Promise<AgentSession> {
+  async function openSession(sessionId: string): Promise<PiSessionLike> {
+    if (options.sessionFactory) return options.sessionFactory.openSession(sessionId);
     const infos = await SessionManager.list(brainPath, sessionDir);
     const info = infos.find((i) => i.id === sessionId);
     if (!info) throw new BackendRequestError(`Cannot resume unknown session: ${sessionId}`);
@@ -194,7 +217,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   /** Get the session for this turn, reusing the in-memory one when it matches. */
   async function acquireSession(
     req: StartTurnRequest
-  ): Promise<{ session: AgentSession; isNew: boolean }> {
+  ): Promise<{ session: PiSessionLike; isNew: boolean }> {
     if (req.sessionId) {
       if (current && current.id === req.sessionId) {
         return { session: current.session, isNew: false };
@@ -221,7 +244,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     }
   }
 
-  function snapshotCost(session: AgentSession): number {
+  function snapshotCost(session: PiSessionLike): number {
     try {
       return session.getSessionStats().cost;
     } catch {
@@ -256,7 +279,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       const emit = (msg: ServerMessage) => req.bridge.emit(msg);
       const startedAt = Date.now();
 
-      let session: AgentSession;
+      let session: PiSessionLike;
       let isNew: boolean;
       try {
         ({ session, isNew } = await acquireSession(req));
