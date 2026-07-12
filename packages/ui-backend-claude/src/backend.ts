@@ -120,6 +120,9 @@ export function createClaudeBackend(
     attachments: true,
     askUser: true,
     costReporting: true,
+    // Placeholders until the parallel-sessions work lands (task 26).
+    concurrentSessions: false,
+    followUp: false,
   };
 
   // One turn at a time per backend instance; a second concurrent startTurn

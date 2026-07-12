@@ -13,7 +13,22 @@
 // is kept for client compatibility. Server-side it is the opaque `profileId`
 // passed to AgentBackend.startTurn — a (backend, model, endpoint) profile from
 // listProfiles().
+//
+// Parallel sessions (protocol rev 2, additive): server frames MAY carry a
+// `sessionId` scoping them to one running session; clients demux by it. A
+// frame without `sessionId` means "the only running session" (legacy
+// single-session servers). `cancel` MAY carry a sessionId; without one it
+// cancels the sole running session and is an error when several run.
 // ============================================================
+
+/**
+ * Mixin for session-scoped server frames. All content/lifecycle frames extend
+ * it; `sessionId` is optional for wire compatibility with single-session
+ * servers, but multi-session servers MUST set it on every scoped frame.
+ */
+export interface SessionScoped {
+  sessionId?: string;
+}
 
 // --- Client -> Server ---
 
@@ -77,6 +92,12 @@ export interface ClientToolDenial {
 
 export interface ClientCancelRequest {
   type: "cancel";
+  /**
+   * Session to cancel. Optional for single-session compatibility: without it
+   * the server cancels the sole running session, and rejects with an `error`
+   * frame when more than one session is running.
+   */
+  sessionId?: string;
 }
 
 export interface ClientSessionResume {
@@ -102,7 +123,7 @@ export type ServerMessage =
   | ServerAskUserRequest
   | ServerLocationRequest;
 
-export interface ServerSessionHistory {
+export interface ServerSessionHistory extends SessionScoped {
   type: "session_history";
   messages: SessionHistoryMessage[];
   /**
@@ -144,43 +165,43 @@ export interface SessionHistoryMessage {
   attachmentCount?: number;
 }
 
-export interface ServerTextDelta {
+export interface ServerTextDelta extends SessionScoped {
   type: "text_delta";
   text: string;
 }
 
-export interface ServerThinkingDelta {
+export interface ServerThinkingDelta extends SessionScoped {
   type: "thinking_delta";
   text: string;
 }
 
-export interface ServerToolUseStart {
+export interface ServerToolUseStart extends SessionScoped {
   type: "tool_use_start";
   toolUseId: string;
   toolName: string;
 }
 
-export interface ServerToolInputDelta {
+export interface ServerToolInputDelta extends SessionScoped {
   type: "tool_input_delta";
   toolUseId: string;
   partialJson: string;
 }
 
-export interface ServerToolUseComplete {
+export interface ServerToolUseComplete extends SessionScoped {
   type: "tool_use_complete";
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
 }
 
-export interface ServerToolResult {
+export interface ServerToolResult extends SessionScoped {
   type: "tool_result";
   toolUseId: string;
   output: string;
   isError: boolean;
 }
 
-export interface ServerToolApprovalRequest {
+export interface ServerToolApprovalRequest extends SessionScoped {
   type: "tool_approval_request";
   toolUseId: string;
   toolName: string;
@@ -198,16 +219,17 @@ export interface ServerResultMessage {
   isError: boolean;
 }
 
-export interface ServerError {
+export interface ServerError extends SessionScoped {
   type: "error";
   code: string;
   message: string;
 }
 
-export interface ServerStatus {
+export interface ServerStatus extends SessionScoped {
   type: "status";
-  status: "thinking" | "tool_executing" | "idle" | "cancelled";
+  status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
   detail?: string;
+  /** @deprecated single-session era; multi-session servers set `sessionId`. */
   activeSessionId?: string;
 }
 
@@ -414,7 +436,7 @@ export interface AskUserAnnotation {
  * Server → Client. The agent wants to ask the user 1-4 questions.
  * The client must reply with ClientAskUserResponse using the same requestId.
  */
-export interface ServerAskUserRequest {
+export interface ServerAskUserRequest extends SessionScoped {
   type: "ask_user_request";
   requestId: string;
   questions: AskUserQuestion[];
@@ -475,7 +497,7 @@ export interface GeoRequestOptions {
  * read `navigator.geolocation` and reply with a ClientLocationResponse (or a
  * ClientLocationError) carrying the same requestId.
  */
-export interface ServerLocationRequest {
+export interface ServerLocationRequest extends SessionScoped {
   type: "location_request";
   requestId: string;
   options?: GeoRequestOptions;

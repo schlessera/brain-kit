@@ -61,6 +61,8 @@ describe("createClaudeBackend identity + profiles", () => {
       attachments: true,
       askUser: true,
       costReporting: true,
+      concurrentSessions: false,
+      followUp: false,
     });
   });
 

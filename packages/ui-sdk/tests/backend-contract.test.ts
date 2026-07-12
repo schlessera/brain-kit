@@ -186,6 +186,8 @@ for (const harness of [claudeHarness, piHarness]) {
         "attachments",
         "askUser",
         "costReporting",
+        "concurrentSessions",
+        "followUp",
       ] as const;
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");

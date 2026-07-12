@@ -5,20 +5,33 @@
  * @brainform/ui-backend-claude (Claude Agent SDK, flat-rate-subscription
  * path). One backend is active per deployment (v1).
  *
- * ## startTurn contract
+ * ## startTurn contract (rev 2 — parallel sessions)
  *
  * - Resolves when the turn has fully ended: after the backend emitted its
  *   terminal frame (`result`, or `status: cancelled`).
  * - The backend MUST emit `session_info` as soon as the session identity is
  *   known, before any content frames for a new session.
+ * - Multi-session servers require every session-scoped frame to carry
+ *   `sessionId` (backends emit it whenever the session identity is known).
  * - Abort: the host owns the AbortController (user cancel + timeout). On
  *   abort the backend stops work, emits `status: cancelled`, and RESOLVES.
  * - Runtime failures (agent crashed, provider unreachable) are emitted as an
  *   `error` frame and the promise RESOLVES — the wire consumer needs the
- *   frame either way. The promise REJECTS only for caller errors: a second
- *   concurrent turn (BackendBusyError), an unknown profileId, or resume
- *   without `capabilities.resume` (BackendRequestError).
- * - One turn at a time per backend instance; the host queues.
+ *   frame either way. The promise REJECTS only for caller errors: a turn on a
+ *   session that is already running (BackendBusyError), an unknown profileId,
+ *   or resume without `capabilities.resume` (BackendRequestError).
+ * - Concurrency: busy-ness is PER SESSION. When `capabilities.concurrentSessions`
+ *   is true, turns on different sessions run in parallel (the host enforces
+ *   its own deployment-time cap); when false, the backend is a single-turn
+ *   instance and the host serializes.
+ * - Follow-up: when `capabilities.followUp` is true the backend implements
+ *   `followUp()` — the host delivers mid-turn user messages into the RUNNING
+ *   turn (frames keep flowing through the original turn's bridge). When
+ *   false the host queues the message and starts it as the session's next
+ *   turn after the current one resolves (`status: queued` on the wire).
+ * - Shared-repo safety: backends serialize MUTATING tool executions across
+ *   all their sessions through a WriteLock (see write-lock.ts) — two agents
+ *   editing one working tree must never interleave writes/git operations.
  */
 
 import type {
@@ -46,6 +59,13 @@ export interface BackendCapabilities {
   askUser: boolean;
   /** result.costUsd is meaningful (0 otherwise). */
   costReporting: boolean;
+  /** Turns on different sessions may run in parallel (busy-ness is per session). */
+  concurrentSessions: boolean;
+  /**
+   * Mid-turn user messages are injected into the running turn via followUp().
+   * false → the host queues them as the session's next turn (status: queued).
+   */
+  followUp: boolean;
 }
 
 export type PermissionDecision =
@@ -102,6 +122,13 @@ export interface StartTurnRequest {
   bridge: BackendBridge;
 }
 
+/** Mid-turn user message for a RUNNING session (capabilities.followUp). */
+export interface FollowUpRequest {
+  sessionId: string;
+  prompt: string;
+  attachments?: ChatImageAttachment[];
+}
+
 export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
@@ -109,16 +136,29 @@ export interface AgentBackend {
   /** Model/endpoint profiles this backend can run. Never exposes keys. */
   listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
   startTurn(req: StartTurnRequest): Promise<void>;
+  /**
+   * Inject a user message into a session's RUNNING turn (only when
+   * capabilities.followUp). Frames keep flowing through that turn's bridge;
+   * rejects with BackendRequestError when the session has no running turn.
+   */
+  followUp?(req: FollowUpRequest): Promise<void>;
   /** Sessions this backend owns (its own transcript store). */
   listSessions(): Promise<ChatSession[]>;
   /** Normalized-at-read history; backends own raw transcripts. */
   getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
 }
 
-/** A second startTurn while one is active. The host should queue instead. */
+/**
+ * A startTurn for a session that already has a running turn (or, for
+ * single-turn backends, any concurrent turn). The host queues instead.
+ */
 export class BackendBusyError extends Error {
-  constructor(backendId: string) {
-    super(`Backend "${backendId}" already has an active turn`);
+  constructor(backendId: string, sessionId?: string) {
+    super(
+      sessionId
+        ? `Backend "${backendId}" already has an active turn for session ${sessionId}`
+        : `Backend "${backendId}" already has an active turn`
+    );
     this.name = "BackendBusyError";
   }
 }

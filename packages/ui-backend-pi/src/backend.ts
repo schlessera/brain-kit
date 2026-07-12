@@ -101,6 +101,10 @@ const CAPABILITIES: BackendCapabilities = {
   attachments: true,
   askUser: true,
   costReporting: true,
+  // Placeholders until the parallel-sessions work lands (task 27): the current
+  // implementation is single-turn with no mid-turn follow-up.
+  concurrentSessions: false,
+  followUp: false,
 };
 
 interface ModelSpec {

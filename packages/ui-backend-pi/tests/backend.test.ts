@@ -20,6 +20,8 @@ describe("createPiBackend (no LLM)", () => {
         attachments: true,
         askUser: true,
         costReporting: true,
+        concurrentSessions: false,
+        followUp: false,
       });
     } finally {
       brain.cleanup();

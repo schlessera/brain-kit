@@ -3,12 +3,16 @@ export type {
   BackendBridge,
   BackendCapabilities,
   StartTurnRequest,
+  FollowUpRequest,
   PermissionDecision,
   PermissionRequest,
   AskUserResult,
   LocationFix,
 } from "./backend";
 export { BackendBusyError, BackendRequestError } from "./backend";
+
+export type { WriteLock } from "./write-lock";
+export { createWriteLock } from "./write-lock";
 
 export type { SpeechProvider, SpeechSession } from "./speech";
 export { defineSpeechProvider } from "./speech";
