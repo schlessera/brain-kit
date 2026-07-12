@@ -1,7 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-// SDK uses zod v4 internally; import from `zod/v4` to keep schema types
-// compatible with `AnyZodRawShape` in the SDK type defs.
-import { z } from "zod/v4";
+// The SDK uses zod v4 internally, so schema types line up with the SDK's
+// `AnyZodRawShape` from a plain `zod` import.
+import { z } from "zod";
 import type { GeoRequestOptions } from "@brainform/ui-sdk";
 import type { LocationFix } from "@brainform/ui-sdk/server";
 import { reverseGeocode } from "./reverse-geocode";
