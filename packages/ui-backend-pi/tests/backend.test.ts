@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ProviderInfo } from "@brainform/ui-sdk/server";
 import { BackendRequestError } from "@brainform/ui-sdk/server";
 
 import { createPiBackend } from "../src/backend";
@@ -56,10 +57,15 @@ describe("createPiBackend (no LLM)", () => {
     }
   });
 
-  test("listProfiles is empty when nothing is configured", () => {
+  test("listProfiles is empty when nothing is configured (no registry fallback)", () => {
     const brain = makeEmptyBrain();
     try {
-      expect(createPiBackend({ brainPath: brain.root }).listProfiles()).toEqual([]);
+      // Deliberate: profiles are an explicit-configuration surface. A pi
+      // ModelRegistry fallback would list every auth-configured model
+      // (~1700 with an OpenRouter key) — environment-dependent and useless
+      // as a picker. Ad-hoc "vendor/modelId" profileIds still resolve.
+      const profiles = createPiBackend({ brainPath: brain.root }).listProfiles() as ProviderInfo[];
+      expect(profiles).toEqual([]);
     } finally {
       brain.cleanup();
     }

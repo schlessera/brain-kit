@@ -16,9 +16,7 @@ import { join } from "path";
 
 import {
   createAgentSession,
-  AuthStorage,
   DefaultResourceLoader,
-  ModelRegistry,
   SessionManager,
   SettingsManager,
   getAgentDir,
@@ -128,27 +126,13 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     return sharedResources;
   }
 
-  // Lazily-built pi model registry, reused for listProfiles(). Auth/models come
-  // from pi's own storage; construction is offline (getAvailable is a fast,
-  // no-refresh auth check). null = construction failed → no registry profiles.
-  let registry: ModelRegistry | null | undefined;
-  function getRegistry(): ModelRegistry | null {
-    if (registry !== undefined) return registry;
-    try {
-      registry = ModelRegistry.create(AuthStorage.create());
-    } catch {
-      registry = null;
-    }
-    return registry;
-  }
-
   function resolveModelSpec(profileId?: string): ModelSpec | undefined {
     const profiles = options.profiles;
     if (profileId) {
       const p = profiles?.find((x) => x.id === profileId);
       if (p) return { vendor: p.vendor, model: p.model };
-      // Registry-derived ids are "vendor/modelId" (see listProfiles); accept
-      // those. A malformed opaque id is a caller error.
+      // Ad-hoc "vendor/modelId" profile ids are accepted (config-driven UIs
+      // may pass them directly). A malformed opaque id is a caller error.
       if (profileId.includes("/")) return parseModelString(profileId);
       throw new BackendRequestError(`Unknown profileId: ${profileId}`);
     }
@@ -250,9 +234,12 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     capabilities: CAPABILITIES,
 
     listProfiles(): ProviderInfo[] {
-      // Precedence: explicit profiles → a single default from `model` → the pi
-      // registry's auth-configured models (so an unconfigured deployment still
-      // surfaces whatever the user has keys/logins for).
+      // Precedence: explicit profiles → a single default from `model`. No pi
+      // ModelRegistry fallback: on a machine with an OpenRouter key that
+      // returns ~1700 models — useless as a picker list, environment-
+      // dependent, and it surfaces ids the deployment never chose. Profiles
+      // are deliberately an explicit-configuration surface; a "vendor/model"
+      // string is still accepted as an ad-hoc profileId (resolveModelSpec).
       if (options.profiles && options.profiles.length > 0) {
         return options.profiles.map((p) => ({ id: p.id, label: p.label, vendor: p.vendor }));
       }
@@ -260,17 +247,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         const spec = parseModelString(options.model);
         return [{ id: "default", label: options.model, vendor: spec.vendor }];
       }
-      const reg = getRegistry();
-      if (!reg) return [];
-      try {
-        return reg.getAvailable().map((m) => ({
-          id: `${m.provider}/${m.id}`,
-          label: m.name,
-          vendor: m.provider,
-        }));
-      } catch {
-        return [];
-      }
+      return [];
     },
 
     async startTurn(req: StartTurnRequest): Promise<void> {
