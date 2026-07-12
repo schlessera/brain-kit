@@ -1,35 +1,57 @@
-# brainform — Planning Workspace
+# brainform
 
-Planning documents for open-sourcing Alain Schlesser's personal knowledge base ("brain", `/home/alain/brain`) and its UI companion (brain-ui, `/home/alain/dev/brain-ui`) as **brainform**: a self-serve, skill-driven "DIY brain infra" that a stranger can bootstrap with zero of Alain's personal data.
+> **Status: pre-release, under active construction.** This repo is being built out from a
+> proven private implementation. Progress: [PROGRESS.md](PROGRESS.md). Plans: [plan/](plan/).
 
-These documents were produced 2026-07-12 via multi-agent exploration of both repos (all `file:line` references verified on that date) plus targeted web research. They are written for handoff: a fresh agent should be able to execute any phase from these docs alone.
+A private, file-first knowledge base your AI agent actually operates — not a note app with an
+AI plugin.
 
-## Read this first
+You clone a template, open a coding agent, run `/brain-init`, answer an interview, and end up
+with an **individualized directory taxonomy** that works out of the box with:
 
-- The **product vision** and all **locked decisions** are in [plan/00-overview.md](plan/00-overview.md). Nothing in the other docs overrides it.
-- Execution order and gates: the sequencing table in 00-overview. Phases 1–2 happen **inside Alain's private brain repo** (his daily driver — every change is gated by byte-diff snapshots), phases 3–6 build the public repos.
-- The private repo `schlessera/brain` **never goes public**. All public repos get fresh git history.
+- the `brain` CLI — index, search, validate, audit, briefing, add, …
+- SQLite hybrid search (FTS5 + sqlite-vec) with optional embeddings
+- an MCP server (`brain_*` tools) for any agent session
+- workflow skills (core lifecycle + optional modules: jobs, speaking, finance)
+- optionally, a self-hosted chat UI (brain-ui, separate repo)
 
-## Document map
+## What makes it different
 
-| Doc | Contents |
-|---|---|
-| [plan/00-overview.md](plan/00-overview.md) | Vision, locked decisions, guiding principles, sequencing, verification, open items |
-| [plan/01-core-architecture.md](plan/01-core-architecture.md) | Repo/package topology, `brain.config.ts` schema, taxonomy resolver, module system, `/new-module`, genericizing jobs/speaking/finance, testing strategy |
-| [plan/02-onboarding.md](plan/02-onboarding.md) | Onboarding skill suite (`/brain-init`, `/brain-doctor`, `/brain-import`, `/brain-module`), first-run funnel, CLAUDE.md layering, degradation ladder |
-| [plan/03-brain-ui.md](plan/03-brain-ui.md) | Auth modes, deployment generalization, encryption-at-rest exploration, `/brain-host`, cost expectations, brain-ui scrub list |
-| [plan/04-extensibility.md](plan/04-extensibility.md) | The seam architecture: meta-mechanism, LLM/agent/STT/renderer/skill-emitter seams, pi vs OMP vs Claude SDK decision, TypeScript interface sketches |
-| [plan/05-migration.md](plan/05-migration.md) | Phased migration of Alain's brain onto the extracted packages, gates and rollback per phase |
-| [plan/06-launch.md](plan/06-launch.md) | Docs architecture, SECURITY.md outline, versioning/CI, community surface, publishing/scrubbing checklist |
-| [research/brain-repo-analysis.md](research/brain-repo-analysis.md) | Verified coupling analysis of `/home/alain/brain` (file:line) |
-| [research/brain-ui-analysis.md](research/brain-ui-analysis.md) | Verified analysis of `/home/alain/dev/brain-ui` (file:line) |
-| [research/pi-omp.md](research/pi-omp.md) | pi / oh-my-pi research: SDK surfaces, auth constraint, decision rationale, sources |
-| [research/prior-art-and-naming.md](research/prior-art-and-naming.md) | Prior-art landscape, distribution-model research, name availability checks |
+1. **Markdown is the source of truth; the index is disposable.** `brain index --force`
+   regenerates everything — that is also the upgrade story.
+2. **One versioned contract** across CLI + hybrid search + MCP + skills + optional chat UI.
+3. **Onboarding builds *your* taxonomy** instead of shipping someone else's.
+4. **Provider-agnostic by architecture** — embeddings, completions, agent runners, agent
+   backends, and STT sit behind small typed seams. Surviving model/provider/SDK shakeups is a
+   design goal.
 
-## Key facts (for orientation)
+Deliberately **not** pluggable: SQLite+FTS5+sqlite-vec as the index engine, markdown+git as
+the source of truth, the chunking/ranking pipeline, the wire protocol, the Bun/Hono/React
+stack, and the `brain` CLI/MCP surface. These are the product.
 
-- **Name**: brainform. GitHub `schlessera/brainform` + `schlessera/brainform-template`; npm `@brainform/*` (scope + bare name verified free 2026-07-12). The CLI bin and `brain_*` MCP tool names stay `brain`.
-- **License**: MIT, both repos. **Org**: `schlessera`.
-- **Distribution**: versioned core package + thin template repo; user repos hold `brain.config.ts` + content.
-- **Agent strategy**: two brain-ui backends behind one `AgentBackend` seam — purpose-built on upstream pi (`@earendil-works/pi-coding-agent` SDK, OSS default) and Claude Agent SDK (subscription-economics path, Alain's driver). Full OMP is deliberately NOT a foundation.
-- **Contract**: `/home/alain/brain/scripts/INTEGRATION.md` is the stable surface consumed by brain-ui; it must hold through every phase and becomes the public compatibility contract.
+## Repository layout
+
+```
+packages/core             @brainform/core — CLI, MCP server, search, index, config, skills
+packages/module-jobs      @brainform/module-jobs — job-search scraping/scoring module
+packages/module-speaking  @brainform/module-speaking — talks/conferences/travel module
+packages/module-finance   @brainform/module-finance — client ledger / AR module
+template/                 source for the brainform-template repo (user starting point)
+docs/                     quickstart, concepts, CLI, MCP, hosting, modules, extending
+plan/                     implementation plans (removed from the public release)
+research/                 verified research notes (removed from the public release)
+```
+
+## Development
+
+Requires [Bun](https://bun.sh) ≥ 1.3.
+
+```sh
+bun install
+bun test
+bun run typecheck
+```
+
+## License
+
+MIT
