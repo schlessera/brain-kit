@@ -102,8 +102,8 @@ export interface BinLinkResult {
 
 /**
  * Symlink `brain` into ~/.local/bin (honoring XDG_BIN_HOME), pointing at the
- * repo's pinned CLI (`node_modules/.bin/brain`). The source hook also linked
- * `whatsup` and `sync`; those were personal wrappers of Alain's repo and are
+ * repo's pinned CLI (`node_modules/.bin/brain`). The reference implementation
+ * also linked `whatsup` and `sync`; those were repo-specific wrappers and are
  * intentionally dropped from the portable installer.
  */
 export function installBinLinks(root: string): BinLinkResult {

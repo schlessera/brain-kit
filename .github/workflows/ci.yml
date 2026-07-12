@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck (strict)
+        run: bunx tsc --noEmit
+      - name: Unit + integration tests (keyless, deterministic)
+        run: bun test packages
+        env:
+          # Belt and braces: tests must never reach for real providers.
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+
+  leakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Personal-string leakage gate
+        # plan/ and research/ intentionally reference the private setup and are
+        # excluded from the public release cut; everything else must be clean.
+        run: |
+          set -e
+          # Pattern is assembled from pieces so this workflow file does not
+          # itself trip the gate. Second alternative allows the public org
+          # name (ends in "a") while catching the personal surname/domain.
+          P1='al''ain'; P2='schles''ser([^a]|$)'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
+          PATTERN="$P1|$P2|$P3|$P4|$P5"
+          MATCHES=$(grep -riE "$PATTERN" \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=plan \
+            --exclude-dir=research \
+            --exclude=PROGRESS.md \
+            --exclude=AGENTS.md \
+            . || true)
+          if [ -n "$MATCHES" ]; then
+            echo "Personal strings found outside allowed locations:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "Leakage gate clean."
