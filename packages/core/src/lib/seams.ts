@@ -1,0 +1,90 @@
+/**
+ * Extension seams (@experimental until 1.0).
+ *
+ * The meta-mechanism: a typed interface here → config accepts a built-in name
+ * (string) OR a passed-in implementation (value) → optionally shared as an npm
+ * package. No plugin loader, no DI container, no runtime discovery.
+ *
+ * A seam exists only where a second implementation is plausible within a
+ * year. Everything else stays concrete code.
+ */
+
+/** A piece of multimodal content passed to a completion request. */
+export type ContentPart =
+  | { kind: "text"; text: string }
+  | { kind: "image"; data: Uint8Array; mimeType: string }
+  | { kind: "pdf"; data: Uint8Array };
+
+/**
+ * Plain (non-agentic) LLM completion. Used for enrichment (chunk contexts,
+ * asset descriptions), note processing, and briefings.
+ */
+export interface CompletionProvider {
+  id: string;
+  capabilities: { vision: boolean };
+  complete(req: {
+    system?: string;
+    prompt: string;
+    parts?: ContentPart[];
+    maxTokens?: number;
+  }): Promise<string>;
+}
+
+/**
+ * Agentic run inside a repo — shells out to a coding agent CLI (claude, pi,
+ * codex, gemini, or any custom value). Used by skill-invoking flows.
+ */
+export interface AgentRunner {
+  id: string;
+  capabilities: { streaming: boolean; skills: boolean };
+  run(prompt: string, opts: { cwd: string; timeoutMs?: number }): Promise<string>;
+  runStreaming?(
+    prompt: string,
+    opts: {
+      cwd: string;
+      onEvent: (e: { kind: "tool" | "text"; label: string }) => void;
+    }
+  ): Promise<string>;
+}
+
+/**
+ * Text (and optionally multimodal) embeddings. Enrichment/generation concerns
+ * live in enrichment.ts on top of CompletionProvider — NOT here.
+ */
+export interface EmbeddingProvider {
+  /** Stable identity, e.g. "gemini:gemini-embedding-2". Changing it forces a re-embed. */
+  id: string;
+  dimensions: number;
+  embed(texts: string[]): Promise<Float32Array[]>;
+  embedQuery(text: string): Promise<Float32Array>;
+  /** Optional multimodal support; absent → core embeds the text description instead. */
+  embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
+  embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
+}
+
+/** A skill as discovered from a skills/ directory. */
+export interface SkillManifest {
+  /** Directory name == skill name. */
+  name: string;
+  description: string;
+  /** Absolute path to the skill directory (contains SKILL.md). */
+  dir: string;
+  /** Origin layer, for precedence reporting. */
+  source: "core" | "module" | "local";
+  /** Raw frontmatter for emitters that need extra keys. */
+  frontmatter: Record<string, unknown>;
+}
+
+/**
+ * Emits skills into an agent's native discovery location. The canonical home
+ * is `.agents/skills/` (discovered natively by the pi family); emitters cover
+ * agents that need another layout (claude → .claude/skills symlinks,
+ * codex → .codex/prompts, …).
+ */
+export interface SkillEmitter {
+  agent: string;
+  emit(
+    skills: SkillManifest[],
+    repoRoot: string
+  ): { written: string[]; removed: string[] };
+}

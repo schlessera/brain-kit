@@ -1,0 +1,25 @@
+{
+  "name": "@brainform/module-jobs",
+  "version": "0.1.0",
+  "description": "brainform module: job-search pipeline — board scraping, scoring, dedup, triage",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./module": "./src/module.ts"
+  },
+  "files": [
+    "src",
+    "skills"
+  ],
+  "scripts": {
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@brainform/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
