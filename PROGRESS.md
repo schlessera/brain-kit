@@ -48,6 +48,24 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
 | P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | **done — awaiting Alain's review** | schlessera/brain-ui PR #2, NOT merged; main untouched |
 
+## Parallel sessions (user-approved plan, session 1 continuation 2026-07-12)
+
+Decisions (all four confirmed by Alain): multiplexed single socket with additive sessionId
+frames; advisory write mutex; MAX_CONCURRENT_SESSIONS=3 deploy-time env; follow-up queueing
+exposed as a backend capability (pi native via prompt streamingBehavior "followUp", claude
+host-queued).
+
+| Piece | Status |
+|---|---|
+| ui-sdk protocol rev 2 (SessionScoped frames, cancel sessionId, status queued) | **done** |
+| AgentBackend contract v2 (per-session busy, concurrentSessions/followUp caps, followUp()) | **done** |
+| createWriteLock (FIFO mutex; mutating tools serialize across sessions) | **done** |
+| claude backend: session map, scoped frames, writeLock at approval→tool_result window | **done** |
+| pi backend: per-session tools (shared TurnContext eliminated), native followUp, writeLock | **done** |
+| rev-2 cross-backend contract suite (resume-collision busy, parallel sessions, scoped frames) | **done** |
+| brain-ui PR #2 follow-up commits (host turn map, cap, queue, client demux) | in progress |
+| brain repo | no changes needed — analysis posted as comment on PR #1 |
+
 Phase-5 additional decisions:
 - pi listProfiles has NO ModelRegistry fallback (would list ~1700 models with an OpenRouter
   key — env-dependent and unusable as a picker). Profiles are explicit configuration; ad-hoc
