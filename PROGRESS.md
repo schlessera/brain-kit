@@ -34,7 +34,7 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | 9 | Onboarding primitives (setup/doctor/init/import/lint) | **done** | setup/doctor(11 checks)/init/import/skills/module/config; onboarding tests green |
 | 10 | Fixture corpus + contract tests + CI + leakage grep | **done** | CLI/MCP/onboarding contract tests keyless; extended sweep procedure |
 | 11 | Docs + CONTRACT.md + template content | **done** | 13 docs incl. cli.md/mcp.md written from the implemented surface |
-| 12 | brain repo PR: phase 1 (config in place) | in progress | brain-pr-builder agent; branch brainform/phase-1-config |
+| 12 | brain repo PR: phase 1 (config in place) | **done — awaiting Alain's review** | schlessera/brain PR #1, byte-diff gate passed, NOT merged |
 | 13 | brain-ui generalization (phase 5) | not started | separate repo, later sessions |
 
 ## Plan deviations / decisions made during implementation
@@ -87,8 +87,29 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
   session-unique pattern filename.
 - brain-pr-builder still running: phase-1 config PR in ~/brain (branch brainform/phase-1-config).
 
+- brain PR opened + verified: schlessera/brain #1 (branch brainform/phase-1-config, 11 files,
+  +666/−159). Gate evidence: audit/briefing/stats byte-identical; 5 golden searches identical
+  except documented Gemini score float jitter (~1e-7, present on same-commit reruns too);
+  old-vs-new asset type/title diffed over all 73 real assets → 0 diffs; tests/typecheck/eval
+  green; main untouched. Deferred to phase 2 (documented in the PR): generic propagation
+  consumer (his me/bios check is recursive; the `me/bios/*.md` glob would not be
+  byte-faithful), finance/jobs/refresh-catalog consumers.
+
 ## Next steps (for a fresh session)
 
 1. Read this file + `plan/00-overview.md` first.
 2. Check the status board; pick the lowest unfinished workstream.
 3. Research findings land in `research/` — check for updates before re-verifying.
+4. Open items, in rough order:
+   - Alain reviews schlessera/brain PR #1 (phase 1). Phase 2 (module boundaries in his repo)
+     only after that merges.
+   - brain-ui generalization (plan/03 + 04 §3–6): ui-sdk, AgentBackend, ui-backend-pi +
+     ui-backend-claude, password auth, x-forwarded-for fix — separate repo, not started.
+   - pi-ai-backed CompletionProvider built-in (factory API, pins 0.80.6).
+   - Verify `pi -p`/`gemini -p` runner flags (marked unverified in cli-runners.ts).
+   - Release wiring: changesets + per-package bun publish (research/tooling-versions.md);
+     claim npm `@brainform` scope + bare name; create schlessera/brainform-template from
+     template/ at launch; public cut = fresh history without plan/ research/ PROGRESS.md,
+     AGENTS.md rewritten.
+   - Known cosmetic wart: read-only sqlite-vec probe prints a stderr warning on fresh
+     keyless brains (harmless, ported behavior).
