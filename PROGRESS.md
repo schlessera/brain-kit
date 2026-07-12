@@ -35,7 +35,32 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | 10 | Fixture corpus + contract tests + CI + leakage grep | **done** | CLI/MCP/onboarding contract tests keyless; extended sweep procedure |
 | 11 | Docs + CONTRACT.md + template content | **done** | 13 docs incl. cli.md/mcp.md written from the implemented surface |
 | 12 | brain repo PR: phase 1 (config in place) | **done — awaiting Alain's review** | schlessera/brain PR #1, byte-diff gate passed, NOT merged |
-| 13 | brain-ui generalization (phase 5) | not started | separate repo, later sessions |
+| 13 | brain-ui generalization (phase 5) | in progress | see phase-5 board below |
+
+## Phase-5 board (brain-ui, started session 1 continuation 2026-07-12)
+
+| # | Workstream | Status | Notes |
+|---|---|---|---|
+| P5.0 | UI-stack research (Claude Agent SDK, Bun.password, hono, Deepgram, pi session APIs) | in progress | ui-research agent |
+| P5.1 | @brainform/ui-sdk (protocol + AgentBackend/SpeechProvider + client registries) | **done** | protocol ported with vendor-hint cleanup; startTurn contract; 10 tests |
+| P5.2 | @brainform/ui-backend-claude | in progress | claude-backend-builder agent |
+| P5.3 | @brainform/ui-backend-pi | in progress | pi-backend-builder agent |
+| P5.4 | Backend contract test (both backends, one suite) | pending | after P5.2/P5.3 |
+| P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | pending | branch brainform/phase-5-generalization; PR ONLY, no merge |
+
+Phase-5 design decisions:
+- The wire protocol is published from @brainform/ui-sdk/protocol; brain-ui's shared/ becomes a
+  re-export shim (its client keeps compiling unchanged).
+- AgentBackend.cancel() from the plan sketch dropped — one cancellation mechanism only
+  (host-owned AbortSignal in StartTurnRequest); host owns timeouts too.
+- startTurn error semantics: runtime failures are EMITTED as protocol error frames and the
+  promise resolves; rejections are reserved for caller errors (BackendBusyError on concurrent
+  turns — the old SESSION_BUSY error frame becomes host-side queueing; BackendRequestError for
+  unknown profile / unsupported resume).
+- Wire field `providerId` kept for client compat; server-side it is the opaque `profileId`.
+- brain-ui PR dependency strategy: depends on @brainform/ui-sdk + backends by npm version
+  (unpublished until launch); local dev via package.json overrides to file:../brainform paths,
+  documented in the PR body.
 
 ## Plan deviations / decisions made during implementation
 
