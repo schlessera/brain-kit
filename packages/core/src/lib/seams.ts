@@ -88,3 +88,24 @@ export interface SkillEmitter {
     repoRoot: string
   ): { written: string[]; removed: string[] };
 }
+
+// ---------------------------------------------------------------------------
+// Typed authoring helpers — identity functions that give contributors
+// inference + excess-property checking without importing the interface.
+// ---------------------------------------------------------------------------
+
+export function defineEmbeddingProvider(provider: EmbeddingProvider): EmbeddingProvider {
+  return provider;
+}
+
+export function defineCompletionProvider(provider: CompletionProvider): CompletionProvider {
+  return provider;
+}
+
+export function defineAgentRunner(runner: AgentRunner): AgentRunner {
+  return runner;
+}
+
+export function defineSkillEmitter(emitter: SkillEmitter): SkillEmitter {
+  return emitter;
+}

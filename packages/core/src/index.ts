@@ -49,6 +49,12 @@ export { initContext, getContext, setContext } from "./lib/context";
 export type { BrainContext, InitContextOptions } from "./lib/context";
 
 // Extension seams (@experimental until 1.0)
+export {
+  defineEmbeddingProvider,
+  defineCompletionProvider,
+  defineAgentRunner,
+  defineSkillEmitter,
+} from "./lib/seams";
 export type {
   CompletionProvider,
   EmbeddingProvider,
