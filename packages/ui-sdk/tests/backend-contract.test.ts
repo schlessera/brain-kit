@@ -9,8 +9,9 @@
  *      with a terminal `result` frame before the promise resolves
  *   4. host abort → `status: cancelled` terminal frame, promise RESOLVES,
  *      no `result` frame
- *   5. a concurrent second turn rejects with BackendBusyError; the backend
- *      is usable again after the first turn drains
+ *   5. busy-ness is PER SESSION (rev 2): resuming a running session rejects
+ *      with BackendBusyError; a second NEW session runs in parallel when
+ *      capabilities.concurrentSessions; the backend recovers after drains
  *   6. an unknown profileId rejects with BackendRequestError and emits nothing
  *
  * Backends run against injected fake runtimes (queryFn / sessionFactory) —
@@ -95,9 +96,13 @@ function claudeScriptedQuery(script: TurnScript): typeof query {
     })()) as unknown as typeof query;
 }
 
+let hangCounter = 0;
+
+/** Emits a session identity, then hangs until the host aborts. */
 function claudeHangingQuery(): typeof query {
   return ((params: { options?: Options }) =>
     (async function* () {
+      yield { type: "system", subtype: "init", session_id: `hang-${++hangCounter}` };
       await new Promise<void>((_resolve, reject) => {
         const sig = params.options?.abortController?.signal;
         if (sig?.aborted) return reject(new DOMException("Aborted", "AbortError"));
@@ -164,12 +169,41 @@ function piHarnessBackend(script: TurnScript, hang: boolean): AgentBackend {
   });
 }
 
+function piHangingBackend(): AgentBackend {
+  // Unique session per acquisition so two concurrent NEW turns get distinct ids.
+  return createPiBackend({
+    brainPath: tempBrain(),
+    profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
+    sessionFactory: {
+      newSession: async () =>
+        piFakeSession({ sessionId: `hang-${++hangCounter}`, textDeltas: [] }, { hang: true }),
+      openSession: async (sessionId) =>
+        piFakeSession({ sessionId, textDeltas: [] }, { hang: true }),
+    },
+  });
+}
+
 const piHarness: Harness = {
   name: "pi",
   scripted: (script) => piHarnessBackend(script, false),
-  hanging: () => piHarnessBackend({ sessionId: "hang", textDeltas: [] }, true),
+  hanging: () => piHangingBackend(),
   unknownProfileId: "no-such-profile",
 };
+
+/** Poll until `cond` is true (or fail after ~2s). */
+async function waitFor(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("waitFor timed out");
+}
+
+function sessionIdOf(frames: ServerMessage[]): string {
+  const info = frames.find((f) => f.type === "session_info");
+  if (!info || info.type !== "session_info") throw new Error("no session_info frame");
+  return info.sessionId;
+}
 
 // ---------------------------------------------------------------------------
 // The contract
@@ -259,25 +293,68 @@ for (const harness of [claudeHarness, piHarness]) {
       expect(types.at(-1)).toBe("status");
     });
 
-    test("concurrent second turn rejects BackendBusyError; backend recovers", async () => {
+    test("busy-ness is per session; parallel sessions per capability; recovers", async () => {
       const backend = harness.hanging();
       const first = makeBridge();
       const c1 = new AbortController();
       const turn1 = backend.startTurn({ prompt: "1", signal: c1.signal, bridge: first.bridge });
-      await new Promise((r) => setTimeout(r, 10));
+      await waitFor(() => first.frames.some((f) => f.type === "session_info"));
+      const sid = sessionIdOf(first.frames);
 
-      const second = makeBridge();
+      // Resuming a session whose turn is RUNNING is the busy condition (rev 2).
+      const resumer = makeBridge();
       await expect(
         backend.startTurn({
           prompt: "2",
+          sessionId: sid,
           signal: new AbortController().signal,
-          bridge: second.bridge,
+          bridge: resumer.bridge,
         })
       ).rejects.toBeInstanceOf(BackendBusyError);
-      expect(second.frames).toHaveLength(0);
+      expect(resumer.frames).toHaveLength(0);
+
+      if (backend.capabilities.concurrentSessions) {
+        // A second NEW session runs in parallel with the first.
+        const second = makeBridge();
+        const c2 = new AbortController();
+        const turn2 = backend.startTurn({
+          prompt: "3",
+          signal: c2.signal,
+          bridge: second.bridge,
+        });
+        await waitFor(() => second.frames.some((f) => f.type === "session_info"));
+        expect(sessionIdOf(second.frames)).not.toBe(sid);
+        c2.abort();
+        await turn2;
+      }
 
       c1.abort();
       await turn1;
+
+      // Recovery: the drained session accepts a new (hanging) turn again.
+      const again = makeBridge();
+      const c3 = new AbortController();
+      const turn3 = backend.startTurn({
+        prompt: "4",
+        sessionId: sid,
+        signal: c3.signal,
+        bridge: again.bridge,
+      });
+      await waitFor(() => again.frames.some((f) => f.type === "session_info"));
+      c3.abort();
+      await turn3;
+    });
+
+    test("multi-session backends scope frames with sessionId", async () => {
+      const backend = harness.scripted({ sessionId: "scope-1", textDeltas: ["x"] });
+      if (!backend.capabilities.concurrentSessions) return;
+      const { frames, bridge } = makeBridge();
+      await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+      const info = frames.findIndex((f) => f.type === "session_info");
+      for (const frame of frames.slice(info + 1)) {
+        expect("sessionId" in frame ? frame.sessionId : undefined).toBe("scope-1");
+      }
     });
 
     test("unknown profileId rejects BackendRequestError, emits nothing", async () => {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createWriteLock } from "@brainform/ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools } from "../src/tools";
@@ -21,7 +22,11 @@ afterAll(() => {
 
 function tools(): Record<string, ToolDefinition> {
   const turn = createTurnContext();
-  const list = createBrainTools({ brain: createBrainAccess(brain.root), turn });
+  const list = createBrainTools({
+    brain: createBrainAccess(brain.root),
+    turn,
+    writeLock: createWriteLock(),
+  });
   return Object.fromEntries(list.map((t) => [t.name, t]));
 }
 
@@ -81,7 +86,11 @@ describe("brain_add wrapper (deny path, no write)", () => {
   test("denied add throws and creates no file", async () => {
     const { makeMockBridge } = await import("./mock-bridge");
     const turn = createTurnContext();
-    const list = createBrainTools({ brain: createBrainAccess(brain.root), turn });
+    const list = createBrainTools({
+      brain: createBrainAccess(brain.root),
+      turn,
+      writeLock: createWriteLock(),
+    });
     const brainAdd = list.find((t) => t.name === "brain_add")!;
     turn.bridge = makeMockBridge({ decision: { behavior: "deny", message: "nope" } }).bridge;
     await expect(

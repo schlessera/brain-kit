@@ -22,6 +22,7 @@ import {
   getAgentDir,
   type AgentSession,
   type AgentSessionEvent,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
@@ -29,17 +30,21 @@ import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import {
   BackendBusyError,
   BackendRequestError,
+  createWriteLock,
   type AgentBackend,
   type BackendCapabilities,
   type ProviderInfo,
   type ServerMessage,
   type StartTurnRequest,
+  type FollowUpRequest,
   type ChatSession,
+  type ChatImageAttachment,
   type SessionHistoryMessage,
+  type WriteLock,
 } from "@brainform/ui-sdk/server";
 
 import { createBrainAccess } from "./brain-access";
-import { createTurnContext } from "./turn-context";
+import { createTurnContext, type TurnContext } from "./turn-context";
 import { createBrainTools } from "./tools";
 import { listPiSessions, getPiHistory } from "./history";
 
@@ -52,16 +57,39 @@ export const PI_BACKEND_ID = "pi";
 export interface PiSessionLike {
   readonly sessionId: string;
   subscribe(listener: (ev: AgentSessionEvent) => void): () => void;
-  prompt(text: string, opts?: { images?: ImageContent[] }): Promise<unknown>;
+  /**
+   * `streamingBehavior` selects how a message sent WHILE the session is already
+   * streaming is queued: "followUp" waits for the running turn to finish its
+   * tool calls (queue-within-turn — used by followUp()), "steer" interrupts.
+   * Omitted for the initial turn (the session is idle).
+   */
+  prompt(
+    text: string,
+    opts?: { images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
+  ): Promise<unknown>;
   abort(): Promise<void>;
   getSessionStats(): { cost: number };
   dispose(): void;
 }
 
-/** @internal Test seam — replaces createAgentSession-based session acquisition. */
+/**
+ * The per-session curated toolset and its mutable turn holder. Passed to the
+ * @internal sessionFactory so injected fake sessions can exercise the real
+ * per-session tool binding (the tools close over `turnContext`).
+ */
+export interface SessionToolkit {
+  tools: ToolDefinition[];
+  turnContext: TurnContext;
+}
+
+/**
+ * @internal Test seam — replaces createAgentSession-based session acquisition.
+ * The optional `toolkit` is the per-session curated toolset the real path wires
+ * into createAgentSession; fakes may ignore it or use it to run the real tools.
+ */
 export interface PiSessionFactory {
-  newSession(profileId?: string): Promise<PiSessionLike>;
-  openSession(sessionId: string): Promise<PiSessionLike>;
+  newSession(profileId?: string, toolkit?: SessionToolkit): Promise<PiSessionLike>;
+  openSession(sessionId: string, toolkit?: SessionToolkit): Promise<PiSessionLike>;
 }
 
 export interface PiProfile {
@@ -90,9 +118,24 @@ export interface CreatePiBackendOptions {
    * CLAUDE.md context files always load regardless.
    */
   loadExtensions?: boolean;
+  /**
+   * Serializes mutating tool executions across all this backend's sessions so
+   * concurrent agents never interleave writes/git ops in the shared working
+   * tree. Defaults to a fresh in-process lock; inject one to share a lock with
+   * another writer in the same process.
+   */
+  writeLock?: WriteLock;
   /** @internal Test seam — inject session acquisition (contract tests). */
   sessionFactory?: PiSessionFactory;
 }
+
+/**
+ * Max pi AgentSessions kept resident in memory. Beyond this, IDLE (not running)
+ * sessions are disposed least-recently-used-first at the end of a turn; their
+ * transcripts stay on disk and reopen on the next resume. Running sessions are
+ * never evicted.
+ */
+const MAX_IN_MEMORY_SESSIONS = 5;
 
 const CAPABILITIES: BackendCapabilities = {
   resume: true,
@@ -101,11 +144,19 @@ const CAPABILITIES: BackendCapabilities = {
   attachments: true,
   askUser: true,
   costReporting: true,
-  // Placeholders until the parallel-sessions work lands (task 27): the current
-  // implementation is single-turn with no mid-turn follow-up.
-  concurrentSessions: false,
-  followUp: false,
+  // Turns on different sessions run in parallel; mid-turn user messages are
+  // injected into the running turn via followUp() (native pi queue-within-turn).
+  concurrentSessions: true,
+  followUp: true,
 };
+
+/** One resident session: its pi runtime, its per-session tool plumbing, liveness. */
+interface SessionEntry {
+  session: PiSessionLike;
+  turnContext: TurnContext;
+  /** True while a turn targeting this session is in flight (per-session busy). */
+  running: boolean;
+}
 
 interface ModelSpec {
   vendor?: string;
@@ -116,12 +167,14 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   const brainPath = options.brainPath;
   const sessionDir = options.sessionDir ?? join(brainPath, ".brainform-ui", "sessions");
 
+  // Shared across all sessions: read paths are parallel-safe (per-call handles,
+  // busy_timeout on the write path) and the write lock is what serializes mutations.
   const brain = createBrainAccess(brainPath);
-  const turn = createTurnContext();
-  const tools = createBrainTools({ brain, turn });
+  const writeLock = options.writeLock ?? createWriteLock();
 
-  let busy = false;
-  let current: { session: PiSessionLike; id: string } | null = null;
+  // Resident sessions, keyed by pi sessionId. Insertion order is the LRU order:
+  // reused sessions are re-inserted at the tail (touch), eviction drops the head.
+  const sessions = new Map<string, SessionEntry>();
 
   // Shared resource loader + settings, built once and reused. Disabling
   // extensions keeps the tool surface curated; skills + context files still load.
@@ -180,26 +233,45 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     }
   }
 
-  async function newSession(profileId?: string): Promise<PiSessionLike> {
-    const spec = resolveModelSpec(profileId);
-    if (options.sessionFactory) return options.sessionFactory.newSession(profileId);
+  /** A fresh per-session TurnContext and the curated tools bound to it. */
+  function buildToolkit(): SessionToolkit {
+    const turnContext = createTurnContext();
+    const tools = createBrainTools({ brain, turn: turnContext, writeLock });
+    return { tools, turnContext };
+  }
+
+  async function newSession(
+    profileId?: string
+  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }> {
+    const spec = resolveModelSpec(profileId); // throws BackendRequestError on bad profile
+    const toolkit = buildToolkit();
+    if (options.sessionFactory) {
+      const session = await options.sessionFactory.newSession(profileId, toolkit);
+      return { session, turnContext: toolkit.turnContext };
+    }
     const sm = SessionManager.create(brainPath, sessionDir);
     const resources = await getSharedResources();
     const { session } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
-      customTools: tools,
+      customTools: toolkit.tools,
       sessionManager: sm,
       ...(resources
         ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
         : {}),
       ...(toModel(spec) ? { model: toModel(spec) } : {}),
     });
-    return session;
+    return { session, turnContext: toolkit.turnContext };
   }
 
-  async function openSession(sessionId: string): Promise<PiSessionLike> {
-    if (options.sessionFactory) return options.sessionFactory.openSession(sessionId);
+  async function openSession(
+    sessionId: string
+  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }> {
+    const toolkit = buildToolkit();
+    if (options.sessionFactory) {
+      const session = await options.sessionFactory.openSession(sessionId, toolkit);
+      return { session, turnContext: toolkit.turnContext };
+    }
     const infos = await SessionManager.list(brainPath, sessionDir);
     const info = infos.find((i) => i.id === sessionId);
     if (!info) throw new BackendRequestError(`Cannot resume unknown session: ${sessionId}`);
@@ -208,43 +280,94 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     const { session } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
-      customTools: tools,
+      customTools: toolkit.tools,
       sessionManager: sm,
       // Resumed sessions stay pinned to their saved model — no model override.
       ...(resources
         ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
         : {}),
     });
-    return session;
+    return { session, turnContext: toolkit.turnContext };
   }
 
-  /** Get the session for this turn, reusing the in-memory one when it matches. */
-  async function acquireSession(
+  /**
+   * Resolve the session for this turn and claim it (entry.running = true). A
+   * matching in-memory session is reused (and touched for LRU); an unknown
+   * running session raises a per-session BackendBusyError; an unknown resume id
+   * or bad profile raises BackendRequestError (both before anything is emitted).
+   */
+  async function acquire(
     req: StartTurnRequest
-  ): Promise<{ session: PiSessionLike; isNew: boolean }> {
+  ): Promise<{ entry: SessionEntry; isNew: boolean }> {
     if (req.sessionId) {
-      if (current && current.id === req.sessionId) {
-        return { session: current.session, isNew: false };
+      const existing = sessions.get(req.sessionId);
+      if (existing) {
+        if (existing.running) throw new BackendBusyError(PI_BACKEND_ID, req.sessionId);
+        existing.running = true;
+        touch(req.sessionId);
+        return { entry: existing, isNew: false };
       }
-      disposeCurrent();
-      const session = await openSession(req.sessionId);
-      current = { session, id: session.sessionId };
-      return { session, isNew: false };
+      // Not resident — reopen the transcript from disk.
+      const { session, turnContext } = await openSession(req.sessionId);
+      // A concurrent turn for the same id may have registered it while we opened.
+      const raced = sessions.get(req.sessionId);
+      if (raced) {
+        disposeSession(session);
+        if (raced.running) throw new BackendBusyError(PI_BACKEND_ID, req.sessionId);
+        raced.running = true;
+        touch(req.sessionId);
+        return { entry: raced, isNew: false };
+      }
+      const entry: SessionEntry = { session, turnContext, running: true };
+      register(entry);
+      return { entry, isNew: false };
     }
-    disposeCurrent();
-    const session = await newSession(req.profileId);
-    current = { session, id: session.sessionId };
-    return { session, isNew: true };
+    const { session, turnContext } = await newSession(req.profileId);
+    const existing = sessions.get(session.sessionId);
+    if (existing) {
+      // The runtime handed back an id we already track. In production pi ids are
+      // unique so this never fires; the injected fake reuses ids, and either way
+      // we must not clobber a running turn — surface per-session busy and drop
+      // the duplicate.
+      disposeSession(session);
+      if (existing.running) throw new BackendBusyError(PI_BACKEND_ID, session.sessionId);
+      existing.running = true;
+      touch(session.sessionId);
+      return { entry: existing, isNew: false };
+    }
+    const entry: SessionEntry = { session, turnContext, running: true };
+    register(entry);
+    return { entry, isNew: true };
   }
 
-  function disposeCurrent(): void {
-    if (current) {
-      try {
-        current.session.dispose();
-      } catch {
-        /* best effort */
-      }
-      current = null;
+  function register(entry: SessionEntry): void {
+    sessions.set(entry.session.sessionId, entry);
+  }
+
+  /** Move a reused session to the LRU tail so eviction favours colder sessions. */
+  function touch(sessionId: string): void {
+    const entry = sessions.get(sessionId);
+    if (!entry) return;
+    sessions.delete(sessionId);
+    sessions.set(sessionId, entry);
+  }
+
+  function disposeSession(session: PiSessionLike): void {
+    try {
+      session.dispose();
+    } catch {
+      /* best effort */
+    }
+  }
+
+  /** Dispose idle (not running) sessions, LRU-first, until back under the cap. */
+  function evictIdle(): void {
+    if (sessions.size <= MAX_IN_MEMORY_SESSIONS) return;
+    for (const [id, entry] of sessions) {
+      if (sessions.size <= MAX_IN_MEMORY_SESSIONS) break;
+      if (entry.running) continue;
+      disposeSession(entry.session);
+      sessions.delete(id);
     }
   }
 
@@ -278,24 +401,23 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     },
 
     async startTurn(req: StartTurnRequest): Promise<void> {
-      if (busy) throw new BackendBusyError(PI_BACKEND_ID);
-      busy = true;
-      const emit = (msg: ServerMessage) => req.bridge.emit(msg);
       const startedAt = Date.now();
 
-      let session: PiSessionLike;
-      let isNew: boolean;
-      try {
-        ({ session, isNew } = await acquireSession(req));
-      } catch (err) {
-        busy = false;
-        // Caller errors (unknown profile/session) REJECT per the startTurn contract.
-        throw err;
-      }
+      // acquire() claims the session (per-session busy) and validates caller
+      // input. On any throw — BackendBusyError / BackendRequestError — nothing
+      // has been emitted and the promise REJECTS, per the startTurn contract.
+      const { entry, isNew } = await acquire(req);
+      const { session, turnContext } = entry;
+      const sessionId = session.sessionId;
 
-      // Bind this turn's plumbing so the curated tools use the right bridge/signal.
-      turn.bridge = req.bridge;
-      turn.signal = req.signal;
+      // Scope every frame this turn emits to its session so a multiplexed client
+      // can demux concurrent sessions. Follow-up frames flow through this same
+      // emit (the subscription below stays live for the whole turn).
+      const emit = (msg: ServerMessage) => req.bridge.emit(scopeFrame(msg, sessionId));
+
+      // Bind this session's tool plumbing to the current turn's bridge/signal.
+      turnContext.bridge = req.bridge;
+      turnContext.signal = req.signal;
 
       const unsubscribe = session.subscribe(makeEventHandler(emit));
       const onAbort = () => {
@@ -306,7 +428,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       // session_info must precede any content frames for a new session.
       emit({
         type: "session_info",
-        sessionId: session.sessionId,
+        sessionId,
         isNew,
         ...(req.profileId ? { providerId: req.profileId } : {}),
       });
@@ -324,23 +446,45 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       } finally {
         unsubscribe();
         req.signal.removeEventListener("abort", onAbort);
-        turn.bridge = null;
-        turn.signal = null;
-        busy = false;
+        turnContext.bridge = null;
+        turnContext.signal = null;
+        entry.running = false;
+        // Now that this session is idle, drop cold sessions above the cap.
+        evictIdle();
       }
 
       if (req.signal.aborted) {
-        emit({ type: "status", status: "cancelled", activeSessionId: session.sessionId });
+        emit({ type: "status", status: "cancelled" });
         return;
       }
 
       emit({
         type: "result",
-        sessionId: session.sessionId,
+        sessionId,
         costUsd: Math.max(0, snapshotCost(session) - costBefore),
         durationMs: Date.now() - startedAt,
         numTurns: 1,
         isError: false,
+      });
+    },
+
+    async followUp(req: FollowUpRequest): Promise<void> {
+      const entry = sessions.get(req.sessionId);
+      if (!entry || !entry.running) {
+        // Follow-up only lands in a RUNNING turn; the host queues it as the
+        // session's next turn otherwise.
+        throw new BackendRequestError(
+          `No running turn for session ${req.sessionId} to deliver a follow-up to.`
+        );
+      }
+      // Injected into the live turn: pi's "followUp" queues the message within
+      // the turn (delivered after the current assistant step + tool calls),
+      // whereas "steer" would interrupt. Frames keep flowing through the running
+      // turn's subscription/emit — no new subscription here.
+      const images = toImages(req);
+      await entry.session.prompt(req.prompt, {
+        streamingBehavior: "followUp",
+        ...(images.length > 0 ? { images } : {}),
       });
     },
 
@@ -352,6 +496,15 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       return getPiHistory(brainPath, sessionId, sessionDir);
     },
   };
+}
+
+/**
+ * Stamp `sessionId` on an outgoing frame. Every ServerMessage variant permits a
+ * string sessionId (SessionScoped frames make it optional; `result` and
+ * `session_info` already require it), so this is safe for all of them.
+ */
+function scopeFrame(msg: ServerMessage, sessionId: string): ServerMessage {
+  return { ...msg, sessionId } as ServerMessage;
 }
 
 /** Translate pi AgentSession events into wire-protocol frames. */
@@ -410,7 +563,7 @@ function toolResultText(result: unknown): string {
     .join("");
 }
 
-function toImages(req: StartTurnRequest): ImageContent[] {
+function toImages(req: { attachments?: ChatImageAttachment[] }): ImageContent[] {
   if (!req.attachments || req.attachments.length === 0) return [];
   return req.attachments.map((att) => ({
     type: "image" as const,

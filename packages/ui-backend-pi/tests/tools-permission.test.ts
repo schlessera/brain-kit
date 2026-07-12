@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createWriteLock } from "@brainform/ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools, TOOL_RISK } from "../src/tools";
@@ -24,7 +25,7 @@ describe("curated tool permission gating", () => {
     try {
       writeFileSync(join(brain.root, "hello.md"), "# Hello\nbrain world", "utf-8");
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "should not ask" } });
       turn.bridge = mock.bridge;
 
@@ -47,7 +48,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       const mock = makeMockBridge({ decision: { behavior: "allow" } });
       turn.bridge = mock.bridge;
 
@@ -70,7 +71,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "user said no" } });
       turn.bridge = mock.bridge;
 
@@ -94,7 +95,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       const mock = makeMockBridge({
         decision: { behavior: "allow", updatedInput: { path: "edited.md", content: "override" } },
       });
@@ -118,7 +119,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       const mock = makeMockBridge({ decision: { behavior: "allow" } });
       turn.bridge = mock.bridge;
 
@@ -140,7 +141,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       turn.bridge = makeMockBridge().bridge; // no askUser
 
       await expect(
@@ -161,7 +162,7 @@ describe("curated tool permission gating", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = createBrainTools({ brain: createBrainAccess(brain.root), turn });
+      const tools = createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() });
       for (const t of tools) {
         expect(TOOL_RISK[t.name]).toBeDefined();
       }
@@ -180,7 +181,7 @@ describe("path containment", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       turn.bridge = makeMockBridge({ decision: { behavior: "allow" } }).bridge;
 
       await expect(
@@ -201,7 +202,7 @@ describe("path containment", () => {
     const brain = makeEmptyBrain();
     try {
       const turn = createTurnContext();
-      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn }));
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() }));
       await expect(
         tools.read_file.execute(
           "e2",

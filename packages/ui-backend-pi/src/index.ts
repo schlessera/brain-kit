@@ -12,6 +12,7 @@ export type {
   PiProfile,
   PiSessionLike,
   PiSessionFactory,
+  SessionToolkit,
 } from "./backend";
 
 export { createBrainAccess } from "./brain-access";

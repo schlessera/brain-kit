@@ -6,14 +6,25 @@ import {
   type PermissionResult,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ChatImageAttachment, ChatSession, ProviderInfo, SessionHistoryMessage } from "@brainform/ui-sdk";
+import type {
+  ChatImageAttachment,
+  ChatSession,
+  ProviderInfo,
+  ServerMessage,
+  SessionHistoryMessage,
+} from "@brainform/ui-sdk";
 import type {
   AgentBackend,
   BackendCapabilities,
   PermissionDecision,
   StartTurnRequest,
+  WriteLock,
 } from "@brainform/ui-sdk/server";
-import { BackendBusyError, BackendRequestError } from "@brainform/ui-sdk/server";
+import {
+  BackendBusyError,
+  BackendRequestError,
+  createWriteLock,
+} from "@brainform/ui-sdk/server";
 import { StreamAdapter } from "./stream-adapter";
 import { createBrainformMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool";
@@ -42,6 +53,17 @@ const DEFAULT_ALLOWED_TOOLS = [
   "NotebookEdit",
 ];
 
+/**
+ * Tools whose execution mutates the shared working tree (file writes, git
+ * operations). These are serialized across all sessions through the backend's
+ * WriteLock; every other tool (Read/Glob/Grep/WebFetch/WebSearch and the
+ * in-process brainform MCP tools, which only bridge to the browser) runs fully
+ * parallel. Bash is mutating conservatively — it can write or run git. A
+ * subagent's own Bash/Edit/Write calls surface here under their own names and
+ * are gated individually. Add write-capable MCP tools here as they appear.
+ */
+const MUTATING_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+
 export interface ClaudeBackendOptions {
   /** Working directory for the agent — the brain repo the model operates on. */
   brainPath: string;
@@ -61,6 +83,13 @@ export interface ClaudeBackendOptions {
   defaultTimeoutMs?: number;
   /** Backend-wide tool allowlist; a profile's own `allowedTools` overrides it. */
   allowedTools?: string[];
+  /**
+   * Serializes MUTATING tool executions across every session this backend
+   * runs, so two parallel turns never interleave writes/git ops in the shared
+   * working tree. Defaults to a fresh per-instance lock; inject a shared one to
+   * coordinate with other writers of the same repo (or to observe it in tests).
+   */
+  writeLock?: WriteLock;
   /** @internal Test seam — inject the SDK `query` function. Defaults to the real one. */
   queryFn?: typeof query;
   /** @internal Test seam — inject the SDK `listSessions` reader. */
@@ -93,6 +122,18 @@ function resolveProfile(
   return profile;
 }
 
+/** Per-turn mutable state tracked while a session's turn is running. */
+interface ActiveTurn {
+  /**
+   * Write-lock releases held by a mutating tool, keyed by the toolUseId that
+   * acquired them; released when that tool's result frame streams, or all at
+   * once by the turn-end backstop.
+   */
+  pendingReleases: Map<string, () => void>;
+  /** Set in the turn's finally, so a lock acquired after teardown self-releases. */
+  ended: boolean;
+}
+
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session
  * persistence (JSONL under the brain dir), tool execution, and cost reporting;
@@ -113,6 +154,8 @@ export function createClaudeBackend(
     getSessionMessagesFn: options.getSessionMessagesFn,
   });
 
+  const writeLock = options.writeLock ?? createWriteLock();
+
   const capabilities: BackendCapabilities = {
     resume: true,
     permissions: true,
@@ -120,20 +163,34 @@ export function createClaudeBackend(
     attachments: true,
     askUser: true,
     costReporting: true,
-    // Placeholders until the parallel-sessions work lands (task 26).
-    concurrentSessions: false,
+    // Each turn is its own `query()` subprocess with per-turn closure state, so
+    // turns on different sessions run in parallel; busy-ness is per session.
+    concurrentSessions: true,
+    // The Agent SDK has no mid-turn message injection, so the host queues
+    // follow-ups as the session's next turn (status: queued) rather than us
+    // delivering them into the running one.
     followUp: false,
   };
 
-  // One turn at a time per backend instance; a second concurrent startTurn
-  // rejects with BackendBusyError (the host queues).
-  let activeTurn = false;
+  // Busy-ness is PER SESSION: one running turn per session key. Resuming a
+  // session that already has a running turn rejects BackendBusyError; a NEW
+  // turn (no sessionId yet) gets a unique placeholder key, so two concurrent
+  // new-session turns always coexist. The slot is re-keyed to the real session
+  // id once the SDK reports it.
+  const activeTurns = new Map<string, ActiveTurn>();
 
   async function startTurn(req: StartTurnRequest): Promise<void> {
-    if (activeTurn) throw new BackendBusyError(BACKEND_ID);
     const profile = resolveProfile(profiles, req.profileId);
 
-    activeTurn = true;
+    if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
+      throw new BackendBusyError(BACKEND_ID, req.sessionId);
+    }
+
+    const turn: ActiveTurn = { pendingReleases: new Map(), ended: false };
+    // Placeholder key for a new session; the real id (a resume's requested id,
+    // or the SDK-minted id for a new session) replaces it below.
+    let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
+    activeTurns.set(turnKey, turn);
 
     // The host owns cancellation. Mirror its signal onto an internal
     // AbortController that the SDK query listens to.
@@ -146,6 +203,17 @@ export function createClaudeBackend(
     // Only wire ask-user / location tools when the host bridge offers them.
     const askUser = req.bridge.askUser;
     const getLocation = req.bridge.getLocation;
+
+    // Scope every frame to its session once the identity is known. For a
+    // resume that is up front (the requested id); for a new session it is null
+    // until the SDK reports it, so the only pre-identity frames (status/
+    // thinking) go out unscoped, then everything after is scoped. result and
+    // session_info already carry their own sessionId; the spread is a no-op on
+    // them.
+    let sessionId: string | null = req.sessionId ?? null;
+    const emit = (msg: ServerMessage): void => {
+      req.bridge.emit(sessionId !== null ? { ...msg, sessionId } : msg);
+    };
 
     try {
       const profileEnv = profile.buildEnv();
@@ -175,6 +243,18 @@ export function createClaudeBackend(
             input,
             description: opts.description,
           });
+          // A mutating tool runs inside this subprocess the moment we return
+          // "allow", so take the shared write lock BEFORE allowing and hold it
+          // until the tool's result frame is observed (see the stream loop) or
+          // the turn ends. Denials and read-only tools take nothing. Acquiring
+          // after the permission round-trip keeps the lock off the (possibly
+          // long) approval wait; a second turn's approval of a mutating tool
+          // then blocks here until the first releases.
+          if (decision.behavior === "allow" && MUTATING_TOOLS.has(toolName)) {
+            const release = await writeLock.acquire();
+            if (turn.ended) release(); // turn drained while queued: never runs
+            else turn.pendingReleases.set(opts.toolUseID, release);
+          }
           return toPermissionResult(decision);
         },
       };
@@ -200,36 +280,54 @@ export function createClaudeBackend(
 
       const result = queryFn({ prompt: queryPrompt, options: sdkOptions });
 
-      let sessionId: string | null = null;
+      let announced = false;
       let sawResult = false;
       for await (const msg of result) {
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
-        if (!sessionId && msg.session_id) {
-          sessionId = msg.session_id;
-          req.bridge.emit({
+        if (!announced && msg.session_id) {
+          announced = true;
+          if (sessionId === null) {
+            // New session: adopt the SDK-minted id for scoping and re-key the
+            // busy slot from its placeholder, so a resume of this session while
+            // it still runs is detected as busy.
+            sessionId = msg.session_id;
+            activeTurns.delete(turnKey);
+            activeTurns.set(sessionId, turn);
+            turnKey = sessionId;
+          }
+          emit({
             type: "session_info",
-            sessionId,
+            sessionId: sessionId,
             isNew: !req.sessionId,
             providerId: profile.id,
           });
         }
         for (const serverMsg of adapter.adapt(msg)) {
           if (serverMsg.type === "result") sawResult = true;
-          req.bridge.emit(serverMsg);
+          // Release the write lock the moment a mutating tool's result frame
+          // lands (the turn-end backstop covers anything still held).
+          if (serverMsg.type === "tool_result") {
+            const release = turn.pendingReleases.get(serverMsg.toolUseId);
+            if (release) {
+              release();
+              turn.pendingReleases.delete(serverMsg.toolUseId);
+            }
+          }
+          emit(serverMsg);
         }
       }
 
       // If the host aborted but the SDK ended the stream without throwing,
       // still surface cancellation as the terminal frame.
       if (abortController.signal.aborted && !sawResult) {
-        req.bridge.emit({ type: "status", status: "cancelled" });
+        emit({ type: "status", status: "cancelled" });
       }
     } catch (err) {
       if (abortController.signal.aborted) {
-        req.bridge.emit({ type: "status", status: "cancelled" });
+        emit({ type: "status", status: "cancelled" });
       } else {
-        req.bridge.emit({
+        emit({
           type: "error",
           code: "CLAUDE_ERROR",
           message: err instanceof Error ? err.message : String(err),
@@ -237,7 +335,12 @@ export function createClaudeBackend(
       }
     } finally {
       req.signal.removeEventListener("abort", onHostAbort);
-      activeTurn = false;
+      // Backstop: release any write lock still held (a mutating tool whose
+      // result never streamed, e.g. an aborted turn) and free the busy slot.
+      turn.ended = true;
+      for (const release of turn.pendingReleases.values()) release();
+      turn.pendingReleases.clear();
+      activeTurns.delete(turnKey);
     }
   }
 

@@ -34,6 +34,7 @@ does.
 | `profiles` | — | Selectable `{id,label,vendor?,model}` profiles; first is the default for new sessions. |
 | `sessionDir` | `<brainPath>/.brainform-ui/sessions` | Where pi stores session JSONL trees. |
 | `loadExtensions` | `false` | Repo-provided pi extensions are **not** loaded by default (keeps the tool surface curated); skills + `AGENTS.md`/`CLAUDE.md` context always load. |
+| `writeLock` | fresh in-process lock | Serializes mutating tool executions across all sessions of this backend (shared working tree). Inject one to share a lock with another in-process writer. |
 
 ## Capabilities
 
@@ -45,6 +46,32 @@ does.
 | `attachments` | `true` | Image attachments become pi `ImageContent` on `session.prompt({ images })`. |
 | `askUser` | `true` | The `ask_user` tool routes to `bridge.askUser`; degrades to a tool error if the host lacks it. |
 | `costReporting` | `true` | `session.getSessionStats().cost` (pi-ai per-token cost) is diffed per turn. |
+| `concurrentSessions` | `true` | Busy-ness is per session: turns on different sessions run in parallel; a second turn on a running session rejects `BackendBusyError`. |
+| `followUp` | `true` | `followUp()` injects a mid-turn message into the running turn via `session.prompt(text, { streamingBehavior: "followUp" })`. |
+
+## Parallel sessions
+
+Each pi `AgentSession` is tracked in a per-`sessionId` map with its own
+`TurnContext` and curated toolset — so two sessions' turns never share a bridge.
+Every emitted frame is scoped with its `sessionId` so a multiplexing client can
+demux concurrent sessions. Up to 5 sessions stay resident in memory; beyond that,
+**idle** (not currently running) sessions are disposed least-recently-used-first
+at the end of a turn and reopened from their on-disk JSONL on the next resume.
+Running sessions are never evicted.
+
+`followUp({ sessionId, prompt, attachments })` delivers a user message into a
+session's **running** turn — pi's `"followUp"` streaming behaviour queues it
+within the turn (delivered after the current assistant step and its tool calls),
+as opposed to `"steer"`, which interrupts. Frames keep flowing through the running
+turn's existing subscription. It rejects `BackendRequestError` when the session
+has no running turn (the host then queues the message as the next turn instead).
+
+**Shared-repo safety.** Every backend holds one `WriteLock`; each mutating tool
+(`write_file`, `edit_file`, `bash`, `brain_add`) runs its post-permission body
+under `writeLock.withLock()`, so concurrent sessions never interleave file writes
+or git operations in the shared working tree. Read-class tools never take the lock.
+The permission round-trip happens **before** the lock, so approvals are never
+serialized behind another session's write.
 
 ## Curated tools & risk classes
 

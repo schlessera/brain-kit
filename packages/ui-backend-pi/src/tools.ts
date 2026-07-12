@@ -22,7 +22,7 @@ import { dirname } from "path";
 import { Type } from "typebox";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AskUserQuestion } from "@brainform/ui-sdk/server";
+import type { AskUserQuestion, WriteLock } from "@brainform/ui-sdk/server";
 
 import type { BrainAccess } from "./brain-access";
 import type { TurnContext } from "./turn-context";
@@ -72,6 +72,12 @@ async function gateMutation(
 export interface BrainToolDeps {
   brain: BrainAccess;
   turn: TurnContext;
+  /**
+   * Serializes MUTATING tool executions across all sessions that share this
+   * backend's working tree. Read-class tools never take it. One lock instance
+   * is shared by every per-session toolset (see backend.ts).
+   */
+  writeLock: WriteLock;
 }
 
 /** Static risk-class table (also documented in the package README). */
@@ -88,7 +94,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
 };
 
 export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
-  const { brain, turn } = deps;
+  const { brain, turn, writeLock } = deps;
 
   const resolveOrThrow = (rel: string): string => {
     const abs = brain.resolveInRepo(rel);
@@ -209,10 +215,14 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     async execute(id: string, params: { path: string; content: string }) {
       const input = await gateMutation(turn, id, "write_file", params, `Write ${params.path}`);
       const p = input as { path: string; content: string };
-      const abs = resolveOrThrow(p.path);
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, p.content, "utf-8");
-      return textResult(`Wrote ${p.content.length} bytes to ${p.path}.`, { path: p.path });
+      // Post-permission mutation runs under the shared write lock so concurrent
+      // sessions never interleave writes in the same working tree.
+      return writeLock.withLock(() => {
+        const abs = resolveOrThrow(p.path);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, p.content, "utf-8");
+        return textResult(`Wrote ${p.content.length} bytes to ${p.path}.`, { path: p.path });
+      });
     },
   } satisfies ToolDefinition;
 
@@ -233,17 +243,20 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     ) {
       const input = await gateMutation(turn, id, "edit_file", params, `Edit ${params.path}`);
       const p = input as { path: string; old_string: string; new_string: string };
-      const abs = resolveOrThrow(p.path);
-      const raw = readFileSync(abs, "utf-8");
-      const occurrences = raw.split(p.old_string).length - 1;
-      if (occurrences === 0) throw new Error(`old_string not found in ${p.path}.`);
-      if (occurrences > 1) {
-        throw new Error(
-          `old_string is not unique in ${p.path} (${occurrences} matches); add more context.`
-        );
-      }
-      writeFileSync(abs, raw.replace(p.old_string, p.new_string), "utf-8");
-      return textResult(`Edited ${p.path}.`, { path: p.path });
+      // Read-modify-write is atomic under the shared write lock.
+      return writeLock.withLock(() => {
+        const abs = resolveOrThrow(p.path);
+        const raw = readFileSync(abs, "utf-8");
+        const occurrences = raw.split(p.old_string).length - 1;
+        if (occurrences === 0) throw new Error(`old_string not found in ${p.path}.`);
+        if (occurrences > 1) {
+          throw new Error(
+            `old_string is not unique in ${p.path} (${occurrences} matches); add more context.`
+          );
+        }
+        writeFileSync(abs, raw.replace(p.old_string, p.new_string), "utf-8");
+        return textResult(`Edited ${p.path}.`, { path: p.path });
+      });
     },
   } satisfies ToolDefinition;
 
@@ -259,24 +272,28 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     async execute(id: string, params: { command: string }, signal?: AbortSignal) {
       const input = await gateMutation(turn, id, "bash", params, params.command);
       const cmd = (input as { command: string }).command;
-      const proc = spawn(["bash", "-lc", cmd], {
-        cwd: brain.root,
-        stdout: "pipe",
-        stderr: "pipe",
+      // A shell command may touch git/index/hooks, so the whole execution runs
+      // under the shared write lock — cross-session bash is serialized.
+      return writeLock.withLock(async () => {
+        const proc = spawn(["bash", "-lc", cmd], {
+          cwd: brain.root,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const onAbort = () => proc.kill();
+        signal?.addEventListener("abort", onAbort, { once: true });
+        const [stdout, stderr, code] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        signal?.removeEventListener("abort", onAbort);
+        const body = [stdout, stderr].filter(Boolean).join("\n").trim();
+        return textResult(
+          clip(`$ ${cmd}\n${body}${code === 0 ? "" : `\n[exit ${code}]`}`),
+          { exitCode: code }
+        );
       });
-      const onAbort = () => proc.kill();
-      signal?.addEventListener("abort", onAbort, { once: true });
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      signal?.removeEventListener("abort", onAbort);
-      const body = [stdout, stderr].filter(Boolean).join("\n").trim();
-      return textResult(
-        clip(`$ ${cmd}\n${body}${code === 0 ? "" : `\n[exit ${code}]`}`),
-        { exitCode: code }
-      );
     },
   } satisfies ToolDefinition;
 
@@ -304,14 +321,17 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         `Add note: ${params.title ?? params.content.slice(0, 60)}`
       );
       const p = input as { content: string; type?: string; title?: string; tags?: string[] };
-      const outcome = await brain.add({
-        content: p.content,
-        type: p.type,
-        title: p.title,
-        tags: p.tags,
+      // brain.add writes a markdown file and reindexes — serialize under the lock.
+      return writeLock.withLock(async () => {
+        const outcome = await brain.add({
+          content: p.content,
+          type: p.type,
+          title: p.title,
+          tags: p.tags,
+        });
+        const warn = outcome.indexed ? "" : ` (warning: reindex failed — ${outcome.indexError})`;
+        return textResult(`${outcome.action}: ${outcome.path}${warn}`, outcome);
       });
-      const warn = outcome.indexed ? "" : ` (warning: reindex failed — ${outcome.indexError})`;
-      return textResult(`${outcome.action}: ${outcome.path}${warn}`, outcome);
     },
   } satisfies ToolDefinition;
 
