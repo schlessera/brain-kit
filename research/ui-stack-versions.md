@@ -44,8 +44,8 @@ type CanUseTool = (
 - Invoked **only when the permission flow resolves to a prompt** — not for tools already cleared by `allowedTools`/allow-rules/`acceptEdits`. So a deny-by-default posture needs `permissionMode` + `disallowedTools`, not just this callback.
 - Handle `requestId` idempotently (may repeat).
 
-### PermissionResult — GROUND TRUTH (docs example is WRONG)
-The published TS reference example shows `return { approved: true }`. That is **incorrect** — the shipped `sdk.d.ts` type is a `behavior` discriminated union. Use this:
+### PermissionResult — GROUND TRUTH (docs example is WRONG, but brain-ui is already correct)
+The published TS reference example shows `return { approved: true }`. That is **incorrect** — the shipped `sdk.d.ts` type is a `behavior` discriminated union (identical in 0.2.96 and 0.3.207, cross-checked by ui-research from both tarballs). Use this:
 ```ts
 type PermissionResult =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown>;
@@ -54,6 +54,8 @@ type PermissionResult =
       toolUseID?: string; decisionClassification?: ... };
 ```
 `allow` may rewrite the tool input via `updatedInput`; `deny` requires a `message` and can `interrupt` the turn. Returning `null` defers to the normal flow. Do not ship `{ approved }` — it would be silently wrong.
+
+**brain-ui already implements this correctly** (`server/src/ws/handler.ts:438-461` returns `{ behavior: "allow", updatedInput }` / `{ behavior: "allow" }` / `{ behavior: "deny", message }`). The only `approved` in the codebase is an internal client-side boolean (`client/src/stores/chat-store.ts`) that the server maps to `behavior`. So for the P5.2 port this is **"keep the existing server shape," not "fix a bug"** — nothing is stubbed wrong today. The warning stands only against the SDK's published doc example.
 
 ### PermissionMode (verified union)
 `'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto'`
@@ -66,12 +68,12 @@ Docs: https://code.claude.com/docs/en/agent-sdk/typescript
 
 ## AUTH_MODE=password — Bun.password (argon2id)
 
-`Bun.password` is suitable and needs no dependency. Live test on bun 1.3.14:
+`Bun.password` is suitable and needs no dependency. Live test on bun 1.3.14 (deterministic across 3 runs, matches current Bun docs):
 ```ts
-const hash = await Bun.password.hash("pw");            // "$argon2id$v=19$m=65536,t=3,p=4$..."
+const hash = await Bun.password.hash("pw");            // "$argon2id$v=19$m=65536,t=2,p=1$..."
 const ok   = await Bun.password.verify("pw", hash);    // true
 ```
-- **Default algorithm is argon2id** (confirmed by the `$argon2id$v=19$m=65536,...` prefix), the current OWASP-recommended password KDF. `bcrypt` is also available via `Bun.password.hash(pw, "bcrypt")` if a 72-byte-limited legacy format is needed — prefer argon2id.
+- **Default algorithm is argon2id with `m=65536,t=2,p=1`** (the current OWASP-recommended password KDF), confirmed against the full PHC string on bun 1.3.14 (brain-ui's runtime). The params are embedded in the hash, so `verify` needs only the stored string — the exact cost params don't need to be re-supplied and can be re-tuned later without breaking existing hashes. `bcrypt` is also available via `Bun.password.hash(pw, "bcrypt")` if a 72-byte-limited legacy format is needed — prefer argon2id.
 - `hash()`/`verify()` are async and run off the main thread; the algorithm+params are embedded in the encoded hash, so `verify` needs only the stored string. Tune cost via `{ algorithm: "argon2id", memoryCost, timeCost }` if the defaults are too light/heavy for the deploy target.
 - Store the encoded hash; never the password. Pair with a constant-time compare only if you compare anything outside `verify` (verify is already constant-time).
 Docs: https://bun.com/docs/api/hashing (`Bun.password`)
@@ -96,7 +98,7 @@ Docs: https://developers.deepgram.com/reference/token-based-auth-api/grant-token
 
 ## Actionable deltas for P5.2 / P5.5
 
-1. Claude backend `canUseTool` MUST return `{ behavior: 'allow' | 'deny', ... }`, not `{ approved }` (doc example is wrong).
+1. Claude backend `canUseTool` returns `{ behavior: 'allow' | 'deny', ... }`, not `{ approved }` (the SDK doc example is wrong, but brain-ui's `server/src/ws/handler.ts` already uses `behavior` — port = keep that shape, nothing to fix).
 2. To gate tools at all, drive `query()` with an **async-iterable prompt** (streaming input) — `canUseTool` is inert with a string prompt. Use `includePartialMessages: true` for streaming frames.
 3. SDK has native `resume`/`continue`; the backend's `unsupported resume` rejection is a host policy, keep it deliberate.
 4. Replace any `createBunWebSocket` usage with direct `hono/bun` imports; authenticate the WS upgrade via session cookie in the handler (not `jwt()` middleware), and keep `cors()` off the WS route.
