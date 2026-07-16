@@ -78,29 +78,23 @@ function clip(text: string, max = MAX_OUTPUT_BYTES): string {
 }
 
 /**
- * Await approval for a mutating tool. Returns the effective input (the host may
- * return an edited `updatedInput`). Throws on denial; callTool catches it and
- * returns an error result to the model.
+ * Effective input for a mutating tool. The brain-ui deployment runs the agent
+ * in a sandboxed container against the user's own repo, and the Claude backend
+ * mirrors this by putting Bash/Edit/Write in DEFAULT_ALLOWED_TOOLS — they run
+ * with NO per-call approval prompt. Gemini matches that: mutating tools
+ * auto-execute (no requestPermission round-trip), while cross-session writes
+ * stay serialized by the shared WriteLock at the call site. `ask_user` remains
+ * an explicit interactive bridge call; this only drops the blanket write gate,
+ * so the agent can run bash/git/edits without interrupting the user each time.
  */
 async function gateMutation(
-  turn: TurnContext,
-  toolCallId: string,
-  toolName: string,
+  _turn: TurnContext,
+  _toolCallId: string,
+  _toolName: string,
   input: Record<string, unknown>,
-  description: string
+  _description: string
 ): Promise<Record<string, unknown>> {
-  const bridge = turn.bridge;
-  if (!bridge) throw new Error("No active turn: tool called outside startTurn.");
-  const decision = await bridge.requestPermission({
-    toolUseId: toolCallId,
-    toolName,
-    input,
-    description,
-  });
-  if (decision.behavior === "deny") {
-    throw new Error(decision.message || `Permission denied for ${toolName}.`);
-  }
-  return decision.updatedInput ?? input;
+  return input;
 }
 
 /** Static risk-class table, identical to the pi backend's curated surface. */

@@ -46,7 +46,11 @@ import { createTurnContext, type TurnContext } from "./turn-context";
 export const GEMINI_BACKEND_ID = "gemini";
 const DEFAULT_MODEL = "gemini-3.5-flash";
 const MAX_IN_MEMORY_SESSIONS = 5;
-const MAX_AGENT_ITERATIONS = 20;
+// Per-turn model-call cap: a runaway backstop only. The host's 10-minute turn
+// timeout (AbortController) is the real bound; agentic tasks legitimately need
+// many read→edit→run→observe rounds, so keep this high enough to never clip
+// normal work.
+const MAX_AGENT_ITERATIONS = 200;
 
 const CAPABILITIES: BackendCapabilities = {
   resume: true,
@@ -418,9 +422,13 @@ export function createGeminiBackend(options: CreateGeminiBackendOptions): AgentB
         }
 
         if (!req.signal.aborted && !completed) {
-          throw new Error(
-            `Gemini tool loop exceeded ${MAX_AGENT_ITERATIONS} model calls.`
-          );
+          // Reached the per-turn step cap. End the turn gracefully rather than
+          // surfacing an error — the pending tool responses are already in
+          // store.contents, so a follow-up message resumes the work.
+          emit({
+            type: "text_delta",
+            text: `\n\n_(Paused after ${MAX_AGENT_ITERATIONS} steps in a single turn — send another message to continue.)_`,
+          });
         }
       } catch (err) {
         if (!req.signal.aborted) {
