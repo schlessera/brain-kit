@@ -47,6 +47,7 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | P5.3 | @brainform/ui-backend-pi | **done** | curated 9-tool surface, in-tool permission gate, extensions off; 33 tests |
 | P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
 | P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | **done — awaiting Alain's review** | schlessera/brain-ui PR #2, NOT merged; main untouched |
+| P5.6 | @brainform/ui-backend-gemini | **done** | @google/genai 2.12.0; manual tool loop + atomic JSON sessions; 3 keyless store tests |
 
 ## Parallel sessions (user-approved plan, session 1 continuation 2026-07-12)
 
@@ -84,6 +85,9 @@ Phase-5 additional decisions:
   "vendor/modelId" profileIds still resolve.
 - Both backends expose @internal injection seams (queryFn / sessionFactory) so the contract
   suite drives real startTurn paths keylessly.
+- Gemini's raw model SDK has no agent loop or transcript manager, so ui-backend-gemini owns
+  both: raw Content[] (including thoughtSignature metadata) is persisted beside incrementally
+  normalized wire history. Function responses use the SDK-verified `user` Content role.
 
 Phase-5 design decisions:
 - The wire protocol is published from @brainform/ui-sdk/protocol; brain-ui's shared/ becomes a
@@ -156,6 +160,16 @@ Phase-5 design decisions:
   green; main untouched. Deferred to phase 2 (documented in the PR): generic propagation
   consumer (his me/bios check is recursive; the `me/bios/*.md` glob would not be
   byte-faithful), finance/jobs/refresh-catalog consumers.
+
+### Session 2 — 2026-07-16
+
+- Added `@brainform/ui-backend-gemini`, pinned to npm-latest `@google/genai` 2.12.0.
+- Implemented Gemini streaming → scoped wire frames, a 20-step function-calling loop, the
+  curated gated brain tools, per-session busy/LRU state, image input, and abort semantics.
+- Added atomic JSON-per-session persistence with raw model Content[] plus normalized history;
+  verified the SDK's JSON-schema field, function-response role, call ids, and thought
+  signatures in installed declarations/implementation and official docs.
+- `bun install`, 3 keyless session-store tests, root `tsc --noEmit`, and diff checks pass.
 
 ## Next steps (for a fresh session)
 

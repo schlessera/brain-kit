@@ -251,6 +251,13 @@ export interface ProviderInfo {
    * it, only presentation.
    */
   vendor?: string;
+  /**
+   * Which AgentBackend serves this profile. Set by a host that aggregates
+   * profiles from several backends into one picker, so the client can resolve
+   * the selection's per-backend capabilities (e.g. follow-up live vs queued).
+   * Absent on single-backend hosts (the sole backend's capabilities apply).
+   */
+  backendId?: string;
 }
 
 // --- Shared Types ---
@@ -262,6 +269,12 @@ export interface ChatSession {
   lastActiveAt: number;
   totalCostUsd: number;
   numTurns: number;
+  /**
+   * AgentBackend that owns this session's transcript. Set by multi-backend
+   * hosts when aggregating each backend's sessions into one list; lets the
+   * client group/label sessions and the host route history to the owner.
+   */
+  backendId?: string;
 }
 
 export interface BrainSearchResult {

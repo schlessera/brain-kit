@@ -14,6 +14,29 @@ Local toolchain: bun 1.3.14, node v22.18.0.
 | `@deepgram/sdk` | 5.5.0 | only needed server-side to mint tokens; browser uses the raw WS + token. |
 | `Bun.password` | built into bun 1.3.14 | argon2id default — no dep. |
 
+## @google/genai — Gemini AgentBackend update (verified 2026-07-16)
+
+- npm `latest` is **2.12.0**; `@brainform/ui-backend-gemini` pins it exactly.
+- `FunctionDeclaration.parametersJsonSchema` accepts plain JSON Schema and is
+  the field used by the current README example. The backend passes declarations
+  as `config.tools = [{ functionDeclarations }]`.
+- `generateContentStream()` yields `GenerateContentResponse` chunks; streamed
+  parts are at `chunk.candidates?.[0]?.content?.parts`. `GenerateContentConfig`
+  carries `abortSignal`, `systemInstruction`, and
+  `thinkingConfig.includeThoughts`.
+- `Part` includes `thought`, `text`, `functionCall`, `functionResponse`, and
+  opaque `thoughtSignature`. Raw response parts must be retained in order so
+  Gemini 3 tool-call signatures are echoed unchanged.
+- The SDK's own automatic-function-calling implementation appends one
+  `Content` with role **`user`** for all function-response parts.
+  `FunctionResponse.id` can echo the provider's optional `FunctionCall.id`.
+
+Sources:
+https://www.npmjs.com/package/@google/genai ;
+https://googleapis.github.io/js-genai/ ;
+https://ai.google.dev/gemini-api/docs/generate-content/function-calling ;
+https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures
+
 ## @anthropic-ai/claude-agent-sdk — query() / canUseTool
 
 This is the **Claude Agent SDK** (Claude Code as a library), distinct from the base `@anthropic-ai/sdk`. Import from the root export; a server-side Bun backend uses `.` (there is also a `./browser` build and a `./bridge` export — not needed for our host-side backend).

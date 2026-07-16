@@ -1,0 +1,25 @@
+{
+  "name": "@brainform/ui-backend-gemini",
+  "version": "0.1.0",
+  "description": "brainform AgentBackend powered by Google's Gemini SDK",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@brainform/core": "workspace:*",
+    "@brainform/ui-sdk": "workspace:*",
+    "@google/genai": "2.12.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
