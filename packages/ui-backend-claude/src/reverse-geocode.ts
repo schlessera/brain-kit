@@ -30,7 +30,9 @@ function userAgent(): string {
  * then returns raw coordinates only.
  */
 function reverseGeocodeEnabled(): boolean {
-  const v = process.env.BRAINFORM_REVERSE_GEOCODE?.toLowerCase();
+  const v = (
+    process.env.BRAINFORM_REVERSE_GEOCODE ?? process.env.BRAIN_UI_REVERSE_GEOCODE
+  )?.toLowerCase();
   return v !== "0" && v !== "off" && v !== "false";
 }
 const CACHE_TTL_MS = 5 * 60 * 1000;
