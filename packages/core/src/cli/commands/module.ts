@@ -41,6 +41,7 @@ function moduleList(cli: CliContext): Record<string, unknown> {
     description: pkgInfo(m.dir).description ?? null,
     types: Object.keys(m.manifest.taxonomy?.types ?? {}),
     commands: Object.keys(m.manifest.commands ?? {}),
+    cron: m.manifest.cron ?? [],
   }));
 
   const available = declaredModulePackages(cli.brain.root)
