@@ -234,8 +234,12 @@ Phase-5 design decisions:
      fixes*, in [plan/09-phase-1-handoff.md](plan/09-phase-1-handoff.md).
    - ~~Remove `packages/ui-backend-gemini/`; make `@google/genai` optional~~ — **DONE**
      (`58cd846`, `c644e89`).
-   - **Decide the name** (`plan/08-name-research.md`) — now the single blocker on phase 2.
-     npm org, GitHub org, and domain all need claiming the same day.
+   - ~~Decide the name~~ — **DECIDED 2026-07-30: endoxa** (plan/10). Rename + publish
+     pipeline implemented on `phase-2/rename-endoxa` (dist builds, conditional exports,
+     changesets, LICENSE, `brain mcp`, template consent fix, CI pack job) with the
+     brain-ui companion on its `phase-2/endoxa-scope`. Remaining name-day actions are
+     Alain-only: npm org create, endoxa.app/.so registration, GitHub squat-release
+     request, manual wordmark pass. See [plan/10-phase-2-rename-publish.md](plan/10-phase-2-rename-publish.md).
    - **Alain reviews** schlessera/brain PR #1 (phase 1). Phase 2 (module boundaries in his
      repo) only after PR #1 merges. brain-ui PR #2 (phase 5) has landed on brain-ui `main`.
    - **Unverified, carry forward**: rotate the Deepgram key in brain-ui's working-tree .env
