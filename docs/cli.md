@@ -4,7 +4,8 @@ Runs under Bun. Installed as the `brain` bin by `@endoxa/core`; `brain setup`
 symlinks it into `~/.local/bin`. Output is JSON when stdout is not a TTY;
 `--json` / `--human` force either mode. Exit codes: `0` success, `1` usage
 error, `2` internal failure. The `--json` envelope shapes marked ⚖ are part of
-the [integration contract](integration-contract.md).
+the [integration contract](integration-contract.md). `brain --version` prints
+the installed `@endoxa/core` version.
 
 ```
 Usage: brain <command> [args] [flags]
@@ -43,11 +44,12 @@ Usage: brain <command> [args] [flags]
 
 | Command | Does | Notes |
 |---|---|---|
-| `setup` | Idempotent: install git hooks (`.githooks/` + `core.hooksPath`), sync skills, bin links | run by the template's `prepare` script |
+| `setup` | Idempotent: install git hooks (`.githooks/` + `core.hooksPath`), sync skills, bin links | run explicitly with `bun run setup` in the template |
 | `init --check` | Preflight JSON: bun/git/hooks/config/content dirs/key presence (booleans, never values) | consumed by `/brain-init` Stage 0 |
 | `init --default` | Non-interactive minimal brain: `brain.config.json` (dependency-free), core dirs, root `_index.md`, empty sidecars, index + validate | the keyless Tier-0 path; idempotent |
 | `doctor` ⚖ | Health battery: runtime, git-hooks, symlinks, config, db, embeddings, mcp, deps, version, privacy (public-remote = loud fail), macOS sqlite-vec | `{checks:[{id,status,detail,fix?}]}`; `--fix` applies auto-fixables |
 | `import --stamp <dir>` | Mechanical frontmatter stamping for imports (type note, status draft, title from H1/filename, dates from mtime) | skips files that already have frontmatter |
+| `mcp` | Start the stdio MCP server in-process | register this command with an MCP client; see [mcp.md](mcp.md) |
 
 ## Skills, modules, config
 

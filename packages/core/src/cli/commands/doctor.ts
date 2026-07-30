@@ -171,7 +171,7 @@ function checkMcp(root: string): Check {
   if (which("claude")) {
     const out = new TextDecoder().decode(Bun.spawnSync(["claude", "mcp", "list"]).stdout);
     if (/\bbrain\b/.test(out)) return { id: "mcp", status: "pass", detail: "registered (claude mcp list)" };
-    return { id: "mcp", status: "warn", detail: "brain MCP server not registered", fix: "run `claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts`" };
+    return { id: "mcp", status: "warn", detail: "brain MCP server not registered", fix: "run `claude mcp add brain -- bun node_modules/.bin/brain mcp`" };
   }
   return { id: "mcp", status: "warn", detail: "could not determine MCP registration (no .mcp.json / ~/.claude.json / claude CLI)", fix: "register the brain MCP server with your agent" };
 }
@@ -289,8 +289,11 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     if (failing.has("embeddings") && wantEmbeddings) applied.push("embeddings");
   }
   if (failing.has("mcp") && which("claude")) {
-    const server = resolve(import.meta.dir, "../../mcp-server.ts");
-    Bun.spawnSync(["claude", "mcp", "add", "brain", "--", "bun", server], { cwd: root });
+    const brainBin = resolve(root, "node_modules/.bin/brain");
+    Bun.spawnSync(
+      ["claude", "mcp", "add", "brain", "--", "bun", brainBin, "mcp"],
+      { cwd: root }
+    );
     applied.push("mcp");
   }
 

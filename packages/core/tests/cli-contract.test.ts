@@ -122,7 +122,15 @@ describe("output mode + exit codes", () => {
     expect(stdout).toContain("Brain Statistics");
   });
 
-  test("unknown command exits 1", async () => {
+  test("global surface is discoverable and unknown commands exit 1", async () => {
+    const help = await runCli(root, ["--help"]);
+    expect(help.code).toBe(0);
+    expect(help.stdout).toMatch(/^\s*mcp\s+Start the stdio MCP server$/m);
+
+    const version = await runCli(root, ["--version"]);
+    expect(version.code).toBe(0);
+    expect(version.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+
     const { code, stderr } = await runCli(root, ["bogus-command"]);
     expect(code).toBe(1);
     expect(stderr).toContain("Unknown command");

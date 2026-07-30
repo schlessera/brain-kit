@@ -14,7 +14,6 @@ import { join, resolve } from "path";
 
 const CORE_ROOT = resolve(import.meta.dir, "..");
 export const BRAIN_BIN = join(CORE_ROOT, "src/cli/brain.ts");
-export const MCP_SERVER = join(CORE_ROOT, "src/mcp-server.ts");
 const FIXTURE_CORPUS = join(CORE_ROOT, "fixtures/corpus");
 const REPO_NODE_MODULES = resolve(CORE_ROOT, "../../node_modules");
 

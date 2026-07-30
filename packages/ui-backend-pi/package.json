@@ -3,12 +3,40 @@
   "version": "0.1.0",
   "description": "OSS-default endoxa agent backend, purpose-built on the upstream pi coding-agent SDK",
   "license": "MIT",
+  "keywords": [
+    "endoxa",
+    "pi",
+    "ai-agent",
+    "chat-backend"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endoxa/endoxa.git",
+    "directory": "packages/ui-backend-pi"
+  },
+  "homepage": "https://endoxa.app",
+  "bugs": {
+    "url": "https://github.com/endoxa/endoxa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "test": "bun test tests"

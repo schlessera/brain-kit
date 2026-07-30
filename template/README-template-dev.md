@@ -18,17 +18,17 @@ up in the user's brand-new brain verbatim.
 3. The zero-byte sidecars (`.context-cache.jsonl`, `.asset-cache.jsonl`) must be
    committed empty; they are the sidecar-cache contract and `brain index`
    expects them to exist.
-4. Verify: `bun install` in a clone runs `prepare → brain setup` cleanly, and
+4. Verify: `bun install && bun run setup` in a clone completes cleanly, and
    `brain search hello` returns `notes/hello-brain.md` with no API key.
 
 ## Contents (what ships)
 
 - `brain.config.ts` — minimal default; core types only, commented examples.
-- `package.json` — `my-brain`, private, pinned `@endoxa/core`, `prepare` hook.
+- `package.json` — `my-brain`, private, pinned `@endoxa/core`, explicit setup script.
 - `CLAUDE.md` — imports the packaged `CONTRACT.md`; marker-delimited bootstrap
   region telling the agent to run `/brain-init`.
 - `README.md` — quickstart, KEEP-PRIVATE banner, degradation-ladder table.
-- `.mcp.json` — stdio entry pointing at the packaged MCP server.
+- `.mcp.json` — stdio entry pointing at the packaged `brain mcp` command.
 - `.env.example` — `GEMINI_API_KEY`, commented, framed as optional.
 - `me/.gitkeep`, `context/.gitkeep`, `notes/hello-brain.md` — starter structure.
 - `.context-cache.jsonl`, `.asset-cache.jsonl` — empty sidecars.
@@ -38,10 +38,9 @@ up in the user's brand-new brain verbatim.
 
 ## Choices worth knowing
 
-- Paths that reference not-yet-built core files are fixed by the plan spec:
-  `CONTRACT.md` (shipped in `@endoxa/core`'s `files`) and
-  `src/mcp-server.ts` (plan/01 §1). Keep `.mcp.json` and `CLAUDE.md` in sync if
-  those move.
+- Paths that reference packaged core files are fixed by the plan spec:
+  `CONTRACT.md` (shipped in `@endoxa/core`'s `files`) and the `brain mcp`
+  command. Keep `.mcp.json` and `CLAUDE.md` in sync if those move.
 - `me/`, `context/`, `notes/` are core built-ins (`CORE_TYPES` in
   `packages/core/src/lib/config.ts`), so `brain.config.ts` does not redeclare
   them — an uninitialized brain is valid with an essentially empty config.

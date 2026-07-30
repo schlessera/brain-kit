@@ -7,12 +7,20 @@ see [integration-contract.md](integration-contract.md).
 ## Registration
 
 ```sh
-claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts
+claude mcp add brain -- bun node_modules/.bin/brain mcp
 ```
 
 The template ships a project-scoped `.mcp.json` with this entry, so agents that
 read project MCP config need no registration step. `/brain-init` verifies the
 registration with an in-session `brain_search` call; `brain doctor` checks it.
+
+`brain mcp` starts the stdio server in-process. If the packaged bin is not
+available while developing from a source checkout, the source entry remains a
+fallback:
+
+```sh
+claude mcp add brain -- bun packages/core/src/mcp-server.ts
+```
 
 ## Tools
 

@@ -1,6 +1,6 @@
 # Quickstart
 
-From nothing to a working, searchable brain in two shell commands and one
+From nothing to a working, searchable brain in three shell commands and one
 conversation. This is the template path — the primary way to start.
 
 You need [Bun](https://bun.sh) ≥ 1.3, git, the [GitHub CLI](https://cli.github.com)
@@ -21,16 +21,16 @@ cd my-brain
 > prompt-injection surface. The `--private` flag above is not optional, and
 > `brain doctor` warns loudly if your remote ever becomes public.
 
-## 2. Install dependencies
+## 2. Install and set up
 
 ```sh
 bun install
+bun run setup
 ```
 
-The template's `prepare` script runs `brain setup` for you: it configures the
-git hooks path, syncs skills into your agent's discovery location, and installs
-the `brain` command. When it finishes, the CLI already works — no API keys, no
-further setup:
+The explicit setup step configures the git hooks path, syncs skills into your
+agent's discovery location, and installs the `brain` command. When it finishes,
+the CLI already works — no API keys, no further setup:
 
 ```sh
 brain search "hello"                   # finds the example note, notes/hello-brain.md
@@ -119,7 +119,7 @@ without breaking the one below it. You are never blocked waiting for a key.
 | ---- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | nothing (just Bun)                   | Full-text search (auto-degrades with warnings), `brain index`, `brain validate`, `brain audit`, mechanical `brain briefing`, heuristic `brain add`, MCP tools (degraded) |
 | 1    | a signed-in coding agent             | Everything above **plus every skill** — `/brain-init`, `/brain-import`, conversational capture and review                                            |
-| 2    | + a `GEMINI_API_KEY` (free tier fine)| Semantic and hybrid search, generated asset descriptions, the `whatsup` briefing                                                                     |
+| 2    | + a `GEMINI_API_KEY` (free tier fine)| Semantic and hybrid search, generated asset descriptions, richer `/whatsup` skill output via `brain briefing`                                        |
 | 3    | + a `DEEPGRAM_API_KEY` (with brain-ui)| Voice capture in the self-hosted chat UI                                                                                                            |
 
 Tier 0 is genuinely useful the moment you clone — the CLI needs only Bun. Tier 1

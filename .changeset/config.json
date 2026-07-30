@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@endoxa/core",
+      "@endoxa/ui-sdk",
+      "@endoxa/ui-backend-claude",
+      "@endoxa/ui-backend-pi",
+      "@endoxa/ui-render-puppeteer",
+      "@endoxa/module-finance",
+      "@endoxa/module-jobs",
+      "@endoxa/module-speaking"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

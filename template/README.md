@@ -29,11 +29,15 @@ gh repo create my-brain --template endoxa/endoxa-template --private --clone
 cd my-brain
 ```
 
-Install dependencies (this runs `brain setup` for you via the `prepare` script):
+Install dependencies, then run the one-time setup explicitly:
 
 ```sh
 bun install
+bun run setup
 ```
+
+Setup configures the repository's git hooks, syncs agent skills, and installs
+the local `brain` command link.
 
 Open the repo in your coding agent and run:
 
@@ -59,7 +63,7 @@ one below it:
 |---|---|---|
 | 0 | nothing (just Bun) | Full-text search, `brain index`, `brain validate`, `brain audit`, mechanical `brain briefing`, heuristic `brain add` capture, MCP tools (degraded) |
 | 1 | a signed-in coding agent | Everything above **plus** all skills — `/brain-init`, `/brain-import`, conversational capture and review |
-| 2 | + `GEMINI_API_KEY` (free tier is fine) | Semantic + hybrid search, asset descriptions, `brain whatsup` |
+| 2 | + `GEMINI_API_KEY` (free tier is fine) | Semantic + hybrid search, asset descriptions, richer `/whatsup` skill output via `brain briefing` |
 | 3 | + `DEEPGRAM_API_KEY` (with brain-ui) | Voice capture |
 
 Tier 0 means the CLI is useful the moment you clone. Add a `GEMINI_API_KEY` when

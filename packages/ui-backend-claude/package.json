@@ -3,12 +3,36 @@
   "version": "0.1.0",
   "description": "AgentBackend implementation for endoxa's chat UI backed by the Claude Agent SDK",
   "license": "MIT",
+  "keywords": [
+    "endoxa",
+    "claude",
+    "ai-agent",
+    "chat-backend"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endoxa/endoxa.git",
+    "directory": "packages/ui-backend-claude"
+  },
+  "homepage": "https://endoxa.app",
+  "bugs": {
+    "url": "https://github.com/endoxa/endoxa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "dist"
   ],
   "scripts": {
     "test": "bun test tests"

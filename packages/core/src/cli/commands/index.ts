@@ -28,6 +28,7 @@ import { importCommand } from "./import";
 import { skillsCommand } from "./skills";
 import { moduleCommand } from "./module";
 import { configCommand } from "./config";
+import { mcpCommand } from "./mcp";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
@@ -52,6 +53,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   skills: skillsCommand,
   module: moduleCommand,
   config: configCommand,
+  mcp: mcpCommand,
 };
 
 export { generateBriefing } from "./briefing";

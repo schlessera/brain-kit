@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-import { cleanup, keylessEnv, makeTempBrain, MCP_SERVER, runCli } from "./cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
 let client: Client;
@@ -23,7 +23,7 @@ beforeAll(async () => {
 
   const transport = new StdioClientTransport({
     command: "bun",
-    args: [MCP_SERVER],
+    args: [BRAIN_BIN, "mcp"],
     env: keylessEnv(root),
   });
   client = new Client({ name: "mcp-contract-test", version: "1.0.0" });

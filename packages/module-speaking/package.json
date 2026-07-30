@@ -3,14 +3,43 @@
   "version": "0.1.0",
   "description": "endoxa module: speaking — talks, conferences, CFP pipeline, travel planning",
   "license": "MIT",
+  "keywords": [
+    "endoxa",
+    "speaking",
+    "conferences",
+    "knowledge-management"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endoxa/endoxa.git",
+    "directory": "packages/module-speaking"
+  },
+  "homepage": "https://endoxa.app",
+  "bugs": {
+    "url": "https://github.com/endoxa/endoxa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./module": "./src/module.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./module": {
+      "bun": "./src/module.ts",
+      "types": "./dist/module.d.ts",
+      "default": "./dist/module.js"
+    }
   },
   "files": [
     "src",
-    "skills"
+    "dist",
+    "skills",
+    "README.md"
   ],
   "scripts": {
     "test": "bun test tests"

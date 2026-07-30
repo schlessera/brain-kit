@@ -125,6 +125,7 @@ export async function helpText(brain: BrainContext, registry: Registry): Promise
     "  --json      Force JSON output",
     "  --human     Force human-readable output",
     "  --help      Show help (append to a command for its usage)",
+    "  --version   Show the installed @endoxa/core version",
   ];
   return lines.join("\n");
 }

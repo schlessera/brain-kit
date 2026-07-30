@@ -23,6 +23,86 @@ jobs:
           GEMINI_API_KEY: ""
           ANTHROPIC_API_KEY: ""
 
+  pack:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Pack all workspaces
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/endoxa-tarballs"
+          mkdir -p "$TARBALL_DIR"
+          for package in \
+            core \
+            ui-sdk \
+            ui-backend-claude \
+            ui-backend-pi \
+            ui-render-puppeteer \
+            module-finance \
+            module-jobs \
+            module-speaking
+          do
+            (cd "packages/$package" && \
+              bun pm pack --filename "$TARBALL_DIR/$package.tgz")
+          done
+      - name: Install and smoke-test packed packages
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/endoxa-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/endoxa-consumer"
+          mkdir -p "$CONSUMER_DIR"
+          cd "$CONSUMER_DIR"
+          bun -e '
+            const tarballs = "../endoxa-tarballs";
+            await Bun.write("package.json", JSON.stringify({
+              name: "endoxa-pack-smoke",
+              private: true,
+              type: "module",
+              overrides: {
+                "@endoxa/core": `file:${tarballs}/core.tgz`,
+                "@endoxa/ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@endoxa/ui-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
+                "@endoxa/ui-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
+                "@endoxa/ui-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@endoxa/module-finance": `file:${tarballs}/module-finance.tgz`,
+                "@endoxa/module-jobs": `file:${tarballs}/module-jobs.tgz`,
+                "@endoxa/module-speaking": `file:${tarballs}/module-speaking.tgz`,
+              },
+            }, null, 2) + "\n");
+          '
+          bun add "$TARBALL_DIR"/*.tgz
+          bun -e '
+            const names = [
+              "@endoxa/core",
+              "@endoxa/ui-sdk",
+              "@endoxa/ui-backend-claude",
+              "@endoxa/ui-backend-pi",
+              "@endoxa/ui-render-puppeteer",
+              "@endoxa/module-finance",
+              "@endoxa/module-jobs",
+              "@endoxa/module-speaking",
+            ];
+            for (const name of names) {
+              const loaded = await import(name);
+              if (!loaded || typeof loaded !== "object") {
+                throw new Error(`Failed to import ${name}`);
+              }
+            }
+            const claude = await import("@endoxa/ui-backend-claude");
+            if (typeof claude.createClaudeBackend !== "function") {
+              throw new Error("createClaudeBackend export is missing");
+            }
+          '
+          ./node_modules/.bin/brain --version
+
   leakage:
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +124,7 @@ jobs:
             --exclude-dir=research \
             --exclude=PROGRESS.md \
             --exclude=AGENTS.md \
+            --exclude=LICENSE \
             . || true)
           if [ -n "$MATCHES" ]; then
             echo "Personal strings found outside allowed locations:"

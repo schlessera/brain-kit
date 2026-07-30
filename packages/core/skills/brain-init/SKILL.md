@@ -122,7 +122,7 @@ Run these in order and report each result in plain language:
    Point out that no shared keywords were needed — that is the embeddings working.
 5. **MCP registration** — make the `brain_*` tools available in-session. For Claude Code:
    ```bash
-   claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts
+   claude mcp add brain -- bun node_modules/.bin/brain mcp
    ```
    (Other agents register the `brain` MCP server through their own mechanism.) Verify by
    calling `brain_search` for the user's name in-session and confirming the identity hit.

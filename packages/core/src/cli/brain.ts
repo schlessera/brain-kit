@@ -14,7 +14,7 @@ import { join } from "path";
 import { buildTaxonomy } from "../lib/taxonomy";
 import { resolveRoot } from "../lib/config";
 import { CONFIG_FILENAMES } from "../lib/config";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { initContext } from "../lib/context";
 import type { BrainContext } from "../lib/context";
 import { createEnrichment } from "../lib/enrichment";
@@ -133,8 +133,19 @@ function degradedContext(): BrainContext {
   };
 }
 
+function packageVersion(): string {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
+  ) as { version: string };
+  return pkg.version;
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
+  if (argv.includes("--version") || argv.includes("-v")) {
+    console.log(packageVersion());
+    return 0;
+  }
   const json = computeJson(argv);
   const wantsHelp = argv.includes("--help") || argv.includes("-h");
   const command = argv[0] && !argv[0].startsWith("-") ? argv[0] : undefined;

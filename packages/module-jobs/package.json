@@ -3,14 +3,46 @@
   "version": "0.1.0",
   "description": "endoxa module: job-search pipeline — board scraping, scoring, dedup, triage",
   "license": "MIT",
+  "keywords": [
+    "endoxa",
+    "jobs",
+    "job-search",
+    "scraping"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endoxa/endoxa.git",
+    "directory": "packages/module-jobs"
+  },
+  "homepage": "https://endoxa.app",
+  "bugs": {
+    "url": "https://github.com/endoxa/endoxa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./module": "./src/module.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./module": {
+      "bun": "./src/module.ts",
+      "types": "./dist/module.d.ts",
+      "default": "./dist/module.js"
+    }
   },
   "files": [
     "src",
-    "docs"
+    "dist",
+    "docs",
+    "README.md"
   ],
   "scripts": {
     "test": "bun test tests"

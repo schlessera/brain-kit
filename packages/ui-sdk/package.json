@@ -3,16 +3,57 @@
   "version": "0.1.0",
   "description": "endoxa chat-UI SDK: the wire protocol, AgentBackend/SpeechProvider server seams, and client renderer/ASR registries",
   "license": "MIT",
+  "keywords": [
+    "endoxa",
+    "sdk",
+    "chat",
+    "ai-agents",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endoxa/endoxa.git",
+    "directory": "packages/ui-sdk"
+  },
+  "homepage": "https://endoxa.app",
+  "bugs": {
+    "url": "https://github.com/endoxa/endoxa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./protocol": "./src/protocol.ts",
-    "./schemas": "./src/schemas.ts",
-    "./server": "./src/server/index.ts",
-    "./client": "./src/client/index.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "bun": "./src/protocol.ts",
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./schemas": {
+      "bun": "./src/schemas.ts",
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
+    },
+    "./server": {
+      "bun": "./src/server/index.ts",
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./client": {
+      "bun": "./src/client/index.ts",
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "dist"
   ],
   "scripts": {
     "test": "bun test tests"

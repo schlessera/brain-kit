@@ -39,7 +39,7 @@ const MAX_SEARCH_LIMIT = 50;
 const MAX_LIST_LIMIT = 100;
 const MAX_GRAPH_DEPTH = 5;
 
-async function main() {
+export async function startMcpServer(): Promise<void> {
   const brain = await initContext();
   const dims = EMBEDDING_DIMENSIONS;
 
@@ -603,7 +603,9 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch((e) => {
-  console.error("Fatal error starting brain MCP server:", e);
-  process.exit(1);
-});
+if (import.meta.main) {
+  startMcpServer().catch((e) => {
+    console.error("Fatal error starting brain MCP server:", e);
+    process.exit(1);
+  });
+}
