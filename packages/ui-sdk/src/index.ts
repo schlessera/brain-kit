@@ -1,5 +1,5 @@
 /**
- * @brainform/ui-sdk — the chat-UI contract layer.
+ * @endoxa/ui-sdk — the chat-UI contract layer.
  *
  * - ./protocol : the wire protocol (compatibility contract)
  * - ./server   : AgentBackend / SpeechProvider seams + transcript store

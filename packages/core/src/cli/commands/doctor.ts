@@ -171,7 +171,7 @@ function checkMcp(root: string): Check {
   if (which("claude")) {
     const out = new TextDecoder().decode(Bun.spawnSync(["claude", "mcp", "list"]).stdout);
     if (/\bbrain\b/.test(out)) return { id: "mcp", status: "pass", detail: "registered (claude mcp list)" };
-    return { id: "mcp", status: "warn", detail: "brain MCP server not registered", fix: "run `claude mcp add brain -- bun node_modules/@brainform/core/src/mcp-server.ts`" };
+    return { id: "mcp", status: "warn", detail: "brain MCP server not registered", fix: "run `claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts`" };
   }
   return { id: "mcp", status: "warn", detail: "could not determine MCP registration (no .mcp.json / ~/.claude.json / claude CLI)", fix: "register the brain MCP server with your agent" };
 }
@@ -181,7 +181,7 @@ function checkDeps(root: string): Check {
   if (!existsSync(nm)) {
     // Monorepo dev: node_modules may live at a workspace root above the brain.
     if (!existsSync(join(root, "..", "node_modules")) && !existsSync(join(root, "..", "..", "node_modules"))) {
-      // Warn (not fail): if the CLI is running at all, @brainform/core resolved
+      // Warn (not fail): if the CLI is running at all, @endoxa/core resolved
       // — a locally-missing node_modules is advisory (git hooks/tests need it).
       return { id: "deps", status: "warn", detail: "node_modules not found in the brain repo", fix: "run `bun install`" };
     }
@@ -192,7 +192,7 @@ function checkDeps(root: string): Check {
 function checkVersion(): Check {
   try {
     const pkg = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../package.json"), "utf-8"));
-    return { id: "version", status: "pass", detail: `@brainform/core ${pkg.version}` };
+    return { id: "version", status: "pass", detail: `@endoxa/core ${pkg.version}` };
   } catch {
     return { id: "version", status: "warn", detail: "could not read core package version" };
   }

@@ -1,7 +1,7 @@
 {
-  "name": "@brainform/module-finance",
+  "name": "@endoxa/module-finance",
   "version": "0.1.0",
-  "description": "brainform module: client finance — ledgers, accounts-receivable tracking",
+  "description": "endoxa module: client finance — ledgers, accounts-receivable tracking",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -17,7 +17,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@brainform/core": "workspace:*",
+    "@endoxa/core": "workspace:*",
     "gray-matter": "^4.0.3",
     "zod": "^4.4.3"
   },

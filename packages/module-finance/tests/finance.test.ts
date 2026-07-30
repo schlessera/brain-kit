@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "path";
 
-import { buildTaxonomy } from "@brainform/core";
-import type { LoadedModule } from "@brainform/core";
+import { buildTaxonomy } from "@endoxa/core";
+import type { LoadedModule } from "@endoxa/core";
 
 import manifest, { configSchema } from "../src/module";
 import {
@@ -88,7 +88,7 @@ describe("module manifest", () => {
   test("taxonomy roundtrip: dirForType/typeForPath are inverse for finance", () => {
     const cfg = configSchema.parse({});
     const loaded: LoadedModule = {
-      key: "@brainform/module-finance",
+      key: "@endoxa/module-finance",
       manifest: { name: manifest.name, ...manifest.setup(cfg) },
       dir: PKG_DIR,
       config: cfg,

@@ -9,6 +9,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@brainform/core": "^0.1.0"
+    "@endoxa/core": "^0.1.0"
   }
 }

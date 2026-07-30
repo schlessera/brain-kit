@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@brainform/core";
-import type { AuditIssue, HygieneContext } from "@brainform/core";
+import { defineModule, repoRelativePathSchema } from "@endoxa/core";
+import type { AuditIssue, HygieneContext } from "@endoxa/core";
 import { checkSync, type FinanceOptions } from "./finance";
 
 /** User config block for the finance module (validated at load). */

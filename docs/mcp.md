@@ -7,7 +7,7 @@ see [integration-contract.md](integration-contract.md).
 ## Registration
 
 ```sh
-claude mcp add brain -- bun node_modules/@brainform/core/src/mcp-server.ts
+claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts
 ```
 
 The template ships a project-scoped `.mcp.json` with this entry, so agents that

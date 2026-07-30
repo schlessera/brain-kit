@@ -1,5 +1,5 @@
 /**
- * @brainform/ui-backend-pi — the OSS-default AgentBackend, built on the upstream
+ * @endoxa/ui-backend-pi — the OSS-default AgentBackend, built on the upstream
  * pi coding-agent SDK (@earendil-works/pi-coding-agent).
  *
  * pi's built-in read/bash/edit/write tools are disabled (`noTools: "builtin"`)
@@ -41,7 +41,7 @@ import {
   type ChatImageAttachment,
   type SessionHistoryMessage,
   type WriteLock,
-} from "@brainform/ui-sdk/server";
+} from "@endoxa/ui-sdk/server";
 
 import { createBrainAccess } from "./brain-access";
 import { createTurnContext, type TurnContext } from "./turn-context";
@@ -109,7 +109,7 @@ export interface CreatePiBackendOptions {
   model?: string;
   /** Selectable model/endpoint profiles. First is the default for new sessions. */
   profiles?: PiProfile[];
-  /** Where pi stores session JSONL. Default: <brainPath>/.brainform-ui/sessions. */
+  /** Where pi stores session JSONL. Default: <brainPath>/.endoxa-ui/sessions. */
   sessionDir?: string;
   /**
    * Load pi extensions discovered in the brain repo. Default false: the curated
@@ -165,7 +165,7 @@ interface ModelSpec {
 
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   const brainPath = options.brainPath;
-  const sessionDir = options.sessionDir ?? join(brainPath, ".brainform-ui", "sessions");
+  const sessionDir = options.sessionDir ?? join(brainPath, ".endoxa-ui", "sessions");
 
   // Shared across all sessions: read paths are parallel-safe (per-call handles,
   // busy_timeout on the write path) and the write lock is what serializes mutations.

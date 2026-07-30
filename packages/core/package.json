@@ -1,5 +1,5 @@
 {
-  "name": "@brainform/core",
+  "name": "@endoxa/core",
   "version": "0.1.0",
   "description": "File-first personal knowledge base operated by coding agents: CLI, hybrid search, MCP server, skills",
   "license": "MIT",

@@ -1,5 +1,5 @@
 /**
- * Core data types for brainform.
+ * Core data types for endoxa.
  *
  * Document types are config-driven strings validated at runtime against the
  * effective taxonomy (see taxonomy.ts) — not a compile-time union. Status and

@@ -1,7 +1,7 @@
 {
-  "name": "@brainform/ui-sdk",
+  "name": "@endoxa/ui-sdk",
   "version": "0.1.0",
-  "description": "brainform chat-UI SDK: the wire protocol, AgentBackend/SpeechProvider server seams, and client renderer/ASR registries",
+  "description": "endoxa chat-UI SDK: the wire protocol, AgentBackend/SpeechProvider server seams, and client renderer/ASR registries",
   "license": "MIT",
   "type": "module",
   "exports": {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildTaxonomy, type LoadedModule } from "@brainform/core";
+import { buildTaxonomy, type LoadedModule } from "@endoxa/core";
 
 import manifest, { configSchema } from "../src/module";
 
@@ -8,7 +8,7 @@ const contribution = manifest.setup(configSchema.parse({}));
 
 function loaded(): LoadedModule {
   return {
-    key: "@brainform/module-speaking",
+    key: "@endoxa/module-speaking",
     manifest: { name: manifest.name, ...contribution },
     dir: import.meta.dir,
     config: {},

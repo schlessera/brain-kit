@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { CommandContext, CommandModule } from "@brainform/core";
-import { safeResolve } from "@brainform/core";
+import type { CommandContext, CommandModule } from "@endoxa/core";
+import { safeResolve } from "@endoxa/core";
 
 import { openDatabase } from "./db";
 import { runScrape } from "./scrape";

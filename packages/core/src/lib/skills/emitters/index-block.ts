@@ -12,8 +12,8 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import type { SkillManifest } from "../../seams";
 
-export const INDEX_START = "<!-- brainform:skills-index:start -->";
-export const INDEX_END = "<!-- brainform:skills-index:end -->";
+export const INDEX_START = "<!-- endoxa:skills-index:start -->";
+export const INDEX_END = "<!-- endoxa:skills-index:end -->";
 
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();

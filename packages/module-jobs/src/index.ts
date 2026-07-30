@@ -1,8 +1,8 @@
 /**
- * @brainform/module-jobs public API.
+ * @endoxa/module-jobs public API.
  *
  * The manifest is the default export of "./module" (loaded by core via
- * `@brainform/module-jobs/module`). This entry re-exports the scoring engine
+ * `@endoxa/module-jobs/module`). This entry re-exports the scoring engine
  * and database helpers for embedders and tests.
  */
 

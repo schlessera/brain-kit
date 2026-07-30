@@ -9,7 +9,7 @@ import { emit, UsageError } from "../io";
 
 const HELP = `brain module <list|lint>
 
-  list          Enabled modules + available @brainform/module-* packages
+  list          Enabled modules + available @endoxa/module-* packages
   lint <name>   Validate an enabled module: manifest, skills, command/type
                 collisions, and configSchema against the user's config block`;
 
@@ -22,12 +22,12 @@ function pkgInfo(dir: string): { name?: string; description?: string } {
   }
 }
 
-/** @brainform/module-* packages declared in the brain repo's package.json. */
+/** @endoxa/module-* packages declared in the brain repo's package.json. */
 function declaredModulePackages(root: string): string[] {
   try {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
     const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
-    return Object.keys(deps).filter((k) => k.startsWith("@brainform/module-"));
+    return Object.keys(deps).filter((k) => k.startsWith("@endoxa/module-"));
   } catch {
     return [];
   }
@@ -100,7 +100,7 @@ function moduleLint(cli: CliContext, name: string): { findings: LintFinding[] } 
 }
 
 export const moduleCommand: CoreCommand = {
-  summary: "List and lint brainform modules",
+  summary: "List and lint endoxa modules",
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const sub = args[0];

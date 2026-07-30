@@ -1,4 +1,4 @@
-import type { ProviderInfo } from "@brainform/ui-sdk";
+import type { ProviderInfo } from "@endoxa/ui-sdk";
 
 /**
  * A resolved inference profile: a (model, endpoint, credentials) target the

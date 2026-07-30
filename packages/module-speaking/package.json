@@ -1,7 +1,7 @@
 {
-  "name": "@brainform/module-speaking",
+  "name": "@endoxa/module-speaking",
   "version": "0.1.0",
-  "description": "brainform module: speaking — talks, conferences, CFP pipeline, travel planning",
+  "description": "endoxa module: speaking — talks, conferences, CFP pipeline, travel planning",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -16,7 +16,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@brainform/core": "workspace:*",
+    "@endoxa/core": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

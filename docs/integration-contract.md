@@ -1,9 +1,9 @@
-# brainform Integration Contract
+# endoxa Integration Contract
 
 The machine-readable surface other systems (primarily **brain-ui**) may depend
 on. Anything NOT listed here is an internal implementation detail and can
 change without notice. Contract changes require a `CONTRACT:` commit prefix, a
-same-commit update of this file, and a major version bump of `@brainform/*`.
+same-commit update of this file, and a major version bump of `@endoxa/*`.
 
 Lineage: this is the public successor of the private brain's
 `scripts/INTEGRATION.md`; shapes are unchanged unless marked.
@@ -33,8 +33,8 @@ Lineage: this is the public successor of the private brain's
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
 | `brain index [--force] [--embeddings]` | stats object; incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
-| `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brainform) |
-| `brain init --check` | preflight object (new in brainform) |
+| `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in endoxa) |
+| `brain init --check` | preflight object (new in endoxa) |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as

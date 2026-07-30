@@ -82,7 +82,7 @@ After showing a summary of what will be written, generate:
   empty registry table.
 - **`me/identity.md`** seeded from the Stage 1 self-description.
 - **CLAUDE.md** — the personal overlay (Layer 2). Import the shipped agent contract on the
-  first line via `@node_modules/@brainform/core/CONTRACT.md`, then fill the fixed skeleton
+  first line via `@node_modules/@endoxa/core/CONTRACT.md`, then fill the fixed skeleton
   (Quick Navigation, Key Conventions, Directory Structure, Personal Rules). Wrap every
   generated region in `<!-- brain:generated:{section} -->` … `<!-- /brain:generated:{section} -->`
   markers. Anything outside the markers is the user's forever and must never be rewritten.
@@ -122,7 +122,7 @@ Run these in order and report each result in plain language:
    Point out that no shared keywords were needed — that is the embeddings working.
 5. **MCP registration** — make the `brain_*` tools available in-session. For Claude Code:
    ```bash
-   claude mcp add brain -- bun node_modules/@brainform/core/src/mcp-server.ts
+   claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts
    ```
    (Other agents register the `brain` MCP server through their own mechanism.) Verify by
    calling `brain_search` for the user's name in-session and confirming the identity hit.

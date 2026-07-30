@@ -1,6 +1,6 @@
-# Extending brainform
+# Extending endoxa
 
-brainform is provider-agnostic by architecture. Where a second implementation of
+endoxa is provider-agnostic by architecture. Where a second implementation of
 something is plausibly wanted within a year, there is a small typed **seam** you
 can slot your own implementation into. Everywhere else, the code stays concrete
 on purpose — see [the not-pluggable list](#explicitly-not-pluggable) below.
@@ -17,17 +17,17 @@ There is no plugin loader, no dependency-injection container, and no runtime
 discovery. Concretely:
 
 1. **Built-ins are strings.** `{ provider: "gemini" }` resolves against a static
-   registry compiled into `@brainform/core` — a plain `Record<string, factory>`.
+   registry compiled into `@endoxa/core` — a plain `Record<string, factory>`.
 2. **Custom implementations are values.** You write an object that satisfies the
    interface, import it into `brain.config.ts`, and pass it in:
    `{ provider: myEmbeddings }`. It is used as-is.
 3. **Sharing is an ordinary package.** Publish your implementation as
-   `brainform-<kind>-<vendor>` (e.g. `brainform-embeddings-ollama`) and other
+   `endoxa-<kind>-<vendor>` (e.g. `endoxa-embeddings-ollama`) and other
    people `import` and pass it the same way. Third parties never touch the
    registry; graduating a community implementation to a built-in is one PR.
 
 ```ts
-import { ollamaEmbeddings } from "brainform-embeddings-ollama";
+import { ollamaEmbeddings } from "endoxa-embeddings-ollama";
 
 export default defineConfig({
   embeddings: { provider: "gemini" },                                  // built-in
@@ -39,10 +39,10 @@ export default defineConfig({
 
 1. **Implement the interface** via its typed helper — `defineEmbeddingProvider`,
    `defineCompletionProvider`, `defineAgentRunner`, or `defineSkillEmitter` from
-   `@brainform/core` (identity functions that give you inference and
+   `@endoxa/core` (identity functions that give you inference and
    excess-property checking) — or as a plain object typed as the interface.
 2. **Reference it in config** by value — it works immediately, no registration.
-3. **(Optional) publish** it as `brainform-<kind>-<vendor>` so others can import it.
+3. **(Optional) publish** it as `endoxa-<kind>-<vendor>` so others can import it.
 
 ### Capability discovery and degradation
 
@@ -63,7 +63,7 @@ announced in the CHANGELOG; a breaking change to the stable contract requires a
 
 ## The seams
 
-Four seams live in `@brainform/core`:
+Four seams live in `@endoxa/core`:
 
 | Seam                                       | Interface            | What it swaps                         |
 | ------------------------------------------ | -------------------- | ------------------------------------- |
@@ -72,7 +72,7 @@ Four seams live in `@brainform/core`:
 | [Agent runners](agent-runners.md)          | `AgentRunner`        | The coding-agent CLI skills shell out to |
 | [Skill emitters](skill-emitters.md)        | `SkillEmitter`       | The agent format skills are emitted for |
 
-The self-hosted chat UI adds four more in `@brainform/ui-sdk` (ships with the
+The self-hosted chat UI adds four more in `@endoxa/ui-sdk` (ships with the
 brain-ui repo, v0.1): `AgentBackend` and `SpeechProvider` (server), `ToolRenderer`
 and `AsrClient` (client). Those are documented with brain-ui.
 

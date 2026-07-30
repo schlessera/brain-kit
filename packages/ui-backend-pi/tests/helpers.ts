@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { initContext, openDatabase, indexAll } from "@brainform/core";
+import { initContext, openDatabase, indexAll } from "@endoxa/core";
 
 export interface TempBrain {
   root: string;

@@ -1,4 +1,4 @@
-import { defineConfig } from "@brainform/core";
+import { defineConfig } from "@endoxa/core";
 
 /**
  * Test fixture brain for the fictional persona "Alex Example", a park ranger.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ProviderInfo } from "@brainform/ui-sdk/server";
-import { BackendRequestError } from "@brainform/ui-sdk/server";
+import type { ProviderInfo } from "@endoxa/ui-sdk/server";
+import { BackendRequestError } from "@endoxa/ui-sdk/server";
 
 import { createPiBackend } from "../src/backend";
 import { makeEmptyBrain } from "./helpers";

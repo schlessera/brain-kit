@@ -1,4 +1,4 @@
-# @brainform/module-finance
+# @endoxa/module-finance
 
 Accounts-receivable tracking for freelance / agency client work: per-client
 `ledger.md` files are the source of truth, and the module derives every balance,
@@ -8,7 +8,7 @@ Enable it in `brain.config.ts`:
 
 ```ts
 modules: {
-  "@brainform/module-finance": { clientsDir: "clients", feeTolerance: 30 },
+  "@endoxa/module-finance": { clientsDir: "clients", feeTolerance: 30 },
 }
 ```
 
@@ -24,7 +24,7 @@ so it cannot read `clientsDir`). The `clientsDir` config option is what the CLI
 and hygiene check actually use. If you move clients elsewhere, set **both**:
 
 ```ts
-modules: { "@brainform/module-finance": { clientsDir: "billing/clients" } },
+modules: { "@endoxa/module-finance": { clientsDir: "billing/clients" } },
 taxonomy: { types: { finance: { dir: "billing/clients" } } },
 ```
 

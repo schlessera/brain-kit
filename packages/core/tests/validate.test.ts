@@ -19,7 +19,7 @@ afterAll(() => {
 });
 
 function makeCorpus(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "brainform-validate-test-"));
+  const root = mkdtempSync(join(tmpdir(), "endoxa-validate-test-"));
   fixtures.push(root);
   for (const [rel, content] of Object.entries(files)) {
     const full = join(root, rel);

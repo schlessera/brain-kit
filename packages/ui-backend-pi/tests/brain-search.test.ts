@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createWriteLock } from "@brainform/ui-sdk/server";
+import { createWriteLock } from "@endoxa/ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools } from "../src/tools";

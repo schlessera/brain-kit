@@ -6,7 +6,7 @@ briefings — the text-in, text-out work that does not need a full coding agent.
 
 ## The interface
 
-From `@brainform/core` (`src/lib/seams.ts`):
+From `@endoxa/core` (`src/lib/seams.ts`):
 
 ```ts
 export type ContentPart =
@@ -56,7 +56,7 @@ fall back from a vision model to a text-only one if you rely on vision).
 
    ```ts
    // my-completions.ts
-   import type { CompletionProvider } from "@brainform/core";
+   import type { CompletionProvider } from "@endoxa/core";
 
    export function myCompletions(): CompletionProvider {
      return {
@@ -79,7 +79,7 @@ fall back from a vision model to a text-only one if you rely on vision).
    });
    ```
 
-3. **(Optional) publish** as `brainform-completions-<vendor>`.
+3. **(Optional) publish** as `endoxa-completions-<vendor>`.
 
 ## Capability and degradation notes
 

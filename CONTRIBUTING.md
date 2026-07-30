@@ -1,6 +1,6 @@
 # Contributing
 
-brainform is maintained by one person. Contributions are welcome; expectations
+endoxa is maintained by one person. Contributions are welcome; expectations
 are calibrated accordingly — reviews may take days, and scope is guarded
 deliberately.
 
@@ -29,13 +29,13 @@ needs an API key or the network.
 3. **Contributing a provider** (the intended extension path, ≤3 steps):
    implement the typed interface (`defineConfig` accepts your value directly),
    prove it against the interface's contract test, and optionally publish as
-   `brainform-<kind>-<vendor>`. Community providers are only promoted to
+   `endoxa-<kind>-<vendor>`. Community providers are only promoted to
    built-ins once they have real users.
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.
 5. **No personal data** in fixtures or examples — the CI leakage gate will
    reject known private strings; use the "Alex Example" persona.
-6. Versioning is lockstep across `@brainform/*` via changesets; add a
+6. Versioning is lockstep across `@endoxa/*` via changesets; add a
    changeset to any user-visible change.
 
 ## What not to send

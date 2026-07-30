@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createWriteLock } from "@brainform/ui-sdk/server";
+import { createWriteLock } from "@endoxa/ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools, TOOL_RISK } from "../src/tools";
@@ -125,13 +125,13 @@ describe("curated tool permission gating", () => {
 
       const res = await tools.bash.execute(
         "t5",
-        { command: "echo brainform-ok" },
+        { command: "echo endoxa-ok" },
         undefined,
         undefined,
         CTX
       );
       expect(mock.permissionCalls).toHaveLength(1);
-      expect(resultText(res)).toContain("brainform-ok");
+      expect(resultText(res)).toContain("endoxa-ok");
     } finally {
       brain.cleanup();
     }

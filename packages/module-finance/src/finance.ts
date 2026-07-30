@@ -16,7 +16,7 @@
 import { resolve, join, relative } from "path";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
 import matter from "gray-matter";
-import { safeResolve } from "@brainform/core";
+import { safeResolve } from "@endoxa/core";
 
 /** Runtime configuration for the AR engine, threaded through every entry point. */
 export interface FinanceOptions {

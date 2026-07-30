@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@brainform/core";
+import { defineModule, repoRelativePathSchema } from "@endoxa/core";
 
 /**
- * Config for @brainform/module-jobs. `criteria` points at a markdown file whose
+ * Config for @endoxa/module-jobs. `criteria` points at a markdown file whose
  * frontmatter defines the weighted scoring rules (see docs/criteria-template.md
  * and the README); it stays brain content the user owns and tunes.
  */

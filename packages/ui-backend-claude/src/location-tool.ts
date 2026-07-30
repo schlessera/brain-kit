@@ -2,8 +2,8 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 // The SDK uses zod v4 internally, so schema types line up with the SDK's
 // `AnyZodRawShape` from a plain `zod` import.
 import { z } from "zod";
-import type { GeoRequestOptions } from "@brainform/ui-sdk";
-import type { LocationFix } from "@brainform/ui-sdk/server";
+import type { GeoRequestOptions } from "@endoxa/ui-sdk";
+import type { LocationFix } from "@endoxa/ui-sdk/server";
 import { reverseGeocode } from "./reverse-geocode";
 
 /**
@@ -82,4 +82,4 @@ export function createLocationTool(handler: LocationHandler) {
 }
 
 /** The exact MCP-prefixed tool name Claude sees in the stream. */
-export const GET_LOCATION_TOOL_NAME = "mcp__brainform__get_current_location";
+export const GET_LOCATION_TOOL_NAME = "mcp__endoxa__get_current_location";

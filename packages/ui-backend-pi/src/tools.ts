@@ -12,7 +12,7 @@
  * with no round-trip; mutating tools first await bridge.requestPermission() and
  * throw on denial. A thrown error becomes an `isError` tool result fed back to
  * the model (pi's agent loop catches tool throws), so a denial never crashes
- * the turn. File tools use @brainform/core's safeResolve for repo containment;
+ * the turn. File tools use @endoxa/core's safeResolve for repo containment;
  * bash is pinned to the repo cwd.
  */
 
@@ -22,7 +22,7 @@ import { dirname } from "path";
 import { Type } from "typebox";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AskUserQuestion, WriteLock } from "@brainform/ui-sdk/server";
+import type { AskUserQuestion, WriteLock } from "@endoxa/ui-sdk/server";
 
 import type { BrainAccess } from "./brain-access";
 import type { TurnContext } from "./turn-context";

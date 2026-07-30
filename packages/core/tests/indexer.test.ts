@@ -70,7 +70,7 @@ function md(title: string, body: string): string {
 }
 
 function makeCorpus(files: Record<string, string | Buffer>): string {
-  const root = mkdtempSync(join(tmpdir(), "brainform-indexer-test-"));
+  const root = mkdtempSync(join(tmpdir(), "endoxa-indexer-test-"));
   fixtures.push(root);
   for (const [rel, content] of Object.entries(files)) {
     const full = join(root, rel);

@@ -1,16 +1,16 @@
 import { expect, test, describe } from "bun:test";
 import type { query, Options } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerMessage } from "@brainform/ui-sdk";
+import type { ServerMessage } from "@endoxa/ui-sdk";
 import type {
   BackendBridge,
   PermissionDecision,
   StartTurnRequest,
-} from "@brainform/ui-sdk/server";
+} from "@endoxa/ui-sdk/server";
 import {
   BackendBusyError,
   BackendRequestError,
   createWriteLock,
-} from "@brainform/ui-sdk/server";
+} from "@endoxa/ui-sdk/server";
 import { createClaudeBackend } from "../src/backend";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;

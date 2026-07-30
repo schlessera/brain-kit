@@ -6,7 +6,7 @@ import type {
   ChatSession,
   MessagePart,
   SessionHistoryMessage,
-} from "@brainform/ui-sdk";
+} from "@endoxa/ui-sdk";
 
 /**
  * Session list + transcript reader backed by the Claude Agent SDK's native

@@ -33,9 +33,9 @@ jobs:
         run: |
           set -e
           # Pattern is assembled from pieces so this workflow file does not
-          # itself trip the gate. Second alternative allows the public org
-          # name (ends in "a") while catching the personal surname/domain.
-          P1='al''ain'; P2='schles''ser([^a]|$)'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
+          # itself trip the gate. The former GitHub org spelling is caught
+          # too since the rename to the public org name.
+          P1='al''ain'; P2='schles''ser'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
           PATTERN="$P1|$P2|$P3|$P4|$P5"
           MATCHES=$(grep -riE "$PATTERN" \
             --exclude-dir=node_modules \

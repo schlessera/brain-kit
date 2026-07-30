@@ -57,6 +57,6 @@ within a week, not hours.
 
 ## Scope
 
-Vulnerabilities in `@brainform/*` packages and the template are in scope.
+Vulnerabilities in `@endoxa/*` packages and the template are in scope.
 Prompt-injection reports are welcome but tracked as hardening work, not
 CVE-class bugs, unless they cross a documented security boundary.

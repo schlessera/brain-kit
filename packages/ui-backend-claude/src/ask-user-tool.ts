@@ -6,8 +6,8 @@ import {
 // The SDK uses zod v4 internally, so schema types line up with the SDK's
 // `AnyZodRawShape` from a plain `zod` import.
 import { z } from "zod";
-import type { AskUserQuestion } from "@brainform/ui-sdk";
-import type { AskUserResult } from "@brainform/ui-sdk/server";
+import type { AskUserQuestion } from "@endoxa/ui-sdk";
+import type { AskUserResult } from "@endoxa/ui-sdk/server";
 import { createLocationTool, type LocationHandler } from "./location-tool";
 
 /**
@@ -17,7 +17,7 @@ import { createLocationTool, type LocationHandler } from "./location-tool";
  * spawned `claude` CLI binary, which needs a TTY to render its picker. This
  * backend runs the CLI headless, so the built-in hangs. We disable it via
  * `disallowedTools` and expose this in-process MCP tool with an equivalent
- * schema instead. Claude calls `mcp__brainform__ask_user`; the handler routes
+ * schema instead. Claude calls `mcp__endoxa__ask_user`; the handler routes
  * the request over the host bridge (`BackendBridge.askUser`) and awaits the
  * user's answer.
  *
@@ -31,8 +31,8 @@ export type AskUserHandler = (
   questions: AskUserQuestion[]
 ) => Promise<AskUserResult>;
 
-/** MCP server name; its tools surface to Claude as `mcp__brainform__*`. */
-const MCP_SERVER_NAME = "brainform";
+/** MCP server name; its tools surface to Claude as `mcp__endoxa__*`. */
+const MCP_SERVER_NAME = "endoxa";
 
 const optionSchema = z.object({
   label: z.string().describe("Display text for this option (1-5 words)."),
@@ -121,10 +121,10 @@ export function createAskUserTool(handler: AskUserHandler) {
 
 /**
  * The in-process MCP server for this backend's own tools. Registered under the
- * `brainform` name, so its tools are exposed to Claude as `mcp__brainform__*`.
+ * `endoxa` name, so its tools are exposed to Claude as `mcp__endoxa__*`.
  * Tools are registered only when the host supplies the matching handler.
  */
-export function createBrainformMcpServer(handlers: {
+export function createEndoxaMcpServer(handlers: {
   askUser?: AskUserHandler;
   getLocation?: LocationHandler;
 }) {
@@ -139,4 +139,4 @@ export function createBrainformMcpServer(handlers: {
 }
 
 /** The exact MCP-prefixed tool name Claude sees in the stream. */
-export const ASK_USER_TOOL_NAME = "mcp__brainform__ask_user";
+export const ASK_USER_TOOL_NAME = "mcp__endoxa__ask_user";

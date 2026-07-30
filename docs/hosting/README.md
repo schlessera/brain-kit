@@ -13,7 +13,7 @@ Web App chat interface that drives a coding agent over your brain. It is *not*
 part of this monorepo — it versions independently against the
 [integration contract](../integration-contract.md), spawning the packaged `brain`
 CLI and reading `brain.db` the same way any consumer does. Its own README and
-docs cover deployment specifics; find it under the `schlessera` GitHub org
+docs cover deployment specifics; find it under the `endoxa` GitHub org
 alongside this project.
 
 Running brain-ui means running an agent that can execute Bash in a container that
@@ -65,7 +65,7 @@ The hosting is cheap. The AI is not — and that is the part people underestimat
 ## Encryption, honestly
 
 **True end-to-end encryption is incompatible with a server-side agent** — the
-agent has to read your plaintext to operate on it. So brainform scopes
+agent has to read your plaintext to operate on it. So endoxa scopes
 encryption to what actually protects you:
 
 - **At rest** — an encrypted volume (LUKS or your provider's volume encryption)

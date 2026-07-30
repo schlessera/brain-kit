@@ -1,7 +1,7 @@
 {
-  "name": "@brainform/module-jobs",
+  "name": "@endoxa/module-jobs",
   "version": "0.1.0",
-  "description": "brainform module: job-search pipeline — board scraping, scoring, dedup, triage",
+  "description": "endoxa module: job-search pipeline — board scraping, scoring, dedup, triage",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -16,7 +16,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@brainform/core": "workspace:*",
+    "@endoxa/core": "workspace:*",
     "gray-matter": "^4.0.3",
     "zod": "^4.4.3"
   },

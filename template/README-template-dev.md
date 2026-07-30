@@ -1,17 +1,17 @@
 # Maintainer note — this directory is the template source
 
-**This file is NOT part of the template output.** It is a note for brainform
+**This file is NOT part of the template output.** It is a note for endoxa
 maintainers, excluded when the template repo is cut.
 
-`template/` in the `schlessera/brainform` monorepo is the source of truth for the
-standalone **`schlessera/brainform-template`** repo — the one users clone via
+`template/` in the `endoxa/endoxa` monorepo is the source of truth for the
+standalone **`endoxa/endoxa-template`** repo — the one users clone via
 GitHub's "Use this template" (see the `gh repo create … --template` one-liner in
 `README.md`). Everything else in this directory is real template content and ends
 up in the user's brand-new brain verbatim.
 
 ## How the template repo gets cut
 
-1. Copy the contents of `template/` into the `schlessera/brainform-template` repo
+1. Copy the contents of `template/` into the `endoxa/endoxa-template` repo
    with **fresh git history** (no monorepo history, per plan/06 publishing).
 2. **Exclude this file** (`README-template-dev.md`) from the copy — it is the
    only file here that must not ship.
@@ -24,7 +24,7 @@ up in the user's brand-new brain verbatim.
 ## Contents (what ships)
 
 - `brain.config.ts` — minimal default; core types only, commented examples.
-- `package.json` — `my-brain`, private, pinned `@brainform/core`, `prepare` hook.
+- `package.json` — `my-brain`, private, pinned `@endoxa/core`, `prepare` hook.
 - `CLAUDE.md` — imports the packaged `CONTRACT.md`; marker-delimited bootstrap
   region telling the agent to run `/brain-init`.
 - `README.md` — quickstart, KEEP-PRIVATE banner, degradation-ladder table.
@@ -39,7 +39,7 @@ up in the user's brand-new brain verbatim.
 ## Choices worth knowing
 
 - Paths that reference not-yet-built core files are fixed by the plan spec:
-  `CONTRACT.md` (shipped in `@brainform/core`'s `files`) and
+  `CONTRACT.md` (shipped in `@endoxa/core`'s `files`) and
   `src/mcp-server.ts` (plan/01 §1). Keep `.mcp.json` and `CLAUDE.md` in sync if
   those move.
 - `me/`, `context/`, `notes/` are core built-ins (`CORE_TYPES` in

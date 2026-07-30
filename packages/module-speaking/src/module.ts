@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule } from "@brainform/core";
+import { defineModule } from "@endoxa/core";
 
 /**
  * Config for the speaking module.

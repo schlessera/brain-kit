@@ -4,7 +4,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
   ServerMessage,
-} from "@brainform/ui-sdk/server";
+} from "@endoxa/ui-sdk/server";
 
 export interface MockBridge {
   bridge: BackendBridge;

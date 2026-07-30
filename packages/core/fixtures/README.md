@@ -41,7 +41,7 @@ Layered over the four core built-in types (`identity`, `context`, `note`, `index
 - **dirAnchors** — core default `["_index.md"]` only (no modules loaded), so a
   directory wiki-link resolves via `_index.md`, **not** `status.md`.
 
-> The config imports `defineConfig` from `@brainform/core` — resolved via the
+> The config imports `defineConfig` from `@endoxa/core` — resolved via the
 > workspace link (hoisted linker, see bunfig.toml). Tests normally load it via
 > the same `loadUserConfig(root)` path the CLI uses.
 

@@ -11,7 +11,7 @@ afterAll(() => {
 });
 
 function makeRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), "brainform-safe-path-"));
+  const dir = mkdtempSync(join(tmpdir(), "endoxa-safe-path-"));
   fixtures.push(dir);
   return dir;
 }

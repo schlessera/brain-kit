@@ -25,7 +25,7 @@ rebuilt on demand.
 Create a **private** repo from the template and clone it:
 
 ```sh
-gh repo create my-brain --template schlessera/brainform-template --private --clone
+gh repo create my-brain --template endoxa/endoxa-template --private --clone
 cd my-brain
 ```
 
@@ -52,7 +52,7 @@ brain add "a thought I want to keep"  # captures a note
 
 ## What works without any API keys
 
-brainform degrades gracefully. Each tier adds capability without breaking the
+endoxa degrades gracefully. Each tier adds capability without breaking the
 one below it:
 
 | Tier | You provide | You get |
@@ -68,4 +68,4 @@ you want the "search by meaning" experience — see [`.env.example`](.env.exampl
 ## Documentation
 
 Full docs — concepts, CLI reference, MCP, hosting, and modules — live with the
-core project: <https://github.com/schlessera/brainform>.
+core project: <https://github.com/endoxa/endoxa>.

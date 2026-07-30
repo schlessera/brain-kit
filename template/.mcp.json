@@ -2,7 +2,7 @@
   "mcpServers": {
     "brain": {
       "command": "bun",
-      "args": ["node_modules/@brainform/core/src/mcp-server.ts"]
+      "args": ["node_modules/@endoxa/core/src/mcp-server.ts"]
     }
   }
 }

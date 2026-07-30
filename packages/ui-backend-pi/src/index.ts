@@ -1,5 +1,5 @@
 /**
- * @brainform/ui-backend-pi — OSS-default agent backend on the upstream pi SDK.
+ * @endoxa/ui-backend-pi — OSS-default agent backend on the upstream pi SDK.
  *
  * The primary export is `createPiBackend(options)`, an AgentBackend for the
  * brain-ui server. Internal building blocks (brain access, curated tools,

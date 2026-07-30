@@ -29,7 +29,7 @@ function writeSkill(baseDir: string, dirName: string, fields: Record<string, str
 }
 
 function fakeModule(dir: string, name: string): LoadedModule {
-  return { key: `@brainform/module-${name}`, dir, config: {}, manifest: { name, skills: "skills" } };
+  return { key: `@endoxa/module-${name}`, dir, config: {}, manifest: { name, skills: "skills" } };
 }
 
 function byName(skills: SkillManifest[]): Record<string, SkillManifest> {

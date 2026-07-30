@@ -1,7 +1,7 @@
 {
-  "name": "@brainform/ui-backend-pi",
+  "name": "@endoxa/ui-backend-pi",
   "version": "0.1.0",
-  "description": "OSS-default brainform agent backend, purpose-built on the upstream pi coding-agent SDK",
+  "description": "OSS-default endoxa agent backend, purpose-built on the upstream pi coding-agent SDK",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -14,8 +14,8 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@brainform/core": "workspace:*",
-    "@brainform/ui-sdk": "workspace:*",
+    "@endoxa/core": "workspace:*",
+    "@endoxa/ui-sdk": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.80.6",
     "@earendil-works/pi-ai": "0.80.6",
     "typebox": "1.1.38"

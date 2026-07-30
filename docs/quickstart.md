@@ -8,11 +8,11 @@ You need [Bun](https://bun.sh) ≥ 1.3, git, the [GitHub CLI](https://cli.github
 
 ## 1. Create a private repo from the template
 
-brainform ships a GitHub template repo. Create your own **private** copy and
+endoxa ships a GitHub template repo. Create your own **private** copy and
 clone it in one command:
 
 ```sh
-gh repo create my-brain --template schlessera/brainform-template --private --clone
+gh repo create my-brain --template endoxa/endoxa-template --private --clone
 cd my-brain
 ```
 
@@ -112,7 +112,7 @@ search proves itself.
 
 ## The degradation ladder
 
-brainform is built so that every capability is additive: each tier adds power
+endoxa is built so that every capability is additive: each tier adds power
 without breaking the one below it. You are never blocked waiting for a key.
 
 | Tier | You provide                          | You get                                                                                                                                             |

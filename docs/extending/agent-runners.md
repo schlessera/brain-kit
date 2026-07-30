@@ -7,7 +7,7 @@ that need tools (reading files, running commands), where a plain
 
 ## The interface
 
-From `@brainform/core` (`src/lib/seams.ts`):
+From `@endoxa/core` (`src/lib/seams.ts`):
 
 ```ts
 export interface AgentRunner {
@@ -56,7 +56,7 @@ pass a custom runner.
 
    ```ts
    // my-runner.ts
-   import type { AgentRunner } from "@brainform/core";
+   import type { AgentRunner } from "@endoxa/core";
 
    export function myRunner(): AgentRunner {
      return {
@@ -76,7 +76,7 @@ pass a custom runner.
    export default defineConfig({ agentRunner: myRunner() });
    ```
 
-3. **(Optional) publish** as `brainform-agent-<vendor>` (or use any `id` string,
+3. **(Optional) publish** as `endoxa-agent-<vendor>` (or use any `id` string,
    e.g. `"omp"`, when you pass a value).
 
 ## Capability and degradation notes

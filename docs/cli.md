@@ -1,6 +1,6 @@
 # CLI Reference — `brain`
 
-Runs under Bun. Installed as the `brain` bin by `@brainform/core`; `brain setup`
+Runs under Bun. Installed as the `brain` bin by `@endoxa/core`; `brain setup`
 symlinks it into `~/.local/bin`. Output is JSON when stdout is not a TTY;
 `--json` / `--human` force either mode. Exit codes: `0` success, `1` usage
 error, `2` internal failure. The `--json` envelope shapes marked ⚖ are part of

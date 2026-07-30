@@ -41,7 +41,7 @@ plain-language explanation, consent, and re-verification — not re-implementing
 | config | `brain.config` missing / invalid vs schema | none — point to `/brain-init` |
 | db | brain.db missing, schema mismatch, or stale vs file mtimes | `brain index` (add `--force` on schema mismatch) |
 | embeddings | model mismatch / missing coverage / no API key | `brain index --embeddings` (a missing key needs the user) |
-| mcp | `brain` not registered with the agent | register the MCP server (Claude: `claude mcp add brain -- bun node_modules/@brainform/core/src/mcp-server.ts`) |
+| mcp | `brain` not registered with the agent | register the MCP server (Claude: `claude mcp add brain -- bun node_modules/@endoxa/core/src/mcp-server.ts`) |
 | deps | node_modules missing / lockfile drift | `bun install` |
 | version | core package outside `brain.config` compat range | none — explain the upgrade |
 | privacy | **git remote exists and is PUBLIC** | none — **loud warning, never auto-fix** |

@@ -1,4 +1,4 @@
-import type { GeoCoords } from "@brainform/ui-sdk";
+import type { GeoCoords } from "@endoxa/ui-sdk";
 
 /**
  * Reverse geocoding via OpenStreetMap's Nominatim. Turns a raw lat/long fix
@@ -20,18 +20,18 @@ function nominatimUrl(): string {
   return process.env.NOMINATIM_URL || "https://nominatim.openstreetmap.org";
 }
 function userAgent(): string {
-  return process.env.NOMINATIM_USER_AGENT || "brainform-ui/1.0";
+  return process.env.NOMINATIM_USER_AGENT || "endoxa-ui/1.0";
 }
 
 /**
- * Reverse geocoding is on by default. Set BRAINFORM_REVERSE_GEOCODE to
+ * Reverse geocoding is on by default. Set ENDOXA_REVERSE_GEOCODE to
  * 0/off/false to skip the Nominatim call entirely — useful offline, air-gapped,
  * or when you'd rather not send coordinates to a third party. The location tool
  * then returns raw coordinates only.
  */
 function reverseGeocodeEnabled(): boolean {
   const v = (
-    process.env.BRAINFORM_REVERSE_GEOCODE ?? process.env.BRAIN_UI_REVERSE_GEOCODE
+    process.env.ENDOXA_REVERSE_GEOCODE ?? process.env.BRAIN_UI_REVERSE_GEOCODE
   )?.toLowerCase();
   return v !== "0" && v !== "off" && v !== "false";
 }
