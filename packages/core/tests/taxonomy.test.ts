@@ -312,6 +312,19 @@ describe("modules key containment", () => {
       expect(() => brainConfigSchema.parse({ modules: { [key]: {} } })).toThrow();
     }
   });
+
+  test("rejects control characters in keys and paths", () => {
+    // A newline here reaches a generated ROOT crontab line via the module
+    // key in the logger tag, where it would start its own command.
+    const nl = String.fromCharCode(10);
+    const cr = String.fromCharCode(13);
+    for (const key of [`./a${nl}b`, `./a${cr}b`]) {
+      expect(() => brainConfigSchema.parse({ modules: { [key]: {} } })).toThrow();
+    }
+    expect(() =>
+      brainConfigSchema.parse({ taxonomy: { types: { note: { dir: `notes${nl}x` } } } })
+    ).toThrow();
+  });
 });
 
 describe("module cron field constraints", () => {
