@@ -47,7 +47,7 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | P5.3 | @brainform/ui-backend-pi | **done** | curated 9-tool surface, in-tool permission gate, extensions off; 33 tests |
 | P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
 | P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | **done — awaiting Alain's review** | schlessera/brain-ui PR #2, NOT merged; main untouched |
-| P5.6 | @brainform/ui-backend-gemini | **done** | @google/genai 2.12.0; manual tool loop + atomic JSON sessions; 3 keyless store tests |
+| P5.6 | @brainform/ui-backend-gemini | **built, then dropped by the consumer** | see the deviation note below — package still in-tree, unreferenced |
 
 ## Parallel sessions (user-approved plan, session 1 continuation 2026-07-12)
 
@@ -78,6 +78,38 @@ branch typechecks clean, main untouched):
   re-syncs its transcript from the server (session_resume) instead of keeping full live
   client-side buffers — candidate follow-up for perfectly instant switches; narrow race
   when starting a brand-new conversation while another streams (active-id transition).
+
+### Deviation — the native Gemini backend was dropped (2026-07-17)
+
+Recorded per the ground rule above. brain-ui removed `@brainform/ui-backend-gemini`
+from its registry and dependency graph (`c7c3491`, plus migration
+`004_drop_gemini_backend.sql` rewriting `backend_id='gemini'` rows to NULL). The
+decision was locked with Alain during the phase-5 hardening pass; the reasoning is
+recorded in `brain-ui/docs/reviews/phase-5-hardening.md`:
+
+- The hand-rolled loop re-implemented, by hand, contracts the Claude Agent SDK
+  provides for free — history merging, context compaction, safety-block filtering,
+  abort unwinding, write serialization, interactive-id uniqueness. Each omission was
+  a separate bug; it was also the one backend excluded from the contract suite. One
+  architectural gap with seven exits, not seven unrelated defects.
+- It carried a live privacy egress: session transcripts and photos written under the
+  brain repo and picked up by the nightly auto-push. (Verified never to have fired.)
+- `capabilities.permissions: true` with a no-op gate contradicted SECURITY.md and the
+  capability's own contract. `dd93085` documented the auto-execute instead of gating
+  it, which left the flag flatly false rather than fixing it.
+- Gemini through OpenRouter via the Claude backend is a dead end (the Agent SDK
+  force-sends `anthropic-beta: context-management-*`, which OpenRouter 400s for
+  non-Anthropic models) — that dead end is *why* the native backend existed.
+
+Consequences for this repo, still open:
+
+- `packages/ui-backend-gemini/` is in-tree and unreferenced. plan/07 §3 listed it as
+  "gemini only after the permission fix"; that target is now void. Decide removal —
+  it is the last thing pinning `@google/genai` alongside core's non-optional
+  dependency on it (plan/08 §3.5).
+- Future multi-model support is **one generic OpenAI-compatible OpenRouter backend**,
+  not per-vendor hand-rolled loops. Any plan/03 or plan/07 language implying a
+  per-vendor backend family should be read through this decision.
 
 Phase-5 additional decisions:
 - pi listProfiles has NO ModelRegistry fallback (would list ~1700 models with an OpenRouter
@@ -171,20 +203,47 @@ Phase-5 design decisions:
   signatures in installed declarations/implementation and official docs.
 - `bun install`, 3 keyless session-store tests, root `tsc --noEmit`, and diff checks pass.
 
+### Session 3 — 2026-07-17/18
+
+- Two review passes landed as `plan/07-oss-readiness-review.md` (four independent passes:
+  two Fable 5, one gpt-5.6-sol via codex, one web-research) and
+  `plan/08-package-split-review.md` (five passes, focused on the split goal). Verdict:
+  architecture endorsed unanimously, shipping trees clean of personal data, git history
+  confirmed unpublishable → fresh-history cut is mandatory. Nothing on the 07 blocker list
+  was fixed as of the 08 pass; two new HIGH findings surfaced (Claude WriteLock inert under
+  default allowlists; capability honesty).
+- `plan/08-name-research.md` records the rename hunt — "brainform" is burned
+  (brainform.ai is an active startup in the adjacent agent space, GitHub org taken).
+  Vetted shortlist ready, **decision open**: endoxa if typing ergonomics win,
+  florilegium if distinctiveness wins. CLI stays `brain` either way.
+- Native Gemini backend dropped by the consumer — see the deviation note above.
+- Core: `module list --json` now exposes module cron entries (`fd7fa41`); the location
+  provider honors the legacy `BRAIN_UI_REVERSE_GEOCODE` name (`b0a650f`).
+
 ## Next steps (for a fresh session)
 
 1. Read this file + `plan/00-overview.md` first.
 2. Check the status board; pick the lowest unfinished workstream.
 3. Research findings land in `research/` — check for updates before re-verifying.
-4. Open items, in rough order:
-   - **Alain reviews** schlessera/brain PR #1 (phase 1) and schlessera/brain-ui PR #2
-     (phase 5). Phase 2 (module boundaries in his repo) only after PR #1 merges.
-   - **Alain external action**: rotate the Deepgram key in brain-ui's working-tree .env
-     (gitignored, never committed, but live during dev — flagged in PR #2 body).
-   - brain-ui PR #2 caveats to resolve at release: @brainform/* deps are UNPUBLISHED — the
-     branch uses file:../brainform overrides marked TODO(release); `brain module list
-     --json` does not yet expose the cron field (entrypoint module-cron loop is a graceful
-     no-op until it does — small core follow-up).
+4. `plan/07` §5 and `plan/08` §5 hold the current sequencing; treat `plan/08` as
+   authoritative where the two disagree.
+5. Open items, in rough order:
+   - **Fix the blockers while both consumers are still private** — `plan/08` §5 step 1:
+     path containment, capability honesty, the Claude WriteLock, protocol debt
+     (runtime schemas, handshake, turnId, terminal outcome), two-phase `defineModule`.
+   - **Decide the name** (`plan/08-name-research.md`). Blocks the publish pipeline: npm
+     org, GitHub org, domain all need claiming the same day.
+   - **Remove `packages/ui-backend-gemini/`** and make core's `@google/genai` an optional
+     lazy import — the last thing pinning it.
+   - **Alain reviews** schlessera/brain PR #1 (phase 1). Phase 2 (module boundaries in his
+     repo) only after PR #1 merges. brain-ui PR #2 (phase 5) has landed on brain-ui `main`.
+   - **Unverified, carry forward**: rotate the Deepgram key in brain-ui's working-tree .env
+     (gitignored, never committed, but live during dev — flagged in PR #2 body); the
+     phase-5 GitHub PAT rotation is believed done (the Dockerfile now uses a BuildKit
+     secret mount) but was not re-confirmed here.
+   - @brainform/* deps are still UNPUBLISHED — brain-ui consumes them via a pinned-SHA
+     Docker clone plus `file:../brainform` overrides marked TODO(release). Publishing kills
+     that fragility and unblocks the `~/brain` migration (chicken-and-egg: publish first).
    - pi-ai-backed CompletionProvider built-in (factory API, pins 0.80.6).
    - Verify `pi -p`/`gemini -p` runner flags (marked unverified in cli-runners.ts).
    - Release wiring: changesets + per-package bun publish (research/tooling-versions.md);
