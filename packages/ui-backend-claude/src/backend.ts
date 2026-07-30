@@ -61,8 +61,15 @@ const DEFAULT_ALLOWED_TOOLS = [
  * parallel. Bash is mutating conservatively — it can write or run git. A
  * subagent's own Bash/Edit/Write calls surface here under their own names and
  * are gated individually. Add write-capable MCP tools here as they appear.
+ *
+ * The lock is acquired in a PreToolUse hook, NOT in canUseTool: the SDK
+ * auto-allows tools listed in `allowedTools` without ever consulting
+ * canUseTool, while PreToolUse fires (and is awaited) before every tool
+ * execution regardless of how it was permitted.
  */
 const MUTATING_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+
+const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
 
 export interface ClaudeBackendOptions {
   /** Working directory for the agent — the brain repo the model operates on. */
@@ -187,6 +194,27 @@ export function createClaudeBackend(
     }
 
     const turn: ActiveTurn = { pendingReleases: new Map(), ended: false };
+
+    // Write-lock bookkeeping, keyed by toolUseId and idempotent per key: the
+    // PreToolUse hook and the canUseTool re-acquire can both run for one tool
+    // use, and a release must be safe when nothing is held.
+    const acquireForTool = async (toolUseId: string): Promise<void> => {
+      if (turn.pendingReleases.has(toolUseId)) return;
+      const release = await writeLock.acquire();
+      if (turn.ended || turn.pendingReleases.has(toolUseId)) {
+        // Turn drained while queued, or a concurrent acquire won: never runs.
+        release();
+        return;
+      }
+      turn.pendingReleases.set(toolUseId, release);
+    };
+    const releaseForTool = (toolUseId: string): void => {
+      const release = turn.pendingReleases.get(toolUseId);
+      if (release) {
+        release();
+        turn.pendingReleases.delete(toolUseId);
+      }
+    };
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
@@ -237,6 +265,11 @@ export function createClaudeBackend(
         // even when no ask-user handler is present.
         disallowedTools: ["AskUserQuestion"],
         canUseTool: async (toolName, input, opts) => {
+          // The PreToolUse hook below may already hold the write lock for this
+          // tool use (it fires before permission evaluation). Don't keep the
+          // lock across the (possibly long) approval wait — release it now and
+          // re-acquire only once the tool is actually approved.
+          releaseForTool(opts.toolUseID);
           const decision = await req.bridge.requestPermission({
             toolUseId: opts.toolUseID,
             toolName,
@@ -246,16 +279,49 @@ export function createClaudeBackend(
           // A mutating tool runs inside this subprocess the moment we return
           // "allow", so take the shared write lock BEFORE allowing and hold it
           // until the tool's result frame is observed (see the stream loop) or
-          // the turn ends. Denials and read-only tools take nothing. Acquiring
-          // after the permission round-trip keeps the lock off the (possibly
-          // long) approval wait; a second turn's approval of a mutating tool
-          // then blocks here until the first releases.
+          // the turn ends. Denials and read-only tools take nothing.
           if (decision.behavior === "allow" && MUTATING_TOOLS.has(toolName)) {
-            const release = await writeLock.acquire();
-            if (turn.ended) release(); // turn drained while queued: never runs
-            else turn.pendingReleases.set(opts.toolUseID, release);
+            await acquireForTool(opts.toolUseID);
           }
           return toPermissionResult(decision);
+        },
+        hooks: {
+          // The write lock CANNOT live in canUseTool alone: the SDK
+          // auto-allows every tool listed in `allowedTools` without invoking
+          // the callback (it warns CLAUDE_SDK_CAN_USE_TOOL_SHADOWED), and the
+          // default allowlist contains all mutating tools. PreToolUse fires
+          // before every tool execution — auto-allowed or approved — and the
+          // SDK awaits it, so acquiring here serializes writes across turns
+          // no matter which permission path admitted the tool.
+          PreToolUse: [
+            {
+              matcher: MUTATING_TOOL_MATCHER,
+              hooks: [
+                async (hookInput) => {
+                  if (
+                    hookInput.hook_event_name === "PreToolUse" &&
+                    MUTATING_TOOLS.has(hookInput.tool_name)
+                  ) {
+                    await acquireForTool(hookInput.tool_use_id);
+                  }
+                  return { continue: true };
+                },
+              ],
+            },
+          ],
+          // A deny decided outside canUseTool (settings deny rules, other
+          // hooks) must still free a lock the PreToolUse hook took; our own
+          // canUseTool deny releases up front.
+          PermissionDenied: [
+            {
+              hooks: [
+                async (_hookInput, toolUseID) => {
+                  if (toolUseID) releaseForTool(toolUseID);
+                  return { continue: true };
+                },
+              ],
+            },
+          ],
         },
       };
 
@@ -308,11 +374,7 @@ export function createClaudeBackend(
           // Release the write lock the moment a mutating tool's result frame
           // lands (the turn-end backstop covers anything still held).
           if (serverMsg.type === "tool_result") {
-            const release = turn.pendingReleases.get(serverMsg.toolUseId);
-            if (release) {
-              release();
-              turn.pendingReleases.delete(serverMsg.toolUseId);
-            }
+            releaseForTool(serverMsg.toolUseId);
           }
           emit(serverMsg);
         }
