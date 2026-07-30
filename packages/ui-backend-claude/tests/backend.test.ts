@@ -186,6 +186,71 @@ function toolTurn(
   })();
 }
 
+/** Invoke the backend's PreToolUse hook the way the SDK would. */
+function firePreToolUse(
+  options: Options,
+  cfg: { toolName: string; toolUseId: string }
+): Promise<unknown> {
+  const matcher = options.hooks?.PreToolUse?.[0];
+  if (!matcher) throw new Error("no PreToolUse hook registered");
+  return matcher.hooks[0]!(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: cfg.toolName,
+      tool_input: { arg: 1 },
+      tool_use_id: cfg.toolUseId,
+    } as never,
+    cfg.toolUseId,
+    { signal: new AbortController().signal }
+  );
+}
+
+/** Invoke the backend's PermissionDenied hook the way the SDK would. */
+function firePermissionDenied(
+  options: Options,
+  toolUseId: string
+): Promise<unknown> {
+  const matcher = options.hooks?.PermissionDenied?.[0];
+  if (!matcher) throw new Error("no PermissionDenied hook registered");
+  return matcher.hooks[0]!(
+    { hook_event_name: "PermissionDenied" } as never,
+    toolUseId,
+    { signal: new AbortController().signal }
+  );
+}
+
+/**
+ * A turn whose mutating tool is AUTO-ALLOWED (allowlisted): the SDK never
+ * calls canUseTool, only the PreToolUse hook, then executes. `onAcquired`
+ * fires when the hook resolves — i.e. when the write lock was taken.
+ */
+function autoAllowedToolTurn(
+  options: Options,
+  cfg: {
+    sessionId: string;
+    toolUseId: string;
+    toolName: string;
+    gate: Promise<void>;
+    onAcquired?: () => void;
+  }
+): AsyncGenerator<unknown> {
+  return (async function* () {
+    yield initMsg(cfg.sessionId);
+    await firePreToolUse(options, cfg);
+    cfg.onAcquired?.();
+    await cfg.gate;
+    yield {
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: cfg.toolUseId, content: "ok" },
+        ],
+      },
+    };
+    yield resultMsg(cfg.sessionId);
+  })();
+}
+
 describe("createClaudeBackend identity + profiles", () => {
   test("id and capabilities", () => {
     const backend = createClaudeBackend({ brainPath: "/brain" });
@@ -237,7 +302,13 @@ describe("startTurn", () => {
     await turn;
 
     expect(frames).toContainEqual({ type: "status", status: "cancelled" });
-    expect(frames.some((f) => f.type === "error")).toBe(false);
+    // No session identity was ever established, so the turn's terminal frame
+    // is a bare error (a `result` needs a sessionId). Without it a client
+    // keying on result/error would hang forever.
+    const last = frames.at(-1);
+    expect(last?.type).toBe("error");
+    if (last?.type === "error") expect(last.code).toBe("CANCELLED");
+    expect(frames.some((f) => f.type === "result")).toBe(false);
   });
 
   test("emits session_info before content and forwards result frames", async () => {
@@ -261,16 +332,19 @@ describe("startTurn", () => {
     expect(frames).toContainEqual({
       type: "result",
       sessionId: "sess-1",
+      outcome: "success",
       costUsd: 0,
       durationMs: 1,
       numTurns: 1,
       isError: false,
     });
-    expect(frames.at(-1)).toEqual({
+    // result is THE terminal frame — last on the wire; idle precedes it.
+    expect(frames.at(-2)).toEqual({
       type: "status",
       status: "idle",
       sessionId: "sess-1",
     });
+    expect(frames.at(-1)?.type).toBe("result");
   });
 
   test("runtime failure surfaces a CLAUDE_ERROR frame and resolves", async () => {
@@ -540,6 +614,154 @@ describe("writeLock", () => {
     gate1.resolve();
     gate2.resolve();
     await Promise.all([turn1, turn2]);
+    expect(writeLock.locked).toBe(false);
+  });
+
+  test("auto-allowed mutating tool takes the lock via the PreToolUse hook (canUseTool never runs)", async () => {
+    const writeLock = createWriteLock();
+    const gate1 = deferred();
+    const gate2 = deferred();
+    let t1Acquired = false;
+    let t2Acquired = false;
+
+    let call = 0;
+    const queryFn = ((params: { options?: Options }) => {
+      const options = params.options!;
+      return call++ === 0
+        ? autoAllowedToolTurn(options, {
+            sessionId: "s1",
+            toolUseId: "t1",
+            toolName: "Bash",
+            gate: gate1.promise,
+            onAcquired: () => (t1Acquired = true),
+          })
+        : autoAllowedToolTurn(options, {
+            sessionId: "s2",
+            toolUseId: "t2",
+            toolName: "Edit",
+            gate: gate2.promise,
+            onAcquired: () => (t2Acquired = true),
+          });
+    }) as unknown as typeof query;
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+
+    const b1 = makeBridge();
+    const turn1 = backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    await until(() => t1Acquired);
+    expect(writeLock.locked).toBe(true);
+
+    // Second turn's auto-allowed mutating tool must park on the held lock.
+    const b2 = makeBridge();
+    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal));
+    await tick();
+    await tick();
+    expect(t2Acquired).toBe(false);
+
+    // turn1's tool_result streams → lock frees → turn2's hook resolves.
+    gate1.resolve();
+    await turn1;
+    await until(() => t2Acquired);
+
+    gate2.resolve();
+    await turn2;
+    expect(writeLock.locked).toBe(false);
+  });
+
+  test("read-only tool never matches the PreToolUse lock hook", async () => {
+    const writeLock = createWriteLock();
+    let hookRan = false;
+
+    const queryFn = ((params: { options?: Options }) => {
+      const options = params.options!;
+      return (async function* () {
+        yield initMsg("s1");
+        await firePreToolUse(options, { toolName: "Read", toolUseId: "t1" });
+        hookRan = true;
+        yield resultMsg("s1");
+      })();
+    }) as unknown as typeof query;
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+    const b1 = makeBridge();
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+
+    expect(hookRan).toBe(true);
+    expect(writeLock.locked).toBe(false);
+  });
+
+  test("canUseTool parks a hook-held lock during the approval wait, re-acquires on allow", async () => {
+    const writeLock = createWriteLock();
+    let approvalPending: (() => void) | null = null;
+    let decisionResolved = false;
+
+    const queryFn = ((params: { options?: Options }) => {
+      const options = params.options!;
+      return (async function* () {
+        yield initMsg("s1");
+        // Real SDK order: PreToolUse hook first (acquires), then canUseTool.
+        await firePreToolUse(options, { toolName: "Bash", toolUseId: "t1" });
+        await options.canUseTool!("Bash", { arg: 1 }, {
+          signal: new AbortController().signal,
+          toolUseID: "t1",
+        } as never);
+        decisionResolved = true;
+        yield {
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+          },
+        };
+        yield resultMsg("s1");
+      })();
+    }) as unknown as typeof query;
+
+    const frames: ServerMessage[] = [];
+    const bridge: BackendBridge = {
+      emit: (m) => frames.push(m),
+      requestPermission: () =>
+        new Promise((resolve) => {
+          approvalPending = () => resolve({ behavior: "allow" });
+        }),
+    };
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+    const turn = backend.startTurn(makeReq(bridge, new AbortController().signal));
+
+    // While the approval is pending, the hook-taken lock must be RELEASED.
+    await until(() => approvalPending !== null);
+    expect(writeLock.locked).toBe(false);
+
+    // Approve → the lock is re-acquired for execution, then freed on result.
+    approvalPending!();
+    await until(() => decisionResolved);
+    await turn;
+    expect(writeLock.locked).toBe(false);
+    expect(frames.some((f) => f.type === "result")).toBe(true);
+  });
+
+  test("PermissionDenied hook frees a lock the PreToolUse hook took", async () => {
+    const writeLock = createWriteLock();
+    let denied = false;
+
+    const queryFn = ((params: { options?: Options }) => {
+      const options = params.options!;
+      return (async function* () {
+        yield initMsg("s1");
+        // A settings deny rule: hook acquires, then the deny path fires
+        // without canUseTool ever running.
+        await firePreToolUse(options, { toolName: "Write", toolUseId: "t1" });
+        await firePermissionDenied(options, "t1");
+        denied = true;
+        yield resultMsg("s1");
+      })();
+    }) as unknown as typeof query;
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+    const b1 = makeBridge();
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+
+    expect(denied).toBe(true);
     expect(writeLock.locked).toBe(false);
   });
 

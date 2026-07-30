@@ -86,15 +86,21 @@ describe("module manifest", () => {
   });
 
   test("taxonomy roundtrip: dirForType/typeForPath are inverse for finance", () => {
+    const cfg = configSchema.parse({});
     const loaded: LoadedModule = {
       key: "@brainform/module-finance",
-      manifest,
+      manifest: { name: manifest.name, ...manifest.setup(cfg) },
       dir: PKG_DIR,
-      config: {},
+      config: cfg,
     };
     const tax = buildTaxonomy({ modules: [loaded] });
     const dir = tax.dirForType("finance");
     expect(dir).toBe("clients");
     expect(tax.typeForPath(`${dir}/x.md`)).toBe("finance");
+  });
+
+  test("setup shapes the finance dir from clientsDir", () => {
+    const custom = manifest.setup(configSchema.parse({ clientsDir: "accounts" }));
+    expect(custom.taxonomy?.types?.finance?.dir).toBe("accounts");
   });
 });

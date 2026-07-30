@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { CommandContext, CommandModule } from "@brainform/core";
-import { loadUserConfig, loadModules, buildTaxonomy } from "@brainform/core";
+import { safeResolve } from "@brainform/core";
 
 import { openDatabase } from "./db";
 import { runScrape } from "./scrape";
@@ -43,21 +43,18 @@ interface JobsCtx {
 }
 
 async function resolveJobsCtx(ctx: CommandContext): Promise<JobsCtx> {
-  const { config } = await loadUserConfig(ctx.root);
-  const modules = await loadModules(config, ctx.root);
-  const taxonomy = buildTaxonomy({ user: config, modules });
-  const self = modules.find((m) => m.manifest.name === "jobs");
+  // ctx.config is the loader-validated block; ctx.taxonomy the merged
+  // taxonomy. No re-loading of brain.config (the old reload path silently
+  // fell back to schema defaults on any error).
+  const jobsConfig = configSchema.parse(
+    ctx.config ?? { criteria: "career/opportunities/search-criteria.md" }
+  );
 
-  const jobsConfig =
-    (self?.config as JobsConfig | undefined) ??
-    configSchema.parse({ criteria: "career/opportunities/search-criteria.md" });
-
-  const opportunitiesDir = taxonomy.dirForType("opportunity") ?? jobsConfig.opportunitiesDir;
-  const dbPath = jobsConfig.dbPath
-    ? isAbsolute(jobsConfig.dbPath)
-      ? jobsConfig.dbPath
-      : resolve(ctx.root, jobsConfig.dbPath)
-    : join(ctx.root, "jobs.db");
+  const opportunitiesDir = ctx.taxonomy.dirForType("opportunity") ?? jobsConfig.opportunitiesDir;
+  // dbPath is schema-constrained to a repo-relative path; safeResolve also
+  // refuses a symlinked component pointing outside the root.
+  const dbPath = safeResolve(ctx.root, jobsConfig.dbPath ?? "jobs.db");
+  if (!dbPath) throw new Error(`jobs dbPath escapes the brain root: ${jobsConfig.dbPath}`);
 
   return {
     root: ctx.root,
@@ -374,7 +371,13 @@ function cmdScaffold(args: string[], jctx: JobsCtx): number {
   }
 
   const slug = kebabCase(job.company) || `job-${job.id}`;
-  const dir = resolve(jctx.root, jctx.opportunitiesDir, slug);
+  // Scraped company names feed the slug — keep the scaffold inside the root.
+  const dir = safeResolve(jctx.root, join(jctx.opportunitiesDir, slug));
+  if (dir === null) {
+    console.error(`Scaffold path escapes the brain root: ${slug}`);
+    db.close();
+    return 1;
+  }
   if (existsSync(dir)) {
     console.error(`Refusing to scaffold: directory already exists: ${dir}`);
     db.close();

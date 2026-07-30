@@ -6,9 +6,10 @@
  *   1. capabilities is a complete, honest boolean set
  *   2. listProfiles() yields safe ProviderInfo shapes
  *   3. a turn emits session_info before content, streams deltas, and ends
- *      with a terminal `result` frame before the promise resolves
- *   4. host abort → `status: cancelled` terminal frame, promise RESOLVES,
- *      no `result` frame
+ *      with a terminal `result` frame (outcome: success) before the promise
+ *      resolves
+ *   4. host abort → diagnostic `status: cancelled`, then the unified terminal
+ *      `result` frame with outcome: cancelled; the promise RESOLVES
  *   5. busy-ness is PER SESSION (rev 2): resuming a running session rejects
  *      with BackendBusyError; a second NEW session runs in parallel when
  *      capabilities.concurrentSessions; the backend recovers after drains
@@ -68,6 +69,10 @@ interface Harness {
   scripted(script: TurnScript): AgentBackend;
   /** Backend whose turn hangs until the host aborts. */
   hanging(): AgentBackend;
+  /** Backend whose turn fails at runtime AFTER the session identity exists. */
+  failing(script: TurnScript): AgentBackend;
+  /** Backend whose stream ends WITHOUT a terminal result (claude-only shape). */
+  truncated?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
 }
@@ -115,12 +120,40 @@ function claudeHangingQuery(): typeof query {
     })()) as unknown as typeof query;
 }
 
+/** Emits a session identity, then throws like a provider failure. */
+function claudeFailingQuery(script: TurnScript): typeof query {
+  return ((_params: { options?: Options }) =>
+    (async function* () {
+      yield { type: "system", subtype: "init", session_id: script.sessionId };
+      throw new Error("provider exploded");
+    })()) as unknown as typeof query;
+}
+
+/** Emits a session identity and deltas, then ends WITHOUT a result. */
+function claudeTruncatedQuery(script: TurnScript): typeof query {
+  return ((_params: { options?: Options }) =>
+    (async function* () {
+      yield { type: "system", subtype: "init", session_id: script.sessionId };
+      for (const text of script.textDeltas) {
+        yield {
+          type: "stream_event",
+          session_id: script.sessionId,
+          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+        };
+      }
+    })()) as unknown as typeof query;
+}
+
 const claudeHarness: Harness = {
   name: "claude",
   scripted: (script) =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script) }),
   hanging: () =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeHangingQuery() }),
+  failing: (script) =>
+    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeFailingQuery(script) }),
+  truncated: (script) =>
+    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeTruncatedQuery(script) }),
   unknownProfileId: "no-such-profile",
 };
 
@@ -183,10 +216,29 @@ function piHangingBackend(): AgentBackend {
   });
 }
 
+function piFailingSession(script: TurnScript): PiSessionLike {
+  const base = piFakeSession(script);
+  return {
+    ...base,
+    async prompt() {
+      throw new Error("provider exploded");
+    },
+  };
+}
+
 const piHarness: Harness = {
   name: "pi",
   scripted: (script) => piHarnessBackend(script, false),
   hanging: () => piHangingBackend(),
+  failing: (script) =>
+    createPiBackend({
+      brainPath: tempBrain(),
+      profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
+      sessionFactory: {
+        newSession: async () => piFailingSession(script),
+        openSession: async () => piFailingSession(script),
+      },
+    }),
   unknownProfileId: "no-such-profile",
 };
 
@@ -265,6 +317,7 @@ for (const harness of [claudeHarness, piHarness]) {
       expect(result).toBeDefined();
       if (result?.type === "result") {
         expect(result.sessionId).toBe("sess-42");
+        expect(result.outcome).toBe("success");
         expect(typeof result.costUsd).toBe("number");
         expect(result.costUsd).toBeGreaterThanOrEqual(0);
         expect(result.isError).toBe(false);
@@ -273,7 +326,7 @@ for (const harness of [claudeHarness, piHarness]) {
       // asserted implicitly: frames were captured before this line ran.
     });
 
-    test("host abort → status:cancelled terminal frame, resolves, no result", async () => {
+    test("host abort → status:cancelled diagnostic, then terminal result outcome:cancelled", async () => {
       const backend = harness.hanging();
       const { frames, bridge } = makeBridge();
       const controller = new AbortController();
@@ -284,14 +337,91 @@ for (const harness of [claudeHarness, piHarness]) {
       controller.abort();
       await turn; // must RESOLVE, not reject
 
-      const types = frames.map((f) => f.type);
-      expect(types).not.toContain("result");
       const cancelled = frames.filter(
         (f) => f.type === "status" && f.status === "cancelled"
       );
       expect(cancelled.length).toBeGreaterThanOrEqual(1);
-      expect(types.at(-1)).toBe("status");
+
+      // Both harnesses emit a session identity before hanging — the abort
+      // path must therefore ALWAYS end on the unified terminal result.
+      expect(frames.some((f) => f.type === "session_info")).toBe(true);
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1); // exactly one terminal frame
+      const last = frames.at(-1);
+      expect(last?.type).toBe("result");
+      if (last?.type === "result") {
+        expect(last.outcome).toBe("cancelled");
+        expect(last.isError).toBe(false);
+      }
     });
+
+    test("a pre-aborted signal terminates promptly instead of hanging", async () => {
+      const backend = harness.hanging();
+      const { frames, bridge } = makeBridge();
+      const controller = new AbortController();
+      controller.abort(); // already aborted BEFORE startTurn
+
+      await Promise.race([
+        backend.startTurn({ prompt: "hi", signal: controller.signal, bridge }),
+        new Promise((_r, reject) =>
+          setTimeout(() => reject(new Error("startTurn hung on a pre-aborted signal")), 3_000)
+        ),
+      ]);
+
+      // Terminal frame either way: a result when an identity existed, else a
+      // bare error. Never zero frames, never a hang.
+      const last = frames.at(-1);
+      expect(last === undefined ? "none" : last.type).toMatch(/result|error/);
+    });
+
+    test("runtime failure → diagnostic error, then EXACTLY ONE terminal result outcome:error, last", async () => {
+      const backend = harness.failing({ sessionId: "fail-1", textDeltas: [] });
+      const { frames, bridge } = makeBridge();
+
+      await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+      expect(frames.some((f) => f.type === "error")).toBe(true);
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1);
+      const last = frames.at(-1);
+      expect(last?.type).toBe("result");
+      if (last?.type === "result") {
+        expect(last.outcome).toBe("error");
+        expect(last.isError).toBe(true);
+      }
+    });
+
+    test("exactly one result frame on success, and outcome agrees with isError", async () => {
+      const backend = harness.scripted({ sessionId: "one-1", textDeltas: ["x"] });
+      const { frames, bridge } = makeBridge();
+      await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1);
+      const r = results[0]!;
+      if (r.type === "result") {
+        expect(r.outcome).toBe("success");
+        expect(r.isError).toBe(false);
+      }
+      expect(frames.at(-1)?.type).toBe("result");
+    });
+
+    if (harness.truncated) {
+      test("stream that ends without a result still gets a terminal result", async () => {
+        const backend = harness.truncated!({ sessionId: "trunc-1", textDeltas: ["a"] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+        const results = frames.filter((f) => f.type === "result");
+        expect(results.length).toBe(1);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type === "result") {
+          expect(last.outcome).toBe("error");
+          expect(last.isError).toBe(true);
+        }
+      });
+    }
 
     test("busy-ness is per session; parallel sessions per capability; recovers", async () => {
       const backend = harness.hanging();

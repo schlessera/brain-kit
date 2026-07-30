@@ -159,15 +159,16 @@ describe("StreamAdapter", () => {
         })
       )
     ).toEqual([
+      { type: "status", status: "idle" },
       {
         type: "result",
         sessionId: "sess-1",
+        outcome: "success",
         costUsd: 0.42,
         durationMs: 1234,
         numTurns: 3,
         isError: false,
       },
-      { type: "status", status: "idle" },
     ]);
 
     expect(
@@ -179,15 +180,15 @@ describe("StreamAdapter", () => {
         })
       )
     ).toEqual([
+      { type: "status", status: "idle" },
       {
         type: "result",
         sessionId: "sess-2",
-        costUsd: 0,
+        outcome: "error",
         durationMs: 0,
         numTurns: 0,
         isError: true,
       },
-      { type: "status", status: "idle" },
     ]);
   });
 

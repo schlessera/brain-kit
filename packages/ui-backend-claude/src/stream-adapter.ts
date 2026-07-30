@@ -101,26 +101,31 @@ export class StreamAdapter {
       }
 
       case "result": {
+        // Status BEFORE result: `result` is the turn's terminal frame and
+        // must be the last thing a consumer sees for the turn.
+        messages.push({ type: "status", status: "idle" });
         if (msg.subtype === "success") {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
+            outcome: "success",
             costUsd: msg.total_cost_usd,
             durationMs: msg.duration_ms,
             numTurns: msg.num_turns,
             isError: false,
           });
         } else {
+          // costUsd deliberately ABSENT: the cost of a failed turn is
+          // unknown, and 0 would claim "free".
           messages.push({
             type: "result",
             sessionId: msg.session_id,
-            costUsd: 0,
+            outcome: "error",
             durationMs: 0,
             numTurns: 0,
             isError: true,
           });
         }
-        messages.push({ type: "status", status: "idle" });
         break;
       }
 

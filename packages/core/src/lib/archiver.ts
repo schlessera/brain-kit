@@ -60,14 +60,25 @@ export async function archiveDocument(
     return { path: finalPath, status: "archived", moved: willMove, updated: today(), dryRun: true };
   }
 
+  // Validate the DESTINATION before mutating the source — a symlinked
+  // projects/archive would otherwise rename the file out of the repo, and
+  // failing after the rewrite would leave an active-path document marked
+  // archived but not moved or reindexed.
+  let archiveFullPath: string | null = null;
+  if (willMove) {
+    archiveFullPath = safeResolve(root, finalPath);
+    if (!archiveFullPath) {
+      throw new Error("Archive destination escapes the brain root directory");
+    }
+  }
+
   const raw = readFileSync(fullPath, "utf-8");
   const parsed = matter(raw);
   parsed.data.status = "archived";
   parsed.data.updated = today();
   writeFileSync(fullPath, stringifyDocument(parsed.content, parsed.data), "utf-8");
 
-  if (willMove) {
-    const archiveFullPath = resolve(root, finalPath);
+  if (archiveFullPath) {
     mkdirSync(dirname(archiveFullPath), { recursive: true });
     renameSync(fullPath, archiveFullPath);
   }

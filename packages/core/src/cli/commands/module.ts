@@ -92,14 +92,9 @@ function moduleLint(cli: CliContext, name: string): { findings: LintFinding[] } 
   findings.push(...lintSkills(moduleSkills));
   for (const w of warnings) add("error", "skill-frontmatter", w);
 
-  // configSchema parses the user's config block.
-  if (mod.manifest.configSchema) {
-    try {
-      mod.manifest.configSchema.parse(mod.config ?? {});
-    } catch (e) {
-      add("error", "config", `configSchema rejected the user config: ${(e as Error).message}`);
-    }
-  }
+  // Config validity needs no re-check here: loadModules() hard-fails on a
+  // config the module's configSchema rejects, so a loaded module implies a
+  // valid config block.
 
   return { findings };
 }

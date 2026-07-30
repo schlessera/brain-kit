@@ -28,6 +28,27 @@
  */
 export interface SessionScoped {
   sessionId?: string;
+  /**
+   * Host-generated id of the turn this frame belongs to (rev 2, additive).
+   * Multi-session hosts stamp it on every scoped frame; clients MAY echo it
+   * on interactive replies (approvals, ask-user, location) so round-trips
+   * correlate by `turnId + requestId`. RESERVED for now: servers stamp it,
+   * but no shipped client echoes it back yet — hosts must not require it.
+   */
+  turnId?: string;
+}
+
+/** Protocol revision spoken by this ui-sdk build. Additions never bump it; only semantics changes do. */
+export const PROTOCOL_REV = 2;
+
+/**
+ * Composite session identity for multi-backend hosts. The wire keeps plain
+ * `sessionId` strings (globally unique per host); this pairs one with the
+ * backend that owns its transcript for host-side routing/persistence.
+ */
+export interface SessionRef {
+  backendId: string;
+  nativeSessionId: string;
 }
 
 // --- Client -> Server ---
@@ -82,12 +103,16 @@ export interface ClientToolApproval {
   type: "tool_approval";
   toolUseId: string;
   updatedInput?: Record<string, unknown>;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 export interface ClientToolDenial {
   type: "tool_denial";
   toolUseId: string;
   message: string;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 export interface ClientCancelRequest {
@@ -108,6 +133,7 @@ export interface ClientSessionResume {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerHello
   | ServerTextDelta
   | ServerThinkingDelta
   | ServerToolUseStart
@@ -122,6 +148,20 @@ export type ServerMessage =
   | ServerSessionHistory
   | ServerAskUserRequest
   | ServerLocationRequest;
+
+/**
+ * First frame a server sends after a socket opens (rev 2, additive). Clients
+ * that don't know it ignore it; clients that do can gate behavior on
+ * `protocolRev` and the coarse capability flags instead of sniffing.
+ * ADVISORY for now — no shipped client reads it yet; servers must not gate
+ * anything on the client having seen it.
+ */
+export interface ServerHello {
+  type: "server_hello";
+  protocolRev: number;
+  /** Coarse, additive capability flags (e.g. multiSession, askUser, location). */
+  capabilities?: Record<string, boolean>;
+}
 
 export interface ServerSessionHistory extends SessionScoped {
   type: "session_history";
@@ -212,8 +252,20 @@ export interface ServerToolApprovalRequest extends SessionScoped {
 export interface ServerResultMessage {
   type: "result";
   sessionId: string;
-  /** 0 when the backend cannot report cost (capabilities.costReporting=false). */
-  costUsd: number;
+  /**
+   * The turn's terminal disposition. `result` is THE terminal frame for every
+   * turn that has a session identity: exactly one per turn, after any
+   * diagnostic `error` / `status: cancelled` frames. (Turns that fail before
+   * a session id exists end with a bare `error` frame instead.) Optional for
+   * wire compatibility; absent means legacy success/isError semantics.
+   */
+  outcome?: "success" | "error" | "cancelled";
+  /**
+   * USD cost of the turn. ABSENT when the backend cannot report cost
+   * (capabilities.costReporting=false) or the turn failed before accounting —
+   * 0 means "actually free", not "unknown".
+   */
+  costUsd?: number;
   durationMs: number;
   numTurns: number;
   isError: boolean;
@@ -469,6 +521,8 @@ export interface ClientAskUserResponse {
   requestId: string;
   answers: Record<string, string>;
   annotations?: Record<string, AskUserAnnotation>;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 /** Client → Server. User dismissed the ask-user prompt; the agent gets an error. */
@@ -476,6 +530,8 @@ export interface ClientAskUserCancel {
   type: "ask_user_cancel";
   requestId: string;
   reason?: string;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 // ============================================================
@@ -523,6 +579,8 @@ export interface ClientLocationResponse {
   coords: GeoCoords;
   /** Epoch millis when the fix was taken (GeolocationPosition.timestamp). */
   timestamp: number;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 /**
@@ -535,6 +593,8 @@ export interface ClientLocationError {
   requestId: string;
   code: number;
   message: string;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 // ============================================================

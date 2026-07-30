@@ -33,7 +33,10 @@ export const importCommand: CoreCommand = {
       throw new UsageError("Usage: brain import --stamp <dir>");
     }
 
-    const base = safeResolve(cli.brain.root, dir) ?? resolve(cli.brain.root, dir);
+    const base = safeResolve(cli.brain.root, dir);
+    if (base === null) {
+      throw new UsageError(`--stamp directory escapes the brain root: ${dir}`);
+    }
     const inboxType = cli.brain.taxonomy.inboxType();
 
     const stamped: string[] = [];

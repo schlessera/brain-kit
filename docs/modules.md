@@ -9,27 +9,41 @@ skill for authoring your own.
 
 A module is an npm package (or a local directory referenced by path) whose entry
 default-exports a **manifest** via `defineModule()`. There is no plugin daemon
-and no lifecycle beyond load-time registration — a manifest is pure data plus
-lazy command imports.
+and no lifecycle beyond load-time registration.
+
+A manifest is two-phase: static identity (`name`, `configSchema`), then a
+`setup(config)` function that builds the module's **contribution** from the
+user's already-validated config block. This is what lets a taxonomy dir follow
+a configured directory instead of being a static literal.
 
 ```ts
 import { defineModule } from "@brainform/core";
 
 export default defineModule({
   name: "jobs",
-  taxonomy: { types: { opportunity: { dir: "career/opportunities" } } },
-  commands: { jobs: () => import("./cli") },
-  indexRules: { dirAnchors: ["status.md"] },
-  cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
   configSchema,
+  setup: (config) => ({
+    taxonomy: { types: { opportunity: { dir: config.opportunitiesDir } } },
+    commands: { jobs: () => import("./cli") },
+    indexRules: { dirAnchors: ["status.md"] },
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
+  }),
 });
 ```
 
-Manifest fields (all optional except `name`):
+Manifest fields:
+
+| Field          | Type       | Purpose                                                              |
+| -------------- | ---------- | -------------------------------------------------------------------- |
+| `name`         | `string`   | The module's short name. Required.                                   |
+| `configSchema` | zod schema | Validates the user's config block. Load fails hard on a rejected block. |
+| `setup`        | `(config) => Contribution` | Builds the contribution from the validated config. Required. |
+
+Contribution fields (all optional; the returned object is schema-validated at
+load, and unknown keys are load errors):
 
 | Field           | Type                                             | Contributes                                                                                          |
 | --------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `name`          | `string`                                         | The module's short name.                                                                             |
 | `taxonomy`      | `{ types?, classifierHints?, assetTitleRules?, propagation? }` | Types, capture hints, and rules merged into the effective taxonomy.                     |
 | `skills`        | `string`                                         | Path to the module's `skills/` directory (relative to the package root).                             |
 | `commands`      | `Record<word, () => import(...)>`                | **One** namespaced top-level CLI word, lazily imported (e.g. `brain jobs …`).                         |
@@ -37,16 +51,14 @@ Manifest fields (all optional except `name`):
 | `indexRules`    | `{ dirAnchors?: string[] }`                       | Directory anchor files (for `[[dir/]]` wiki-link resolution).                                         |
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
 | `cron`          | `{ name, schedule, command }[]`                   | Advisory schedules consumed by container entrypoints and `brain doctor`.                              |
-| `configSchema`  | zod schema                                        | Validates the user's config block for this module.                                                   |
 
-How the manifest merges into the taxonomy — collisions, ordering, overrides — is
-covered in [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
+Module commands receive `{ root, json, config, taxonomy }` — the module's own
+validated config block and the fully-merged taxonomy — so they never re-load
+`brain.config` themselves.
 
-> **Manifests can't read user config.** A default-exported manifest is evaluated
-> before your config is applied, so a module's `taxonomy.types.*.dir` is a static
-> literal. If you relocate a module's directory via its config (e.g.
-> `clientsDir`), also override that type's `dir` in your own `taxonomy.types` so
-> path-to-type inference stays correct. Each module README shows the exact pair.
+How the contribution merges into the taxonomy — collisions, ordering,
+overrides — is covered in
+[concepts.md](concepts.md#document-types-and-the-taxonomy-model).
 
 ## Enabling and disabling modules
 

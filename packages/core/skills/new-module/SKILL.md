@@ -42,7 +42,7 @@ Create the module package skeleton and wire it into config:
 
 ```
 modules/<name>/
-  module.ts              defineModule({ name, taxonomy, skills, commands?, hygieneChecks?, cron?, configSchema? })
+  module.ts              defineModule({ name, configSchema?, setup: (config) => ({ taxonomy?, skills?, commands?, hygieneChecks?, cron? }) })
   skills/<skill>/SKILL.md one per lifecycle moment identified in step 1
   README.md              contributed types, index-sync rules, hygiene checks
   tests/module.test.ts   manifest + taxonomy roundtrip
@@ -59,9 +59,9 @@ brain validate
 brain skills sync
 ```
 
-- `brain module lint <name>` — zod-validates the manifest, checks skill frontmatter, runs the
-  skill lint rules, detects command/type/directory collisions, and verifies `configSchema` parses
-  the user's config block.
+- `brain module lint <name>` — zod-validates the contributed manifest, checks skill frontmatter,
+  runs the skill lint rules, and detects command/type/directory collisions. (`configSchema`
+  already gates the load itself, so a loaded module implies a valid config block.)
 - `brain validate` — the brain is still consistent.
 - `brain skills sync` — the module's skills are picked up and linked.
 - **Taxonomy roundtrip** — for each contributed type `t`, `typeForPath(dirForType(t) + "/x.md")`

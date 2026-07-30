@@ -61,8 +61,15 @@ const DEFAULT_ALLOWED_TOOLS = [
  * parallel. Bash is mutating conservatively — it can write or run git. A
  * subagent's own Bash/Edit/Write calls surface here under their own names and
  * are gated individually. Add write-capable MCP tools here as they appear.
+ *
+ * The lock is acquired in a PreToolUse hook, NOT in canUseTool: the SDK
+ * auto-allows tools listed in `allowedTools` without ever consulting
+ * canUseTool, while PreToolUse fires (and is awaited) before every tool
+ * execution regardless of how it was permitted.
  */
 const MUTATING_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+
+const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
 
 export interface ClaudeBackendOptions {
   /** Working directory for the agent — the brain repo the model operates on. */
@@ -187,6 +194,27 @@ export function createClaudeBackend(
     }
 
     const turn: ActiveTurn = { pendingReleases: new Map(), ended: false };
+
+    // Write-lock bookkeeping, keyed by toolUseId and idempotent per key: the
+    // PreToolUse hook and the canUseTool re-acquire can both run for one tool
+    // use, and a release must be safe when nothing is held.
+    const acquireForTool = async (toolUseId: string): Promise<void> => {
+      if (turn.pendingReleases.has(toolUseId)) return;
+      const release = await writeLock.acquire();
+      if (turn.ended || turn.pendingReleases.has(toolUseId)) {
+        // Turn drained while queued, or a concurrent acquire won: never runs.
+        release();
+        return;
+      }
+      turn.pendingReleases.set(toolUseId, release);
+    };
+    const releaseForTool = (toolUseId: string): void => {
+      const release = turn.pendingReleases.get(toolUseId);
+      if (release) {
+        release();
+        turn.pendingReleases.delete(toolUseId);
+      }
+    };
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
@@ -212,7 +240,45 @@ export function createClaudeBackend(
     // them.
     let sessionId: string | null = req.sessionId ?? null;
     const emit = (msg: ServerMessage): void => {
-      req.bridge.emit(sessionId !== null ? { ...msg, sessionId } : msg);
+      // The cast is safe: backends never emit the (unscoped) server_hello
+      // frame, and every other ServerMessage accepts a sessionId.
+      req.bridge.emit(sessionId !== null ? ({ ...msg, sessionId } as ServerMessage) : msg);
+    };
+    const startedAt = Date.now();
+    // Hoisted: the catch/finally paths must know whether the stream already
+    // produced its terminal result — a stream that yields a result and THEN
+    // throws must not get a second one.
+    let sawResult = false;
+    /**
+     * Unified terminal frame for cancelled/failed turns. With a session
+     * identity that is a `result`; WITHOUT one (an abort or failure before
+     * the SDK reported a session) the contract's terminal is a bare `error`,
+     * so a client keying on result/error is never left hanging.
+     */
+    const emitTerminal = (outcome: "error" | "cancelled"): void => {
+      if (sawResult) return;
+      sawResult = true;
+      if (sessionId === null) {
+        emit({
+          type: "error",
+          code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
+          message:
+            outcome === "cancelled"
+              ? "Turn cancelled before the session was established"
+              : "Turn failed before the session was established",
+        });
+        return;
+      }
+      // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
+      // "no completed turns" for a turn that never finished.
+      emit({
+        type: "result",
+        sessionId,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        numTurns: 0,
+        isError: outcome === "error",
+      });
     };
 
     try {
@@ -237,6 +303,11 @@ export function createClaudeBackend(
         // even when no ask-user handler is present.
         disallowedTools: ["AskUserQuestion"],
         canUseTool: async (toolName, input, opts) => {
+          // The PreToolUse hook below may already hold the write lock for this
+          // tool use (it fires before permission evaluation). Don't keep the
+          // lock across the (possibly long) approval wait — release it now and
+          // re-acquire only once the tool is actually approved.
+          releaseForTool(opts.toolUseID);
           const decision = await req.bridge.requestPermission({
             toolUseId: opts.toolUseID,
             toolName,
@@ -246,16 +317,49 @@ export function createClaudeBackend(
           // A mutating tool runs inside this subprocess the moment we return
           // "allow", so take the shared write lock BEFORE allowing and hold it
           // until the tool's result frame is observed (see the stream loop) or
-          // the turn ends. Denials and read-only tools take nothing. Acquiring
-          // after the permission round-trip keeps the lock off the (possibly
-          // long) approval wait; a second turn's approval of a mutating tool
-          // then blocks here until the first releases.
+          // the turn ends. Denials and read-only tools take nothing.
           if (decision.behavior === "allow" && MUTATING_TOOLS.has(toolName)) {
-            const release = await writeLock.acquire();
-            if (turn.ended) release(); // turn drained while queued: never runs
-            else turn.pendingReleases.set(opts.toolUseID, release);
+            await acquireForTool(opts.toolUseID);
           }
           return toPermissionResult(decision);
+        },
+        hooks: {
+          // The write lock CANNOT live in canUseTool alone: the SDK
+          // auto-allows every tool listed in `allowedTools` without invoking
+          // the callback (it warns CLAUDE_SDK_CAN_USE_TOOL_SHADOWED), and the
+          // default allowlist contains all mutating tools. PreToolUse fires
+          // before every tool execution — auto-allowed or approved — and the
+          // SDK awaits it, so acquiring here serializes writes across turns
+          // no matter which permission path admitted the tool.
+          PreToolUse: [
+            {
+              matcher: MUTATING_TOOL_MATCHER,
+              hooks: [
+                async (hookInput) => {
+                  if (
+                    hookInput.hook_event_name === "PreToolUse" &&
+                    MUTATING_TOOLS.has(hookInput.tool_name)
+                  ) {
+                    await acquireForTool(hookInput.tool_use_id);
+                  }
+                  return { continue: true };
+                },
+              ],
+            },
+          ],
+          // A deny decided outside canUseTool (settings deny rules, other
+          // hooks) must still free a lock the PreToolUse hook took; our own
+          // canUseTool deny releases up front.
+          PermissionDenied: [
+            {
+              hooks: [
+                async (_hookInput, toolUseID) => {
+                  if (toolUseID) releaseForTool(toolUseID);
+                  return { continue: true };
+                },
+              ],
+            },
+          ],
         },
       };
 
@@ -281,7 +385,6 @@ export function createClaudeBackend(
       const result = queryFn({ prompt: queryPrompt, options: sdkOptions });
 
       let announced = false;
-      let sawResult = false;
       for await (const msg of result) {
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
@@ -304,34 +407,57 @@ export function createClaudeBackend(
           });
         }
         for (const serverMsg of adapter.adapt(msg)) {
-          if (serverMsg.type === "result") sawResult = true;
+          // Exactly one terminal frame per turn, whatever the stream does:
+          // a second SDK result is dropped rather than forwarded.
+          if (serverMsg.type === "result") {
+            if (sawResult) continue;
+            sawResult = true;
+          }
           // Release the write lock the moment a mutating tool's result frame
           // lands (the turn-end backstop covers anything still held).
           if (serverMsg.type === "tool_result") {
-            const release = turn.pendingReleases.get(serverMsg.toolUseId);
-            if (release) {
-              release();
-              turn.pendingReleases.delete(serverMsg.toolUseId);
-            }
+            releaseForTool(serverMsg.toolUseId);
           }
           emit(serverMsg);
         }
       }
 
-      // If the host aborted but the SDK ended the stream without throwing,
-      // still surface cancellation as the terminal frame.
-      if (abortController.signal.aborted && !sawResult) {
-        emit({ type: "status", status: "cancelled" });
+      // Stream ended without its terminal result: aborted → cancelled; not
+      // aborted → an abnormal end the client must still be released from.
+      if (!sawResult) {
+        if (abortController.signal.aborted) {
+          emit({ type: "status", status: "cancelled" });
+          emitTerminal("cancelled");
+        } else {
+          emit({
+            type: "error",
+            code: "CLAUDE_NO_RESULT",
+            message: "Backend stream ended without a result",
+          });
+          emitTerminal("error");
+        }
       }
     } catch (err) {
-      if (abortController.signal.aborted) {
+      // error/cancelled frames are diagnostics; the terminal frame is the
+      // result with an outcome (for turns that have a session identity —
+      // a turn that died before any session id ends on the bare error).
+      // emitTerminal itself no-ops when the stream already delivered its
+      // result before throwing.
+      // Diagnostics only make sense BEFORE the terminal frame; when the
+      // stream already delivered its result, the turn is over and nothing
+      // may follow it.
+      if (sawResult) {
+        // Terminal frame already sent — swallow the late failure.
+      } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
+        emitTerminal("cancelled");
       } else {
         emit({
           type: "error",
           code: "CLAUDE_ERROR",
           message: err instanceof Error ? err.message : String(err),
         });
+        emitTerminal("error");
       }
     } finally {
       req.signal.removeEventListener("abort", onHostAbort);

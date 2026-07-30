@@ -4,7 +4,7 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -110,4 +110,32 @@ test("config check reports valid config + effective taxonomy", async () => {
   expect(out.taxonomy.types).toHaveProperty("identity");
   expect(out.taxonomy.types).toHaveProperty("health"); // fixture-specific type
   expect(out.taxonomy.inbox).toBe("note");
+});
+
+test("mutating commands refuse to run without a brain.config", async () => {
+  const root = tempBrain({ empty: true });
+
+  for (const cmd of [["index"], ["add", "some text"], ["sync"]]) {
+    const { code, stderr } = await runCli(root, cmd);
+    expect(code).toBe(1);
+    expect(stderr).toContain("refusing to modify an uninitialized directory");
+  }
+  // No brain.db side effect from the refused index.
+  expect(existsSync(join(root, "brain.db"))).toBe(false);
+
+  // Read-only and onboarding commands still run.
+  const doctor = await runCli(root, ["doctor", "--json"]);
+  expect(doctor.code).toBe(0);
+});
+
+test("skills sync and setup also refuse to run without a brain.config", async () => {
+  const root = tempBrain({ empty: true });
+  for (const cmd of [["skills", "sync"], ["setup"]]) {
+    const { code, stderr } = await runCli(root, cmd);
+    expect(code).toBe(1);
+    expect(stderr).toContain("refusing to modify an uninitialized directory");
+  }
+  // No side-effect directories were created by the refused commands.
+  expect(existsSync(join(root, ".agents"))).toBe(false);
+  expect(existsSync(join(root, ".claude"))).toBe(false);
 });

@@ -11,6 +11,26 @@ import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams
 const severitySchema = z.enum(["error", "warning", "info"]);
 
 /**
+ * A path (or path prefix / glob) that must stay inside the brain repo:
+ * relative, no `..` segments, no absolute/home/backslash forms. Applied at
+ * every config field that later feeds a filesystem read or write, so a
+ * mistyped or malicious config value can never point resolution outside the
+ * root. `"."` (the root itself) and trailing slashes are allowed.
+ */
+export const repoRelativePathSchema = z
+  .string()
+  .min(1)
+  .refine((p) => !p.startsWith("/") && !p.startsWith("~"), {
+    message: "must be a repo-relative path (no absolute or ~ paths)",
+  })
+  .refine((p) => !p.includes("\\"), {
+    message: "must use forward slashes",
+  })
+  .refine((p) => p.split("/").every((seg) => seg !== ".."), {
+    message: "must not contain '..' segments",
+  });
+
+/**
  * One entry per document type. Replaces the historical trio of unsynchronized
  * type→dir maps (ingestion TYPE_DIRECTORIES, auditor TYPE_DIR_MAP, indexer
  * inferAssetType).
@@ -18,9 +38,9 @@ const severitySchema = z.enum(["error", "warning", "info"]);
 export const typeSpecSchema = z
   .object({
     /** Canonical creation directory. `null` = any directory; dir checks are skipped. */
-    dir: z.string().nullable(),
+    dir: repoRelativePathSchema.nullable(),
     /** Accepted path prefixes (defaults to [dir]). Longest prefix wins for inference. */
-    match: z.array(z.string()).optional(),
+    match: z.array(repoRelativePathSchema).optional(),
     /** Staleness threshold in days for docs under this type's dir. */
     staleDays: z.number().int().positive().optional(),
     /** Severity of staleness findings (default "warning" when staleDays is set). */
@@ -39,19 +59,19 @@ export const typeSpecSchema = z
 
 export type TypeSpec = z.infer<typeof typeSpecSchema>;
 
-const propagationRuleSchema = z
+export const propagationRuleSchema = z
   .object({
     /** Canonical source document (exact path). */
-    source: z.string(),
+    source: repoRelativePathSchema,
     /** Glob for derivative documents that must not lag behind the source. */
-    derivatives: z.string(),
+    derivatives: repoRelativePathSchema,
     severity: severitySchema.optional(),
   })
   .strict();
 
 export type PropagationRule = z.infer<typeof propagationRuleSchema>;
 
-const assetTitleRuleSchema = z.union([
+export const assetTitleRuleSchema = z.union([
   z
     .object({
       /** Directory prefix match. */
@@ -76,9 +96,9 @@ const taxonomyConfigSchema = z
   .object({
     types: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), typeSpecSchema).optional(),
     /** Anchor files a directory wiki-link resolves to, in order. */
-    dirAnchors: z.array(z.string()).optional(),
-    /** Well-known documents (identity, currentFocus, …). Features degrade gracefully when unset or missing. */
-    canonical: z.record(z.string(), z.string()).optional(),
+    dirAnchors: z.array(repoRelativePathSchema).optional(),
+    /** Well-known documents (identity, currentFocus, …). Features degrade gracefully when unset or missing. Empty string disables an entry. */
+    canonical: z.record(z.string(), z.union([z.literal(""), repoRelativePathSchema])).optional(),
     propagation: z.array(propagationRuleSchema).optional(),
     assetTitleRules: z.array(assetTitleRuleSchema).optional(),
     /** type → keyword/phrase list; compiled to word-boundary regexes for heuristic classification. */
@@ -149,8 +169,29 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
-    /** package name or ./local/path → module config block (validated by the module's configSchema). */
-    modules: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * package name or ./local/path → module config block (validated by the
+     * module's configSchema). Keys lead to import() — constrain them: a
+     * `./`-prefixed key must stay inside the repo (no `..`, no absolute), and
+     * anything else must look like an npm package specifier. brain.config.json
+     * is agent-editable data; an unconstrained key would turn it into
+     * arbitrary code execution outside the root.
+     */
+    modules: z
+      .record(
+        z.string().refine(
+          (key) =>
+            key.startsWith("./")
+              ? repoRelativePathSchema.safeParse(key.slice(2)).success
+              : /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(key),
+          {
+            message:
+              "module key must be an npm package name or a ./repo-relative path (no .., no absolute)",
+          }
+        ),
+        z.unknown()
+      )
+      .optional(),
   })
   .strict();
 

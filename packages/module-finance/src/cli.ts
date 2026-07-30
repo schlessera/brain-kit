@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { buildTaxonomy, loadModules, loadUserConfig } from "@brainform/core";
+import { safeResolve } from "@brainform/core";
 import type { CommandContext, CommandModule } from "@brainform/core";
 
 import { configSchema, type FinanceConfig } from "./module";
@@ -21,18 +21,6 @@ const HELP = `brain finance — accounts-receivable across client ledgers
 
 Flags: --json  emit a machine-readable envelope (report / sync)`;
 
-/** Resolve this module's validated config from the brain at `root`, or defaults. */
-async function resolveConfig(root: string): Promise<FinanceConfig> {
-  try {
-    const { config } = await loadUserConfig(root);
-    const modules = await loadModules(config, root);
-    const self = modules.find((m) => m.manifest.name === "finance");
-    if (self?.config) return self.config as FinanceConfig;
-  } catch {
-    // Fall through to schema defaults for an uninitialized / partial brain.
-  }
-  return configSchema.parse({});
-}
 
 function optionsFrom(root: string, cfg: FinanceConfig): FinanceOptions {
   return {
@@ -61,7 +49,12 @@ function templatePath(): string {
 }
 
 function newClient(opts: FinanceOptions, slug: string): number {
-  const dir = resolve(opts.root, opts.clientsDir, slug);
+  // slug is a raw CLI argument — refuse anything that resolves outside the root.
+  const dir = safeResolve(opts.root, join(opts.clientsDir, slug));
+  if (dir === null) {
+    console.error(`Client slug escapes the brain root: ${slug}`);
+    return 1;
+  }
   const ledgerPath = join(dir, "ledger.md");
   if (existsSync(ledgerPath)) {
     console.error(`Ledger already exists: ${relative(opts.root, ledgerPath)}`);
@@ -87,7 +80,9 @@ const command: CommandModule = {
   helpBlock: HELP,
   async run(args: string[], ctx: CommandContext): Promise<number> {
     const sub = args[0];
-    const cfg = await resolveConfig(ctx.root);
+    // ctx.config is the loader-validated block; re-parse only to brand the
+    // type (defaults already applied, never a silent fallback).
+    const cfg = configSchema.parse(ctx.config ?? {});
     const opts = optionsFrom(ctx.root, cfg);
 
     if (!sub || sub === "report") {

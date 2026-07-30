@@ -36,6 +36,19 @@ const TOLERATE_CONFIG_ERROR = new Set([
   "init", "doctor", "setup", "config", "validate", "module", "skills",
 ]);
 
+// Commands that write to the brain tree or its database. They refuse to run
+// when no brain.config was found: resolveRoot's .git-ancestor/cwd fallbacks
+// would otherwise let e.g. `brain index` create a brain.db in any directory
+// the CLI happens to be invoked from.
+const MUTATING_COMMANDS = new Set([
+  "add", "import", "index", "archive", "accept-mtime", "process", "maintain", "sync",
+  // skills sync writes/deletes under .agents/.claude; setup writes git hooks,
+  // skill links, and a ~/.local/bin symlink. Both stay in TOLERATE_CONFIG_ERROR
+  // (that list is about an INVALID config); with NO config they must refuse
+  // like every other writer. `brain init` writes the config before setup runs.
+  "skills", "setup",
+]);
+
 /** Env var holding the API key for a named built-in completion provider. */
 const COMPLETION_KEY_ENV: Record<string, string> = {
   "gemini-flash": "GEMINI_API_KEY",
@@ -171,6 +184,19 @@ async function main(): Promise<number> {
   // An invalid config blocks commands that depend on a correct taxonomy.
   if (configError && !TOLERATE_CONFIG_ERROR.has(command)) {
     console.error(`Invalid brain.config:\n${configError}`);
+    return 1;
+  }
+
+  // No config found at all → refuse anything that writes. `skills` is only
+  // mutating in its `sync` form; `skills lint` is read-only and must still run.
+  const mutates =
+    MUTATING_COMMANDS.has(command) && !(command === "skills" && argv[1] !== "sync");
+  if (brain.configPath === null && mutates) {
+    console.error(
+      `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +
+        `refusing to modify an uninitialized directory.\n` +
+        `Run \`brain init\` to create a brain here, or point BRAIN_ROOT at an existing brain.`
+    );
     return 1;
   }
 

@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
+    "./schemas": "./src/schemas.ts",
     "./server": "./src/server/index.ts",
     "./client": "./src/client/index.ts"
   },
@@ -15,6 +16,9 @@
   ],
   "scripts": {
     "test": "bun test tests"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "react": ">=18"

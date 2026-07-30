@@ -31,37 +31,41 @@ export type SpeakingConfig = z.infer<typeof configSchema>;
 
 export default defineModule({
   name: "speaking",
-  taxonomy: {
-    types: {
-      talk: { dir: "talks" },
-      conference: { dir: "conferences" },
-      travel: { dir: "travel" },
-    },
-    // Generic conference/travel vocabulary. Personal venue names (e.g. specific
-    // conference series a user attends every year) belong in the user's own
-    // brain.config classifierHints, not here.
-    classifierHints: {
-      conference: [
-        "cfp",
-        "call for papers",
-        "keynote",
-        "conference",
-        "submission deadline",
-        "speaker slot",
-      ],
-      travel: [
-        "itinerary",
-        "flight",
-        "hotel booking",
-        "accommodation",
-        "road trip",
-        "check-in",
-        "train to",
-      ],
-    },
-  },
-  skills: "./skills",
-  indexRules: { dirAnchors: ["status.md", "itinerary.md", "outline.md"] },
-  exclude: { segments: ["alt-decks", "versions", "deck"] },
   configSchema,
+  // Config-independent contribution: travelParty is consumed by the
+  // plan-travel skill, not by the manifest.
+  setup: () => ({
+    taxonomy: {
+      types: {
+        talk: { dir: "talks" },
+        conference: { dir: "conferences" },
+        travel: { dir: "travel" },
+      },
+      // Generic conference/travel vocabulary. Personal venue names (e.g.
+      // specific conference series a user attends every year) belong in the
+      // user's own brain.config classifierHints, not here.
+      classifierHints: {
+        conference: [
+          "cfp",
+          "call for papers",
+          "keynote",
+          "conference",
+          "submission deadline",
+          "speaker slot",
+        ],
+        travel: [
+          "itinerary",
+          "flight",
+          "hotel booking",
+          "accommodation",
+          "road trip",
+          "check-in",
+          "train to",
+        ],
+      },
+    },
+    skills: "./skills",
+    indexRules: { dirAnchors: ["status.md", "itinerary.md", "outline.md"] },
+    exclude: { segments: ["alt-decks", "versions", "deck"] },
+  }),
 });
