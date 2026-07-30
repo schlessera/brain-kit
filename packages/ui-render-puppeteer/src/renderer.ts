@@ -3,20 +3,23 @@
  * it is: a renderer for CALLER-SUPPLIED HTML running next to personal data.
  *
  * Security posture (why this is its own optional package):
- * - Network is DENIED by default. Rendered HTML can request nothing over
- *   http(s)/ws — no SSRF into the host's network, no exfiltration beacons,
- *   no remote assets. Inline everything (data: URIs). Callers who genuinely
- *   need remote assets must pass an explicit `allowRequest` predicate.
- * - Every render is bounded by a timeout and a concurrency cap, so a
- *   pathological document can't wedge the browser or fork-bomb pages.
- * - The browser is launched lazily and closed after an idle period.
- *
- * Chromium sandbox: containers commonly lack the privileges for Chrome's
- * user-namespace sandbox, so `noSandbox` defaults to true. On a host where
- * the sandbox works, pass `noSandbox: false` — content is untrusted HTML and
- * every layer helps.
+ * - JavaScript is DISABLED by default. Request interception cannot see
+ *   WebSocket handshakes, so with JS on, rendered HTML could SSRF into any
+ *   ws:// endpoint reachable from the host. Share cards are static — callers
+ *   that truly need scripts must opt in via `allowScripts` and accept that
+ *   the ws channel opens up.
+ * - Network is DENIED by default: request interception allows only data: and
+ *   about:blank, and (unless `allowRequest` is provided) DNS resolution is
+ *   disabled outright via --host-resolver-rules. Inline everything.
+ * - Every render is bounded by a wall-clock budget (browser launch and page
+ *   creation included) and a concurrency cap with a bounded queue.
+ * - The browser is launched lazily and closed after an idle period; a render
+ *   in flight always cancels a pending idle close.
+ * - The Chromium sandbox stays ON by default. Containers that lack the
+ *   privileges for it must opt in with `noSandbox: true` (weaker: a renderer
+ *   exploit then lands on the host user).
  */
-import puppeteer, { type Browser, type HTTPRequest } from "puppeteer-core";
+import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 import { existsSync } from "node:fs";
 
 import { Semaphore } from "./semaphore";
@@ -29,6 +32,11 @@ const CHROME_PATH_CANDIDATES = [
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
 ];
+
+const MIN_VIEWPORT_WIDTH = 320;
+const MAX_VIEWPORT_WIDTH = 4096;
+/** Cap on captured page height — bounds the screenshot allocation. */
+const MAX_CAPTURE_HEIGHT = 16_384;
 
 function resolveChromePath(explicit?: string): string {
   for (const p of [explicit, ...CHROME_PATH_CANDIDATES]) {
@@ -43,6 +51,8 @@ function resolveChromePath(explicit?: string): string {
  * Default network policy: only navigation-free, network-free content loads.
  * `data:` (inline assets) and `about:blank` (the setContent document) are the
  * whole allowlist; everything else — http(s), ws(s), file:, blob: — is denied.
+ * (WebSocket handshakes bypass interception entirely, which is why script
+ * execution is separately disabled by default.)
  */
 export function shouldAllowRequest(url: string): boolean {
   return url.startsWith("data:") || url === "about:blank";
@@ -51,25 +61,37 @@ export function shouldAllowRequest(url: string): boolean {
 export interface RendererOptions {
   /** Chrome executable. Default: PUPPETEER_EXECUTABLE_PATH / BRAIN_UI_CHROME_PATH / well-known paths. */
   executablePath?: string;
-  /** Per-render wall-clock budget (ms). Default 30_000. */
+  /** Per-render wall-clock budget (ms), browser launch included. Default 30_000. */
   renderTimeoutMs?: number;
-  /** Max renders in flight; further calls queue. Default 2. */
+  /** Max renders in flight; further calls queue (bounded). Default 2. */
   maxConcurrent?: number;
+  /** Max renders WAITING behind the concurrency cap before "renderer busy". Default 16. */
+  maxQueue?: number;
   /** Close the browser after this long without a render (ms). Default 5 min. */
   idleTimeoutMs?: number;
   /**
    * Escape hatch for callers that must load remote assets. Return true to let
    * a request through. Combined with (not replacing) the data:/about:blank
-   * allowlist. Default: nothing extra is allowed.
+   * allowlist. Providing this also re-enables DNS resolution in the browser.
+   * Default: nothing extra is allowed and DNS is disabled.
    */
   allowRequest?: (url: string) => boolean;
-  /** Launch Chrome without its sandbox (required in most containers). Default true. */
+  /**
+   * Execute the document's JavaScript. DANGEROUS with untrusted HTML: request
+   * interception does not cover WebSocket handshakes, so scripts can reach
+   * ws:// endpoints. Default false.
+   */
+  allowScripts?: boolean;
+  /**
+   * Launch Chrome WITHOUT its sandbox. Required in most containers (no
+   * user-namespace privileges) but strictly weaker — opt-in. Default false.
+   */
   noSandbox?: boolean;
 }
 
 export interface RenderOptions {
   html: string;
-  /** Viewport width for layout (px). Default 768 — good for share-card readability. */
+  /** Viewport width for layout (px), clamped to [320, 4096]. Default 768. */
   width?: number;
 }
 
@@ -82,11 +104,13 @@ export interface Renderer {
 export function createRenderer(options: RendererOptions = {}): Renderer {
   const renderTimeoutMs = options.renderTimeoutMs ?? 30_000;
   const idleTimeoutMs = options.idleTimeoutMs ?? 5 * 60 * 1000;
-  const semaphore = new Semaphore(options.maxConcurrent ?? 2);
-  const noSandbox = options.noSandbox ?? true;
+  const semaphore = new Semaphore(options.maxConcurrent ?? 2, options.maxQueue ?? 16);
+  const noSandbox = options.noSandbox ?? false;
+  const allowScripts = options.allowScripts ?? false;
 
   let browserPromise: Promise<Browser> | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = 0;
 
   function getBrowser(): Promise<Browser> {
     if (!browserPromise) {
@@ -96,6 +120,10 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
         headless: true,
         args: [
           ...(noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+          // Without an allowRequest escape hatch nothing may touch the
+          // network — kill DNS at the browser level as a second layer that
+          // also covers channels interception can't see (WebSockets).
+          ...(options.allowRequest ? [] : ['--host-resolver-rules=MAP * ~NOTFOUND']),
           "--disable-dev-shm-usage",
           "--disable-gpu",
         ],
@@ -111,6 +139,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
 
   function scheduleIdleClose(): void {
     if (idleTimer) clearTimeout(idleTimer);
+    if (inFlight > 0) return; // a live render re-schedules when it finishes
     idleTimer = setTimeout(async () => {
       const p = browserPromise;
       browserPromise = null;
@@ -135,41 +164,57 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
     }
   }
 
+  function clampWidth(width: number | undefined): number {
+    const w = width ?? 768;
+    return Math.min(MAX_VIEWPORT_WIDTH, Math.max(MIN_VIEWPORT_WIDTH, Math.floor(w)));
+  }
+
   async function withPage<T>(
     opts: RenderOptions,
-    produce: (page: Awaited<ReturnType<Browser["newPage"]>>) => Promise<T>
+    produce: (page: Page) => Promise<T>
   ): Promise<T> {
     const release = await semaphore.acquire();
+    // A render is now committed: cancel any pending idle close so the browser
+    // can't be torn down underneath it.
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    inFlight++;
+    let page: Page | null = null;
     try {
-      const browser = await getBrowser();
-      const page = await browser.newPage();
+      // The budget covers EVERYTHING — browser launch and newPage included —
+      // so a wedged launch can't hold a semaphore slot for puppeteer's own
+      // 180s protocol timeout.
       const budget = new Promise<never>((_r, reject) => {
-        setTimeout(
+        const t = setTimeout(
           () => reject(new Error(`Render exceeded ${renderTimeoutMs}ms budget`)),
           renderTimeoutMs
-        ).unref?.();
+        );
+        (t as { unref?: () => void }).unref?.();
       });
-      try {
-        await page.setRequestInterception(true);
-        page.on("request", onRequest);
-        page.setDefaultTimeout(renderTimeoutMs);
-        await page.setViewport({
-          width: opts.width ?? 768,
-          height: 1024,
-          deviceScaleFactor: 2,
-        });
-        return await Promise.race([
-          (async () => {
-            await page.setContent(opts.html, { waitUntil: "load" });
-            return produce(page);
-          })(),
-          budget,
-        ]);
-      } finally {
-        await page.close().catch(() => {});
-        scheduleIdleClose();
-      }
+      return await Promise.race([
+        (async () => {
+          const browser = await getBrowser();
+          page = await browser.newPage();
+          await page.setJavaScriptEnabled(allowScripts);
+          await page.setRequestInterception(true);
+          page.on("request", onRequest);
+          page.setDefaultTimeout(renderTimeoutMs);
+          await page.setViewport({
+            width: clampWidth(opts.width),
+            height: 1024,
+            deviceScaleFactor: 2,
+          });
+          await page.setContent(opts.html, { waitUntil: "load" });
+          return produce(page);
+        })(),
+        budget,
+      ]);
     } finally {
+      if (page) await (page as Page).close().catch(() => {});
+      inFlight--;
+      scheduleIdleClose();
       release();
     }
   }
@@ -180,24 +225,32 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
         const bodyHandle = await page.$("body");
         const box = bodyHandle ? await bodyHandle.boundingBox() : null;
         const clip = box
-          ? { x: 0, y: 0, width: Math.ceil(box.width), height: Math.ceil(box.height) }
+          ? {
+              x: box.x,
+              y: box.y,
+              width: Math.ceil(box.width),
+              height: Math.min(MAX_CAPTURE_HEIGHT, Math.ceil(box.height)),
+            }
           : undefined;
-        return (await page.screenshot({
+        const shot = await page.screenshot({
           type: "png",
           fullPage: !clip,
           clip,
           omitBackground: false,
-        })) as Buffer;
+        });
+        // puppeteer 25 returns Uint8Array — honor the Buffer contract for real.
+        return Buffer.from(shot);
       });
     },
 
     renderPdf(opts: RenderOptions): Promise<Buffer> {
       return withPage(opts, async (page) => {
-        return (await page.pdf({
+        const pdf = await page.pdf({
           format: "A4",
           printBackground: true,
           margin: { top: "16mm", bottom: "16mm", left: "16mm", right: "16mm" },
-        })) as Buffer;
+        });
+        return Buffer.from(pdf);
       });
     },
 
