@@ -42,6 +42,11 @@ const TOLERATE_CONFIG_ERROR = new Set([
 // the CLI happens to be invoked from.
 const MUTATING_COMMANDS = new Set([
   "add", "import", "index", "archive", "accept-mtime", "process", "maintain", "sync",
+  // skills sync writes/deletes under .agents/.claude; setup writes git hooks,
+  // skill links, and a ~/.local/bin symlink. Both stay in TOLERATE_CONFIG_ERROR
+  // (that list is about an INVALID config); with NO config they must refuse
+  // like every other writer. `brain init` writes the config before setup runs.
+  "skills", "setup",
 ]);
 
 /** Env var holding the API key for a named built-in completion provider. */
@@ -187,7 +192,7 @@ async function main(): Promise<number> {
     console.error(
       `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +
         `refusing to modify an uninitialized directory.\n` +
-        `Run \`brain init\` to create a brain here, or set BRAIN_ROOT.`
+        `Run \`brain init\` to create a brain here, or point BRAIN_ROOT at an existing brain.`
     );
     return 1;
   }

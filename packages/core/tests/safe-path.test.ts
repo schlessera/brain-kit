@@ -79,3 +79,36 @@ describe("safeResolve", () => {
     expect(out).toBe(join(realpathSync(root), "real/new.md"));
   });
 });
+
+describe("safeResolve — dangling and cyclic symlinks", () => {
+  test("rejects a dangling symlink whose target would land outside the root", () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    // Link exists, target does NOT — a write through it would be created at
+    // the target. The old lexical fallback accepted this.
+    symlinkSync(join(outside, "pwned.md"), join(root, "link.md"));
+    expect(safeResolve(root, "link.md")).toBeNull();
+    // Same with a dangling DIRECTORY link as a middle component.
+    symlinkSync(join(outside, "no-such-dir"), join(root, "sneakydir"));
+    expect(safeResolve(root, "sneakydir/new.md")).toBeNull();
+  });
+
+  test("accepts a dangling symlink whose target stays inside the root", () => {
+    const root = makeRoot();
+    symlinkSync(join(root, "not-yet.md"), join(root, "link.md"));
+    expect(safeResolve(root, "link.md")).toBe(join(realpathSync(root), "not-yet.md"));
+  });
+
+  test("rejects a dangling symlink cycle instead of looping", () => {
+    const root = makeRoot();
+    symlinkSync(join(root, "b"), join(root, "a"));
+    symlinkSync(join(root, "a"), join(root, "b"));
+    expect(safeResolve(root, "a/x.md")).toBeNull();
+  });
+
+  test("returns null for a missing root and NUL bytes", () => {
+    const root = makeRoot();
+    expect(safeResolve(join(root, "does-not-exist"), "x.md")).toBeNull();
+    expect(safeResolve(root, "a\0b.md")).toBeNull();
+  });
+});

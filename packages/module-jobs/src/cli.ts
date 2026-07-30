@@ -51,8 +51,10 @@ async function resolveJobsCtx(ctx: CommandContext): Promise<JobsCtx> {
   );
 
   const opportunitiesDir = ctx.taxonomy.dirForType("opportunity") ?? jobsConfig.opportunitiesDir;
-  // dbPath is schema-constrained to a repo-relative path.
-  const dbPath = resolve(ctx.root, jobsConfig.dbPath ?? "jobs.db");
+  // dbPath is schema-constrained to a repo-relative path; safeResolve also
+  // refuses a symlinked component pointing outside the root.
+  const dbPath = safeResolve(ctx.root, jobsConfig.dbPath ?? "jobs.db");
+  if (!dbPath) throw new Error(`jobs dbPath escapes the brain root: ${jobsConfig.dbPath}`);
 
   return {
     root: ctx.root,

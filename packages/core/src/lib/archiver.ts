@@ -67,7 +67,12 @@ export async function archiveDocument(
   writeFileSync(fullPath, stringifyDocument(parsed.content, parsed.data), "utf-8");
 
   if (willMove) {
-    const archiveFullPath = resolve(root, finalPath);
+    // The DESTINATION needs containment too — a symlinked projects/archive
+    // would otherwise rename the file straight out of the repo.
+    const archiveFullPath = safeResolve(root, finalPath);
+    if (!archiveFullPath) {
+      throw new Error("Archive destination escapes the brain root directory");
+    }
     mkdirSync(dirname(archiveFullPath), { recursive: true });
     renameSync(fullPath, archiveFullPath);
   }

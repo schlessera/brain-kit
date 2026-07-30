@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import matter from "gray-matter";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { dirname } from "path";
+import { dirname, relative } from "path";
 
 import type { DocumentType, IngestInput } from "./types";
 import type { Taxonomy } from "./taxonomy";
@@ -214,6 +214,9 @@ export async function ingest(
   if (fullPath === null) {
     throw new Error(`Path escapes the brain root: ${relativePath}`);
   }
+  // Report where the write actually lands: through an in-root symlinked dir
+  // the canonical path differs from the requested one.
+  relativePath = relative(root, fullPath);
 
   // 6. Check if file already exists
   if (existsSync(fullPath) && !input.path) {

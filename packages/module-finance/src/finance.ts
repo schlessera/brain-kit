@@ -16,6 +16,7 @@
 import { resolve, join, relative } from "path";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
 import matter from "gray-matter";
+import { safeResolve } from "@brainform/core";
 
 /** Runtime configuration for the AR engine, threaded through every entry point. */
 export interface FinanceOptions {
@@ -164,8 +165,18 @@ export function loadLedgers(opts: FinanceOptions, filterSlug?: string): ClientLe
   const ledgers: ClientLedger[] = [];
 
   for (const entry of readdirSync(clientsDir)) {
-    const dir = join(clientsDir, entry);
-    if (!statSync(dir).isDirectory()) continue;
+    // Canonicalize + contain each client dir: a symlinked <clientsDir>/<slug>
+    // pointing outside the root must not become a write target downstream,
+    // and a dangling symlink must not crash the scan.
+    const dir = safeResolve(opts.root, join(opts.clientsDir, entry));
+    if (!dir) continue;
+    let isDir: boolean;
+    try {
+      isDir = statSync(dir).isDirectory();
+    } catch {
+      continue;
+    }
+    if (!isDir) continue;
     const ledgerFile = join(dir, "ledger.md");
     if (!existsSync(ledgerFile)) continue;
     if (filterSlug && entry !== filterSlug) continue;
@@ -572,12 +583,13 @@ export function syncFiles(opts: FinanceOptions, asOf = today()): SyncResult {
   for (const c of pf.clients) {
     const ledger = bySlug.get(c.slug);
     if (!ledger) continue;
-    const abs = resolve(opts.root, ledger.ledgerPath);
+    const abs = safeResolve(opts.root, ledger.ledgerPath);
+    if (!abs) continue;
     if (rewriteBody(abs, renderLedgerTables(c, ledger.payments), asOf)) written.push(ledger.ledgerPath);
   }
 
-  const indexPath = resolve(opts.root, opts.clientsDir, "_index.md");
-  if (existsSync(indexPath) && rewriteBody(indexPath, renderIndexTable(pf), asOf)) {
+  const indexPath = safeResolve(opts.root, join(opts.clientsDir, "_index.md"));
+  if (indexPath && existsSync(indexPath) && rewriteBody(indexPath, renderIndexTable(pf), asOf)) {
     written.push(relative(opts.root, indexPath));
   }
 
@@ -597,14 +609,15 @@ export function checkSync(opts: FinanceOptions, asOf = today()): string[] {
   for (const c of pf.clients) {
     const ledger = bySlug.get(c.slug);
     if (!ledger) continue;
-    const abs = resolve(opts.root, ledger.ledgerPath);
+    const abs = safeResolve(opts.root, ledger.ledgerPath);
+    if (!abs) continue;
     if (computeRewrite(abs, renderLedgerTables(c, ledger.payments), asOf) !== null) {
       stale.push(ledger.ledgerPath);
     }
   }
 
-  const indexPath = resolve(opts.root, opts.clientsDir, "_index.md");
-  if (existsSync(indexPath) && computeRewrite(indexPath, renderIndexTable(pf), asOf) !== null) {
+  const indexPath = safeResolve(opts.root, join(opts.clientsDir, "_index.md"));
+  if (indexPath && existsSync(indexPath) && computeRewrite(indexPath, renderIndexTable(pf), asOf) !== null) {
     stale.push(relative(opts.root, indexPath));
   }
 

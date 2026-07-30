@@ -127,3 +127,15 @@ test("mutating commands refuse to run without a brain.config", async () => {
   const doctor = await runCli(root, ["doctor", "--json"]);
   expect(doctor.code).toBe(0);
 });
+
+test("skills sync and setup also refuse to run without a brain.config", async () => {
+  const root = tempBrain({ empty: true });
+  for (const cmd of [["skills", "sync"], ["setup"]]) {
+    const { code, stderr } = await runCli(root, cmd);
+    expect(code).toBe(1);
+    expect(stderr).toContain("refusing to modify an uninitialized directory");
+  }
+  // No side-effect directories were created by the refused commands.
+  expect(existsSync(join(root, ".agents"))).toBe(false);
+  expect(existsSync(join(root, ".claude"))).toBe(false);
+});

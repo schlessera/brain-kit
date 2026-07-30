@@ -71,7 +71,10 @@ async function processNote(
   embeddings: CliContext["embeddings"],
   keepNote: boolean
 ): Promise<ProcessResult> {
-  const fullPath = resolve(root, notePath);
+  // notePath is caller/scan-supplied — canonicalize + contain before reading
+  // (and before the keepNote=false delete at the end).
+  const fullPath = safeResolve(root, notePath);
+  if (!fullPath) throw new UsageError(`Path escapes the brain root: ${notePath}`);
   const raw = readFileSync(fullPath, "utf-8");
   const { data, content } = matter(raw);
 

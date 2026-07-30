@@ -169,8 +169,29 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
-    /** package name or ./local/path → module config block (validated by the module's configSchema). */
-    modules: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * package name or ./local/path → module config block (validated by the
+     * module's configSchema). Keys lead to import() — constrain them: a
+     * `./`-prefixed key must stay inside the repo (no `..`, no absolute), and
+     * anything else must look like an npm package specifier. brain.config.json
+     * is agent-editable data; an unconstrained key would turn it into
+     * arbitrary code execution outside the root.
+     */
+    modules: z
+      .record(
+        z.string().refine(
+          (key) =>
+            key.startsWith("./")
+              ? repoRelativePathSchema.safeParse(key.slice(2)).success
+              : /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(key),
+          {
+            message:
+              "module key must be an npm package name or a ./repo-relative path (no .., no absolute)",
+          }
+        ),
+        z.unknown()
+      )
+      .optional(),
   })
   .strict();
 

@@ -34,9 +34,26 @@ const contributionSchema = z
     hygieneChecks: z.array(z.custom<(ctx: unknown) => unknown>((v) => typeof v === "function")).optional(),
     indexRules: z.object({ dirAnchors: z.array(repoRelativePathSchema).optional() }).strict().optional(),
     exclude: z.object({ segments: z.array(z.string()).optional() }).strict().optional(),
+    // Cron entries are materialized into a real crontab by container
+    // entrypoints — a newline or shell metacharacter in any field would let a
+    // module contribute an arbitrary (root) cron line. Constrain them here,
+    // where every consumer inherits the guarantee.
     cron: z
       .array(
-        z.object({ name: z.string(), schedule: z.string(), command: z.string() }).strict()
+        z
+          .object({
+            name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, {
+              message: "cron name must be kebab-case, max 64 chars",
+            }),
+            schedule: z.string().regex(/^[-0-9*,/ ]{1,100}$/, {
+              message: "cron schedule must be a 5-field expression (digits, * , / -)",
+            }),
+            command: z.string().regex(/^[A-Za-z0-9 _.:=@,\-/]{1,200}$/, {
+              message:
+                "cron command must be a plain `brain …` argument string (no shell metacharacters)",
+            }),
+          })
+          .strict()
       )
       .optional(),
   })
@@ -97,7 +114,10 @@ export async function loadModules(
 
     loaded.push({
       key,
-      manifest: { name: manifest.name, ...contribution },
+      // Store the VALIDATED output, not the raw contribution, so any schema
+      // defaults/normalization actually take effect. (Cast: zod types the
+      // z.custom function fields loosely; the values pass through unchanged.)
+      manifest: { name: manifest.name, ...(parsed.data as ModuleContribution) },
       dir,
       config: validated,
     });
@@ -113,7 +133,8 @@ async function importManifest(
   let specifier: string;
   let dir: string;
 
-  if (key.startsWith("./") || key.startsWith("../")) {
+  if (key.startsWith("./")) {
+    // `../` keys are rejected by the config schema; keep the loader strict too.
     const base = resolve(root, key);
     specifier = existsSync(join(base, "module.ts"))
       ? join(base, "module.ts")

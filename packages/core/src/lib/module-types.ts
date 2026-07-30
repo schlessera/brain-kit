@@ -52,7 +52,12 @@ export interface ModuleContribution {
     assetTitleRules?: import("./config").AssetTitleRule[];
     propagation?: import("./config").PropagationRule[];
   };
-  /** Path to the skills directory, relative to the module package root. */
+  /**
+   * Path to the skills directory, relative to the MODULE PACKAGE root (which
+   * for an npm module lives outside the brain repo). Validated for shape only
+   * (relative, no `..`/absolute) — the repo-containment guarantee of
+   * repoRelativePathSchema does not apply here.
+   */
   skills?: string;
   /** ONE namespaced top-level CLI word per module (e.g. `brain jobs …`). */
   commands?: Record<string, () => Promise<{ default: CommandModule } | CommandModule>>;
