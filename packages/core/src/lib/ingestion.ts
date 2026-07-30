@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import matter from "gray-matter";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync } from "fs";
 import { dirname, relative } from "path";
 
 import type { DocumentType, IngestInput } from "./types";
@@ -215,8 +215,10 @@ export async function ingest(
     throw new Error(`Path escapes the brain root: ${relativePath}`);
   }
   // Report where the write actually lands: through an in-root symlinked dir
-  // the canonical path differs from the requested one.
-  relativePath = relative(root, fullPath);
+  // the canonical path differs from the requested one. Relativize against the
+  // CANONICAL root — safeResolve returns a realpath, so comparing it to a
+  // symlinked BRAIN_ROOT would yield a "../real-brain/..." escape-looking path.
+  relativePath = relative(realpathSync(root), fullPath);
 
   // 6. Check if file already exists
   if (existsSync(fullPath) && !input.path) {

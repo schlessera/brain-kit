@@ -371,12 +371,24 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     }
   }
 
-  function snapshotCost(session: PiSessionLike): number {
+  /** Lifetime session cost, or null when the runtime can't report it. */
+  function snapshotCost(session: PiSessionLike): number | null {
     try {
-      return session.getSessionStats().cost;
+      const cost = session.getSessionStats().cost;
+      return Number.isFinite(cost) ? cost : null;
     } catch {
-      return 0;
+      return null;
     }
+  }
+
+  /**
+   * Turn cost = after - before. Returns undefined (→ omit `costUsd`) when
+   * either snapshot is unavailable: the protocol defines 0 as "actually
+   * free", so an unknown cost must not be reported as zero.
+   */
+  function turnCost(before: number | null, after: number | null): number | undefined {
+    if (before === null || after === null) return undefined;
+    return Math.max(0, after - before);
   }
 
   return {
@@ -478,13 +490,15 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         evictIdle();
       }
 
+      const costUsd = turnCost(costBefore, snapshotCost(session));
+
       if (cancelled) {
         emit({ type: "status", status: "cancelled" });
         emit({
           type: "result",
           sessionId,
           outcome: "cancelled",
-          costUsd: Math.max(0, snapshotCost(session) - costBefore),
+          ...(costUsd !== undefined ? { costUsd } : {}),
           durationMs: Date.now() - startedAt,
           numTurns: 1,
           isError: false,
@@ -492,11 +506,14 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         return;
       }
 
+      // Parity with the claude backend, which emits idle before its terminal
+      // result — the two backends must produce interchangeable frame streams.
+      emit({ type: "status", status: "idle" });
       emit({
         type: "result",
         sessionId,
         outcome: failed ? "error" : "success",
-        costUsd: Math.max(0, snapshotCost(session) - costBefore),
+        ...(costUsd !== undefined ? { costUsd } : {}),
         durationMs: Date.now() - startedAt,
         numTurns: 1,
         isError: failed,

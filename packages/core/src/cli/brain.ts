@@ -187,8 +187,11 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // No config found at all → refuse anything that writes.
-  if (brain.configPath === null && MUTATING_COMMANDS.has(command)) {
+  // No config found at all → refuse anything that writes. `skills` is only
+  // mutating in its `sync` form; `skills lint` is read-only and must still run.
+  const mutates =
+    MUTATING_COMMANDS.has(command) && !(command === "skills" && argv[1] !== "sync");
+  if (brain.configPath === null && mutates) {
     console.error(
       `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +
         `refusing to modify an uninitialized directory.\n` +
