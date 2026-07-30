@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { CommandContext, CommandModule } from "@brainform/core";
-import { loadUserConfig, loadModules, buildTaxonomy } from "@brainform/core";
+import { loadUserConfig, loadModules, buildTaxonomy, safeResolve } from "@brainform/core";
 
 import { openDatabase } from "./db";
 import { runScrape } from "./scrape";
@@ -374,7 +374,13 @@ function cmdScaffold(args: string[], jctx: JobsCtx): number {
   }
 
   const slug = kebabCase(job.company) || `job-${job.id}`;
-  const dir = resolve(jctx.root, jctx.opportunitiesDir, slug);
+  // Scraped company names feed the slug — keep the scaffold inside the root.
+  const dir = safeResolve(jctx.root, join(jctx.opportunitiesDir, slug));
+  if (dir === null) {
+    console.error(`Scaffold path escapes the brain root: ${slug}`);
+    db.close();
+    return 1;
+  }
   if (existsSync(dir)) {
     console.error(`Refusing to scaffold: directory already exists: ${dir}`);
     db.close();

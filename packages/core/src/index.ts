@@ -10,6 +10,7 @@
 export {
   defineConfig,
   brainConfigSchema,
+  repoRelativePathSchema,
   resolveRoot,
   loadUserConfig,
   formatConfigError,

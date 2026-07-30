@@ -64,6 +64,18 @@ describe("classifyContent", () => {
 });
 
 describe("ingest", () => {
+  test("rejects an explicit path that escapes the brain root", async () => {
+    const root = makeCorpus();
+    const db = openDatabase(":memory:");
+    await expect(
+      ingest({ content: "x", type: "note", path: "../evil.md" }, db, { root, taxonomy })
+    ).rejects.toThrow(/escapes the brain root/);
+    await expect(
+      ingest({ content: "x", type: "note", path: "/tmp/evil.md" }, db, { root, taxonomy })
+    ).rejects.toThrow(/escapes the brain root/);
+    db.close();
+  });
+
   test("creates a new file under the type's canonical directory", async () => {
     const root = makeCorpus();
     const db = openDatabase(join(root, "brain.db"));

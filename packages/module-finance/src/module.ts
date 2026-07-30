@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule } from "@brainform/core";
+import { defineModule, repoRelativePathSchema } from "@brainform/core";
 import type { AuditIssue, HygieneContext } from "@brainform/core";
 import { checkSync, type FinanceOptions } from "./finance";
 
@@ -12,7 +12,7 @@ import { checkSync, type FinanceOptions } from "./finance";
  */
 export const configSchema = z
   .object({
-    clientsDir: z.string().default("clients"),
+    clientsDir: repoRelativePathSchema.default("clients"),
     feeTolerance: z.number().default(30),
     currency: z.string().default("USD"),
     termsDays: z.number().int().positive().default(30),

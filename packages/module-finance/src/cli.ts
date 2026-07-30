@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { buildTaxonomy, loadModules, loadUserConfig } from "@brainform/core";
+import { buildTaxonomy, loadModules, loadUserConfig, safeResolve } from "@brainform/core";
 import type { CommandContext, CommandModule } from "@brainform/core";
 
 import { configSchema, type FinanceConfig } from "./module";
@@ -61,7 +61,12 @@ function templatePath(): string {
 }
 
 function newClient(opts: FinanceOptions, slug: string): number {
-  const dir = resolve(opts.root, opts.clientsDir, slug);
+  // slug is a raw CLI argument — refuse anything that resolves outside the root.
+  const dir = safeResolve(opts.root, join(opts.clientsDir, slug));
+  if (dir === null) {
+    console.error(`Client slug escapes the brain root: ${slug}`);
+    return 1;
+  }
   const ledgerPath = join(dir, "ledger.md");
   if (existsSync(ledgerPath)) {
     console.error(`Ledger already exists: ${relative(opts.root, ledgerPath)}`);

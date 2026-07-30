@@ -265,3 +265,35 @@ describe("collisions and overrides", () => {
     ).toThrow();
   });
 });
+
+describe("repo-relative path containment in config", () => {
+  test("accepts relative dirs, '.', and trailing-slash matches", () => {
+    expect(() =>
+      brainConfigSchema.parse({
+        taxonomy: {
+          types: {
+            index: { dir: ".", match: [] },
+            project: { dir: "projects/active", match: ["projects/"] },
+          },
+        },
+      })
+    ).not.toThrow();
+  });
+
+  test("rejects absolute, ~, backslash, and .. dir values", () => {
+    for (const dir of ["/etc", "~/brain", "a\\b", "../outside", "a/../../b"]) {
+      expect(() =>
+        brainConfigSchema.parse({ taxonomy: { types: { note: { dir } } } })
+      ).toThrow();
+    }
+  });
+
+  test("rejects escaping canonical and dirAnchors entries", () => {
+    expect(() =>
+      brainConfigSchema.parse({ taxonomy: { canonical: { identity: "/etc/passwd" } } })
+    ).toThrow();
+    expect(() =>
+      brainConfigSchema.parse({ taxonomy: { dirAnchors: ["../_index.md"] } })
+    ).toThrow();
+  });
+});

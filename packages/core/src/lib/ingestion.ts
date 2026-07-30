@@ -1,11 +1,12 @@
 import { Database } from "bun:sqlite";
 import matter from "gray-matter";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { resolve, dirname } from "path";
+import { dirname } from "path";
 
 import type { DocumentType, IngestInput } from "./types";
 import type { Taxonomy } from "./taxonomy";
 import { stringifyDocument } from "./frontmatter";
+import { safeResolve } from "./safe-path";
 
 export interface IngestOutcome {
   action: "created" | "appended";
@@ -207,7 +208,12 @@ export async function ingest(
     relativePath = `${dir}/${slug}.md`;
   }
 
-  const fullPath = resolve(root, relativePath);
+  // Containment: input.path (and classified paths) are caller-supplied — an
+  // absolute path or a `..` escape must never write outside the brain root.
+  const fullPath = safeResolve(root, relativePath);
+  if (fullPath === null) {
+    throw new Error(`Path escapes the brain root: ${relativePath}`);
+  }
 
   // 6. Check if file already exists
   if (existsSync(fullPath) && !input.path) {
