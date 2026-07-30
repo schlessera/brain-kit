@@ -90,6 +90,33 @@ Prefer the CLI/MCP. If reading directly:
 (core) and the ui-sdk interfaces are `@experimental` until 1.0: breaking
 changes are minor-version events, announced in the CHANGELOG.
 
+Module manifests are two-phase: `defineModule({ name, configSchema?, setup })`,
+where `setup(validatedConfig)` returns the contribution. The contribution is
+schema-validated at load — unknown keys are load errors — and module commands
+receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
+`brain.config` itself. See [modules.md](modules.md).
+
+## Guarantees consumers may rely on
+
+- **Containment.** Everything the CLI writes stays inside the brain root.
+  Config-supplied directories, module config paths, and caller-supplied
+  document paths are repo-relative (no absolute, `~`, `..`, or control
+  characters) and resolved through a symlink-aware canonicalizer, so neither a
+  symlinked directory nor a dangling symlink redirects a write out of the repo.
+- **Mutating commands require an initialized brain.** `add`, `import`, `index`,
+  `archive`, `accept-mtime`, `process`, `maintain`, `sync`, `skills sync`, and
+  `setup` exit 1 when no `brain.config` is found rather than initializing a
+  stray directory. Read-only commands (including `skills lint`) still run.
+- **`module list --json` cron entries are shape-constrained.** A container
+  entrypoint materializes them into a crontab with root privileges, so `name`
+  is kebab-case, `schedule` is a 5-field expression, and `command` is a plain
+  `brain …` argument string — no newlines or shell metacharacters can appear.
+  **A consumer should still re-validate before interpolating**, including the
+  module KEY: defense in depth is the contract here, not producer trust.
+- **`modules` config keys** must be an npm package specifier or a contained
+  `./path`, and are canonicalized before `import()` — a symlink cannot make the
+  loader execute code from outside the root.
+
 ## Recommended consumer hygiene
 
 Keep one **contract test** that runs `brain search "x" --json` and

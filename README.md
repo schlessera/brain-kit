@@ -32,14 +32,20 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 ## Repository layout
 
 ```
-packages/core             @brainform/core — CLI, MCP server, search, index, config, skills
-packages/module-jobs      @brainform/module-jobs — job-search scraping/scoring module
-packages/module-speaking  @brainform/module-speaking — talks/conferences/travel module
-packages/module-finance   @brainform/module-finance — client ledger / AR module
-template/                 source for the brainform-template repo (user starting point)
-docs/                     quickstart, concepts, CLI, MCP, hosting, modules, extending
-plan/                     implementation plans (removed from the public release)
-research/                 verified research notes (removed from the public release)
+packages/core                @brainform/core — CLI, MCP server, search, index, config, skills
+packages/module-jobs         @brainform/module-jobs — job-search scraping/scoring module
+packages/module-speaking     @brainform/module-speaking — talks/conferences/travel module
+packages/module-finance      @brainform/module-finance — client ledger / AR module
+packages/ui-sdk              @brainform/ui-sdk — chat-UI wire protocol + runtime schemas,
+                             AgentBackend/SpeechProvider seams, renderer/ASR registries
+packages/ui-backend-claude   @brainform/ui-backend-claude — AgentBackend on the Claude Agent SDK
+packages/ui-backend-pi       @brainform/ui-backend-pi — AgentBackend on the pi coding-agent SDK
+packages/ui-render-puppeteer @brainform/ui-render-puppeteer — optional HTML→PNG/PDF renderer
+                             (network-denied, scriptless; see its header for the threat model)
+template/                    source for the brainform-template repo (user starting point)
+docs/                        quickstart, concepts, CLI, MCP, hosting, modules, extending
+plan/                        implementation plans (removed from the public release)
+research/                    verified research notes (removed from the public release)
 ```
 
 ## Development

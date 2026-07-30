@@ -47,7 +47,7 @@ exclude them. At launch the public repo is cut with fresh history WITHOUT plan/ 
 | P5.3 | @brainform/ui-backend-pi | **done** | curated 9-tool surface, in-tool permission gate, extensions off; 33 tests |
 | P5.4 | Backend contract test (both backends, one suite) | **done** | 12/12 on both — identical startTurn semantics proven |
 | P5.5 | brain-ui PR (auth, same-origin, backend seam, voice session, scrub, compose, CI) | **done — awaiting Alain's review** | schlessera/brain-ui PR #2, NOT merged; main untouched |
-| P5.6 | @brainform/ui-backend-gemini | **built, then dropped by the consumer** | see the deviation note below — package still in-tree, unreferenced |
+| P5.6 | @brainform/ui-backend-gemini | **removed 2026-07-30** | `58cd846` — dishonest capability flag; see the deviation note below |
 
 ## Parallel sessions (user-approved plan, session 1 continuation 2026-07-12)
 
@@ -103,10 +103,10 @@ recorded in `brain-ui/docs/reviews/phase-5-hardening.md`:
 
 Consequences for this repo, still open:
 
-- `packages/ui-backend-gemini/` is in-tree and unreferenced. plan/07 §3 listed it as
-  "gemini only after the permission fix"; that target is now void. Decide removal —
-  it is the last thing pinning `@google/genai` alongside core's non-optional
-  dependency on it (plan/08 §3.5).
+- `packages/ui-backend-gemini/` was REMOVED in phase 1 (`58cd846`). plan/07 §3 listed it
+  as "gemini only after the permission fix"; that target was void once brain-ui unwired
+  it, and it advertised `permissions: true` over a no-op gate. Core's `@google/genai`
+  became an optional peer dependency in the same phase (`c644e89`).
 - Future multi-model support is **one generic OpenAI-compatible OpenRouter backend**,
   not per-vendor hand-rolled loops. Any plan/03 or plan/07 language implying a
   per-vendor backend family should be read through this decision.
@@ -228,13 +228,14 @@ Phase-5 design decisions:
 4. `plan/07` §5 and `plan/08` §5 hold the current sequencing; treat `plan/08` as
    authoritative where the two disagree.
 5. Open items, in rough order:
-   - **Fix the blockers while both consumers are still private** — `plan/08` §5 step 1:
-     path containment, capability honesty, the Claude WriteLock, protocol debt
-     (runtime schemas, handshake, turnId, terminal outcome), two-phase `defineModule`.
-   - **Decide the name** (`plan/08-name-research.md`). Blocks the publish pipeline: npm
-     org, GitHub org, domain all need claiming the same day.
-   - **Remove `packages/ui-backend-gemini/`** and make core's `@google/genai` an optional
-     lazy import — the last thing pinning it.
+   - ~~Fix the blockers while both consumers are still private~~ — **DONE 2026-07-30**,
+     merged after two adversarial review rounds. brainform `main` = `ea73e1c`, brain-ui
+     `main` = `e0f6ab5`. Full account, including the bugs the review rounds found *in the
+     fixes*, in [plan/09-phase-1-handoff.md](plan/09-phase-1-handoff.md).
+   - ~~Remove `packages/ui-backend-gemini/`; make `@google/genai` optional~~ — **DONE**
+     (`58cd846`, `c644e89`).
+   - **Decide the name** (`plan/08-name-research.md`) — now the single blocker on phase 2.
+     npm org, GitHub org, and domain all need claiming the same day.
    - **Alain reviews** schlessera/brain PR #1 (phase 1). Phase 2 (module boundaries in his
      repo) only after PR #1 merges. brain-ui PR #2 (phase 5) has landed on brain-ui `main`.
    - **Unverified, carry forward**: rotate the Deepgram key in brain-ui's working-tree .env

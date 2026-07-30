@@ -1,5 +1,12 @@
 # Package-Split / Personal-Data Review — 2026-07-18
 
+> **STATUS (2026-07-30): phase 1 is DONE and merged.** Every §1 launch blocker and the
+> protocol/module debt below is fixed on brainform `main` (`ea73e1c`) and brain-ui `main`
+> (`e0f6ab5`). The status tables and "still open" claims in this document are a snapshot of
+> the review date — see [09-phase-1-handoff.md](09-phase-1-handoff.md) for current state and
+> what phase 2 needs. The *analysis* here (architecture verdict, package layout, naming,
+> restraint list, migration inventory) is still the reference.
+
 Follow-up to `07-oss-readiness-review.md` (2026-07-17), focused on the split goal: brainform
 properly separated, zero personal information, containing all reusable parts of `~/brain`
 (CLI, scripts, skills) and brain-ui's frontend/server in reusable form. Five independent

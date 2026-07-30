@@ -1,5 +1,12 @@
 # OSS-Readiness Review — 2026-07-17
 
+> **STATUS (2026-07-30): phase 1 is DONE and merged.** Every §1 launch blocker and the
+> protocol/module debt below is fixed on brainform `main` (`ea73e1c`) and brain-ui `main`
+> (`e0f6ab5`). The status tables and "still open" claims in this document are a snapshot of
+> the review date — see [09-phase-1-handoff.md](09-phase-1-handoff.md) for current state and
+> what phase 2 needs. The *analysis* here (architecture verdict, package layout, naming,
+> restraint list, migration inventory) is still the reference.
+
 Full architecture/design review of `schlessera/brain`, `schlessera/brainform`, `schlessera/brain-ui`
 before open-sourcing brainform. Four independent passes: two Fable 5 reviews (seam design; drift/gap
 analysis), one gpt-5.6-sol review (codex, read-only, typechecked + ran client tests), one web-research
