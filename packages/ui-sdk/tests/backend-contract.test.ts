@@ -6,9 +6,10 @@
  *   1. capabilities is a complete, honest boolean set
  *   2. listProfiles() yields safe ProviderInfo shapes
  *   3. a turn emits session_info before content, streams deltas, and ends
- *      with a terminal `result` frame before the promise resolves
- *   4. host abort → `status: cancelled` terminal frame, promise RESOLVES,
- *      no `result` frame
+ *      with a terminal `result` frame (outcome: success) before the promise
+ *      resolves
+ *   4. host abort → diagnostic `status: cancelled`, then the unified terminal
+ *      `result` frame with outcome: cancelled; the promise RESOLVES
  *   5. busy-ness is PER SESSION (rev 2): resuming a running session rejects
  *      with BackendBusyError; a second NEW session runs in parallel when
  *      capabilities.concurrentSessions; the backend recovers after drains
@@ -265,6 +266,7 @@ for (const harness of [claudeHarness, piHarness]) {
       expect(result).toBeDefined();
       if (result?.type === "result") {
         expect(result.sessionId).toBe("sess-42");
+        expect(result.outcome).toBe("success");
         expect(typeof result.costUsd).toBe("number");
         expect(result.costUsd).toBeGreaterThanOrEqual(0);
         expect(result.isError).toBe(false);
@@ -273,7 +275,7 @@ for (const harness of [claudeHarness, piHarness]) {
       // asserted implicitly: frames were captured before this line ran.
     });
 
-    test("host abort → status:cancelled terminal frame, resolves, no result", async () => {
+    test("host abort → status:cancelled diagnostic, then terminal result outcome:cancelled", async () => {
       const backend = harness.hanging();
       const { frames, bridge } = makeBridge();
       const controller = new AbortController();
@@ -284,13 +286,24 @@ for (const harness of [claudeHarness, piHarness]) {
       controller.abort();
       await turn; // must RESOLVE, not reject
 
-      const types = frames.map((f) => f.type);
-      expect(types).not.toContain("result");
       const cancelled = frames.filter(
         (f) => f.type === "status" && f.status === "cancelled"
       );
       expect(cancelled.length).toBeGreaterThanOrEqual(1);
-      expect(types.at(-1)).toBe("status");
+
+      // Unified terminal outcome (rev 2): when the turn has a session
+      // identity, the LAST frame is a result with outcome "cancelled".
+      const sawSession = frames.some((f) => f.type === "session_info");
+      const last = frames.at(-1);
+      if (sawSession) {
+        expect(last?.type).toBe("result");
+        if (last?.type === "result") {
+          expect(last.outcome).toBe("cancelled");
+          expect(last.isError).toBe(false);
+        }
+      } else {
+        expect(frames.some((f) => f.type === "result")).toBe(false);
+      }
     });
 
     test("busy-ness is per session; parallel sessions per capability; recovers", async () => {

@@ -240,7 +240,21 @@ export function createClaudeBackend(
     // them.
     let sessionId: string | null = req.sessionId ?? null;
     const emit = (msg: ServerMessage): void => {
-      req.bridge.emit(sessionId !== null ? { ...msg, sessionId } : msg);
+      // The cast is safe: backends never emit the (unscoped) server_hello
+      // frame, and every other ServerMessage accepts a sessionId.
+      req.bridge.emit(sessionId !== null ? ({ ...msg, sessionId } as ServerMessage) : msg);
+    };
+    /** Unified terminal frame for cancelled/failed turns that have an identity. */
+    const emitTerminal = (outcome: "error" | "cancelled"): void => {
+      if (sessionId === null) return;
+      emit({
+        type: "result",
+        sessionId,
+        outcome,
+        durationMs: 0,
+        numTurns: 0,
+        isError: outcome === "error",
+      });
     };
 
     try {
@@ -381,19 +395,25 @@ export function createClaudeBackend(
       }
 
       // If the host aborted but the SDK ended the stream without throwing,
-      // still surface cancellation as the terminal frame.
+      // still surface cancellation, then the unified terminal result.
       if (abortController.signal.aborted && !sawResult) {
         emit({ type: "status", status: "cancelled" });
+        emitTerminal("cancelled");
       }
     } catch (err) {
+      // error/cancelled frames are diagnostics; the terminal frame is the
+      // result with an outcome (for turns that have a session identity —
+      // a turn that died before any session id ends on the bare error).
       if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
+        emitTerminal("cancelled");
       } else {
         emit({
           type: "error",
           code: "CLAUDE_ERROR",
           message: err instanceof Error ? err.message : String(err),
         });
+        emitTerminal("error");
       }
     } finally {
       req.signal.removeEventListener("abort", onHostAbort);

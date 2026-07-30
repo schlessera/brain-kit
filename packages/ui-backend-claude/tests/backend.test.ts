@@ -326,6 +326,7 @@ describe("startTurn", () => {
     expect(frames).toContainEqual({
       type: "result",
       sessionId: "sess-1",
+      outcome: "success",
       costUsd: 0,
       durationMs: 1,
       numTurns: 1,

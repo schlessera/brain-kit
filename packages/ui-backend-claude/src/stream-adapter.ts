@@ -105,16 +105,19 @@ export class StreamAdapter {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
+            outcome: "success",
             costUsd: msg.total_cost_usd,
             durationMs: msg.duration_ms,
             numTurns: msg.num_turns,
             isError: false,
           });
         } else {
+          // costUsd deliberately ABSENT: the cost of a failed turn is
+          // unknown, and 0 would claim "free".
           messages.push({
             type: "result",
             sessionId: msg.session_id,
-            costUsd: 0,
+            outcome: "error",
             durationMs: 0,
             numTurns: 0,
             isError: true,

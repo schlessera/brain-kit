@@ -435,13 +435,16 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
 
       const costBefore = snapshotCost(session);
       const images = toImages(req);
+      let failed = false;
 
       try {
         emit({ type: "status", status: "thinking" });
         await session.prompt(req.prompt, images.length > 0 ? { images } : undefined);
       } catch (err) {
-        // Runtime failure (no model/auth, provider unreachable) → error frame,
-        // then a terminal result. The promise RESOLVES.
+        // Runtime failure (no model/auth, provider unreachable) → diagnostic
+        // error frame, then a terminal result with outcome "error". The
+        // promise RESOLVES.
+        failed = true;
         emit({ type: "error", code: "agent_error", message: errorMessage(err) });
       } finally {
         unsubscribe();
@@ -455,16 +458,26 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
 
       if (req.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
+        emit({
+          type: "result",
+          sessionId,
+          outcome: "cancelled",
+          costUsd: Math.max(0, snapshotCost(session) - costBefore),
+          durationMs: Date.now() - startedAt,
+          numTurns: 1,
+          isError: false,
+        });
         return;
       }
 
       emit({
         type: "result",
         sessionId,
+        outcome: failed ? "error" : "success",
         costUsd: Math.max(0, snapshotCost(session) - costBefore),
         durationMs: Date.now() - startedAt,
         numTurns: 1,
-        isError: false,
+        isError: failed,
       });
     },
 

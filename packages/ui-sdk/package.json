@@ -16,6 +16,9 @@
   "scripts": {
     "test": "bun test tests"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "peerDependencies": {
     "react": ">=18"
   },
