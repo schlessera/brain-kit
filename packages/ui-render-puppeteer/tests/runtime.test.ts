@@ -105,3 +105,68 @@ describe.skipIf(!hasChrome)("renderer runtime policy", () => {
     expect(Buffer.isBuffer(png)).toBe(true);
   }, 60_000);
 });
+
+describe.skipIf(!hasChrome)("renderer hardening regressions", () => {
+  test("an allowHosts entry does NOT open the non-interceptable channels", async () => {
+    let touched = false;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req, srv) {
+        touched = true;
+        if (srv.upgrade(req)) return undefined;
+        return new Response("ok");
+      },
+      websocket: { open() { touched = true; }, message() {} },
+    });
+    try {
+      // An allowlist for some OTHER host must not blackhole-exempt this one.
+      const r = renderer({ allowHosts: ["example.com"], allowScripts: true });
+      const html = `<html><head>
+          <link rel="prerender" href="http://127.0.0.1:${server.port}/pre">
+          <link rel="preconnect" href="http://127.0.0.1:${server.port}">
+        </head><body><h1>x</h1>
+        <iframe src="http://127.0.0.1:${server.port}/frame"></iframe>
+        <script>
+          new WebSocket("ws://127.0.0.1:${server.port}/ws");
+          window.open("http://127.0.0.1:${server.port}/popup");
+          fetch("http://127.0.0.1:${server.port}/f");
+        </script>
+      </body></html>`;
+      await r.renderPng({ html });
+      await new Promise((res) => setTimeout(res, 500));
+      expect(touched).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  }, 60_000);
+
+  test("a degenerate body renders instead of throwing a raw Chrome error", async () => {
+    const r = renderer();
+    const png = await r.renderPng({
+      html: "<html><body style='height:0;width:0'></body></html>",
+    });
+    expect(Buffer.isBuffer(png)).toBe(true);
+  }, 60_000);
+
+  test("an enormous body is clamped, not allocated in full", async () => {
+    const r = renderer();
+    const png = await r.renderPng({
+      html: "<html><body><div style='width:50000px;height:50000px'>x</div></body></html>",
+    });
+    expect(Buffer.isBuffer(png)).toBe(true);
+    expect(png.byteLength).toBeLessThan(40_000_000);
+  }, 60_000);
+
+  test("shutdown is terminal — a later render is refused, not silently relaunched", async () => {
+    const r = createRenderer({ renderTimeoutMs: 20_000 });
+    await r.renderPng({ html: "<html><body>ok</body></html>" });
+    await r.shutdown();
+    await expect(r.renderPng({ html: "<html><body>again</body></html>" })).rejects.toThrow(
+      /shut down/
+    );
+  }, 60_000);
+
+  // GAP: browser-crash recovery (the "disconnected" handler) is not covered —
+  // the Browser handle is private to createRenderer, so a test would need an
+  // injection seam. The handler is one line and verified by inspection.
+});
