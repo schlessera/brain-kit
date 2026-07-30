@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
 import matter from "gray-matter";
-import type { ScoreBreakdown } from "./types";
+import type { ScoreBreakdown } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Criteria model

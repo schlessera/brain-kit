@@ -1,5 +1,5 @@
-import type { CoreCommand, CliContext } from "../types";
-import { emit, parseArgs, UsageError } from "../io";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain config <check|get>
 

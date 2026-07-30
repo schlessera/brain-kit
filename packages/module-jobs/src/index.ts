@@ -19,17 +19,17 @@ export {
   type ScoringTier,
   type LocationScoring,
   type ScoreJobInput,
-} from "./score";
-export { openDatabase } from "./db";
-export { runScrape, ingestJobs, getAdapter } from "./scrape";
-export { scrapeSites } from "./browser-scrape";
+} from "./score.js";
+export { openDatabase } from "./db.js";
+export { runScrape, ingestJobs, getAdapter } from "./scrape.js";
+export { scrapeSites } from "./browser-scrape.js";
 export {
   getReviewQueue,
   getJobById,
   searchJobs,
   setReviewStatus,
   getStats,
-} from "./review";
+} from "./review.js";
 export type {
   RawJob,
   JobRow,
@@ -37,7 +37,7 @@ export type {
   Source,
   ReviewStatus,
   ScraperAdapter,
-} from "./types";
-export { ALL_SOURCES, SOURCES, REVIEW_STATUSES } from "./types";
+} from "./types.js";
+export { ALL_SOURCES, SOURCES, REVIEW_STATUSES } from "./types.js";
 
-export { default, configSchema, type JobsConfig } from "./module";
+export { default, configSchema, type JobsConfig } from "./module.js";

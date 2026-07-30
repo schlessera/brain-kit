@@ -33,6 +33,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Pack all workspaces
@@ -52,6 +55,12 @@ jobs:
           do
             (cd "packages/$package" && \
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
+            TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
+            grep -q "^package/dist/index.js" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = core ]; then
+              grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
+            fi
           done
       - name: Install and smoke-test packed packages
         run: |
@@ -101,6 +110,46 @@ jobs:
               throw new Error("createClaudeBackend export is missing");
             }
           '
+          node --input-type=module <<'NODE'
+          const nodePackages = [
+            "@endoxa/ui-sdk",
+            "@endoxa/ui-sdk/protocol",
+            "@endoxa/ui-sdk/schemas",
+            "@endoxa/ui-sdk/server",
+            "@endoxa/ui-sdk/client",
+            "@endoxa/ui-backend-claude",
+            "@endoxa/ui-render-puppeteer",
+          ];
+          for (const name of nodePackages) {
+            const loaded = await import(name);
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error(`Node failed to import ${name}`);
+            }
+          }
+
+          const bunApiPackages = [
+            "@endoxa/core",
+            "@endoxa/module-finance",
+            "@endoxa/module-jobs",
+            "@endoxa/module-speaking",
+            "@endoxa/ui-backend-pi",
+          ];
+          for (const name of bunApiPackages) {
+            try {
+              await import(name);
+            } catch (error) {
+              const message = `${error?.code ?? ""}: ${error?.message ?? error}`;
+              const relativeSpecifierFailure =
+                error?.code === "ERR_MODULE_NOT_FOUND" &&
+                /(?:from|module)\s+['"]?\.{1,2}\//.test(message);
+              if (!message.includes("bun:") || relativeSpecifierFailure) {
+                throw new Error(
+                  `${name} failed for a reason other than its documented bun: dependency:\n${message}`
+                );
+              }
+            }
+          }
+          NODE
           ./node_modules/.bin/brain --version
 
   leakage:

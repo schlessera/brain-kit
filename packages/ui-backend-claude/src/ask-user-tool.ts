@@ -8,7 +8,7 @@ import {
 import { z } from "zod";
 import type { AskUserQuestion } from "@endoxa/ui-sdk";
 import type { AskUserResult } from "@endoxa/ui-sdk/server";
-import { createLocationTool, type LocationHandler } from "./location-tool";
+import { createLocationTool, type LocationHandler } from "./location-tool.js";
 
 /**
  * Bridge for the built-in `AskUserQuestion` tool.

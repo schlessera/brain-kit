@@ -1,4 +1,4 @@
-import type { AgentRunner } from "../lib/seams";
+import type { AgentRunner } from "../lib/seams.js";
 
 /**
  * Run an agent prompt inside the brain repo, streaming tool activity to stderr

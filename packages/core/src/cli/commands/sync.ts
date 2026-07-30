@@ -1,11 +1,11 @@
-import { openDatabase, initVecSupport } from "../../lib/db";
-import { indexAll } from "../../lib/indexer";
-import { syncSkills } from "../../lib/skills";
-import type { Taxonomy } from "../../lib/taxonomy";
-import type { CoreCommand, CliContext } from "../types";
-import { emit, embeddingDims, UsageError } from "../io";
-import { runAgent } from "../agent";
-import { resolveEmitters } from "../skills-util";
+import { openDatabase, initVecSupport } from "../../lib/db.js";
+import { indexAll } from "../../lib/indexer.js";
+import { syncSkills } from "../../lib/skills/index.js";
+import type { Taxonomy } from "../../lib/taxonomy.js";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, embeddingDims, UsageError } from "../io.js";
+import { runAgent } from "../agent.js";
+import { resolveEmitters } from "../skills-util.js";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 

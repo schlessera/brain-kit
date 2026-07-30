@@ -56,7 +56,8 @@
     "dist"
   ],
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

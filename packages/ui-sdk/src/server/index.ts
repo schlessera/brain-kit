@@ -8,16 +8,16 @@ export type {
   PermissionRequest,
   AskUserResult,
   LocationFix,
-} from "./backend";
-export { BackendBusyError, BackendRequestError } from "./backend";
+} from "./backend.js";
+export { BackendBusyError, BackendRequestError } from "./backend.js";
 
-export type { WriteLock } from "./write-lock";
-export { createWriteLock } from "./write-lock";
+export type { WriteLock } from "./write-lock.js";
+export { createWriteLock } from "./write-lock.js";
 
-export type { SpeechProvider, SpeechSession } from "./speech";
-export { defineSpeechProvider } from "./speech";
+export type { SpeechProvider, SpeechSession } from "./speech.js";
+export { defineSpeechProvider } from "./speech.js";
 
-export type { TranscriptStore } from "./transcript-store";
-export { createTranscriptStore } from "./transcript-store";
+export type { TranscriptStore } from "./transcript-store.js";
+export { createTranscriptStore } from "./transcript-store.js";
 
-export * from "../protocol";
+export * from "../protocol.js";

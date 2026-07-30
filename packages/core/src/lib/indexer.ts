@@ -5,14 +5,14 @@ import matter from "gray-matter";
 import { readFileSync, writeFileSync, statSync } from "fs";
 import { resolve } from "path";
 
-import { ASSET_EXTENSIONS } from "./types";
-import type { Asset, DocumentType } from "./types";
-import type { EmbeddingProvider } from "./seams";
-import type { Enrichment } from "./enrichment";
-import type { Taxonomy } from "./taxonomy";
-import { DEFAULT_DIR_ANCHORS } from "./config";
-import { hasVecSupport, getMeta, setMeta, initVecSupport } from "./db";
-import { chunkDocument, chunkTextForEmbedding } from "./chunker";
+import { ASSET_EXTENSIONS } from "./types.js";
+import type { Asset, DocumentType } from "./types.js";
+import type { EmbeddingProvider } from "./seams.js";
+import type { Enrichment } from "./enrichment.js";
+import type { Taxonomy } from "./taxonomy.js";
+import { DEFAULT_DIR_ANCHORS } from "./config.js";
+import { hasVecSupport, getMeta, setMeta, initVecSupport } from "./db.js";
+import { chunkDocument, chunkTextForEmbedding } from "./chunker.js";
 
 export interface IndexStats {
   total: number;

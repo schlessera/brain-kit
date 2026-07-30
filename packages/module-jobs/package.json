@@ -45,12 +45,21 @@
     "README.md"
   ],
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
     "@endoxa/core": "workspace:*",
     "gray-matter": "^4.0.3",
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@types/bun": ">=1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@types/bun": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

@@ -5,13 +5,13 @@ import { fileURLToPath } from "url";
 import { safeResolve } from "@endoxa/core";
 import type { CommandContext, CommandModule } from "@endoxa/core";
 
-import { configSchema, type FinanceConfig } from "./module";
+import { configSchema, type FinanceConfig } from "./module.js";
 import {
   buildPortfolio,
   renderReport,
   syncFiles,
   type FinanceOptions,
-} from "./finance";
+} from "./finance.js";
 
 const HELP = `brain finance — accounts-receivable across client ledgers
 

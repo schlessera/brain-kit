@@ -1,16 +1,16 @@
-export type { ToolRenderer, ToolCallView, RendererPack } from "./renderers";
+export type { ToolRenderer, ToolCallView, RendererPack } from "./renderers.js";
 export {
   registerToolRenderers,
   resolveToolRenderer,
   resetToolRenderers,
-} from "./renderers";
+} from "./renderers.js";
 
-export type { AsrClient, AsrClientFactory, AsrClientOptions } from "./asr";
+export type { AsrClient, AsrClientFactory, AsrClientOptions } from "./asr.js";
 export {
   registerAsrClient,
   createAsrClient,
   speechUiHints,
   resetAsrClients,
-} from "./asr";
+} from "./asr.js";
 
-export * from "../protocol";
+export * from "../protocol.js";

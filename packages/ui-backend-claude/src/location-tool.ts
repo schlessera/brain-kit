@@ -4,7 +4,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { GeoRequestOptions } from "@endoxa/ui-sdk";
 import type { LocationFix } from "@endoxa/ui-sdk/server";
-import { reverseGeocode } from "./reverse-geocode";
+import { reverseGeocode } from "./reverse-geocode.js";
 
 /**
  * `get_current_location` — in-process MCP tool exposing the user's physical

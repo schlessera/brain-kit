@@ -1,6 +1,6 @@
-import { BaseAdapter } from "./base";
-import { httpGetText } from "../http";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetText } from "../http.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 // Jobgether has card-based layout with structured job data
 // Use category browse URLs (server-rendered) instead of search (may require JS)

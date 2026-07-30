@@ -6,9 +6,9 @@
  * with multimodal content blocks and configurable max_tokens.
  */
 
-import type { CompletionProvider, ContentPart } from "../../lib/seams";
-import { withRetry } from "../../lib/llm-util";
-import { CLAUDE_FAST_MODEL } from "../../lib/llm-defaults";
+import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
+import { withRetry } from "../../lib/llm-util.js";
+import { CLAUDE_FAST_MODEL } from "../../lib/llm-defaults.js";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";

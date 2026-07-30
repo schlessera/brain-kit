@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "brainform-monorepo",
+      "name": "endoxa-monorepo",
       "devDependencies": {
         "@changesets/cli": "^2.31.0",
         "@types/bun": "^1.3.14",
@@ -14,7 +14,7 @@
       "name": "@endoxa/core",
       "version": "0.1.0",
       "bin": {
-        "brain": "src/cli/brain.ts",
+        "brain": "dist/cli/brain.js",
       },
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -29,9 +29,11 @@
       },
       "peerDependencies": {
         "@google/genai": "^2.10.0",
+        "@types/bun": ">=1.3.0",
       },
       "optionalPeers": [
         "@google/genai",
+        "@types/bun",
       ],
     },
     "packages/module-finance": {
@@ -59,6 +61,12 @@
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
     },
     "packages/module-speaking": {
       "name": "@endoxa/module-speaking",
@@ -99,6 +107,12 @@
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
     },
     "packages/ui-render-puppeteer": {
       "name": "@endoxa/ui-render-puppeteer",

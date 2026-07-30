@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import type { AuditIssue } from "./types";
-import type { TypeSpec } from "./config";
+import type { AuditIssue } from "./types.js";
+import type { TypeSpec } from "./config.js";
 
 /** Context handed to module hygiene checks. */
 export interface HygieneContext {
@@ -29,7 +29,7 @@ export interface CommandContext {
    */
   config: unknown;
   /** The fully-merged taxonomy (core + user + every loaded module). */
-  taxonomy: import("./taxonomy").Taxonomy;
+  taxonomy: import("./taxonomy.js").Taxonomy;
 }
 
 export interface ModuleCronEntry {
@@ -49,8 +49,8 @@ export interface ModuleContribution {
   taxonomy?: {
     types?: Record<string, TypeSpec>;
     classifierHints?: Record<string, string[]>;
-    assetTitleRules?: import("./config").AssetTitleRule[];
-    propagation?: import("./config").PropagationRule[];
+    assetTitleRules?: import("./config.js").AssetTitleRule[];
+    propagation?: import("./config.js").PropagationRule[];
   };
   /**
    * Path to the skills directory, relative to the MODULE PACKAGE root (which

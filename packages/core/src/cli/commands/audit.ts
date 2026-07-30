@@ -1,7 +1,7 @@
-import type { AuditIssue } from "../../lib/types";
-import { audit } from "../../lib/auditor";
-import type { CoreCommand } from "../types";
-import { emit, openReadonlyDb, parseArgs } from "../io";
+import type { AuditIssue } from "../../lib/types.js";
+import { audit } from "../../lib/auditor.js";
+import type { CoreCommand } from "../types.js";
+import { emit, openReadonlyDb, parseArgs } from "../io.js";
 
 const HELP = `brain audit — staleness and quality audit
 

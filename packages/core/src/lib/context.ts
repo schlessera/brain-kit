@@ -1,10 +1,10 @@
 import { join } from "path";
 
-import type { BrainConfig, LoadedConfig } from "./config";
-import { loadUserConfig, resolveRoot } from "./config";
-import type { LoadedModule } from "./module-types";
-import { loadModules } from "./module-loader";
-import { buildTaxonomy, Taxonomy } from "./taxonomy";
+import type { BrainConfig, LoadedConfig } from "./config.js";
+import { loadUserConfig, resolveRoot } from "./config.js";
+import type { LoadedModule } from "./module-types.js";
+import { loadModules } from "./module-loader.js";
+import { buildTaxonomy, Taxonomy } from "./taxonomy.js";
 
 /**
  * Everything the libraries need to operate on one brain. Created once per

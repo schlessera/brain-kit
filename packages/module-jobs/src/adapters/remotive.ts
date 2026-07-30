@@ -1,6 +1,6 @@
-import { BaseAdapter } from "./base";
-import { httpGetJson } from "../http";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetJson } from "../http.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
 const CATEGORIES = ["software-dev", "product", "data", "devops-sysadmin", "management-finance"];

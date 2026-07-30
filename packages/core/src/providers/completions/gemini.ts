@@ -6,9 +6,9 @@
  * brain's generateContent usage and whatsup's Gemini backend.
  */
 
-import type { CompletionProvider, ContentPart } from "../../lib/seams";
-import { withRetry } from "../../lib/llm-util";
-import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults";
+import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
+import { withRetry } from "../../lib/llm-util.js";
+import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults.js";
 
 export interface GeminiCompletionConfig {
   /** Generation model (default: gemini-3-flash-preview). */

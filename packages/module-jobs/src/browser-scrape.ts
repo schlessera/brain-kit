@@ -8,13 +8,13 @@
  */
 
 import { Database } from "bun:sqlite";
-import { openDatabase, logScrapeRun } from "./db";
-import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup";
-import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score";
-import { ANNUALIZED_MARKER, parseSalaryRange } from "./salary";
-import type { RawJob, Source } from "./types";
-import { EUR_RATES } from "./types";
-import { stripHtml } from "./html";
+import { openDatabase, logScrapeRun } from "./db.js";
+import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
+import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
+import { ANNUALIZED_MARKER, parseSalaryRange } from "./salary.js";
+import type { RawJob, Source } from "./types.js";
+import { EUR_RATES } from "./types.js";
+import { stripHtml } from "./html.js";
 
 interface BrowserSite {
   source: Source;

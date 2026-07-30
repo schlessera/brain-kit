@@ -1,6 +1,6 @@
-import { BaseAdapter } from "./base";
-import { httpGetText } from "../http";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetText } from "../http.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 // BuiltIn embeds JSON-LD ListItem schema in remote jobs pages
 const BASE_URL = "https://builtin.com/jobs/remote";

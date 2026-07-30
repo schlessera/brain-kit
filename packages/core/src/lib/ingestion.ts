@@ -3,10 +3,10 @@ import matter from "gray-matter";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync } from "fs";
 import { dirname, relative } from "path";
 
-import type { DocumentType, IngestInput } from "./types";
-import type { Taxonomy } from "./taxonomy";
-import { stringifyDocument } from "./frontmatter";
-import { safeResolve } from "./safe-path";
+import type { DocumentType, IngestInput } from "./types.js";
+import type { Taxonomy } from "./taxonomy.js";
+import { stringifyDocument } from "./frontmatter.js";
+import { safeResolve } from "./safe-path.js";
 
 export interface IngestOutcome {
   action: "created" | "appended";
@@ -152,7 +152,7 @@ async function reindex(
   ctx: IngestContext
 ): Promise<{ indexed: boolean; indexError?: string }> {
   try {
-    const { indexAll } = await import("./indexer");
+    const { indexAll } = await import("./indexer.js");
     await indexAll(db, { root: ctx.root, taxonomy: ctx.taxonomy, force: false, quiet: true });
     return { indexed: true };
   } catch (e) {

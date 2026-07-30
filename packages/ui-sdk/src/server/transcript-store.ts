@@ -11,7 +11,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-import type { ChatSession, SessionHistoryMessage } from "../protocol";
+import type { ChatSession, SessionHistoryMessage } from "../protocol.js";
 
 interface MetaRecord {
   kind: "meta";

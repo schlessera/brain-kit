@@ -4,7 +4,7 @@
  * for the returned providerId with the session's connection material.
  */
 
-import type { AsrEvent, SpeechCapabilities, VoiceSessionResponse } from "../protocol";
+import type { AsrEvent, SpeechCapabilities, VoiceSessionResponse } from "../protocol.js";
 
 export interface AsrClientOptions {
   session: VoiceSessionResponse;

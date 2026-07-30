@@ -7,18 +7,18 @@
  * touch these registries — they export a factory the user imports and passes.
  */
 
-import type { BrainConfig } from "./config";
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams";
+import type { BrainConfig } from "./config.js";
+import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams.js";
 
-import { geminiEmbeddings, type GeminiEmbeddingConfig } from "../providers/embeddings/gemini";
-import { geminiCompletions } from "../providers/completions/gemini";
-import { anthropicCompletions } from "../providers/completions/anthropic";
+import { geminiEmbeddings, type GeminiEmbeddingConfig } from "../providers/embeddings/gemini.js";
+import { geminiCompletions } from "../providers/completions/gemini.js";
+import { anthropicCompletions } from "../providers/completions/anthropic.js";
 import {
   claudeRunner,
   codexRunner,
   geminiRunner,
   piRunner,
-} from "../providers/agents/cli-runners";
+} from "../providers/agents/cli-runners.js";
 
 type EmbeddingsConfig = NonNullable<BrainConfig["embeddings"]>;
 type CompletionsConfig = NonNullable<BrainConfig["completions"]>;

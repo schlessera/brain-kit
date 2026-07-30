@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "bun run build && changeset publish"
+    "release": "bun run build && bun scripts/publish.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

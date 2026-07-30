@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
-import { openDatabase } from "../../lib/db";
-import { indexAll } from "../../lib/indexer";
-import { validate } from "../../lib/validate";
-import { CORE_TYPES } from "../../lib/config";
-import type { CoreCommand, CliContext } from "../types";
-import { emit, parseArgs, today, UsageError } from "../io";
+import { openDatabase } from "../../lib/db.js";
+import { indexAll } from "../../lib/indexer.js";
+import { validate } from "../../lib/validate.js";
+import { CORE_TYPES } from "../../lib/config.js";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, parseArgs, today, UsageError } from "../io.js";
 
 const HELP = `brain init — preflight check / non-interactive default setup
 

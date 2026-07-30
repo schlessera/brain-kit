@@ -41,10 +41,12 @@
     "src",
     "dist",
     "skills",
-    "CONTRACT.md"
+    "CONTRACT.md",
+    "README.md"
   ],
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -53,10 +55,14 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@google/genai": "^2.10.0"
+    "@google/genai": "^2.10.0",
+    "@types/bun": ">=1.3.0"
   },
   "peerDependenciesMeta": {
     "@google/genai": {
+      "optional": true
+    },
+    "@types/bun": {
       "optional": true
     }
   },

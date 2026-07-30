@@ -1,7 +1,7 @@
-import { BaseAdapter } from "./base";
-import { httpGetText } from "../http";
-import { ANNUALIZED_MARKER, parseSalaryRange } from "../salary";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetText } from "../http.js";
+import { ANNUALIZED_MARKER, parseSalaryRange } from "../salary.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 // Dice embeds job data as JSON in server-rendered HTML.
 // Neutral default search terms — override via the module `queries` config.

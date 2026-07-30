@@ -1,24 +1,24 @@
 import { Database } from "bun:sqlite";
-import { openDatabase, getLastCursor, logScrapeRun } from "./db";
-import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup";
-import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score";
-import type { RawJob, ScrapeResult, Source } from "./types";
-import { SOURCES, EUR_RATES } from "./types";
-import { stripHtml } from "./html";
+import { openDatabase, getLastCursor, logScrapeRun } from "./db.js";
+import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
+import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
+import type { RawJob, ScrapeResult, Source } from "./types.js";
+import { SOURCES, EUR_RATES } from "./types.js";
+import { stripHtml } from "./html.js";
 
 // Adapter registry
-import { RemoteOKAdapter } from "./adapters/remoteok";
-import { RemotiveAdapter } from "./adapters/remotive";
-import { WeWorkRemotelyAdapter } from "./adapters/weworkremotely";
-import { WorkingNomadsAdapter } from "./adapters/workingnomads";
-import { BuiltInAdapter } from "./adapters/builtin";
-import { NodeskAdapter } from "./adapters/nodesk";
-import { SimplyHiredAdapter } from "./adapters/simplyhired";
-import { JobgetherAdapter } from "./adapters/jobgether";
-import { DiceAdapter } from "./adapters/dice";
-import { RemotelyDeAdapter } from "./adapters/remotelyde";
-import { RemoteInEuropeAdapter } from "./adapters/remoteineurope";
-import type { ScraperAdapter } from "./types";
+import { RemoteOKAdapter } from "./adapters/remoteok.js";
+import { RemotiveAdapter } from "./adapters/remotive.js";
+import { WeWorkRemotelyAdapter } from "./adapters/weworkremotely.js";
+import { WorkingNomadsAdapter } from "./adapters/workingnomads.js";
+import { BuiltInAdapter } from "./adapters/builtin.js";
+import { NodeskAdapter } from "./adapters/nodesk.js";
+import { SimplyHiredAdapter } from "./adapters/simplyhired.js";
+import { JobgetherAdapter } from "./adapters/jobgether.js";
+import { DiceAdapter } from "./adapters/dice.js";
+import { RemotelyDeAdapter } from "./adapters/remotelyde.js";
+import { RemoteInEuropeAdapter } from "./adapters/remoteineurope.js";
+import type { ScraperAdapter } from "./types.js";
 
 // The two query-driven boards accept the user's search terms; the rest fetch
 // full feeds or fixed category pages and ignore `queries`.

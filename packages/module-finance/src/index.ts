@@ -13,7 +13,7 @@ export {
   checkSync,
   money,
   renderReport,
-} from "./finance";
+} from "./finance.js";
 
 export type {
   FinanceOptions,
@@ -27,7 +27,7 @@ export type {
   ClientReport,
   Portfolio,
   SyncResult,
-} from "./finance";
+} from "./finance.js";
 
-export { configSchema } from "./module";
-export type { FinanceConfig } from "./module";
+export { configSchema } from "./module.js";
+export type { FinanceConfig } from "./module.js";

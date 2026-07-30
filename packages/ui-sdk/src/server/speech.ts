@@ -5,7 +5,7 @@
  * local whisper.cpp provider whose `url` points back at the server).
  */
 
-import type { SpeechCapabilities } from "../protocol";
+import type { SpeechCapabilities } from "../protocol.js";
 
 export interface SpeechSession {
   /** wss endpoint the client connects to. */

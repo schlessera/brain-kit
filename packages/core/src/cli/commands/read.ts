@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "fs";
 
-import { safeResolve } from "../../lib/safe-path";
-import type { CoreCommand } from "../types";
-import { parseArgs, UsageError } from "../io";
+import { safeResolve } from "../../lib/safe-path.js";
+import type { CoreCommand } from "../types.js";
+import { parseArgs, UsageError } from "../io.js";
 
 export const readCommand: CoreCommand = {
   summary: "Read and print a document from the brain",

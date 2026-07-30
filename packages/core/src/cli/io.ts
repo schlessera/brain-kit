@@ -14,10 +14,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 
-import type { BrainContext } from "../lib/context";
-import { openDatabase } from "../lib/db";
-import { EMBEDDING_DIMENSIONS } from "../lib/models";
-import type { EmbeddingProvider } from "../lib/seams";
+import type { BrainContext } from "../lib/context.js";
+import { openDatabase } from "../lib/db.js";
+import { EMBEDDING_DIMENSIONS } from "../lib/models.js";
+import type { EmbeddingProvider } from "../lib/seams.js";
 
 /** Thrown for user/usage errors → exit code 1. Any other error → exit code 2. */
 export class UsageError extends Error {}

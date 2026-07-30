@@ -1,6 +1,6 @@
-import { openDatabase } from "../../lib/db";
-import type { CoreCommand } from "../types";
-import { emit, parseArgs, UsageError } from "../io";
+import { openDatabase } from "../../lib/db.js";
+import type { CoreCommand } from "../types.js";
+import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain accept-mtime [path] — baseline current file mtimes as non-suspicious
 

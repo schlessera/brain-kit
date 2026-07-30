@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 
 /** Hook scripts shipped in the core package (src/hooks). */
@@ -28,19 +28,30 @@ export interface HookInstallResult {
  * keeps the hooks working on a fresh clone that has not run `bun install`.
  * Idempotent: re-copies and re-sets the same value. No-op outside a git repo.
  */
-export function installGitHooks(root: string): HookInstallResult {
+export function installGitHooks(
+  root: string,
+  hooksSourceDir = packagedHooksDir()
+): HookInstallResult {
   if (!isGitRepo(root)) {
     return { installed: false, hooks: [], hooksPath: null };
+  }
+
+  if (!existsSync(hooksSourceDir) || !statSync(hooksSourceDir).isDirectory()) {
+    throw new Error(`Packaged hooks directory does not exist: ${hooksSourceDir}`);
+  }
+  for (const name of HOOK_NAMES) {
+    const source = join(hooksSourceDir, name);
+    if (!existsSync(source) || !statSync(source).isFile()) {
+      throw new Error(`Packaged hook is missing: ${source}`);
+    }
   }
 
   const hooksDir = join(root, ".githooks");
   mkdirSync(hooksDir, { recursive: true });
 
-  const src = packagedHooksDir();
   const hooks: string[] = [];
   for (const name of HOOK_NAMES) {
-    const from = join(src, name);
-    if (!existsSync(from)) continue;
+    const from = join(hooksSourceDir, name);
     const to = join(hooksDir, name);
     copyFileSync(from, to);
     try {
@@ -51,6 +62,9 @@ export function installGitHooks(root: string): HookInstallResult {
     hooks.push(name);
   }
 
+  if (hooks.length === 0) {
+    throw new Error(`No git hooks were installed from ${hooksSourceDir}`);
+  }
   Bun.spawnSync(["git", "-C", root, "config", "core.hooksPath", ".githooks"]);
   return { installed: true, hooks, hooksPath: ".githooks" };
 }

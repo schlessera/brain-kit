@@ -1,6 +1,6 @@
-import { BaseAdapter } from "./base";
-import { httpGetText } from "../http";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetText } from "../http.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 // SimplyHired uses Chakra UI with consistent class patterns
 const BASE_URL = "https://www.simplyhired.com/search";

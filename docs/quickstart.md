@@ -1,10 +1,13 @@
 # Quickstart
 
+> **Requires Bun ≥ 1.3 — npm/npx will not warn you (npm ignores `engines.bun`);
+> install from https://bun.sh.**
+
 From nothing to a working, searchable brain in three shell commands and one
 conversation. This is the template path — the primary way to start.
 
-You need [Bun](https://bun.sh) ≥ 1.3, git, the [GitHub CLI](https://cli.github.com)
-(`gh`), and a coding agent (Claude Code, or any agent that speaks MCP).
+You also need git, the [GitHub CLI](https://cli.github.com) (`gh`), and a coding
+agent (Claude Code, or any agent that speaks MCP).
 
 ## 1. Create a private repo from the template
 

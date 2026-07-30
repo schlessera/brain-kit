@@ -1,7 +1,7 @@
-import { assembleContext } from "../../lib/context-assembler";
-import { initVecSupport } from "../../lib/db";
-import type { CoreCommand } from "../types";
-import { embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io";
+import { assembleContext } from "../../lib/context-assembler.js";
+import { initVecSupport } from "../../lib/db.js";
+import type { CoreCommand } from "../types.js";
+import { embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain context <query> — assemble a token-limited context block
 

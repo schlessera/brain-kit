@@ -12,8 +12,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import matter from "gray-matter";
 
-import type { SkillEmitter, SkillManifest } from "../../seams";
-import { readManagedNames, upsertIndexBlock } from "./index-block";
+import type { SkillEmitter, SkillManifest } from "../../seams.js";
+import { readManagedNames, upsertIndexBlock } from "./index-block.js";
 
 /** SKILL.md rewritten with frontmatter reduced to name + description. */
 function renderPrompt(skill: SkillManifest): string {

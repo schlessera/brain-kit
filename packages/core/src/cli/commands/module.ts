@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 
-import { discoverSkills, lintSkills } from "../../lib/skills";
-import type { LintFinding } from "../../lib/skills";
-import { CORE_COMMAND_NAMES } from "../core-command-names";
-import type { CoreCommand, CliContext } from "../types";
-import { emit, UsageError } from "../io";
+import { discoverSkills, lintSkills } from "../../lib/skills/index.js";
+import type { LintFinding } from "../../lib/skills/index.js";
+import { CORE_COMMAND_NAMES } from "../core-command-names.js";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, UsageError } from "../io.js";
 
 const HELP = `brain module <list|lint>
 

@@ -15,15 +15,15 @@ import type {
   BrainConfig,
   PropagationRule,
   TypeSpec,
-} from "./config";
+} from "./config.js";
 import {
   CORE_TYPES,
   DEFAULT_CANONICAL,
   DEFAULT_DIR_ANCHORS,
   DEFAULT_EXCLUDE,
   DEFAULT_STALENESS,
-} from "./config";
-import type { LoadedModule } from "./module-types";
+} from "./config.js";
+import type { LoadedModule } from "./module-types.js";
 
 export type Severity = "error" | "warning" | "info";
 

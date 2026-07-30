@@ -6,8 +6,8 @@
 
 import { join } from "path";
 
-import type { SkillEmitter } from "../../seams";
-import { upsertIndexBlock } from "./index-block";
+import type { SkillEmitter } from "../../seams.js";
+import { upsertIndexBlock } from "./index-block.js";
 
 export const geminiEmitter: SkillEmitter = {
   agent: "gemini",

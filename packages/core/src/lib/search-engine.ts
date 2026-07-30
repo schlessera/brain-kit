@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 
-import type { SearchResult, SearchOptions } from "./types";
-import type { EmbeddingProvider } from "./seams";
-import { hasVecSupport, getMeta } from "./db";
-import { rerank, getDefaultRerankerMode } from "./reranker";
+import type { SearchResult, SearchOptions } from "./types.js";
+import type { EmbeddingProvider } from "./seams.js";
+import { hasVecSupport, getMeta } from "./db.js";
+import { rerank, getDefaultRerankerMode } from "./reranker.js";
 
 export interface SearchResponse {
   results: SearchResult[];

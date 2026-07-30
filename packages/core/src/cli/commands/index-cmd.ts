@@ -1,7 +1,7 @@
-import { indexAll } from "../../lib/indexer";
-import { openDatabase, initVecSupport } from "../../lib/db";
-import type { CoreCommand } from "../types";
-import { emit, embeddingDims, parseArgs } from "../io";
+import { indexAll } from "../../lib/indexer.js";
+import { openDatabase, initVecSupport } from "../../lib/db.js";
+import type { CoreCommand } from "../types.js";
+import { emit, embeddingDims, parseArgs } from "../io.js";
 
 const HELP = `brain index — update the search index (incremental by default)
 

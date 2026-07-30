@@ -43,10 +43,10 @@ import {
   type WriteLock,
 } from "@endoxa/ui-sdk/server";
 
-import { createBrainAccess } from "./brain-access";
-import { createTurnContext, type TurnContext } from "./turn-context";
-import { createBrainTools } from "./tools";
-import { listPiSessions, getPiHistory } from "./history";
+import { createBrainAccess } from "./brain-access.js";
+import { createTurnContext, type TurnContext } from "./turn-context.js";
+import { createBrainTools } from "./tools.js";
+import { listPiSessions, getPiHistory } from "./history.js";
 
 export const PI_BACKEND_ID = "pi";
 

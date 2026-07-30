@@ -1,4 +1,4 @@
-import type { Chunk } from "./types";
+import type { Chunk } from "./types.js";
 
 const MIN_TOKENS = 100;
 const MAX_TOKENS = 1000;

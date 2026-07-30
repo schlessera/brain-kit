@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineModule, repoRelativePathSchema } from "@endoxa/core";
 import type { AuditIssue, HygieneContext } from "@endoxa/core";
-import { checkSync, type FinanceOptions } from "./finance";
+import { checkSync, type FinanceOptions } from "./finance.js";
 
 /** User config block for the finance module (validated at load). */
 export const configSchema = z
@@ -46,7 +46,7 @@ export default defineModule({
     taxonomy: {
       types: { finance: { dir: config.clientsDir } },
     },
-    commands: { finance: () => import("./cli") },
+    commands: { finance: () => import("./cli.js") },
     hygieneChecks: [checkLedgerBlocksUpToDate],
   }),
 });

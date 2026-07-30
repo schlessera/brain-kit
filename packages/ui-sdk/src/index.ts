@@ -8,4 +8,4 @@
  * The root export re-exports the protocol only; import the server/client
  * submodules explicitly so server bundles never touch client code.
  */
-export * from "./protocol";
+export * from "./protocol.js";

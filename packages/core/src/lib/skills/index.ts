@@ -8,31 +8,31 @@ export {
   type DiscoverOptions,
   type DiscoveryResult,
   type SkillSources,
-} from "./discover";
+} from "./discover.js";
 export {
   syncSkills,
   installBinLinks,
   type SyncOptions,
   type SyncResult,
   type BinLinkResult,
-} from "./sync";
-export { lintSkills, type LintFinding, type LintSeverity } from "./lint";
+} from "./sync.js";
+export { lintSkills, type LintFinding, type LintSeverity } from "./lint.js";
 
-export { claudeEmitter } from "./emitters/claude";
-export { codexEmitter } from "./emitters/codex";
-export { geminiEmitter } from "./emitters/gemini";
+export { claudeEmitter } from "./emitters/claude.js";
+export { codexEmitter } from "./emitters/codex.js";
+export { geminiEmitter } from "./emitters/gemini.js";
 export {
   INDEX_START,
   INDEX_END,
   renderIndexBlock,
   readManagedNames,
   upsertIndexBlock,
-} from "./emitters/index-block";
+} from "./emitters/index-block.js";
 
-import { claudeEmitter } from "./emitters/claude";
-import { codexEmitter } from "./emitters/codex";
-import { geminiEmitter } from "./emitters/gemini";
-import type { SkillEmitter } from "../seams";
+import { claudeEmitter } from "./emitters/claude.js";
+import { codexEmitter } from "./emitters/codex.js";
+import { geminiEmitter } from "./emitters/gemini.js";
+import type { SkillEmitter } from "../seams.js";
 
 /** All built-in emitters. syncSkills defaults to [claudeEmitter]; the others are opt-in. */
 export const BUILTIN_EMITTERS: Record<string, SkillEmitter> = {

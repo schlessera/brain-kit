@@ -22,7 +22,7 @@
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 import { existsSync } from "node:fs";
 
-import { Semaphore } from "./semaphore";
+import { Semaphore } from "./semaphore.js";
 
 const CHROME_PATH_CANDIDATES = [
   process.env.PUPPETEER_EXECUTABLE_PATH,

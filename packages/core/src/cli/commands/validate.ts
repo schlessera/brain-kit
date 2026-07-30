@@ -1,7 +1,7 @@
-import { validate, checkIndexDrift } from "../../lib/validate";
-import type { ValidationIssue } from "../../lib/validate";
-import type { CoreCommand } from "../types";
-import { emit } from "../io";
+import { validate, checkIndexDrift } from "../../lib/validate.js";
+import type { ValidationIssue } from "../../lib/validate.js";
+import type { CoreCommand } from "../types.js";
+import { emit } from "../io.js";
 
 /**
  * Config validation runs first (plan/01 §2): a schema-invalid brain.config is

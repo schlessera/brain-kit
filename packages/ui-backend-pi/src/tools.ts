@@ -24,8 +24,8 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AskUserQuestion, WriteLock } from "@endoxa/ui-sdk/server";
 
-import type { BrainAccess } from "./brain-access";
-import type { TurnContext } from "./turn-context";
+import type { BrainAccess } from "./brain-access.js";
+import type { TurnContext } from "./turn-context.js";
 
 /** Risk class → whether execute() must round-trip through requestPermission. */
 export type RiskClass = "read" | "mutate";

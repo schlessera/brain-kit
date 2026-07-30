@@ -1,5 +1,5 @@
-import type { CoreCommand } from "../types";
-import { emit, openReadonlyDb } from "../io";
+import type { CoreCommand } from "../types.js";
+import { emit, openReadonlyDb } from "../io.js";
 
 export const statsCommand: CoreCommand = {
   summary: "Show corpus statistics",

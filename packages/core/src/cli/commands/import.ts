@@ -2,10 +2,10 @@ import { readFileSync, statSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
 
-import { stringifyDocument } from "../../lib/frontmatter";
-import { safeResolve } from "../../lib/safe-path";
-import type { CoreCommand } from "../types";
-import { emit, parseArgs, UsageError } from "../io";
+import { stringifyDocument } from "../../lib/frontmatter.js";
+import { safeResolve } from "../../lib/safe-path.js";
+import type { CoreCommand } from "../types.js";
+import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain import --stamp <dir> — mechanical frontmatter stamping for imports
 

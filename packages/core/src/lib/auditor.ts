@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 
-import type { AuditIssue } from "./types";
-import type { Taxonomy } from "./taxonomy";
+import type { AuditIssue } from "./types.js";
+import type { Taxonomy } from "./taxonomy.js";
 
 /** Milliseconds per day. */
 const MS_PER_DAY = 86_400_000;

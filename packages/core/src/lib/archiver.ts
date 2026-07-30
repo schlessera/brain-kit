@@ -3,10 +3,10 @@ import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from "
 import { resolve, dirname } from "path";
 import matter from "gray-matter";
 
-import { openDatabase, initVecSupport } from "./db";
-import { EMBEDDING_DIMENSIONS } from "./models";
-import { stringifyDocument } from "./frontmatter";
-import { safeResolve } from "./safe-path";
+import { openDatabase, initVecSupport } from "./db.js";
+import { EMBEDDING_DIMENSIONS } from "./models.js";
+import { stringifyDocument } from "./frontmatter.js";
+import { safeResolve } from "./safe-path.js";
 
 export interface ArchiveResult {
   path: string;

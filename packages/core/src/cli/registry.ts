@@ -9,10 +9,10 @@
  * is a load error surfaced by the bin entry.
  */
 
-import type { BrainContext } from "../lib/context";
-import type { CommandModule } from "../lib/module-types";
-import { CORE_COMMANDS } from "./commands";
-import type { CliContext } from "./types";
+import type { BrainContext } from "../lib/context.js";
+import type { CommandModule } from "../lib/module-types.js";
+import { CORE_COMMANDS } from "./commands/index.js";
+import type { CliContext } from "./types.js";
 
 export interface RegisteredCommand {
   name: string;

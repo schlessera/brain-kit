@@ -4,9 +4,9 @@
  * registry (which imports the commands).
  */
 
-import type { BrainContext } from "../lib/context";
-import type { Enrichment } from "../lib/enrichment";
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams";
+import type { BrainContext } from "../lib/context.js";
+import type { Enrichment } from "../lib/enrichment.js";
+import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams.js";
 
 /**
  * Everything a core command needs beyond its arguments. Assembled once by the

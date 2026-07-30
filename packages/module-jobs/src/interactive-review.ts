@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import type { JobRow, ReviewStatus } from "./types";
-import { getReviewQueue, setReviewStatus, deleteJob, type ReviewOptions } from "./review";
+import type { JobRow, ReviewStatus } from "./types.js";
+import { getReviewQueue, setReviewStatus, deleteJob, type ReviewOptions } from "./review.js";
 
 /** Open a URL in the default browser, detecting WSL2 and suppressing output. */
 export function openUrl(url: string): void {

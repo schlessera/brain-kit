@@ -19,7 +19,7 @@ export {
   DEFAULT_DIR_ANCHORS,
   DEFAULT_EXCLUDE,
   DEFAULT_STALENESS,
-} from "./lib/config";
+} from "./lib/config.js";
 export type {
   BrainConfig,
   TaxonomyConfig,
@@ -27,10 +27,10 @@ export type {
   PropagationRule,
   AssetTitleRule,
   LoadedConfig,
-} from "./lib/config";
+} from "./lib/config.js";
 
 // Modules
-export { defineModule } from "./lib/module-types";
+export { defineModule } from "./lib/module-types.js";
 export type {
   ModuleManifest,
   ModuleCronEntry,
@@ -38,16 +38,16 @@ export type {
   HygieneContext,
   CommandModule,
   CommandContext,
-} from "./lib/module-types";
-export { loadModules } from "./lib/module-loader";
+} from "./lib/module-types.js";
+export { loadModules } from "./lib/module-loader.js";
 
 // Taxonomy
-export { buildTaxonomy, Taxonomy } from "./lib/taxonomy";
-export type { ResolvedTypeSpec, StalenessVerdict, Severity } from "./lib/taxonomy";
+export { buildTaxonomy, Taxonomy } from "./lib/taxonomy.js";
+export type { ResolvedTypeSpec, StalenessVerdict, Severity } from "./lib/taxonomy.js";
 
 // Context
-export { initContext, getContext, setContext } from "./lib/context";
-export type { BrainContext, InitContextOptions } from "./lib/context";
+export { initContext, getContext, setContext } from "./lib/context.js";
+export type { BrainContext, InitContextOptions } from "./lib/context.js";
 
 // Extension seams (@experimental until 1.0)
 export {
@@ -55,7 +55,7 @@ export {
   defineCompletionProvider,
   defineAgentRunner,
   defineSkillEmitter,
-} from "./lib/seams";
+} from "./lib/seams.js";
 export type {
   CompletionProvider,
   EmbeddingProvider,
@@ -63,13 +63,13 @@ export type {
   SkillEmitter,
   SkillManifest,
   ContentPart,
-} from "./lib/seams";
+} from "./lib/seams.js";
 
 // Database + search
-export { openDatabase, initVecSupport, hasVecSupport, getMeta, setMeta } from "./lib/db";
-export type { SchemaOptions } from "./lib/db";
-export { hybridSearch, filterSearch } from "./lib/search-engine";
-export type { SearchDeps, SearchResponse } from "./lib/search-engine";
+export { openDatabase, initVecSupport, hasVecSupport, getMeta, setMeta } from "./lib/db.js";
+export type { SchemaOptions } from "./lib/db.js";
+export { hybridSearch, filterSearch } from "./lib/search-engine.js";
+export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 
 // Indexing + content pipeline
 export {
@@ -78,34 +78,34 @@ export {
   getAssetFiles,
   extractWikiLinks,
   resolveWikiLink,
-} from "./lib/indexer";
-export type { IndexStats, IndexOptions } from "./lib/indexer";
-export { ingest, classifyContent } from "./lib/ingestion";
-export type { IngestOutcome, IngestContext, Classification } from "./lib/ingestion";
-export { audit } from "./lib/auditor";
-export type { AuditOptions } from "./lib/auditor";
-export { validate, checkIndexDrift } from "./lib/validate";
-export type { ValidationIssue } from "./lib/validate";
-export { archiveDocument } from "./lib/archiver";
-export type { ArchiveOptions, ArchiveResult } from "./lib/archiver";
-export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker";
-export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter";
-export { safeResolve } from "./lib/safe-path";
+} from "./lib/indexer.js";
+export type { IndexStats, IndexOptions } from "./lib/indexer.js";
+export { ingest, classifyContent } from "./lib/ingestion.js";
+export type { IngestOutcome, IngestContext, Classification } from "./lib/ingestion.js";
+export { audit } from "./lib/auditor.js";
+export type { AuditOptions } from "./lib/auditor.js";
+export { validate, checkIndexDrift } from "./lib/validate.js";
+export type { ValidationIssue } from "./lib/validate.js";
+export { archiveDocument } from "./lib/archiver.js";
+export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
+export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
+export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
+export { safeResolve } from "./lib/safe-path.js";
 
 // Providers + enrichment
-export { createEnrichment } from "./lib/enrichment";
-export type { Enrichment } from "./lib/enrichment";
+export { createEnrichment } from "./lib/enrichment.js";
+export type { Enrichment } from "./lib/enrichment.js";
 export {
   resolveEmbeddingProvider,
   resolveCompletionProvider,
   resolveAgentRunner,
-} from "./lib/registry";
+} from "./lib/registry.js";
 
 // Skills distribution
-export { discoverSkills } from "./lib/skills/discover";
-export { syncSkills, installBinLinks } from "./lib/skills/sync";
-export { lintSkills } from "./lib/skills/lint";
-export { BUILTIN_EMITTERS } from "./lib/skills";
+export { discoverSkills } from "./lib/skills/discover.js";
+export { syncSkills, installBinLinks } from "./lib/skills/sync.js";
+export { lintSkills } from "./lib/skills/lint.js";
+export { BUILTIN_EMITTERS } from "./lib/skills/index.js";
 
 // Data types
 export type {
@@ -120,5 +120,5 @@ export type {
   AuditIssue,
   IngestInput,
   Asset,
-} from "./lib/types";
-export { VALID_STATUSES, VALID_RELEVANCES, ASSET_EXTENSIONS } from "./lib/types";
+} from "./lib/types.js";
+export { VALID_STATUSES, VALID_RELEVANCES, ASSET_EXTENSIONS } from "./lib/types.js";

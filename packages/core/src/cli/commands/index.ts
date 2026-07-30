@@ -4,31 +4,31 @@
  * before the module commands (which are appended, sorted).
  */
 
-import type { CoreCommand } from "../types";
+import type { CoreCommand } from "../types.js";
 
-import { searchCommand } from "./search";
-import { contextCommand } from "./context";
-import { readCommand } from "./read";
-import { listCommand } from "./list";
-import { briefingCommand } from "./briefing";
-import { addCommand } from "./add";
-import { indexCommand } from "./index-cmd";
-import { validateCommand } from "./validate";
-import { auditCommand } from "./audit";
-import { processCommand } from "./process";
-import { archiveCommand } from "./archive";
-import { acceptMtimeCommand } from "./accept-mtime";
-import { maintainCommand } from "./maintain";
-import { statsCommand } from "./stats";
-import { syncCommand } from "./sync";
-import { setupCommand } from "./setup";
-import { doctorCommand } from "./doctor";
-import { initCommand } from "./init";
-import { importCommand } from "./import";
-import { skillsCommand } from "./skills";
-import { moduleCommand } from "./module";
-import { configCommand } from "./config";
-import { mcpCommand } from "./mcp";
+import { searchCommand } from "./search.js";
+import { contextCommand } from "./context.js";
+import { readCommand } from "./read.js";
+import { listCommand } from "./list.js";
+import { briefingCommand } from "./briefing.js";
+import { addCommand } from "./add.js";
+import { indexCommand } from "./index-cmd.js";
+import { validateCommand } from "./validate.js";
+import { auditCommand } from "./audit.js";
+import { processCommand } from "./process.js";
+import { archiveCommand } from "./archive.js";
+import { acceptMtimeCommand } from "./accept-mtime.js";
+import { maintainCommand } from "./maintain.js";
+import { statsCommand } from "./stats.js";
+import { syncCommand } from "./sync.js";
+import { setupCommand } from "./setup.js";
+import { doctorCommand } from "./doctor.js";
+import { initCommand } from "./init.js";
+import { importCommand } from "./import.js";
+import { skillsCommand } from "./skills.js";
+import { moduleCommand } from "./module.js";
+import { configCommand } from "./config.js";
+import { mcpCommand } from "./mcp.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
@@ -56,4 +56,4 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   mcp: mcpCommand,
 };
 
-export { generateBriefing } from "./briefing";
+export { generateBriefing } from "./briefing.js";

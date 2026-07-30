@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import type { JobRow, ReviewStatus, Source } from "./types";
+import type { JobRow, ReviewStatus, Source } from "./types.js";
 
 export interface ReviewOptions {
   status?: ReviewStatus | "all";

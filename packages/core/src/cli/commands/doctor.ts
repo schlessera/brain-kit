@@ -1,15 +1,16 @@
 import { Database } from "bun:sqlite";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { isAbsolute, join, resolve } from "path";
 
-import { openDatabase, initVecSupport, getMeta } from "../../lib/db";
-import { indexAll, getMarkdownFiles } from "../../lib/indexer";
-import { syncSkills, installBinLinks } from "../../lib/skills";
-import type { CoreCommand, CliContext } from "../types";
-import { emit, embeddingDims, parseArgs } from "../io";
-import { resolveEmitters } from "../skills-util";
-import { installGitHooks, isGitRepo } from "../hooks-util";
+import { openDatabase, initVecSupport, getMeta } from "../../lib/db.js";
+import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
+import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
+import { packageVersion } from "../../package-version.js";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, embeddingDims, parseArgs } from "../io.js";
+import { resolveEmitters } from "../skills-util.js";
+import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
 
 const HELP = `brain doctor — health check battery
 
@@ -60,7 +61,36 @@ function checkGitHooks(root: string): Check {
   if (!isGitRepo(root)) return { id: "git-hooks", status: "warn", detail: "not a git repository", fix: "run `git init`, then `brain setup`" };
   const hooksPath = gitConfig(root, "core.hooksPath");
   if (!hooksPath) return { id: "git-hooks", status: "fail", detail: "core.hooksPath is not set", fix: "run `brain setup`" };
-  return { id: "git-hooks", status: "pass", detail: `core.hooksPath = ${hooksPath}` };
+  const resolvedHooksPath = resolve(root, hooksPath);
+  if (!existsSync(resolvedHooksPath) || !statSync(resolvedHooksPath).isDirectory()) {
+    return {
+      id: "git-hooks",
+      status: "fail",
+      detail: `core.hooksPath points to a missing directory: ${resolvedHooksPath}`,
+      fix: "run `brain setup`",
+    };
+  }
+  const hooks = HOOK_NAMES.filter((name) => {
+    const path = join(resolvedHooksPath, name);
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (hooks.length === 0) {
+    return {
+      id: "git-hooks",
+      status: "fail",
+      detail: `core.hooksPath contains no hook files: ${resolvedHooksPath}`,
+      fix: "run `brain setup`",
+    };
+  }
+  return {
+    id: "git-hooks",
+    status: "pass",
+    detail: `core.hooksPath = ${hooksPath} (${hooks.length} hook file(s))`,
+  };
 }
 
 function checkSymlinks(root: string): Check {
@@ -149,12 +179,44 @@ function checkEmbeddings(cli: CliContext): Check {
   }
 }
 
+function checkMcpRegistration(
+  registration: unknown,
+  source: string,
+  baseDir: string
+): Check {
+  const args =
+    registration &&
+    typeof registration === "object" &&
+    Array.isArray((registration as { args?: unknown }).args)
+      ? (registration as { args: unknown[] }).args
+      : [];
+  for (const arg of args) {
+    if (typeof arg !== "string" || !/\.(?:[cm]?[jt]s)$/.test(arg)) continue;
+    const path = isAbsolute(arg) ? arg : resolve(baseDir, arg);
+    if (!existsSync(path)) {
+      return {
+        id: "mcp",
+        status: "fail",
+        detail: `registered in ${source}, but referenced MCP file does not exist: ${path}`,
+        fix: "register with `brain mcp` instead of a source-file path",
+      };
+    }
+  }
+  return { id: "mcp", status: "pass", detail: `registered in ${source}` };
+}
+
 function checkMcp(root: string): Check {
   const localMcp = join(root, ".mcp.json");
   if (existsSync(localMcp)) {
     try {
       const cfg = JSON.parse(readFileSync(localMcp, "utf-8"));
-      if (cfg?.mcpServers?.brain) return { id: "mcp", status: "pass", detail: "registered in project .mcp.json" };
+      if (cfg?.mcpServers?.brain) {
+        return checkMcpRegistration(
+          cfg.mcpServers.brain,
+          "project .mcp.json",
+          root
+        );
+      }
     } catch {
       /* fall through */
     }
@@ -163,13 +225,21 @@ function checkMcp(root: string): Check {
   if (existsSync(globalCfg)) {
     try {
       const cfg = JSON.parse(readFileSync(globalCfg, "utf-8"));
-      if (cfg?.mcpServers?.brain) return { id: "mcp", status: "pass", detail: "registered in ~/.claude.json" };
+      if (cfg?.mcpServers?.brain) {
+        return checkMcpRegistration(
+          cfg.mcpServers.brain,
+          "~/.claude.json",
+          homedir()
+        );
+      }
     } catch {
       /* fall through */
     }
   }
   if (which("claude")) {
-    const out = new TextDecoder().decode(Bun.spawnSync(["claude", "mcp", "list"]).stdout);
+    const out = new TextDecoder().decode(
+      Bun.spawnSync(["claude", "mcp", "list"], { timeout: 15_000 }).stdout
+    );
     if (/\bbrain\b/.test(out)) return { id: "mcp", status: "pass", detail: "registered (claude mcp list)" };
     return { id: "mcp", status: "warn", detail: "brain MCP server not registered", fix: "run `claude mcp add brain -- bun node_modules/.bin/brain mcp`" };
   }
@@ -191,8 +261,7 @@ function checkDeps(root: string): Check {
 
 function checkVersion(): Check {
   try {
-    const pkg = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../package.json"), "utf-8"));
-    return { id: "version", status: "pass", detail: `@endoxa/core ${pkg.version}` };
+    return { id: "version", status: "pass", detail: `@endoxa/core ${packageVersion()}` };
   } catch {
     return { id: "version", status: "warn", detail: "could not read core package version" };
   }

@@ -1,9 +1,9 @@
-import type { DocumentType } from "../../lib/types";
-import { ingest } from "../../lib/ingestion";
-import { openDatabase } from "../../lib/db";
-import type { CoreCommand } from "../types";
-import { emit, parseArgs, UsageError } from "../io";
-import { runAgent } from "../agent";
+import type { DocumentType } from "../../lib/types.js";
+import { ingest } from "../../lib/ingestion.js";
+import { openDatabase } from "../../lib/db.js";
+import type { CoreCommand } from "../types.js";
+import { emit, parseArgs, UsageError } from "../io.js";
+import { runAgent } from "../agent.js";
 
 const HELP = `brain add "<content>" — quick-capture content into the brain
 

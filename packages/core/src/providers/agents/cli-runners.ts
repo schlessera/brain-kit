@@ -14,7 +14,7 @@
  *     simple shell-out may need revisiting when the pi CLI is pinned.
  */
 
-import type { AgentRunner } from "../../lib/seams";
+import type { AgentRunner } from "../../lib/seams.js";
 
 // Safety net: a hung agent CLI session must not block the caller forever.
 const DEFAULT_TIMEOUT_MS = 300_000;

@@ -3,9 +3,9 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import matter from "gray-matter";
 
-import type { BrainContext } from "./context";
-import type { EmbeddingProvider } from "./seams";
-import { hybridSearch } from "./search-engine";
+import type { BrainContext } from "./context.js";
+import type { EmbeddingProvider } from "./seams.js";
+import { hybridSearch } from "./search-engine.js";
 
 interface AssembleOptions {
   query: string;

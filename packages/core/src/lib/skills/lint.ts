@@ -18,7 +18,7 @@ import { existsSync, readFileSync } from "fs";
 import { basename, join } from "path";
 import matter from "gray-matter";
 
-import type { SkillManifest } from "../seams";
+import type { SkillManifest } from "../seams.js";
 
 export type LintSeverity = "error" | "warning" | "info";
 

@@ -44,7 +44,7 @@ import type {
   ProviderInfo,
   ServerMessage,
   SessionHistoryMessage,
-} from "../protocol";
+} from "../protocol.js";
 
 export interface BackendCapabilities {
   /** Can continue an existing session (startTurn with sessionId). */

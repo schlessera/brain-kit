@@ -1,2 +1,2 @@
-export { default, configSchema } from "./module";
-export type { SpeakingConfig } from "./module";
+export { default, configSchema } from "./module.js";
+export type { SpeakingConfig } from "./module.js";

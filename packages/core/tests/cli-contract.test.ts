@@ -131,6 +131,9 @@ describe("output mode + exit codes", () => {
     expect(version.code).toBe(0);
     expect(version.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
 
+    const nestedVersion = await runCli(root, ["add", "-v"]);
+    expect(nestedVersion.stdout.trim()).not.toMatch(/^\d+\.\d+\.\d+$/);
+
     const { code, stderr } = await runCli(root, ["bogus-command"]);
     expect(code).toBe(1);
     expect(stderr).toContain("Unknown command");

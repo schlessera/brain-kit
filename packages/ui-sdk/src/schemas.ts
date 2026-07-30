@@ -30,13 +30,13 @@ import type {
   ClientSessionResume,
   ClientToolApproval,
   ClientToolDenial,
-} from "./protocol";
+} from "./protocol.js";
 import {
   ALLOWED_IMAGE_MEDIA_TYPES,
   MAX_IMAGES_PER_MESSAGE,
   MAX_IMAGE_BYTES,
   MAX_TOTAL_IMAGE_BYTES,
-} from "./protocol";
+} from "./protocol.js";
 
 // --- Boundary limits ---
 

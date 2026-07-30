@@ -7,8 +7,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { writeFileSync } from "fs";
+import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { packageVersion } from "../src/package-version";
 
 let root: string;
 let client: Client;
@@ -39,6 +42,10 @@ test("lists all 8 brain_* tools", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   expect(names).toEqual([...ALL_TOOLS].sort());
+});
+
+test("reports the installed core package version as serverInfo.version", () => {
+  expect(client.getServerVersion()?.version).toBe(packageVersion());
 });
 
 test("read tools carry the readOnly annotation", async () => {
@@ -87,4 +94,38 @@ describe("brain_list", () => {
     expect(Array.isArray(sc.warnings)).toBe(true);
     expect(sc.documents.every((d) => d.type === "health")).toBe(true);
   });
+});
+
+test("starts with degraded context for invalid config and disables writes", async () => {
+  const invalidRoot = makeTempBrain({ empty: true });
+  writeFileSync(join(invalidRoot, "brain.config.json"), "{ invalid json");
+  const transport = new StdioClientTransport({
+    command: "bun",
+    args: [BRAIN_BIN, "mcp"],
+    env: keylessEnv(invalidRoot),
+  });
+  const invalidClient = new Client({
+    name: "invalid-config-mcp-test",
+    version: "1.0.0",
+  });
+
+  try {
+    await invalidClient.connect(transport);
+    const listed = await invalidClient.callTool({
+      name: "brain_list",
+      arguments: {},
+    });
+    const warnings = (listed.structuredContent as { warnings: string[] }).warnings;
+    expect(warnings.join("\n")).toContain("brain.config is invalid");
+
+    const added = await invalidClient.callTool({
+      name: "brain_add",
+      arguments: { content: "must not be written" },
+    });
+    expect(added.isError).toBe(true);
+    expect(JSON.stringify(added.content)).toContain("write tools are disabled");
+  } finally {
+    await invalidClient.close();
+    cleanup(invalidRoot);
+  }
 });

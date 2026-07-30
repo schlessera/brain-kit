@@ -18,14 +18,14 @@ import matter from "gray-matter";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 
-import { VALID_STATUSES, VALID_RELEVANCES } from "./types";
-import type { Taxonomy } from "./taxonomy";
+import { VALID_STATUSES, VALID_RELEVANCES } from "./types.js";
+import type { Taxonomy } from "./taxonomy.js";
 import {
   getMarkdownFiles,
   resolveWikiLink,
   resolveAlias,
   extractWikiLinks,
-} from "./indexer";
+} from "./indexer.js";
 
 export interface ValidationIssue {
   file: string;

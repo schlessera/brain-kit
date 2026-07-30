@@ -7,9 +7,9 @@
  * retry/backoff, and the GOOGLE_API_KEY-suppression hack are preserved verbatim.
  */
 
-import type { EmbeddingProvider } from "../../lib/seams";
-import { withRetry } from "../../lib/llm-util";
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults";
+import type { EmbeddingProvider } from "../../lib/seams.js";
+import { withRetry } from "../../lib/llm-util.js";
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults.js";
 
 const TEXT_BATCH_SIZE = 100;
 

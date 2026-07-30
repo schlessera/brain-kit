@@ -1,8 +1,8 @@
-import { openDatabase, initVecSupport } from "../../lib/db";
-import { indexAll } from "../../lib/indexer";
-import { audit } from "../../lib/auditor";
-import type { CoreCommand } from "../types";
-import { emit, embeddingDims } from "../io";
+import { openDatabase, initVecSupport } from "../../lib/db.js";
+import { indexAll } from "../../lib/indexer.js";
+import { audit } from "../../lib/auditor.js";
+import type { CoreCommand } from "../types.js";
+import { emit, embeddingDims } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 

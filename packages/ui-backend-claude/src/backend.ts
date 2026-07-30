@@ -25,16 +25,16 @@ import {
   BackendRequestError,
   createWriteLock,
 } from "@endoxa/ui-sdk/server";
-import { StreamAdapter } from "./stream-adapter";
-import { createEndoxaMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool";
-import { GET_LOCATION_TOOL_NAME } from "./location-tool";
+import { StreamAdapter } from "./stream-adapter.js";
+import { createEndoxaMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
+import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import {
   DEFAULT_PROFILES,
   getProfile,
   listProfiles,
   type InferenceProfile,
-} from "./profiles";
-import { createHistory } from "./history";
+} from "./profiles.js";
+import { createHistory } from "./history.js";
 
 const BACKEND_ID = "claude";
 

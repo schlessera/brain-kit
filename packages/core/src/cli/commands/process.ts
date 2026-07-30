@@ -4,12 +4,12 @@ import { resolve } from "path";
 import { Glob } from "bun";
 import matter from "gray-matter";
 
-import type { CompletionProvider } from "../../lib/seams";
-import { hybridSearch } from "../../lib/search-engine";
-import { safeResolve } from "../../lib/safe-path";
-import { openDatabase } from "../../lib/db";
-import type { CoreCommand, CliContext } from "../types";
-import { emit, parseArgs, UsageError } from "../io";
+import type { CompletionProvider } from "../../lib/seams.js";
+import { hybridSearch } from "../../lib/search-engine.js";
+import { safeResolve } from "../../lib/safe-path.js";
+import { openDatabase } from "../../lib/db.js";
+import type { CoreCommand, CliContext } from "../types.js";
+import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain process <path> — assimilate a note into proper brain content
 

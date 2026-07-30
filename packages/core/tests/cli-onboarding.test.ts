@@ -4,10 +4,18 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { installGitHooks } from "../src/cli/hooks-util";
 
 const temps: string[] = [];
 function tempBrain(opts: { empty?: boolean } = {}): string {
@@ -138,4 +146,83 @@ test("skills sync and setup also refuse to run without a brain.config", async ()
   // No side-effect directories were created by the refused commands.
   expect(existsSync(join(root, ".agents"))).toBe(false);
   expect(existsSync(join(root, ".claude"))).toBe(false);
+});
+
+test("setup hook installation throws before setting hooksPath when packaged hooks are missing", () => {
+  const root = tempBrain();
+  expect(Bun.spawnSync(["git", "init", "--quiet"], { cwd: root }).exitCode).toBe(0);
+
+  const missingHooks = join(root, "missing-packaged-hooks");
+  expect(() => installGitHooks(root, missingHooks)).toThrow(
+    `Packaged hooks directory does not exist: ${missingHooks}`
+  );
+
+  const configured = Bun.spawnSync(
+    ["git", "-C", root, "config", "--get", "core.hooksPath"]
+  );
+  expect(configured.exitCode).not.toBe(0);
+  expect(existsSync(join(root, ".githooks"))).toBe(false);
+});
+
+test("doctor requires a real hook file under core.hooksPath", async () => {
+  const root = tempBrain();
+  expect(Bun.spawnSync(["git", "init", "--quiet"], { cwd: root }).exitCode).toBe(0);
+  // Satisfy the MCP check via project config so doctor never falls through to
+  // probing a host `claude` CLI (slow or absent depending on the machine).
+  writeFileSync(
+    join(root, ".mcp.json"),
+    JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } })
+  );
+  const installed = installGitHooks(root);
+  expect(installed.hooks.length).toBeGreaterThan(0);
+
+  const healthy = await runCli(root, ["doctor", "--json"]);
+  const healthyCheck = JSON.parse(healthy.stdout).checks.find(
+    (check: { id: string }) => check.id === "git-hooks"
+  );
+  expect(healthyCheck.status).toBe("pass");
+
+  for (const hook of readdirSync(join(root, ".githooks"))) {
+    rmSync(join(root, ".githooks", hook));
+  }
+  const wiped = await runCli(root, ["doctor", "--json"]);
+  const wipedCheck = JSON.parse(wiped.stdout).checks.find(
+    (check: { id: string }) => check.id === "git-hooks"
+  );
+  expect(wipedCheck.status).toBe("fail");
+  expect(wipedCheck.detail).toContain("contains no hook files");
+});
+
+test("doctor reports a dead MCP source-file registration", async () => {
+  const root = tempBrain();
+  const deadPath = "defunct-node-modules/@brainform/core/src/mcp-server.ts";
+  writeFileSync(
+    join(root, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        brain: { command: "bun", args: [deadPath] },
+      },
+    })
+  );
+
+  const result = await runCli(root, ["doctor", "--json"]);
+  const mcp = JSON.parse(result.stdout).checks.find(
+    (check: { id: string }) => check.id === "mcp"
+  );
+  expect(mcp.status).toBe("fail");
+  expect(mcp.detail).toContain(deadPath);
+
+  writeFileSync(
+    join(root, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] },
+      },
+    })
+  );
+  const current = await runCli(root, ["doctor", "--json"]);
+  const currentMcp = JSON.parse(current.stdout).checks.find(
+    (check: { id: string }) => check.id === "mcp"
+  );
+  expect(currentMcp.status).toBe("pass");
 });

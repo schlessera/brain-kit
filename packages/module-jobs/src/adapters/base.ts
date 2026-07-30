@@ -1,5 +1,5 @@
-import type { ScraperAdapter, ScrapeOptions, ScrapeResult, RawJob, Source } from "../types";
-import { stripHtml } from "../html";
+import type { ScraperAdapter, ScrapeOptions, ScrapeResult, RawJob, Source } from "../types.js";
+import { stripHtml } from "../html.js";
 
 export abstract class BaseAdapter implements ScraperAdapter {
   abstract readonly source: Source;

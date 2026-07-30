@@ -11,29 +11,30 @@
 
 import { join } from "path";
 
-import { buildTaxonomy } from "../lib/taxonomy";
-import { resolveRoot } from "../lib/config";
-import { CONFIG_FILENAMES } from "../lib/config";
-import { existsSync, readFileSync } from "fs";
-import { initContext } from "../lib/context";
-import type { BrainContext } from "../lib/context";
-import { createEnrichment } from "../lib/enrichment";
-import type { Enrichment } from "../lib/enrichment";
+import { buildTaxonomy } from "../lib/taxonomy.js";
+import { resolveRoot } from "../lib/config.js";
+import { CONFIG_FILENAMES } from "../lib/config.js";
+import { existsSync } from "fs";
+import { initContext } from "../lib/context.js";
+import type { BrainContext } from "../lib/context.js";
+import { createEnrichment } from "../lib/enrichment.js";
+import type { Enrichment } from "../lib/enrichment.js";
+import { packageVersion } from "../package-version.js";
 import {
   resolveAgentRunner,
   resolveCompletionProvider,
   resolveEmbeddingProvider,
-} from "../lib/registry";
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams";
+} from "../lib/registry.js";
+import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams.js";
 
-import { buildRegistry, helpText } from "./registry";
-import type { CliContext } from "./types";
-import { computeJson, UsageError } from "./io";
+import { buildRegistry, helpText } from "./registry.js";
+import type { CliContext } from "./types.js";
+import { computeJson, UsageError } from "./io.js";
 
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
 const TOLERATE_CONFIG_ERROR = new Set([
-  "init", "doctor", "setup", "config", "validate", "module", "skills",
+  "init", "doctor", "setup", "config", "validate", "module", "skills", "mcp",
 ]);
 
 // Commands that write to the brain tree or its database. They refuse to run
@@ -133,16 +134,9 @@ function degradedContext(): BrainContext {
   };
 }
 
-function packageVersion(): string {
-  const pkg = JSON.parse(
-    readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
-  ) as { version: string };
-  return pkg.version;
-}
-
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
-  if (argv.includes("--version") || argv.includes("-v")) {
+  if (argv[0] === "--version" || argv[0] === "-v") {
     console.log(packageVersion());
     return 0;
   }

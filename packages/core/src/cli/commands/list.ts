@@ -1,7 +1,7 @@
-import type { SearchOptions } from "../../lib/types";
-import { filterSearch } from "../../lib/search-engine";
-import type { CoreCommand } from "../types";
-import { emit, openReadonlyDb, parseArgs } from "../io";
+import type { SearchOptions } from "../../lib/types.js";
+import { filterSearch } from "../../lib/search-engine.js";
+import type { CoreCommand } from "../types.js";
+import { emit, openReadonlyDb, parseArgs } from "../io.js";
 
 const HELP = `brain list — list/browse documents
 

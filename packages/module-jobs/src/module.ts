@@ -34,7 +34,7 @@ export default defineModule({
     taxonomy: {
       types: { opportunity: { dir: config.opportunitiesDir } },
     },
-    commands: { jobs: () => import("./cli") },
+    commands: { jobs: () => import("./cli.js") },
     indexRules: { dirAnchors: ["status.md"] },
     cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
   }),

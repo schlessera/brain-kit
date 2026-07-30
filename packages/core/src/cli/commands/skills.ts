@@ -1,8 +1,8 @@
-import { discoverSkills, lintSkills, syncSkills } from "../../lib/skills";
-import type { LintFinding } from "../../lib/skills";
-import type { CoreCommand } from "../types";
-import { emit, UsageError } from "../io";
-import { resolveEmitters } from "../skills-util";
+import { discoverSkills, lintSkills, syncSkills } from "../../lib/skills/index.js";
+import type { LintFinding } from "../../lib/skills/index.js";
+import type { CoreCommand } from "../types.js";
+import { emit, UsageError } from "../io.js";
+import { resolveEmitters } from "../skills-util.js";
 
 const HELP = `brain skills <sync|lint>
 

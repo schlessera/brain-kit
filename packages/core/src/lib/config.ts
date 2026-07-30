@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { z } from "zod";
 
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams";
+import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams.js";
 
 // ---------------------------------------------------------------------------
 // Schema

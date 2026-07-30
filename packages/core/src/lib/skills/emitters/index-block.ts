@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "fs";
 
-import type { SkillManifest } from "../../seams";
+import type { SkillManifest } from "../../seams.js";
 
 export const INDEX_START = "<!-- endoxa:skills-index:start -->";
 export const INDEX_END = "<!-- endoxa:skills-index:end -->";

@@ -20,10 +20,10 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
 
-import type { SkillEmitter } from "../seams";
-import { discoverSkills, type DiscoverOptions, type SkillSources } from "./discover";
-import { claudeEmitter } from "./emitters/claude";
-import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "./fs-links";
+import type { SkillEmitter } from "../seams.js";
+import { discoverSkills, type DiscoverOptions, type SkillSources } from "./discover.js";
+import { claudeEmitter } from "./emitters/claude.js";
+import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "./fs-links.js";
 
 export interface SyncOptions extends DiscoverOptions {
   /** Emitters to run after materializing. Default: [claudeEmitter]. */

@@ -18,8 +18,8 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import matter from "gray-matter";
 
-import type { LoadedModule } from "../module-types";
-import type { SkillManifest } from "../seams";
+import type { LoadedModule } from "../module-types.js";
+import type { SkillManifest } from "../seams.js";
 
 /** The subset of BrainContext skill discovery needs. */
 export interface SkillSources {

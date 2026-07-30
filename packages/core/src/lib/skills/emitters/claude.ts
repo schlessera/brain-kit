@@ -10,8 +10,8 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
 
-import type { SkillEmitter } from "../../seams";
-import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "../fs-links";
+import type { SkillEmitter } from "../../seams.js";
+import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "../fs-links.js";
 
 export const claudeEmitter: SkillEmitter = {
   agent: "claude",

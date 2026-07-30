@@ -2,15 +2,15 @@ import { existsSync } from "fs";
 import { dirname, join } from "path";
 import { z } from "zod";
 
-import type { BrainConfig } from "./config";
+import type { BrainConfig } from "./config.js";
 import {
   assetTitleRuleSchema,
   propagationRuleSchema,
   repoRelativePathSchema,
   typeSpecSchema,
-} from "./config";
-import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types";
-import { safeResolve } from "./safe-path";
+} from "./config.js";
+import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types.js";
+import { safeResolve } from "./safe-path.js";
 
 /**
  * Structural validation of a setup() return value. Functions are checked for

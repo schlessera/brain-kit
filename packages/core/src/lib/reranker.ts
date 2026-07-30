@@ -1,4 +1,4 @@
-import type { SearchResult } from "./types";
+import type { SearchResult } from "./types.js";
 
 export interface RerankerConfig {
   mode: "none" | "heuristic";

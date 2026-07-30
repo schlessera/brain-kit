@@ -1,6 +1,6 @@
-import { BaseAdapter } from "./base";
-import { httpGetText } from "../http";
-import type { RawJob, ScrapeOptions } from "../types";
+import { BaseAdapter } from "./base.js";
+import { httpGetText } from "../http.js";
+import type { RawJob, ScrapeOptions } from "../types.js";
 
 const RSS_URL = "https://weworkremotely.com/remote-jobs.rss";
 

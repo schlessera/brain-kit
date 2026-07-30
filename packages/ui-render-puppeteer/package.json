@@ -36,7 +36,8 @@
     "dist"
   ],
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
     "puppeteer-core": "^25.0.4"

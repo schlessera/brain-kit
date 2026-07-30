@@ -3,9 +3,9 @@ import { join, resolve } from "node:path";
 import type { CommandContext, CommandModule } from "@endoxa/core";
 import { safeResolve } from "@endoxa/core";
 
-import { openDatabase } from "./db";
-import { runScrape } from "./scrape";
-import { scrapeSites } from "./browser-scrape";
+import { openDatabase } from "./db.js";
+import { runScrape } from "./scrape.js";
+import { scrapeSites } from "./browser-scrape.js";
 import {
   loadScoringConfig,
   scoreMaxes,
@@ -13,7 +13,7 @@ import {
   rescoreAllJobs,
   autoClassify,
   type ScoringConfig,
-} from "./score";
+} from "./score.js";
 import {
   getReviewQueue,
   getJobById,
@@ -23,11 +23,11 @@ import {
   searchJobs,
   formatJobSummary,
   formatJobDetail,
-} from "./review";
-import { runInteractiveReview, openUrl } from "./interactive-review";
-import { ALL_SOURCES, REVIEW_STATUSES, SOURCES } from "./types";
-import type { ReviewStatus, Source } from "./types";
-import { configSchema, type JobsConfig } from "./module";
+} from "./review.js";
+import { runInteractiveReview, openUrl } from "./interactive-review.js";
+import { ALL_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import type { ReviewStatus, Source } from "./types.js";
+import { configSchema, type JobsConfig } from "./module.js";
 
 // ---------------------------------------------------------------------------
 // Resolution: config + taxonomy + paths from the brain root

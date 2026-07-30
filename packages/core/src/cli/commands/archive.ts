@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
 
-import { archiveDocument } from "../../lib/archiver";
-import { indexAll } from "../../lib/indexer";
-import type { CoreCommand } from "../types";
-import { emit, embeddingDims, parseArgs, UsageError } from "../io";
+import { archiveDocument } from "../../lib/archiver.js";
+import { indexAll } from "../../lib/indexer.js";
+import type { CoreCommand } from "../types.js";
+import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain archive <path> — set status: archived, move projects/active → projects/archive, reindex
 

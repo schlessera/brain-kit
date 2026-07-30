@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models";
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 
 const SCHEMA_VERSION = 7;
 

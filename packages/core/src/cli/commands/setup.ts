@@ -1,8 +1,8 @@
-import { syncSkills, installBinLinks } from "../../lib/skills";
-import type { CoreCommand } from "../types";
-import { emit } from "../io";
-import { resolveEmitters } from "../skills-util";
-import { installGitHooks } from "../hooks-util";
+import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
+import type { CoreCommand } from "../types.js";
+import { emit } from "../io.js";
+import { resolveEmitters } from "../skills-util.js";
+import { installGitHooks } from "../hooks-util.js";
 
 const HELP = `brain setup — idempotent first-run wiring
 

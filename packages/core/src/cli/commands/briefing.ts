@@ -2,11 +2,11 @@ import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import matter from "gray-matter";
 
-import type { BrainContext } from "../../lib/context";
-import { openDatabase } from "../../lib/db";
-import { filterSearch } from "../../lib/search-engine";
-import type { CoreCommand } from "../types";
-import { parseArgs, today } from "../io";
+import type { BrainContext } from "../../lib/context.js";
+import { openDatabase } from "../../lib/db.js";
+import { filterSearch } from "../../lib/search-engine.js";
+import type { CoreCommand } from "../types.js";
+import { parseArgs, today } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);

@@ -20,28 +20,36 @@ import { resolve } from "path";
 import { Glob } from "bun";
 import matter from "gray-matter";
 
-import { initContext } from "./lib/context";
-import { openDatabase, initVecSupport } from "./lib/db";
-import { hybridSearch, filterSearch } from "./lib/search-engine";
-import { assembleContext } from "./lib/context-assembler";
-import { ingest } from "./lib/ingestion";
-import { archiveDocument } from "./lib/archiver";
-import { indexAll } from "./lib/indexer";
-import { stringifyDocument } from "./lib/frontmatter";
-import { safeResolve } from "./lib/safe-path";
-import { resolveEmbeddingProvider } from "./lib/registry";
-import { EMBEDDING_DIMENSIONS } from "./lib/models";
-import type { SearchOptions, DocumentType } from "./lib/types";
-import type { EmbeddingProvider } from "./lib/seams";
+import { initContext } from "./lib/context.js";
+import type { BrainContext } from "./lib/context.js";
+import { openDatabase, initVecSupport } from "./lib/db.js";
+import { hybridSearch, filterSearch } from "./lib/search-engine.js";
+import { assembleContext } from "./lib/context-assembler.js";
+import { ingest } from "./lib/ingestion.js";
+import { archiveDocument } from "./lib/archiver.js";
+import { indexAll } from "./lib/indexer.js";
+import { stringifyDocument } from "./lib/frontmatter.js";
+import { safeResolve } from "./lib/safe-path.js";
+import { resolveEmbeddingProvider } from "./lib/registry.js";
+import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
+import type { SearchOptions, DocumentType } from "./lib/types.js";
+import type { EmbeddingProvider } from "./lib/seams.js";
+import { packageVersion } from "./package-version.js";
 
 // Server-side result caps — agents can ask for less, never more.
 const MAX_SEARCH_LIMIT = 50;
 const MAX_LIST_LIMIT = 100;
 const MAX_GRAPH_DEPTH = 5;
 
-export async function startMcpServer(): Promise<void> {
-  const brain = await initContext();
+export async function startMcpServer(
+  brainContext?: BrainContext,
+  configError?: string
+): Promise<void> {
+  const brain = brainContext ?? await initContext();
   const dims = EMBEDDING_DIMENSIONS;
+  const configWarning = configError
+    ? `brain.config is invalid; using degraded core defaults: ${configError.split("\n")[0]}`
+    : null;
 
   // Embeddings resolve from config, but only when a key is present — otherwise
   // vector/hybrid degrade to FTS with a warning (same as keyless CLI).
@@ -121,10 +129,22 @@ export async function startMcpServer(): Promise<void> {
     content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }],
     isError: true,
   });
+  const toolWarnings = (...warnings: Array<string | null>) => [
+    ...(configWarning ? [configWarning] : []),
+    ...warnings.filter((warning): warning is string => warning !== null),
+  ];
+  const degradedWriteError = () =>
+    configError
+      ? errorResult(
+          new Error(
+            `brain.config is invalid; write tools are disabled until it is fixed: ${configError.split("\n")[0]}`
+          )
+        )
+      : null;
 
   const typeList = brain.taxonomy.validTypes().join(", ");
 
-  const server = new McpServer({ name: "brain", version: "1.0.0" });
+  const server = new McpServer({ name: "brain", version: packageVersion() });
 
   // ------------------------------------------------------------------------
   // 1. brain_search
@@ -180,6 +200,7 @@ export async function startMcpServer(): Promise<void> {
         const { results, warnings } = await hybridSearch(db, opts, { embeddings });
         const stale = indexStalenessWarning();
         if (stale) warnings.push(stale);
+        if (configWarning) warnings.unshift(configWarning);
 
         const structured = {
           results: results.map((r) => ({
@@ -237,7 +258,7 @@ export async function startMcpServer(): Promise<void> {
         });
 
         const stale = indexStalenessWarning();
-        const warnings = stale ? [stale] : [];
+        const warnings = toolWarnings(stale);
 
         return {
           content: textContent(context, warnings),
@@ -269,7 +290,7 @@ export async function startMcpServer(): Promise<void> {
 
         const content = readFileSync(fullPath, "utf-8");
         const stale = indexStalenessWarning();
-        return { content: textContent(content, stale ? [stale] : []) };
+        return { content: textContent(content, toolWarnings(stale)) };
       } catch (e) {
         return errorResult(e);
       }
@@ -319,7 +340,7 @@ export async function startMcpServer(): Promise<void> {
 
         const results = filterSearch(db, opts);
         const stale = indexStalenessWarning();
-        const warnings = stale ? [stale] : [];
+        const warnings = toolWarnings(stale);
 
         const structured = {
           documents: results.map((r) => ({
@@ -439,7 +460,7 @@ export async function startMcpServer(): Promise<void> {
         });
 
         const stale = indexStalenessWarning();
-        const warnings = stale ? [stale] : [];
+        const warnings = toolWarnings(stale);
         const structured = { edges: uniqueEdges, warnings };
 
         return {
@@ -468,6 +489,8 @@ export async function startMcpServer(): Promise<void> {
       },
     },
     async (params) => {
+      const degraded = degradedWriteError();
+      if (degraded) return degraded;
       try {
         const tagList = params.tags
           ? params.tags.split(",").map((t) => t.trim()).filter(Boolean)
@@ -512,6 +535,8 @@ export async function startMcpServer(): Promise<void> {
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async (params) => {
+      const degraded = degradedWriteError();
+      if (degraded) return degraded;
       try {
         const fullPath = safeResolve(brain.root, params.path);
         if (!fullPath) return errorResult(new Error("path escapes the brain root directory"));
@@ -579,6 +604,8 @@ export async function startMcpServer(): Promise<void> {
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async (params) => {
+      const degraded = degradedWriteError();
+      if (degraded) return degraded;
       try {
         const result = await archiveDocument(brain.root, params.path, {
           dryRun: params.dry_run,

@@ -11,7 +11,7 @@
  * used when the model returned nothing).
  */
 
-import type { CompletionProvider, ContentPart } from "./seams";
+import type { CompletionProvider, ContentPart } from "./seams.js";
 
 export interface Enrichment {
   /**

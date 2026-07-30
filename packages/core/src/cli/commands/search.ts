@@ -1,8 +1,8 @@
-import type { SearchOptions } from "../../lib/types";
-import { hybridSearch } from "../../lib/search-engine";
-import { initVecSupport } from "../../lib/db";
-import type { CoreCommand } from "../types";
-import { emit, embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io";
+import type { SearchOptions } from "../../lib/types.js";
+import { hybridSearch } from "../../lib/search-engine.js";
+import { initVecSupport } from "../../lib/db.js";
+import type { CoreCommand } from "../types.js";
+import { emit, embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain search <query> — hybrid FTS5 + vector search
 
