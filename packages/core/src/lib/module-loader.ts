@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { dirname, join } from "path";
 import { z } from "zod";
 
 import type { BrainConfig } from "./config";
@@ -10,6 +10,7 @@ import {
   typeSpecSchema,
 } from "./config";
 import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types";
+import { safeResolve } from "./safe-path";
 
 /**
  * Structural validation of a setup() return value. Functions are checked for
@@ -134,8 +135,16 @@ async function importManifest(
   let dir: string;
 
   if (key.startsWith("./")) {
-    // `../` keys are rejected by the config schema; keep the loader strict too.
-    const base = resolve(root, key);
+    // `../` keys are rejected by the config schema, but that check is LEXICAL:
+    // a symlink inside the root makes "./link" look clean while pointing
+    // anywhere. This is the one config value that leads to import(), so
+    // canonicalize it and refuse to execute code from outside the root.
+    const base = safeResolve(root, key.slice(2));
+    if (!base) {
+      throw new Error(
+        `Module "${key}" resolves outside the brain root — refusing to load code from there`
+      );
+    }
     specifier = existsSync(join(base, "module.ts"))
       ? join(base, "module.ts")
       : join(base, "module.js");
