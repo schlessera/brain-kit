@@ -24,6 +24,12 @@ for (const packageName of packages) {
   );
 }
 
+// The artifact pre-flight above prevents a partial release from missing
+// builds, but a mid-run `bun publish` failure (network, 403, name conflict)
+// still leaves earlier packages live on npm with `changeset tag` unreached.
+// Operator runbook: fix the cause, comment out the already-published names
+// in `packages`, and re-run — republishing an existing version fails, it
+// does not overwrite.
 for (const packageName of packages) {
   console.log(`Publishing @endoxa/${packageName}...`);
   const subprocess = Bun.spawn([process.execPath, "publish", "--access", "public"], {

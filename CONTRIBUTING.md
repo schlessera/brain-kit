@@ -12,6 +12,11 @@ bun test            # all packages
 bun run typecheck   # strict tsc, no emit
 ```
 
+Tests and typecheck run from live TS source — no build needed. The
+`node_modules/.bin/brain` bin, however, points at the compiled CLI, so run
+`bun run build` once before invoking it directly (or use
+`bun packages/core/src/cli/brain.ts`).
+
 Tests must stay keyless and deterministic: integration tests run against
 `packages/core/fixtures/corpus/` with FTS-only search. Never add a test that
 needs an API key or the network.

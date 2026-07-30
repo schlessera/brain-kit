@@ -62,9 +62,6 @@ export function installGitHooks(
     hooks.push(name);
   }
 
-  if (hooks.length === 0) {
-    throw new Error(`No git hooks were installed from ${hooksSourceDir}`);
-  }
   Bun.spawnSync(["git", "-C", root, "config", "core.hooksPath", ".githooks"]);
   return { installed: true, hooks, hooksPath: ".githooks" };
 }

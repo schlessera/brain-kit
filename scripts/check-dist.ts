@@ -14,6 +14,12 @@ function requireFile(path: string, packageName: string): void {
 export function assertPublishArtifacts(packageDir: string, packageName: string): void {
   requireFile(join(packageDir, "dist", "index.js"), packageName);
 
+  if (packageName === "@endoxa/ui-sdk") {
+    for (const entry of ["protocol.js", "schemas.js", "server/index.js", "client/index.js"]) {
+      requireFile(join(packageDir, "dist", entry), packageName);
+    }
+  }
+
   if (packageName !== "@endoxa/core") return;
 
   requireFile(join(packageDir, "dist", "cli", "brain.js"), packageName);

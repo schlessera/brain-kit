@@ -1,5 +1,8 @@
 # @endoxa/module-finance
 
+> **Requires Bun ≥ 1.3** (via `@endoxa/core`'s `bun:sqlite`) — npm/npx will not
+> warn you (npm ignores `engines.bun`); install from https://bun.sh.
+
 Accounts-receivable tracking for freelance / agency client work: per-client
 `ledger.md` files are the source of truth, and the module derives every balance,
 status, aging bucket, and reconciliation warning from their frontmatter.

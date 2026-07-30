@@ -182,7 +182,10 @@ function checkEmbeddings(cli: CliContext): Check {
 function checkMcpRegistration(
   registration: unknown,
   source: string,
-  baseDir: string
+  // null = only probe absolute paths. Relative args in ~/.claude.json resolve
+  // against whatever cwd the MCP client uses, not the config's directory, so
+  // probing them from here would produce false negatives.
+  baseDir: string | null
 ): Check {
   const args =
     registration &&
@@ -192,7 +195,12 @@ function checkMcpRegistration(
       : [];
   for (const arg of args) {
     if (typeof arg !== "string" || !/\.(?:[cm]?[jt]s)$/.test(arg)) continue;
-    const path = isAbsolute(arg) ? arg : resolve(baseDir, arg);
+    const path = isAbsolute(arg)
+      ? arg
+      : baseDir === null
+        ? null
+        : resolve(baseDir, arg);
+    if (path === null) continue;
     if (!existsSync(path)) {
       return {
         id: "mcp",
@@ -229,7 +237,7 @@ function checkMcp(root: string): Check {
         return checkMcpRegistration(
           cfg.mcpServers.brain,
           "~/.claude.json",
-          homedir()
+          null
         );
       }
     } catch {
@@ -327,7 +335,14 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
   const failing = new Set(checks.filter((c) => c.status !== "pass").map((c) => c.id));
 
   if (failing.has("git-hooks")) {
-    if (installGitHooks(root).installed) applied.push("git-hooks");
+    // installGitHooks throws when the packaged hooks are missing (e.g. a
+    // source checkout before `bun run build`) — record the failed fix and
+    // keep running the rest of the battery.
+    try {
+      if (installGitHooks(root).installed) applied.push("git-hooks");
+    } catch (e) {
+      console.error(`doctor --fix: git-hooks fix failed: ${e instanceof Error ? e.message : e}`);
+    }
   }
   if (failing.has("symlinks")) {
     const { emitters } = resolveEmitters(cli.brain);

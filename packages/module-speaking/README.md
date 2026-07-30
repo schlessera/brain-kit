@@ -1,6 +1,9 @@
 # @endoxa/module-speaking
 
-A endoxa module for the speaking lifecycle: researching conferences, developing
+> **Requires Bun ≥ 1.3** (via `@endoxa/core`'s `bun:sqlite`) — npm/npx will not
+> warn you (npm ignores `engines.bun`); install from https://bun.sh.
+
+An endoxa module for the speaking lifecycle: researching conferences, developing
 talk ideas, submitting to CFPs, tracking outcomes, preparing talks, planning
 travel, and wrapping up after a conference.
 

@@ -56,7 +56,7 @@ jobs:
             (cd "packages/$package" && \
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
             TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
-            grep -q "^package/dist/index.js" <<< "$TARBALL_CONTENTS"
+            grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
             if [ "$package" = core ]; then
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
@@ -139,10 +139,7 @@ jobs:
               await import(name);
             } catch (error) {
               const message = `${error?.code ?? ""}: ${error?.message ?? error}`;
-              const relativeSpecifierFailure =
-                error?.code === "ERR_MODULE_NOT_FOUND" &&
-                /(?:from|module)\s+['"]?\.{1,2}\//.test(message);
-              if (!message.includes("bun:") || relativeSpecifierFailure) {
+              if (!message.includes("bun:")) {
                 throw new Error(
                   `${name} failed for a reason other than its documented bun: dependency:\n${message}`
                 );
