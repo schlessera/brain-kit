@@ -249,10 +249,26 @@ export function createClaudeBackend(
     // produced its terminal result — a stream that yields a result and THEN
     // throws must not get a second one.
     let sawResult = false;
-    /** Unified terminal frame for cancelled/failed turns that have an identity. */
+    /**
+     * Unified terminal frame for cancelled/failed turns. With a session
+     * identity that is a `result`; WITHOUT one (an abort or failure before
+     * the SDK reported a session) the contract's terminal is a bare `error`,
+     * so a client keying on result/error is never left hanging.
+     */
     const emitTerminal = (outcome: "error" | "cancelled"): void => {
-      if (sessionId === null || sawResult) return;
+      if (sawResult) return;
       sawResult = true;
+      if (sessionId === null) {
+        emit({
+          type: "error",
+          code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
+          message:
+            outcome === "cancelled"
+              ? "Turn cancelled before the session was established"
+              : "Turn failed before the session was established",
+        });
+        return;
+      }
       // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
       // "no completed turns" for a turn that never finished.
       emit({
@@ -391,7 +407,12 @@ export function createClaudeBackend(
           });
         }
         for (const serverMsg of adapter.adapt(msg)) {
-          if (serverMsg.type === "result") sawResult = true;
+          // Exactly one terminal frame per turn, whatever the stream does:
+          // a second SDK result is dropped rather than forwarded.
+          if (serverMsg.type === "result") {
+            if (sawResult) continue;
+            sawResult = true;
+          }
           // Release the write lock the moment a mutating tool's result frame
           // lands (the turn-end backstop covers anything still held).
           if (serverMsg.type === "tool_result") {
@@ -422,7 +443,12 @@ export function createClaudeBackend(
       // a turn that died before any session id ends on the bare error).
       // emitTerminal itself no-ops when the stream already delivered its
       // result before throwing.
-      if (abortController.signal.aborted) {
+      // Diagnostics only make sense BEFORE the terminal frame; when the
+      // stream already delivered its result, the turn is over and nothing
+      // may follow it.
+      if (sawResult) {
+        // Terminal frame already sent — swallow the late failure.
+      } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
       } else {

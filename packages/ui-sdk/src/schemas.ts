@@ -50,6 +50,12 @@ const MAX_ID_CHARS = 256;
 const MAX_ANSWER_CHARS = 20_000;
 /** Cap on entries in the ask-user answers/annotations records. */
 const MAX_ANSWER_KEYS = 64;
+/** Cap on entries in a tool-approval `updatedInput` object. */
+const MAX_INPUT_KEYS = 256;
+/** Cap on the serialized size of a tool-approval `updatedInput`. */
+const MAX_INPUT_SERIALIZED_CHARS = 512_000;
+/** Max JSON nesting depth accepted at the boundary. */
+const MAX_JSON_DEPTH = 64;
 /** base64 inflates ~4/3 over MAX_IMAGE_BYTES decoded bytes. */
 const MAX_IMAGE_BASE64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 8;
 
@@ -61,15 +67,61 @@ function decodedBase64Bytes(data: string): number {
   return Math.floor((data.length * 3) / 4) - padding;
 }
 
-function recordSizeCheck(max: number) {
-  return (val: Record<string, unknown>) => Object.keys(val).length <= max;
+/**
+ * Cardinality pre-check. A `.refine()` on a record runs AFTER every key and
+ * value has been validated, so a 500k-key object burns hundreds of ms before
+ * being rejected. This gate runs first and costs one Object.keys().
+ */
+function boundedRecord<T extends z.ZodTypeAny>(
+  keySchema: z.ZodString,
+  valueSchema: T,
+  maxKeys: number,
+  label: string
+) {
+  return z
+    .custom<Record<string, unknown>>(
+      (val) =>
+        typeof val === "object" &&
+        val !== null &&
+        !Array.isArray(val) &&
+        Object.keys(val).length <= maxKeys,
+      { message: `${label} must be an object with at most ${maxKeys} entries` }
+    )
+    .pipe(z.record(keySchema, valueSchema));
+}
+
+/** Depth of a parsed JSON value; bails out as soon as `max` is exceeded. */
+function exceedsDepth(value: unknown, max: number): boolean {
+  const stack: Array<{ node: unknown; depth: number }> = [{ node: value, depth: 0 }];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop()!;
+    if (depth > max) return true;
+    if (Array.isArray(node)) {
+      for (const child of node) stack.push({ node: child, depth: depth + 1 });
+    } else if (node !== null && typeof node === "object") {
+      for (const child of Object.values(node as Record<string, unknown>)) {
+        stack.push({ node: child, depth: depth + 1 });
+      }
+    }
+  }
+  return false;
 }
 
 // --- Client → Server frames ---
 
 const chatImageAttachmentSchema = z
   .looseObject({
-    data: z.string().min(1).max(MAX_IMAGE_BASE64_CHARS),
+    // Canonical base64 only: no `data:` prefix (protocol.ts forbids it), no
+    // stray characters, length a multiple of 4. A host that trusts
+    // parseClientMessage must not have to re-check this itself.
+    data: z
+      .string()
+      .min(1)
+      .max(MAX_IMAGE_BASE64_CHARS)
+      .regex(/^[A-Za-z0-9+/]+={0,2}$/, { message: "attachment data must be base64" })
+      .refine((d) => d.length % 4 === 0, {
+        message: "attachment data length must be a multiple of 4",
+      }),
     mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
   })
   .refine((a) => decodedBase64Bytes(a.data) <= MAX_IMAGE_BYTES, {
@@ -94,7 +146,26 @@ export const clientChatMessageSchema = z
 export const clientToolApprovalSchema = z.looseObject({
   type: z.literal("tool_approval"),
   toolUseId: id,
-  updatedInput: z.record(z.string(), z.unknown()).optional(),
+  // Forwarded verbatim into the backend's permission decision (and from
+  // there into an agent SDK's serializer), so it must be bounded on every
+  // axis: key length, cardinality, and total serialized size.
+  updatedInput: boundedRecord(
+    z.string().max(MAX_ANSWER_CHARS),
+    z.unknown(),
+    MAX_INPUT_KEYS,
+    "updatedInput"
+  )
+    .refine(
+      (val) => {
+        try {
+          return JSON.stringify(val).length <= MAX_INPUT_SERIALIZED_CHARS;
+        } catch {
+          return false; // circular / non-serializable
+        }
+      },
+      { message: `updatedInput must serialize to at most ${MAX_INPUT_SERIALIZED_CHARS} chars` }
+    )
+    .optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
 
@@ -123,17 +194,18 @@ const askUserAnnotationSchema = z.looseObject({
 export const clientAskUserResponseSchema = z.looseObject({
   type: z.literal("ask_user_response"),
   requestId: id,
-  answers: z
-    .record(z.string().max(MAX_ANSWER_CHARS), z.string().max(MAX_ANSWER_CHARS))
-    .refine(recordSizeCheck(MAX_ANSWER_KEYS), {
-      message: `answers must have at most ${MAX_ANSWER_KEYS} entries`,
-    }),
-  annotations: z
-    .record(z.string().max(MAX_ANSWER_CHARS), askUserAnnotationSchema)
-    .refine(recordSizeCheck(MAX_ANSWER_KEYS), {
-      message: `annotations must have at most ${MAX_ANSWER_KEYS} entries`,
-    })
-    .optional(),
+  answers: boundedRecord(
+    z.string().max(MAX_ANSWER_CHARS),
+    z.string().max(MAX_ANSWER_CHARS),
+    MAX_ANSWER_KEYS,
+    "answers"
+  ),
+  annotations: boundedRecord(
+    z.string().max(MAX_ANSWER_CHARS),
+    askUserAnnotationSchema,
+    MAX_ANSWER_KEYS,
+    "annotations"
+  ).optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserResponse>;
 
@@ -145,9 +217,9 @@ export const clientAskUserCancelSchema = z.looseObject({
 }) satisfies z.ZodType<ClientAskUserCancel>;
 
 const geoCoordsSchema = z.looseObject({
-  latitude: z.number(),
-  longitude: z.number(),
-  accuracy: z.number(),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracy: z.number().nonnegative(),
   altitude: z.number().nullable().optional(),
   altitudeAccuracy: z.number().nullable().optional(),
   heading: z.number().nullable().optional(),
@@ -158,7 +230,9 @@ export const clientLocationResponseSchema = z.looseObject({
   type: z.literal("location_response"),
   requestId: id,
   coords: geoCoordsSchema,
-  timestamp: z.number(),
+  // Epoch millis, bounded by the JS Date range so a backend formatting it
+  // can't hit a RangeError.
+  timestamp: z.number().int().min(0).max(8.64e15),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientLocationResponse>;
 
@@ -198,17 +272,16 @@ export type ParseFrameResult<T> =
 export function parseClientMessage(raw: string | Buffer | ArrayBuffer): ParseFrameResult<ClientMessage> {
   // Binary input: reject on raw byte length without decoding.
   if (typeof raw !== "string") {
-    const byteLength = raw instanceof ArrayBuffer ? raw.byteLength : raw.byteLength;
-    if (byteLength > MAX_CLIENT_FRAME_BYTES) {
+    if (raw.byteLength > MAX_CLIENT_FRAME_BYTES) {
       return { ok: false, error: `Frame exceeds ${MAX_CLIENT_FRAME_BYTES} bytes` };
     }
   }
   const text =
     typeof raw === "string"
       ? raw
-      : raw instanceof ArrayBuffer
-        ? new TextDecoder().decode(raw)
-        : raw.toString("utf-8");
+      : // ArrayBuffer or any view over one (Uint8Array, DataView, Buffer) —
+        // decoding a view via toString() would stringify the byte list.
+        new TextDecoder().decode(raw as unknown as ArrayBuffer);
   if (typeof raw === "string" && Buffer.byteLength(text, "utf-8") > MAX_CLIENT_FRAME_BYTES) {
     return { ok: false, error: `Frame exceeds ${MAX_CLIENT_FRAME_BYTES} bytes` };
   }
@@ -218,12 +291,21 @@ export function parseClientMessage(raw: string | Buffer | ArrayBuffer): ParseFra
   } catch {
     return { ok: false, error: "Frame is not valid JSON" };
   }
+  // Bun's JSON.parse is iterative, so a 500k-deep document parses fine and
+  // only explodes later when something re-serializes it (unknown keys are
+  // RETAINED by looseObject, so depth survives the boundary).
+  if (exceedsDepth(json, MAX_JSON_DEPTH)) {
+    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels` };
+  }
   const parsed = clientMessageSchema.safeParse(json);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
+    // The path can contain client-supplied record keys — truncate so an
+    // oversized key can't be amplified back into the error frame.
+    const where = first ? (first.path.join(".") || "(root)").slice(0, 120) : "";
     return {
       ok: false,
-      error: `Invalid frame${first ? `: ${first.path.join(".") || "(root)"} ${first.message}` : ""}`,
+      error: `Invalid frame${first ? `: ${where} ${first.message}` : ""}`,
     };
   }
   return { ok: true, message: parsed.data as ClientMessage };

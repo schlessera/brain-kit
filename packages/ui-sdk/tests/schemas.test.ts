@@ -101,7 +101,9 @@ describe("additive-protocol + limit invariants", () => {
 
   test("aggregate decoded attachment bytes are capped at the boundary", () => {
     // 4 images just under the per-image cap decode to ~8MB > the 6MB total.
-    const big = "A".repeat(Math.floor((MAX_IMAGE_BYTES * 4) / 3) - 4);
+    // Length must be a multiple of 4 to be well-formed base64.
+    const raw = Math.floor((MAX_IMAGE_BYTES * 4) / 3) - 4;
+    const big = "A".repeat(raw - (raw % 4));
     const four = Array.from({ length: 4 }, () => ({ data: big, mediaType: "image/png" }));
     expect(
       clientMessageSchema.safeParse({ type: "chat_message", text: "x", attachments: four }).success

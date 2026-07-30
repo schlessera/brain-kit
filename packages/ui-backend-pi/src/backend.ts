@@ -419,34 +419,53 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       turnContext.bridge = req.bridge;
       turnContext.signal = req.signal;
 
-      const unsubscribe = session.subscribe(makeEventHandler(emit));
+      // Everything from here on runs inside the try: a throw from subscribe()
+      // or the first emit() would otherwise leave entry.running stuck true,
+      // bricking this session id (every later turn rejects BackendBusyError
+      // and evictIdle skips running entries).
+      let unsubscribe: () => void = () => {};
+      // Latch the cancellation at the moment it happens. A post-hoc
+      // signal.aborted check would mislabel a turn that COMPLETED and only
+      // then got aborted as "cancelled", discarding a paid-for answer.
+      let cancelled = req.signal.aborted;
       const onAbort = () => {
+        cancelled = true;
         void session.abort();
       };
-      req.signal.addEventListener("abort", onAbort, { once: true });
-
-      // session_info must precede any content frames for a new session.
-      emit({
-        type: "session_info",
-        sessionId,
-        isNew,
-        ...(req.profileId ? { providerId: req.profileId } : {}),
-      });
-
       const costBefore = snapshotCost(session);
-      const images = toImages(req);
       let failed = false;
 
       try {
-        emit({ type: "status", status: "thinking" });
-        await session.prompt(req.prompt, images.length > 0 ? { images } : undefined);
+        if (!req.signal.aborted) {
+          req.signal.addEventListener("abort", onAbort, { once: true });
+        }
+
+        unsubscribe = session.subscribe(makeEventHandler(emit));
+
+        // session_info must precede any content frames for a new session.
+        emit({
+          type: "session_info",
+          sessionId,
+          isNew,
+          ...(req.profileId ? { providerId: req.profileId } : {}),
+        });
+
+        // An already-aborted signal never fires "abort", and aborting a
+        // session that has not been prompted does not cancel a LATER prompt —
+        // so never start one. Prompting anyway would hang until the model
+        // finished, leaking the concurrency slot for the whole turn.
+        if (!req.signal.aborted) {
+          const images = toImages(req);
+          emit({ type: "status", status: "thinking" });
+          await session.prompt(req.prompt, images.length > 0 ? { images } : undefined);
+        }
       } catch (err) {
         // Runtime failure (no model/auth, provider unreachable) → diagnostic
         // error frame, then a terminal result with outcome "error". The
         // promise RESOLVES. A host abort also surfaces as a throw — that is
         // a cancellation, not an error; the abort path below owns it.
         failed = true;
-        if (!req.signal.aborted) {
+        if (!cancelled) {
           emit({ type: "error", code: "agent_error", message: errorMessage(err) });
         }
       } finally {
@@ -459,7 +478,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         evictIdle();
       }
 
-      if (req.signal.aborted) {
+      if (cancelled) {
         emit({ type: "status", status: "cancelled" });
         emit({
           type: "result",

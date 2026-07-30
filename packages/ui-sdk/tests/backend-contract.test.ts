@@ -355,6 +355,25 @@ for (const harness of [claudeHarness, piHarness]) {
       }
     });
 
+    test("a pre-aborted signal terminates promptly instead of hanging", async () => {
+      const backend = harness.hanging();
+      const { frames, bridge } = makeBridge();
+      const controller = new AbortController();
+      controller.abort(); // already aborted BEFORE startTurn
+
+      await Promise.race([
+        backend.startTurn({ prompt: "hi", signal: controller.signal, bridge }),
+        new Promise((_r, reject) =>
+          setTimeout(() => reject(new Error("startTurn hung on a pre-aborted signal")), 3_000)
+        ),
+      ]);
+
+      // Terminal frame either way: a result when an identity existed, else a
+      // bare error. Never zero frames, never a hang.
+      const last = frames.at(-1);
+      expect(last === undefined ? "none" : last.type).toMatch(/result|error/);
+    });
+
     test("runtime failure → diagnostic error, then EXACTLY ONE terminal result outcome:error, last", async () => {
       const backend = harness.failing({ sessionId: "fail-1", textDeltas: [] });
       const { frames, bridge } = makeBridge();

@@ -302,7 +302,13 @@ describe("startTurn", () => {
     await turn;
 
     expect(frames).toContainEqual({ type: "status", status: "cancelled" });
-    expect(frames.some((f) => f.type === "error")).toBe(false);
+    // No session identity was ever established, so the turn's terminal frame
+    // is a bare error (a `result` needs a sessionId). Without it a client
+    // keying on result/error would hang forever.
+    const last = frames.at(-1);
+    expect(last?.type).toBe("error");
+    if (last?.type === "error") expect(last.code).toBe("CANCELLED");
+    expect(frames.some((f) => f.type === "result")).toBe(false);
   });
 
   test("emits session_info before content and forwards result frames", async () => {
