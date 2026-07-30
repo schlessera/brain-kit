@@ -6,6 +6,7 @@ import {
   clientMessageSchema,
   parseClientMessage,
 } from "../src/schemas";
+import { MAX_IMAGE_BYTES } from "../src/protocol";
 
 describe("clientMessageSchema", () => {
   test("accepts every legitimate frame kind", () => {
@@ -85,5 +86,72 @@ describe("parseClientMessage", () => {
   test("accepts Buffer input", () => {
     const res = parseClientMessage(Buffer.from(JSON.stringify({ type: "cancel" })));
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("additive-protocol + limit invariants", () => {
+  test("unknown keys are PRESERVED, not stripped (additive contract)", () => {
+    const parsed = clientMessageSchema.parse({
+      type: "cancel",
+      sessionId: "s1",
+      futureField: "keep-me",
+    });
+    expect((parsed as Record<string, unknown>).futureField).toBe("keep-me");
+  });
+
+  test("aggregate decoded attachment bytes are capped at the boundary", () => {
+    // 4 images just under the per-image cap decode to ~8MB > the 6MB total.
+    const big = "A".repeat(Math.floor((MAX_IMAGE_BYTES * 4) / 3) - 4);
+    const four = Array.from({ length: 4 }, () => ({ data: big, mediaType: "image/png" }));
+    expect(
+      clientMessageSchema.safeParse({ type: "chat_message", text: "x", attachments: four }).success
+    ).toBe(false);
+    // One image of the same size is fine (under both caps).
+    expect(
+      clientMessageSchema.safeParse({
+        type: "chat_message",
+        text: "x",
+        attachments: [four[0]],
+      }).success
+    ).toBe(true);
+  });
+
+  test("ask-user record cardinality is bounded", () => {
+    const answers: Record<string, string> = {};
+    for (let i = 0; i < 500; i++) answers[`q${i}`] = "a";
+    expect(
+      clientMessageSchema.safeParse({ type: "ask_user_response", requestId: "r", answers }).success
+    ).toBe(false);
+  });
+
+  test("every interactive reply accepts a turnId echo", () => {
+    const replies = [
+      { type: "tool_approval", toolUseId: "t", turnId: "turn-1" },
+      { type: "tool_denial", toolUseId: "t", message: "no", turnId: "turn-1" },
+      { type: "ask_user_response", requestId: "r", answers: { q: "a" }, turnId: "turn-1" },
+      { type: "ask_user_cancel", requestId: "r", turnId: "turn-1" },
+      {
+        type: "location_response",
+        requestId: "r",
+        coords: { latitude: 1, longitude: 2, accuracy: 3 },
+        timestamp: 1,
+        turnId: "turn-1",
+      },
+      { type: "location_error", requestId: "r", code: 1, message: "m", turnId: "turn-1" },
+    ];
+    for (const r of replies) {
+      const parsed = clientMessageSchema.safeParse(r);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect((parsed.data as { turnId?: string }).turnId).toBe("turn-1");
+      }
+    }
+  });
+
+  test("oversized binary frames are rejected on raw byte length", () => {
+    const buf = Buffer.alloc(MAX_CLIENT_FRAME_BYTES + 1, 0x20);
+    const res = parseClientMessage(buf);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("bytes");
   });
 });

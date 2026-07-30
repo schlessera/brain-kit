@@ -69,6 +69,10 @@ interface Harness {
   scripted(script: TurnScript): AgentBackend;
   /** Backend whose turn hangs until the host aborts. */
   hanging(): AgentBackend;
+  /** Backend whose turn fails at runtime AFTER the session identity exists. */
+  failing(script: TurnScript): AgentBackend;
+  /** Backend whose stream ends WITHOUT a terminal result (claude-only shape). */
+  truncated?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
 }
@@ -116,12 +120,40 @@ function claudeHangingQuery(): typeof query {
     })()) as unknown as typeof query;
 }
 
+/** Emits a session identity, then throws like a provider failure. */
+function claudeFailingQuery(script: TurnScript): typeof query {
+  return ((_params: { options?: Options }) =>
+    (async function* () {
+      yield { type: "system", subtype: "init", session_id: script.sessionId };
+      throw new Error("provider exploded");
+    })()) as unknown as typeof query;
+}
+
+/** Emits a session identity and deltas, then ends WITHOUT a result. */
+function claudeTruncatedQuery(script: TurnScript): typeof query {
+  return ((_params: { options?: Options }) =>
+    (async function* () {
+      yield { type: "system", subtype: "init", session_id: script.sessionId };
+      for (const text of script.textDeltas) {
+        yield {
+          type: "stream_event",
+          session_id: script.sessionId,
+          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+        };
+      }
+    })()) as unknown as typeof query;
+}
+
 const claudeHarness: Harness = {
   name: "claude",
   scripted: (script) =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script) }),
   hanging: () =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeHangingQuery() }),
+  failing: (script) =>
+    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeFailingQuery(script) }),
+  truncated: (script) =>
+    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeTruncatedQuery(script) }),
   unknownProfileId: "no-such-profile",
 };
 
@@ -184,10 +216,29 @@ function piHangingBackend(): AgentBackend {
   });
 }
 
+function piFailingSession(script: TurnScript): PiSessionLike {
+  const base = piFakeSession(script);
+  return {
+    ...base,
+    async prompt() {
+      throw new Error("provider exploded");
+    },
+  };
+}
+
 const piHarness: Harness = {
   name: "pi",
   scripted: (script) => piHarnessBackend(script, false),
   hanging: () => piHangingBackend(),
+  failing: (script) =>
+    createPiBackend({
+      brainPath: tempBrain(),
+      profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
+      sessionFactory: {
+        newSession: async () => piFailingSession(script),
+        openSession: async () => piFailingSession(script),
+      },
+    }),
   unknownProfileId: "no-such-profile",
 };
 
@@ -291,20 +342,67 @@ for (const harness of [claudeHarness, piHarness]) {
       );
       expect(cancelled.length).toBeGreaterThanOrEqual(1);
 
-      // Unified terminal outcome (rev 2): when the turn has a session
-      // identity, the LAST frame is a result with outcome "cancelled".
-      const sawSession = frames.some((f) => f.type === "session_info");
+      // Both harnesses emit a session identity before hanging — the abort
+      // path must therefore ALWAYS end on the unified terminal result.
+      expect(frames.some((f) => f.type === "session_info")).toBe(true);
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1); // exactly one terminal frame
       const last = frames.at(-1);
-      if (sawSession) {
-        expect(last?.type).toBe("result");
-        if (last?.type === "result") {
-          expect(last.outcome).toBe("cancelled");
-          expect(last.isError).toBe(false);
-        }
-      } else {
-        expect(frames.some((f) => f.type === "result")).toBe(false);
+      expect(last?.type).toBe("result");
+      if (last?.type === "result") {
+        expect(last.outcome).toBe("cancelled");
+        expect(last.isError).toBe(false);
       }
     });
+
+    test("runtime failure → diagnostic error, then EXACTLY ONE terminal result outcome:error, last", async () => {
+      const backend = harness.failing({ sessionId: "fail-1", textDeltas: [] });
+      const { frames, bridge } = makeBridge();
+
+      await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+      expect(frames.some((f) => f.type === "error")).toBe(true);
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1);
+      const last = frames.at(-1);
+      expect(last?.type).toBe("result");
+      if (last?.type === "result") {
+        expect(last.outcome).toBe("error");
+        expect(last.isError).toBe(true);
+      }
+    });
+
+    test("exactly one result frame on success, and outcome agrees with isError", async () => {
+      const backend = harness.scripted({ sessionId: "one-1", textDeltas: ["x"] });
+      const { frames, bridge } = makeBridge();
+      await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+      const results = frames.filter((f) => f.type === "result");
+      expect(results.length).toBe(1);
+      const r = results[0]!;
+      if (r.type === "result") {
+        expect(r.outcome).toBe("success");
+        expect(r.isError).toBe(false);
+      }
+      expect(frames.at(-1)?.type).toBe("result");
+    });
+
+    if (harness.truncated) {
+      test("stream that ends without a result still gets a terminal result", async () => {
+        const backend = harness.truncated!({ sessionId: "trunc-1", textDeltas: ["a"] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+        const results = frames.filter((f) => f.type === "result");
+        expect(results.length).toBe(1);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type === "result") {
+          expect(last.outcome).toBe("error");
+          expect(last.isError).toBe(true);
+        }
+      });
+    }
 
     test("busy-ness is per session; parallel sessions per capability; recovers", async () => {
       const backend = harness.hanging();

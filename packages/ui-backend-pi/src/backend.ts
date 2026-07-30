@@ -443,9 +443,12 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       } catch (err) {
         // Runtime failure (no model/auth, provider unreachable) → diagnostic
         // error frame, then a terminal result with outcome "error". The
-        // promise RESOLVES.
+        // promise RESOLVES. A host abort also surfaces as a throw — that is
+        // a cancellation, not an error; the abort path below owns it.
         failed = true;
-        emit({ type: "error", code: "agent_error", message: errorMessage(err) });
+        if (!req.signal.aborted) {
+          emit({ type: "error", code: "agent_error", message: errorMessage(err) });
+        }
       } finally {
         unsubscribe();
         req.signal.removeEventListener("abort", onAbort);

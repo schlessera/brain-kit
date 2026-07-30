@@ -101,6 +101,9 @@ export class StreamAdapter {
       }
 
       case "result": {
+        // Status BEFORE result: `result` is the turn's terminal frame and
+        // must be the last thing a consumer sees for the turn.
+        messages.push({ type: "status", status: "idle" });
         if (msg.subtype === "success") {
           messages.push({
             type: "result",
@@ -123,7 +126,6 @@ export class StreamAdapter {
             isError: true,
           });
         }
-        messages.push({ type: "status", status: "idle" });
         break;
       }
 

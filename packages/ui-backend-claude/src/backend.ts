@@ -244,14 +244,22 @@ export function createClaudeBackend(
       // frame, and every other ServerMessage accepts a sessionId.
       req.bridge.emit(sessionId !== null ? ({ ...msg, sessionId } as ServerMessage) : msg);
     };
+    const startedAt = Date.now();
+    // Hoisted: the catch/finally paths must know whether the stream already
+    // produced its terminal result — a stream that yields a result and THEN
+    // throws must not get a second one.
+    let sawResult = false;
     /** Unified terminal frame for cancelled/failed turns that have an identity. */
     const emitTerminal = (outcome: "error" | "cancelled"): void => {
-      if (sessionId === null) return;
+      if (sessionId === null || sawResult) return;
+      sawResult = true;
+      // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
+      // "no completed turns" for a turn that never finished.
       emit({
         type: "result",
         sessionId,
         outcome,
-        durationMs: 0,
+        durationMs: Date.now() - startedAt,
         numTurns: 0,
         isError: outcome === "error",
       });
@@ -361,7 +369,6 @@ export function createClaudeBackend(
       const result = queryFn({ prompt: queryPrompt, options: sdkOptions });
 
       let announced = false;
-      let sawResult = false;
       for await (const msg of result) {
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
@@ -394,16 +401,27 @@ export function createClaudeBackend(
         }
       }
 
-      // If the host aborted but the SDK ended the stream without throwing,
-      // still surface cancellation, then the unified terminal result.
-      if (abortController.signal.aborted && !sawResult) {
-        emit({ type: "status", status: "cancelled" });
-        emitTerminal("cancelled");
+      // Stream ended without its terminal result: aborted → cancelled; not
+      // aborted → an abnormal end the client must still be released from.
+      if (!sawResult) {
+        if (abortController.signal.aborted) {
+          emit({ type: "status", status: "cancelled" });
+          emitTerminal("cancelled");
+        } else {
+          emit({
+            type: "error",
+            code: "CLAUDE_NO_RESULT",
+            message: "Backend stream ended without a result",
+          });
+          emitTerminal("error");
+        }
       }
     } catch (err) {
       // error/cancelled frames are diagnostics; the terminal frame is the
       // result with an outcome (for turns that have a session identity —
       // a turn that died before any session id ends on the bare error).
+      // emitTerminal itself no-ops when the stream already delivered its
+      // result before throwing.
       if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");

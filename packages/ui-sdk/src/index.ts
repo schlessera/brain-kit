@@ -9,4 +9,3 @@
  * submodules explicitly so server bundles never touch client code.
  */
 export * from "./protocol";
-export * from "./schemas";

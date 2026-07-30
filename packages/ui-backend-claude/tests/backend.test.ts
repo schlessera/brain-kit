@@ -332,11 +332,13 @@ describe("startTurn", () => {
       numTurns: 1,
       isError: false,
     });
-    expect(frames.at(-1)).toEqual({
+    // result is THE terminal frame — last on the wire; idle precedes it.
+    expect(frames.at(-2)).toEqual({
       type: "status",
       status: "idle",
       sessionId: "sess-1",
     });
+    expect(frames.at(-1)?.type).toBe("result");
   });
 
   test("runtime failure surfaces a CLAUDE_ERROR frame and resolves", async () => {

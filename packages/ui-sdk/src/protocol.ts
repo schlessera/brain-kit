@@ -30,9 +30,10 @@ export interface SessionScoped {
   sessionId?: string;
   /**
    * Host-generated id of the turn this frame belongs to (rev 2, additive).
-   * Multi-session hosts stamp it on every scoped frame so interactive
-   * round-trips (approvals, ask-user, location) correlate by
-   * `turnId + requestId` even across a reconnect.
+   * Multi-session hosts stamp it on every scoped frame; clients MAY echo it
+   * on interactive replies (approvals, ask-user, location) so round-trips
+   * correlate by `turnId + requestId`. RESERVED for now: servers stamp it,
+   * but no shipped client echoes it back yet — hosts must not require it.
    */
   turnId?: string;
 }
@@ -152,6 +153,8 @@ export type ServerMessage =
  * First frame a server sends after a socket opens (rev 2, additive). Clients
  * that don't know it ignore it; clients that do can gate behavior on
  * `protocolRev` and the coarse capability flags instead of sniffing.
+ * ADVISORY for now — no shipped client reads it yet; servers must not gate
+ * anything on the client having seen it.
  */
 export interface ServerHello {
   type: "server_hello";
@@ -527,6 +530,8 @@ export interface ClientAskUserCancel {
   type: "ask_user_cancel";
   requestId: string;
   reason?: string;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 // ============================================================
@@ -574,6 +579,8 @@ export interface ClientLocationResponse {
   coords: GeoCoords;
   /** Epoch millis when the fix was taken (GeolocationPosition.timestamp). */
   timestamp: number;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 /**
@@ -586,6 +593,8 @@ export interface ClientLocationError {
   requestId: string;
   code: number;
   message: string;
+  /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
 }
 
 // ============================================================
