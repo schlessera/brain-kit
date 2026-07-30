@@ -59,7 +59,7 @@ export const typeSpecSchema = z
 
 export type TypeSpec = z.infer<typeof typeSpecSchema>;
 
-const propagationRuleSchema = z
+export const propagationRuleSchema = z
   .object({
     /** Canonical source document (exact path). */
     source: repoRelativePathSchema,
@@ -71,7 +71,7 @@ const propagationRuleSchema = z
 
 export type PropagationRule = z.infer<typeof propagationRuleSchema>;
 
-const assetTitleRuleSchema = z.union([
+export const assetTitleRuleSchema = z.union([
   z
     .object({
       /** Directory prefix match. */

@@ -3,10 +3,13 @@ import { buildTaxonomy, type LoadedModule } from "@brainform/core";
 
 import manifest, { configSchema } from "../src/module";
 
+// Two-phase manifest: the contribution comes out of setup(validatedConfig).
+const contribution = manifest.setup(configSchema.parse({}));
+
 function loaded(): LoadedModule {
   return {
     key: "@brainform/module-speaking",
-    manifest,
+    manifest: { name: manifest.name, ...contribution },
     dir: import.meta.dir,
     config: {},
   };
@@ -14,20 +17,20 @@ function loaded(): LoadedModule {
 
 describe("speaking manifest", () => {
   it("declares talk/conference/travel types with their dirs", () => {
-    const types = manifest.taxonomy?.types ?? {};
+    const types = contribution.taxonomy?.types ?? {};
     expect(types.talk?.dir).toBe("talks");
     expect(types.conference?.dir).toBe("conferences");
     expect(types.travel?.dir).toBe("travel");
   });
 
   it("contributes classifier hints for conference and travel", () => {
-    const hints = manifest.taxonomy?.classifierHints ?? {};
+    const hints = contribution.taxonomy?.classifierHints ?? {};
     expect(hints.conference).toContain("call for papers");
     expect(hints.travel).toContain("itinerary");
   });
 
   it("contributes the conference/travel/talk dir anchors", () => {
-    expect(manifest.indexRules?.dirAnchors).toEqual([
+    expect(contribution.indexRules?.dirAnchors).toEqual([
       "status.md",
       "itinerary.md",
       "outline.md",
@@ -35,7 +38,7 @@ describe("speaking manifest", () => {
   });
 
   it("excludes slide-deck working segments", () => {
-    const segments = manifest.exclude?.segments ?? [];
+    const segments = contribution.exclude?.segments ?? [];
     expect(segments).toContain("alt-decks");
     expect(segments).toContain("versions");
     expect(segments).toContain("deck");

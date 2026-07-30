@@ -27,14 +27,15 @@ export type JobsConfig = z.infer<typeof configSchema>;
 
 export default defineModule({
   name: "jobs",
-  taxonomy: {
-    // Static default dir. A default-exported manifest cannot read user config;
-    // if you relocate `opportunitiesDir`, also override taxonomy.types.opportunity
-    // in brain.config (see README).
-    types: { opportunity: { dir: "career/opportunities" } },
-  },
-  commands: { jobs: () => import("./cli") },
-  indexRules: { dirAnchors: ["status.md"] },
-  cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
   configSchema,
+  // Two-phase: the opportunity taxonomy dir follows the configured
+  // opportunitiesDir instead of a static literal.
+  setup: (config) => ({
+    taxonomy: {
+      types: { opportunity: { dir: config.opportunitiesDir } },
+    },
+    commands: { jobs: () => import("./cli") },
+    indexRules: { dirAnchors: ["status.md"] },
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
+  }),
 });

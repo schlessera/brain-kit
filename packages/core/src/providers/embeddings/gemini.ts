@@ -60,7 +60,13 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
       // "Both GOOGLE_API_KEY and GEMINI_API_KEY are set" warning.
       const savedGoogleKey = process.env.GOOGLE_API_KEY;
       delete process.env.GOOGLE_API_KEY;
-      const { GoogleGenAI } = await import("@google/genai");
+      const { GoogleGenAI } = await import("@google/genai").catch(() => {
+        throw new Error(
+          "@google/genai is not installed — it is an optional peer dependency " +
+            "of @brainform/core used only by the built-in Gemini providers. " +
+            "Install it with `bun add @google/genai`."
+        );
+      });
       client = new GoogleGenAI({ apiKey });
       if (savedGoogleKey) process.env.GOOGLE_API_KEY = savedGoogleKey;
     }

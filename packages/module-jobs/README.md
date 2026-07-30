@@ -33,15 +33,10 @@ export default defineConfig({
 `brain jobs scaffold <id>` creates `career/opportunities/<company-slug>/status.md`
 for a job you're interested in, and marks the job `interested` in the jobs DB.
 
-> **Relocating the dir.** The manifest declares `career/opportunities` as a
-> static default (a default-exported module manifest can't read your config).
-> The `opportunitiesDir` config option moves where the CLI *writes*; if you set
-> it, also override the taxonomy dir in `brain.config` so path→type inference
-> stays correct:
->
-> ```ts
-> taxonomy: { types: { opportunity: { dir: "work/roles" } } }
-> ```
+> **Relocating the dir.** Set `opportunitiesDir` in the module's config block —
+> the manifest's `setup()` derives the `opportunity` taxonomy dir from it, so
+> the CLI's write target and path→type inference move together. No separate
+> taxonomy override needed.
 
 ### Index-sync rule
 

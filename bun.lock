@@ -16,16 +16,22 @@
         "brain": "src/cli/brain.ts",
       },
       "dependencies": {
-        "@google/genai": "^2.10.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "gray-matter": "^4.0.3",
         "sqlite-vec": "^0.1.9",
         "zod": "^4.4.3",
       },
       "devDependencies": {
+        "@google/genai": "^2.10.0",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@google/genai": "^2.10.0",
+      },
+      "optionalPeers": [
+        "@google/genai",
+      ],
     },
     "packages/module-finance": {
       "name": "@brainform/module-finance",

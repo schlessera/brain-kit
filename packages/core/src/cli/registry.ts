@@ -68,7 +68,15 @@ export function buildRegistry(brain: BrainContext): Registry {
         source: "module",
         async run(args, cli) {
           const cmd = await loadModuleCommand(loader as Loader);
-          return cmd.run(args, { root: cli.brain.root, json: cli.json });
+          return cmd.run(args, {
+            root: cli.brain.root,
+            json: cli.json,
+            // The module's own validated config + the merged taxonomy, so a
+            // module command never re-loads brain.config (the old reload path
+            // silently fell back to schema defaults on error).
+            config: mod.config,
+            taxonomy: cli.brain.taxonomy,
+          });
         },
         async describe() {
           const cmd = await loadModuleCommand(loader as Loader);

@@ -3,13 +3,7 @@ import { defineModule, repoRelativePathSchema } from "@brainform/core";
 import type { AuditIssue, HygieneContext } from "@brainform/core";
 import { checkSync, type FinanceOptions } from "./finance";
 
-/**
- * User config block for the finance module (validated at load).
- *
- * NOTE: the manifest's taxonomy dir below is the static literal "clients". A
- * default-exported manifest cannot read user config, so relocating `clientsDir`
- * also requires overriding `taxonomy.types.finance.dir` in brain.config (see README).
- */
+/** User config block for the finance module (validated at load). */
 export const configSchema = z
   .object({
     clientsDir: repoRelativePathSchema.default("clients"),
@@ -45,11 +39,14 @@ function checkLedgerBlocksUpToDate(ctx: HygieneContext): AuditIssue[] {
 
 export default defineModule({
   name: "finance",
-  taxonomy: {
-    // Static default dir; keep in sync with configSchema.clientsDir's default.
-    types: { finance: { dir: "clients" } },
-  },
-  commands: { finance: () => import("./cli") },
-  hygieneChecks: [checkLedgerBlocksUpToDate],
   configSchema,
+  // Two-phase: the taxonomy dir follows the configured clientsDir instead of
+  // a static literal that had to be manually kept in sync.
+  setup: (config) => ({
+    taxonomy: {
+      types: { finance: { dir: config.clientsDir } },
+    },
+    commands: { finance: () => import("./cli") },
+    hygieneChecks: [checkLedgerBlocksUpToDate],
+  }),
 });
