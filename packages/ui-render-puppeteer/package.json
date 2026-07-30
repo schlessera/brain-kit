@@ -1,0 +1,23 @@
+{
+  "name": "@brainform/ui-render-puppeteer",
+  "version": "0.1.0",
+  "description": "Optional server-side HTML→PNG/PDF renderer for brainform UIs (Puppeteer, network-denied by default)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.0.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
