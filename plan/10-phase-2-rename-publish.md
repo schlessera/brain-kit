@@ -13,6 +13,14 @@ packaging decision is **built dist/** (compiled JS + d.ts), not declared-Bun-sou
   research never RDAP-swept it. Moot after the endoxa pick.
 - Still Alain-only: `npm org create endoxa`, domain registrations, the GitHub support
   request, the 5-minute manual USPTO/EUIPO/UK-IPO wordmark pass.
+- **USPTO pass done (Alain, 2026-07-31): one hit, assessed non-blocking.** ENDOXA,
+  serial 98148643, Droit Operating Company LLC (droit.tech, NY fintech-compliance) —
+  classes 35/36/41/45 (financial-industry association/regulatory/seminar services),
+  NOT 9/42. Still unregistered: 1(b) intent-to-use from 2023-08, second SOU extension
+  granted 2026-01, attorney withdrew 2026-05 (abandonment-shaped). Conclusion: use of
+  endoxa for OSS knowledge-base software proceeds; revisit with a trademark attorney
+  only if we ever file our own mark; check TSDR on the SOU clock (~6 months). Keep
+  module-finance framed as personal bookkeeping, not financial-industry information.
 
 ## What phase 2 changed (branch `phase-2/rename-endoxa`)
 
