@@ -21,6 +21,12 @@ packaging decision is **built dist/** (compiled JS + d.ts), not declared-Bun-sou
   endoxa for OSS knowledge-base software proceeds; revisit with a trademark attorney
   only if we ever file our own mark; check TSDR on the SOU clock (~6 months). Keep
   module-finance framed as personal bookkeeping, not financial-industry information.
+- **EUIPO pass done (Alain, 2026-07-31): same owner, even narrower.** EUTM 018972609
+  (Droit Operating Company, US priority from 98148643) is REGISTERED (2025-11-20, to
+  2034) but in **class 45 only** — association services / regulatory-compliance
+  concepts. The 35/36/41 classes were shed during prosecution after an opposition by
+  Indexa Capital Group (likelihood of confusion, 2024). Classes 9/42 clear on both
+  registers. Combined verdict unchanged: non-blocking for endoxa-the-software.
 
 ## What phase 2 changed (branch `phase-2/rename-endoxa`)
 
