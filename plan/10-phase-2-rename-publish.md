@@ -1,5 +1,17 @@
 # Phase 2 (rename + publish pipeline) — 2026-07-30
 
+> **STATUS 2026-07-31: the name "endoxa" is DEAD.** Alain's WIPO Global Brand
+> Database pass found UK00003397309 — ENDOXA word mark, **class 9 "computer
+> software" + class 42 "computer services"**, registered 2019, in force to 2029,
+> held by ENDOXA LIMITED (active UK company; UK arm of the South African
+> retail-automation vendor behind endoxa.co.za / EndoxaFlow). Identical mark,
+> identical goods, active owner → double-identity risk; near-respellings are no
+> escape (similar-mark infringement + the Ollama precedent). Name search reopened
+> with a mandatory WIPO-GBD software-class screen. Everything else in this doc
+> (pipeline, dist builds, publish mechanics) is name-independent and stands;
+> the endoxa strings in the repos await the replacement name. Nothing external
+> (domains, npm org, GitHub requests) was ever claimed for endoxa.
+
 Continues [09-phase-1-handoff.md](09-phase-1-handoff.md). Phase 2's blocking decision
 landed: **the public name is `endoxa`** (Alain, 2026-07-30 — ergonomics won), and the
 packaging decision is **built dist/** (compiled JS + d.ts), not declared-Bun-source.
