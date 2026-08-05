@@ -72,8 +72,10 @@ for (const packageDir of packages) {
     if (pinned !== expected) {
       console.error(
         `Publish refused: ${manifest.name} would ship ${dep}@${pinned}, ` +
-          `but the workspace version is ${expected}. Run \`bun install\` ` +
-          `after versioning so bun publish rewrites workspace:* correctly.`
+          `but the workspace version is ${expected}. bun.lock still records ` +
+          `the old workspace versions (a plain — or even --force — install ` +
+          `does not refresh them): run \`rm bun.lock && bun install\` after ` +
+          `versioning, then release again.`
       );
       process.exit(1);
     }
