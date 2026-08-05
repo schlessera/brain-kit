@@ -118,6 +118,13 @@ export function handleServerMessage(msg: ServerMessage) {
     // A draft run just got its server identity: adopt the draft buffer.
     state.bindDraftSession(frameSessionId);
     key = frameSessionId;
+  } else if (msg.type === "session_info" && frameSessionId === state.activeSessionId) {
+    // The ACTIVE session announced itself but has no buffer yet — the cold
+    // reattach case (PWA relaunch mid-turn; the server may skip the history
+    // frame when a first turn has no history yet). Materialize the buffer so
+    // this session_info and every following delta land instead of vanishing.
+    state.setActiveSession(frameSessionId);
+    key = frameSessionId;
   } else if (msg.type === "session_history") {
     // History replay may create a buffer (cold resume / reattach).
     key = frameSessionId;
@@ -213,7 +220,7 @@ export function handleServerMessage(msg: ServerMessage) {
         // pending reconnect resync so we don't redundantly re-fetch it, and
         // mark this session cold-resumed so idle-status handling doesn't loop.
         state.setMessages(key, converted);
-        needsResync = false;
+        if (key !== null && key === resyncSessionId) resyncSessionId = null;
         coldResumedSessionId = key;
       }
       break;
@@ -228,13 +235,18 @@ export function handleServerMessage(msg: ServerMessage) {
         state.finishAssistantMessage(key);
       }
       // A session that finished while we were offline never delivers its
-      // `result` — the idle status on reconnect is the cue to resync.
+      // `result` — the idle status on reconnect is the cue to resync. Keyed to
+      // THIS frame's session: a background session settling must not consume
+      // (or trigger) the active session's pending resync.
       if (msg.status === "idle" || msg.status === "cancelled") {
         const current = useChatStore.getState();
-        resyncIfNeeded(current.activeSessionId);
+        resyncIfNeeded(frameSessionId ?? current.activeSessionId);
         // Cold load: we hold a stored session id but an empty transcript and
         // the server is idle (so it sent no snapshot). Fetch the history.
-        coldResumeIfNeeded(current.activeSessionId, activeChat(current).messages.length);
+        // Only the active session's own (or an unscoped legacy) idle counts.
+        if (!frameSessionId || frameSessionId === current.activeSessionId) {
+          coldResumeIfNeeded(current.activeSessionId, activeChat(current).messages.length);
+        }
       }
       break;
     }
@@ -303,13 +315,15 @@ function requestBrowserLocation(msg: ServerLocationRequest) {
 // Reconnection bookkeeping: after a WS drop, the rendered transcript may have
 // gaps (deltas streamed while offline are lost). We heal by replaying the
 // authoritative session history — immediately if nothing is streaming, or
-// once the in-flight turn settles (result / idle status).
+// once the in-flight turn settles (result / idle status). The pending resync
+// is keyed to the session that needs healing (the one that was active at the
+// reconnect), so a background session settling first cannot consume it.
 let wasDisconnected = false;
-let needsResync = false;
+let resyncSessionId: string | null = null;
 
 function resyncIfNeeded(sessionId: string | null) {
-  if (!needsResync || !sessionId) return;
-  needsResync = false;
+  if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
+  resyncSessionId = null;
   wsClient?.send({ type: "session_resume", sessionId });
 }
 
@@ -341,7 +355,7 @@ function handleStatusChange(status: "connecting" | "connected" | "disconnected")
     const chat = useChatStore.getState();
     const active = activeChat(chat);
     if (chat.activeSessionId && active.messages.length > 0) {
-      needsResync = true;
+      resyncSessionId = chat.activeSessionId;
       // Not mid-stream: replay right away. Mid-stream: the flag holds until
       // the running turn finishes (result or idle status).
       if (!active.isStreaming) {

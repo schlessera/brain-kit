@@ -94,6 +94,30 @@ describe("session demux (handleServerMessage)", () => {
     expect(state.activeSessionId).toBeNull();
   });
 
+  test("a session_info for the ACTIVE session materializes its missing buffer (cold reattach)", () => {
+    // PWA relaunch mid-turn: activeSessionId restored from storage, no buffer,
+    // no draft. The server's snapshot may skip the history frame entirely
+    // (first turn, empty history) — session_info alone must create the buffer
+    // so the following deltas render instead of streaming into the void.
+    useChatStore.setState({ buffers: {}, draft: null, activeSessionId: "S", runStates: {} });
+
+    handleServerMessage({ type: "session_info", sessionId: "S" } as unknown as ServerMessage);
+    handleServerMessage({ type: "text_delta", text: "live", sessionId: "S" } as ServerMessage);
+
+    const state = useChatStore.getState();
+    expect(state.buffers["S"]).toBeDefined();
+    const assistant = state.buffers["S"].messages.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("live");
+  });
+
+  test("a user message sent before the buffer exists creates it instead of being dropped", () => {
+    useChatStore.setState({ buffers: {}, draft: null, activeSessionId: "S", runStates: {} });
+    useChatStore.getState().addUserMessage("S", "typed fast");
+
+    const state = useChatStore.getState();
+    expect(state.buffers["S"].messages[0].content).toBe("typed fast");
+  });
+
   test("a session_info frame binds an in-progress draft to its sessionId", () => {
     const store = useChatStore.getState();
     store.addUserMessage(null, "hi");

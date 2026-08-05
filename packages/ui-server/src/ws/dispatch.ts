@@ -136,11 +136,17 @@ export async function handleClientMessage(
         const backend = await getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         const messages = await backend.getHistory(msg.sessionId);
         sendSessionHistory(ws, msg.sessionId, messages);
+        // A resume of a RUNNING session (reattach) must not report idle: idle
+        // would clear the client's running badge and finish its streaming
+        // message mid-turn. Mirror the snapshot-on-connect status instead.
+        const runningTurn = coordinator.bySession.get(msg.sessionId);
         host.sendMessage(ws, {
           type: "status",
-          status: "idle",
-          detail: "Session loaded",
+          ...(runningTurn
+            ? { status: "thinking" as const, detail: "Session in progress" }
+            : { status: "idle" as const, detail: "Session loaded" }),
           sessionId: msg.sessionId,
+          ...(runningTurn ? { turnId: runningTurn.turnId } : {}),
         });
       } catch (err) {
         host.sendMessage(ws, {

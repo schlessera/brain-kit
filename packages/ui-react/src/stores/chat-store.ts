@@ -264,14 +264,15 @@ export const useChatStore = create<ChatState>((set, get) => {
    */
   function mutateBuffer(
     key: ChatKey,
-    fn: (chat: SessionChat) => Partial<SessionChat>
+    fn: (chat: SessionChat) => Partial<SessionChat>,
+    createIfMissing = false
   ): void {
     set((state) => {
       if (key === null) {
         const draft = state.draft ?? emptyChat();
         return { draft: { ...draft, ...fn(draft), lastTouched: Date.now() } };
       }
-      const existing = state.buffers[key];
+      const existing = state.buffers[key] ?? (createIfMissing ? emptyChat() : undefined);
       if (!existing) return state;
       return {
         buffers: {
@@ -309,8 +310,13 @@ export const useChatStore = create<ChatState>((set, get) => {
     activeSessionId: readPersistedSessionId(),
     runStates: {},
 
+    // createIfMissing: a user-initiated send must never be dropped, even when
+    // the active session's buffer hasn't been materialized yet (cold start
+    // racing the history replay).
     addUserMessage: (key, text, source, attachments) =>
-      mutateBuffer(key, (chat) => ({
+      mutateBuffer(
+        key,
+        (chat) => ({
         messages: [
           ...chat.messages,
           {
@@ -327,7 +333,9 @@ export const useChatStore = create<ChatState>((set, get) => {
               : {}),
           },
         ],
-      })),
+        }),
+        true
+      ),
 
     startAssistantMessage: (key) =>
       mutateBuffer(key, (chat) => ({

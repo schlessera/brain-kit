@@ -212,10 +212,18 @@ describe("chat store", () => {
       expect(state.buffers["s1"].messages).toHaveLength(2);
     });
 
-    test("session-key mutations on a missing buffer are no-ops", () => {
-      useChatStore.getState().addUserMessage("ghost", "into the void");
+    test("frame-driven mutations on a missing buffer are no-ops", () => {
+      useChatStore.getState().appendText("ghost", "into the void");
+      useChatStore.getState().startAssistantMessage("ghost");
       const state = useChatStore.getState();
       expect(state.buffers["ghost"]).toBeUndefined();
+      expect(state.draft).toBeNull();
+    });
+
+    test("addUserMessage creates a missing session buffer (user-initiated, never dropped)", () => {
+      useChatStore.getState().addUserMessage("s9", "typed before history landed");
+      const state = useChatStore.getState();
+      expect(state.buffers["s9"].messages[0].content).toBe("typed before history landed");
       expect(state.draft).toBeNull();
     });
   });

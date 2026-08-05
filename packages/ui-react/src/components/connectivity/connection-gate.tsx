@@ -3,8 +3,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { LoginScreen } from "./login-screen.js";
+import { useVpnStatus } from "../../hooks/use-vpn-status.js";
 
 export function ConnectionGate({ children }: { children: ReactNode }) {
+  // The gate owns its connectivity probe — composing <ConnectionGate> is all
+  // an embedder needs; the store would otherwise sit on "checking" forever.
+  useVpnStatus();
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
 
   // Once the app has connected, never unmount the UI again — an intermittent

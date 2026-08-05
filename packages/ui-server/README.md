@@ -27,6 +27,10 @@ export default {
 };
 ```
 
+One app per process: `createApp()` configures a process-wide host (WebSocket
+coordinator, SQLite handle, backend registry) — calling it twice with
+different options reconfigures the first app rather than creating a second.
+
 ## What it owns
 
 - **`createApp(options)`** — route mounting order, CORS (split topology via
