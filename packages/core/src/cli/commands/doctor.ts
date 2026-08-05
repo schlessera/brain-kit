@@ -259,7 +259,7 @@ function checkDeps(root: string): Check {
   if (!existsSync(nm)) {
     // Monorepo dev: node_modules may live at a workspace root above the brain.
     if (!existsSync(join(root, "..", "node_modules")) && !existsSync(join(root, "..", "..", "node_modules"))) {
-      // Warn (not fail): if the CLI is running at all, @endoxa/core resolved
+      // Warn (not fail): if the CLI is running at all, @schlessera/brain resolved
       // — a locally-missing node_modules is advisory (git hooks/tests need it).
       return { id: "deps", status: "warn", detail: "node_modules not found in the brain repo", fix: "run `bun install`" };
     }
@@ -269,7 +269,7 @@ function checkDeps(root: string): Check {
 
 function checkVersion(): Check {
   try {
-    return { id: "version", status: "pass", detail: `@endoxa/core ${packageVersion()}` };
+    return { id: "version", status: "pass", detail: `@schlessera/brain ${packageVersion()}` };
   } catch {
     return { id: "version", status: "warn", detail: "could not read core package version" };
   }

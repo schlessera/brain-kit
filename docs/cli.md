@@ -1,11 +1,11 @@
 # CLI Reference — `brain`
 
-Runs under Bun. Installed as the `brain` bin by `@endoxa/core`; `brain setup`
+Runs under Bun. Installed as the `brain` bin by `@schlessera/brain`; `brain setup`
 symlinks it into `~/.local/bin`. Output is JSON when stdout is not a TTY;
 `--json` / `--human` force either mode. Exit codes: `0` success, `1` usage
 error, `2` internal failure. The `--json` envelope shapes marked ⚖ are part of
 the [integration contract](integration-contract.md). `brain --version` prints
-the installed `@endoxa/core` version.
+the installed `@schlessera/brain` version.
 
 ```
 Usage: brain <command> [args] [flags]

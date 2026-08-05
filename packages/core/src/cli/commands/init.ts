@@ -63,7 +63,7 @@ function preflight(cli: CliContext): Record<string, unknown> {
 
 // init --default is the keyless, dependency-free fallback: it must work in a
 // bare directory with no node_modules, so it writes brain.config.json (no
-// imports) rather than a .ts config that needs "@endoxa/core" resolvable.
+// imports) rather than a .ts config that needs "@schlessera/brain" resolvable.
 // The guided /brain-init interview upgrades users to brain.config.ts.
 const MINIMAL_CONFIG_JSON = `${JSON.stringify({}, null, 2)}\n`;
 

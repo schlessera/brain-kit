@@ -26,7 +26,7 @@ for (const packageName of packages) {
   const distDir = resolve(packageDir, "dist");
   rmSync(distDir, { recursive: true, force: true });
 
-  console.log(`Building @endoxa/${packageName}...`);
+  console.log(`Building packages/${packageName}...`);
   let subprocess: ReturnType<typeof Bun.spawn>;
   try {
     subprocess = Bun.spawn([bunx, "tsc", "-p", resolve(packageDir, "tsconfig.build.json")], {
@@ -36,7 +36,7 @@ for (const packageName of packages) {
     });
   } catch (error) {
     console.error(
-      `Build failed: could not spawn \`bunx tsc\` for @endoxa/${packageName}: ${(error as Error).message}`
+      `Build failed: could not spawn \`bunx tsc\` for packages/${packageName}: ${(error as Error).message}`
     );
     process.exit(1);
   }

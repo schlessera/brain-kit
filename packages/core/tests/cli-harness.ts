@@ -4,7 +4,7 @@
  *
  * Each temp brain is a copy of fixtures/corpus with node_modules symlinked from
  * the monorepo root, so the fixture's `brain.config.ts` (which imports
- * @endoxa/core) resolves. API keys are stripped from the spawned env so the
+ * @schlessera/brain) resolves. API keys are stripped from the spawned env so the
  * keyless (FTS-only, deterministic) paths are exercised.
  */
 

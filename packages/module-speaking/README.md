@@ -1,9 +1,9 @@
-# @endoxa/module-speaking
+# @schlessera/brain-module-speaking
 
-> **Requires Bun ≥ 1.3** (via `@endoxa/core`'s `bun:sqlite`) — npm/npx will not
+> **Requires Bun ≥ 1.3** (via `@schlessera/brain`'s `bun:sqlite`) — npm/npx will not
 > warn you (npm ignores `engines.bun`); install from https://bun.sh.
 
-An endoxa module for the speaking lifecycle: researching conferences, developing
+A brain-kit module for the speaking lifecycle: researching conferences, developing
 talk ideas, submitting to CFPs, tracking outcomes, preparing talks, planning
 travel, and wrapping up after a conference.
 
@@ -74,7 +74,7 @@ cuts are noise for search):
 ## Config schema
 
 ```ts
-// modules["@endoxa/module-speaking"]
+// modules["@schlessera/brain-module-speaking"]
 {
   travelParty?: Array<{
     name: string;
@@ -87,7 +87,7 @@ cuts are noise for search):
 Example:
 
 ```ts
-"@endoxa/module-speaking": {
+"@schlessera/brain-module-speaking": {
   travelParty: [
     { name: "Alex Example", role: "partner" },
     { name: "Rover", role: "assistance-dog", requirementsDoc: "me/family/rover.md" },

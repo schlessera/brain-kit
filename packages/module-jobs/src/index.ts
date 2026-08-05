@@ -1,8 +1,8 @@
 /**
- * @endoxa/module-jobs public API.
+ * @schlessera/brain-module-jobs public API.
  *
  * The manifest is the default export of "./module" (loaded by core via
- * `@endoxa/module-jobs/module`). This entry re-exports the scoring engine
+ * `@schlessera/brain-module-jobs/module`). This entry re-exports the scoring engine
  * and database helpers for embedders and tests.
  */
 

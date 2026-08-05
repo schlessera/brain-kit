@@ -23,7 +23,7 @@ import {
   createWriteLock,
   type BackendBridge,
   type ServerMessage,
-} from "@endoxa/ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBackend, type PiSessionLike, type SessionToolkit } from "../src/backend";
 import { createBrainAccess } from "../src/brain-access";

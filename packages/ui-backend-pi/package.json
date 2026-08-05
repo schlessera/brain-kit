@@ -1,22 +1,22 @@
 {
-  "name": "@endoxa/ui-backend-pi",
+  "name": "@schlessera/brain-backend-pi",
   "version": "0.1.0",
-  "description": "OSS-default endoxa agent backend, purpose-built on the upstream pi coding-agent SDK",
+  "description": "OSS-default brain-kit agent backend, purpose-built on the upstream pi coding-agent SDK",
   "license": "MIT",
   "keywords": [
-    "endoxa",
+    "brain-kit",
     "pi",
     "ai-agent",
     "chat-backend"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endoxa/endoxa.git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
     "directory": "packages/ui-backend-pi"
   },
-  "homepage": "https://endoxa.app",
+  "homepage": "https://github.com/schlessera/brain-kit",
   "bugs": {
-    "url": "https://github.com/endoxa/endoxa/issues"
+    "url": "https://github.com/schlessera/brain-kit/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -43,8 +43,8 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
-    "@endoxa/core": "workspace:*",
-    "@endoxa/ui-sdk": "workspace:*",
+    "@schlessera/brain": "workspace:*",
+    "@schlessera/brain-ui-sdk": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.80.6",
     "@earendil-works/pi-ai": "0.80.6",
     "typebox": "1.1.38"

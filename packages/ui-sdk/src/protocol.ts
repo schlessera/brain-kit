@@ -1,5 +1,5 @@
 // ============================================================
-// endoxa chat-UI wire protocol
+// brain-kit chat-UI wire protocol
 //
 // Shared between the brain-ui server and client, and implemented by every
 // AgentBackend. This protocol is a COMPATIBILITY CONTRACT (see

@@ -1,4 +1,4 @@
-# @endoxa/ui-render-puppeteer
+# @schlessera/brain-render-puppeteer
 
 Server-side PNG/PDF rendering for caller-supplied HTML, on headless Chrome
 (`puppeteer-core` — bring your own Chrome). Built for one hostile fact: **the
@@ -21,7 +21,7 @@ Practical consequence: remote images and webfonts do not render. Inline assets
 as `data:` URIs if they must appear.
 
 ```ts
-import { createRenderer } from "@endoxa/ui-render-puppeteer";
+import { createRenderer } from "@schlessera/brain-render-puppeteer";
 
 const renderer = createRenderer();
 const png = await renderer.renderPng({ html, width: 800 });

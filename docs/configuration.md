@@ -9,13 +9,13 @@ validation happens when the config is loaded, against a zod schema. `brain
 validate` runs config validation first and refuses on schema errors.
 
 ```ts
-import { defineConfig } from "@endoxa/core";
+import { defineConfig } from "@schlessera/brain";
 
 export default defineConfig({
   profile: { name: "Alex Example", cliTitle: "Alex Example's knowledge base" },
   taxonomy: { /* … */ },
   embeddings: { provider: "gemini" },
-  modules: { "@endoxa/module-speaking": {} },
+  modules: { "@schlessera/brain-module-speaking": {} },
 });
 ```
 
@@ -196,7 +196,7 @@ registry compiled into core) or a **passed-in implementation** (a value you
 import and hand over). See [extending/README.md](extending/README.md).
 
 ```ts
-import { ollamaEmbeddings } from "endoxa-embeddings-ollama"; // hypothetical 3rd-party pkg
+import { ollamaEmbeddings } from "brain-embeddings-ollama"; // hypothetical 3rd-party pkg
 
 export default defineConfig({
   embeddings: { provider: "gemini" },                          // built-in, by name
@@ -218,7 +218,7 @@ to full-text.
 | `dimensions` | `number` (positive int)         | `1536`               | Output dimensionality.                          |
 
 Built-in: `gemini`. Changing the provider `id` or `dimensions` forces a vector
-rebuild — endoxa requires an explicit `brain index --embeddings --force` with
+rebuild — brain-kit requires an explicit `brain index --embeddings --force` with
 a printed cost warning and never silently re-embeds. See
 [extending/embeddings.md](extending/embeddings.md).
 
@@ -277,14 +277,14 @@ See [extending/skill-emitters.md](extending/skill-emitters.md).
 ## `modules`
 
 Enables workflow modules. A key is either an npm package name
-(`"@endoxa/module-jobs"`) or a **local path** (`"./modules/catalog"`); the
+(`"@schlessera/brain-module-jobs"`) or a **local path** (`"./modules/catalog"`); the
 value is that module's config block, validated by the module's own schema. Load
 order follows config order. See [modules.md](modules.md).
 
 ```ts
 modules: {
-  "@endoxa/module-speaking": { travelParty: [{ name: "Alex Example", role: "partner" }] },
-  "@endoxa/module-finance":  { clientsDir: "clients", feeTolerance: 30 },
+  "@schlessera/brain-module-speaking": { travelParty: [{ name: "Alex Example", role: "partner" }] },
+  "@schlessera/brain-module-finance":  { clientsDir: "clients", feeTolerance: 30 },
   "./modules/catalog":          { owners: ["your-org"] },
 }
 ```
@@ -309,14 +309,14 @@ BRAIN_ROOT=~/my-brain brain search "hybrid search"
 
 ## The `brain.config.json` variant
 
-For no-code users, endoxa accepts `brain.config.json` with the same schema. It
+For no-code users, brain-kit accepts `brain.config.json` with the same schema. It
 is only read when no `brain.config.ts` is present.
 
 ```json
 {
   "profile": { "name": "Alex Example" },
   "embeddings": { "provider": "gemini" },
-  "modules": { "@endoxa/module-speaking": {} }
+  "modules": { "@schlessera/brain-module-speaking": {} }
 }
 ```
 

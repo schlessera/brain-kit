@@ -1,6 +1,6 @@
-# @endoxa/module-finance
+# @schlessera/brain-module-finance
 
-> **Requires Bun ≥ 1.3** (via `@endoxa/core`'s `bun:sqlite`) — npm/npx will not
+> **Requires Bun ≥ 1.3** (via `@schlessera/brain`'s `bun:sqlite`) — npm/npx will not
 > warn you (npm ignores `engines.bun`); install from https://bun.sh.
 
 Accounts-receivable tracking for freelance / agency client work: per-client
@@ -11,7 +11,7 @@ Enable it in `brain.config.ts`:
 
 ```ts
 modules: {
-  "@endoxa/module-finance": { clientsDir: "clients", feeTolerance: 30 },
+  "@schlessera/brain-module-finance": { clientsDir: "clients", feeTolerance: 30 },
 }
 ```
 
@@ -27,7 +27,7 @@ so it cannot read `clientsDir`). The `clientsDir` config option is what the CLI
 and hygiene check actually use. If you move clients elsewhere, set **both**:
 
 ```ts
-modules: { "@endoxa/module-finance": { clientsDir: "billing/clients" } },
+modules: { "@schlessera/brain-module-finance": { clientsDir: "billing/clients" } },
 taxonomy: { types: { finance: { dir: "billing/clients" } } },
 ```
 

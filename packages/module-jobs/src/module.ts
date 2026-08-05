@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@endoxa/core";
+import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
 
 /**
- * Config for @endoxa/module-jobs. `criteria` points at a markdown file whose
+ * Config for @schlessera/brain-module-jobs. `criteria` points at a markdown file whose
  * frontmatter defines the weighted scoring rules (see docs/criteria-template.md
  * and the README); it stays brain content the user owns and tunes.
  */

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { CommandContext, CommandModule } from "@endoxa/core";
-import { safeResolve } from "@endoxa/core";
+import type { CommandContext, CommandModule } from "@schlessera/brain";
+import { safeResolve } from "@schlessera/brain";
 
 import { openDatabase } from "./db.js";
 import { runScrape } from "./scrape.js";

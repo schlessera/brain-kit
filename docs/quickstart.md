@@ -11,11 +11,11 @@ agent (Claude Code, or any agent that speaks MCP).
 
 ## 1. Create a private repo from the template
 
-endoxa ships a GitHub template repo. Create your own **private** copy and
+brain-kit ships a GitHub template repo. Create your own **private** copy and
 clone it in one command:
 
 ```sh
-gh repo create my-brain --template endoxa/endoxa-template --private --clone
+gh repo create my-brain --template schlessera/brain-template --private --clone
 cd my-brain
 ```
 
@@ -115,7 +115,7 @@ search proves itself.
 
 ## The degradation ladder
 
-endoxa is built so that every capability is additive: each tier adds power
+brain-kit is built so that every capability is additive: each tier adds power
 without breaking the one below it. You are never blocked waiting for a key.
 
 | Tier | You provide                          | You get                                                                                                                                             |

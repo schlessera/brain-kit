@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@endoxa/*` packages. Format:
+All notable changes to `@schlessera/brain-*` packages. Format:
 [keep a changelog](https://keepachangelog.com/en/1.1.0/); versions are
 lockstep across all packages.
 
@@ -8,10 +8,10 @@ lockstep across all packages.
 
 ### Added
 
-- `@endoxa/ui-sdk`, `@endoxa/ui-backend-claude`, `@endoxa/ui-backend-pi`:
+- `@schlessera/brain-ui-sdk`, `@schlessera/brain-backend-claude`, `@schlessera/brain-backend-pi`:
   the chat-UI contract layer and its two agent backends (wire protocol, runtime
   schemas, `AgentBackend`/`SpeechProvider` seams, cross-backend contract suite).
-- `@endoxa/ui-render-puppeteer`: optional HTML→PNG/PDF renderer for
+- `@schlessera/brain-render-puppeteer`: optional HTML→PNG/PDF renderer for
   caller-supplied content. The page gets no network and no JavaScript, Chrome's
   sandbox stays on by default, and render time, concurrency, and output geometry
   are bounded.
@@ -29,12 +29,12 @@ lockstep across all packages.
 - **BREAKING** `result.costUsd` is optional — absent means unknown, `0` means
   actually free. `result` carries an `outcome` (`success | error | cancelled`)
   and is the single terminal frame of every turn.
-- `@google/genai` is an optional peer dependency of `@endoxa/core`, imported
+- `@google/genai` is an optional peer dependency of `@schlessera/brain`, imported
   lazily by the built-in Gemini providers.
 
 ### Removed
 
-- **BREAKING** `@endoxa/ui-backend-gemini`. It advertised `permissions: true`
+- **BREAKING** `@schlessera/brain-backend-gemini`. It advertised `permissions: true`
   over a no-op gate, so mutations executed unapproved.
 
 ### Security
@@ -46,11 +46,11 @@ lockstep across all packages.
   before `import()`.
 - Module cron fields are shape-constrained — container entrypoints materialize
   them into a root crontab.
-- `@endoxa/ui-backend-claude` acquires its cross-session write lock in a
+- `@schlessera/brain-backend-claude` acquires its cross-session write lock in a
   `PreToolUse` hook. It previously lived in `canUseTool`, which the Agent SDK
   never invokes for tools in `allowedTools`, leaving the lock inert.
 
-- Initial extraction of the endoxa core from the reference private
+- Initial extraction of the brain-kit core from the reference private
   implementation: config-driven taxonomy (`brain.config.ts` + zod schema),
   hybrid search (FTS5 + sqlite-vec), incremental indexer, CLI, MCP server,
   module system (jobs / speaking / finance), skills sync + emitters,

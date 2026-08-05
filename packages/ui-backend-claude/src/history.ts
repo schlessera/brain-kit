@@ -6,7 +6,7 @@ import type {
   ChatSession,
   MessagePart,
   SessionHistoryMessage,
-} from "@endoxa/ui-sdk";
+} from "@schlessera/brain-ui-sdk";
 
 /**
  * Session list + transcript reader backed by the Claude Agent SDK's native

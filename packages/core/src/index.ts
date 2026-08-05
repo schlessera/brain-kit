@@ -1,5 +1,5 @@
 /**
- * @endoxa/core public API.
+ * @schlessera/brain public API.
  *
  * Everything a brain.config.ts, a module package, or an embedding host needs.
  * CLI/MCP entry points live in src/cli/ and src/mcp-server.ts (bin surface,

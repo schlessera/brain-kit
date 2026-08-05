@@ -63,7 +63,7 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
       const { GoogleGenAI } = await import("@google/genai").catch(() => {
         throw new Error(
           "@google/genai is not installed — it is an optional peer dependency " +
-            "of @endoxa/core used only by the built-in Gemini providers. " +
+            "of @schlessera/brain used only by the built-in Gemini providers. " +
             "Install it with `bun add @google/genai`."
         );
       });

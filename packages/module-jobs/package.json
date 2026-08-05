@@ -1,22 +1,22 @@
 {
-  "name": "@endoxa/module-jobs",
+  "name": "@schlessera/brain-module-jobs",
   "version": "0.1.0",
-  "description": "endoxa module: job-search pipeline — board scraping, scoring, dedup, triage",
+  "description": "brain-kit module: job-search pipeline — board scraping, scoring, dedup, triage",
   "license": "MIT",
   "keywords": [
-    "endoxa",
+    "brain-kit",
     "jobs",
     "job-search",
     "scraping"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endoxa/endoxa.git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
     "directory": "packages/module-jobs"
   },
-  "homepage": "https://endoxa.app",
+  "homepage": "https://github.com/schlessera/brain-kit",
   "bugs": {
-    "url": "https://github.com/endoxa/endoxa/issues"
+    "url": "https://github.com/schlessera/brain-kit/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -49,7 +49,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
-    "@endoxa/core": "workspace:*",
+    "@schlessera/brain": "workspace:*",
     "gray-matter": "^4.0.3",
     "zod": "^4.4.3"
   },

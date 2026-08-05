@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule } from "@endoxa/core";
+import { defineModule } from "@schlessera/brain";
 
 /**
  * Config for the speaking module.

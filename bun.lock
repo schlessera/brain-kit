@@ -11,10 +11,10 @@
       },
     },
     "packages/core": {
-      "name": "@endoxa/core",
+      "name": "@schlessera/brain",
       "version": "0.1.0",
       "bin": {
-        "brain": "dist/cli/brain.js",
+        "brain": "./dist/cli/brain.js",
       },
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -37,10 +37,10 @@
       ],
     },
     "packages/module-finance": {
-      "name": "@endoxa/module-finance",
+      "name": "@schlessera/brain-module-finance",
       "version": "0.1.0",
       "dependencies": {
-        "@endoxa/core": "workspace:*",
+        "@schlessera/brain": "workspace:*",
         "gray-matter": "^4.0.3",
         "zod": "^4.4.3",
       },
@@ -50,10 +50,10 @@
       },
     },
     "packages/module-jobs": {
-      "name": "@endoxa/module-jobs",
+      "name": "@schlessera/brain-module-jobs",
       "version": "0.1.0",
       "dependencies": {
-        "@endoxa/core": "workspace:*",
+        "@schlessera/brain": "workspace:*",
         "gray-matter": "^4.0.3",
         "zod": "^4.4.3",
       },
@@ -69,10 +69,10 @@
       ],
     },
     "packages/module-speaking": {
-      "name": "@endoxa/module-speaking",
+      "name": "@schlessera/brain-module-speaking",
       "version": "0.1.0",
       "dependencies": {
-        "@endoxa/core": "workspace:*",
+        "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -81,11 +81,11 @@
       },
     },
     "packages/ui-backend-claude": {
-      "name": "@endoxa/ui-backend-claude",
+      "name": "@schlessera/brain-backend-claude",
       "version": "0.1.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.207",
-        "@endoxa/ui-sdk": "workspace:*",
+        "@schlessera/brain-ui-sdk": "workspace:*",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -94,13 +94,13 @@
       },
     },
     "packages/ui-backend-pi": {
-      "name": "@endoxa/ui-backend-pi",
+      "name": "@schlessera/brain-backend-pi",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.80.6",
         "@earendil-works/pi-coding-agent": "0.80.6",
-        "@endoxa/core": "workspace:*",
-        "@endoxa/ui-sdk": "workspace:*",
+        "@schlessera/brain": "workspace:*",
+        "@schlessera/brain-ui-sdk": "workspace:*",
         "typebox": "1.1.38",
       },
       "devDependencies": {
@@ -115,7 +115,7 @@
       ],
     },
     "packages/ui-render-puppeteer": {
-      "name": "@endoxa/ui-render-puppeteer",
+      "name": "@schlessera/brain-render-puppeteer",
       "version": "0.1.0",
       "dependencies": {
         "puppeteer-core": "^25.0.4",
@@ -126,7 +126,7 @@
       },
     },
     "packages/ui-sdk": {
-      "name": "@endoxa/ui-sdk",
+      "name": "@schlessera/brain-ui-sdk",
       "version": "0.1.0",
       "dependencies": {
         "zod": "^4.4.3",
@@ -257,22 +257,6 @@
 
     "@earendil-works/pi-tui": ["@earendil-works/pi-tui@0.80.6", "", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.5" } }, "sha512-bSuzS4EVSqEPj/Qr/p9eqCESfKsGuDNbl77EGci8Iaqqt/C/XCBZL1MjXaxSWW1NsT5afjp/Cb0NTPzOLv/aPA=="],
 
-    "@endoxa/core": ["@endoxa/core@workspace:packages/core"],
-
-    "@endoxa/module-finance": ["@endoxa/module-finance@workspace:packages/module-finance"],
-
-    "@endoxa/module-jobs": ["@endoxa/module-jobs@workspace:packages/module-jobs"],
-
-    "@endoxa/module-speaking": ["@endoxa/module-speaking@workspace:packages/module-speaking"],
-
-    "@endoxa/ui-backend-claude": ["@endoxa/ui-backend-claude@workspace:packages/ui-backend-claude"],
-
-    "@endoxa/ui-backend-pi": ["@endoxa/ui-backend-pi@workspace:packages/ui-backend-pi"],
-
-    "@endoxa/ui-render-puppeteer": ["@endoxa/ui-render-puppeteer@workspace:packages/ui-render-puppeteer"],
-
-    "@endoxa/ui-sdk": ["@endoxa/ui-sdk@workspace:packages/ui-sdk"],
-
     "@google/genai": ["@google/genai@2.12.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-LUr972DZosqPUhf9Mb3CIVu/B99woD3QW6ZJV1T9aNgxaoimAZARmo+IyyDsxIL+zouFiYSdA4hzfEWXc9oNIQ=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
@@ -338,6 +322,22 @@
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.2", "", {}, "sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug=="],
 
     "@puppeteer/browsers": ["@puppeteer/browsers@3.0.6", "", { "dependencies": { "modern-tar": "^0.7.6", "yargs": "^18.0.0" }, "peerDependencies": { "proxy-agent": ">=8.0.1", "yauzl": "^2.10.0 || ^3.4.0" }, "optionalPeers": ["proxy-agent", "yauzl"], "bin": { "browsers": "lib/main-cli.js" } }, "sha512-B/gKoqlFkzhvzsI6jo9K1cZz9o5ypviVv/xu8CwA4grZzyVwN+XfkT+tu8T1zrauuEXv6VhS2oGX+6NL95WcKA=="],
+
+    "@schlessera/brain": ["@schlessera/brain@workspace:packages/core"],
+
+    "@schlessera/brain-backend-claude": ["@schlessera/brain-backend-claude@workspace:packages/ui-backend-claude"],
+
+    "@schlessera/brain-backend-pi": ["@schlessera/brain-backend-pi@workspace:packages/ui-backend-pi"],
+
+    "@schlessera/brain-module-finance": ["@schlessera/brain-module-finance@workspace:packages/module-finance"],
+
+    "@schlessera/brain-module-jobs": ["@schlessera/brain-module-jobs@workspace:packages/module-jobs"],
+
+    "@schlessera/brain-module-speaking": ["@schlessera/brain-module-speaking@workspace:packages/module-speaking"],
+
+    "@schlessera/brain-render-puppeteer": ["@schlessera/brain-render-puppeteer@workspace:packages/ui-render-puppeteer"],
+
+    "@schlessera/brain-ui-sdk": ["@schlessera/brain-ui-sdk@workspace:packages/ui-sdk"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 

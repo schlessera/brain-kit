@@ -41,7 +41,7 @@ jobs:
       - name: Pack all workspaces
         run: |
           set -euo pipefail
-          TARBALL_DIR="$RUNNER_TEMP/endoxa-tarballs"
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           mkdir -p "$TARBALL_DIR"
           for package in \
             core \
@@ -65,39 +65,39 @@ jobs:
       - name: Install and smoke-test packed packages
         run: |
           set -euo pipefail
-          TARBALL_DIR="$RUNNER_TEMP/endoxa-tarballs"
-          CONSUMER_DIR="$RUNNER_TEMP/endoxa-consumer"
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
           mkdir -p "$CONSUMER_DIR"
           cd "$CONSUMER_DIR"
           bun -e '
-            const tarballs = "../endoxa-tarballs";
+            const tarballs = "../brainkit-tarballs";
             await Bun.write("package.json", JSON.stringify({
-              name: "endoxa-pack-smoke",
+              name: "brainkit-pack-smoke",
               private: true,
               type: "module",
               overrides: {
-                "@endoxa/core": `file:${tarballs}/core.tgz`,
-                "@endoxa/ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
-                "@endoxa/ui-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
-                "@endoxa/ui-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
-                "@endoxa/ui-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
-                "@endoxa/module-finance": `file:${tarballs}/module-finance.tgz`,
-                "@endoxa/module-jobs": `file:${tarballs}/module-jobs.tgz`,
-                "@endoxa/module-speaking": `file:${tarballs}/module-speaking.tgz`,
+                "@schlessera/brain": `file:${tarballs}/core.tgz`,
+                "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
+                "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
+                "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
+                "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
+                "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
               },
             }, null, 2) + "\n");
           '
           bun add "$TARBALL_DIR"/*.tgz
           bun -e '
             const names = [
-              "@endoxa/core",
-              "@endoxa/ui-sdk",
-              "@endoxa/ui-backend-claude",
-              "@endoxa/ui-backend-pi",
-              "@endoxa/ui-render-puppeteer",
-              "@endoxa/module-finance",
-              "@endoxa/module-jobs",
-              "@endoxa/module-speaking",
+              "@schlessera/brain",
+              "@schlessera/brain-ui-sdk",
+              "@schlessera/brain-backend-claude",
+              "@schlessera/brain-backend-pi",
+              "@schlessera/brain-render-puppeteer",
+              "@schlessera/brain-module-finance",
+              "@schlessera/brain-module-jobs",
+              "@schlessera/brain-module-speaking",
             ];
             for (const name of names) {
               const loaded = await import(name);
@@ -105,20 +105,20 @@ jobs:
                 throw new Error(`Failed to import ${name}`);
               }
             }
-            const claude = await import("@endoxa/ui-backend-claude");
+            const claude = await import("@schlessera/brain-backend-claude");
             if (typeof claude.createClaudeBackend !== "function") {
               throw new Error("createClaudeBackend export is missing");
             }
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
-            "@endoxa/ui-sdk",
-            "@endoxa/ui-sdk/protocol",
-            "@endoxa/ui-sdk/schemas",
-            "@endoxa/ui-sdk/server",
-            "@endoxa/ui-sdk/client",
-            "@endoxa/ui-backend-claude",
-            "@endoxa/ui-render-puppeteer",
+            "@schlessera/brain-ui-sdk",
+            "@schlessera/brain-ui-sdk/protocol",
+            "@schlessera/brain-ui-sdk/schemas",
+            "@schlessera/brain-ui-sdk/server",
+            "@schlessera/brain-ui-sdk/client",
+            "@schlessera/brain-backend-claude",
+            "@schlessera/brain-render-puppeteer",
           ];
           for (const name of nodePackages) {
             const loaded = await import(name);
@@ -128,11 +128,11 @@ jobs:
           }
 
           const bunApiPackages = [
-            "@endoxa/core",
-            "@endoxa/module-finance",
-            "@endoxa/module-jobs",
-            "@endoxa/module-speaking",
-            "@endoxa/ui-backend-pi",
+            "@schlessera/brain",
+            "@schlessera/brain-module-finance",
+            "@schlessera/brain-module-jobs",
+            "@schlessera/brain-module-speaking",
+            "@schlessera/brain-backend-pi",
           ];
           for (const name of bunApiPackages) {
             try {
@@ -159,9 +159,10 @@ jobs:
         run: |
           set -e
           # Pattern is assembled from pieces so this workflow file does not
-          # itself trip the gate. The former GitHub org spelling is caught
-          # too since the rename to the public org name.
-          P1='al''ain'; P2='schles''ser'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
+          # itself trip the gate. The second alternative allows the public
+          # account name "schlessera" (ends in "a") — it IS the brand now —
+          # while still catching the bare personal surname/domain.
+          P1='al''ain'; P2='schles''ser([^a]|$)'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
           PATTERN="$P1|$P2|$P3|$P4|$P5"
           MATCHES=$(grep -riE "$PATTERN" \
             --exclude-dir=node_modules \

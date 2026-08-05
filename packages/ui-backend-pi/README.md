@@ -1,7 +1,7 @@
-# @endoxa/ui-backend-pi
+# @schlessera/brain-backend-pi
 
 The OSS-default [`AgentBackend`](../ui-sdk/src/server/backend.ts) for the
-endoxa chat UI, purpose-built on the upstream
+brain-kit chat UI, purpose-built on the upstream
 [`pi`](https://github.com/earendil-works/pi) coding-agent SDK
 (`@earendil-works/pi-coding-agent`, pinned to `0.80.6`).
 
@@ -11,7 +11,7 @@ disabled (`noTools: "builtin"`) and replaced with a curated set scoped to the
 brain repository, each carrying its own permission gate.
 
 ```ts
-import { createPiBackend } from "@endoxa/ui-backend-pi";
+import { createPiBackend } from "@schlessera/brain-backend-pi";
 
 const backend = createPiBackend({
   brainPath: "/path/to/brain",
@@ -32,7 +32,7 @@ does.
 | `brainPath` | — | Absolute path to the brain repo; the agent's cwd. |
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
 | `profiles` | — | Selectable `{id,label,vendor?,model}` profiles; first is the default for new sessions. |
-| `sessionDir` | `<brainPath>/.endoxa-ui/sessions` | Where pi stores session JSONL trees. |
+| `sessionDir` | `<brainPath>/.brain-kit-ui/sessions` | Where pi stores session JSONL trees. |
 | `loadExtensions` | `false` | Repo-provided pi extensions are **not** loaded by default (keeps the tool surface curated); skills + `AGENTS.md`/`CLAUDE.md` context always load. |
 | `writeLock` | fresh in-process lock | Serializes mutating tool executions across all sessions of this backend (shared working tree). Inject one to share a lock with another in-process writer. |
 
@@ -93,7 +93,7 @@ back to the model, so a denial never crashes the turn.
 | `bash` | mutate | **approval** | `cwd` pinned to repo |
 | `brain_add` | mutate | **approval** | in-process `ingest` (writes markdown + reindex) |
 
-`brain_search` / `brain_context` / `brain_add` call `@endoxa/core`
+`brain_search` / `brain_context` / `brain_add` call `@schlessera/brain`
 (`hybridSearch` / `ingest`) directly in-process rather than shelling out to the
 `brain` CLI or MCP. Search degrades to FTS-only when no embedding key is
 configured (the same keyless behaviour the CLI has).

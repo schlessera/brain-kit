@@ -1,10 +1,10 @@
 {
-  "name": "@endoxa/ui-render-puppeteer",
+  "name": "@schlessera/brain-render-puppeteer",
   "version": "0.1.0",
-  "description": "Optional server-side HTML→PNG/PDF renderer for endoxa UIs (Puppeteer, network-denied by default)",
+  "description": "Optional server-side HTML→PNG/PDF renderer for brain-kit UIs (Puppeteer, network-denied by default)",
   "license": "MIT",
   "keywords": [
-    "endoxa",
+    "brain-kit",
     "puppeteer",
     "renderer",
     "pdf",
@@ -12,12 +12,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endoxa/endoxa.git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
     "directory": "packages/ui-render-puppeteer"
   },
-  "homepage": "https://endoxa.app",
+  "homepage": "https://github.com/schlessera/brain-kit",
   "bugs": {
-    "url": "https://github.com/endoxa/endoxa/issues"
+    "url": "https://github.com/schlessera/brain-kit/issues"
   },
   "publishConfig": {
     "access": "public"

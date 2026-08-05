@@ -14,7 +14,7 @@ part of this monorepo — it versions independently against the
 [integration contract](../integration-contract.md). Today it still spawns a
 vendored CLI copy and reads `brain.db`; migration to the packaged `brain` CLI is
 planned for phase 3. Its own README and docs cover deployment specifics; find
-it under the `endoxa` GitHub org alongside this project.
+it under the `schlessera` GitHub account alongside this project.
 
 Running brain-ui means running an agent that can execute Bash in a container that
 holds your data and your API tokens. That is powerful and it is a real attack
@@ -65,7 +65,7 @@ The hosting is cheap. The AI is not — and that is the part people underestimat
 ## Encryption, honestly
 
 **True end-to-end encryption is incompatible with a server-side agent** — the
-agent has to read your plaintext to operate on it. So endoxa scopes
+agent has to read your plaintext to operate on it. So brain-kit scopes
 encryption to what actually protects you:
 
 - **At rest** — an encrypted volume (LUKS or your provider's volume encryption)

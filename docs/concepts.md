@@ -1,6 +1,6 @@
 # Concepts
 
-The ideas behind endoxa, and the file-layer conventions every part of the
+The ideas behind brain-kit, and the file-layer conventions every part of the
 system agrees on. Read this once and the CLI, the skills, and the config file
 all make sense.
 
@@ -21,10 +21,10 @@ Practical consequences:
 
 - **Never write to `brain.db` directly.** Create or edit markdown (or call
   `brain add` / the MCP write tools) and let the indexer sync.
-- **Upgrades are re-indexes.** A new `@endoxa/core` with a new schema does
+- **Upgrades are re-indexes.** A new `@schlessera/brain` with a new schema does
   not need a data migration — `brain index --force` regenerates everything.
 - **Your data outlives the tool.** The files are plain markdown; they are
-  readable, greppable, and portable with or without endoxa.
+  readable, greppable, and portable with or without brain-kit.
 
 The database schema, chunking, and ranking pipeline are deliberately *not*
 extensible for this reason — they are an implementation detail of a disposable
@@ -34,7 +34,7 @@ not-pluggable list.
 ## Frontmatter schema
 
 Every content document starts with a YAML frontmatter block. The shipped agent
-contract (`@endoxa/core/CONTRACT.md`) defines it; this is the same schema
+contract (`@schlessera/brain/CONTRACT.md`) defines it; this is the same schema
 with examples.
 
 ```yaml
@@ -105,7 +105,7 @@ effective taxonomy = core built-ins  ⊕  module contributions  ⊕  your brain.
    | `index`    | *(any dir)* | `_index.md` registry files; skips dir checks.    |
 
 2. **Module contributions.** Enabling a module adds its types — for example
-   `@endoxa/module-speaking` adds `talk`, `conference`, and `travel`. See
+   `@schlessera/brain-module-speaking` adds `talk`, `conference`, and `travel`. See
    [modules.md](modules.md).
 
 3. **Your `brain.config.ts`.** You add your own types and may override any

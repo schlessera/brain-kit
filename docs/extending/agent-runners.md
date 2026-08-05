@@ -7,7 +7,7 @@ that need tools (reading files, running commands), where a plain
 
 ## The interface
 
-From `@endoxa/core` (`src/lib/seams.ts`):
+From `@schlessera/brain` (`src/lib/seams.ts`):
 
 ```ts
 export interface AgentRunner {
@@ -56,7 +56,7 @@ pass a custom runner.
 
    ```ts
    // my-runner.ts
-   import type { AgentRunner } from "@endoxa/core";
+   import type { AgentRunner } from "@schlessera/brain";
 
    export function myRunner(): AgentRunner {
      return {
@@ -76,7 +76,7 @@ pass a custom runner.
    export default defineConfig({ agentRunner: myRunner() });
    ```
 
-3. **(Optional) publish** as `endoxa-agent-<vendor>` (or use any `id` string,
+3. **(Optional) publish** as `brain-agent-<vendor>` (or use any `id` string,
    e.g. `"omp"`, when you pass a value).
 
 ## Capability and degradation notes

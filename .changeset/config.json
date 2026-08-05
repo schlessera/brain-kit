@@ -4,14 +4,14 @@
   "commit": false,
   "fixed": [
     [
-      "@endoxa/core",
-      "@endoxa/ui-sdk",
-      "@endoxa/ui-backend-claude",
-      "@endoxa/ui-backend-pi",
-      "@endoxa/ui-render-puppeteer",
-      "@endoxa/module-finance",
-      "@endoxa/module-jobs",
-      "@endoxa/module-speaking"
+      "@schlessera/brain",
+      "@schlessera/brain-ui-sdk",
+      "@schlessera/brain-backend-claude",
+      "@schlessera/brain-backend-pi",
+      "@schlessera/brain-render-puppeteer",
+      "@schlessera/brain-module-finance",
+      "@schlessera/brain-module-jobs",
+      "@schlessera/brain-module-speaking"
     ]
   ],
   "linked": [],

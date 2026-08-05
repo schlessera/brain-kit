@@ -1,4 +1,4 @@
-# endoxa
+# brain-kit
 
 > **Status: pre-release, under active construction.** This repo is being built out from a
 > proven private implementation. Progress: [PROGRESS.md](PROGRESS.md). Plans: [plan/](plan/).
@@ -32,17 +32,17 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 ## Repository layout
 
 ```
-packages/core                @endoxa/core — CLI, MCP server, search, index, config, skills
-packages/module-jobs         @endoxa/module-jobs — job-search scraping/scoring module
-packages/module-speaking     @endoxa/module-speaking — talks/conferences/travel module
-packages/module-finance      @endoxa/module-finance — client ledger / AR module
-packages/ui-sdk              @endoxa/ui-sdk — chat-UI wire protocol + runtime schemas,
+packages/core                @schlessera/brain — CLI, MCP server, search, index, config, skills
+packages/module-jobs         @schlessera/brain-module-jobs — job-search scraping/scoring module
+packages/module-speaking     @schlessera/brain-module-speaking — talks/conferences/travel module
+packages/module-finance      @schlessera/brain-module-finance — client ledger / AR module
+packages/ui-sdk              @schlessera/brain-ui-sdk — chat-UI wire protocol + runtime schemas,
                              AgentBackend/SpeechProvider seams, renderer/ASR registries
-packages/ui-backend-claude   @endoxa/ui-backend-claude — AgentBackend on the Claude Agent SDK
-packages/ui-backend-pi       @endoxa/ui-backend-pi — AgentBackend on the pi coding-agent SDK
-packages/ui-render-puppeteer @endoxa/ui-render-puppeteer — optional HTML→PNG/PDF renderer
+packages/ui-backend-claude   @schlessera/brain-backend-claude — AgentBackend on the Claude Agent SDK
+packages/ui-backend-pi       @schlessera/brain-backend-pi — AgentBackend on the pi coding-agent SDK
+packages/ui-render-puppeteer @schlessera/brain-render-puppeteer — optional HTML→PNG/PDF renderer
                              (network-denied, scriptless; see its header for the threat model)
-template/                    source for the endoxa-template repo (user starting point)
+template/                    source for the brain-template repo (user starting point)
 docs/                        quickstart, concepts, CLI, MCP, hosting, modules, extending
 plan/                        implementation plans (removed from the public release)
 research/                    verified research notes (removed from the public release)

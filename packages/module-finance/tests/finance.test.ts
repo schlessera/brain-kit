@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "path";
 
-import { buildTaxonomy } from "@endoxa/core";
-import type { LoadedModule } from "@endoxa/core";
+import { buildTaxonomy } from "@schlessera/brain";
+import type { LoadedModule } from "@schlessera/brain";
 
 import manifest, { configSchema } from "../src/module";
 import {
@@ -88,7 +88,7 @@ describe("module manifest", () => {
   test("taxonomy roundtrip: dirForType/typeForPath are inverse for finance", () => {
     const cfg = configSchema.parse({});
     const loaded: LoadedModule = {
-      key: "@endoxa/module-finance",
+      key: "@schlessera/brain-module-finance",
       manifest: { name: manifest.name, ...manifest.setup(cfg) },
       dir: PKG_DIR,
       config: cfg,

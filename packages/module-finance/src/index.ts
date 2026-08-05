@@ -1,5 +1,5 @@
 /**
- * @endoxa/module-finance public API.
+ * @schlessera/brain-module-finance public API.
  *
  * The AR engine (loading, computation, formatting, sync/check) plus the module
  * config schema. The module manifest is the package's `./module` entry.

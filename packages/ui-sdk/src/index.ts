@@ -1,5 +1,5 @@
 /**
- * @endoxa/ui-sdk — the chat-UI contract layer.
+ * @schlessera/brain-ui-sdk — the chat-UI contract layer.
  *
  * - ./protocol : the wire protocol (compatibility contract)
  * - ./server   : AgentBackend / SpeechProvider seams + transcript store

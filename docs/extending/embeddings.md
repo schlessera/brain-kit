@@ -7,7 +7,7 @@ search is always an upgrade, never a hard dependency.
 
 ## The interface
 
-From `@endoxa/core` (`src/lib/seams.ts`):
+From `@schlessera/brain` (`src/lib/seams.ts`):
 
 ```ts
 export interface EmbeddingProvider {
@@ -49,7 +49,7 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
 
    ```ts
    // my-embeddings.ts
-   import { defineEmbeddingProvider } from "@endoxa/core";
+   import { defineEmbeddingProvider } from "@schlessera/brain";
 
    export function myEmbeddings(opts: { model: string }) {
      return defineEmbeddingProvider({
@@ -71,7 +71,7 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
    });
    ```
 
-3. **(Optional) publish** it as `endoxa-embeddings-<vendor>` for others to import.
+3. **(Optional) publish** it as `brain-embeddings-<vendor>` for others to import.
 
 ## Capability and degradation notes
 

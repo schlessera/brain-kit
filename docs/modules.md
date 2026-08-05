@@ -2,7 +2,7 @@
 
 A **module** packages a domain workflow — its document types, its skills, and
 optionally a CLI command — so you can turn a whole area of your life on with one
-config entry. endoxa ships three first-party modules and a `/new-module`
+config entry. brain-kit ships three first-party modules and a `/new-module`
 skill for authoring your own.
 
 ## What a module is
@@ -17,7 +17,7 @@ user's already-validated config block. This is what lets a taxonomy dir follow
 a configured directory instead of being a static literal.
 
 ```ts
-import { defineModule } from "@endoxa/core";
+import { defineModule } from "@schlessera/brain";
 
 export default defineModule({
   name: "jobs",
@@ -68,8 +68,8 @@ value is the module's config block.
 
 ```ts
 modules: {
-  "@endoxa/module-speaking": {},
-  "@endoxa/module-finance":  { clientsDir: "clients", feeTolerance: 30 },
+  "@schlessera/brain-module-speaking": {},
+  "@schlessera/brain-module-finance":  { clientsDir: "clients", feeTolerance: 30 },
 }
 ```
 
@@ -82,7 +82,7 @@ idempotent by construction.
 
 ## First-party modules
 
-### `@endoxa/module-jobs`
+### `@schlessera/brain-module-jobs`
 
 A personal job-search pipeline: it scrapes remote-job boards, deduplicates and
 full-text-indexes postings in its own SQLite database (`jobs.db`), scores each
@@ -103,7 +103,7 @@ opportunity notes.
   board's ToS and `robots.txt`, keep volume low, and prefer official feeds. See
   the module README.
 
-### `@endoxa/module-speaking`
+### `@schlessera/brain-module-speaking`
 
 The speaking lifecycle: researching conferences, developing talk ideas,
 submitting to CFPs, tracking outcomes, preparing talks, planning travel, and
@@ -123,7 +123,7 @@ wrapping up afterward. Content and skills only — no CLI command, no database.
   writes a plain retrospective note.
 - **CLI word:** none.
 
-### `@endoxa/module-finance`
+### `@schlessera/brain-module-finance`
 
 Accounts-receivable tracking for freelance/agency work. Per-client `ledger.md`
 files are the source of truth; the module derives every balance, status, aging
@@ -153,7 +153,7 @@ modules: {
 }
 ```
 
-The path resolves relative to the brain root, and endoxa imports
+The path resolves relative to the brain root, and brain-kit imports
 `./modules/catalog/module.ts`. This is the mechanism for personal, one-off
 workflows that never need to be shared — they use exactly the same manifest API
 as the first-party modules.

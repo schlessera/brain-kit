@@ -1,4 +1,4 @@
-# endoxa documentation
+# brain-kit documentation
 
 A file-first personal knowledge base your coding agent operates. Markdown is the
 source of truth; the search index is disposable and rebuilt on demand.
@@ -24,6 +24,6 @@ understand the model. The rest is reference.
 
 ## See also
 
-- The agent contract (`@endoxa/core/CONTRACT.md`) — the Layer-1 rules imported
+- The agent contract (`@schlessera/brain/CONTRACT.md`) — the Layer-1 rules imported
   into every brain's `CLAUDE.md`.
 - Each first-party module's own README for its full field reference.

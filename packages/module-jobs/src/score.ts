@@ -185,7 +185,7 @@ export function loadScoringConfig(root: string, criteriaPath: string): ScoringCo
   if (!existsSync(abs)) {
     throw new Error(
       `Scoring criteria file not found: ${abs}\n` +
-        `Create it (see the criteria template shipped with @endoxa/module-jobs) ` +
+        `Create it (see the criteria template shipped with @schlessera/brain-module-jobs) ` +
         `or set the module "criteria" config to an existing file.`
     );
   }

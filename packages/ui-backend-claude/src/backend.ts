@@ -12,21 +12,21 @@ import type {
   ProviderInfo,
   ServerMessage,
   SessionHistoryMessage,
-} from "@endoxa/ui-sdk";
+} from "@schlessera/brain-ui-sdk";
 import type {
   AgentBackend,
   BackendCapabilities,
   PermissionDecision,
   StartTurnRequest,
   WriteLock,
-} from "@endoxa/ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/server";
 import {
   BackendBusyError,
   BackendRequestError,
   createWriteLock,
-} from "@endoxa/ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/server";
 import { StreamAdapter } from "./stream-adapter.js";
-import { createEndoxaMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
+import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import {
   DEFAULT_PROFILES,
@@ -57,7 +57,7 @@ const DEFAULT_ALLOWED_TOOLS = [
  * Tools whose execution mutates the shared working tree (file writes, git
  * operations). These are serialized across all sessions through the backend's
  * WriteLock; every other tool (Read/Glob/Grep/WebFetch/WebSearch and the
- * in-process endoxa MCP tools, which only bridge to the browser) runs fully
+ * in-process brain-kit MCP tools, which only bridge to the browser) runs fully
  * parallel. Bash is mutating conservatively — it can write or run git. A
  * subagent's own Bash/Edit/Write calls surface here under their own names and
  * are gated individually. Add write-capable MCP tools here as they appear.
@@ -144,7 +144,7 @@ interface ActiveTurn {
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session
  * persistence (JSONL under the brain dir), tool execution, and cost reporting;
- * this wrapper maps its streaming output onto the endoxa wire protocol and
+ * this wrapper maps its streaming output onto the brain-kit wire protocol and
  * routes permission / ask-user / location round-trips through the host bridge.
  */
 export function createClaudeBackend(
@@ -370,7 +370,7 @@ export function createClaudeBackend(
       if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
       if (askUser || getLocation) {
         sdkOptions.mcpServers = {
-          endoxa: createEndoxaMcpServer({ askUser, getLocation }),
+          "brain-ui": createBrainUiMcpServer({ askUser, getLocation }),
         };
       }
       if (Object.keys(profileEnv).length > 0) {

@@ -7,7 +7,7 @@ import { createTranscriptStore } from "../src/server/transcript-store";
 
 const dirs: string[] = [];
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "endoxa-transcripts-"));
+  const dir = mkdtempSync(join(tmpdir(), "brain-kit-transcripts-"));
   dirs.push(dir);
   return dir;
 }

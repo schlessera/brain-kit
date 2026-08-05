@@ -1,12 +1,12 @@
-# @endoxa/ui-backend-claude
+# @schlessera/brain-backend-claude
 
-The flagship [`AgentBackend`](../ui-sdk/README.md) for the endoxa chat UI,
+The flagship [`AgentBackend`](../ui-sdk/README.md) for the brain-kit chat UI,
 built on the official Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`). It
 runs the full Claude Code toolset over your brain repository and adapts the
 SDK's stream to the wire protocol.
 
 ```ts
-import { createClaudeBackend } from "@endoxa/ui-backend-claude";
+import { createClaudeBackend } from "@schlessera/brain-backend-claude";
 
 const backend = createClaudeBackend({
   brainPath: "/path/to/brain",
@@ -38,14 +38,14 @@ here is acquired in an awaited **PreToolUse hook**, which fires for every tool
 execution regardless of allowlisting — verified against the real SDK at
 runtime, not inferred from types.
 
-## The `endoxa` MCP server
+## The `brain-kit` MCP server
 
-The backend registers an in-process MCP server named `endoxa`, so its tools
-surface to the model as `mcp__endoxa__*`:
+The backend registers an in-process MCP server named `brain-kit`, so its tools
+surface to the model as `mcp__brain-ui__*`:
 
-- `mcp__endoxa__ask_user` — routes a structured question to the host's
+- `mcp__brain-ui__ask_user` — routes a structured question to the host's
   `bridge.askUser` and blocks the turn until the human answers.
-- `mcp__endoxa__get_current_location` — mirrors the ask-user bridge for
+- `mcp__brain-ui__get_current_location` — mirrors the ask-user bridge for
   browser geolocation: the host emits a `location_request` to the client, the
   browser answers, and the fix is returned to the model.
 

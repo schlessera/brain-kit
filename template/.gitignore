@@ -1,4 +1,4 @@
-# --- endoxa defaults ---
+# --- brain-kit defaults ---
 
 # Search index — disposable. Markdown is the source of truth; `brain index
 # --force` rebuilds this from scratch.

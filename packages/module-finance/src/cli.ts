@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { safeResolve } from "@endoxa/core";
-import type { CommandContext, CommandModule } from "@endoxa/core";
+import { safeResolve } from "@schlessera/brain";
+import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { configSchema, type FinanceConfig } from "./module.js";
 import {

@@ -1,5 +1,5 @@
 /**
- * In-process bridge to @endoxa/core: the pi backend calls hybridSearch /
+ * In-process bridge to @schlessera/brain: the pi backend calls hybridSearch /
  * ingest directly against the brain repo rather than shelling out to the
  * `brain` CLI or going over MCP. One BrainAccess is created per backend
  * instance (bound to a single brain repo at `brainPath`).
@@ -28,7 +28,7 @@ import {
   type SearchResponse,
   type IngestInput,
   type IngestOutcome,
-} from "@endoxa/core";
+} from "@schlessera/brain";
 
 export interface BrainAccess {
   readonly root: string;

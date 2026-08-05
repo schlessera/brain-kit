@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "path";
-import { buildTaxonomy } from "@endoxa/core";
-import type { LoadedModule } from "@endoxa/core";
+import { buildTaxonomy } from "@schlessera/brain";
+import type { LoadedModule } from "@schlessera/brain";
 import manifest, { configSchema } from "../src/module";
 
 // Two-phase manifest: the contribution comes out of setup(validatedConfig).
@@ -9,7 +9,7 @@ const cfg = configSchema.parse({ criteria: "career/opportunities/search-criteria
 const contribution = manifest.setup(cfg);
 
 const loaded: LoadedModule = {
-  key: "@endoxa/module-jobs",
+  key: "@schlessera/brain-module-jobs",
   manifest: { name: manifest.name, ...contribution },
   dir: resolve(import.meta.dir, ".."),
   config: cfg,

@@ -1,4 +1,4 @@
-@node_modules/@endoxa/core/CONTRACT.md
+@node_modules/@schlessera/brain/CONTRACT.md
 
 # my-brain
 

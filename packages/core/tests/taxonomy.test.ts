@@ -7,7 +7,7 @@ import { buildTaxonomy } from "../src/lib/taxonomy";
 /** A speaking-like module used across tests. */
 function speakingModule(): LoadedModule {
   return {
-    key: "@endoxa/module-speaking",
+    key: "@schlessera/brain-module-speaking",
     dir: "/tmp/fake",
     config: {},
     manifest: {
@@ -120,7 +120,7 @@ describe("reference brain shape (modules + user config)", () => {
       modules: [
         speakingModule(),
         {
-          key: "@endoxa/module-jobs",
+          key: "@schlessera/brain-module-jobs",
           dir: "/tmp/fake2",
           config: {},
           manifest: {
@@ -302,7 +302,7 @@ describe("modules key containment", () => {
   test("accepts package names and ./repo-relative paths", () => {
     expect(() =>
       brainConfigSchema.parse({
-        modules: { "@endoxa/module-jobs": {}, "some-module": {}, "./local/mod": {} },
+        modules: { "@schlessera/brain-module-jobs": {}, "some-module": {}, "./local/mod": {} },
       })
     ).not.toThrow();
   });

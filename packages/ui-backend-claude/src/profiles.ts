@@ -1,4 +1,4 @@
-import type { ProviderInfo } from "@endoxa/ui-sdk";
+import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
 
 /**
  * A resolved inference profile: a (model, endpoint, credentials) target the

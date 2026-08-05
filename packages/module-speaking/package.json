@@ -1,22 +1,22 @@
 {
-  "name": "@endoxa/module-speaking",
+  "name": "@schlessera/brain-module-speaking",
   "version": "0.1.0",
-  "description": "endoxa module: speaking — talks, conferences, CFP pipeline, travel planning",
+  "description": "brain-kit module: speaking — talks, conferences, CFP pipeline, travel planning",
   "license": "MIT",
   "keywords": [
-    "endoxa",
+    "brain-kit",
     "speaking",
     "conferences",
     "knowledge-management"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endoxa/endoxa.git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
     "directory": "packages/module-speaking"
   },
-  "homepage": "https://endoxa.app",
+  "homepage": "https://github.com/schlessera/brain-kit",
   "bugs": {
-    "url": "https://github.com/endoxa/endoxa/issues"
+    "url": "https://github.com/schlessera/brain-kit/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -49,7 +49,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
-    "@endoxa/core": "workspace:*",
+    "@schlessera/brain": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

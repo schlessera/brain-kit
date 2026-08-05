@@ -1,5 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerMessage } from "@endoxa/ui-sdk";
+import type { ServerMessage } from "@schlessera/brain-ui-sdk";
 
 /**
  * Stateful adapter that converts Claude SDK streaming messages

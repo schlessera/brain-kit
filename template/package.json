@@ -9,6 +9,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@endoxa/core": "^0.1.0"
+    "@schlessera/brain": "^0.1.0"
   }
 }

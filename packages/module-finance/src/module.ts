@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@endoxa/core";
-import type { AuditIssue, HygieneContext } from "@endoxa/core";
+import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
+import type { AuditIssue, HygieneContext } from "@schlessera/brain";
 import { checkSync, type FinanceOptions } from "./finance.js";
 
 /** User config block for the finance module (validated at load). */

@@ -1,6 +1,6 @@
-# @endoxa/module-jobs
+# @schlessera/brain-module-jobs
 
-A endoxa module that runs a personal **job-search pipeline**: it scrapes
+A brain-kit module that runs a personal **job-search pipeline**: it scrapes
 remote-job boards, deduplicates and full-text-indexes the postings in its own
 SQLite database, scores each one against criteria you define, and gives you a
 CLI (`brain jobs …`) to triage the results and scaffold opportunity notes into
@@ -13,7 +13,7 @@ Add it to `brain.config.ts`:
 ```ts
 export default defineConfig({
   modules: {
-    "@endoxa/module-jobs": {
+    "@schlessera/brain-module-jobs": {
       criteria: "career/opportunities/search-criteria.md",
       opportunitiesDir: "career/opportunities",
       boards: ["remoteok", "remotive", "weworkremotely"],

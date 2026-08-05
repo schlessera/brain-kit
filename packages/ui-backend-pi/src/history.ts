@@ -27,7 +27,7 @@ import type {
   ChatSession,
   MessagePart,
   SessionHistoryMessage,
-} from "@endoxa/ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/server";
 
 /** List the pi sessions rooted at this brain repo, newest activity first. */
 export async function listPiSessions(

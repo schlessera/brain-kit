@@ -1,4 +1,4 @@
-import { defineConfig } from "@endoxa/core";
+import { defineConfig } from "@schlessera/brain";
 
 /**
  * brain.config.ts — the single source of truth for your brain's shape.
@@ -38,6 +38,6 @@ export default defineConfig({
   // Enable an optional domain module. Modules ship their own types, skills, and
   // CLI commands; `/brain-module` wires one up for you. Example:
   // modules: {
-  //   "@endoxa/module-speaking": {},
+  //   "@schlessera/brain-module-speaking": {},
   // },
 });

@@ -1,13 +1,13 @@
 # Extending: skill emitters
 
-The `SkillEmitter` seam bridges endoxa's skills to the many places different
+The `SkillEmitter` seam bridges brain-kit's skills to the many places different
 coding agents look for them. Skills have **one canonical home** —
 `.agents/skills/<name>/SKILL.md` — and emitters materialize that home into each
 agent's native discovery location during `brain skills sync`.
 
 ## The interface
 
-From `@endoxa/core` (`src/lib/seams.ts`):
+From `@schlessera/brain` (`src/lib/seams.ts`):
 
 ```ts
 export interface SkillManifest {
@@ -53,7 +53,7 @@ enough for them.
 `brain skills sync` collects skills from three layers, later layers overriding
 earlier ones by name:
 
-1. **core** — skills shipped in `@endoxa/core`.
+1. **core** — skills shipped in `@schlessera/brain`.
 2. **module** — skills from enabled modules.
 3. **local** — `.agents/skills/` in your own repo (your personal overrides win).
 
@@ -71,7 +71,7 @@ core so a new emitter is mostly a layout choice.
 
    ```ts
    // my-emitter.ts
-   import type { SkillEmitter } from "@endoxa/core";
+   import type { SkillEmitter } from "@schlessera/brain";
 
    export const myEmitter: SkillEmitter = {
      agent: "opencode",

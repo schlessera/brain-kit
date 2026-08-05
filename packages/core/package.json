@@ -1,5 +1,5 @@
 {
-  "name": "@endoxa/core",
+  "name": "@schlessera/brain",
   "version": "0.1.0",
   "description": "File-first personal knowledge base operated by coding agents: CLI, hybrid search, MCP server, skills",
   "license": "MIT",
@@ -12,12 +12,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endoxa/endoxa.git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
     "directory": "packages/core"
   },
-  "homepage": "https://endoxa.app",
+  "homepage": "https://github.com/schlessera/brain-kit",
   "bugs": {
-    "url": "https://github.com/endoxa/endoxa/issues"
+    "url": "https://github.com/schlessera/brain-kit/issues"
   },
   "publishConfig": {
     "access": "public"

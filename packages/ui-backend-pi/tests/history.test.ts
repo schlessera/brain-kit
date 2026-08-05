@@ -89,7 +89,7 @@ describe("SessionManager-backed history", () => {
 
   beforeAll(() => {
     cwd = mkdtempSync(join(tmpdir(), "pi-backend-cwd-"));
-    sessionDir = join(cwd, ".endoxa-ui", "sessions");
+    sessionDir = join(cwd, ".brain-kit-ui", "sessions");
     const sm = SessionManager.create(cwd, sessionDir);
     sessionId = sm.getSessionId();
     sm.appendMessage({ role: "user", content: "hello brain", timestamp: 1 } as never);

@@ -82,7 +82,7 @@ After showing a summary of what will be written, generate:
   empty registry table.
 - **`me/identity.md`** seeded from the Stage 1 self-description.
 - **CLAUDE.md** — the personal overlay (Layer 2). Import the shipped agent contract on the
-  first line via `@node_modules/@endoxa/core/CONTRACT.md`, then fill the fixed skeleton
+  first line via `@node_modules/@schlessera/brain/CONTRACT.md`, then fill the fixed skeleton
   (Quick Navigation, Key Conventions, Directory Structure, Personal Rules). Wrap every
   generated region in `<!-- brain:generated:{section} -->` … `<!-- /brain:generated:{section} -->`
   markers. Anything outside the markers is the user's forever and must never be rewritten.

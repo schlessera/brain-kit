@@ -1,8 +1,8 @@
 /**
  * AgentBackend — the seam between the brain-ui server and whatever agent
  * runtime drives a conversation. Two first-party implementations exist:
- * @endoxa/ui-backend-pi (upstream pi SDK, OSS default) and
- * @endoxa/ui-backend-claude (Claude Agent SDK, flat-rate-subscription
+ * @schlessera/brain-backend-pi (upstream pi SDK, OSS default) and
+ * @schlessera/brain-backend-claude (Claude Agent SDK, flat-rate-subscription
  * path). One backend is active per deployment (v1).
  *
  * ## startTurn contract (rev 2 — parallel sessions)

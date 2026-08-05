@@ -11,7 +11,7 @@
  * but different sessions are independent.
  */
 
-import type { BackendBridge } from "@endoxa/ui-sdk/server";
+import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 export interface TurnContext {
   bridge: BackendBridge | null;

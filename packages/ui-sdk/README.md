@@ -1,15 +1,15 @@
-# @endoxa/ui-sdk
+# @schlessera/brain-ui-sdk
 
-The contract layer between an endoxa chat UI and the agent that powers it.
+The contract layer between an brain-kit chat UI and the agent that powers it.
 Everything a host, a backend, or a client needs to agree on lives here — and
 nothing else does: no HTTP framework, no UI, no model vendor.
 
 ```
-@endoxa/ui-sdk            → the wire protocol types (root re-export)
-@endoxa/ui-sdk/protocol   → same, explicit
-@endoxa/ui-sdk/schemas    → zod runtime schemas + parseClientMessage
-@endoxa/ui-sdk/server     → AgentBackend / SpeechProvider seams, transcript store
-@endoxa/ui-sdk/client     → tool-renderer + AsrClient registries (React peer)
+@schlessera/brain-ui-sdk            → the wire protocol types (root re-export)
+@schlessera/brain-ui-sdk/protocol   → same, explicit
+@schlessera/brain-ui-sdk/schemas    → zod runtime schemas + parseClientMessage
+@schlessera/brain-ui-sdk/server     → AgentBackend / SpeechProvider seams, transcript store
+@schlessera/brain-ui-sdk/client     → tool-renderer + AsrClient registries (React peer)
 ```
 
 Import the submodules explicitly — the root export carries the protocol only,
@@ -34,7 +34,7 @@ type error. Hosts should never cast a client frame; binary frames are rejected.
 ## Backend seam (`./server`)
 
 `AgentBackend` is the interface a model integration implements
-([`@endoxa/ui-backend-pi`](../ui-backend-pi), [`@endoxa/ui-backend-claude`](../ui-backend-claude)):
+([`@schlessera/brain-backend-pi`](../ui-backend-pi), [`@schlessera/brain-backend-claude`](../ui-backend-claude)):
 `startTurn` streams protocol frames, the host owns the per-turn
 `AbortController`, and mutating tools gate through `bridge.requestPermission`.
 `BackendCapabilities` is honest by contract — `permissions: true` means a deny
