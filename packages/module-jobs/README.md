@@ -47,7 +47,10 @@ opportunity directory (`[[career/opportunities/acme]]`) resolves to that dir's
 ### Cron
 
 Advisory schedule (consumed by container entrypoints / `brain doctor`):
-`scrape` daily at 06:00 — `jobs scrape --all`.
+`scrape` daily at 06:00 — `jobs scrape --all --browser`, i.e. one unified run
+covering both the API boards and the headless-Chrome ones. The Chrome pass is
+skipped cleanly when no browser is reachable, so a host without Chrome loses
+the browser boards rather than the whole scrape.
 
 ## The scoring criteria file
 
@@ -102,7 +105,8 @@ marker (or 0 if an excluded marker matches); the compensation dimension compares
 ## CLI
 
 ```
-brain jobs scrape [sources...]   # scrape configured boards (or all with --all)
+brain jobs scrape [sources...]   # configured boards (--all for every API board,
+                                 #   --browser to append the Chrome pass)
 brain jobs score                 # score unscored jobs + classify (--rescore for all)
 brain jobs triage                # interactive one-at-a-time review (TTY)
 brain jobs review                # list the review queue
@@ -111,10 +115,23 @@ brain jobs scaffold <id>         # create an opportunity dir from a job
 brain jobs show|open|decide|search|gc …
 ```
 
-`--browser` on `scrape` uses a headless-Chrome path (raw Chrome DevTools
-Protocol — no Playwright dependency) for the boards that require JS execution
-(`builtin`, `nodesk`, `dice`). Start Chrome with
-`--remote-debugging-port=9222 --headless=new` first.
+### API and browser passes
+
+Some boards need a real browser. `scrape` therefore has two passes, and the
+flags compose:
+
+| Invocation                        | Runs                                       |
+| --------------------------------- | ------------------------------------------ |
+| `brain jobs scrape`               | the configured API boards                  |
+| `brain jobs scrape --all`         | every API board                            |
+| `brain jobs scrape --browser`     | the API pass, **then** the browser pass     |
+| `brain jobs scrape --browser-only`| only the browser pass                      |
+
+The browser path speaks raw Chrome DevTools Protocol — no Playwright or
+Puppeteer dependency — and covers `builtin`, `nodesk`, and `dice`. Start Chrome
+with `--remote-debugging-port=9222 --headless=new` first, or point
+`CHROME_CDP_URL` at an existing instance. When nothing is listening there, the
+browser pass reports that it was skipped and the API results still land.
 
 ## Boards & sources
 

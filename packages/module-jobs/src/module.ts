@@ -34,8 +34,12 @@ export default defineModule({
     taxonomy: {
       types: { opportunity: { dir: config.opportunitiesDir } },
     },
+    skills: "./skills",
     commands: { jobs: () => import("./cli.js") },
     indexRules: { dirAnchors: ["status.md"] },
-    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
+    // One unified run: `--browser` appends the headless-Chrome pass to the API
+    // pass, and skips it cleanly when no Chrome is reachable — so a host
+    // without Chrome loses the browser boards, not the whole scrape.
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all --browser" }],
   }),
 });

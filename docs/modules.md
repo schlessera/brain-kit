@@ -26,7 +26,7 @@ export default defineModule({
     taxonomy: { types: { opportunity: { dir: config.opportunitiesDir } } },
     commands: { jobs: () => import("./cli") },
     indexRules: { dirAnchors: ["status.md"] },
-    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" }],
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all --browser" }],
   }),
 });
 ```
@@ -95,10 +95,15 @@ opportunity notes.
   whose frontmatter defines weighted, named scoring groups), `opportunitiesDir`,
   `boards`, `queries`, `dbPath`. Scoring is *not* hard-coded — it is driven by
   the criteria file, which stays brain content you own and tune.
-- **Skills:** none bundled (the workflow is CLI-driven).
+- **Skills:** `jobs-review` (triage the scraped queue in dialogue),
+  `research-opportunity` (turn a listing into a tracked opportunity with a fit
+  assessment), `interview-scheduled` (record a booked interview and sync the
+  four places that have to agree about it).
 - **CLI word:** `brain jobs` — `scrape`, `score`, `triage`, `review`, `stats`,
-  `scaffold <id>`, `show`, `open`, `decide`, `search`, `gc`.
-- **Cron:** advisory `scrape` daily at 06:00.
+  `scaffold <id>`, `show`, `open`, `decide`, `search`, `gc`. `scrape --browser`
+  appends the headless-Chrome pass to the API pass; `--browser-only` runs just
+  the former.
+- **Cron:** advisory `scrape` daily at 06:00, unified across both passes.
 - **Caveat:** scraping may violate a board's Terms of Service — review each
   board's ToS and `robots.txt`, keep volume low, and prefer official feeds. See
   the module README.
