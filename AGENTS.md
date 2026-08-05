@@ -1,6 +1,6 @@
 # AGENTS.md — Working in this repo
 
-brainform: open-source "DIY brain infra" — a file-first personal knowledge base operated by
+brain-kit: open-source "DIY brain infra" — a file-first personal knowledge base operated by
 coding agents. This repo is the core monorepo (packages) plus the planning docs that drive it.
 
 ## Read first, in this order
@@ -43,7 +43,7 @@ coding agents. This repo is the core monorepo (packages) plus the planning docs 
 
 - Runtime: Bun (`bun:sqlite`, `Bun.spawn`, `Bun.Glob`). TypeScript, no build step for the CLI
   (bin runs via bun). Tests: `bun test`. Typecheck: `tsc --noEmit`.
-- Monorepo: bun workspaces under `packages/`; all `@brainform/*` packages version in lockstep.
+- Monorepo: bun workspaces under `packages/`; all `@schlessera/brain-*` packages version in lockstep.
 - Seams only where a second implementation is plausible within a year (plan/04 §0). The
   explicitly-not-pluggable list (plan/04 §8) is final.
 - Skills orchestrate, CLI executes: deterministic logic goes into a `brain` subcommand with

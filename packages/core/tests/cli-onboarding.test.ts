@@ -195,7 +195,7 @@ test("doctor requires a real hook file under core.hooksPath", async () => {
 
 test("doctor reports a dead MCP source-file registration", async () => {
   const root = tempBrain();
-  const deadPath = "defunct-node-modules/@brainform/core/src/mcp-server.ts";
+  const deadPath = "defunct-node-modules/old-scope/core/src/mcp-server.ts";
   writeFileSync(
     join(root, ".mcp.json"),
     JSON.stringify({
