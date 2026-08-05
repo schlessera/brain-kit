@@ -65,7 +65,7 @@ the file.
 
 - CLI: `brain search|context|read|list|briefing|add|index|validate|audit|
   process|archive|accept-mtime|maintain|stats|sync|setup|doctor|init|import|
-  skills|module|config` — JSON output when piped (or `--json`).
+  skills|module|config|okf` — JSON output when piped (or `--json`).
 - MCP (server name `brain`): `brain_search`, `brain_context`, `brain_read`,
   `brain_list`, `brain_graph`, `brain_add`, `brain_update`, `brain_archive`.
 - Prefer `brain search`/`brain_search` over grepping the tree; prefer

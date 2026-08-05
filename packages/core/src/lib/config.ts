@@ -222,7 +222,7 @@ export const CORE_TYPES: Record<string, TypeSpec> = {
 };
 
 export const DEFAULT_EXCLUDE = {
-  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces"],
+  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md"],
   segments: [] as string[],
 };

@@ -110,6 +110,24 @@ describe("validate", () => {
   });
 });
 
+describe("okf", () => {
+  test("exports the indexed fixture scope with repeated excludes and checks it", async () => {
+    const exported = await runCli(root, [
+      "okf", "export", "--exclude", "health", "--exclude", "journal", "--no-assets", "--json",
+    ]);
+    expect(exported.code).toBe(0);
+    const report = JSON.parse(exported.stdout);
+    expect(report.filesExported).toBeGreaterThan(0);
+    expect(report.assetsCopied).toBe(0);
+    expect(report.topLevelDirectories).not.toContain("health");
+    expect(report.topLevelDirectories).not.toContain("journal");
+
+    const checked = await runCli(root, ["okf", "check", "--json"]);
+    expect(checked.code).toBe(0);
+    expect(JSON.parse(checked.stdout)).toMatchObject({ ok: true, errors: 0 });
+  });
+});
+
 describe("output mode + exit codes", () => {
   test("non-TTY stdout defaults to JSON without --json", async () => {
     const { stdout } = await runCli(root, ["stats"]);

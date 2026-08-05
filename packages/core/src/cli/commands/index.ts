@@ -29,6 +29,7 @@ import { skillsCommand } from "./skills.js";
 import { moduleCommand } from "./module.js";
 import { configCommand } from "./config.js";
 import { mcpCommand } from "./mcp.js";
+import { okfCommand } from "./okf.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
@@ -54,6 +55,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   module: moduleCommand,
   config: configCommand,
   mcp: mcpCommand,
+  okf: okfCommand,
 };
 
 export { generateBriefing } from "./briefing.js";

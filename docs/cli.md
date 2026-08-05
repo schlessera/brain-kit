@@ -40,6 +40,18 @@ Usage: brain <command> [args] [flags]
 | `maintain` | Routine maintenance sequence | exit 2 if any step failed |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top |
 
+## OKF interchange
+
+| Command | Does | Notes |
+|---|---|---|
+| `okf export` ⚖ | Build a deterministic Open Knowledge Format v0.1 bundle from the indexed content scope | defaults to `okf-dist/`; `--include <dir>` and `--exclude <dir>` are repeatable; `--no-assets` omits images/PDFs; review `topLevelDirectories` before sharing |
+| `okf check [dir]` ⚖ | Check any OKF bundle for concept and reserved-file conformance | defaults to `okf-dist/`; broken internal links are warnings; exits 1 on conformance errors |
+
+The export output directory must be inside the brain root and excluded from indexing.
+`okf-dist` is excluded by default. Wiki-links are resolved against only the exported
+file set, so links into excluded domains degrade to plain display text rather than
+leaking paths.
+
 ## Onboarding + health
 
 | Command | Does | Notes |

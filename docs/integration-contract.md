@@ -35,6 +35,8 @@ Lineage: this is the public successor of the private brain's
 | `brain index [--force] [--embeddings]` | stats object; incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit) |
 | `brain init --check` | preflight object (new in brain-kit) |
+| `brain okf export --json` | `{ "outDir", "filesExported", "assetsCopied", "linksConverted", "linksDegraded", "degradedLinks", "indexFilesGenerated", "topLevelDirectories", "warnings" }` |
+| `brain okf check [dir] --json` | `{ "directory", "ok", "filesChecked", "errors", "warnings", "issues": [{ "severity", "path", "message" }] }`; exit 1 when `errors > 0` |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
@@ -105,8 +107,12 @@ receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
   symlinked directory nor a dangling symlink redirects a write out of the repo.
 - **Mutating commands require an initialized brain.** `add`, `import`, `index`,
   `archive`, `accept-mtime`, `process`, `maintain`, `sync`, `skills sync`, and
-  `setup` exit 1 when no `brain.config` is found rather than initializing a
+  `setup`, plus `okf export`, exit 1 when no `brain.config` is found rather than initializing a
   stray directory. Read-only commands (including `skills lint`) still run.
+- **OKF exports are derived and isolated.** `okf export` only writes inside a
+  taxonomy-excluded directory, wipes that derived directory before generation,
+  and never modifies source concept files. `okf check` is read-only and accepts
+  third-party bundle directories.
 - **`module list --json` cron entries are shape-constrained.** A container
   entrypoint materializes them into a crontab with root privileges, so `name`
   is kebab-case, `schedule` is a 5-field expression, and `command` is a plain

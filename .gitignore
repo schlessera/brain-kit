@@ -9,4 +9,5 @@ dist/
 packages/*/dist/
 coverage/
 tmp/
+okf-dist/
 .DS_Store

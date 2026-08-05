@@ -163,6 +163,26 @@ Phase-5 design decisions:
 
 ## Session log
 
+### Session 4 — 2026-08-05
+
+- Started the OKF v0.1 export/check implementation on `phase-3/ports`; translated the
+  private-repo work order to `packages/core`, with the normative spec taking precedence.
+- Locked implementation scope: T1–T5 and T7–T10; optional `--log` (T6) deferred until the
+  required exporter, checker, contracts, docs, and full regression gates are green.
+- Implemented deterministic `brain okf export` + `brain okf check`, public library exports,
+  generated per-directory indexes, selected-scope wiki-link resolution, asset copying,
+  timestamp batching, output containment/exclusion guards, CLI JSON contracts, and changeset.
+- Normative-spec deviation from the handoff: malformed reserved-file structure is an error,
+  not a warning, because OKF §9(3) makes `index.md` / `log.md` structure conformance criteria.
+- Verification (re-run outside the implementation sandbox, which could not launch Chrome or
+  bind the renderer test listener): root typecheck passes, `bun test` is 405 pass / 2 skip /
+  0 fail across 46 files, leakage gate clean.
+- Validated against a real 522-document brain: 879 wiki-links converted, 3 degraded — exactly
+  the three links `brain validate` already reports as unresolved/ambiguous, confirming the
+  exporter and the indexer resolve identically. `okf check` on that bundle: 0 errors, 1
+  warning (a pre-existing broken link in the source). The only surviving `[[…]]` sequences in
+  the output are inside inline-code spans, which is the intended code-safety behaviour.
+
 ### Session 1 — 2026-07-12
 
 - Read all plan/research docs; environment recon (bun 1.3.14, gh authed, both repos reachable).

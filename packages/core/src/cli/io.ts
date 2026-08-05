@@ -41,12 +41,14 @@ export const BOOLEAN_FLAGS = new Set([
   "keep-note", "all",
   "dry-run",
   "check", "default",
+  "no-assets",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
 export const VALUE_FLAGS = new Set([
   "mode", "rerank", "type", "tag", "relevance", "status", "limit",
   "max-tokens", "title", "tags", "stamp", "path", "root", "name",
+  "out", "include", "exclude",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

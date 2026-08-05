@@ -95,6 +95,14 @@ export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
 export { safeResolve } from "./lib/safe-path.js";
+export { exportOkfBundle, checkOkfBundle, OkfExportError } from "./lib/okf-exporter.js";
+export type {
+  OkfExportOptions,
+  OkfExportReport,
+  OkfDegradedLink,
+  OkfCheckReport,
+  OkfCheckIssue,
+} from "./lib/okf-exporter.js";
 
 // Providers + enrichment
 export { createEnrichment } from "./lib/enrichment.js";
