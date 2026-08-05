@@ -7,6 +7,8 @@ const packages = [
   "ui-backend-claude",
   "ui-backend-pi",
   "ui-render-puppeteer",
+  "ui-server",
+  "ui-react",
   "module-finance",
   "module-jobs",
   "module-speaking",
@@ -42,6 +44,20 @@ for (const packageName of packages) {
   }
   const exitCode = await subprocess.exited;
   if (exitCode !== 0) process.exit(exitCode);
+
+  if (packageName === "ui-react") {
+    // Precompiled stylesheet for consumers without a Tailwind build. The
+    // entry pins its scan root to the package src via @source, so the output
+    // is identical no matter where the CLI runs from.
+    const cssEntry = resolve(packageDir, "src", "styles.css");
+    const cssOut = resolve(distDir, "styles.css");
+    const css = Bun.spawn(
+      [bunx, "@tailwindcss/cli", "-i", cssEntry, "-o", cssOut, "--minify"],
+      { cwd: packageDir, stdout: "inherit", stderr: "inherit" }
+    );
+    const cssExit = await css.exited;
+    if (cssExit !== 0) process.exit(cssExit);
+  }
 
   if (packageName === "core") {
     const hooksSource = resolve(packageDir, "src", "hooks");

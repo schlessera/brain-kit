@@ -365,6 +365,23 @@ export interface SystemStatus {
   activeSession: boolean;
 }
 
+/**
+ * Passkey credential summary returned by the /api/auth/passkey/* management
+ * routes (ui-server). HTTP surface, not a ws frame — listed here with the
+ * other REST payload shapes the client consumes.
+ */
+export interface PasskeySummary {
+  id: string;
+  label: string;
+  rpId: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  backedUp: boolean;
+  deviceType: string | null;
+  transports: string[] | null;
+  aaguid: string | null;
+}
+
 // ============================================================
 // Voice (ASR / TTS)
 // ============================================================

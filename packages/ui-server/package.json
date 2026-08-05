@@ -1,0 +1,72 @@
+{
+  "name": "@schlessera/brain-ui-server",
+  "version": "0.3.0",
+  "description": "brain-kit chat-UI server: Hono app factory, WebSocket turn coordinator, auth (password/passkeys/tailscale/proxy), session catalog, and brain/files/voice routes",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "server",
+    "hono",
+    "websocket",
+    "ai-agents"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/ui-server"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "migrations",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "@schlessera/brain-backend-claude": "workspace:*",
+    "@schlessera/brain-ui-sdk": "workspace:*",
+    "@simplewebauthn/server": "^13.3.2",
+    "hono": "^4",
+    "ignore": "^7.0.5",
+    "marked": "^18.0.4",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@schlessera/brain-backend-pi": "workspace:*",
+    "@types/bun": ">=1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@schlessera/brain-backend-pi": {
+      "optional": true
+    },
+    "@types/bun": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

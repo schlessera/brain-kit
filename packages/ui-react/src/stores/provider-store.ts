@@ -1,0 +1,85 @@
+import { create } from "zustand";
+import type { ProviderInfo } from "@schlessera/brain-ui-sdk/protocol";
+import { api, type BackendInfo } from "../lib/api-client.js";
+
+const PROVIDER_ID_KEY = "brain-ui:provider-id";
+
+function readSelectedId(): string {
+  if (typeof localStorage === "undefined") return "";
+  return localStorage.getItem(PROVIDER_ID_KEY) ?? "";
+}
+
+interface ProviderState {
+  /** Provider combos the server currently offers (metadata only). */
+  available: ProviderInfo[];
+  /** User's chosen combo for the next new conversation. Persisted. */
+  selectedId: string;
+  /**
+   * Provider the active session is pinned to (from `session_info`). When set,
+   * it takes display precedence over `selectedId` and the picker locks.
+   */
+  pinnedId: string | null;
+  /** Capability metadata keyed by backend id. */
+  backends: Record<string, BackendInfo>;
+  loaded: boolean;
+
+  loadProviders: () => Promise<void>;
+  setSelected: (id: string) => void;
+  setPinned: (id: string | null) => void;
+}
+
+/** Resolve the backend metadata for an available provider profile. */
+export function selectBackendForProvider(
+  state: Pick<ProviderState, "available" | "backends">,
+  providerId: string | null | undefined
+): BackendInfo | null {
+  const backendId = state.available.find(
+    (provider) => provider.id === providerId
+  )?.backendId;
+  return backendId ? state.backends[backendId] ?? null : null;
+}
+
+export const useProviderStore = create<ProviderState>((set, get) => ({
+  available: [],
+  selectedId: readSelectedId(),
+  pinnedId: null,
+  backends: {},
+  loaded: false,
+
+  loadProviders: async () => {
+    try {
+      const { providers, backends } = await api.providers();
+      set((s) => {
+        // Keep the persisted choice if it's still on offer; otherwise fall
+        // back to the first available combo.
+        const stillValid = providers.some((p) => p.id === s.selectedId);
+        const selectedId =
+          stillValid && s.selectedId
+            ? s.selectedId
+            : providers[0]?.id ?? "";
+        return {
+          available: providers,
+          selectedId,
+          backends: backends ?? {},
+          loaded: true,
+        };
+      });
+    } catch {
+      // Soft-fail: leave the picker empty; the composer still works and
+      // sends run on the server default.
+      set({ loaded: true });
+    }
+  },
+
+  setSelected: (id) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(PROVIDER_ID_KEY, id);
+    }
+    set({ selectedId: id });
+  },
+
+  setPinned: (id) => {
+    if (get().pinnedId === id) return;
+    set({ pinnedId: id });
+  },
+}));

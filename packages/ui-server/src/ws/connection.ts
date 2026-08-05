@@ -1,0 +1,132 @@
+import { upgradeWebSocket, websocket } from "hono/bun";
+import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
+import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
+import { getBackendForSession } from "../agent/backend.js";
+import { addClient, removeClient, hasClients } from "./clients.js";
+import { withTurnScope } from "./frames.js";
+import { sendSessionHistory } from "./history.js";
+import { handleClientMessage } from "./dispatch.js";
+import type { WsHost } from "./host.js";
+
+export { websocket };
+
+/** Build the Hono WebSocket upgrade handler bound to one host. */
+export function createWsUpgrade(host: WsHost) {
+  return upgradeWebSocket(() => ({
+    async onOpen(_evt, ws) {
+      console.log("[ws] Client connected");
+      const { coordinator, catalog } = host;
+
+      // Handshake first (rev 2, additive): protocol revision + coarse
+      // capabilities, so the client can gate behavior instead of sniffing.
+      host.sendMessage(ws, {
+        type: "server_hello",
+        protocolRev: PROTOCOL_REV,
+        capabilities: { multiSession: true, askUser: true, location: true },
+      });
+
+      // Snapshot-on-connect only for the single-running-session case (backward
+      // compatible). With zero or several running sessions the client rehydrates
+      // itself per-session via session_resume, and live frames (sessionId-scoped)
+      // fan out to it once it joins the broadcast set.
+      const runningTurns = [...coordinator.running].filter((t) => t.sessionId);
+      if (runningTurns.length === 1) {
+        const turn = runningTurns[0];
+        const sid = turn.sessionId!;
+        host.sendMessage(
+          ws,
+          // Stamp the live turn identity: a reconnecting client must learn the
+          // current turnId, or the correlation guarantee dies at the reconnect
+          // it exists for.
+          withTurnScope(
+            {
+              type: "session_info",
+              sessionId: sid,
+              isNew: false,
+              providerId: turn.providerId ?? catalog.getStoredProviderId(sid) ?? undefined,
+            },
+            turn
+          )
+        );
+        try {
+          const backend = await getBackendForSession(
+            catalog.getStoredBackendId(sid) ?? turn.backend.id
+          );
+          const history = await backend.getHistory(sid);
+          if (history.length > 0) sendSessionHistory(ws, sid, history);
+        } catch (err) {
+          console.error("[ws] snapshot-on-connect failed:", err);
+        } finally {
+          addClient(ws);
+          host.sendMessage(
+            ws,
+            withTurnScope(
+              {
+                type: "status",
+                status: "thinking",
+                detail: "Session in progress",
+                sessionId: sid,
+              },
+              turn
+            )
+          );
+        }
+        return;
+      }
+
+      addClient(ws);
+      host.sendMessage(ws, {
+        type: "status",
+        status: "idle",
+        detail: `Connected to ${host.appName}`,
+      });
+    },
+
+    onMessage(evt, ws) {
+      // Boundary validation (rev 2): byte cap + JSON decode + schema, in one
+      // place. No more casting client JSON to ClientMessage.
+      //
+      // Text frames only: hono's Bun adapter hands binary frames over as the
+      // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
+      // binary frame cannot be decoded correctly here. The protocol is JSON
+      // text; reject anything else rather than parse a slab.
+      const raw = evt.data;
+      if (typeof raw !== "string") {
+        host.sendMessage(ws, {
+          type: "error",
+          code: "PARSE_ERROR",
+          message: "Binary frames are not supported; send JSON text",
+        });
+        return;
+      }
+      const parsed = parseClientMessage(raw);
+      if (!parsed.ok) {
+        host.sendMessage(ws, { type: "error", code: "PARSE_ERROR", message: parsed.error });
+        return;
+      }
+      // handleClientMessage is async — a rejection must not escape as an
+      // unhandled rejection with no frame sent.
+      void Promise.resolve()
+        .then(() => handleClientMessage(host, ws, parsed.message))
+        .catch(() => {
+          host.sendMessage(ws, {
+            type: "error",
+            code: "INTERNAL_ERROR",
+            message: "Failed to handle message",
+          });
+        });
+    },
+
+    onClose(_evt, ws) {
+      console.log("[ws] Client disconnected");
+      removeClient(ws);
+      // Turns keep running in the background. Only reject pending interactive
+      // requests once the LAST client leaves — while another client remains it
+      // can still answer them.
+      if (hasClients()) return;
+      for (const turn of host.coordinator.running) {
+        host.coordinator.drainPendingForTurn(turn, "Client disconnected");
+      }
+    },
+  }));
+}
