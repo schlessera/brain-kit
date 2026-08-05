@@ -1,5 +1,17 @@
 # Phase 2 (rename + publish pipeline) — 2026-07-30
 
+> **STATUS 2026-08-05: FINAL NAME = shadcn-style descriptive naming.** After three
+> evocative-name rounds died (endoxa: UK cls-9/42 mark; arbatel: dropped after deep
+> dive; dasbrain: literal translation of TheBrain's live DE/EU marks; as-brain:
+> spoken "ass brain"), Alain chose the shadcn approach: brand = GitHub handle +
+> descriptive names. Monorepo repo RENAMED to **schlessera/brain-kit**; packages
+> publish as **@schlessera/brain** (core), brain-ui-sdk, brain-backend-claude/-pi,
+> brain-render-puppeteer, brain-module-{finance,jobs,speaking}; template =
+> schlessera/brain-template (`bun create schlessera/brain-template`). MCP bridge
+> server = brain-ui (mcp__brain-ui__*). npm scope @schlessera = his account scope
+> (confirm via npm login). Publish runbook below applies with these names; no npm
+> org creation needed, no domains needed. Historical note follows:
+>
 > **STATUS 2026-07-31: the name "endoxa" is DEAD.** Alain's WIPO Global Brand
 > Database pass found UK00003397309 — ENDOXA word mark, **class 9 "computer
 > software" + class 42 "computer services"**, registered 2019, in force to 2029,
