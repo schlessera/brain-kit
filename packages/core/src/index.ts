@@ -70,6 +70,10 @@ export { openDatabase, initVecSupport, hasVecSupport, getMeta, setMeta } from ".
 export type { SchemaOptions } from "./lib/db.js";
 export { hybridSearch, filterSearch } from "./lib/search-engine.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
+// Exported so a retrieval-quality harness can score rerank-on and rerank-off
+// orderings from one candidate list instead of re-embedding the query.
+export { rerank, getDefaultRerankerMode } from "./lib/reranker.js";
+export type { RerankerConfig } from "./lib/reranker.js";
 
 // Indexing + content pipeline
 export {

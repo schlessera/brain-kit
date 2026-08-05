@@ -168,6 +168,46 @@ describe("reference brain shape (modules + user config)", () => {
     expect(tax.classify("plain shopping list")).toBeNull();
   });
 
+  test("user hints layer onto a module's hints for the same type", () => {
+    // A module owning `conference` used to silence the user's own conference
+    // vocabulary entirely; personal venue names never reached the classifier.
+    const withPersonalVenues = buildTaxonomy({
+      modules: [speakingModule()],
+      user: brainConfigSchema.parse({
+        taxonomy: {
+          types: { opinion: { dir: "opinions" } },
+          classifierHints: {
+            conference: ["wordcamp", "cloudfest"],
+            opinion: ["my stance"],
+          },
+        },
+      }),
+    });
+
+    expect(withPersonalVenues.classify("submitting to WordCamp Europe")).toBe("conference");
+    expect(withPersonalVenues.classify("CloudFest is in March")).toBe("conference");
+    // The module's own vocabulary still works.
+    expect(withPersonalVenues.classify("The CFP closes Friday")).toBe("conference");
+    // And a type only the user declares is unaffected.
+    expect(withPersonalVenues.classify("my stance on this")).toBe("opinion");
+  });
+
+  test("hint order follows first appearance, not the last contributor", () => {
+    // `conference` is claimed by the module, so it keeps the module's slot
+    // ahead of a user-only type declared later.
+    const tax2 = buildTaxonomy({
+      modules: [speakingModule()],
+      user: brainConfigSchema.parse({
+        taxonomy: {
+          types: { opinion: { dir: "opinions" } },
+          // "keynote" is deliberately shared with the module's conference list.
+          classifierHints: { opinion: ["keynote"] },
+        },
+      }),
+    });
+    expect(tax2.classify("a keynote slot")).toBe("conference");
+  });
+
   test("module dir anchors + exclude segments merge", () => {
     expect(tax.dirAnchors).toEqual(["_index.md", "status.md", "itinerary.md", "outline.md"]);
     expect(tax.isExcludedPath("talks/foo/alt-decks/v1.md")).toBe(true);

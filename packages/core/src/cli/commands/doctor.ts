@@ -154,7 +154,7 @@ function checkDb(cli: CliContext): Check {
   }
 }
 
-function checkEmbeddings(cli: CliContext): Check {
+async function checkEmbeddings(cli: CliContext): Promise<Check> {
   const keyEnv = (typeof cli.brain.config?.embeddings?.provider === "string" && cli.brain.config.embeddings?.apiKeyEnv) || "GEMINI_API_KEY";
   if (!process.env[keyEnv]) {
     return { id: "embeddings", status: "warn", detail: `${keyEnv} not set — vector search disabled (FTS still works)`, fix: `set ${keyEnv} to enable semantic search` };
@@ -166,11 +166,28 @@ function checkEmbeddings(cli: CliContext): Check {
     if (cli.embeddings && storedModel && storedModel !== cli.embeddings.id) {
       return { id: "embeddings", status: "warn", detail: `stored vectors from '${storedModel}' but configured provider is '${cli.embeddings.id}'`, fix: "run `brain index --embeddings --force`" };
     }
+    // `vec_chunks` is a sqlite-vec virtual table: without the extension loaded
+    // into THIS connection, every query against it throws and the count reads
+    // as zero — which reported "no vectors stored" for a perfectly healthy
+    // index. Load the extension first, at the dimension the index was built
+    // with (not the currently-configured one, which may differ).
+    const storedDims = Number(getMeta(db, "embedding_dimensions"));
+    const dims = Number.isFinite(storedDims) && storedDims > 0 ? storedDims : embeddingDims(cli.embeddings);
+    const vecLoaded = await initVecSupport(db, dims);
+
     let vecCount = 0;
     try {
       vecCount = (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
     } catch {
       /* vec table absent */
+    }
+    if (vecCount === 0 && !vecLoaded) {
+      return {
+        id: "embeddings",
+        status: "warn",
+        detail: "sqlite-vec could not be loaded — vector count unknown, vector search disabled",
+        fix: "reinstall dependencies (`bun install`) so sqlite-vec is available",
+      };
     }
     if (vecCount === 0) return { id: "embeddings", status: "warn", detail: "API key set but no vectors stored", fix: "run `brain index --embeddings`" };
     return { id: "embeddings", status: "pass", detail: `${vecCount} vector(s), model ${storedModel ?? "?"}` };
@@ -319,7 +336,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkSymlinks(root),
     checkConfig(cli),
     checkDb(cli),
-    checkEmbeddings(cli),
+    await checkEmbeddings(cli),
     checkMcp(root),
     checkDeps(root),
     checkVersion(),

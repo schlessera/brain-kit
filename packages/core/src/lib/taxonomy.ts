@@ -287,17 +287,32 @@ export function buildTaxonomy(opts: {
     }
   }
 
-  // --- classifier hints: modules (config order) → user → core defaults
-  const classifierRules: ClassifierRule[] = [];
-  const seenHintTypes = new Set<string>();
+  // --- classifier hints: modules (config order) → user → core defaults.
+  //
+  // Sources ACCUMULATE per type rather than the first one winning: a module
+  // that claims `conference` must not silence the user's own conference
+  // vocabulary (configuration.md promises "modules contribute theirs; yours
+  // layer on top"). Rule ORDER still follows first appearance, since the
+  // classifier takes the first matching rule and that ordering is what a
+  // module's placement in `modules` expresses. Within a type the compiled
+  // regex is an alternation, so intra-type order is irrelevant.
+  const hintPhrases = new Map<string, string[]>();
+  const hintOrder: string[] = [];
   const pushHints = (hints: Record<string, string[]>, origin: string) => {
     for (const [type, phrases] of Object.entries(hints)) {
       if (!(type in types)) {
         throw new Error(`${origin} declares classifierHints for unknown type "${type}"`);
       }
-      if (seenHintTypes.has(type) || phrases.length === 0) continue;
-      seenHintTypes.add(type);
-      classifierRules.push(compileHints(type, phrases));
+      if (phrases.length === 0) continue;
+      let existing = hintPhrases.get(type);
+      if (!existing) {
+        existing = [];
+        hintPhrases.set(type, existing);
+        hintOrder.push(type);
+      }
+      for (const phrase of phrases) {
+        if (!existing.includes(phrase)) existing.push(phrase);
+      }
     }
   };
   for (const mod of modules) {
@@ -307,6 +322,9 @@ export function buildTaxonomy(opts: {
   pushHints(
     Object.fromEntries(Object.entries(CORE_CLASSIFIER_HINTS).filter(([t]) => t in types)),
     "core"
+  );
+  const classifierRules: ClassifierRule[] = hintOrder.map((type) =>
+    compileHints(type, hintPhrases.get(type)!)
   );
 
   // --- dir anchors: core → modules → user, deduped keeping first occurrence
