@@ -1,0 +1,305 @@
+import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+import {
+  brainSearch,
+  brainBriefing,
+  brainStats,
+  brainList,
+  brainAdd,
+  brainCliCommand,
+} from "../brain/client.js";
+import { buildKeyterms, writeCache } from "../voice/keyterm-builder.js";
+import { existsSync } from "fs";
+import { join } from "path";
+
+/**
+ * Locate the brain repo's `whatsup` script, relative to the repo root.
+ *
+ * Unlike the commands in brain/client.ts, whatsup is NOT part of the packaged
+ * @schlessera/brain CLI (it is absent from CORE_COMMAND_NAMES) — it stays a
+ * repo-local script. A brain repo migrated onto the published packages deletes
+ * the vendored `scripts/` tree and keeps whatsup at `private/whatsup.ts`; the
+ * legacy layout has it at `scripts/whatsup.ts`. Try both, newest layout first.
+ *
+ * Returns null when neither exists, so the route can report that plainly
+ * instead of surfacing bun's "module not found" through the SSE stream.
+ */
+function findWhatsupScript(brainPath: string): string | null {
+  for (const rel of ["private/whatsup.ts", "scripts/whatsup.ts"]) {
+    if (existsSync(join(brainPath, rel))) return rel;
+  }
+  return null;
+}
+
+export const brainRoutes = new Hono()
+  .get("/brain/search", async (c) => {
+    const q = c.req.query("q");
+    if (!q) {
+      return c.json({ error: "Query parameter 'q' is required" }, 400);
+    }
+    try {
+      const { results, warnings } = await brainSearch(q, {
+        type: c.req.query("type"),
+        tag: c.req.query("tag"),
+        limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
+        mode: c.req.query("mode"),
+      });
+      return c.json({ results, warnings });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Search failed" },
+        500
+      );
+    }
+  })
+
+  .get("/brain/briefing", async (c) => {
+    try {
+      const content = await brainBriefing();
+      return c.json({ content });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Briefing failed" },
+        500
+      );
+    }
+  })
+
+  .post("/brain/whatsup", async (c) => {
+    const BRAIN_PATH =
+      process.env.BRAIN_PATH ||
+      `${process.env.HOME || "/root"}/brain`;
+
+    // Defeat reverse-proxy buffering for SSE
+    c.header("X-Accel-Buffering", "no");
+
+    return streamSSE(c, async (stream) => {
+      const send = (data: {
+        type: string;
+        text?: string;
+        success?: boolean;
+      }) => stream.writeSSE({ data: JSON.stringify(data) });
+
+      // Heartbeat keeps the proxy from idling out the connection while
+      // the upstream LLM call is in flight (~5-15s with no stdout)
+      const heartbeat = setInterval(() => {
+        stream
+          .writeSSE({ event: "ping", data: "" })
+          .catch(() => {});
+      }, 3000);
+
+      try {
+        await send({ type: "start", text: "Running whatsup briefing..." });
+
+        const script = findWhatsupScript(BRAIN_PATH);
+        if (!script) {
+          // Terminate with the frames the client actually handles: it only
+          // reads "progress" and "done", so an "error" type would leave the
+          // panel spinning on an empty body.
+          await send({
+            type: "progress",
+            text: "whatsup script not found in the brain repo (looked for private/whatsup.ts and scripts/whatsup.ts).",
+          });
+          await send({ type: "done", success: false, text: "Not available" });
+          return;
+        }
+
+        // --gemini: the default backend needs ANTHROPIC_API_KEY, which is no
+        // longer set (Claude runs on subscription auth, and the script's
+        // --claude backend uses --bare mode, which can't read the
+        // CLAUDE_CODE_OAUTH_TOKEN either).
+        const proc = Bun.spawn(["bun", script, "--gemini"], {
+          cwd: BRAIN_PATH,
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env, NO_COLOR: "1" },
+        });
+
+        const reader = proc.stdout.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              await send({ type: "progress", text: line });
+            }
+          }
+          if (buffer.trim()) {
+            await send({ type: "progress", text: buffer });
+          }
+        } catch {}
+
+        const exitCode = await proc.exited;
+
+        const stderr = await new Response(proc.stderr).text();
+        if (stderr.trim()) {
+          for (const line of stderr.split("\n")) {
+            if (line.trim()) await send({ type: "progress", text: line });
+          }
+        }
+
+        await send({
+          type: "done",
+          success: exitCode === 0,
+          text:
+            exitCode === 0
+              ? "Briefing complete"
+              : `Failed (exit ${exitCode})`,
+        });
+      } finally {
+        clearInterval(heartbeat);
+      }
+    });
+  })
+
+  .get("/brain/stats", async (c) => {
+    try {
+      const stats = await brainStats();
+      return c.json(stats);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Stats failed" },
+        500
+      );
+    }
+  })
+
+  .get("/brain/list", async (c) => {
+    try {
+      const results = await brainList({
+        type: c.req.query("type"),
+        tag: c.req.query("tag"),
+        status: c.req.query("status"),
+        relevance: c.req.query("relevance"),
+        limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
+      });
+      return c.json({ results });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "List failed" },
+        500
+      );
+    }
+  })
+
+  .post("/brain/sync", async (c) => {
+    // Stream sync output via SSE so the client sees live progress.
+    // brain sync spawns a nested Claude Code process that can take minutes.
+    const BRAIN_PATH =
+      process.env.BRAIN_PATH ||
+      `${process.env.HOME || "/root"}/brain`;
+
+    return streamSSE(c, async (stream) => {
+      const send = (data: {
+        type: string;
+        text?: string;
+        success?: boolean;
+      }) => stream.writeSSE({ data: JSON.stringify(data) });
+
+      await send({ type: "start", text: "Starting brain sync..." });
+
+      // The nested Claude process can be silent for minutes; without traffic
+      // the socket gets cut by idle timeouts (Bun's own, or a proxy's). SSE
+      // comment lines are ignored by EventSource and data-line parsers.
+      const keepalive = setInterval(() => {
+        stream.write(": keepalive\n\n").catch(() => {});
+      }, 15_000);
+
+      // Merge stderr into stdout — brain sync spawns a nested Claude Code
+      // process whose output goes to stderr. The command comes from
+      // brainCliCommand() (packaged bin or legacy vendored script), passed to
+      // bash as positional args rather than interpolated into the script, so a
+      // BRAIN_PATH containing spaces or shell metacharacters stays inert.
+      const [cliBin, ...cliArgs] = brainCliCommand();
+      const proc = Bun.spawn(
+        ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
+        {
+          cwd: BRAIN_PATH,
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env, NO_COLOR: "1" },
+        }
+      );
+
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (line.trim()) {
+              await send({ type: "progress", text: line });
+            }
+          }
+        }
+        if (buffer.trim()) {
+          await send({ type: "progress", text: buffer });
+        }
+      } catch {} finally {
+        clearInterval(keepalive);
+      }
+
+      const exitCode = await proc.exited;
+
+      // Rebuild voice keyterms cache after a successful sync.
+      if (exitCode === 0) {
+        try {
+          const cache = buildKeyterms();
+          writeCache(cache);
+          await send({
+            type: "progress",
+            text: `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
+          });
+        } catch (err) {
+          await send({
+            type: "progress",
+            text: `[voice] Keyterm rebuild failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          });
+        }
+      }
+
+      await send({
+        type: "done",
+        success: exitCode === 0,
+        text:
+          exitCode === 0 ? "Sync completed" : `Sync failed (exit ${exitCode})`,
+      });
+    });
+  })
+
+  .post("/brain/add", async (c) => {
+    const body = await c.req.json<{
+      content: string;
+      type?: string;
+      title?: string;
+      tags?: string[];
+    }>();
+    if (!body.content) {
+      return c.json({ error: "Field 'content' is required" }, 400);
+    }
+    try {
+      await brainAdd(body.content, {
+        type: body.type,
+        title: body.title,
+        tags: body.tags,
+      });
+      return c.json({ success: true });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Add failed" },
+        500
+      );
+    }
+  });

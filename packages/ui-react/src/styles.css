@@ -1,0 +1,4 @@
+/* Precompiled-stylesheet entry: `bunx @tailwindcss/cli -i src/styles.css -o dist/styles.css`. */
+@import "tailwindcss" source(none);
+@source "./";
+@import "./theme.css";

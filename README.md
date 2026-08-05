@@ -42,6 +42,10 @@ packages/ui-backend-claude   @schlessera/brain-backend-claude — AgentBackend o
 packages/ui-backend-pi       @schlessera/brain-backend-pi — AgentBackend on the pi coding-agent SDK
 packages/ui-render-puppeteer @schlessera/brain-render-puppeteer — optional HTML→PNG/PDF renderer
                              (network-denied, scriptless; see its header for the threat model)
+packages/ui-server           @schlessera/brain-ui-server — Hono app factory: WS turn coordinator,
+                             auth (password/passkeys/tailscale/proxy), session catalog, routes
+packages/ui-react            @schlessera/brain-ui-react — React chat/files/voice components,
+                             stores, WS transport; prebuilt JS + precompiled CSS
 template/                    source for the brain-template repo (user starting point)
 docs/                        quickstart, concepts, CLI, MCP, hosting, modules, extending
 plan/                        implementation plans (removed from the public release)

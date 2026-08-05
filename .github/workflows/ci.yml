@@ -49,6 +49,8 @@ jobs:
             ui-backend-claude \
             ui-backend-pi \
             ui-render-puppeteer \
+            ui-server \
+            ui-react \
             module-finance \
             module-jobs \
             module-speaking
@@ -81,13 +83,15 @@ jobs:
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
                 "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
                 "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
+                "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
                 "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
                 "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
                 "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
               },
             }, null, 2) + "\n");
           '
-          bun add "$TARBALL_DIR"/*.tgz
+          bun add "$TARBALL_DIR"/*.tgz react react-dom
           bun -e '
             const names = [
               "@schlessera/brain",
@@ -95,6 +99,8 @@ jobs:
               "@schlessera/brain-backend-claude",
               "@schlessera/brain-backend-pi",
               "@schlessera/brain-render-puppeteer",
+              "@schlessera/brain-ui-server",
+              "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
               "@schlessera/brain-module-jobs",
               "@schlessera/brain-module-speaking",
@@ -119,6 +125,7 @@ jobs:
             "@schlessera/brain-ui-sdk/client",
             "@schlessera/brain-backend-claude",
             "@schlessera/brain-render-puppeteer",
+            "@schlessera/brain-ui-react",
           ];
           for (const name of nodePackages) {
             const loaded = await import(name);
@@ -133,6 +140,7 @@ jobs:
             "@schlessera/brain-module-jobs",
             "@schlessera/brain-module-speaking",
             "@schlessera/brain-backend-pi",
+            "@schlessera/brain-ui-server",
           ];
           for (const name of bunApiPackages) {
             try {

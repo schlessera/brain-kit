@@ -5,7 +5,8 @@
     "moduleResolution": "bundler",
     "customConditions": ["bun"],
     "types": ["bun"],
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
@@ -14,6 +15,12 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/tests/**/*.ts", "scripts/**/*.ts"],
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
+    "packages/*/tests/**/*.ts",
+    "packages/*/tests/**/*.tsx",
+    "scripts/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

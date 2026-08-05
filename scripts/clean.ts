@@ -7,6 +7,8 @@ const packages = [
   "ui-backend-claude",
   "ui-backend-pi",
   "ui-render-puppeteer",
+  "ui-server",
+  "ui-react",
   "module-finance",
   "module-jobs",
   "module-speaking",

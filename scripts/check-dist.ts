@@ -20,6 +20,10 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
     }
   }
 
+  if (packageName === "@schlessera/brain-ui-react") {
+    requireFile(join(packageDir, "dist", "styles.css"), packageName);
+  }
+
   if (packageName !== "@schlessera/brain") return;
 
   requireFile(join(packageDir, "dist", "cli", "brain.js"), packageName);

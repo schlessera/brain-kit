@@ -1,0 +1,425 @@
+/*
+ * brain-ui-react theme + component styles.
+ *
+ * Import this from a Tailwind v4 entry (the @theme block feeds the utility
+ * classes the components use), together with
+ *   @source "../node_modules/@schlessera/brain-ui-react/src";
+ * so the consumer build scans the component sources. Consumers without a
+ * Tailwind build use the precompiled ./styles.css export instead.
+ */
+@theme {
+  /* Backgrounds - warm-tinted darks */
+  --color-background: #0c0e12;
+  --color-surface: #141619;
+  --color-surface-raised: #1a1d22;
+  --color-surface-overlay: #1e2128;
+
+  /* Borders */
+  --color-border: #2a2d35;
+  --color-border-subtle: #1f2229;
+
+  /* Text hierarchy */
+  --color-foreground: #e8e4df;
+  --color-muted: #141619;
+  --color-muted-foreground: #8a8691;
+  --color-card: #141619;
+  --color-card-foreground: #e8e4df;
+
+  /* Primary: Amber */
+  --color-primary: #e09f3e;
+  --color-primary-foreground: #0c0e12;
+
+  /* Secondary */
+  --color-secondary: #1a1d22;
+  --color-secondary-foreground: #e8e4df;
+  --color-accent: #5bb5a2;
+  --color-accent-foreground: #0c0e12;
+
+  /* Semantic */
+  --color-destructive: #f87171;
+  --color-input: #2a2d35;
+  --color-ring: #e09f3e80;
+
+  /* Radius */
+  --radius: 0.5rem;
+
+  /* Fonts */
+  --font-display: "DM Serif Text", Georgia, serif;
+  --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Amber filament line */
+.filament {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    #e09f3e 30%,
+    #eab354 50%,
+    #e09f3e 70%,
+    transparent 100%
+  );
+  opacity: 0.7;
+  transition: opacity 0.3s ease;
+}
+
+.filament--active {
+  opacity: 1;
+  height: 2px;
+  background:
+    radial-gradient(circle at center, #eab354 0%, transparent 40%) no-repeat,
+    linear-gradient(
+      to right,
+      transparent 0%,
+      #e09f3e 30%,
+      #eab354 50%,
+      #e09f3e 70%,
+      transparent 100%
+    );
+  background-size:
+    80px 2px,
+    100% 1px;
+  animation: filament-scan 3s linear infinite;
+}
+
+@keyframes filament-scan {
+  0% {
+    background-position:
+      -200% center,
+      0% center;
+  }
+  100% {
+    background-position:
+      200% center,
+      0% center;
+  }
+}
+
+/* Breathing animation for streaming indicators */
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(224, 159, 62, 0.15);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 8px 2px rgba(224, 159, 62, 0.15);
+    opacity: 0.6;
+  }
+}
+
+/* Whatsup briefing styling */
+.whatsup-briefing {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: #e8e4df;
+}
+.whatsup-briefing h2 {
+  color: #5bb5a2;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  padding-bottom: 0.375rem;
+  margin-bottom: 0.5rem;
+  margin-top: 1.5rem;
+  border-bottom: 1px solid #2a2d35;
+}
+.whatsup-briefing h2:first-child {
+  margin-top: 0;
+}
+
+/* Entity color-coding */
+.whatsup-briefing .entity-co {
+  color: #67b8e3;
+  font-weight: 600;
+}
+.whatsup-briefing .entity-p {
+  color: #5bb5a2;
+  font-weight: 600;
+}
+.whatsup-briefing .entity-proj {
+  color: #b197d4;
+  font-weight: 600;
+}
+.whatsup-briefing .entity-ev {
+  color: #e09f3e;
+  font-weight: 600;
+}
+.whatsup-briefing .entity-d {
+  color: #67b8e3;
+}
+.whatsup-briefing .entity-st {
+  color: #eab354;
+}
+.whatsup-briefing .entity-f {
+  color: #8a8691;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* ── Brain prose: unified markdown styles ── */
+.brain-prose {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: #e8e4df;
+}
+
+/* Headings */
+.brain-prose h1 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #e8e4df;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+.brain-prose h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: #e09f3e;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid #2a2d35;
+}
+.brain-prose h3 {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e8e4df;
+  margin-top: 1.5rem;
+  margin-bottom: 0.375rem;
+}
+.brain-prose h4 {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #8a8691;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.375rem;
+}
+.brain-prose :is(h1, h2, h3, h4):first-child {
+  margin-top: 0;
+}
+
+/* Paragraphs */
+.brain-prose p {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Bold / italic */
+.brain-prose strong {
+  font-weight: 600;
+  color: #e8e4df;
+}
+.brain-prose em {
+  font-style: italic;
+  color: #c0bcb5;
+}
+
+/* Links */
+.brain-prose a {
+  color: #e09f3e;
+  text-decoration: underline;
+  text-decoration-color: rgba(224, 159, 62, 0.3);
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+}
+.brain-prose a:hover {
+  color: rgba(224, 159, 62, 0.8);
+}
+
+/* Lists */
+.brain-prose ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.brain-prose ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.brain-prose li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  padding-left: 0.25rem;
+}
+.brain-prose li::marker {
+  color: #5bb5a2;
+}
+
+/* Tables */
+.brain-prose table {
+  width: 100%;
+  font-size: 0.8125rem;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.brain-prose thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8691;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid #2a2d35;
+  background: #141619;
+}
+.brain-prose tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #1f2229;
+  vertical-align: top;
+}
+.brain-prose tbody tr:hover {
+  background: rgba(224, 159, 62, 0.03);
+}
+
+/* Code - inline */
+.brain-prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  background: #1a1d22;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  color: #e8e4df;
+}
+
+/* Code - blocks */
+.brain-prose pre {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  background: #141619;
+  border: 1px solid #2a2d35;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.brain-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Blockquotes */
+.brain-prose blockquote {
+  border-left: 3px solid #e09f3e;
+  background: rgba(224, 159, 62, 0.04);
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+.brain-prose blockquote p {
+  color: #c0bcb5;
+  font-style: italic;
+}
+
+/* Horizontal rules */
+.brain-prose hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #2a2d35 20%, #2a2d35 80%, transparent);
+  margin: 1.5rem 0;
+}
+
+/* Images */
+.brain-prose img {
+  border-radius: 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+/* File reference links — distinct from external links */
+.brain-file-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(91, 181, 162, 0.4);
+  text-underline-offset: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.brain-file-link:hover {
+  color: var(--color-foreground);
+  background-color: rgba(91, 181, 162, 0.1);
+  text-decoration-color: rgba(91, 181, 162, 0.8);
+}
+/* Override .brain-prose a styling when it's a file link */
+.brain-prose a.brain-file-link {
+  color: var(--color-accent);
+  text-decoration-color: rgba(91, 181, 162, 0.4);
+}
+.brain-prose a.brain-file-link:hover {
+  color: var(--color-foreground);
+  text-decoration-color: rgba(91, 181, 162, 0.8);
+}
+
+/* Directory links read slightly differently — italic + folder-cue color */
+.brain-file-link--dir,
+.brain-prose a.brain-file-link--dir {
+  color: var(--color-primary);
+  text-decoration-color: rgba(224, 159, 62, 0.4);
+}
+.brain-file-link--dir:hover,
+.brain-prose a.brain-file-link--dir:hover {
+  color: var(--color-foreground);
+  background-color: rgba(224, 159, 62, 0.1);
+  text-decoration-color: rgba(224, 159, 62, 0.8);
+}
+
+/* Wikilinks — match file-link styling but use a subtle bracket cue */
+.brain-wiki-link::before,
+.brain-prose a.brain-wiki-link::before {
+  content: "↗";
+  margin-right: 0.15em;
+  font-size: 0.85em;
+  opacity: 0.55;
+}
+.brain-wiki-link--unresolved {
+  color: var(--color-muted-foreground);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(138, 134, 145, 0.5);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.brain-wiki-link--unresolved::before {
+  content: "✗";
+  margin-right: 0.15em;
+  font-size: 0.8em;
+  opacity: 0.6;
+}
+
+/* Tree node highlight flash for openDir() navigation */
+@keyframes brain-tree-flash {
+  0% {
+    background-color: rgba(91, 181, 162, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(91, 181, 162, 0.6);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+.brain-tree-highlight {
+  animation: brain-tree-flash 1.6s ease-out;
+}
