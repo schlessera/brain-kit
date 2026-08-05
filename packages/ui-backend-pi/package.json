@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-backend-pi",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "OSS-default brain-kit agent backend, purpose-built on the upstream pi coding-agent SDK",
   "license": "MIT",
   "keywords": [
