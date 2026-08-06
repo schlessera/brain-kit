@@ -24,9 +24,38 @@ mean it).
 |---|---|---|
 | `brainPath` | — | Working directory for the agent — the brain repo. |
 | `claudeCodePath` | SDK discovery | Path to the native `claude` executable when it isn't on PATH. |
-| `profiles` | `DEFAULT_PROFILES` | Selectable inference profiles; first is the default. |
+| `profiles` | `DEFAULT_PROFILES` | Selectable inference profiles; first is the default. Pass a **function** when the roster can change at runtime (see model discovery) — an array is captured once. |
 | `allowedTools` | `DEFAULT_ALLOWED_TOOLS` | Backend-wide allowlist; a profile's own `allowedTools` overrides it. |
 | `writeLock` | fresh per-instance lock | Serializes mutating tool executions across all sessions of this backend. Inject a shared one to coordinate with other in-process writers. |
+
+## Model discovery
+
+`createModelSource({ brainPath })` keeps a roster of the models the current
+credential can actually use, read from the Anthropic Models API. It works with
+either `ANTHROPIC_API_KEY` (`x-api-key`) or a `CLAUDE_CODE_OAUTH_TOKEN`
+subscription token (`Authorization: Bearer` + the `oauth-2025-04-20` beta
+header); with neither, it yields an empty roster instead of throwing.
+
+Dated snapshot ids are canonicalized to their public alias
+(`claude-haiku-4-5-20251001` → `claude-haiku-4-5`) — some models are listed
+*only* in dated form, so dropping them would lose the model entirely. Each new
+alias is confirmed with a `GET /v1/models/{alias}` before use and the answer is
+remembered, so a steady-state refresh is one request.
+
+```ts
+const source = createModelSource({ brainPath, ttlMs: 24 * 60 * 60 * 1000 });
+const backend = createClaudeBackend({
+  brainPath,
+  profiles: () => [...declaredProfiles, ...defineProfiles(source.list())],
+});
+
+await source.ensureFresh(); // in front of a request: awaits only on a cold start
+```
+
+`list()` is synchronous and cache-backed — rendering a picker never waits on the
+network. Results persist to `<brainPath>/.brain-ui/anthropic-models.json`, so a
+restart serves the last known roster immediately. A failed refresh keeps the
+previous list and reports the reason via `state().error`.
 
 ## Write serialization: PreToolUse, not canUseTool
 

@@ -69,6 +69,25 @@ describe("app wiring — auth guard ordering", () => {
     const res = await get("/api/vpn-check");
     expect(res.status).toBe(401);
   });
+
+  test("the model catalog routes are behind the auth guard", async () => {
+    const send = (path: string, init?: RequestInit) =>
+      app().fetch(new Request(`http://localhost${path}`, init));
+
+    expect((await send("/api/models")).status).toBe(401);
+    expect(
+      (
+        await send("/api/models/hidden", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hidden: [] }),
+        })
+      ).status
+    ).toBe(401);
+    expect((await send("/api/models/refresh", { method: "POST" })).status).toBe(
+      401
+    );
+  });
 });
 
 describe("app wiring — password auth", () => {

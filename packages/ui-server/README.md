@@ -50,15 +50,29 @@ different options reconfigures the first app rather than creating a second.
   index.
 - **Render seam** — `POST /api/render` answers 501 unless the deployment
   injects a renderer (see `@schlessera/brain-render-puppeteer`).
+- **Model catalog** — Anthropic model discovery (via
+  `@schlessera/brain-backend-claude`) behind `GET /api/models`, with a
+  server-side hidden set (`PUT /api/models/hidden`) and a manual
+  `POST /api/models/refresh`. `/api/providers` serves the same roster minus the
+  hidden entries; hidden profiles still resolve for sessions pinned to them.
 
 ## Environment
 
 The package reads the same env contract the brain-ui deployment documents:
 `AUTH_MODE`, `BRAIN_UI_PASSWORD_HASH`, `COOKIE_SECRET`, `TRUST_PROXY`,
 `WEBAUTHN_*`, `BRAIN_PATH`, `DB_PATH`, `AGENT_BACKEND`,
-`BRAIN_UI_CLAUDE_PROFILES`, `MAX_CONCURRENT_SESSIONS`, `DEEPGRAM_API_KEY`,
+`BRAIN_UI_CLAUDE_PROFILES`, `BRAIN_UI_MODEL_DISCOVERY`,
+`BRAIN_UI_MODEL_TTL_HOURS`, `MAX_CONCURRENT_SESSIONS`, `DEEPGRAM_API_KEY`,
 `VOICE_*`, `NOMINATIM_*`, `ALLOWED_ORIGINS`. `createApp()` options win over
 env where both exist.
+
+Model discovery is on by default and needs no configuration beyond the Claude
+credential the agent already uses (`CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`). `BRAIN_UI_MODEL_DISCOVERY=0` turns it off — leaving the
+picker to `BRAIN_UI_CLAUDE_PROFILES` alone — and `BRAIN_UI_MODEL_TTL_HOURS`
+(default 24) sets how long a discovered roster is served before a background
+refresh. It defaults to OFF under a test runner (`NODE_ENV=test`) so suites
+don't depend on network access; set the var explicitly to opt in.
 
 ## Versioning
 

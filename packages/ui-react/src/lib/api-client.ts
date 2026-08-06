@@ -6,6 +6,7 @@ import type {
   PronunciationOverride,
   ProviderInfo,
   PasskeySummary,
+  ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AuthenticationResponseJSON,
@@ -118,6 +119,20 @@ export const api = {
       providers: ProviderInfo[];
       backends?: Record<string, BackendInfo>;
     }>("/providers"),
+
+  /** Full model catalog for the settings screen — hidden entries included. */
+  models: () => fetchJson<ModelCatalogResponse>("/models"),
+
+  /** Replace the hidden set (full list, not a delta); returns the new catalog. */
+  setHiddenModels: (hidden: string[]) =>
+    fetchJson<ModelCatalogResponse>("/models/hidden", {
+      method: "PUT",
+      body: JSON.stringify({ hidden }),
+    }),
+
+  /** Force a discovery refresh, bypassing the TTL. */
+  refreshModels: () =>
+    fetchJson<ModelCatalogResponse>("/models/refresh", { method: "POST" }),
 
   /** Password-mode login. Resolves on success; throws the server error otherwise. */
   login: (password: string) =>

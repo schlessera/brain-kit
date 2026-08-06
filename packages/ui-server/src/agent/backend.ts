@@ -1,10 +1,13 @@
 import { createRequire } from "module";
 import {
   createClaudeBackend,
+  createModelSource,
   defineProfiles,
   type InferenceProfile,
   type InferenceProfileInput,
+  type ModelSource,
 } from "@schlessera/brain-backend-claude";
+import { getHiddenModelIds } from "../db/settings.js";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
 import type {
   AgentBackend,
@@ -35,11 +38,24 @@ interface BackendRegistry {
   backends: AgentBackend[];
   byId: Map<string, AgentBackend>;
   defaultBackendId: string;
-  profileOwners: Map<string, string>;
-  profiles: Map<string, ProviderInfo[]>;
 }
 
+/**
+ * Profiles are NOT part of the registry snapshot: a backend's roster can grow
+ * while the process runs (model discovery refreshing behind a request), so they
+ * are recomputed behind a short memo and can be invalidated explicitly.
+ */
+interface ProfileSnapshot {
+  at: number;
+  byBackend: Map<string, ProviderInfo[]>;
+  owners: Map<string, string>;
+}
+
+const PROFILE_MEMO_MS = 5_000;
+
 let cachedRegistry: Promise<BackendRegistry> | null = null;
+let profileSnapshot: ProfileSnapshot | null = null;
+let modelSource: ModelSource | null = null;
 
 async function createRegistry(
   backends: AgentBackend[],
@@ -57,35 +73,121 @@ async function createRegistry(
     byId.get(resolvedDefaultId)!,
     ...backends.filter((backend) => backend.id !== resolvedDefaultId),
   ];
-  const listedProfiles = await Promise.all(
-    ordered.map(async (backend) => ({
-      backend,
-      profiles: await backend.listProfiles(),
-    }))
-  );
-  const profileOwners = new Map<string, string>();
-  const profiles = new Map<string, ProviderInfo[]>();
 
-  for (const listed of listedProfiles) {
-    profiles.set(listed.backend.id, listed.profiles);
-    for (const profile of listed.profiles) {
-      const owner = profileOwners.get(profile.id);
-      if (owner && owner !== listed.backend.id) {
+  return { backends: ordered, byId, defaultBackendId: resolvedDefaultId };
+}
+
+/** Recompute the profile roster (memoized), asserting cross-backend id uniqueness. */
+async function getProfileSnapshot(): Promise<ProfileSnapshot> {
+  if (profileSnapshot && Date.now() - profileSnapshot.at < PROFILE_MEMO_MS) {
+    return profileSnapshot;
+  }
+
+  const registry = await getRegistry();
+  const byBackend = new Map<string, ProviderInfo[]>();
+  const owners = new Map<string, string>();
+
+  for (const backend of registry.backends) {
+    const profiles = await backend.listProfiles();
+    byBackend.set(backend.id, profiles);
+    for (const profile of profiles) {
+      const owner = owners.get(profile.id);
+      if (owner && owner !== backend.id) {
         throw new Error(
-          `Profile id collision across backends: "${profile.id}" is exposed by "${owner}" and "${listed.backend.id}".`
+          `Profile id collision across backends: "${profile.id}" is exposed by "${owner}" and "${backend.id}".`
         );
       }
-      profileOwners.set(profile.id, listed.backend.id);
+      owners.set(profile.id, backend.id);
     }
   }
 
-  return {
-    backends: ordered,
-    byId,
-    defaultBackendId: resolvedDefaultId,
-    profileOwners,
-    profiles,
-  };
+  profileSnapshot = { at: Date.now(), byBackend, owners };
+  return profileSnapshot;
+}
+
+/** Drop the memo so the next read reflects a refresh or a settings change. */
+export function invalidateProfiles(): void {
+  profileSnapshot = null;
+}
+
+/**
+ * The Claude backend's discovery source, once the registry is built. Null when
+ * discovery is disabled or the deployment runs a different backend.
+ */
+export async function getModelSource(): Promise<ModelSource | null> {
+  await getRegistry();
+  return modelSource;
+}
+
+/**
+ * Hidden profile ids, from the settings table. Presentation only — a hidden
+ * profile still resolves for sessions pinned to it. A db read failure must not
+ * take the picker down, so it degrades to "nothing hidden".
+ */
+function hiddenIds(): Set<string> {
+  try {
+    return new Set(getHiddenModelIds());
+  } catch (err) {
+    console.warn(
+      `[models] Could not read hidden models: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return new Set();
+  }
+}
+
+/**
+ * Model discovery is on unless explicitly disabled — except under a test
+ * runner, where the default flips to off: discovery is a live call to the
+ * Anthropic API, and a suite that silently depends on network access (and on
+ * whatever credentials the developer happens to have exported) is flaky by
+ * construction. Tests that want it set BRAIN_UI_MODEL_DISCOVERY=1 explicitly.
+ */
+function modelDiscoveryEnabled(): boolean {
+  const raw = process.env.BRAIN_UI_MODEL_DISCOVERY?.trim().toLowerCase();
+  if (raw) return !(raw === "0" || raw === "off" || raw === "false");
+  return process.env.NODE_ENV !== "test";
+}
+
+/** How long a discovery result stays fresh. Default 24h. */
+function modelTtlMs(): number {
+  const raw = Number(process.env.BRAIN_UI_MODEL_TTL_HOURS);
+  const hours = Number.isFinite(raw) && raw > 0 ? raw : 24;
+  return hours * 60 * 60 * 1000;
+}
+
+/**
+ * Declared profiles (built-in default + BRAIN_UI_CLAUDE_PROFILES) plus every
+ * discovered model whose id isn't already declared. Declared wins: the env stays
+ * an override mechanism, and a hand-pinned entry keeps its label and endpoint.
+ *
+ * Memoized on the discovered array's identity — `createModelSource` swaps the
+ * array only on a successful refresh, so steady state is one comparison.
+ */
+let mergeCache: {
+  declared: InferenceProfile[];
+  discovered: InferenceProfileInput[];
+  result: InferenceProfile[];
+} | null = null;
+
+function mergeDiscovered(
+  declared: InferenceProfile[],
+  discovered: InferenceProfileInput[]
+): InferenceProfile[] {
+  if (
+    mergeCache &&
+    mergeCache.declared === declared &&
+    mergeCache.discovered === discovered
+  ) {
+    return mergeCache.result;
+  }
+
+  const declaredIds = new Set(declared.map((profile) => profile.id));
+  const extra = discovered.filter((input) => !declaredIds.has(input.id));
+  const result = [...declared, ...defineProfiles(extra)];
+  mergeCache = { declared, discovered, result };
+  return result;
 }
 
 async function buildRegistry(): Promise<BackendRegistry> {
@@ -98,10 +200,22 @@ async function buildRegistry(): Promise<BackendRegistry> {
     return createRegistry([pi], pi.id);
   }
 
+  // Declared profiles are resolved EAGERLY so a malformed
+  // BRAIN_UI_CLAUDE_PROFILES still fails at boot rather than on first request.
+  const declared = loadClaudeProfiles();
+
+  modelSource = createModelSource({
+    brainPath: BRAIN_PATH,
+    enabled: modelDiscoveryEnabled(),
+    ttlMs: modelTtlMs(),
+  });
+
   const claude = createClaudeBackend({
     brainPath: BRAIN_PATH,
     claudeCodePath: CLAUDE_CODE_PATH,
-    profiles: loadClaudeProfiles(),
+    // A function, not an array: discovery refreshes in the background and the
+    // new roster has to be visible without restarting the process.
+    profiles: () => mergeDiscovered(declared, modelSource?.list() ?? []),
   });
   const backends = [claude];
 
@@ -151,7 +265,10 @@ export async function getBackendForProfile(
   profileId: string
 ): Promise<AgentBackend | undefined> {
   const registry = await getRegistry();
-  const backendId = registry.profileOwners.get(profileId);
+  // Deliberately resolved against the UNFILTERED roster: a session pinned to a
+  // profile the user later hid must keep running.
+  const snapshot = await getProfileSnapshot();
+  const backendId = snapshot.owners.get(profileId);
   return backendId ? registry.byId.get(backendId) : undefined;
 }
 
@@ -166,14 +283,23 @@ export async function getBackendForSession(
   return getDefaultBackend();
 }
 
-/** List every available profile, tagged with its owning backend id. */
-export async function listAllProviders(): Promise<ProviderInfo[]> {
+/**
+ * Every available profile, tagged with its owning backend id.
+ *
+ * Hidden profiles are omitted by default (this feeds the picker); the settings
+ * screen passes `includeHidden` to render the full catalog.
+ */
+export async function listAllProviders(
+  options: { includeHidden?: boolean } = {}
+): Promise<ProviderInfo[]> {
   const registry = await getRegistry();
+  const snapshot = await getProfileSnapshot();
+  const hidden = options.includeHidden ? new Set<string>() : hiddenIds();
+
   return registry.backends.flatMap((backend) =>
-    (registry.profiles.get(backend.id) ?? []).map((profile) => ({
-      ...profile,
-      backendId: backend.id,
-    }))
+    (snapshot.byBackend.get(backend.id) ?? [])
+      .filter((profile) => !hidden.has(profile.id))
+      .map((profile) => ({ ...profile, backendId: backend.id }))
   );
 }
 
@@ -198,11 +324,14 @@ export async function getBackend(): Promise<AgentBackend> {
 /** Test seam: drop the cached registry so later access rebuilds from env. */
 export function resetBackendForTests(): void {
   cachedRegistry = null;
+  profileSnapshot = null;
+  modelSource = null;
 }
 
 /** Test seam: install one fake backend as the complete registry. */
 export function setBackendForTests(backend: AgentBackend): void {
   cachedRegistry = createRegistry([backend], backend.id);
+  profileSnapshot = null;
 }
 
 /** Test seam: install a complete fake registry with an explicit default. */
@@ -211,6 +340,7 @@ export function setBackendsForTests(
   defaultBackendId = backends[0]?.id ?? ""
 ): void {
   cachedRegistry = createRegistry(backends, defaultBackendId);
+  profileSnapshot = null;
 }
 
 // The built-in default profile's model. The Claude backend historically pinned
@@ -230,6 +360,7 @@ function builtinDefaultProfiles(): InferenceProfile[] {
       vendor: "anthropic",
       model: BUILTIN_DEFAULT_MODEL,
       modelAliases: true,
+      source: "builtin",
     },
   ]);
 }
@@ -279,7 +410,11 @@ function loadClaudeProfiles(): InferenceProfile[] {
     seen.add(input.id);
   }
 
-  return [...base, ...defineProfiles(inputs as InferenceProfileInput[])];
+  const declared = (inputs as InferenceProfileInput[]).map((input) => ({
+    source: "declared" as const,
+    ...input,
+  }));
+  return [...base, ...defineProfiles(declared)];
 }
 
 /**

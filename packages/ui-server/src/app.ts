@@ -11,6 +11,7 @@ import { voiceRoutes } from "./routes/voice.js";
 import { filesRoutes } from "./routes/files.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { providerRoutes } from "./routes/providers.js";
+import { modelRoutes } from "./routes/models.js";
 import {
   resolveAuthMode,
   assertAuthConfig,
@@ -130,6 +131,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/api", filesRoutes);
   app.route("/api", createRenderRoutes(options.renderer));
   app.route("/api", providerRoutes);
+  app.route("/api", modelRoutes);
 
   // WebSocket endpoint. Browsers can't set headers on the WS handshake, so the
   // upgrade authenticates via the session cookie (or IP/proxy header) INSIDE

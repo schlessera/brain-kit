@@ -3,7 +3,7 @@ import {
   RefreshCw,
   Newspaper,
   History,
-  KeyRound,
+  SlidersHorizontal,
   SquarePen,
   FolderTree,
 } from "lucide-react";
@@ -18,7 +18,7 @@ export function SideRail() {
   const toggleSyncPanel = useUIStore((s) => s.toggleSyncPanel);
   const toggleWhatsupPanel = useUIStore((s) => s.toggleWhatsupPanel);
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
-  const toggleSecurityPanel = useUIStore((s) => s.toggleSecurityPanel);
+  const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const hasMessages = useChatStore((s) => activeChat(s).messages.length > 0);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
@@ -71,11 +71,11 @@ export function SideRail() {
         onClick={toggleSessionPanel}
       />
 
-      {/* Security (passkeys, sign out) */}
+      {/* Settings (models, passkeys, sign out) */}
       <RailButton
-        icon={KeyRound}
-        label="Security"
-        onClick={toggleSecurityPanel}
+        icon={SlidersHorizontal}
+        label="Settings"
+        onClick={toggleSettingsPanel}
       />
 
       {/* Connection status */}

@@ -31,7 +31,7 @@ import { MessageBubble } from "./message-bubble.js";
 import { WelcomeState } from "./welcome-state.js";
 import { CommandPalette } from "./command-palette.js";
 import { SessionDrawer } from "./session-drawer.js";
-import { PasskeyPanel } from "../settings/passkey-panel.js";
+import { SettingsPanel } from "../settings/settings-panel.js";
 import { StreamingPanel } from "../quick-actions/streaming-modal.js";
 import { WhatsupPanel } from "../quick-actions/whatsup-modal.js";
 import { FilePanel } from "../files/file-panel.js";
@@ -122,8 +122,8 @@ export function ChatPage() {
   const setWhatsupPanelOpen = useUIStore((s) => s.setWhatsupPanelOpen);
   const filePanelOpen = useUIStore((s) => s.filePanelOpen);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
-  const securityPanelOpen = useUIStore((s) => s.securityPanelOpen);
-  const setSecurityPanelOpen = useUIStore((s) => s.setSecurityPanelOpen);
+  const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
+  const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   // Voice dictation state
   const voiceMode = useVoiceStore((s) => s.mode);
@@ -484,9 +484,9 @@ export function ChatPage() {
         onClose={() => setSessionPanelOpen(false)}
         onResume={handleSessionResume}
       />
-      <PasskeyPanel
-        open={securityPanelOpen}
-        onClose={() => setSecurityPanelOpen(false)}
+      <SettingsPanel
+        open={settingsPanelOpen}
+        onClose={() => setSettingsPanelOpen(false)}
       />
       <StreamingPanel
         open={syncPanelOpen}

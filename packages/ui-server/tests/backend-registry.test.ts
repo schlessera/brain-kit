@@ -51,6 +51,7 @@ describe("backend registry", () => {
         id: "claude",
         label: "Claude",
         vendor: "anthropic",
+        source: "builtin",
         backendId: "claude",
       },
     ]);

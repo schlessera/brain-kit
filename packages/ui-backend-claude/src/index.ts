@@ -8,3 +8,17 @@ export { createClaudeBackend } from "./backend.js";
 export type { ClaudeBackendOptions } from "./backend.js";
 export { defineProfiles, DEFAULT_PROFILES } from "./profiles.js";
 export type { InferenceProfile, InferenceProfileInput } from "./profiles.js";
+export {
+  discoverAnthropicModels,
+  createModelSource,
+  canonicalModelId,
+  modelCachePath,
+} from "./model-discovery.js";
+export type {
+  ModelSource,
+  ModelSourceOptions,
+  ModelSourceState,
+  DiscoverOptions,
+  DiscoverResult,
+  AliasChecks,
+} from "./model-discovery.js";

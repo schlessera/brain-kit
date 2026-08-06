@@ -310,6 +310,42 @@ export interface ProviderInfo {
    * Absent on single-backend hosts (the sole backend's capabilities apply).
    */
   backendId?: string;
+  /** Context window in tokens, when the backend knows it. Presentation only. */
+  contextWindow?: number;
+  /**
+   * Where the profile came from: the backend's own pinned default, a
+   * host-declared profile (env/config), or provider-API discovery. Presentation
+   * only — the client must not switch behavior on it.
+   */
+  source?: "builtin" | "declared" | "discovered";
+}
+
+// --- Model catalog (HTTP: /api/models) ---
+
+/** One row of the settings-screen model catalog: a profile plus its visibility. */
+export interface ModelCatalogEntry extends ProviderInfo {
+  /** Hidden profiles are omitted from the picker but still resolve for pinned sessions. */
+  hidden: boolean;
+}
+
+/** Response of GET /api/models, PUT /api/models/hidden, POST /api/models/refresh. */
+export interface ModelCatalogResponse {
+  /** Every known profile, hidden ones included (each tagged). */
+  models: ModelCatalogEntry[];
+  /** When discovery last succeeded; null when it never has. */
+  refreshedAt: number | null;
+  /** The cached discovery result is older than the TTL. */
+  stale: boolean;
+  discovery: {
+    enabled: boolean;
+    /** Last discovery failure, if the current list is being served despite one. */
+    error?: string;
+  };
+}
+
+/** Body of PUT /api/models/hidden — the complete hidden set, not a delta. */
+export interface SetHiddenModelsRequest {
+  hidden: string[];
 }
 
 // --- Shared Types ---

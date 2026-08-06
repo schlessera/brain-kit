@@ -19,6 +19,10 @@ export interface InferenceProfile {
   /** Model id passed to the SDK. Undefined = the SDK/CLI default model. */
   model?: string;
   allowedTools?: string[];
+  /** Context window in tokens, when known. Presentation only. */
+  contextWindow?: number;
+  /** Where this profile came from. Presentation only. */
+  source?: "builtin" | "declared" | "discovered";
   /** Env vars that must be present (non-empty) for this profile to be usable. */
   requiredEnvKeys: string[];
   /** Environment overrides merged over `process.env` before the query runs. */
@@ -45,6 +49,10 @@ export interface InferenceProfileInput {
    */
   modelAliases?: boolean;
   allowedTools?: string[];
+  /** Context window in tokens, when known (e.g. reported by model discovery). */
+  contextWindow?: number;
+  /** Where this profile came from. Presentation only. */
+  source?: "builtin" | "declared" | "discovered";
 }
 
 /** The four model-alias envs the CLI resolves internally, all set to `model`. */
@@ -76,6 +84,8 @@ export function defineProfiles(
       vendor: input.vendor,
       model: input.model,
       allowedTools: input.allowedTools,
+      contextWindow: input.contextWindow,
+      source: input.source,
       requiredEnvKeys,
       buildEnv(): Record<string, string> {
         const env: Record<string, string> = {};
@@ -125,9 +135,13 @@ export function isAvailable(profile: InferenceProfile): boolean {
 
 /** Safe metadata for the AVAILABLE profiles only — never keys or env. */
 export function listProfiles(profiles: InferenceProfile[]): ProviderInfo[] {
-  return profiles.filter(isAvailable).map(({ id, label, vendor }) => ({
-    id,
-    label,
-    ...(vendor !== undefined ? { vendor } : {}),
-  }));
+  return profiles
+    .filter(isAvailable)
+    .map(({ id, label, vendor, contextWindow, source }) => ({
+      id,
+      label,
+      ...(vendor !== undefined ? { vendor } : {}),
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(source !== undefined ? { source } : {}),
+    }));
 }

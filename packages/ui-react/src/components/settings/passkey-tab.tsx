@@ -13,21 +13,18 @@ import {
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import { api } from "../../lib/api-client.js";
 import { isUserCancel, registerPasskey, supportsPasskeys } from "../../lib/passkeys.js";
-import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 
 /**
- * Passkey management + sign out. Registration requires the current session
- * (routes are behind the auth guard); credentials are RP-scoped, so entries
- * registered on another hostname are badged and only useful there.
+ * Passkey management + sign out — the Security tab of the settings panel.
+ * Registration requires the current session (routes are behind the auth guard);
+ * credentials are RP-scoped, so entries registered on another hostname are
+ * badged and only useful there.
+ *
+ * `active` is "this tab is on screen": the list reloads when it becomes visible
+ * rather than on mount, so switching tabs picks up changes made elsewhere.
  */
-export function PasskeyPanel({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function PasskeyTab({ active }: { active: boolean }) {
   const [credentials, setCredentials] = useState<PasskeySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,11 +49,11 @@ export function PasskeyPanel({
   }
 
   useEffect(() => {
-    if (open) {
+    if (active) {
       setError(null);
       void refresh();
     }
-  }, [open]);
+  }, [active]);
 
   async function onAdd() {
     if (busy) return;
@@ -106,79 +103,77 @@ export function PasskeyPanel({
   }
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Security">
-      <div className="flex h-full flex-col">
-        <div className="flex-1 overflow-y-auto p-4">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Passkeys
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Sign in with Face ID, fingerprint, or a security key instead of the
-            password. Passkeys only work on the site they were added on.
+    <div className="flex h-full flex-col">
+      <div className="flex-1 overflow-y-auto p-4">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Passkeys
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sign in with Face ID, fingerprint, or a security key instead of the
+          password. Passkeys only work on the site they were added on.
+        </p>
+
+        {loading ? (
+          <div className="mt-6 flex justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <ul className="mt-4 flex flex-col gap-2">
+            {credentials.map((credential) => (
+              <PasskeyRow
+                key={credential.id}
+                credential={credential}
+                onDelete={() => onDelete(credential.id)}
+                onRename={(label) => onRename(credential.id, label)}
+              />
+            ))}
+            {credentials.length === 0 && passkeyMode && (
+              <li className="rounded-lg border border-dashed border-border-subtle p-4 text-center text-xs text-muted-foreground">
+                No passkeys yet.
+              </li>
+            )}
+          </ul>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-3 text-xs text-destructive">
+            {error}
           </p>
+        )}
 
-          {loading ? (
-            <div className="mt-6 flex justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <ul className="mt-4 flex flex-col gap-2">
-              {credentials.map((credential) => (
-                <PasskeyRow
-                  key={credential.id}
-                  credential={credential}
-                  onDelete={() => onDelete(credential.id)}
-                  onRename={(label) => onRename(credential.id, label)}
-                />
-              ))}
-              {credentials.length === 0 && passkeyMode && (
-                <li className="rounded-lg border border-dashed border-border-subtle p-4 text-center text-xs text-muted-foreground">
-                  No passkeys yet.
-                </li>
-              )}
-            </ul>
-          )}
-
-          {error && (
-            <p role="alert" className="mt-3 text-xs text-destructive">
-              {error}
-            </p>
-          )}
-
-          {passkeyMode && webAuthnSupported ? (
-            <button
-              onClick={onAdd}
-              disabled={busy}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-              Add a passkey
-            </button>
-          ) : (
-            <p className="mt-4 text-xs text-muted-foreground">
-              {passkeyMode
-                ? "This browser does not support passkeys."
-                : "Passkeys need password auth mode on the server."}
-            </p>
-          )}
-        </div>
-
-        {/* Sign out */}
-        <div className="border-t border-border p-4">
+        {passkeyMode && webAuthnSupported ? (
           <button
-            onClick={onSignOut}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-destructive hover:text-destructive"
+            onClick={onAdd}
+            disabled={busy}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
           >
-            <LogOut className="h-4 w-4" />
-            Sign out
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            Add a passkey
           </button>
-        </div>
+        ) : (
+          <p className="mt-4 text-xs text-muted-foreground">
+            {passkeyMode
+              ? "This browser does not support passkeys."
+              : "Passkeys need password auth mode on the server."}
+          </p>
+        )}
       </div>
-    </SlidePanel>
+
+      {/* Sign out */}
+      <div className="border-t border-border p-4">
+        <button
+          onClick={onSignOut}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-destructive hover:text-destructive"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign out
+        </button>
+      </div>
+    </div>
   );
 }
 

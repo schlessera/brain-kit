@@ -80,8 +80,16 @@ export interface ClaudeBackendOptions {
    * let the SDK locate it.
    */
   claudeCodePath?: string;
-  /** Inference profiles this backend can run. Defaults to {@link DEFAULT_PROFILES}. */
-  profiles?: InferenceProfile[];
+  /**
+   * Inference profiles this backend can run. Defaults to
+   * {@link DEFAULT_PROFILES}.
+   *
+   * Pass a FUNCTION when the roster can change while the process runs (model
+   * discovery, host-side settings). It is called on every `listProfiles()` and
+   * every turn, so a newly discovered model is selectable without a restart —
+   * an array is captured once and cannot grow.
+   */
+  profiles?: InferenceProfile[] | (() => InferenceProfile[]);
   /**
    * Reserved. The host owns turn timeouts via the StartTurnRequest signal (see
    * the startTurn contract), so this is accepted for forward-compatibility but
@@ -150,10 +158,13 @@ interface ActiveTurn {
 export function createClaudeBackend(
   options: ClaudeBackendOptions
 ): AgentBackend {
-  const profiles =
-    options.profiles && options.profiles.length > 0
-      ? options.profiles
-      : DEFAULT_PROFILES;
+  // Resolved per call, not captured: a function source may return more profiles
+  // later (discovery refresh). An empty roster falls back to the built-in.
+  const resolveProfiles = (): InferenceProfile[] => {
+    const source = options.profiles;
+    const list = typeof source === "function" ? source() : source;
+    return list && list.length > 0 ? list : DEFAULT_PROFILES;
+  };
   const queryFn = options.queryFn ?? query;
   const history = createHistory({
     brainPath: options.brainPath,
@@ -187,7 +198,7 @@ export function createClaudeBackend(
   const activeTurns = new Map<string, ActiveTurn>();
 
   async function startTurn(req: StartTurnRequest): Promise<void> {
-    const profile = resolveProfile(profiles, req.profileId);
+    const profile = resolveProfile(resolveProfiles(), req.profileId);
 
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -474,7 +485,7 @@ export function createClaudeBackend(
     id: BACKEND_ID,
     capabilities,
     listProfiles(): ProviderInfo[] {
-      return listProfiles(profiles);
+      return listProfiles(resolveProfiles());
     },
     startTurn,
     listSessions(): Promise<ChatSession[]> {

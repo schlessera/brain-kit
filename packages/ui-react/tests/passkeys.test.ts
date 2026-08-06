@@ -20,18 +20,33 @@ describe("isUserCancel", () => {
   });
 });
 
-describe("ui-store security panel", () => {
+describe("ui-store settings panel", () => {
   test("toggle opens exclusively and closeAllPanels clears it", () => {
     const store = useUIStore.getState();
     store.toggleSessionPanel();
     expect(useUIStore.getState().sessionPanelOpen).toBe(true);
 
-    useUIStore.getState().toggleSecurityPanel();
+    useUIStore.getState().toggleSettingsPanel();
     const s = useUIStore.getState();
-    expect(s.securityPanelOpen).toBe(true);
+    expect(s.settingsPanelOpen).toBe(true);
     expect(s.sessionPanelOpen).toBe(false);
 
     useUIStore.getState().closeAllPanels();
-    expect(useUIStore.getState().securityPanelOpen).toBe(false);
+    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
+  });
+
+  test("openSettings selects a tab and closes the other panels", () => {
+    useUIStore.getState().toggleSessionPanel();
+
+    useUIStore.getState().openSettings("security");
+    const s = useUIStore.getState();
+    expect(s.settingsPanelOpen).toBe(true);
+    expect(s.settingsTab).toBe("security");
+    expect(s.sessionPanelOpen).toBe(false);
+
+    useUIStore.getState().setSettingsTab("models");
+    expect(useUIStore.getState().settingsTab).toBe("models");
+
+    useUIStore.getState().closeAllPanels();
   });
 });
