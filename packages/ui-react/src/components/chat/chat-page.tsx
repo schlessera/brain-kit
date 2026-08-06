@@ -463,6 +463,12 @@ export function ChatPage() {
     ? pinnedProviderId ?? selectedProviderId
     : selectedProviderId;
   const displayProvider = providers.find((p) => p.id === displayProviderId);
+  // A session can be pinned to a profile the user has since hidden — it is gone
+  // from the picker but still running the turn. Show its id rather than
+  // claiming "Default model", which would name a different model than the one
+  // actually answering.
+  const displayProviderLabel =
+    displayProvider?.label ?? displayProviderId ?? "Default model";
   const showProviderPicker = providers.length > 1;
   // What happens if the user sends into the currently-running session.
   const displayBackendId = displayProvider?.backendId;
@@ -700,7 +706,7 @@ export function ChatPage() {
                         <Lock className="h-3 w-3 shrink-0 opacity-70" />
                       )}
                       <span className="truncate">
-                        {displayProvider?.label ?? "Default model"}
+                        {displayProviderLabel}
                       </span>
                       {!providerLocked && (
                         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />

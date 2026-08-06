@@ -5,6 +5,7 @@ import type {
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { api } from "../../lib/api-client.js";
+import { useProviderStore } from "../../stores/provider-store.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -19,6 +20,7 @@ export function ModelsTab({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadProviders = useProviderStore((s) => s.loadProviders);
 
   useEffect(() => {
     if (!active) return;
@@ -63,6 +65,10 @@ export function ModelsTab({ active }: { active: boolean }) {
     setError(null);
     try {
       setCatalog(await api.setHiddenModels(hidden));
+      // The composer's picker holds its own copy of the roster, fetched once on
+      // mount — without this it keeps offering a model the user just hid until
+      // the page is reloaded.
+      void loadProviders();
     } catch (err) {
       setCatalog(previous);
       setError(err instanceof Error ? err.message : "Could not save");
@@ -75,6 +81,9 @@ export function ModelsTab({ active }: { active: boolean }) {
     setError(null);
     try {
       setCatalog(await api.refreshModels());
+      // A refresh can surface newly released models — put them in the picker
+      // now, not on next load.
+      void loadProviders();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {

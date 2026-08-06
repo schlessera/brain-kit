@@ -1,5 +1,15 @@
 # @schlessera/brain-ui-react
 
+## 0.5.1
+
+### Patch Changes
+
+- - Fixed: hiding or unhiding a model in Settings → Models now updates the
+    composer's model picker immediately, instead of only after a page reload.
+  - Fixed: a session pinned to a hidden model showed "Default model" in the
+    picker; it shows the pinned model's id.
+  - @schlessera/brain-ui-sdk@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes

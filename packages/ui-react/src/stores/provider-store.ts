@@ -51,12 +51,23 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       const { providers, backends } = await api.providers();
       set((s) => {
         // Keep the persisted choice if it's still on offer; otherwise fall
-        // back to the first available combo.
+        // back to the first available combo. This runs on every reload of the
+        // roster, so hiding the selected model in settings moves the selection
+        // instead of leaving the composer pointing at a profile the picker no
+        // longer lists.
         const stillValid = providers.some((p) => p.id === s.selectedId);
         const selectedId =
           stillValid && s.selectedId
             ? s.selectedId
             : providers[0]?.id ?? "";
+        // Persist the fallback too — otherwise the stale id sits in
+        // localStorage and has to be re-resolved on every boot.
+        if (
+          selectedId !== s.selectedId &&
+          typeof localStorage !== "undefined"
+        ) {
+          localStorage.setItem(PROVIDER_ID_KEY, selectedId);
+        }
         return {
           available: providers,
           selectedId,
