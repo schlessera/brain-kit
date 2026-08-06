@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 
-import { openDatabase, initVecSupport, getMeta } from "../../lib/db.js";
+import { openDatabase, initVecSupport, getMeta, embeddingIdentityMatches } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
 import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
@@ -163,7 +163,11 @@ async function checkEmbeddings(cli: CliContext): Promise<Check> {
   const db = openDatabase(cli.brain.dbPath, { readonly: true });
   try {
     const storedModel = getMeta(db, "embedding_model");
-    if (cli.embeddings && storedModel && storedModel !== cli.embeddings.id) {
+    if (
+      cli.embeddings &&
+      storedModel &&
+      !embeddingIdentityMatches(storedModel, cli.embeddings.id)
+    ) {
       return { id: "embeddings", status: "warn", detail: `stored vectors from '${storedModel}' but configured provider is '${cli.embeddings.id}'`, fix: "run `brain index --embeddings --force`" };
     }
     // `vec_chunks` is a sqlite-vec virtual table: without the extension loaded

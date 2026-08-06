@@ -373,6 +373,45 @@ describe("embedding provider change (mismatch requires --force)", () => {
     }
   );
 
+  test.if(vecAvailable)(
+    "a legacy bare model name re-embeds without --force and is upgraded in place",
+    async () => {
+      const root = makeCorpus({
+        "notes/alpha.md": md("Alpha", "alpha content"),
+      });
+
+      await runIndex(root, { embeddings: true, provider: makeProvider("ok", "fake:A") });
+
+      // Rewind the metadata to the pre-namespace form a brain last embedded by
+      // an older version carries. Same vectors, same model, unnamespaced name.
+      const rewind = await openRead(root);
+      rewind.run(
+        "INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('embedding_model', 'A')"
+      );
+      rewind.close();
+
+      // Same provider, no --force: this must NOT be read as a provider change.
+      // Before the identity fix it was, so the run refused, search-engine
+      // skipped vector search, and only a paid --force re-embed cleared it.
+      const next = await runIndex(root, {
+        embeddings: true,
+        provider: makeProvider("ok", "fake:A"),
+      });
+      expect(next.embeddings).toBe(0); // nothing changed — no re-embed needed
+
+      const after = await openRead(root);
+      const vecs = after.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as {
+        n: number;
+      };
+      const model = after
+        .prepare("SELECT value FROM index_metadata WHERE key = 'embedding_model'")
+        .get() as { value: string };
+      expect(vecs.n).toBe(1); // vectors kept, not dropped
+      expect(model.value).toBe("fake:A"); // metadata upgraded to the namespaced id
+      after.close();
+    }
+  );
+
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
 });
 

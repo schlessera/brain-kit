@@ -344,6 +344,31 @@ export function getMeta(db: Database, key: string): string | null {
 }
 
 /**
+ * Does `stored` (the embedding identity recorded when the vectors were written)
+ * describe the same vector space as `current` (the configured provider's id)?
+ *
+ * Exact match aside, this accepts one legacy form: `index_metadata.embedding_model`
+ * used to be seeded by the schema-v3 migration with the bare model name from
+ * models.ts ("gemini-embedding-2"), while providers report a namespaced id
+ * ("gemini:gemini-embedding-2"). A brain last embedded before the indexer began
+ * recording `provider.id` therefore carries perfectly good vectors under a name
+ * that can never compare equal — search-engine skips vector search forever, and
+ * `brain index --embeddings` refuses to repair it without `--force`, which bills
+ * a full re-embed for a pure naming difference. Treat a bare stored value as
+ * matching when it is exactly the model half of the current id.
+ */
+export function embeddingIdentityMatches(
+  stored: string | null,
+  current: string
+): boolean {
+  if (!stored) return false;
+  if (stored === current) return true;
+  if (stored.includes(":")) return false;
+  const separator = current.indexOf(":");
+  return separator !== -1 && current.slice(separator + 1) === stored;
+}
+
+/**
  * Set a metadata key-value pair.
  */
 export function setMeta(db: Database, key: string, value: string): void {

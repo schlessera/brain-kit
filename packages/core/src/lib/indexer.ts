@@ -11,7 +11,13 @@ import type { EmbeddingProvider } from "./seams.js";
 import type { Enrichment } from "./enrichment.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { DEFAULT_DIR_ANCHORS } from "./config.js";
-import { hasVecSupport, getMeta, setMeta, initVecSupport } from "./db.js";
+import {
+  hasVecSupport,
+  getMeta,
+  setMeta,
+  initVecSupport,
+  embeddingIdentityMatches,
+} from "./db.js";
 import { chunkDocument, chunkTextForEmbedding } from "./chunker.js";
 
 export interface IndexStats {
@@ -1047,7 +1053,8 @@ export async function indexAll(
     const hasVectors = vecStoreHasRows(db);
     const mismatch =
       hasVectors &&
-      (storedModel !== provider.id || storedDims !== String(provider.dimensions));
+      (!embeddingIdentityMatches(storedModel, provider.id) ||
+        storedDims !== String(provider.dimensions));
 
     if (mismatch && !force) {
       if (!quiet) {

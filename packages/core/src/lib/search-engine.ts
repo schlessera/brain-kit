@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 
 import type { SearchResult, SearchOptions } from "./types.js";
 import type { EmbeddingProvider } from "./seams.js";
-import { hasVecSupport, getMeta } from "./db.js";
+import { hasVecSupport, getMeta, embeddingIdentityMatches } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 
 export interface SearchResponse {
@@ -360,7 +360,7 @@ export async function hybridSearch(
       warnings.push(`vector search unavailable: sqlite-vec extension not loaded${degraded}`);
     } else if (!embeddings) {
       warnings.push(`vector search unavailable: no embedding provider configured${degraded}`);
-    } else if (getMeta(db, "embedding_model") !== embeddings.id) {
+    } else if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), embeddings.id)) {
       // Stored vectors were produced by a different model than the one that
       // would embed this query — ranking across mixed vector spaces is
       // silently wrong, so skip instead. The next index run wipes the stale
