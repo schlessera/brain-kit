@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-server",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "brain-kit chat-UI server: Hono app factory, WebSocket turn coordinator, auth (password/passkeys/tailscale/proxy), session catalog, and brain/files/voice routes",
   "license": "MIT",
   "keywords": [
@@ -54,7 +54,7 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@schlessera/brain-backend-pi": "workspace:*",
+    "@schlessera/brain-backend-pi": "*",
     "@types/bun": ">=1.3.0"
   },
   "peerDependenciesMeta": {

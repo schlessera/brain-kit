@@ -1,5 +1,20 @@
 # @schlessera/brain-ui-sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- 2904074: - Added: the model picker is discovered from the Anthropic Models API, so a new
+  model appears without an env edit or a redeploy.
+  - Added: a Settings screen (Models | Security) to hide models from the picker
+    and refresh the list on demand.
+  - Added: `BRAIN_UI_MODEL_DISCOVERY` and `BRAIN_UI_MODEL_TTL_HOURS`.
+  - Changed: `BRAIN_UI_CLAUDE_PROFILES` is now only for non-Anthropic endpoints
+    and for overriding a discovered model.
+  - Changed: `useUIStore`'s `securityPanelOpen` / `toggleSecurityPanel` /
+    `setSecurityPanelOpen` are now `settingsPanelOpen` / `toggleSettingsPanel` /
+    `setSettingsPanelOpen`.
+
 ## 0.4.0
 
 ### Minor Changes

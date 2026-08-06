@@ -41,7 +41,29 @@ needs an API key or the network.
 5. **No personal data** in fixtures or examples — the CI leakage gate will
    reject known private strings; use the "Alex Example" persona.
 6. Versioning is lockstep across `@schlessera/brain-*` via changesets; add a
-   changeset to any user-visible change.
+   changeset to any user-visible change. Keep the changeset itself short —
+   what was added / changed / removed, in one line each. The commit it links to
+   carries the reasoning.
+
+## Releasing
+
+`bun run version` (changesets), then `rm bun.lock && bun install` — bun resolves
+`workspace:*` pins from the installed lockfile, so a stale one publishes
+manifests pinning the previous, never-published version. Then `bun run release`.
+
+Two config details keep the lockstep bump honest, and removing either silently
+turns every release into a major (0.4.0 → 1.0.0 instead of 0.5.0):
+
+- `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH.onlyUpdatePeerDependentsWhenOutOfRange`
+  is `true` in `.changeset/config.json`. Changesets otherwise majors any package
+  that peer-depends on something being released — regardless of the range, and
+  regardless of `peerDependenciesMeta.optional`.
+- `@schlessera/brain-ui-server`'s peer dependency on the optional
+  `@schlessera/brain-backend-pi` is ranged `*`, not `workspace:*`. Changesets
+  can't evaluate the `workspace:` protocol as a semver range, so it treats every
+  new version as out of range and majors anyway.
+
+With the `fixed` group, one such major promotes all ten packages.
 
 ## What not to send
 
