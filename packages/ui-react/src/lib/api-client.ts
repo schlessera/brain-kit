@@ -15,6 +15,26 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
 
+/**
+ * One hit from `brain search`. `snippet` carries the CLI's FTS highlight
+ * markers (`>>>term<<<`) — render it through `renderSnippet()` in the search
+ * panel rather than printing it raw.
+ */
+export interface BrainSearchHit {
+  path: string;
+  title: string;
+  type: string;
+  relevance: string;
+  score: number;
+  snippet: string;
+}
+
+export interface BrainSearchResponse {
+  results: BrainSearchHit[];
+  /** Degraded-mode notices, e.g. vector search unavailable so results are FTS-only. */
+  warnings: string[];
+}
+
 /** Backend id + capability flags the client renders behavior from. */
 export interface BackendInfo {
   id: string;
@@ -58,12 +78,26 @@ export const api = {
       activeSession: boolean;
     }>("/status"),
 
-  brainSearch: (q: string, opts?: { type?: string; limit?: number }) =>
-    fetchJson<{
-      results: Array<{ path: string; title: string; snippet: string; score: number }>;
-      warnings: string[];
-    }>(
-      `/brain/search?q=${encodeURIComponent(q)}${opts?.type ? `&type=${opts.type}` : ""}${opts?.limit ? `&limit=${opts.limit}` : ""}`
+  brainSearch: (
+    q: string,
+    opts?: {
+      type?: string;
+      tag?: string;
+      limit?: number;
+      mode?: "fts" | "vector" | "hybrid";
+      signal?: AbortSignal;
+    }
+  ) =>
+    // Built with encodeURIComponent rather than URLSearchParams: the latter
+    // form-encodes spaces as "+", which not every query parser turns back into
+    // a space. %20 is unambiguous.
+    fetchJson<BrainSearchResponse>(
+      `/brain/search?q=${encodeURIComponent(q)}` +
+        (opts?.type ? `&type=${encodeURIComponent(opts.type)}` : "") +
+        (opts?.tag ? `&tag=${encodeURIComponent(opts.tag)}` : "") +
+        (opts?.limit ? `&limit=${opts.limit}` : "") +
+        (opts?.mode ? `&mode=${opts.mode}` : ""),
+      { signal: opts?.signal }
     ),
 
   brainBriefing: () =>

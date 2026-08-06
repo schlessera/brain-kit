@@ -7,17 +7,23 @@ interface UIState {
   sessionPanelOpen: boolean;
   syncPanelOpen: boolean;
   whatsupPanelOpen: boolean;
+  searchPanelOpen: boolean;
+  addPanelOpen: boolean;
   filePanelOpen: boolean;
   settingsPanelOpen: boolean;
   settingsTab: SettingsTab;
   toggleSessionPanel: () => void;
   toggleSyncPanel: () => void;
   toggleWhatsupPanel: () => void;
+  toggleSearchPanel: () => void;
+  toggleAddPanel: () => void;
   toggleFilePanel: () => void;
   toggleSettingsPanel: () => void;
   closeAllPanels: () => void;
   setSyncPanelOpen: (open: boolean) => void;
   setWhatsupPanelOpen: (open: boolean) => void;
+  setSearchPanelOpen: (open: boolean) => void;
+  setAddPanelOpen: (open: boolean) => void;
   setSessionPanelOpen: (open: boolean) => void;
   setFilePanelOpen: (open: boolean) => void;
   setSettingsPanelOpen: (open: boolean) => void;
@@ -30,6 +36,8 @@ const CLOSED = {
   sessionPanelOpen: false,
   syncPanelOpen: false,
   whatsupPanelOpen: false,
+  searchPanelOpen: false,
+  addPanelOpen: false,
   filePanelOpen: false,
   settingsPanelOpen: false,
 };
@@ -43,6 +51,10 @@ export const useUIStore = create<UIState>((set) => ({
     set((s) => ({ ...CLOSED, syncPanelOpen: !s.syncPanelOpen })),
   toggleWhatsupPanel: () =>
     set((s) => ({ ...CLOSED, whatsupPanelOpen: !s.whatsupPanelOpen })),
+  toggleSearchPanel: () =>
+    set((s) => ({ ...CLOSED, searchPanelOpen: !s.searchPanelOpen })),
+  toggleAddPanel: () =>
+    set((s) => ({ ...CLOSED, addPanelOpen: !s.addPanelOpen })),
   toggleFilePanel: () =>
     set((s) => ({ ...CLOSED, filePanelOpen: !s.filePanelOpen })),
   toggleSettingsPanel: () =>
@@ -50,6 +62,8 @@ export const useUIStore = create<UIState>((set) => ({
   closeAllPanels: () => set({ ...CLOSED }),
   setSyncPanelOpen: (open) => set({ syncPanelOpen: open }),
   setWhatsupPanelOpen: (open) => set({ whatsupPanelOpen: open }),
+  setSearchPanelOpen: (open) => set({ searchPanelOpen: open }),
+  setAddPanelOpen: (open) => set({ addPanelOpen: open }),
   setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
   setFilePanelOpen: (open) => set({ filePanelOpen: open }),
   setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),

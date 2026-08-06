@@ -34,6 +34,8 @@ import { SessionDrawer } from "./session-drawer.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 import { StreamingPanel } from "../quick-actions/streaming-modal.js";
 import { WhatsupPanel } from "../quick-actions/whatsup-modal.js";
+import { SearchPanel } from "../quick-actions/search-modal.js";
+import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { MicButton } from "../voice/mic-button.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
@@ -120,6 +122,10 @@ export function ChatPage() {
   const setSyncPanelOpen = useUIStore((s) => s.setSyncPanelOpen);
   const whatsupPanelOpen = useUIStore((s) => s.whatsupPanelOpen);
   const setWhatsupPanelOpen = useUIStore((s) => s.setWhatsupPanelOpen);
+  const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
+  const setSearchPanelOpen = useUIStore((s) => s.setSearchPanelOpen);
+  const addPanelOpen = useUIStore((s) => s.addPanelOpen);
+  const setAddPanelOpen = useUIStore((s) => s.setAddPanelOpen);
   const filePanelOpen = useUIStore((s) => s.filePanelOpen);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
   const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
@@ -381,6 +387,17 @@ export function ChatPage() {
     setInput("");
     setShowCommandPalette(false);
 
+    // Search and add talk to the brain CLI over REST, not to the agent — they
+    // stay available while a turn streams or the socket is down.
+    switch (command) {
+      case "search":
+        setSearchPanelOpen(true);
+        return;
+      case "add":
+        setAddPanelOpen(true);
+        return;
+    }
+
     const disabled = wsStatus !== "connected" || isStreaming;
     if (disabled) return;
 
@@ -390,15 +407,6 @@ export function ChatPage() {
         break;
       case "whatsup":
         setWhatsupPanelOpen(true);
-        break;
-      case "search":
-        setInput("");
-        // Focus the input with a placeholder hint
-        setTimeout(() => textareaRef.current?.focus(), 50);
-        break;
-      case "add":
-        setInput("");
-        setTimeout(() => textareaRef.current?.focus(), 50);
         break;
       case "stats":
         runStatsAction();
@@ -503,6 +511,14 @@ export function ChatPage() {
       <WhatsupPanel
         open={whatsupPanelOpen}
         onClose={() => setWhatsupPanelOpen(false)}
+      />
+      <SearchPanel
+        open={searchPanelOpen}
+        onClose={() => setSearchPanelOpen(false)}
+      />
+      <AddPanel
+        open={addPanelOpen}
+        onClose={() => setAddPanelOpen(false)}
       />
       <FilePanel
         open={filePanelOpen}

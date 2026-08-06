@@ -1,53 +1,97 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
+import { api } from "../src/lib/api-client.js";
 
-// We can't import api-client directly because it calls fetch against relative URLs.
-// Instead we test the URL building and error handling logic extracted from the patterns.
+/**
+ * Drive the real client with a stubbed fetch, so the asserted URLs are the ones
+ * the browser would actually request (an earlier version of this file mirrored
+ * the builder by hand, which could drift from the client without failing).
+ */
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
+function captureUrl(body: unknown = { results: [], warnings: [] }): {
+  urls: string[];
+  inits: (RequestInit | undefined)[];
+} {
+  const urls: string[] = [];
+  const inits: (RequestInit | undefined)[] = [];
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    urls.push(String(input));
+    inits.push(init);
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  return { urls, inits };
+}
 
 describe("API client URL building", () => {
-  function buildSearchUrl(
-    q: string,
-    opts?: { type?: string; limit?: number }
-  ): string {
-    return `/brain/search?q=${encodeURIComponent(q)}${opts?.type ? `&type=${opts.type}` : ""}${opts?.limit ? `&limit=${opts.limit}` : ""}`;
-  }
+  test("encodes query parameter", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("hello world");
+    expect(cap.urls[0]).toBe("/api/brain/search?q=hello%20world");
+  });
 
-  test("encodes query parameter", () => {
-    expect(buildSearchUrl("hello world")).toBe(
-      "/brain/search?q=hello%20world"
+  test("encodes special characters", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("foo&bar=baz");
+    expect(cap.urls[0]).toBe("/api/brain/search?q=foo%26bar%3Dbaz");
+  });
+
+  test("includes type filter", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("test", { type: "identity" });
+    expect(cap.urls[0]).toBe("/api/brain/search?q=test&type=identity");
+  });
+
+  test("includes limit", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("test", { limit: 5 });
+    expect(cap.urls[0]).toBe("/api/brain/search?q=test&limit=5");
+  });
+
+  test("includes type, tag, limit and mode together", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("test", {
+      type: "note",
+      tag: "reading list",
+      limit: 3,
+      mode: "fts",
+    });
+    expect(cap.urls[0]).toBe(
+      "/api/brain/search?q=test&type=note&tag=reading%20list&limit=3&mode=fts"
     );
   });
 
-  test("encodes special characters", () => {
-    expect(buildSearchUrl("foo&bar=baz")).toBe(
-      "/brain/search?q=foo%26bar%3Dbaz"
-    );
+  test("omits undefined options", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("test", {});
+    expect(cap.urls[0]).toBe("/api/brain/search?q=test");
   });
 
-  test("includes type filter", () => {
-    expect(buildSearchUrl("test", { type: "identity" })).toBe(
-      "/brain/search?q=test&type=identity"
-    );
+  test("handles unicode in query", async () => {
+    const cap = captureUrl();
+    await api.brainSearch("café résumé");
+    expect(cap.urls[0]).toContain("caf%C3%A9");
   });
 
-  test("includes limit", () => {
-    expect(buildSearchUrl("test", { limit: 5 })).toBe(
-      "/brain/search?q=test&limit=5"
-    );
+  test("forwards the abort signal so a superseded search can be cancelled", async () => {
+    const cap = captureUrl();
+    const controller = new AbortController();
+    await api.brainSearch("test", { signal: controller.signal });
+    expect(cap.inits[0]?.signal).toBe(controller.signal);
   });
 
-  test("includes both type and limit", () => {
-    expect(buildSearchUrl("test", { type: "note", limit: 3 })).toBe(
-      "/brain/search?q=test&type=note&limit=3"
-    );
-  });
-
-  test("omits undefined options", () => {
-    expect(buildSearchUrl("test", {})).toBe("/brain/search?q=test");
-  });
-
-  test("handles unicode in query", () => {
-    const url = buildSearchUrl("café résumé");
-    expect(url).toContain("caf%C3%A9");
+  test("surfaces the server error message", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "Search failed" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    expect(api.brainSearch("test")).rejects.toThrow("Search failed");
   });
 });
 
