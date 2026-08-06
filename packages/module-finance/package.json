@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-module-finance",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "brain-kit module: client finance — ledgers, accounts-receivable tracking",
   "license": "MIT",
   "keywords": [

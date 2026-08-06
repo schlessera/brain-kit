@@ -1,5 +1,28 @@
 # @schlessera/brain-ui-react
 
+## 0.6.0
+
+### Minor Changes
+
+- The Search and Add quick actions do something now. Both were stubs that cleared
+  the composer and focused it, so the "Search..." card on the new-conversation
+  screen (and `/search`, `/add` in the command palette) looked like a no-op that
+  dropped you into an empty chat.
+
+  - **Search** opens a panel that queries `brain search` as you type (debounced,
+    superseded requests aborted), highlights the matched terms, strips the
+    markdown noise out of snippets, and opens the hit in the file viewer. Arrow
+    keys pick, Enter opens. Degraded-mode warnings from the CLI are shown.
+  - **Add** opens a form — note, optional title, type (completed from the types
+    already in the brain) and tags — and posts it to `brain add`.
+
+  Both talk to the brain CLI over REST rather than to the agent, so they stay
+  available while a turn is streaming or the socket is down.
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.6.0
+
 ## 0.5.1
 
 ### Patch Changes

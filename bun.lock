@@ -12,7 +12,7 @@
     },
     "packages/core": {
       "name": "@schlessera/brain",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "bin": {
         "brain": "./dist/cli/brain.js",
       },
@@ -38,7 +38,7 @@
     },
     "packages/module-finance": {
       "name": "@schlessera/brain-module-finance",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "gray-matter": "^4.0.3",
@@ -51,7 +51,7 @@
     },
     "packages/module-jobs": {
       "name": "@schlessera/brain-module-jobs",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "gray-matter": "^4.0.3",
@@ -70,7 +70,7 @@
     },
     "packages/module-speaking": {
       "name": "@schlessera/brain-module-speaking",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
@@ -82,7 +82,7 @@
     },
     "packages/ui-backend-claude": {
       "name": "@schlessera/brain-backend-claude",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.207",
         "@schlessera/brain-ui-sdk": "workspace:*",
@@ -95,7 +95,7 @@
     },
     "packages/ui-backend-pi": {
       "name": "@schlessera/brain-backend-pi",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.80.6",
         "@earendil-works/pi-coding-agent": "0.80.6",
@@ -116,7 +116,7 @@
     },
     "packages/ui-react": {
       "name": "@schlessera/brain-ui-react",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@schlessera/brain-ui-sdk": "workspace:*",
         "@simplewebauthn/browser": "^13.2.2",
@@ -146,7 +146,7 @@
     },
     "packages/ui-render-puppeteer": {
       "name": "@schlessera/brain-render-puppeteer",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "puppeteer-core": "^25.0.4",
       },
@@ -157,7 +157,7 @@
     },
     "packages/ui-sdk": {
       "name": "@schlessera/brain-ui-sdk",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "zod": "^4.4.3",
       },
@@ -175,7 +175,7 @@
     },
     "packages/ui-server": {
       "name": "@schlessera/brain-ui-server",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@schlessera/brain-backend-claude": "workspace:*",
         "@schlessera/brain-ui-sdk": "workspace:*",
@@ -312,7 +312,7 @@
 
     "@earendil-works/pi-tui": ["@earendil-works/pi-tui@0.80.10", "", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.5" } }, "sha512-c2JO29PbhKPEQ6fgHQKAl0WhwuFqzWfzspMmP+8B5tpDuP+0mvarRbKKg8gq4b+pQx/QX+6aVS4ko7deoyjQjg=="],
 
-    "@google/genai": ["@google/genai@2.15.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-Q41TvqwBQ9NcmWdh6qxY5qrpg+0FaVHD7febQoH007pykxzco4ohScBUP4BBBy+Q8j5D8euIBSRIBDfWuNVCKA=="],
+    "@google/genai": ["@google/genai@2.16.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-K+1C1sqR0u7NJ5xpKJCQBws0QXpfuklo3WTNuUIMvtbQfNW2O5OohX0BYT2V+PXzsUzQEwGCXPWQxttLyGQ6xw=="],
 
     "@hexagon/base64": ["@hexagon/base64@1.1.28", "", {}, "sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw=="],
 
