@@ -1,5 +1,21 @@
 # @schlessera/brain-ui-react
 
+## 0.6.3
+
+### Patch Changes
+
+- Fix Deepgram voice input: present the minted token as `bearer`, not `token`
+
+  The server mints a short-lived `/v1/auth/grant` access token, but the client
+  still offered it with the raw-API-key subprotocol scheme
+  (`["token", …]`). Deepgram rejects that handshake outright — no 101, close code
+  1002 — so the mic sheet opened, the recorder started, and the sheet closed again
+  a moment later with no transcript. Voice has been broken this way since the
+  grant-only change removed the master-key fallback: that change swapped the
+  credential type without swapping the scheme word.
+
+  - @schlessera/brain-ui-sdk@0.6.3
+
 ## 0.6.2
 
 ### Patch Changes

@@ -66,8 +66,13 @@ export class DeepgramClient implements AsrClient {
 
     if (this.closed) return;
 
-    // Token is passed as a sec-websocket-protocol header per Deepgram spec.
-    this.ws = new WebSocket(this.opts.url, ["token", this.opts.token]);
+    // Credentials ride the sec-websocket-protocol header — the browser can't
+    // set Authorization on a WebSocket. The scheme word must match the
+    // credential TYPE: `bearer` for the short-lived /v1/auth/grant token the
+    // server mints, `token` for a raw API key. Sending a grant token as
+    // `token` fails the handshake outright (no 101, close 1002), which reads
+    // as "the mic sheet opens and immediately closes".
+    this.ws = new WebSocket(this.opts.url, ["bearer", this.opts.token]);
 
     this.ws.onopen = () => {
       this.flushPending();
