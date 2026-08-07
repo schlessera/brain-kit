@@ -51,6 +51,20 @@ coding agents. This repo is the core monorepo (packages) plus the planning docs 
 - Config-driven taxonomy: document types are `string` validated at runtime (zod), not
   compile-time unions.
 
+## Releasing
+
+- **`bun run version` MUST be followed by `rm bun.lock && bun install` before
+  `bun run release`.** bun resolves `workspace:*` pins from the INSTALLED lockfile, and a
+  plain (or `--force`) install does not refresh them — so a release right after versioning
+  publishes manifests pinning the previous, never-published version, which makes every
+  package uninstallable (this shipped in 0.2.0). `bun run version` chains the refresh for
+  you; do it by hand if you run `changeset version` directly. `scripts/publish.ts` also
+  refuses the release if the pins are stale — if you see "Publish refused: … would ship
+  …@<old>", this is the step you skipped.
+- Full sequence: changeset → `bun run version` → `bun run build && bun run typecheck &&
+  bun test packages` → commit `release: version X.Y.Z` → push → `bun run release`
+  (installs, builds, publishes all ten packages, then `changeset tag`).
+
 ## Testing expectations
 
 - Every ported lib keeps or gains unit tests. Integration tests run against

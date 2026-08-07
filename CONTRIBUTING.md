@@ -47,9 +47,14 @@ needs an API key or the network.
 
 ## Releasing
 
-`bun run version` (changesets), then `rm bun.lock && bun install` — bun resolves
-`workspace:*` pins from the installed lockfile, so a stale one publishes
-manifests pinning the previous, never-published version. Then `bun run release`.
+`bun run version` (changesets), then `bun run release`.
+
+`bun run version` chains `rm bun.lock && bun install` after `changeset version`,
+and that second half is not optional: bun resolves `workspace:*` pins from the
+installed lockfile, and a plain install does not refresh them, so a stale lock
+publishes manifests pinning the previous, never-published version. Running
+`changeset version` directly means doing the refresh by hand. `scripts/publish.ts`
+refuses the release if the pins are stale.
 
 Two config details keep the lockstep bump honest, and removing either silently
 turns every release into a major (0.4.0 → 1.0.0 instead of 0.5.0):
