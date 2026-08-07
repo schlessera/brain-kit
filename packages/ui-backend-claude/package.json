@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-backend-claude",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "AgentBackend implementation for brain-kit's chat UI backed by the Claude Agent SDK",
   "license": "MIT",
   "keywords": [

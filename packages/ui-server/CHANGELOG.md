@@ -1,5 +1,13 @@
 # @schlessera/brain-ui-server
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [eb0a6ba]
+  - @schlessera/brain-backend-claude@0.6.2
+  - @schlessera/brain-ui-sdk@0.6.2
+
 ## 0.6.1
 
 ### Patch Changes
