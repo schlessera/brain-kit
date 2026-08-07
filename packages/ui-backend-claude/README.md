@@ -57,6 +57,24 @@ network. Results persist to `<brainPath>/.brain-ui/anthropic-models.json`, so a
 restart serves the last known roster immediately. A failed refresh keeps the
 previous list and reports the reason via `state().error`.
 
+## The default allowlist
+
+`DEFAULT_ALLOWED_TOOLS` covers the built-in file/search/web tools plus most of
+the brain CLI's own MCP tools — `brain_search`, `brain_context`, `brain_read`,
+`brain_list`, `brain_graph`, `brain_add` and `brain_update`, as
+`mcp__brain__*`. The write-capable two are in there deliberately: `Write` and
+`Edit` are already allowed, so an agent that wanted to change the repo never
+needed `brain_add` to do it, and routing the change through the brain tools is
+what keeps frontmatter and the search index correct.
+
+`brain_archive` is the exception — it moves files between directories, so it
+stays behind an approval card.
+
+The prefix assumes the brain repo registers the MCP server under the key
+`brain` in its `.mcp.json` (what `brain setup` writes). A different key means a
+different prefix and these entries stop matching, so the tools prompt — the
+safe direction to fail.
+
 ## Write serialization: PreToolUse, not canUseTool
 
 The Agent SDK **auto-allows** tools listed in `allowedTools` without invoking
@@ -66,6 +84,11 @@ path would therefore never engage for allowlisted mutating tools. The lock
 here is acquired in an awaited **PreToolUse hook**, which fires for every tool
 execution regardless of allowlisting — verified against the real SDK at
 runtime, not inferred from types.
+
+The mutating set is `Bash`, `Edit`, `Write`, `NotebookEdit` and all three brain
+writers (`brain_add`, `brain_update`, `brain_archive`) — including the one that
+is not auto-allowed, because membership there is about serialization, not
+permission.
 
 ## The `brain-kit` MCP server
 

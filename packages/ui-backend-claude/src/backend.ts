@@ -38,6 +38,15 @@ import { createHistory } from "./history.js";
 
 const BACKEND_ID = "claude";
 
+/**
+ * The brain repo registers the brain CLI's MCP server project-scoped in its
+ * `.mcp.json` under the key `brain`, so the SDK exposes those tools as
+ * `mcp__brain__<tool>`. A different key in `.mcp.json` yields a different
+ * prefix and these entries stop matching — the tools then prompt, which is the
+ * safe direction to fail.
+ */
+const BRAIN_MCP_PREFIX = "mcp__brain__";
+
 const DEFAULT_ALLOWED_TOOLS = [
   "Bash",
   "Read",
@@ -51,6 +60,19 @@ const DEFAULT_ALLOWED_TOOLS = [
   "Agent",
   "Skill",
   "NotebookEdit",
+  // The brain's own document tools. Auto-allowed because they are strictly
+  // narrower than the raw file tools above: an agent that wanted to write the
+  // repo could already do it with Write/Edit, and doing it through brain_add /
+  // brain_update keeps frontmatter and the search index correct. Deliberately
+  // absent: `brain_archive`, which moves files between directories — that one
+  // keeps its approval card.
+  `${BRAIN_MCP_PREFIX}brain_search`,
+  `${BRAIN_MCP_PREFIX}brain_context`,
+  `${BRAIN_MCP_PREFIX}brain_read`,
+  `${BRAIN_MCP_PREFIX}brain_list`,
+  `${BRAIN_MCP_PREFIX}brain_graph`,
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  `${BRAIN_MCP_PREFIX}brain_update`,
 ];
 
 /**
@@ -62,12 +84,25 @@ const DEFAULT_ALLOWED_TOOLS = [
  * subagent's own Bash/Edit/Write calls surface here under their own names and
  * are gated individually. Add write-capable MCP tools here as they appear.
  *
+ * The brain document tools write the repo AND reindex, so all three belong
+ * here — including `brain_archive`, which is not auto-allowed above but still
+ * mutates once approved. Membership here is about serialization, not
+ * permission; the two lists are independent.
+ *
  * The lock is acquired in a PreToolUse hook, NOT in canUseTool: the SDK
  * auto-allows tools listed in `allowedTools` without ever consulting
  * canUseTool, while PreToolUse fires (and is awaited) before every tool
  * execution regardless of how it was permitted.
  */
-const MUTATING_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+const MUTATING_TOOLS = new Set([
+  "Bash",
+  "Edit",
+  "Write",
+  "NotebookEdit",
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  `${BRAIN_MCP_PREFIX}brain_update`,
+  `${BRAIN_MCP_PREFIX}brain_archive`,
+]);
 
 const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
 

@@ -830,3 +830,98 @@ describe("writeLock", () => {
     expect(writeLock.locked).toBe(false);
   });
 });
+
+describe("brain MCP tools", () => {
+  /** Run one no-op turn and hand back the Options the SDK was called with. */
+  async function captureOptions(): Promise<Options> {
+    let captured: Options | undefined;
+    const queryFn = ((params: { options?: Options }) => {
+      captured = params.options!;
+      return (async function* () {
+        yield initMsg("s1");
+        yield resultMsg("s1");
+      })();
+    }) as unknown as typeof query;
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn });
+    const b1 = makeBridge();
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    return captured!;
+  }
+
+  test("the brain's document tools are auto-allowed", async () => {
+    const options = await captureOptions();
+    for (const tool of [
+      "brain_search",
+      "brain_context",
+      "brain_read",
+      "brain_list",
+      "brain_graph",
+      "brain_add",
+      "brain_update",
+    ]) {
+      expect(options.allowedTools).toContain(`mcp__brain__${tool}`);
+    }
+  });
+
+  test("brain_archive is NOT auto-allowed — it moves files and keeps its approval card", async () => {
+    const options = await captureOptions();
+    expect(options.allowedTools).not.toContain("mcp__brain__brain_archive");
+  });
+
+  test("every brain tool that writes takes the write lock, auto-allowed or not", async () => {
+    // brain_archive prompts, but once approved it mutates exactly like the
+    // other two — the lock hook must fire for all three.
+    for (const tool of ["brain_add", "brain_update", "brain_archive"]) {
+      const writeLock = createWriteLock();
+      const queryFn = ((params: { options?: Options }) => {
+        const options = params.options!;
+        return (async function* () {
+          yield initMsg("s1");
+          await firePreToolUse(options, {
+            toolName: `mcp__brain__${tool}`,
+            toolUseId: "t1",
+          });
+          expect(writeLock.locked).toBe(true);
+          yield {
+            type: "user",
+            message: {
+              content: [
+                { type: "tool_result", tool_use_id: "t1", content: "ok" },
+              ],
+            },
+          };
+          yield resultMsg("s1");
+        })();
+      }) as unknown as typeof query;
+
+      const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+      const b1 = makeBridge();
+      await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+      expect(writeLock.locked).toBe(false);
+    }
+  });
+
+  test("a brain read tool never takes the write lock", async () => {
+    const writeLock = createWriteLock();
+    let hookRan = false;
+    const queryFn = ((params: { options?: Options }) => {
+      const options = params.options!;
+      return (async function* () {
+        yield initMsg("s1");
+        await firePreToolUse(options, {
+          toolName: "mcp__brain__brain_read",
+          toolUseId: "t1",
+        });
+        hookRan = true;
+        yield resultMsg("s1");
+      })();
+    }) as unknown as typeof query;
+
+    const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
+    const b1 = makeBridge();
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    expect(hookRan).toBe(true);
+    expect(writeLock.locked).toBe(false);
+  });
+});
