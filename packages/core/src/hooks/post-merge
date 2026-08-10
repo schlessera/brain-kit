@@ -1,0 +1,20 @@
+#!/bin/sh
+# post-merge — sync skills into per-agent locations and refresh the search
+# index after pull/merge. Best-effort + silent: a missing bun or node_modules
+# must not break the merge. Bypass with BRAIN_SKIP_HOOKS=1.
+[ "${BRAIN_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+if command -v brain >/dev/null 2>&1; then
+  BRAIN="brain"
+elif [ -x "$ROOT/node_modules/.bin/brain" ]; then
+  BRAIN="$ROOT/node_modules/.bin/brain"
+else
+  exit 0
+fi
+
+"$BRAIN" skills sync >/dev/null 2>&1 || true
+"$BRAIN" index --incremental --quiet >/dev/null 2>&1 || true
+exit 0

@@ -1,0 +1,13 @@
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+dist/
+packages/*/dist/
+coverage/
+tmp/
+okf-dist/
+.DS_Store

@@ -1,0 +1,14 @@
+{
+  "name": "my-brain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "setup": "brain setup",
+    "brain": "brain",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@schlessera/brain": "^0.1.0"
+  }
+}

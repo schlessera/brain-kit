@@ -1,0 +1,139 @@
+import type {
+  BackendBridge,
+  PermissionDecision,
+  AskUserResult,
+  LocationFix,
+} from "@schlessera/brain-ui-sdk/server";
+import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { hasClients } from "./clients.js";
+import { withTurnScope } from "./frames.js";
+import type { RunningTurn } from "./turns.js";
+import type { WsHost } from "./host.js";
+
+/** Build the per-turn bridge the backend drives. */
+export function makeBridge(
+  host: WsHost,
+  turn: RunningTurn,
+  promptText: string,
+  backendId: string
+): BackendBridge {
+  const { coordinator, catalog } = host;
+  // Capture the turn identity at construction: the slot's turnId is re-minted
+  // for each queued follow-up, and a backend can still emit late frames
+  // through this bridge after its startTurn resolved. Stamping from the live
+  // field would attribute those to the NEXT turn.
+  const turnId = turn.turnId;
+  return {
+    emit: (msg) => {
+      if (msg.type === "session_info") {
+        turn.sessionId = msg.sessionId;
+        if (msg.providerId) turn.providerId = msg.providerId;
+        coordinator.bySession.set(msg.sessionId, turn);
+        // Persist ownership the moment the identity exists — a turn that
+        // later fails or is cancelled must not leave an unowned transcript.
+        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+      }
+      host.sendToClients(withTurnScope(msg, turn, turnId));
+      if (msg.type === "result") {
+        catalog.persistSession(msg, promptText, turn.providerId, backendId);
+      }
+    },
+    requestPermission: (req) => {
+      host.sendToClients(
+        withTurnScope(
+          {
+            type: "tool_approval_request",
+            toolUseId: req.toolUseId,
+            toolName: req.toolName,
+            input: req.input,
+            description: req.description,
+          },
+          turn,
+          turnId
+        )
+      );
+      host.sendToClients(
+        withTurnScope(
+          { type: "status", status: "tool_executing", detail: `Waiting for approval: ${req.toolName}` },
+          turn,
+          turnId
+        )
+      );
+      return new Promise<PermissionDecision>((resolve) => {
+        if (coordinator.collidesAcrossTurns(coordinator.pendingApprovals, req.toolUseId, turn)) {
+          resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
+          return;
+        }
+        coordinator.pendingApprovals.set(req.toolUseId, { turn, turnId, resolve });
+      });
+    },
+    askUser: (requestId, questions) => {
+      host.sendToClients(
+        withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
+      );
+      host.sendToClients(
+        withTurnScope(
+          { type: "status", status: "tool_executing", detail: "Waiting for your input" },
+          turn,
+          turnId
+        )
+      );
+      return new Promise<AskUserResult>((resolve, reject) => {
+        if (coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn)) {
+          reject(new Error("Duplicate ask-user request id"));
+          return;
+        }
+        coordinator.pendingAskUser.set(requestId, { turn, turnId, resolve, reject });
+      });
+    },
+    getLocation: (options) => {
+      if (!hasClients()) {
+        return Promise.reject(
+          new Error(`No ${host.appName} client is connected to read the location from.`)
+        );
+      }
+      const requestId = coordinator.nextLocationRequestId();
+      host.sendToClients(
+        withTurnScope({ type: "location_request", requestId, options }, turn, turnId)
+      );
+      host.sendToClients(
+        withTurnScope(
+          { type: "status", status: "tool_executing", detail: "Requesting your location" },
+          turn,
+          turnId
+        )
+      );
+      return new Promise<LocationFix>((resolve, reject) => {
+        if (coordinator.collidesAcrossTurns(coordinator.pendingLocation, requestId, turn)) {
+          reject(new Error("Duplicate location request id"));
+          return;
+        }
+        coordinator.pendingLocation.set(requestId, { turn, turnId, resolve, reject });
+      });
+    },
+  };
+}
+
+export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): void {
+  // startTurn resolves for runtime failures (it emits its own error frame); it
+  // only rejects for caller errors.
+  if (err instanceof BackendBusyError) {
+    host.sendToClients(
+      withTurnScope(
+        { type: "error", code: "SESSION_BUSY", message: "That session already has a running turn." },
+        turn
+      )
+    );
+  } else if (err instanceof BackendRequestError) {
+    host.sendToClients(
+      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message }, turn)
+    );
+  } else {
+    host.sendToClients(
+      withTurnScope(
+        { type: "error", code: "BACKEND_ERROR", message: err instanceof Error ? err.message : String(err) },
+        turn
+      )
+    );
+  }
+}

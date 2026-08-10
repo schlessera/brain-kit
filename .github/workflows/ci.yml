@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck (strict)
+        run: bunx tsc --noEmit
+      - name: Unit + integration tests (keyless, deterministic)
+        run: bun test packages
+        env:
+          # Belt and braces: tests must never reach for real providers.
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+
+  pack:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Pack all workspaces
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          mkdir -p "$TARBALL_DIR"
+          for package in \
+            core \
+            ui-sdk \
+            ui-backend-claude \
+            ui-backend-pi \
+            ui-render-puppeteer \
+            ui-server \
+            ui-react \
+            module-finance \
+            module-jobs \
+            module-speaking
+          do
+            (cd "packages/$package" && \
+              bun pm pack --filename "$TARBALL_DIR/$package.tgz")
+            TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
+            grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = core ]; then
+              grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
+            fi
+          done
+      - name: Install and smoke-test packed packages
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
+          mkdir -p "$CONSUMER_DIR"
+          cd "$CONSUMER_DIR"
+          bun -e '
+            const tarballs = "../brainkit-tarballs";
+            await Bun.write("package.json", JSON.stringify({
+              name: "brainkit-pack-smoke",
+              private: true,
+              type: "module",
+              overrides: {
+                "@schlessera/brain": `file:${tarballs}/core.tgz`,
+                "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
+                "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
+                "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
+                "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
+                "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
+                "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
+                "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
+              },
+            }, null, 2) + "\n");
+          '
+          bun add "$TARBALL_DIR"/*.tgz react react-dom
+          bun -e '
+            const names = [
+              "@schlessera/brain",
+              "@schlessera/brain-ui-sdk",
+              "@schlessera/brain-backend-claude",
+              "@schlessera/brain-backend-pi",
+              "@schlessera/brain-render-puppeteer",
+              "@schlessera/brain-ui-server",
+              "@schlessera/brain-ui-react",
+              "@schlessera/brain-module-finance",
+              "@schlessera/brain-module-jobs",
+              "@schlessera/brain-module-speaking",
+            ];
+            for (const name of names) {
+              const loaded = await import(name);
+              if (!loaded || typeof loaded !== "object") {
+                throw new Error(`Failed to import ${name}`);
+              }
+            }
+            const claude = await import("@schlessera/brain-backend-claude");
+            if (typeof claude.createClaudeBackend !== "function") {
+              throw new Error("createClaudeBackend export is missing");
+            }
+          '
+          node --input-type=module <<'NODE'
+          const nodePackages = [
+            "@schlessera/brain-ui-sdk",
+            "@schlessera/brain-ui-sdk/protocol",
+            "@schlessera/brain-ui-sdk/schemas",
+            "@schlessera/brain-ui-sdk/server",
+            "@schlessera/brain-ui-sdk/client",
+            "@schlessera/brain-backend-claude",
+            "@schlessera/brain-render-puppeteer",
+            "@schlessera/brain-ui-react",
+          ];
+          for (const name of nodePackages) {
+            const loaded = await import(name);
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error(`Node failed to import ${name}`);
+            }
+          }
+
+          const bunApiPackages = [
+            "@schlessera/brain",
+            "@schlessera/brain-module-finance",
+            "@schlessera/brain-module-jobs",
+            "@schlessera/brain-module-speaking",
+            "@schlessera/brain-backend-pi",
+            "@schlessera/brain-ui-server",
+          ];
+          for (const name of bunApiPackages) {
+            try {
+              await import(name);
+            } catch (error) {
+              const message = `${error?.code ?? ""}: ${error?.message ?? error}`;
+              if (!message.includes("bun:")) {
+                throw new Error(
+                  `${name} failed for a reason other than its documented bun: dependency:\n${message}`
+                );
+              }
+            }
+          }
+          NODE
+          ./node_modules/.bin/brain --version
+
+  leakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Personal-string leakage gate
+        # Covers the WHOLE tree. The only exemption is LICENSE, which must name
+        # the copyright holder. Do not add directory exemptions: the ones that
+        # used to exist (plan/, research/, PROGRESS.md) were dropped at the
+        # public cut precisely so this gate has nowhere to look away.
+        run: |
+          set -e
+          # Pattern is assembled from pieces so this workflow file does not
+          # itself trip the gate. The second alternative allows the public
+          # account name "schlessera" (ends in "a") — it IS the brand now —
+          # while still catching the bare personal surname and the domain.
+          P1='al''ain'; P2='schles''ser([^a]|$)'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
+          # Personal infrastructure: deploy host and VPS address.
+          P6='coo''lify-1'; P7='91\.99\.200\.114'
+          PATTERN="$P1|$P2|$P3|$P4|$P5|$P6|$P7"
+          MATCHES=$(grep -riE "$PATTERN" \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=dist \
+            --exclude=LICENSE \
+            . || true)
+          if [ -n "$MATCHES" ]; then
+            echo "Personal strings found outside allowed locations:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "Leakage gate clean."

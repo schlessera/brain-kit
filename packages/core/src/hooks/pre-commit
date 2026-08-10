@@ -1,0 +1,44 @@
+#!/bin/sh
+# pre-commit — `brain validate` always (errors block the commit; warnings do
+# not). Tests + typecheck run only when tooling changed (brain.config.* or
+# .agents/skills/). Bypass everything with: BRAIN_SKIP_HOOKS=1 git commit ...
+set -eu
+
+[ "${BRAIN_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT"
+
+# Resolve the brain CLI: PATH first, then the repo's pinned bin.
+if command -v brain >/dev/null 2>&1; then
+  BRAIN="brain"
+elif [ -x "$ROOT/node_modules/.bin/brain" ]; then
+  BRAIN="$ROOT/node_modules/.bin/brain"
+else
+  echo "pre-commit: brain CLI not found — skipping validation" >&2
+  exit 0
+fi
+
+"$BRAIN" validate >/dev/null || {
+  echo "pre-commit: brain validate failed — fix errors or use BRAIN_SKIP_HOOKS=1" >&2
+  "$BRAIN" validate 2>&1 | grep -E '\[ERROR\]' >&2 || true
+  exit 1
+}
+
+# Tooling changes must additionally pass tests + typecheck, when those tools exist.
+if git diff --cached --name-only | grep -qE '^(brain\.config\.(ts|json)|\.agents/skills/)'; then
+  if command -v bun >/dev/null 2>&1; then
+    if [ -f "$ROOT/tsconfig.json" ]; then
+      bunx tsc --noEmit || {
+        echo "pre-commit: typecheck failed (bunx tsc --noEmit)" >&2
+        exit 1
+      }
+    fi
+    bun test >/dev/null 2>&1 || {
+      echo "pre-commit: tests failed (bun test)" >&2
+      exit 1
+    }
+  fi
+fi
+
+exit 0

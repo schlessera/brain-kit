@@ -1,0 +1,64 @@
+{
+  "name": "@schlessera/brain-backend-pi",
+  "version": "0.6.3",
+  "description": "OSS-default brain-kit agent backend, purpose-built on the upstream pi coding-agent SDK",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "pi",
+    "ai-agent",
+    "chat-backend"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/ui-backend-pi"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "@schlessera/brain": "workspace:*",
+    "@schlessera/brain-ui-sdk": "workspace:*",
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
+    "typebox": "1.1.38"
+  },
+  "peerDependencies": {
+    "@types/bun": ">=1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@types/bun": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

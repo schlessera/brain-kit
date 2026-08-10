@@ -1,0 +1,59 @@
+{
+  "name": "@schlessera/brain-module-speaking",
+  "version": "0.6.3",
+  "description": "brain-kit module: speaking — talks, conferences, CFP pipeline, travel planning",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "speaking",
+    "conferences",
+    "knowledge-management"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/module-speaking"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./module": {
+      "bun": "./src/module.ts",
+      "types": "./dist/module.d.ts",
+      "default": "./dist/module.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "@schlessera/brain": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,16 @@
+# --- brain-kit defaults ---
+
+# Search index — disposable. Markdown is the source of truth; `brain index
+# --force` rebuilds this from scratch.
+brain.db*
+
+# Secrets — your API keys live here.
+.env
+
+# Dependencies.
+node_modules/
+
+# Per-task agent working directories.
+workspaces/*/
+
+# Add your own ignores below (local extensions, editor files, OS cruft, …).

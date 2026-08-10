@@ -1,0 +1,18 @@
+#!/bin/sh
+# post-commit — refresh the search index after every commit. Non-blocking
+# (backgrounded) and silent by design. Bypass with BRAIN_SKIP_HOOKS=1.
+[ "${BRAIN_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+if command -v brain >/dev/null 2>&1; then
+  BRAIN="brain"
+elif [ -x "$ROOT/node_modules/.bin/brain" ]; then
+  BRAIN="$ROOT/node_modules/.bin/brain"
+else
+  exit 0
+fi
+
+"$BRAIN" index --incremental --quiet >/dev/null 2>&1 &
+exit 0

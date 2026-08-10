@@ -1,0 +1,49 @@
+{
+  "name": "@schlessera/brain-render-puppeteer",
+  "version": "0.6.3",
+  "description": "Optional server-side HTML→PNG/PDF renderer for brain-kit UIs (Puppeteer, network-denied by default)",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "puppeteer",
+    "renderer",
+    "pdf",
+    "screenshot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/ui-render-puppeteer"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.0.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
