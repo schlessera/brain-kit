@@ -12,12 +12,13 @@ const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 With no verb, delegates the full workflow to the coding agent (/sync skill).
 Mechanical verbs (structured output for the skill to drive):
 
-  assess       Classify local changes (SENSITIVE|ARTIFACT|TRACK|UNKNOWN)
+  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|UNKNOWN)
   group        Group tracked changes by taxonomy domain
   pull         Fetch origin/main and fast-forward or merge
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
   push         Push to origin/main
-  post-sync    Re-sync skills + reindex, then report head parity`;
+  post-sync    Re-sync skills + reindex, commit the derived caches it rewrote,
+               then report head parity and any remaining working-tree dirt`;
 
 // Artifact + sensitive path globs (ported from sync.sh). No personal patterns.
 const ARTIFACT_PATTERNS = [
@@ -34,6 +35,15 @@ const CONFIG_FILES = new Set([
   ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
 ]);
 
+/**
+ * Sidecars that an embeddings index run rewrites (see `saveContextCache` /
+ * `saveAssetCache` in lib/indexer). They are derived from brain.db but are
+ * committed so fresh clones and rebuilds skip regeneration — which means the
+ * reindex at the end of a sync routinely dirties the tree *after* the push.
+ * post-sync owns that dirt and commits it itself.
+ */
+const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
+
 interface GitResult {
   stdout: string;
   stderr: string;
@@ -47,6 +57,30 @@ function git(root: string, args: string[], raw = false): GitResult {
     stderr: new TextDecoder().decode(proc.stderr).trim(),
     code: proc.exitCode ?? 0,
   };
+}
+
+/**
+ * One record per `git status` entry: the two-character code and the path.
+ *
+ * `--porcelain=v1 -z` rather than the default: NUL-separated records keep the
+ * leading space of an unstaged code (` M path`) that trimming would eat, and
+ * paths arrive literal — no quoting, no ` -> ` arrow to re-split, so a path
+ * containing either is not mis-parsed. Renames and copies emit the destination
+ * first and the original as the following record, which is skipped.
+ */
+function porcelainRecords(root: string): { xy: string; file: string }[] {
+  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
+  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
+  const records = result.stdout.split("\0");
+  const entries: { xy: string; file: string }[] = [];
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i]!;
+    if (!line) continue;
+    const xy = line.slice(0, 2);
+    entries.push({ xy, file: line.slice(3) });
+    if (xy.includes("R") || xy.includes("C")) i++;
+  }
+  return entries;
 }
 
 function globToRegex(pattern: string): RegExp {
@@ -89,23 +123,13 @@ function currentBranch(root: string): string {
 
 interface AssessedFile {
   status: string;
-  class: "SENSITIVE" | "ARTIFACT" | "TRACK" | "UNKNOWN";
+  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "UNKNOWN";
   path: string;
 }
 
 function assess(root: string): AssessedFile[] {
-  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
-  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
-  const records = result.stdout.split("\0");
   const files: AssessedFile[] = [];
-  for (let i = 0; i < records.length; i++) {
-    const line = records[i]!;
-    if (!line) continue;
-    const xy = line.slice(0, 2);
-    const file = line.slice(3);
-    // Porcelain -z emits destination first, followed by the original path
-    // for renames/copies. Paths are literal, including newlines and arrows.
-    if (xy.includes("R") || xy.includes("C")) i++;
+  for (const { xy, file } of porcelainRecords(root)) {
 
     let status: string;
     const trimmed = xy.trim();
@@ -122,12 +146,38 @@ function assess(root: string): AssessedFile[] {
     let klass: AssessedFile["class"];
     if (matchesAny(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
     else if (matchesAny(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
+    // Committed on purpose, but post-sync commits them after its reindex —
+    // taking them here too would just commit a stale copy and duplicate work.
+    else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
     else if (isTrackable(file)) klass = "TRACK";
     else klass = "UNKNOWN";
 
     files.push({ status, class: klass, path: file });
   }
   return files;
+}
+
+function workingTreeDirt(root: string): string[] {
+  return porcelainRecords(root).map((record) => record.file);
+}
+
+export interface DirtDisposition {
+  /** Derived sidecars post-sync rewrote — safe for it to commit unattended. */
+  caches: string[];
+  /** Everything else — reported, never auto-committed. */
+  other: string[];
+}
+
+/**
+ * Split post-reindex working-tree dirt into what post-sync may commit itself
+ * and what only a human/agent should decide about. Pure so the policy is
+ * testable without a git fixture or an API key.
+ */
+export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
+  const caches: string[] = [];
+  const other: string[] = [];
+  for (const file of dirty) (DERIVED_CACHES.has(file) ? caches : other).push(file);
+  return { caches, other };
 }
 
 async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
@@ -163,16 +213,56 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
     index = `FAILED — ${(e as Error).message}`;
   }
 
+  // The reindex above rewrites the derived sidecars, so the tree is routinely
+  // dirty at this point — after the push. Commit and push those caches here so
+  // a sync ends clean instead of leaving the caller to notice and do it.
   const branch = currentBranch(root);
+  const { caches, other } = classifyPostSyncDirt(workingTreeDirt(root));
+  let cacheCommit = "clean";
+  if (caches.length > 0) {
+    if (branch !== "main") {
+      cacheCommit = `skipped — not on main (${branch})`;
+    } else {
+      // Stage by explicit path: nothing outside DERIVED_CACHES can be swept in,
+      // even when `other` is non-empty.
+      const staged = git(root, ["add", "--", ...caches]);
+      if (staged.code !== 0) {
+        cacheCommit = `FAILED to stage — ${staged.stderr}`;
+      } else {
+        const committed = git(root, ["commit", "-m", "Refresh derived index caches"]);
+        if (committed.code !== 0) {
+          cacheCommit = `FAILED to commit — ${committed.stderr || committed.stdout}`;
+        } else {
+          const pushed = git(root, ["push", "origin", "main"]);
+          cacheCommit =
+            pushed.code === 0
+              ? `committed + pushed (${caches.join(", ")})`
+              : `committed, push rejected — ${pushed.stderr || pushed.stdout}`;
+        }
+      }
+    }
+  }
+
   const localHead = git(root, ["rev-parse", "--short", "HEAD"]).stdout;
   const remoteHead = git(root, ["rev-parse", "--short", "origin/main"]).stdout || "unknown";
+
+  // "complete" must mean complete: heads agree *and* nothing is left behind.
+  // Anything the caches step could not finish leaves the tree dirty too.
+  const cacheUnresolved = cacheCommit.startsWith("FAILED") || cacheCommit.startsWith("skipped");
+  let sync: string;
+  if (localHead !== remoteHead) sync = "diverged";
+  else if (other.length > 0 || cacheUnresolved) sync = "dirty";
+  else sync = "complete";
+
   return {
     skills,
     index,
+    cacheCommit,
+    treeDirty: other,
     branch,
     localHead,
     remoteHead,
-    sync: localHead === remoteHead ? "complete" : "diverged",
+    sync,
     warnings,
   };
 }
