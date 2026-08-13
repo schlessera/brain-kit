@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 import { api, type BrainSearchHit } from "../../lib/api-client.js";
-import { useGraphStore, type LocalDirection } from "../../stores/graph-store.js";
+import {
+  useGraphStore,
+  type DiscoveryColorBy,
+  type LocalDirection,
+  type SizeBy,
+} from "../../stores/graph-store.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -137,6 +142,8 @@ function LocalControls() {
 function DiscoveryControls() {
   const discovery = useGraphStore((s) => s.discovery);
   const setDiscoveryParams = useGraphStore((s) => s.setDiscoveryParams);
+  const colorBy = useGraphStore((s) => s.discoveryColorBy);
+  const setColorBy = useGraphStore((s) => s.setDiscoveryColorBy);
   const defaultRoot = useGraphStore((s) => s.meta?.defaultRoot ?? null);
 
   return (
@@ -147,7 +154,7 @@ function DiscoveryControls() {
           placeholder={defaultRoot ? defaultRoot.path : "Pick a root note…"}
           onPick={(path) => setDiscoveryParams({ root: path })}
         />
-        {discovery.root && (
+        {discovery.root && defaultRoot && (
           <button
             onClick={() => setDiscoveryParams({ root: null })}
             className="mt-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
@@ -166,6 +173,16 @@ function DiscoveryControls() {
           className="w-full accent-(--color-primary)"
         />
       </Field>
+      <Field label="Color by">
+        <Segmented
+          options={[
+            { value: "distance", label: "Distance" },
+            { value: "folder", label: "Folder" },
+          ]}
+          value={colorBy}
+          onChange={(v) => setColorBy(v as DiscoveryColorBy)}
+        />
+      </Field>
       {/* Direction is only meaningful with an explicit root: the default-root
           distances were walked once at index time. */}
     </>
@@ -175,32 +192,74 @@ function DiscoveryControls() {
 function ClustersControls() {
   const clusters = useGraphStore((s) => s.clusters);
   const setClustersParams = useGraphStore((s) => s.setClustersParams);
+  const sizeBy = useGraphStore((s) => s.clustersSizeBy);
+  const setSizeBy = useGraphStore((s) => s.setClustersSizeBy);
   return (
-    <Field label="Isolated notes">
-      <Toggle
-        checked={clusters.isolates}
-        onChange={(v) => setClustersParams({ isolates: v })}
-        label="Include notes without links"
-      />
-    </Field>
+    <>
+      <Field label="Node size">
+        <Segmented
+          options={[
+            { value: "degree", label: "Links" },
+            { value: "pagerank", label: "PageRank" },
+          ]}
+          value={sizeBy}
+          onChange={(v) => setSizeBy(v as SizeBy)}
+        />
+      </Field>
+      <Field label="Isolated notes">
+        <Toggle
+          checked={clusters.isolates}
+          onChange={(v) => setClustersParams({ isolates: v })}
+          label="Include notes without links"
+        />
+      </Field>
+    </>
   );
 }
 
 function MaintenanceControls() {
   const maintenance = useGraphStore((s) => s.maintenance);
   const setMaintenanceParams = useGraphStore((s) => s.setMaintenanceParams);
+  const filters = useGraphStore((s) => s.maintenanceFilters);
+  const setFilters = useGraphStore((s) => s.setMaintenanceFilters);
   return (
-    <Field label={`Stale after ${maintenance.staleDays} days`}>
-      <input
-        type="range"
-        min={30}
-        max={720}
-        step={30}
-        value={maintenance.staleDays}
-        onChange={(e) => setMaintenanceParams({ staleDays: Number(e.target.value) })}
-        className="w-full accent-(--color-primary)"
-      />
-    </Field>
+    <>
+      <Field label="Findings">
+        <div className="flex flex-col">
+          <Toggle
+            checked={filters.orphans}
+            onChange={(v) => setFilters({ orphans: v })}
+            label="Orphans"
+          />
+          <Toggle
+            checked={filters.unreachable}
+            onChange={(v) => setFilters({ unreachable: v })}
+            label="Unreachable"
+          />
+          <Toggle
+            checked={filters.broken}
+            onChange={(v) => setFilters({ broken: v })}
+            label="Broken links"
+          />
+          <Toggle
+            checked={filters.stale}
+            onChange={(v) => setFilters({ stale: v })}
+            label="Stale notes"
+          />
+        </div>
+      </Field>
+      <Field label={`Stale after ${maintenance.staleDays} days`}>
+        <input
+          type="range"
+          min={30}
+          max={720}
+          step={30}
+          value={maintenance.staleDays}
+          onChange={(e) => setMaintenanceParams({ staleDays: Number(e.target.value) })}
+          className="w-full accent-(--color-primary)"
+        />
+      </Field>
+    </>
   );
 }
 

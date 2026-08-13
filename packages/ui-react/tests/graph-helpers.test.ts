@@ -1,13 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CATEGORICAL_SLOTS,
+  DISTANCE_RAMP,
+  OTHER_COLOR,
+  ROOT_COLOR,
+  assignFolderColors,
   buildQuery,
   communityColor,
   distanceColor,
+  groupCommunities,
   labelSet,
   matchScene,
   mergeSubgraphs,
   nodeSize,
   radialLayout,
+  topLevelDir,
 } from "../src/components/graph/lib/graph-helpers.js";
 import type { GraphSubgraphResponse } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -110,21 +117,62 @@ describe("nodeSize", () => {
 });
 
 describe("palette", () => {
-  test("colors are deterministic hex", () => {
-    expect(communityColor(0)).toMatch(/^#[0-9a-f]{6}$/);
-    expect(communityColor(7)).toBe(communityColor(7));
-  });
-
-  test("nearby communities get distinct colors", () => {
+  test("the first eight communities get distinct validated slots", () => {
     const seen = new Set<string>();
-    for (let i = 0; i < 12; i++) seen.add(communityColor(i));
-    expect(seen.size).toBe(12);
+    for (let i = 0; i < 8; i++) seen.add(communityColor(i));
+    expect(seen.size).toBe(8);
+    expect(CATEGORICAL_SLOTS).toHaveLength(8);
   });
 
-  test("distance colors are hex and the root is warm", () => {
-    expect(distanceColor(0, 5)).toMatch(/^#[0-9a-f]{6}$/);
-    expect(distanceColor(3, 5)).toMatch(/^#[0-9a-f]{6}$/);
-    expect(distanceColor(0, 5)).not.toBe(distanceColor(5, 5));
+  test("the long tail folds into the recessive color", () => {
+    expect(communityColor(8)).toBe(OTHER_COLOR);
+    expect(communityColor(120)).toBe(OTHER_COLOR);
+  });
+
+  test("distance 0 is the amber root, far distances clamp to the ramp end", () => {
+    expect(distanceColor(0)).toBe(ROOT_COLOR);
+    expect(distanceColor(1)).toBe(DISTANCE_RAMP[0]);
+    expect(distanceColor(99)).toBe(DISTANCE_RAMP[DISTANCE_RAMP.length - 1]);
+  });
+});
+
+describe("assignFolderColors", () => {
+  test("biggest folders get slots, tail gets the recessive color", () => {
+    const paths = [
+      ...Array.from({ length: 5 }, (_, i) => `career/a${i}.md`),
+      ...Array.from({ length: 3 }, (_, i) => `talks/b${i}.md`),
+      "one/x.md",
+      "two/x.md",
+      "three/x.md",
+      "four/x.md",
+      "five/x.md",
+      "six/x.md",
+      "seven/x.md",
+    ];
+    const colors = assignFolderColors(paths);
+    expect(colors.get("career")).toBe(CATEGORICAL_SLOTS[0]);
+    expect(colors.get("talks")).toBe(CATEGORICAL_SLOTS[1]);
+    // Ties rank alphabetically: five, four, one, seven, six, three fill the
+    // remaining slots — "two" is the ninth directory and folds to Other.
+    expect(colors.get("two")).toBe(OTHER_COLOR);
+  });
+
+  test("topLevelDir extracts the first segment", () => {
+    expect(topLevelDir("career/opportunities/x.md")).toBe("career");
+    expect(topLevelDir("rootfile.md")).toBe("");
+  });
+});
+
+describe("groupCommunities", () => {
+  test("splits singletons out and sorts by size", () => {
+    const groups = groupCommunities([
+      { community: 2, size: 1 },
+      { community: 0, size: 10 },
+      { community: 1, size: 4 },
+      { community: 3, size: 1 },
+    ]);
+    expect(groups.major.map((c) => c.community)).toEqual([0, 1]);
+    expect(groups.singletonCount).toBe(2);
   });
 });
 

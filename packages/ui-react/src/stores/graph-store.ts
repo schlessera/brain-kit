@@ -46,6 +46,17 @@ export interface MaintenanceParams {
   staleDays: number;
 }
 
+export type SizeBy = "degree" | "pagerank";
+export type DiscoveryColorBy = "distance" | "folder";
+
+/** Which finding sections are visible — a client-side filter, no refetch. */
+export interface MaintenanceFilters {
+  orphans: boolean;
+  unreachable: boolean;
+  broken: boolean;
+  stale: boolean;
+}
+
 type FetchState = "idle" | "loading" | "done" | "error";
 
 interface GraphState {
@@ -67,6 +78,11 @@ interface GraphState {
   /** In-scene search query — highlights matching nodes, does not refetch. */
   sceneQuery: string;
 
+  // Display-only knobs: they restyle the current scene, never refetch.
+  clustersSizeBy: SizeBy;
+  discoveryColorBy: DiscoveryColorBy;
+  maintenanceFilters: MaintenanceFilters;
+
   selectedId: number | null;
   hoveredId: number | null;
 
@@ -75,6 +91,9 @@ interface GraphState {
   setDiscoveryParams: (params: Partial<DiscoveryParams>) => void;
   setClustersParams: (params: Partial<ClustersParams>) => void;
   setMaintenanceParams: (params: Partial<MaintenanceParams>) => void;
+  setClustersSizeBy: (sizeBy: SizeBy) => void;
+  setDiscoveryColorBy: (colorBy: DiscoveryColorBy) => void;
+  setMaintenanceFilters: (filters: Partial<MaintenanceFilters>) => void;
   setSceneQuery: (q: string) => void;
   select: (id: number | null) => void;
   hover: (id: number | null) => void;
@@ -90,6 +109,11 @@ interface GraphState {
 /** Cache of scene responses, keyed by `${endpoint}?${query}|${computedAt}`. */
 const sceneCache = new Map<string, GraphSubgraphResponse | GraphMaintenanceResponse>();
 const SCENE_CACHE_MAX = 40;
+
+/** Test/dev hook: drop every cached scene. */
+export function clearGraphSceneCache(): void {
+  sceneCache.clear();
+}
 
 function cachePut(key: string, value: GraphSubgraphResponse | GraphMaintenanceResponse) {
   if (sceneCache.size >= SCENE_CACHE_MAX) {
@@ -183,6 +207,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   error: null,
 
   sceneQuery: "",
+  clustersSizeBy: "degree",
+  discoveryColorBy: "distance",
+  maintenanceFilters: { orphans: true, unreachable: true, broken: true, stale: true },
   selectedId: null,
   hoveredId: null,
 
@@ -207,6 +234,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set((s) => ({ maintenance: { ...s.maintenance, ...params } }));
     if (get().mode === "maintenance") void get().fetchScene();
   },
+  setClustersSizeBy: (sizeBy) => set({ clustersSizeBy: sizeBy }),
+  setDiscoveryColorBy: (colorBy) => set({ discoveryColorBy: colorBy }),
+  setMaintenanceFilters: (filters) =>
+    set((s) => ({ maintenanceFilters: { ...s.maintenanceFilters, ...filters } })),
   setSceneQuery: (q) => set({ sceneQuery: q }),
   select: (id) => set({ selectedId: id }),
   hover: (id) => set({ hoveredId: id }),

@@ -31,6 +31,8 @@ export interface GraphCanvasProps {
   hoveredId: number | null;
   matchIds: ReadonlySet<number>;
   sizeBy?: SizeBy;
+  /** Radial mode: draw this many distance rings (with hop labels) under the graph. */
+  rings?: number;
   /** Mode-specific node color (community, distance, …). */
   nodeColor: (node: GraphNodePayload) => string;
   /** Optional per-edge color override (e.g. backlinks into the local center). */
@@ -53,14 +55,17 @@ export default function GraphCanvas({
   hoveredId,
   matchIds,
   sizeBy = "degree",
+  rings = 0,
   nodeColor,
   edgeColor,
   onSelect,
   onHover,
 }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const ringCanvasRef = useRef<HTMLCanvasElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const theme = useGraphTheme();
+  const ringCount = layout === "radial" ? rings : 0;
 
   // State the reducers read without re-instantiating sigma.
   const interactionRef = useRef({
@@ -270,11 +275,66 @@ export default function GraphCanvas({
     };
   }, [data, selectedId, hoveredId, matchIds]);
 
+  // Distance rings under the radial layout — an underlay canvas redrawn in
+  // sync with sigma's camera (the sigma canvases are transparent, so it shows
+  // through).
+  useEffect(() => {
+    const renderer = sigmaRef.current;
+    const canvas = ringCanvasRef.current;
+    if (!renderer || !canvas || ringCount === 0) return;
+
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const { clientWidth, clientHeight } = canvas;
+      if (canvas.width !== clientWidth * dpr) canvas.width = clientWidth * dpr;
+      if (canvas.height !== clientHeight * dpr) canvas.height = clientHeight * dpr;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, clientWidth, clientHeight);
+
+      const center = renderer.graphToViewport({ x: 0, y: 0 });
+      const edge = renderer.graphToViewport({ x: 1, y: 0 });
+      const unit = Math.hypot(edge.x - center.x, edge.y - center.y);
+      if (!Number.isFinite(unit) || unit <= 0) return;
+
+      ctx.strokeStyle = theme.edge;
+      ctx.fillStyle = theme.labelMuted;
+      ctx.font = "10px Plus Jakarta Sans, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      for (let d = 1; d <= ringCount; d++) {
+        const radius = unit * d;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+        // Hop label at the top of the ring, skipped once rings get dense.
+        if (unit > 28) {
+          ctx.globalAlpha = 0.9;
+          ctx.fillText(String(d), center.x, center.y - radius - 4);
+        }
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    draw();
+    renderer.on("afterRender", draw);
+    return () => {
+      renderer.off("afterRender", draw);
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  }, [ringCount, theme, data]);
+
   return (
-    <div
-      ref={containerRef}
-      aria-hidden="true"
-      className="absolute inset-0 touch-none"
-    />
+    <div aria-hidden="true" className="absolute inset-0">
+      {ringCount > 0 && (
+        <canvas
+          ref={ringCanvasRef}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
+      )}
+      <div ref={containerRef} className="absolute inset-0 touch-none" />
+    </div>
   );
 }

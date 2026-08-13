@@ -127,48 +127,102 @@ export function nodeSize(
   return Math.max(min, Math.min(max, min + Math.sqrt(value) * 1.8));
 }
 
-// --- Community palette -------------------------------------------------------
+// --- Palettes ----------------------------------------------------------------
+//
+// Both palettes ran through the dataviz validator against the app surface
+// (#0c0e12, dark): the categorical set passes lightness band, chroma floor,
+// CVD separation (worst adjacent ΔE 8.4), normal-vision floor and 3:1
+// contrast; the distance ramp passes monotone-lightness, step-gap, light-end
+// contrast and single-hue checks. Slot ORDER is the CVD-safety mechanism —
+// do not reorder without re-validating.
+
+/** Fixed categorical slots (validated, dark). Community/folder identity. */
+export const CATEGORICAL_SLOTS = [
+  "#3987e5", // blue
+  "#d95926", // orange
+  "#199e70", // aqua
+  "#c98500", // yellow
+  "#d55181", // magenta
+  "#008300", // green
+  "#9085e9", // violet
+  "#e66767", // red
+] as const;
+
+/** Recessive slot for everything past the eight distinguishable ones. */
+export const OTHER_COLOR = "#565b66";
+
+/** The root's own color in discovery mode (the app's amber primary). */
+export const ROOT_COLOR = "#e09f3e";
+
+/** Ordinal distance ramp, near → far (validated, 5 visible steps). */
+export const DISTANCE_RAMP = [
+  "#b7d3f6",
+  "#86b6ef",
+  "#5598e7",
+  "#2a78d6",
+  "#184f95",
+] as const;
 
 /**
- * Seed hues drawn from the app's entity colors (amber, teal, blue, purple),
- * continued by golden-angle rotation so any community count stays
- * distinguishable. Values are hex because WebGL renderers parse them cheaply.
- */
-const SEED_HUES = [38, 168, 205, 270];
-const GOLDEN_ANGLE = 137.508;
-
-function hslToHex(h: number, s: number, l: number): string {
-  const lightness = l / 100;
-  const a = (s / 100) * Math.min(lightness, 1 - lightness);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const color = lightness - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(255 * Math.max(0, Math.min(1, color)))
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-/**
- * Color for community `i` (0-based). Deterministic; the first four match the
- * app's entity-color hues, later ones rotate by the golden angle. Saturation
- * and lightness are tuned for legibility on the dark background.
+ * Color for a community. Communities are numbered by size (0 = largest) at
+ * index time, so the first eight — the ones a legend can carry — get the
+ * distinguishable slots and the long tail shares one recessive color.
  */
 export function communityColor(community: number): string {
-  const hue =
-    community < SEED_HUES.length
-      ? SEED_HUES[community]!
-      : (SEED_HUES[SEED_HUES.length - 1]! + GOLDEN_ANGLE * (community - SEED_HUES.length + 1)) % 360;
-  return hslToHex(hue, 52, 62);
+  return community < CATEGORICAL_SLOTS.length
+    ? CATEGORICAL_SLOTS[community]!
+    : OTHER_COLOR;
 }
 
-/** Sequential color for a BFS distance: bright near the root, fading out. */
-export function distanceColor(distance: number, maxDistance: number): string {
-  if (distance <= 0) return hslToHex(38, 70, 62); // the amber root
-  const t = Math.min(1, distance / Math.max(1, maxDistance));
-  // teal → desaturated slate as distance grows
-  return hslToHex(168 + t * 40, 45 - t * 25, 60 - t * 22);
+/** Color for a BFS distance: amber root, then the blue ramp fading out. */
+export function distanceColor(distance: number): string {
+  if (distance <= 0) return ROOT_COLOR;
+  return DISTANCE_RAMP[Math.min(distance - 1, DISTANCE_RAMP.length - 1)]!;
+}
+
+/** First path segment — "career/opportunities/x.md" → "career". */
+export function topLevelDir(path: string): string {
+  const slash = path.indexOf("/");
+  return slash === -1 ? "" : path.slice(0, slash);
+}
+
+/**
+ * Assign categorical slots to top-level directories, biggest first — the
+ * same eight-then-other policy as communities. Returns dir → color.
+ */
+export function assignFolderColors(paths: string[]): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const path of paths) {
+    const dir = topLevelDir(path);
+    counts.set(dir, (counts.get(dir) ?? 0) + 1);
+  }
+  const ranked = [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+  );
+  const colors = new Map<string, string>();
+  ranked.forEach(([dir], i) => {
+    colors.set(dir, i < CATEGORICAL_SLOTS.length ? CATEGORICAL_SLOTS[i]! : OTHER_COLOR);
+  });
+  return colors;
+}
+
+// --- Community legend grouping ----------------------------------------------
+
+export interface LegendGroups<T extends { community: number; size: number }> {
+  /** Multi-note communities, size-descending — what the legend lists. */
+  major: T[];
+  /** Number of single-note communities folded out of the legend. */
+  singletonCount: number;
+}
+
+/** Split a community list into legend-worthy entries and the singleton tail. */
+export function groupCommunities<T extends { community: number; size: number }>(
+  communities: T[]
+): LegendGroups<T> {
+  const major = communities
+    .filter((c) => c.size > 1)
+    .sort((a, b) => b.size - a.size || a.community - b.community);
+  return { major, singletonCount: communities.length - major.length };
 }
 
 // --- Label policy ------------------------------------------------------------
