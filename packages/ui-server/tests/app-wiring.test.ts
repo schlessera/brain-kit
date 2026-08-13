@@ -88,6 +88,20 @@ describe("app wiring — auth guard ordering", () => {
       401
     );
   });
+
+  test("the graph routes are behind the auth guard", async () => {
+    // Every one of these enumerates note paths and titles, so an unauthenticated
+    // caller must not reach them — not even /graph/meta, which counts the corpus.
+    for (const path of [
+      "/api/graph/meta",
+      "/api/graph/clusters",
+      "/api/graph/neighborhood?center=index.md",
+      "/api/graph/discovery",
+      "/api/graph/maintenance",
+    ]) {
+      expect((await get(path)).status).toBe(401);
+    }
+  });
 });
 
 describe("app wiring — password auth", () => {
