@@ -15,10 +15,16 @@ export const ALL_SOURCES = [
 export type Source = (typeof ALL_SOURCES)[number];
 
 // Sources enabled by default (ones that work reliably without a headless
-// browser or proxy). Disabled: nodesk, dice (client-rendered, need a browser);
-// simplyhired, jobgether, builtin (Cloudflare 403 or empty responses). Any of
-// these can be re-enabled per run, e.g. `jobs scrape nodesk --proxy "..."`, or
-// permanently via the module `boards` config.
+// browser or proxy).
+//
+// nodesk, dice, jobgether and builtin were previously excluded here as
+// "client-rendered, need a browser" or "Cloudflare 403". That is no longer
+// true: all four serve their listings and their per-job detail pages to a
+// plain HTTP client. Their adapters fetch detail pages directly, so they no
+// longer depend on the Chrome pass to produce complete records.
+//
+// simplyhired stays out of the default set: it responds, but its adapter still
+// yields listing-level records only (no description).
 export const SOURCES = [
   "remoteok",
   "remotive",
@@ -26,6 +32,10 @@ export const SOURCES = [
   "workingnomads",
   "remotelyde",
   "remoteineurope",
+  "builtin",
+  "nodesk",
+  "jobgether",
+  "dice",
 ] as const satisfies readonly Source[];
 
 export const REVIEW_STATUSES = [

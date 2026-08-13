@@ -131,14 +131,32 @@ The browser path speaks raw Chrome DevTools Protocol — no Playwright or
 Puppeteer dependency — and covers `builtin`, `nodesk`, and `dice`. Start Chrome
 with `--remote-debugging-port=9222 --headless=new` first, or point
 `CHROME_CDP_URL` at an existing instance. When nothing is listening there, the
-browser pass reports that it was skipped and the API results still land.
+browser pass reports that it was skipped and the API results still land — in
+JSON output as `browser.status: "skipped"` with a `reason`, so an automated run
+can tell "Chrome was missing" apart from "the browser boards found nothing".
+
+The browser pass is now an **optional supplement, not a requirement**: `builtin`,
+`nodesk`, `dice` and `jobgether` all have HTTP adapters that reach both the
+listing and the per-job detail pages unaided. Running with Chrome simply widens
+the listing yield on `dice`.
 
 ## Boards & sources
 
-Full-feed / category boards (no browser, enabled by default): `remoteok`,
-`remotive`, `weworkremotely`, `workingnomads`, `remotelyde`, `remoteineurope`.
-Query-driven or JS-heavy boards (may need `--proxy` or `--browser`): `simplyhired`,
-`jobgether`, `builtin`, `nodesk`, `dice`.
+Full-feed / category boards: `remoteok`, `remotive`, `weworkremotely`,
+`workingnomads`, `remotelyde`, `remoteineurope`.
+Listing + detail-page boards: `builtin`, `nodesk`, `jobgether`, `dice`. These
+follow each listing down to the job's own page to collect the description,
+employer and salary, so they issue roughly one request per job (bounded by a
+per-run cap, and any truncation is reported in `errors`).
+Listing-only: `simplyhired` — responds, but still yields no description; not
+enabled by default.
+
+### Descriptions
+
+Scoring reads the description, so a board that returns listing rows only is
+scored on its title and tags alone. Boards that expose a schema.org
+`JobPosting` block share one mapper (`src/jsonld-job.ts`); `builtin`, which
+publishes no structured data, parses its detail markup directly.
 
 ## ⚠️ Scraping & Terms of Service
 

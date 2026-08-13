@@ -1,32 +1,38 @@
 import { BaseAdapter } from "./base.js";
 import { httpGetText } from "../http.js";
-import { ANNUALIZED_MARKER, parseSalaryRange } from "../salary.js";
+import { mapLimit } from "../concurrency.js";
+import { decodeEntities, findJsonLdType } from "../html.js";
+import { applyJobPosting } from "../jsonld-job.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// Dice embeds job data as JSON in server-rendered HTML.
+// Dice search pages list jobs but carry no per-job detail: no description, and
+// the company name only appears as positional text inside the result card. The
+// detail pages, by contrast, ship a complete schema.org JobPosting block. So
+// the search page is used purely to enumerate job IDs, and every field that
+// matters is read from the detail page.
+//
 // Neutral default search terms — override via the module `queries` config.
 const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engineer"];
 
-interface DiceJob {
-  guid?: string;
-  title?: string;
-  companyName?: string;
-  summary?: string;
-  detailsPageUrl?: string;
-  jobLocation?: { displayName?: string };
-  postedDate?: string;
-  employmentType?: string;
-  salary?: string;
-  isRemote?: boolean;
-  workplaceTypes?: string[];
-  easyApply?: boolean;
+const DETAIL_CONCURRENCY = 4;
+// Ceiling on detail fetches per run, so a broad query set cannot turn into a
+// thousand requests. Truncation is logged, never silent.
+const MAX_DETAILS_PER_RUN = 150;
+
+interface DiceListing {
+  id: string;
+  title: string;
+  url: string;
 }
 
 export class DiceAdapter extends BaseAdapter {
   readonly source = "dice" as const;
   readonly name = "Dice";
   readonly tier = 2 as const;
-  needsProxy = true;
+  // Dice serves both search and detail pages to a plain HTTP client with a
+  // normal User-Agent; a proxy is no longer required. `--proxy` is still
+  // honored when supplied.
+  needsProxy = false;
 
   private readonly queries: string[];
 
@@ -37,180 +43,163 @@ export class DiceAdapter extends BaseAdapter {
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
     const errors: string[] = [];
-    const allJobs: RawJob[] = [];
-    const seenIds = new Set<string>();
+    const listings = new Map<string, DiceListing>();
 
+    // Phase 1 — enumerate job IDs from the search pages.
     for (const query of this.queries) {
       const searchUrl = `https://www.dice.com/jobs?q=${encodeURIComponent(query)}&filters.isRemote=true&page=1&pageSize=20`;
       try {
-        if (opts.verbose) console.log(`[dice] Fetching: ${query}...`);
+        if (opts.verbose) console.log(`[dice] Searching: ${query}...`);
 
         const html = await httpGetText(searchUrl, {
           rateLimit: 3000,
           proxy: opts.proxy,
         });
 
-        const jobs = this.extractJobs(html);
-        for (const job of jobs) {
-          if (!seenIds.has(job.source_id)) {
-            seenIds.add(job.source_id);
-            allJobs.push(job);
-          }
+        for (const listing of this.extractListings(html)) {
+          if (!listings.has(listing.id)) listings.set(listing.id, listing);
         }
-
-        if (opts.verbose) console.log(`[dice] Found ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`Dice search failed: ${err}`);
+        errors.push(`Dice search failed for "${query}": ${err}`);
       }
     }
 
-    if (opts.verbose) console.log(`[dice] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
-  }
-
-  private extractJobs(html: string): RawJob[] {
-    const jobs: RawJob[] = [];
-
-    // Try to find embedded JSON data (Dice puts job data in script tags or data attributes)
-    // Pattern 1: JSON array in script tag
-    const jsonRegex = /window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?});/;
-    const jsonMatch = jsonRegex.exec(html);
-    if (jsonMatch) {
-      try {
-        const state = JSON.parse(jsonMatch[1]);
-        const jobList = state?.search?.jobs || state?.jobs || [];
-        for (const entry of jobList) {
-          const job = this.mapDiceJob(entry);
-          if (job) jobs.push(job);
-        }
-        return jobs;
-      } catch {}
-    }
-
-    // Pattern 2: Individual job card data attributes or JSON-LD
-    const ldRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
-    let ldMatch: RegExpExecArray | null;
-    while ((ldMatch = ldRegex.exec(html)) !== null) {
-      try {
-        const data = JSON.parse(ldMatch[1]);
-        if (data["@type"] === "JobPosting") {
-          jobs.push(this.mapLdJob(data));
-        } else if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item["@type"] === "JobPosting") {
-              jobs.push(this.mapLdJob(item));
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // Pattern 3: Parse HTML cards
-    if (jobs.length === 0) {
-      const cardJobs = this.parseHtmlCards(html);
-      jobs.push(...cardJobs);
-    }
-
-    return jobs;
-  }
-
-  private mapDiceJob(entry: DiceJob): RawJob | null {
-    if (!entry.title) return null;
-
-    let jobType: RawJob["job_type"] = "full_time";
-    if (entry.employmentType?.toLowerCase().includes("contract")) jobType = "contract";
-    else if (entry.employmentType?.toLowerCase().includes("part")) jobType = "part_time";
-
-    // Parse salary (decimals handled; hourly rates annualized)
-    let salaryMin: number | undefined;
-    let salaryMax: number | undefined;
-    let salaryRaw = entry.salary;
-    if (entry.salary) {
-      const parsed = parseSalaryRange(entry.salary);
-      if (parsed.min !== undefined && parsed.max !== undefined) {
-        salaryMin = parsed.min;
-        salaryMax = parsed.max;
-        if (parsed.annualizedFromHourly) salaryRaw = `${entry.salary} ${ANNUALIZED_MARKER}`;
+    if (listings.size === 0) {
+      if (errors.length === 0) {
+        errors.push("Dice search returned 0 job links — markup drift?");
       }
+      return this.makeResult([], errors);
     }
 
-    return {
-      source: "dice",
-      source_id: entry.guid || entry.detailsPageUrl || "",
-      title: entry.title,
-      company: entry.companyName || "Unknown",
-      description: entry.summary,
-      url: entry.detailsPageUrl
-        ? entry.detailsPageUrl.startsWith("http")
-          ? entry.detailsPageUrl
-          : `https://www.dice.com${entry.detailsPageUrl}`
-        : undefined,
-      source_url: entry.detailsPageUrl
-        ? `https://www.dice.com${entry.detailsPageUrl}`
-        : undefined,
-      location: entry.jobLocation?.displayName || (entry.isRemote ? "Remote" : undefined),
-      remote_type: entry.isRemote ? "fully_remote" : "unknown",
-      job_type: jobType,
-      salary_min: salaryMin,
-      salary_max: salaryMax,
-      salary_raw: salaryRaw,
-      salary_currency: entry.salary ? "USD" : undefined,
-      published_at: entry.postedDate,
-    };
+    // Phase 2 — pull the detail page for each job.
+    let queue = [...listings.values()];
+    if (queue.length > MAX_DETAILS_PER_RUN) {
+      const dropped = queue.length - MAX_DETAILS_PER_RUN;
+      errors.push(
+        `Dice: capped detail fetches at ${MAX_DETAILS_PER_RUN}, skipped ${dropped} listing(s) this run`
+      );
+      if (opts.verbose) console.log(`[dice] Capping details at ${MAX_DETAILS_PER_RUN} (${dropped} skipped)`);
+      queue = queue.slice(0, MAX_DETAILS_PER_RUN);
+    }
+
+    if (opts.verbose) console.log(`[dice] Fetching ${queue.length} detail pages...`);
+
+    let enriched = 0;
+    const jobs = await mapLimit(queue, DETAIL_CONCURRENCY, async (listing) => {
+      try {
+        const html = await httpGetText(listing.url, {
+          rateLimit: 250,
+          proxy: opts.proxy,
+        });
+        const posting = findJsonLdType(html, "JobPosting");
+        if (posting) {
+          enriched++;
+          return this.mapLdJob(posting, listing);
+        }
+      } catch {
+        // Fall through to the listing-only record below.
+      }
+      // Detail fetch failed or the page had no JobPosting block: keep the job
+      // with what the search page gave us rather than dropping it entirely.
+      return this.listingOnlyJob(listing);
+    });
+
+    const resolved = jobs.filter((j): j is RawJob => j !== null);
+
+    if (enriched < resolved.length) {
+      errors.push(
+        `Dice: ${resolved.length - enriched} of ${resolved.length} job(s) fell back to listing-only data (no JobPosting on detail page)`
+      );
+    }
+    if (opts.verbose) {
+      console.log(`[dice] Total: ${resolved.length} jobs (${enriched} with full detail)`);
+    }
+
+    return this.makeResult(resolved, errors);
   }
 
-  private mapLdJob(data: Record<string, any>): RawJob {
-    const salary = data.baseSalary?.value;
-    return {
-      source: "dice",
-      source_id: data.identifier?.value || data.url || "",
-      title: data.title || "",
-      company: data.hiringOrganization?.name || "Unknown",
-      description: data.description,
-      url: data.url,
-      source_url: data.url,
-      location: data.jobLocation?.address?.addressLocality || "Remote",
-      remote_type: data.jobLocationType === "TELECOMMUTE" ? "fully_remote" : "unknown",
-      job_type: data.employmentType?.toLowerCase().includes("full") ? "full_time" : "contract",
-      salary_min: salary?.minValue,
-      salary_max: salary?.maxValue,
-      salary_currency: salary?.currency || "USD",
-      published_at: data.datePosted,
-    };
-  }
+  /**
+   * Pull job IDs and titles off a search page. Dice renders result cards as
+   * `<a aria-label="View Details for {title} ({hash})" href="/job-detail/{uuid}">`.
+   * The bare `/job-detail/{uuid}` link scan is the fallback when the aria-label
+   * pattern changes, since the UUID is all Phase 2 strictly needs.
+   */
+  private extractListings(html: string): DiceListing[] {
+    const found = new Map<string, DiceListing>();
 
-  private parseHtmlCards(html: string): RawJob[] {
-    const jobs: RawJob[] = [];
-    // Match Dice job card links
-    const linkRegex = /<a[^>]*href="(\/job-detail\/([^"?]+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const labelled =
+      /<a[^>]*aria-label="View Details for ([^"]*?)\s*\(([a-f0-9]+)\)"[^>]*href="([^"]*\/job-detail\/([a-f0-9-]{36})[^"]*)"/gi;
     let match: RegExpExecArray | null;
-    const seen = new Set<string>();
-
-    while ((match = linkRegex.exec(html)) !== null) {
-      const [, href, id, titleHtml] = match;
-      const title = this.stripHtml(titleHtml).trim();
-      if (!id || seen.has(id) || !title || title.length < 5) continue;
-      seen.add(id);
-
-      const startIdx = match.index;
-      const context = html.slice(startIdx, startIdx + 1500);
-
-      const companyMatch = context.match(/class="[^"]*company[^"]*"[^>]*>([\s\S]*?)<\//i);
-      const company = companyMatch ? this.stripHtml(companyMatch[1]) : "Unknown";
-
-      jobs.push({
-        source: "dice",
-        source_id: id,
-        title,
-        company,
-        url: `https://www.dice.com${href}`,
-        source_url: `https://www.dice.com${href}`,
-        location: "Remote",
-        remote_type: "fully_remote",
-        job_type: "full_time",
-      });
+    while ((match = labelled.exec(html)) !== null) {
+      const [, rawTitle, , , id] = match;
+      const title = decodeEntities(rawTitle);
+      if (!id || !title) continue;
+      found.set(id, { id, title, url: this.detailUrl(id) });
     }
 
-    return jobs;
+    // Attribute order varies between Dice's server-rendered and hydrated
+    // markup, so also try href-before-aria-label.
+    const labelledAlt =
+      /<a[^>]*href="[^"]*\/job-detail\/([a-f0-9-]{36})[^"]*"[^>]*aria-label="View Details for ([^"]*?)\s*\([a-f0-9]+\)"/gi;
+    while ((match = labelledAlt.exec(html)) !== null) {
+      const [, id, rawTitle] = match;
+      const title = decodeEntities(rawTitle);
+      if (!id || !title || found.has(id)) continue;
+      found.set(id, { id, title, url: this.detailUrl(id) });
+    }
+
+    if (found.size === 0) {
+      const bare = /\/job-detail\/([a-f0-9-]{36})/gi;
+      while ((match = bare.exec(html)) !== null) {
+        const id = match[1];
+        if (found.has(id)) continue;
+        // Title is unknown here; the detail page supplies it.
+        found.set(id, { id, title: "", url: this.detailUrl(id) });
+      }
+    }
+
+    return [...found.values()];
+  }
+
+  private detailUrl(id: string): string {
+    return `https://www.dice.com/job-detail/${id}`;
+  }
+
+  /**
+   * Map a schema.org JobPosting onto the listing stub. `source_id` is always
+   * the bare Dice UUID so that the HTTP pass and the browser pass converge on
+   * the same row instead of inserting the job twice.
+   */
+  private mapLdJob(data: Record<string, any>, listing: DiceListing): RawJob {
+    const base = this.listingStub(listing);
+    const enriched = applyJobPosting(base, data);
+
+    // Dice repeats the employer under identifier.name; use it when the
+    // hiringOrganization block is missing or empty.
+    if (enriched.company === "Unknown" && data.identifier?.name) {
+      enriched.company = decodeEntities(String(data.identifier.name));
+    }
+    if (typeof data.url === "string" && data.url) enriched.url = data.url;
+
+    return enriched;
+  }
+
+  private listingStub(listing: DiceListing): RawJob {
+    return {
+      source: "dice",
+      source_id: listing.id,
+      title: listing.title,
+      company: "Unknown",
+      url: listing.url,
+      source_url: listing.url,
+      location: "Remote",
+      remote_type: "fully_remote",
+      job_type: "full_time",
+    };
+  }
+
+  private listingOnlyJob(listing: DiceListing): RawJob | null {
+    if (!listing.title) return null;
+    return this.listingStub(listing);
   }
 }

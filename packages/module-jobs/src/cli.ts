@@ -147,13 +147,13 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   }
 
   if (browserOnly) {
-    const browserResults = await runBrowserPhase(jctx, scoringConfig, verbose, dryRun);
+    const browserPhase = await runBrowserPhase(jctx, scoringConfig, verbose, dryRun);
     if (jctx.json) {
-      emitJson({ browser: browserResults });
+      emitJson({ browser: browserPhase });
     } else {
-      printBrowserResults(browserResults);
+      printBrowserResults(browserPhase);
     }
-    return 0;
+    return browserPhase.status === "failed" ? 1 : 0;
   }
 
   const report = await runScrape({
@@ -169,12 +169,12 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
 
   // Unified run: the Chrome pass follows the API pass so one invocation covers
   // every source. Its failures never discard the API results.
-  const browserResults = browser
+  const browserPhase = browser
     ? await runBrowserPhase(jctx, scoringConfig, verbose, dryRun)
     : null;
 
   if (jctx.json) {
-    emitJson(browserResults ? { report, browser: browserResults } : { report });
+    emitJson(browserPhase ? { report, browser: browserPhase } : { report });
     return 0;
   }
 
@@ -193,10 +193,11 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     for (const e of report.total_errors) console.log(`  - ${e}`);
   }
 
-  if (browserResults) printBrowserResults(browserResults);
+  if (browserPhase) printBrowserResults(browserPhase);
 
   const totalNew =
-    report.total_new + (browserResults?.reduce((sum, r) => sum + r.newJobs, 0) ?? 0);
+    report.total_new +
+    (browserPhase?.results.reduce((sum: number, r: BrowserResult) => sum + r.newJobs, 0) ?? 0);
   if (!dryRun && totalNew > 0) {
     const db = openDatabase(jctx.dbPath);
     const topJobs = getReviewQueue(db, { status: "queued", limit: 5 });
@@ -216,6 +217,19 @@ interface BrowserResult {
 }
 
 /**
+ * Outcome of the browser pass. The status is reported explicitly because a
+ * skipped pass and a pass that genuinely found nothing are very different
+ * facts: with only a bare result array, `jobs scrape --all --browser --json`
+ * on a host with no Chrome emitted `browser: []`, which reads as "the browser
+ * boards ran and found nothing" when in truth they never ran at all.
+ */
+interface BrowserPhase {
+  status: "ok" | "skipped" | "failed";
+  reason?: string;
+  results: BrowserResult[];
+}
+
+/**
  * The headless-Chrome pass. Chrome is an external prerequisite (it must already
  * be listening on CHROME_CDP_URL), so this probes first and skips cleanly when
  * it is absent — a scheduled unified run on a host without Chrome should lose
@@ -227,34 +241,34 @@ async function runBrowserPhase(
   scoringConfig: ScoringConfig | null,
   verbose: boolean,
   dryRun: boolean
-): Promise<BrowserResult[]> {
+): Promise<BrowserPhase> {
   if (dryRun) {
     if (!jctx.json) console.log("\nBrowser boards: skipped (--dry-run)");
-    return [];
+    return { status: "skipped", reason: "--dry-run", results: [] };
   }
 
   const cdpUrl = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
   if (!(await chromeReachable(cdpUrl))) {
-    if (!jctx.json) {
-      console.log(
-        `\nBrowser boards: skipped — no Chrome at ${cdpUrl}. Start one with\n` +
-          "  google-chrome --headless=new --remote-debugging-port=9222 --no-first-run"
-      );
-    }
-    return [];
+    const reason =
+      `no Chrome at ${cdpUrl} — start one with ` +
+      "`google-chrome --headless=new --remote-debugging-port=9222 --no-first-run`";
+    if (!jctx.json) console.log(`\nBrowser boards: skipped — ${reason}`);
+    return { status: "skipped", reason, results: [] };
   }
 
   try {
-    return await scrapeSites({
+    const results = await scrapeSites({
       dbPath: jctx.dbPath,
       scoringConfig,
       verbose,
       queries: jctx.config.queries,
       cdpUrl,
     });
+    return { status: "ok", results };
   } catch (e) {
-    if (!jctx.json) console.log(`\nBrowser boards: failed — ${(e as Error).message}`);
-    return [];
+    const reason = (e as Error).message;
+    if (!jctx.json) console.log(`\nBrowser boards: failed — ${reason}`);
+    return { status: "failed", reason, results: [] };
   }
 }
 
@@ -269,10 +283,14 @@ async function chromeReachable(cdpUrl: string): Promise<boolean> {
   }
 }
 
-function printBrowserResults(results: BrowserResult[]): void {
-  if (results.length === 0) return;
+function printBrowserResults(phase: BrowserPhase): void {
+  if (phase.status !== "ok") {
+    // Already narrated at the point of skipping/failing; nothing to tabulate.
+    return;
+  }
+  if (phase.results.length === 0) return;
   console.log("\n--- Browser Boards ---");
-  for (const r of results) console.log(`  ${r.source}: ${r.found} found, ${r.newJobs} new`);
+  for (const r of phase.results) console.log(`  ${r.source}: ${r.found} found, ${r.newJobs} new`);
 }
 
 async function cmdScore(args: string[], jctx: JobsCtx): Promise<number> {

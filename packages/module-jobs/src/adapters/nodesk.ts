@@ -1,8 +1,44 @@
 import { BaseAdapter } from "./base.js";
 import { httpGetText } from "../http.js";
+import { mapLimit } from "../concurrency.js";
+import { decodeEntities, findJsonLdType, stripHtml } from "../html.js";
+import { applyJobPosting } from "../jsonld-job.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
+// NoDesk serves minified HTML with *unquoted* attribute values
+// (`href=/remote-jobs/acme-engineer/`). Patterns written against the quoted
+// form match nothing, which is how this adapter came to report a silent zero.
+// Every attribute pattern below therefore accepts quoted or bare values.
+//
+// Listing card shape:
+//   <h2 ...><a class="..." href=/remote-jobs/{slug}/>Title</a></h2>
+//   <h3 ...><a class="..." href=/remote-companies/{slug}/>Company</a></h3>
+//   <h4>Remote:</h4><h5><a href=/remote-jobs/{region}/>Region</a></h5>
 const BASE_URL = "https://nodesk.co/remote-jobs/";
+
+const DETAIL_CONCURRENCY = 3;
+const MAX_DETAILS_PER_RUN = 100;
+
+// Category and region slugs live under the same /remote-jobs/ prefix as real
+// postings, so they have to be filtered out by name.
+const NON_JOB_SLUGS = new Set([
+  "ai", "account-executive", "accounting", "collections", "customer-support",
+  "design", "development", "engineering", "entry-level", "finance", "hr",
+  "human-resources", "marketing", "new", "non-tech", "operations", "other",
+  "part-time", "product", "project-management", "recruiting", "sales",
+  "software-development", "support", "writing",
+  // Regions
+  "africa", "americas", "anywhere", "asia", "australia", "canada", "emea",
+  "europe", "latin-america", "north-america", "oceania", "uk", "usa",
+  "worldwide",
+]);
+
+interface NodeskListing {
+  slug: string;
+  title: string;
+  company: string;
+  location: string;
+}
 
 export class NodeskAdapter extends BaseAdapter {
   readonly source = "nodesk" as const;
@@ -11,140 +47,114 @@ export class NodeskAdapter extends BaseAdapter {
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
     const errors: string[] = [];
-    const jobs: RawJob[] = [];
 
+    let html: string;
     try {
       if (opts.verbose) console.log("[nodesk] Fetching remote jobs page...");
-
-      const html = await httpGetText(BASE_URL, {
-        rateLimit: 2000,
-        proxy: opts.proxy,
-      });
-
-      // Parse job listings from HTML
-      // Nodesk uses .job-listing divs with structured content
-      const listingRegex =
-        /<article[^>]*class="[^"]*job[^"]*"[^>]*>[\s\S]*?<\/article>/gi;
-      const listings = html.match(listingRegex) || [];
-
-      // Fallback: try different container patterns
-      const cards = listings.length > 0 ? listings : this.extractCards(html);
-
-      for (const card of cards) {
-        const job = this.parseCard(card);
-        if (job) jobs.push(job);
-      }
-
-      // If regex approach didn't work, try line-by-line link extraction
-      if (jobs.length === 0) {
-        const linkJobs = this.extractFromLinks(html);
-        jobs.push(...linkJobs);
-      }
-
-      if (opts.verbose) console.log(`[nodesk] Found ${jobs.length} jobs`);
+      html = await httpGetText(BASE_URL, { rateLimit: 2000, proxy: opts.proxy });
     } catch (err) {
-      errors.push(`Nodesk fetch failed: ${err}`);
+      return this.makeResult([], [`Nodesk fetch failed: ${err}`]);
     }
 
+    const listings = this.parseListings(html);
+    if (listings.length === 0) {
+      return this.makeResult([], ["Nodesk listing page yielded 0 jobs — markup drift?"]);
+    }
+
+    let queue = listings;
+    if (queue.length > MAX_DETAILS_PER_RUN) {
+      const dropped = queue.length - MAX_DETAILS_PER_RUN;
+      errors.push(
+        `Nodesk: capped detail fetches at ${MAX_DETAILS_PER_RUN}, ${dropped} job(s) kept without description`
+      );
+      queue = queue.slice(0, MAX_DETAILS_PER_RUN);
+    }
+    const listingOnly = listings.slice(queue.length);
+
+    if (opts.verbose) console.log(`[nodesk] Fetching ${queue.length} detail pages...`);
+
+    const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (listing) => {
+      const base = this.toRawJob(listing);
+      try {
+        const detailHtml = await httpGetText(this.jobUrl(listing.slug), {
+          rateLimit: 250,
+          proxy: opts.proxy,
+        });
+        const posting = findJsonLdType(detailHtml, "JobPosting");
+        if (posting) return applyJobPosting(base, posting);
+      } catch {
+        // Keep the listing-level record.
+      }
+      return base;
+    });
+
+    const jobs = [
+      ...detailed.filter((j): j is RawJob => j !== null),
+      ...listingOnly.map((l) => this.toRawJob(l)),
+    ];
+
+    if (opts.verbose) console.log(`[nodesk] Found ${jobs.length} jobs`);
     return this.makeResult(jobs, errors);
   }
 
-  private extractCards(html: string): string[] {
-    // Try various card patterns
-    const patterns = [
-      /<div[^>]*class="[^"]*job-listing[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>/gi,
-      /<li[^>]*class="[^"]*job[^"]*"[^>]*>[\s\S]*?<\/li>/gi,
-      /<div[^>]*class="[^"]*listing[^"]*"[^>]*>[\s\S]*?(?=<div[^>]*class="[^"]*listing)/gi,
-    ];
+  private parseListings(html: string): NodeskListing[] {
+    const listings: NodeskListing[] = [];
+    const seen = new Set<string>();
 
-    for (const pattern of patterns) {
-      const matches = html.match(pattern);
-      if (matches && matches.length > 0) return matches;
+    // Title anchors sit inside an <h2>; attribute values may be unquoted.
+    const titleRe =
+      /<h2[^>]*>\s*<a[^>]*href=["']?\/remote-jobs\/([a-z0-9-]+)\/?["']?[^>]*>([\s\S]*?)<\/a>/gi;
+
+    let match: RegExpExecArray | null;
+    while ((match = titleRe.exec(html)) !== null) {
+      const [, slug, titleHtml] = match;
+      if (!slug || seen.has(slug) || NON_JOB_SLUGS.has(slug)) continue;
+
+      const title = decodeEntities(stripHtml(titleHtml));
+      if (!title || title.length < 3) continue;
+      seen.add(slug);
+
+      // Company and location follow the title within the same card.
+      const tail = html.slice(match.index, match.index + 1600);
+
+      const companyMatch = tail.match(
+        /<a[^>]*href=["']?\/remote-companies\/[a-z0-9-]+\/?["']?[^>]*>([\s\S]*?)<\/a>/i
+      );
+      const company = companyMatch
+        ? decodeEntities(stripHtml(companyMatch[1])) || "Unknown"
+        : "Unknown";
+
+      const locationMatch = tail.match(
+        /Remote:\s*<\/h4>[\s\S]{0,200}?<a[^>]*>([\s\S]*?)<\/a>/i
+      );
+      const location = locationMatch
+        ? decodeEntities(stripHtml(locationMatch[1])) || "Remote"
+        : "Remote";
+
+      listings.push({ slug, title, company, location });
     }
-    return [];
+
+    return listings;
   }
 
-  private parseCard(cardHtml: string): RawJob | null {
-    // Extract title and URL
-    const titleMatch = cardHtml.match(/<a[^>]*href="(\/remote-jobs\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    if (!titleMatch) return null;
+  private jobUrl(slug: string): string {
+    return `https://nodesk.co/remote-jobs/${slug}/`;
+  }
 
-    const [, href, titleHtml] = titleMatch;
-    const title = this.stripHtml(titleHtml);
-    if (!title) return null;
-
-    // Extract company
-    const companyMatch =
-      cardHtml.match(/<a[^>]*href="\/remote-companies\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i) ||
-      cardHtml.match(/class="[^"]*company[^"]*"[^>]*>([\s\S]*?)<\//i);
-    const company = companyMatch ? this.stripHtml(companyMatch[1]) : "Unknown";
-
-    // Extract location/region
-    const locationMatch = cardHtml.match(/(?:Europe|US|Asia|Canada|Anywhere|Remote|Global|Worldwide)/i);
-    const location = locationMatch ? locationMatch[0] : "Remote";
-
-    // Extract tags
-    const tagMatches = cardHtml.match(/<span[^>]*class="[^"]*tag[^"]*"[^>]*>([\s\S]*?)<\/span>/gi);
-    const tags = tagMatches
-      ? tagMatches.map((t) => this.stripHtml(t).toLowerCase()).filter(Boolean)
-      : undefined;
-
-    // Extract job type
-    const typeMatch = cardHtml.match(/(?:Full-Time|Part-Time|Contract|Freelance|Internship)/i);
-    let jobType: RawJob["job_type"] = "full_time";
-    if (typeMatch) {
-      const t = typeMatch[0].toLowerCase();
-      if (t.includes("contract") || t.includes("freelance")) jobType = "contract";
-      else if (t.includes("part")) jobType = "part_time";
-    }
-
-    // Extract salary if present
-    const salaryMatch = cardHtml.match(/\$[\d,]+\s*-\s*\$[\d,]+/);
-    const salaryRaw = salaryMatch ? salaryMatch[0] : undefined;
-
+  private toRawJob(listing: NodeskListing): RawJob {
+    // source_id keeps the historical absolute-URL shape so existing rows
+    // continue to match instead of being re-inserted as new jobs.
     return {
       source: "nodesk",
-      source_id: href,
-      title,
-      company,
-      url: `https://nodesk.co${href}`,
-      source_url: `https://nodesk.co${href}`,
-      location,
+      source_id: this.jobUrl(listing.slug),
+      title: listing.title,
+      company: listing.company,
+      url: this.jobUrl(listing.slug),
+      source_url: this.jobUrl(listing.slug),
+      location: listing.location,
       remote_type: "fully_remote",
-      job_type: jobType,
-      tags,
-      salary_raw: salaryRaw,
-      salary_currency: salaryRaw ? "USD" : undefined,
+      job_type: "full_time",
     };
   }
 
-  private extractFromLinks(html: string): RawJob[] {
-    const jobs: RawJob[] = [];
-    // Match links to individual job pages
-    const linkRegex = /<a[^>]*href="(\/remote-jobs\/[a-z0-9-]+\/)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    const seen = new Set<string>();
-
-    while ((match = linkRegex.exec(html)) !== null) {
-      const [, href, titleHtml] = match;
-      if (seen.has(href)) continue;
-      seen.add(href);
-
-      const title = this.stripHtml(titleHtml);
-      if (!title || title.length < 5) continue;
-
-      jobs.push({
-        source: "nodesk",
-        source_id: href,
-        title,
-        company: "Unknown",
-        url: `https://nodesk.co${href}`,
-        source_url: `https://nodesk.co${href}`,
-        location: "Remote",
-        remote_type: "fully_remote",
-        job_type: "full_time",
-      });
-    }
-    return jobs;
-  }
 }

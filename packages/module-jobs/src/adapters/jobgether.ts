@@ -1,16 +1,29 @@
 import { BaseAdapter } from "./base.js";
 import { httpGetText } from "../http.js";
+import { mapLimit } from "../concurrency.js";
+import { decodeEntities, findJsonLdType, stripHtml } from "../html.js";
+import { applyJobPosting } from "../jsonld-job.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// Jobgether has card-based layout with structured job data
-// Use category browse URLs (server-rendered) instead of search (may require JS)
-const SEARCH_URLS = [
-  "https://jobgether.com/remote-jobs/all-locations/software-engineering",
-  "https://jobgether.com/remote-jobs/all-locations/data-science",
-  "https://jobgether.com/remote-jobs/all-locations/devops-cloud",
-  "https://jobgether.com/remote-jobs/germany/software-engineering",
-  "https://jobgether.com/remote-jobs/germany/data-science",
-];
+// The old category browse URLs (/remote-jobs/{location}/{category}) now return
+// HTTP 410 with a noindex landing page — Jobgether consolidated browsing onto
+// /search-offers, which is server-rendered and needs no JS.
+//
+// Card shape:
+//   <a href="/offer/{id}-{slug}" ... title="Job Title">Job Title</a>
+//   <a href="/remote-jobs/company-{slug}">Company Name</a>
+//
+// The company's display name is the anchor text; the previous adapter
+// title-cased the URL slug instead, which mangled anything with punctuation or
+// unusual casing.
+//
+// Pagination is client-side: `?page=2` serves byte-identical markup to page 1,
+// so listing a range of page URLs only burns requests. One listing fetch it is,
+// and the per-run yield is whatever that page holds.
+const SEARCH_URLS = ["https://jobgether.com/search-offers"];
+
+const DETAIL_CONCURRENCY = 3;
+const MAX_DETAILS_PER_RUN = 100;
 
 export class JobgetherAdapter extends BaseAdapter {
   readonly source = "jobgether" as const;
@@ -24,7 +37,7 @@ export class JobgetherAdapter extends BaseAdapter {
 
     for (const searchUrl of SEARCH_URLS) {
       try {
-        if (opts.verbose) console.log(`[jobgether] Fetching: ${searchUrl.split("?")[1]}...`);
+        if (opts.verbose) console.log(`[jobgether] Fetching: ${searchUrl}...`);
 
         const html = await httpGetText(searchUrl, {
           rateLimit: 3000,
@@ -32,6 +45,11 @@ export class JobgetherAdapter extends BaseAdapter {
         });
 
         const jobs = this.parseListings(html);
+        if (jobs.length === 0) {
+          errors.push(`Jobgether: 0 offers parsed from ${searchUrl} — markup drift?`);
+          continue;
+        }
+
         for (const job of jobs) {
           if (!seenIds.has(job.source_id)) {
             seenIds.add(job.source_id);
@@ -41,88 +59,97 @@ export class JobgetherAdapter extends BaseAdapter {
 
         if (opts.verbose) console.log(`[jobgether] Found ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`Jobgether search failed: ${err}`);
+        errors.push(`Jobgether search failed for ${searchUrl}: ${err}`);
       }
     }
 
-    if (opts.verbose) console.log(`[jobgether] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
+    if (allJobs.length === 0) return this.makeResult([], errors);
+
+    // Offer pages carry a full JobPosting block: description, salary, and the
+    // employer for the cards whose listing markup omits the company anchor.
+    let queue = allJobs;
+    if (queue.length > MAX_DETAILS_PER_RUN) {
+      const dropped = queue.length - MAX_DETAILS_PER_RUN;
+      errors.push(
+        `Jobgether: capped detail fetches at ${MAX_DETAILS_PER_RUN}, ${dropped} job(s) kept without description`
+      );
+      queue = queue.slice(0, MAX_DETAILS_PER_RUN);
+    }
+    const listingOnly = allJobs.slice(queue.length);
+
+    if (opts.verbose) console.log(`[jobgether] Fetching ${queue.length} detail pages...`);
+
+    const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (job) => {
+      try {
+        const html = await httpGetText(job.url!, { rateLimit: 250, proxy: opts.proxy });
+        const posting = findJsonLdType(html, "JobPosting");
+        if (posting) return applyJobPosting(job, posting);
+      } catch {
+        // Keep the listing-level record.
+      }
+      return job;
+    });
+
+    const jobs = [...detailed.filter((j): j is RawJob => j !== null), ...listingOnly];
+
+    if (opts.verbose) console.log(`[jobgether] Total: ${jobs.length} unique jobs`);
+    return this.makeResult(jobs, errors);
   }
 
   private parseListings(html: string): RawJob[] {
     const jobs: RawJob[] = [];
-
-    // Match job offer links: /offer/{id}-{slug}
-    const offerRegex = /<a[^>]*href="(\/offer\/([^"]+))"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
     const seen = new Set<string>();
 
-    // First pass: collect all offer links with context
-    const offers: Array<{ id: string; href: string; context: string }> = [];
+    const offerRe = /<a[^>]*href="\/offer\/([a-z0-9]+)-([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
 
-    while ((match = offerRegex.exec(html)) !== null) {
-      const [, href, id] = match;
-      if (seen.has(id)) continue;
+    let match: RegExpExecArray | null;
+    while ((match = offerRe.exec(html)) !== null) {
+      const [fullMatch, id, slug, inner] = match;
+      if (!id || seen.has(id)) continue;
+
+      // Prefer the anchor's title attribute; fall back to its text.
+      const titleAttr = fullMatch.match(/\btitle="([^"]+)"/i);
+      const title = decodeEntities(titleAttr ? titleAttr[1] : stripHtml(inner));
+      if (!title || title.length < 3) continue;
       seen.add(id);
 
-      // Grab surrounding context for metadata
-      const startIdx = Math.max(0, match.index - 200);
-      const context = html.slice(startIdx, match.index + 2000);
-      offers.push({ id, href, context });
-    }
+      const tail = html.slice(match.index, match.index + 2500);
 
-    for (const { id, href, context } of offers) {
-      // Extract title from the link or nearby heading
-      const titleMatch =
-        context.match(new RegExp(`href="${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>([^<]+)<`)) ||
-        context.match(/<h[23][^>]*>([^<]+)<\/h[23]>/i);
-      const title = titleMatch ? this.stripHtml(titleMatch[1]).trim() : "";
-      if (!title || title.length < 5) continue;
+      const companyMatch = tail.match(
+        /<a[^>]*href="\/remote-jobs\/company-[^"]*"[^>]*>([\s\S]*?)<\/a>/i
+      );
+      const company = companyMatch
+        ? decodeEntities(stripHtml(companyMatch[1])) || "Unknown"
+        : "Unknown";
 
-      // Extract company
-      const companyMatch =
-        context.match(/company-([a-z0-9-]+)/i) ||
-        context.match(/<(?:span|div|p)[^>]*class="[^"]*company[^"]*"[^>]*>([^<]+)</i);
-      let company = "Unknown";
-      if (companyMatch) {
-        company = companyMatch[1]
-          .replace(/-/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase())
-          .trim();
-      }
+      const salaryMatch = tail.match(/[€$£]\s?[\d,.]+\s*(?:-|to|–|—)\s*[€$£]?\s?[\d,.]+/);
+      const salaryRaw = salaryMatch ? salaryMatch[0].trim() : undefined;
 
-      // Extract location (pattern: "Remote from ...")
-      const locationMatch = context.match(/Remote\s+from\s+([^<,]+)/i) || context.match(/(?:Remote|Worldwide|Global)/i);
-      const location = locationMatch ? locationMatch[0].trim() : "Remote";
-
-      // Extract salary
-      const salaryMatch = context.match(/[€$£][\d,.]+\s*(?:-|to|–)\s*[€$£]?[\d,.]+/);
-      const salaryRaw = salaryMatch ? salaryMatch[0] : undefined;
-
-      // Determine currency
       let currency: string | undefined;
       if (salaryRaw) {
         if (salaryRaw.includes("€")) currency = "EUR";
-        else if (salaryRaw.includes("$")) currency = "USD";
         else if (salaryRaw.includes("£")) currency = "GBP";
+        else if (salaryRaw.includes("$")) currency = "USD";
       }
 
-      // Extract experience level / tags
-      const tagMatches = context.match(
-        /(?:Senior|Junior|Mid-level|Lead|Staff|Principal|Entry|Executive)/gi
+      const tagMatches = title.match(
+        /\b(?:Senior|Junior|Mid-level|Lead|Staff|Principal|Entry|Executive)\b/gi
       );
       const tags = tagMatches
         ? [...new Set(tagMatches.map((t) => t.toLowerCase()))]
         : undefined;
 
+      const href = `/offer/${id}-${slug}`;
       jobs.push({
         source: "jobgether",
-        source_id: id,
+        // source_id keeps the historical `{id}-{slug}` shape so existing rows
+        // continue to match rather than being re-inserted as new jobs.
+        source_id: `${id}-${slug}`,
         title,
         company,
         url: `https://jobgether.com${href}`,
         source_url: `https://jobgether.com${href}`,
-        location,
+        location: "Remote",
         remote_type: "fully_remote",
         job_type: "full_time",
         tags,

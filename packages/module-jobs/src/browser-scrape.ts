@@ -139,6 +139,44 @@ function buildBrowserSites(queries: string[]): Record<string, BrowserSite> {
   };
 }
 
+/**
+ * Build the `source_id` for a browser-extracted job.
+ *
+ * Three boards (builtin, nodesk, dice) have BOTH an HTTP adapter and a browser
+ * config, and both passes can run in a single `scrape --all --browser`. The two
+ * paths must therefore agree on the identifier, or the same posting lands twice
+ * under different keys. Dice is the case that actually diverged: the HTTP
+ * adapter keys on the bare job UUID while the browser path saw the relative
+ * `/job-detail/{uuid}` href. Normalize to the UUID here; the other boards key
+ * on their absolute URL, which both paths already produce.
+ */
+export function canonicalSourceId(
+  source: Source,
+  href: string | undefined,
+  company: string | undefined,
+  title: string | undefined
+): string {
+  if (source === "dice" && href) {
+    const uuid = href.match(/\/job-detail\/([a-f0-9-]{36})/i);
+    if (uuid) return uuid[1];
+  }
+  const absolute = absoluteHref(source, href);
+  return absolute || `${company}-${title}`;
+}
+
+const BROWSER_ORIGINS: Partial<Record<Source, string>> = {
+  dice: "https://www.dice.com",
+  builtin: "https://builtin.com",
+  nodesk: "https://nodesk.co",
+};
+
+function absoluteHref(source: Source, href: string | undefined): string | undefined {
+  if (!href) return undefined;
+  if (href.startsWith("http")) return href;
+  const origin = BROWSER_ORIGINS[source];
+  return origin ? `${origin}${href}` : href;
+}
+
 async function getPages(
   cdpUrl: string
 ): Promise<Array<{ id: string; url: string; title: string; webSocketDebuggerUrl: string }>> {
@@ -254,17 +292,21 @@ async function scrapeSite(
       }
 
       for (const job of extracted) {
-        const id = job.href || `${job.company}-${job.title}`;
+        const id = canonicalSourceId(config.source, job.href, job.company, job.title);
         if (seenIds.has(id)) continue;
         seenIds.add(id);
+
+        // Dice yields relative hrefs; store the absolute form so browser rows
+        // are indistinguishable from HTTP-pass rows.
+        const absoluteUrl = absoluteHref(config.source, job.href);
 
         allJobs.push({
           source: config.source,
           source_id: id,
           title: job.title || "",
           company: job.company || "Unknown",
-          url: job.href,
-          source_url: job.href,
+          url: absoluteUrl,
+          source_url: absoluteUrl,
           location: job.location || "Remote",
           remote_type: job.remote_type || "fully_remote",
           job_type: job.empType?.toLowerCase().includes("contract") ? "contract" : "full_time",
