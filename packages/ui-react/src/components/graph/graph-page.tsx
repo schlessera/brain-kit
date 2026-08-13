@@ -538,9 +538,14 @@ function UnreachableTray({ count }: { count: number | undefined }) {
   const [nodes, setNodes] = useState<GraphNodePayload[] | null>(null);
 
   const isDefaultRoot = !discovery.root;
+  // Older server, no count field: the maintenance list is the only honest
+  // source, so it must be fetched EAGERLY — the chip may only appear once
+  // the list proves there is something to warn about.
+  const needsFallbackProof = count === undefined && isDefaultRoot;
 
   useEffect(() => {
-    if (!open || !isDefaultRoot || nodes !== null) return;
+    const wanted = (open || needsFallbackProof) && isDefaultRoot;
+    if (!wanted || nodes !== null) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -551,17 +556,20 @@ function UnreachableTray({ count }: { count: number | undefined }) {
         const data = (await res.json()) as GraphMaintenanceResponse;
         if (!cancelled) setNodes(data.unreachable);
       } catch {
-        // The tray degrades to count-only.
+        // The tray degrades to count-only (or stays hidden in fallback mode).
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, isDefaultRoot, nodes, staleDays]);
+  }, [open, needsFallbackProof, isDefaultRoot, nodes, staleDays]);
 
   if (count === 0) return null;
   // No server count and no exact list available: nothing honest to show.
   if (count === undefined && !isDefaultRoot) return null;
+  // Fallback mode: silent until the maintenance list confirms unreachable
+  // notes exist — an unproven warning chip would cry wolf on clean repos.
+  if (needsFallbackProof && (nodes === null || nodes.length === 0)) return null;
 
   return (
     <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100vw-5rem)]">
@@ -603,7 +611,9 @@ function UnreachableTray({ count }: { count: number | undefined }) {
         className="flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-surface-overlay px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg transition-colors hover:text-foreground"
       >
         <TriangleAlert className="h-3 w-3" />
-        {count !== undefined ? `${count} unreachable` : "Unreachable notes"}
+        {count !== undefined
+          ? `${count} unreachable`
+          : `${nodes!.length} unreachable`}
       </button>
     </div>
   );

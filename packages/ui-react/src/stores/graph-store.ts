@@ -116,11 +116,15 @@ export function clearGraphSceneCache(): void {
 }
 
 /**
- * Monotonic token for scene fetches. Every fetchScene call claims a new
+ * Monotonic tokens for scene and meta fetches. Every call claims a new
  * token; only the holder of the latest token may write results (success OR
- * error), so a slow older response can never overwrite a newer scene.
+ * error), so a slow older response can never overwrite newer state. Meta
+ * needs this too: forced mount-time refetches can overlap when the view is
+ * toggled quickly, and an older /meta response landing last would restore a
+ * stale computedAt — which is the key every scene-cache lookup hangs off.
  */
 let sceneRequestToken = 0;
+let metaRequestToken = 0;
 
 function cachePut(key: string, value: GraphSubgraphResponse | GraphMaintenanceResponse) {
   if (sceneCache.size >= SCENE_CACHE_MAX) {
@@ -252,11 +256,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   fetchMeta: async (force) => {
     const { metaState } = get();
     if (!force && (metaState === "loading" || metaState === "done")) return;
+    const token = ++metaRequestToken;
     set({ metaState: "loading" });
     try {
       const meta = await fetchGraphJson<GraphMetaResponse>("/meta");
+      if (token !== metaRequestToken) return;
       set({ meta, metaState: "done" });
     } catch (err) {
+      if (token !== metaRequestToken) return;
       set({ metaState: "error", error: toGraphError(err) });
     }
   },

@@ -208,6 +208,34 @@ describe("graph-store", () => {
     expect(s.error).toBeNull();
   });
 
+  test("a slow older meta response never restores a stale computedAt", async () => {
+    // First /meta call (pre-sync generation) resolves AFTER the second
+    // (post-sync) — the classic leave-and-re-enter-during-sync interleaving.
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => (releaseFirst = r));
+    const staleMeta = { ...META, computedAt: "2026-08-12T00:00:00Z" };
+    let call = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL) => {
+      call += 1;
+      if (call === 1) {
+        await firstGate;
+        return new Response(JSON.stringify(staleMeta), { status: 200 });
+      }
+      return new Response(JSON.stringify(META), { status: 200 });
+    }) as typeof fetch;
+
+    const first = useGraphStore.getState().fetchMeta(true);
+    const second = useGraphStore.getState().fetchMeta(true);
+    await second;
+    expect(useGraphStore.getState().meta?.computedAt).toBe(META.computedAt);
+
+    releaseFirst();
+    await first;
+    // The older response must have been discarded.
+    expect(useGraphStore.getState().meta?.computedAt).toBe(META.computedAt);
+    expect(useGraphStore.getState().metaState).toBe("done");
+  });
+
   test("forced meta refetch bypasses the done-state short-circuit", async () => {
     const calls = mockFetch({ "/graph/meta": { body: META } });
     await useGraphStore.getState().fetchMeta();
