@@ -6,6 +6,7 @@ import {
   SlidersHorizontal,
   SquarePen,
   FolderTree,
+  Waypoints,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
@@ -14,6 +15,8 @@ import { cn } from "../../lib/utils.js";
 
 export function SideRail() {
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  const activeView = useUIStore((s) => s.activeView);
+  const setActiveView = useUIStore((s) => s.setActiveView);
   const toggleSessionPanel = useUIStore((s) => s.toggleSessionPanel);
   const toggleSyncPanel = useUIStore((s) => s.toggleSyncPanel);
   const toggleWhatsupPanel = useUIStore((s) => s.toggleWhatsupPanel);
@@ -22,6 +25,14 @@ export function SideRail() {
   const clearMessages = useChatStore((s) => s.clearMessages);
   const hasMessages = useChatStore((s) => activeChat(s).messages.length > 0);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
+
+  /** Chat-scoped panels live in the chat page — surface it before opening them. */
+  function inChat(toggle: () => void) {
+    return () => {
+      if (activeView !== "chat") setActiveView("chat");
+      toggle();
+    };
+  }
 
   return (
     <nav className="hidden md:flex w-16 shrink-0 flex-col items-center border-r border-border bg-surface py-4 gap-1">
@@ -46,19 +57,27 @@ export function SideRail() {
       <RailButton
         icon={RefreshCw}
         label="Sync"
-        onClick={toggleSyncPanel}
+        onClick={inChat(toggleSyncPanel)}
         disabled={isStreaming}
       />
       <RailButton
         icon={Newspaper}
         label="Whatsup"
-        onClick={toggleWhatsupPanel}
+        onClick={inChat(toggleWhatsupPanel)}
         disabled={isStreaming}
       />
       <RailButton
         icon={FolderTree}
         label="Files"
         onClick={toggleFilePanel}
+      />
+      <RailButton
+        icon={Waypoints}
+        label="Graph"
+        active={activeView === "graph"}
+        onClick={() =>
+          setActiveView(activeView === "graph" ? "chat" : "graph")
+        }
       />
 
       {/* Spacer */}
@@ -68,7 +87,7 @@ export function SideRail() {
       <RailButton
         icon={History}
         label="Sessions"
-        onClick={toggleSessionPanel}
+        onClick={inChat(toggleSessionPanel)}
       />
 
       {/* Settings (models, passkeys, sign out) */}
@@ -105,18 +124,23 @@ function RailButton({
   label,
   onClick,
   disabled,
+  active,
 }: {
   icon: typeof Brain;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  active?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className="group relative flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:bg-surface-raised hover:text-foreground hover:scale-110 disabled:opacity-40 disabled:hover:scale-100"
+      className={cn(
+        "group relative flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-raised hover:text-foreground hover:scale-110 disabled:opacity-40 disabled:hover:scale-100",
+        active ? "bg-surface-raised text-primary" : "text-muted-foreground"
+      )}
     >
       <Icon className="h-4.5 w-4.5" />
       {/* Tooltip */}

@@ -19,7 +19,7 @@ const HELP = `brain doctor — health check battery
 
 --json: { "checks": [{ "id", "status": "pass"|"warn"|"fail", "detail", "fix"? }] }`;
 
-const EXPECTED_SCHEMA_VERSION = 7;
+const EXPECTED_SCHEMA_VERSION = 8;
 const MIN_BUN = [1, 3, 5];
 
 type Status = "pass" | "warn" | "fail";

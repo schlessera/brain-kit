@@ -15,6 +15,7 @@ export { configureBrainUi, uiConfig, type BrainUiConfig } from "./config.js";
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
 export { AppShell } from "./components/layout/app-shell.js";
 export { ChatPage } from "./components/chat/chat-page.js";
+export { GraphPage } from "./components/graph/graph-page.js";
 
 // Markdown renderer (also useful standalone, e.g. for a dev kitchen sink).
 export { BrainMarkdown } from "./components/chat/brain-markdown.js";
@@ -32,7 +33,8 @@ export {
   type MessageAttachment,
 } from "./stores/chat-store.js";
 export { useFileStore } from "./stores/file-store.js";
-export { useUIStore } from "./stores/ui-store.js";
+export { useUIStore, type ActiveView } from "./stores/ui-store.js";
+export { useGraphStore, type GraphMode } from "./stores/graph-store.js";
 export { useConnectionStore } from "./stores/connection-store.js";
 export { useProviderStore } from "./stores/provider-store.js";
 export { useVoiceStore } from "./voice/voice-store.js";

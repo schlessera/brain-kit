@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -207,7 +207,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 6);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 7) {
     // v7 — cheap change detection for binary assets: an mtimeMs-size
     // fingerprint lets the indexer skip re-reading and re-hashing hundreds
     // of MB of unchanged assets on every --embeddings run.
@@ -215,6 +215,50 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     if (!columns.some((c) => c.name === "stat_fingerprint")) {
       db.run("ALTER TABLE documents ADD COLUMN stat_fingerprint TEXT");
     }
+
+    setSchemaVersion(db, 7);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v8 — derived wiki-link graph. Every table here is rebuilt wholesale by
+    // lib/graph/precompute.ts on each index run (the `links` precedent): it is
+    // cache, never authoritative state, and is never hand-written.
+    db.run(`CREATE TABLE IF NOT EXISTS graph_metrics (
+      document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      in_degree INTEGER NOT NULL DEFAULT 0,
+      out_degree INTEGER NOT NULL DEFAULT 0,
+      component INTEGER NOT NULL,
+      pagerank REAL NOT NULL DEFAULT 0,
+      community INTEGER
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS graph_communities (
+      community INTEGER PRIMARY KEY,
+      size INTEGER NOT NULL,
+      label TEXT,
+      top_terms TEXT
+    )`);
+
+    // distance is measured from the DEFAULT root only. A virtual root (an
+    // index-excluded entry file such as AGENTS.md) has no documents row, so
+    // its ring-1 targets carry distance 1 with a NULL parent.
+    db.run(`CREATE TABLE IF NOT EXISTS graph_root_distances (
+      document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      distance INTEGER NOT NULL,
+      parent_id INTEGER
+    )`);
+
+    // `mode` is keyed for future layouts (semantic, radial); v1 writes
+    // 'clusters' only.
+    db.run(`CREATE TABLE IF NOT EXISTS graph_layouts (
+      mode TEXT NOT NULL,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      PRIMARY KEY (mode, document_id)
+    )`);
+
+    db.run("CREATE INDEX IF NOT EXISTS idx_graph_metrics_community ON graph_metrics(community)");
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

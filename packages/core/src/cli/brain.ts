@@ -48,7 +48,19 @@ const MUTATING_COMMANDS = new Set([
   // (that list is about an INVALID config); with NO config they must refuse
   // like every other writer. `brain init` writes the config before setup runs.
   "skills", "setup",
+  // graph compute rebuilds the derived tables through a writable open.
+  "graph",
 ]);
+
+/**
+ * Commands from the set above that only write in ONE subcommand form; the rest
+ * of their surface is read-only and must keep working in an uninitialized
+ * directory (`skills lint`, `graph export`, `graph stats`).
+ */
+const MUTATING_SUBCOMMAND: Record<string, string> = {
+  skills: "sync",
+  graph: "compute",
+};
 
 /** Env var holding the API key for a named built-in completion provider. */
 const COMPLETION_KEY_ENV: Record<string, string> = {
@@ -192,10 +204,10 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // No config found at all → refuse anything that writes. `skills` is only
-  // mutating in its `sync` form; `skills lint` is read-only and must still run.
+  // No config found at all → refuse anything that writes.
+  const mutatingSub = MUTATING_SUBCOMMAND[command];
   const mutates =
-    MUTATING_COMMANDS.has(command) && !(command === "skills" && argv[1] !== "sync");
+    MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub);
   if (brain.configPath === null && mutates) {
     console.error(
       `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +

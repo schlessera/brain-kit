@@ -7,17 +7,28 @@ import {
   FolderTree,
   SquarePen,
   MoreHorizontal,
+  Waypoints,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 
 export function MobileTabBar() {
+  const activeView = useUIStore((s) => s.activeView);
+  const setActiveView = useUIStore((s) => s.setActiveView);
   const toggleSessionPanel = useUIStore((s) => s.toggleSessionPanel);
   const toggleSyncPanel = useUIStore((s) => s.toggleSyncPanel);
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const clearMessages = useChatStore((s) => s.clearMessages);
+
+  /** Chat-scoped panels live in the chat page — surface it before opening them. */
+  function inChat(toggle: () => void) {
+    return () => {
+      if (activeView !== "chat") setActiveView("chat");
+      toggle();
+    };
+  }
 
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -40,14 +51,26 @@ export function MobileTabBar() {
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 flex h-14 items-center justify-around border-t border-border bg-surface px-1 pb-[env(safe-area-inset-bottom)]">
-      <TabIcon icon={Brain} label="Chat" active />
+      <TabIcon
+        icon={Brain}
+        label="Chat"
+        active={activeView === "chat"}
+        onClick={() => setActiveView("chat")}
+      />
       <TabIcon
         icon={SquarePen}
         label="New chat"
         onClick={() => {
           setMoreOpen(false);
+          setActiveView("chat");
           clearMessages();
         }}
+      />
+      <TabIcon
+        icon={Waypoints}
+        label="Graph"
+        active={activeView === "graph"}
+        onClick={() => setActiveView("graph")}
       />
       <TabIcon icon={FolderTree} label="Files" onClick={toggleFilePanel} />
       <div ref={moreRef} className="relative">
@@ -67,7 +90,7 @@ export function MobileTabBar() {
               label="Sync"
               onClick={() => {
                 setMoreOpen(false);
-                toggleSyncPanel();
+                inChat(toggleSyncPanel)();
               }}
             />
             <MoreItem
@@ -75,7 +98,7 @@ export function MobileTabBar() {
               label="History"
               onClick={() => {
                 setMoreOpen(false);
-                toggleSessionPanel();
+                inChat(toggleSessionPanel)();
               }}
             />
             <MoreItem

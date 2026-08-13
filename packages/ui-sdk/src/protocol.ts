@@ -651,6 +651,119 @@ export interface ClientLocationError {
 }
 
 // ============================================================
+// Graph (HTTP: /api/graph/*)
+//
+// REST payloads for the knowledge-graph view. The graph itself is derived from
+// the wiki-link structure of the brain repo and precomputed into brain.db by
+// the `brain` CLI; the server only reads it. Node ids are `documents.id`, which
+// makes edges cheap (two integers) and lets clients index nodes by id.
+//
+// Availability is not guaranteed: a repo indexed by an older CLI has no graph
+// tables, and a fresh v8 db has them but empty. Clients read GraphMetaResponse
+// first and degrade per `reason`. The neighborhood endpoint is the exception —
+// it runs off the raw `links` table and works against any indexed repo.
+// ============================================================
+
+/**
+ * One node of a graph response. Analytical fields are present only when the
+ * mode (and the precomputed tables) supply them, so a neighborhood over an
+ * un-precomputed repo still yields usable nodes with degrees of 0.
+ */
+export interface GraphNodePayload {
+  /** `documents.id`. The synthesized root of a virtual-root discovery uses 0. */
+  id: number;
+  path: string;
+  title: string;
+  type: string;
+  inDegree: number;
+  outDegree: number;
+  /** Louvain community id; absent until the graph has been computed. */
+  community?: number;
+  pagerank?: number;
+  /** Precomputed cluster-layout coordinates — clusters mode only. */
+  x?: number;
+  y?: number;
+  /** Hops from the root (discovery) or the center (neighborhood). */
+  distance?: number;
+  /** True for the synthesized root node standing in for an unindexed entry file. */
+  virtual?: boolean;
+}
+
+/** A directed wiki link between two nodes, by `documents.id`. */
+export interface GraphEdgePayload {
+  source: number;
+  target: number;
+}
+
+/** A wiki link whose target resolved to no document — a maintenance finding. */
+export interface GraphBrokenLink {
+  sourcePath: string;
+  /** The unresolved link text, as written in the source note. */
+  target: string;
+}
+
+export interface GraphCommunityPayload {
+  community: number;
+  size: number;
+  label: string | null;
+  topTerms: string[];
+}
+
+/**
+ * Response of GET /graph/meta — whether a graph is available, how fresh it is,
+ * and the legend/root data every mode needs before it fetches a subgraph.
+ */
+export interface GraphMetaResponse {
+  available: boolean;
+  /**
+   * Why the graph is unavailable. "schema" = the repo was indexed by a CLI
+   * older than schema v8; "not_computed" = the tables exist but no index run
+   * has filled them yet.
+   */
+  reason?: "schema" | "not_computed";
+  schemaVersion: number;
+  computedAt: string | null;
+  /** The graph predates the newest index run — recompute to refresh it. */
+  stale: boolean;
+  nodeCount: number;
+  edgeCount: number;
+  communities: GraphCommunityPayload[];
+  defaultRoot: { path: string; virtual: boolean } | null;
+  /** The corpus exceeded the layout cap, so clusters carry no x/y. */
+  layoutSkipped?: boolean;
+}
+
+/** Shared response of the clusters / neighborhood / discovery endpoints. */
+export interface GraphSubgraphResponse {
+  nodes: GraphNodePayload[];
+  edges: GraphEdgePayload[];
+  /** A server cap dropped the lowest-ranked nodes or edges from this response. */
+  truncated: boolean;
+  /**
+   * Notes reachable from the root, counted over the WHOLE graph — discovery
+   * only. This is deliberately not derivable from `nodes`, which holds just the
+   * scene: a depth-limited or truncated response shows fewer notes than the
+   * root actually reaches, and a virtual root contributes a node that is no
+   * document. Both counts cover documents only, and are omitted when no root
+   * was resolved (nothing to be reachable from).
+   */
+  reachableCount?: number;
+  /** Notes the root reaches by no path at all — discovery only. */
+  unreachableCount?: number;
+}
+
+export interface GraphMaintenanceResponse {
+  /** Markdown notes with no links in or out. */
+  orphans: GraphNodePayload[];
+  /** Notes not reachable from the graph root. */
+  unreachable: GraphNodePayload[];
+  brokenLinks: GraphBrokenLink[];
+  /** Notes untouched for longer than `staleDays`, oldest first. */
+  stale: (GraphNodePayload & { updated: string })[];
+  staleDays: number;
+}
+
+// ============================================================
 // Render endpoint (POST /api/render)
 // ============================================================
 

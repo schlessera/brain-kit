@@ -169,6 +169,17 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     agentRunner: z.union([z.string(), agentRunnerValue]).optional(),
+    graph: z
+      .object({
+        /**
+         * The document the knowledge graph is measured from. May be an indexed
+         * note or an index-excluded entry file (AGENTS.md, CLAUDE.md), which
+         * becomes a virtual root. Unset → AGENTS.md, then CLAUDE.md.
+         */
+        root: repoRelativePathSchema.optional(),
+      })
+      .strict()
+      .optional(),
     skills: z
       .object({
         /** Extra skill emitters to run on `brain skills sync` (claude always runs; add "codex", "gemini"). */

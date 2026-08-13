@@ -11,6 +11,7 @@ import type { EmbeddingProvider } from "./seams.js";
 import type { Enrichment } from "./enrichment.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { DEFAULT_DIR_ANCHORS } from "./config.js";
+import { runGraphPrecompute } from "./graph/precompute.js";
 import {
   hasVecSupport,
   getMeta,
@@ -29,6 +30,10 @@ export interface IndexStats {
   chunks: number;
   embeddings: number;
   assets: number;
+  /** Wall time of the graph precompute; 0 when it was skipped. */
+  graphMs: number;
+  /** Markdown documents in the rebuilt graph; 0 when it was skipped. */
+  graphNodes: number;
 }
 
 /**
@@ -50,6 +55,8 @@ export interface IndexOptions {
   provider?: EmbeddingProvider;
   /** Injected enrichment (asset descriptions + chunk contexts); absent → degrades. */
   enrichment?: Enrichment;
+  /** Rebuild the derived graph tables at the end of the run. Default: true. */
+  graph?: boolean;
 }
 
 /**
@@ -439,6 +446,8 @@ export async function indexAll(
     chunks: 0,
     embeddings: 0,
     assets: 0,
+    graphMs: 0,
+    graphNodes: 0,
   };
 
   const files = getMarkdownFiles(root, taxonomy);
@@ -1373,6 +1382,25 @@ export async function indexAll(
       saveAssetCache(db, root);
     } catch (e) {
       if (!quiet) console.warn(`  Could not write sidecar caches: ${(e as Error).message}`);
+    }
+  }
+
+  // Derived graph tables last: they read the link graph this run just wrote,
+  // so they must come after the main transaction. A failure here costs the
+  // graph view, not the index — the tables stay at the previous run's state
+  // and `brain graph compute` can rebuild them.
+  if (options.graph !== false) {
+    try {
+      const graph = runGraphPrecompute(db, { root, taxonomy });
+      stats.graphMs = graph.durationMs;
+      stats.graphNodes = graph.nodes;
+      if (!quiet) {
+        console.log(
+          `Graph: ${graph.nodes} nodes, ${graph.edges} edges, ${graph.communities} communities (${graph.durationMs}ms)`
+        );
+      }
+    } catch (e) {
+      if (!quiet) console.warn(`  Graph precompute failed: ${(e as Error).message}`);
     }
   }
 

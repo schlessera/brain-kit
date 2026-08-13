@@ -20,6 +20,7 @@ import { archiveCommand } from "./archive.js";
 import { acceptMtimeCommand } from "./accept-mtime.js";
 import { maintainCommand } from "./maintain.js";
 import { statsCommand } from "./stats.js";
+import { graphCommand } from "./graph.js";
 import { syncCommand } from "./sync.js";
 import { setupCommand } from "./setup.js";
 import { doctorCommand } from "./doctor.js";
@@ -46,6 +47,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   "accept-mtime": acceptMtimeCommand,
   maintain: maintainCommand,
   stats: statsCommand,
+  graph: graphCommand,
   sync: syncCommand,
   setup: setupCommand,
   doctor: doctorCommand,

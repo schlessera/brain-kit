@@ -37,6 +37,9 @@ Lineage: this is the public successor of the private brain's
 | `brain init --check` | preflight object (new in brain-kit) |
 | `brain okf export --json` | `{ "outDir", "filesExported", "assetsCopied", "linksConverted", "linksDegraded", "degradedLinks", "indexFilesGenerated", "topLevelDirectories", "warnings" }` |
 | `brain okf check [dir] --json` | `{ "directory", "ok", "filesChecked", "errors", "warnings", "issues": [{ "severity", "path", "message" }] }`; exit 1 when `errors > 0` |
+| `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
+| `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
+| `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
@@ -62,11 +65,29 @@ than their `indexed_at`.
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **7**),
+- Check `index_metadata` first: `schema_version` (currently **8**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
-  `links`. Columns are only ever ADDED within a schema_version line.
+  `links`, and the derived graph tables `graph_metrics` (document_id,
+  in_degree, out_degree, component, pagerank, community), `graph_communities`
+  (community, size, label, top_terms JSON), `graph_root_distances`
+  (document_id, distance, parent_id) and `graph_layouts` (mode, document_id,
+  x, y). Columns are only ever ADDED within a schema_version line.
+- The `graph_*` tables are **derived cache, rebuilt wholesale by every index
+  run** — they may be empty until the first index run on schema 8, and an
+  older CLI writing to a v8 database leaves them stale rather than wrong.
+  Their provenance lives in `index_metadata`: `graph_computed_at` (ISO),
+  `graph_algo` (JSON parameters), `graph_root` (a document path, or
+  `virtual:AGENTS.md` for an index-excluded entry file), `graph_root_links`
+  (JSON array of document ids seeded by a virtual root), `graph_node_count`,
+  and `graph_layout_skipped` (`"1"` when the corpus was over the layout cap).
+  `graph_root` and `graph_root_links` are absent together when no root could be
+  resolved, and `graph_layout_skipped` is absent unless the cap was hit — read
+  every key as optional.
+  A virtual root has no `documents` row; consumers synthesize a node with
+  `id: 0` for it. Compare `graph_computed_at` against the newest
+  `documents.indexed_at` to detect staleness.
 - `vec_chunks` is a sqlite-vec virtual table — unreadable without loading the
   extension; do not depend on it externally. Its dimension follows the
   configured embedding provider (default 1536).
