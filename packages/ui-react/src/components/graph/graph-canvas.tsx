@@ -196,6 +196,8 @@ export default function GraphCanvas({
       graph.addNode(String(node.id), {
         x,
         y,
+        // Size and color are (re)applied by the restyle effect below; seeding
+        // them here just avoids a one-frame flash of defaults.
         size: nodeSize(node, sizeBy),
         color: nodeColor(node),
         label: node.title || node.path,
@@ -223,9 +225,33 @@ export default function GraphCanvas({
 
     renderer.getCamera().animatedReset({ duration: 250 });
     renderer.refresh();
-    // nodeColor/edgeColor identity changes accompany data/mode changes.
+    // Styling props (nodeColor/edgeColor/sizeBy) are deliberately NOT deps:
+    // the restyle effect below reapplies them in place, so a display-only
+    // change never re-runs layout or resets the camera.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, layout, sizeBy]);
+  }, [data, layout]);
+
+  // Restyle in place when a display-only prop changes (color-by, size-by).
+  // Runs after every rebuild too, which is idempotent and keeps one source of
+  // truth for what the current colorFn/sizeBy say a node should look like.
+  useEffect(() => {
+    const renderer = sigmaRef.current;
+    if (!renderer) return;
+    const graph = renderer.getGraph();
+    for (const node of data.nodes) {
+      const key = String(node.id);
+      if (!graph.hasNode(key)) continue;
+      graph.setNodeAttribute(key, "color", nodeColor(node));
+      graph.setNodeAttribute(key, "size", nodeSize(node, sizeBy));
+    }
+    for (const edge of data.edges) {
+      const source = String(edge.source);
+      const target = String(edge.target);
+      if (!graph.hasEdge(source, target)) continue;
+      graph.setEdgeAttribute(source, target, "color", edgeColor?.(edge) ?? theme.edge);
+    }
+    renderer.refresh({ skipIndexation: true });
+  }, [data, nodeColor, edgeColor, sizeBy, theme]);
 
   // Interaction + label policy updates (no graph rebuild).
   useEffect(() => {
