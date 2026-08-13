@@ -17,14 +17,14 @@ export type Source = (typeof ALL_SOURCES)[number];
 // Sources enabled by default (ones that work reliably without a headless
 // browser or proxy).
 //
-// nodesk, dice, jobgether and builtin were previously excluded here as
-// "client-rendered, need a browser" or "Cloudflare 403". That is no longer
-// true: all four serve their listings and their per-job detail pages to a
-// plain HTTP client. Their adapters fetch detail pages directly, so they no
-// longer depend on the Chrome pass to produce complete records.
+// nodesk, dice, jobgether, builtin and simplyhired were previously excluded
+// here as "client-rendered, need a browser" or "Cloudflare 403". That is no
+// longer true: every one of them serves its listing and its per-job detail
+// pages to a plain HTTP client. Their adapters fetch detail pages directly, so
+// none of them depends on the Chrome pass to produce complete records.
 //
-// simplyhired stays out of the default set: it responds, but its adapter still
-// yields listing-level records only (no description).
+// Every source in this list now yields descriptions, which is what scoring
+// actually reads.
 export const SOURCES = [
   "remoteok",
   "remotive",
@@ -36,6 +36,7 @@ export const SOURCES = [
   "nodesk",
   "jobgether",
   "dice",
+  "simplyhired",
 ] as const satisfies readonly Source[];
 
 export const REVIEW_STATUSES = [

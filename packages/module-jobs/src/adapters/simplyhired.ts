@@ -1,14 +1,22 @@
 import { BaseAdapter } from "./base.js";
 import { httpGetText } from "../http.js";
+import { mapLimit } from "../concurrency.js";
+import { findJsonLdType } from "../html.js";
+import { applyJobPosting } from "../jsonld-job.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// SimplyHired uses Chakra UI with consistent class patterns
+// SimplyHired uses Chakra UI with consistent class patterns. Its search results
+// parse cleanly, but carry no description — that lives on each job's own page,
+// which publishes a complete schema.org JobPosting (including hourly rates,
+// which the shared mapper annualizes).
 const BASE_URL = "https://www.simplyhired.com/search";
-const RESULTS_PER_PAGE = 20;
 
 // Neutral default search terms — override via the module `queries` config to
 // target the roles you actually care about.
 const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engineer"];
+
+const DETAIL_CONCURRENCY = 3;
+const MAX_DETAILS_PER_RUN = 100;
 
 export class SimplyHiredAdapter extends BaseAdapter {
   readonly source = "simplyhired" as const;
@@ -51,8 +59,52 @@ export class SimplyHiredAdapter extends BaseAdapter {
       }
     }
 
-    if (opts.verbose) console.log(`[simplyhired] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
+    if (allJobs.length === 0) {
+      if (errors.length === 0) {
+        errors.push("SimplyHired search returned 0 jobs — markup drift?");
+      }
+      return this.makeResult([], errors);
+    }
+
+    let queue = allJobs;
+    if (queue.length > MAX_DETAILS_PER_RUN) {
+      const dropped = queue.length - MAX_DETAILS_PER_RUN;
+      errors.push(
+        `SimplyHired: capped detail fetches at ${MAX_DETAILS_PER_RUN}, ${dropped} job(s) kept without description`
+      );
+      queue = queue.slice(0, MAX_DETAILS_PER_RUN);
+    }
+    const listingOnly = allJobs.slice(queue.length);
+
+    if (opts.verbose) console.log(`[simplyhired] Fetching ${queue.length} detail pages...`);
+
+    let enriched = 0;
+    const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (job) => {
+      try {
+        const html = await httpGetText(job.url!, { rateLimit: 250, proxy: opts.proxy });
+        const posting = findJsonLdType(html, "JobPosting");
+        if (posting) {
+          enriched++;
+          return applyJobPosting(job, posting);
+        }
+      } catch {
+        // Keep the listing-level record.
+      }
+      return job;
+    });
+
+    const jobs = [...detailed.filter((j): j is RawJob => j !== null), ...listingOnly];
+
+    if (enriched < queue.length) {
+      errors.push(
+        `SimplyHired: ${queue.length - enriched} of ${queue.length} job(s) stored without a description (detail fetch or JobPosting missing)`
+      );
+    }
+
+    if (opts.verbose) {
+      console.log(`[simplyhired] Total: ${jobs.length} unique jobs (${enriched} with description)`);
+    }
+    return this.makeResult(jobs, errors);
   }
 
   private parseListings(html: string): RawJob[] {
@@ -67,7 +119,7 @@ export class SimplyHiredAdapter extends BaseAdapter {
     const jobLinks: Array<{ id: string; href: string; title: string; context: string }> = [];
 
     while ((match = linkRegex.exec(html)) !== null) {
-      const [fullMatch, href, id, titleHtml] = match;
+      const [, href, id, titleHtml] = match;
       const title = this.stripHtml(titleHtml).trim();
 
       // Skip navigation/filter links, only want actual job titles

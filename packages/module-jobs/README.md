@@ -142,21 +142,29 @@ the listing yield on `dice`.
 
 ## Boards & sources
 
-Full-feed / category boards: `remoteok`, `remotive`, `weworkremotely`,
-`workingnomads`, `remotelyde`, `remoteineurope`.
-Listing + detail-page boards: `builtin`, `nodesk`, `jobgether`, `dice`. These
-follow each listing down to the job's own page to collect the description,
-employer and salary, so they issue roughly one request per job (bounded by a
-per-run cap, and any truncation is reported in `errors`).
-Listing-only: `simplyhired` — responds, but still yields no description; not
-enabled by default.
+Full-feed boards (one request, descriptions included in the feed): `remoteok`,
+`remotive`, `weworkremotely`, `workingnomads`.
+
+Listing + detail-page boards: `builtin`, `nodesk`, `jobgether`, `dice`,
+`remotelyde`, `remoteineurope`, `simplyhired`. These follow each listing down to
+the job's own page to collect the description, employer and salary, so they
+issue roughly one request per job — bounded by a concurrency limit and a per-run
+cap, with any truncation reported in `errors`.
+
+All eleven are enabled by default; none needs a browser or a proxy.
 
 ### Descriptions
 
 Scoring reads the description, so a board that returns listing rows only is
-scored on its title and tags alone. Boards that expose a schema.org
-`JobPosting` block share one mapper (`src/jsonld-job.ts`); `builtin`, which
-publishes no structured data, parses its detail markup directly.
+scored on its title and tags alone — which is why every adapter here follows
+through to the detail page. Boards exposing a schema.org `JobPosting` share one
+mapper (`src/jsonld-job.ts`). Two do not publish structured data and parse their
+detail markup directly: `builtin` (`.html-parsed-content`) and `remoteineurope`
+(the Webflow `.w-richtext` block).
+
+Adapters count how many jobs ended up without a description and report the
+shortfall through `errors`, so a board quietly degrading back to title-only
+scoring surfaces in the run rather than passing as a clean scrape.
 
 ## ⚠️ Scraping & Terms of Service
 

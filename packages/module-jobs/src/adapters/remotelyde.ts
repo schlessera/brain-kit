@@ -1,11 +1,30 @@
 import { BaseAdapter } from "./base.js";
 import { httpGetText } from "../http.js";
+import { mapLimit } from "../concurrency.js";
+import { decodeEntities, findJsonLdType, stripHtml } from "../html.js";
+import { applyJobPosting } from "../jsonld-job.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// remotely.de uses Next.js RSC with JSON-LD JobPosting schema
-// German job board -- has English-language jobs too
+// remotely.de — German board, English-language jobs included.
+//
+// The previous adapter matched no jobs at all and its link fallback swept up
+// the site navigation instead, so every row it ever stored was a category or
+// pagination link ("seite/2" titled "Weiter", "bereich/engineering" titled
+// "Engineering") rather than a posting. Three reasons:
+//   1. The listing's JSON-LD is a CollectionPage → ItemList whose entries are
+//      bare {@id, name} pairs with no "@type": "JobPosting", so the type check
+//      never matched.
+//   2. Job URLs are /job/{slug}, not /remote-jobs/{slug} as the fallback
+//      assumed — which is exactly why it only ever caught navigation.
+//   3. The apex domain 301s to www.
+//
+// Job links are now taken from the listing markup and filtered to /job/, and
+// each posting's own page supplies a complete JobPosting block.
+const BASE_URL = "https://www.remotely.de/remote-jobs";
 const PAGES_TO_FETCH = 5;
-const BASE_URL = "https://remotely.de/remote-jobs";
+
+const DETAIL_CONCURRENCY = 3;
+const MAX_DETAILS_PER_RUN = 100;
 
 export class RemotelyDeAdapter extends BaseAdapter {
   readonly source = "remotelyde" as const;
@@ -14,170 +33,166 @@ export class RemotelyDeAdapter extends BaseAdapter {
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
     const errors: string[] = [];
-    const allJobs: RawJob[] = [];
-    const seenIds = new Set<string>();
+    const slugs = new Map<string, string>(); // slug -> title from the listing
 
     for (let page = 1; page <= PAGES_TO_FETCH; page++) {
       try {
-        const url = page === 1 ? BASE_URL : `${BASE_URL}?page=${page}`;
+        const url = page === 1 ? BASE_URL : `${BASE_URL}/seite/${page}`;
         if (opts.verbose) console.log(`[remotelyde] Fetching page ${page}...`);
 
-        const html = await httpGetText(url, {
-          rateLimit: 2000,
-          proxy: opts.proxy,
-        });
+        const html = await httpGetText(url, { rateLimit: 2000, proxy: opts.proxy });
+        const pageSlugs = this.parseListings(html);
+        if (pageSlugs.size === 0) break; // past the last page
 
-        const jobs = this.extractJobs(html);
-        if (jobs.length === 0) break;
-
-        for (const job of jobs) {
-          if (!seenIds.has(job.source_id)) {
-            seenIds.add(job.source_id);
-            allJobs.push(job);
-          }
+        for (const [slug, title] of pageSlugs) {
+          if (!slugs.has(slug)) slugs.set(slug, title);
         }
-
-        if (opts.verbose) console.log(`[remotelyde] Page ${page}: ${jobs.length} jobs`);
       } catch (err) {
         errors.push(`remotely.de page ${page} failed: ${err}`);
+        break;
       }
     }
 
-    if (opts.verbose) console.log(`[remotelyde] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
-  }
+    if (slugs.size === 0) {
+      errors.push("remotely.de listing yielded 0 jobs — markup drift?");
+      return this.makeResult([], errors);
+    }
 
-  private extractJobs(html: string): RawJob[] {
-    const jobs: RawJob[] = [];
+    let queue = [...slugs.entries()];
+    if (queue.length > MAX_DETAILS_PER_RUN) {
+      const dropped = queue.length - MAX_DETAILS_PER_RUN;
+      errors.push(
+        `remotely.de: capped detail fetches at ${MAX_DETAILS_PER_RUN}, ${dropped} job(s) kept without description`
+      );
+      queue = queue.slice(0, MAX_DETAILS_PER_RUN);
+    }
+    const listingOnly = [...slugs.entries()].slice(queue.length);
 
-    // Extract JSON-LD JobPosting objects
-    const ldRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
-    let match: RegExpExecArray | null;
+    if (opts.verbose) console.log(`[remotelyde] Fetching ${queue.length} detail pages...`);
 
-    while ((match = ldRegex.exec(html)) !== null) {
+    let enriched = 0;
+    const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async ([slug, title]) => {
+      const base = this.listingStub(slug, title);
       try {
-        const data = JSON.parse(match[1]);
-
-        // Handle ItemList with JobPosting items
-        if (data["@type"] === "ItemList" && data.itemListElement) {
-          for (const item of data.itemListElement) {
-            const posting = item.item || item;
-            if (posting["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(posting);
-              if (job) jobs.push(job);
-            }
-          }
+        const html = await httpGetText(this.jobUrl(slug), { rateLimit: 250, proxy: opts.proxy });
+        const posting = findJsonLdType(html, "JobPosting");
+        if (posting) {
+          enriched++;
+          return applyJobPosting(base, posting);
         }
+        // Expired and sponsored placeholder pages ship only a BreadcrumbList.
+        // They still name the employer in the document title, which beats
+        // storing "Unknown".
+        return this.fromTitleTag(base, html);
+      } catch {
+        // Keep the listing-level record.
+      }
+      return base;
+    });
 
-        // Handle CollectionPage
-        if (data["@type"] === "CollectionPage" && data.mainEntity?.itemListElement) {
-          for (const item of data.mainEntity.itemListElement) {
-            const posting = item.item || item;
-            if (posting["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(posting);
-              if (job) jobs.push(job);
-            }
-          }
-        }
+    const collected = [
+      ...detailed.filter((j): j is RawJob => j !== null),
+      ...listingOnly.map(([slug, title]) => this.listingStub(slug, title)),
+    ];
 
-        // Handle single JobPosting
-        if (data["@type"] === "JobPosting") {
-          const job = this.mapJobPosting(data);
-          if (job) jobs.push(job);
-        }
+    // A job whose listing title was unusable and whose detail page did not load
+    // has no title at all; storing it would recreate the junk rows this rewrite
+    // exists to remove.
+    const jobs = collected.filter((j) => j.title.length > 0);
+    const untitled = collected.length - jobs.length;
 
-        // Handle array of schemas
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(item);
-              if (job) jobs.push(job);
-            }
-          }
-        }
-      } catch {}
+    if (enriched < queue.length) {
+      errors.push(
+        `remotely.de: ${queue.length - enriched} of ${queue.length} job(s) stored without a description (detail fetch or JobPosting missing)`
+      );
+    }
+    if (untitled > 0) {
+      errors.push(`remotely.de: dropped ${untitled} job(s) with no resolvable title`);
     }
 
-    // Fallback: parse links to job detail pages
-    if (jobs.length === 0) {
-      const linkRegex = /<a[^>]*href="(\/remote-jobs\/([^"?]+))"[^>]*>([\s\S]*?)<\/a>/gi;
-      let linkMatch: RegExpExecArray | null;
-      const seen = new Set<string>();
+    if (opts.verbose) {
+      console.log(`[remotelyde] Total: ${jobs.length} jobs (${enriched} with description)`);
+    }
+    return this.makeResult(jobs, errors);
+  }
 
-      while ((linkMatch = linkRegex.exec(html)) !== null) {
-        const [, href, slug, content] = linkMatch;
-        if (seen.has(slug) || slug === "page") continue;
-        seen.add(slug);
+  /**
+   * Collect `/job/{slug}` links. Anything else under the site root — /firma/,
+   * /bereich/, /remote-jobs/seite/ — is navigation, and treating it as a job is
+   * the bug this adapter is being rescued from.
+   */
+  private parseListings(html: string): Map<string, string> {
+    const found = new Map<string, string>();
 
-        const title = this.stripHtml(content).trim();
-        if (!title || title.length < 5 || title.length > 200) continue;
-
-        jobs.push({
-          source: "remotelyde",
-          source_id: slug,
-          title,
-          company: "Unknown",
-          url: `https://remotely.de${href}`,
-          source_url: `https://remotely.de${href}`,
-          location: "Germany (Remote)",
-          remote_type: "fully_remote",
-          job_type: "full_time",
-        });
+    // The CollectionPage → ItemList block is the authoritative title source:
+    // its {@id, name} pairs hold exactly the job title. Take it first.
+    const collection = findJsonLdType(html, "CollectionPage");
+    const items = collection?.mainEntity?.itemListElement;
+    if (Array.isArray(items)) {
+      for (const entry of items) {
+        const item = entry?.item ?? entry;
+        const id: string | undefined = item?.["@id"] ?? item?.url;
+        const name: string | undefined = item?.name;
+        if (!id || !name) continue;
+        const slugMatch = id.match(/\/job\/([a-z0-9-]+)/i);
+        if (slugMatch) found.set(slugMatch[1], decodeEntities(name));
       }
     }
 
-    return jobs;
-  }
-
-  private mapJobPosting(posting: Record<string, any>): RawJob | null {
-    const title = posting.title;
-    if (!title) return null;
-
-    const company = posting.hiringOrganization?.name || "Unknown";
-    const id = posting.identifier?.value || posting.url || `${company}-${title}`;
-
-    // Parse location
-    const location = posting.jobLocation?.address?.addressLocality
-      || posting.jobLocation?.address?.addressCountry
-      || "Germany (Remote)";
-
-    // Parse employment type
-    let jobType: RawJob["job_type"] = "full_time";
-    const empType = (posting.employmentType || "").toLowerCase();
-    if (empType.includes("contract") || empType.includes("freelance")) jobType = "contract";
-    else if (empType.includes("part") || empType.includes("teilzeit")) jobType = "part_time";
-
-    // Parse salary
-    const salary = posting.baseSalary?.value;
-    let salaryMin: number | undefined;
-    let salaryMax: number | undefined;
-    let salaryCurrency: string | undefined;
-    if (salary) {
-      salaryMin = salary.minValue;
-      salaryMax = salary.maxValue;
-      salaryCurrency = salary.currency || posting.baseSalary?.currency || "EUR";
+    // Anchors cover the jobs the ItemList omits. Their text can run past the
+    // heading into the card's teaser copy, so anything implausibly long is
+    // treated as no title at all rather than stored as a sentence — the detail
+    // page's JobPosting supplies the real one during enrichment.
+    const linkRe = /<a[^>]*href="(?:https:\/\/www\.remotely\.de)?\/job\/([a-z0-9-]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = linkRe.exec(html)) !== null) {
+      const [, slug, inner] = match;
+      if (!slug || found.has(slug)) continue;
+      const title = decodeEntities(stripHtml(inner)).trim();
+      found.set(slug, title.length > 0 && title.length <= 150 ? title : "");
     }
 
-    // Remote type
-    const isRemote = posting.jobLocationType === "TELECOMMUTE"
-      || posting.applicantLocationRequirements != null;
+    return found;
+  }
 
+  private jobUrl(slug: string): string {
+    return `https://www.remotely.de/job/${slug}`;
+  }
+
+  /**
+   * Recover title and employer from `<title>{job} bei {company} | remotely.de</title>`
+   * when the page carries no JobPosting block.
+   */
+  private fromTitleTag(base: RawJob, html: string): RawJob {
+    const tag = html.match(/<title>([\s\S]*?)<\/title>/i);
+    if (!tag) return base;
+
+    const text = decodeEntities(stripHtml(tag[1])).replace(/\s*\|\s*remotely\.de\s*$/i, "").trim();
+    if (!text) return base;
+
+    const split = text.match(/^(.*?)\s+bei\s+(.+)$/);
+    if (!split) return base.title ? base : { ...base, title: text };
+
+    const [, jobTitle, company] = split;
+    return {
+      ...base,
+      title: base.title || jobTitle.trim(),
+      company: company.trim() || base.company,
+    };
+  }
+
+  private listingStub(slug: string, title: string): RawJob {
+    const url = this.jobUrl(slug);
     return {
       source: "remotelyde",
-      source_id: String(id),
+      source_id: url,
       title,
-      company,
-      description: posting.description ? this.stripHtml(posting.description) : undefined,
-      url: posting.url || (posting.identifier?.value ? `https://remotely.de/remote-jobs/${posting.identifier.value}` : undefined),
-      source_url: posting.url,
-      location,
-      remote_type: isRemote ? "fully_remote" : "unknown",
-      job_type: jobType,
-      salary_min: salaryMin,
-      salary_max: salaryMax,
-      salary_currency: salaryCurrency,
-      published_at: posting.datePosted,
-      expires_at: posting.validThrough,
+      company: "Unknown",
+      url,
+      source_url: url,
+      location: "Germany (Remote)",
+      remote_type: "fully_remote",
+      job_type: "full_time",
     };
   }
 }
