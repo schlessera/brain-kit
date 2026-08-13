@@ -34,7 +34,17 @@ Also:
   the relative `/job-detail/{uuid}` href by the browser pass, so a unified
   `scrape --all --browser` inserted each posting twice. Both paths now agree.
 - **The browser pass no longer skips invisibly.** In JSON mode a missing Chrome produced
-  `browser: []`, indistinguishable from "ran and found nothing". It now reports
-  `{ status, reason, results }`.
+  `browser: []`, indistinguishable from "ran and found nothing". `browser` remains the same
+  array for existing consumers, and a sibling `browser_status: { status, reason? }` now carries
+  the distinction.
+- **Failed enrichment is reported.** Every adapter that follows detail pages now counts how many
+  jobs ended up without a description and surfaces that through `errors`, so a board quietly
+  degrading back to title-only scoring shows up in the run.
+- **Per-domain rate limiting works under concurrency.** `applyRateLimit` read its timestamp,
+  slept, and only then wrote it back, so concurrent callers all observed the same value and woke
+  together — `rateLimit: 250` meant a burst of N requests, not 250ms spacing. The send slot is
+  now reserved synchronously before awaiting.
 - `builtin`, `nodesk`, `jobgether` and `dice` are enabled by default, since none of them needs a
-  browser or proxy any more.
+  browser or proxy any more. The `boards` config default now derives from `SOURCES` instead of
+  a hardcoded `["remoteok"]`, which previously shadowed that list entirely — a non-empty
+  configured `boards` is authoritative in `cmdScrape`, so the default set was never consulted.

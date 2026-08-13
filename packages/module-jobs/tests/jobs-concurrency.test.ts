@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mapLimit } from "../src/concurrency";
 import { canonicalSourceId } from "../src/browser-scrape";
+import { httpGet } from "../src/http";
 
 describe("mapLimit", () => {
   test("preserves input order regardless of completion order", async () => {
@@ -62,5 +63,40 @@ describe("canonicalSourceId", () => {
 
   test("falls back to company+title when there is no href", () => {
     expect(canonicalSourceId("builtin", undefined, "Acme", "Eng")).toBe("Acme-Eng");
+  });
+});
+
+describe("per-domain rate limiting under concurrency", () => {
+  test("concurrent requests to one domain are spaced, not bursted", async () => {
+    // Detail enrichment fires requests concurrently. The old read-sleep-write
+    // limiter let every worker observe the same timestamp and wake together,
+    // so `rateLimit: 250` produced a burst of N simultaneous requests.
+    const hits: number[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      hits.push(Date.now());
+      return new Response("ok", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      const spacing = 60;
+      const start = Date.now();
+      await mapLimit([1, 2, 3, 4], 4, () =>
+        httpGet("https://rate-limit.test/page", { rateLimit: spacing, retries: 0 })
+      );
+
+      expect(hits).toHaveLength(4);
+      hits.sort((a, b) => a - b);
+
+      // Allow generous slack for timer jitter, but a true burst (all four
+      // within a few ms) must not pass.
+      const total = hits[hits.length - 1] - start;
+      expect(total).toBeGreaterThanOrEqual(spacing * 2);
+      for (let i = 1; i < hits.length; i++) {
+        expect(hits[i] - hits[i - 1]).toBeGreaterThanOrEqual(spacing * 0.5);
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

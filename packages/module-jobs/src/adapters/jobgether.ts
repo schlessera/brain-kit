@@ -79,11 +79,15 @@ export class JobgetherAdapter extends BaseAdapter {
 
     if (opts.verbose) console.log(`[jobgether] Fetching ${queue.length} detail pages...`);
 
+    let enriched = 0;
     const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (job) => {
       try {
         const html = await httpGetText(job.url!, { rateLimit: 250, proxy: opts.proxy });
         const posting = findJsonLdType(html, "JobPosting");
-        if (posting) return applyJobPosting(job, posting);
+        if (posting) {
+          enriched++;
+          return applyJobPosting(job, posting);
+        }
       } catch {
         // Keep the listing-level record.
       }
@@ -92,7 +96,15 @@ export class JobgetherAdapter extends BaseAdapter {
 
     const jobs = [...detailed.filter((j): j is RawJob => j !== null), ...listingOnly];
 
-    if (opts.verbose) console.log(`[jobgether] Total: ${jobs.length} unique jobs`);
+    // Jobgether's listing markup omits the employer on some cards, so a failed
+    // detail fetch costs both the description and the company name.
+    if (enriched < queue.length) {
+      errors.push(
+        `Jobgether: ${queue.length - enriched} of ${queue.length} job(s) stored without a description (detail fetch or JobPosting missing)`
+      );
+    }
+
+    if (opts.verbose) console.log(`[jobgether] Total: ${jobs.length} unique jobs (${enriched} with description)`);
     return this.makeResult(jobs, errors);
   }
 

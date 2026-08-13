@@ -70,6 +70,7 @@ export class BuiltInAdapter extends BaseAdapter {
 
     if (opts.verbose) console.log(`[builtin] Fetching ${queue.length} detail pages...`);
 
+    let enriched = 0;
     const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (listing) => {
       const base = this.toRawJob(listing);
       try {
@@ -78,7 +79,10 @@ export class BuiltInAdapter extends BaseAdapter {
           proxy: opts.proxy,
         });
         const description = this.extractDescription(html);
-        if (description) return { ...base, description };
+        if (description) {
+          enriched++;
+          return { ...base, description };
+        }
       } catch {
         // Keep the listing-level record.
       }
@@ -90,7 +94,17 @@ export class BuiltInAdapter extends BaseAdapter {
       ...listingOnly.map((l) => this.toRawJob(l)),
     ];
 
-    if (opts.verbose) console.log(`[builtin] Found ${jobs.length} jobs`);
+    // A detail fetch that 403s, or markup that no longer yields a description,
+    // must not pass as a clean run: without this the job is stored description-
+    // less and scored on its title alone, which is the exact failure this
+    // change exists to eliminate.
+    if (enriched < queue.length) {
+      errors.push(
+        `BuiltIn: ${queue.length - enriched} of ${queue.length} job(s) stored without a description (detail fetch or markup failed)`
+      );
+    }
+
+    if (opts.verbose) console.log(`[builtin] Found ${jobs.length} jobs (${enriched} with description)`);
     return this.makeResult(jobs, errors);
   }
 

@@ -44,13 +44,24 @@ function parseRetryAfterMs(header: string | null | undefined): number | null {
   return Math.min(ms, 60_000);
 }
 
+/**
+ * Reserve the next send slot for a domain, then wait for it.
+ *
+ * The reservation must be claimed *synchronously*, before any await. Detail-page
+ * enrichment issues requests concurrently, and the previous read-sleep-write
+ * form let every concurrent worker observe the same `last` timestamp and wake
+ * together — turning `rateLimit: 250` into a burst of N simultaneous requests
+ * and inviting the 429s that make enrichment fall back to listing-only records.
+ * Claiming the slot up front serializes the workers into a genuine 250ms queue.
+ */
 async function applyRateLimit(domain: string, limitMs: number): Promise<void> {
-  const last = lastRequestTime.get(domain) ?? 0;
-  const elapsed = Date.now() - last;
-  if (elapsed < limitMs) {
-    await new Promise((r) => setTimeout(r, limitMs - elapsed));
-  }
-  lastRequestTime.set(domain, Date.now());
+  const now = Date.now();
+  const earliest = (lastRequestTime.get(domain) ?? 0) + limitMs;
+  const sendAt = Math.max(now, earliest);
+  lastRequestTime.set(domain, sendAt);
+
+  const wait = sendAt - now;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
 /**

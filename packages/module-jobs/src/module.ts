@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
+import { SOURCES } from "./types.js";
 
 /**
  * Config for @schlessera/brain-module-jobs. `criteria` points at a markdown file whose
@@ -12,8 +13,16 @@ export const configSchema = z
     criteria: repoRelativePathSchema,
     /** Canonical directory for opportunity docs (scaffold target). */
     opportunitiesDir: repoRelativePathSchema.default("career/opportunities"),
-    /** Boards to scrape by default. */
-    boards: z.array(z.string()).default(["remoteok"]),
+    /**
+     * Boards to scrape by default.
+     *
+     * Defaults to the full set of boards known to work without a browser or
+     * proxy (`SOURCES`). This must stay in sync with that list rather than
+     * carrying its own literal: `cmdScrape` treats a non-empty configured
+     * `boards` as authoritative, so a hardcoded default here silently shadows
+     * `SOURCES` and a normal `brain jobs scrape` never sees the other boards.
+     */
+    boards: z.array(z.string()).default([...SOURCES]),
     /** Search terms for the query-driven boards (simplyhired, dice). */
     queries: z
       .array(z.string())

@@ -149,7 +149,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   if (browserOnly) {
     const browserPhase = await runBrowserPhase(jctx, scoringConfig, verbose, dryRun);
     if (jctx.json) {
-      emitJson({ browser: browserPhase });
+      emitJson(browserJson(browserPhase));
     } else {
       printBrowserResults(browserPhase);
     }
@@ -174,7 +174,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     : null;
 
   if (jctx.json) {
-    emitJson(browserPhase ? { report, browser: browserPhase } : { report });
+    emitJson(browserPhase ? { report, ...browserJson(browserPhase) } : { report });
     return 0;
   }
 
@@ -217,7 +217,7 @@ interface BrowserResult {
 }
 
 /**
- * Outcome of the browser pass. The status is reported explicitly because a
+ * Outcome of the browser pass. The status is tracked explicitly because a
  * skipped pass and a pass that genuinely found nothing are very different
  * facts: with only a bare result array, `jobs scrape --all --browser --json`
  * on a host with no Chrome emitted `browser: []`, which reads as "the browser
@@ -227,6 +227,21 @@ interface BrowserPhase {
   status: "ok" | "skipped" | "failed";
   reason?: string;
   results: BrowserResult[];
+}
+
+/**
+ * JSON shape for the browser pass. `browser` stays the array it has always
+ * been so existing consumers can keep iterating it; the status is published
+ * alongside as a sibling key rather than replacing it.
+ */
+function browserJson(phase: BrowserPhase): {
+  browser: BrowserResult[];
+  browser_status: { status: BrowserPhase["status"]; reason?: string };
+} {
+  return {
+    browser: phase.results,
+    browser_status: { status: phase.status, ...(phase.reason ? { reason: phase.reason } : {}) },
+  };
 }
 
 /**

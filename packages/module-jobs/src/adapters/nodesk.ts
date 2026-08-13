@@ -73,6 +73,7 @@ export class NodeskAdapter extends BaseAdapter {
 
     if (opts.verbose) console.log(`[nodesk] Fetching ${queue.length} detail pages...`);
 
+    let enriched = 0;
     const detailed = await mapLimit(queue, DETAIL_CONCURRENCY, async (listing) => {
       const base = this.toRawJob(listing);
       try {
@@ -81,7 +82,10 @@ export class NodeskAdapter extends BaseAdapter {
           proxy: opts.proxy,
         });
         const posting = findJsonLdType(detailHtml, "JobPosting");
-        if (posting) return applyJobPosting(base, posting);
+        if (posting) {
+          enriched++;
+          return applyJobPosting(base, posting);
+        }
       } catch {
         // Keep the listing-level record.
       }
@@ -93,7 +97,15 @@ export class NodeskAdapter extends BaseAdapter {
       ...listingOnly.map((l) => this.toRawJob(l)),
     ];
 
-    if (opts.verbose) console.log(`[nodesk] Found ${jobs.length} jobs`);
+    // Losing the description silently would put the job back into the
+    // title-only scoring path that this change exists to eliminate.
+    if (enriched < queue.length) {
+      errors.push(
+        `Nodesk: ${queue.length - enriched} of ${queue.length} job(s) stored without a description (detail fetch or JobPosting missing)`
+      );
+    }
+
+    if (opts.verbose) console.log(`[nodesk] Found ${jobs.length} jobs (${enriched} with description)`);
     return this.makeResult(jobs, errors);
   }
 

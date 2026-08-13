@@ -4,6 +4,7 @@ import { resolve } from "path";
 import { buildTaxonomy, discoverSkills, lintSkills } from "@schlessera/brain";
 import type { LoadedModule } from "@schlessera/brain";
 import manifest, { configSchema } from "../src/module";
+import { SOURCES } from "../src/types";
 
 // Two-phase manifest: the contribution comes out of setup(validatedConfig).
 const cfg = configSchema.parse({ criteria: "career/opportunities/search-criteria.md" });
@@ -37,9 +38,16 @@ describe("module manifest", () => {
   test("configSchema requires criteria and fills defaults", () => {
     const cfg = configSchema.parse({ criteria: "career/opportunities/search-criteria.md" });
     expect(cfg.opportunitiesDir).toBe("career/opportunities");
-    expect(cfg.boards).toEqual(["remoteok"]);
     expect(cfg.queries.length).toBeGreaterThan(0);
     expect(() => configSchema.parse({})).toThrow(); // criteria is required
+  });
+
+  test("boards default tracks SOURCES rather than a literal of its own", () => {
+    // cmdScrape treats a non-empty configured `boards` as authoritative, so a
+    // hardcoded default here would silently shadow SOURCES and leave the other
+    // boards unscraped on a default install.
+    const cfg = configSchema.parse({ criteria: "career/opportunities/search-criteria.md" });
+    expect(cfg.boards).toEqual([...SOURCES]);
   });
 });
 
