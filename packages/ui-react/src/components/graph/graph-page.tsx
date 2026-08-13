@@ -78,8 +78,14 @@ export function GraphPage() {
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   useEffect(() => {
-    void fetchMeta();
-    void fetchScene();
+    // Always refetch meta on mount (the view unmounts when hidden, so this
+    // also covers "came back after a brain sync"): a changed computedAt is
+    // what invalidates every cached scene. Meta must land before the scene
+    // fetch so the cache is keyed by the fresh generation.
+    void (async () => {
+      await fetchMeta(true);
+      await fetchScene();
+    })();
   }, [fetchMeta, fetchScene]);
 
   return (
@@ -239,22 +245,6 @@ function GraphBody({
     );
   }
 
-  // Clusters without precomputed coordinates: client layout is a bounded
-  // courtesy, not a substitute for the real thing.
-  if (
-    mode === "clusters" &&
-    !subgraph.nodes.some((n) => n.x !== undefined) &&
-    subgraph.nodes.length > CLIENT_LAYOUT_NODE_CAP
-  ) {
-    return (
-      <GraphEmptyState icon="warn" title="Layout not precomputed">
-        This corpus is too large to lay out in the browser. Run{" "}
-        <Mono>brain graph compute</Mono> to build the cluster layout
-        server-side.
-      </GraphEmptyState>
-    );
-  }
-
   return <SceneBody />;
 }
 
@@ -344,23 +334,41 @@ function SceneBody() {
           ?.label ?? null)
       : null;
 
+  // Clusters whose FA2 layout was skipped at index time: client force layout
+  // is a bounded courtesy. Over the cap, only the canvas is replaced — the
+  // legend and controls stay live so filtering to one topic (a subset under
+  // the cap) still works.
+  const layoutBlocked =
+    mode === "clusters" &&
+    layout === "force" &&
+    subgraph.nodes.length > CLIENT_LAYOUT_NODE_CAP;
+
   return (
     <>
-      <Suspense fallback={<CenteredSpinner />}>
-        <GraphCanvas
-          data={subgraph}
-          layout={layout}
-          selectedId={selectedId}
-          hoveredId={hoveredId}
-          matchIds={matchIds}
-          sizeBy={mode === "clusters" ? clustersSizeBy : "degree"}
-          rings={mode === "discovery" ? maxDistance : 0}
-          nodeColor={nodeColor}
-          edgeColor={edgeColor}
-          onSelect={select}
-          onHover={hover}
-        />
-      </Suspense>
+      {layoutBlocked ? (
+        <GraphEmptyState icon="warn" title="Too large to lay out here">
+          The cluster layout was skipped at index time (corpus over the layout
+          cap), and {subgraph.nodes.length.toLocaleString()} notes are too many
+          to arrange in the browser. Pick a topic from the legend to view a
+          subset.
+        </GraphEmptyState>
+      ) : (
+        <Suspense fallback={<CenteredSpinner />}>
+          <GraphCanvas
+            data={subgraph}
+            layout={layout}
+            selectedId={selectedId}
+            hoveredId={hoveredId}
+            matchIds={matchIds}
+            sizeBy={mode === "clusters" ? clustersSizeBy : "degree"}
+            rings={mode === "discovery" ? maxDistance : 0}
+            nodeColor={nodeColor}
+            edgeColor={edgeColor}
+            onSelect={select}
+            onHover={hover}
+          />
+        </Suspense>
+      )}
 
       <GraphControls />
 
@@ -368,7 +376,9 @@ function SceneBody() {
       {mode === "discovery" && folderColors && (
         <FolderLegend colors={folderColors} />
       )}
-      {mode === "discovery" && <UnreachableTray sceneCount={subgraph.nodes.length} />}
+      {mode === "discovery" && (
+        <UnreachableTray count={subgraph.unreachableCount} />
+      )}
 
       {/* Accessible / mobile-friendly node list — the canvas itself is aria-hidden */}
       <button
@@ -513,12 +523,13 @@ function FolderLegend({ colors }: { colors: Map<string, string> }) {
 }
 
 /**
- * Discovery: how much of the corpus this root does NOT reach. The expandable
- * list is only exact for the precomputed default root (it comes from the
- * maintenance findings); for an ad-hoc root we can only offer the count.
+ * Discovery: how much of the corpus this root does NOT reach. The count comes
+ * from the server (`unreachableCount`) — a scene-size subtraction would lie
+ * under depth limits, truncation, and the virtual root. An older server
+ * doesn't send it; then the tray only appears for the default root, where the
+ * maintenance findings still provide the exact list, and shows no number.
  */
-function UnreachableTray({ sceneCount }: { sceneCount: number }) {
-  const meta = useGraphStore((s) => s.meta);
+function UnreachableTray({ count }: { count: number | undefined }) {
   const discovery = useGraphStore((s) => s.discovery);
   const staleDays = useGraphStore((s) => s.maintenance.staleDays);
   const openFile = useFileStore((s) => s.openFile);
@@ -527,7 +538,6 @@ function UnreachableTray({ sceneCount }: { sceneCount: number }) {
   const [nodes, setNodes] = useState<GraphNodePayload[] | null>(null);
 
   const isDefaultRoot = !discovery.root;
-  const count = Math.max(0, (meta?.nodeCount ?? 0) - sceneCount);
 
   useEffect(() => {
     if (!open || !isDefaultRoot || nodes !== null) return;
@@ -550,6 +560,8 @@ function UnreachableTray({ sceneCount }: { sceneCount: number }) {
   }, [open, isDefaultRoot, nodes, staleDays]);
 
   if (count === 0) return null;
+  // No server count and no exact list available: nothing honest to show.
+  if (count === undefined && !isDefaultRoot) return null;
 
   return (
     <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100vw-5rem)]">
@@ -591,7 +603,7 @@ function UnreachableTray({ sceneCount }: { sceneCount: number }) {
         className="flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-surface-overlay px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg transition-colors hover:text-foreground"
       >
         <TriangleAlert className="h-3 w-3" />
-        {count} unreachable
+        {count !== undefined ? `${count} unreachable` : "Unreachable notes"}
       </button>
     </div>
   );

@@ -50,6 +50,21 @@ const NO_ROOT_RESOLVED: Partial<FixtureOptions> = {
   metadata: { graph_computed_at: "2026-08-02T00:00:00.000Z" },
 };
 
+/**
+ * A root that WAS resolved but reached nothing — core honours an explicitly
+ * named root even when none of its links resolve, writing `graph_root` with
+ * zero distance rows. Distinguishable from NO_ROOT_RESOLVED only by the
+ * presence of that key, and the two states mean opposite things.
+ */
+const ROOT_RESOLVED_NOTHING: Partial<FixtureOptions> = {
+  rootDistances: [],
+  metadata: {
+    graph_computed_at: "2026-08-02T00:00:00.000Z",
+    graph_root: "virtual:AGENTS.md",
+    graph_root_links: "[]",
+  },
+};
+
 describe("GET /graph/meta", () => {
   test("a schema-7 repo reports itself unavailable but still counts the corpus", async () => {
     useFixture({ schemaVersion: 7, ...linkedCorpus() });
@@ -369,6 +384,46 @@ describe("GET /graph/discovery", () => {
     expect(ids(body)).toEqual([1, 2]);
   });
 
+  test("counts reach over the whole graph, not the scene it returned", async () => {
+    useComputedFixture();
+
+    const full = await get<GraphSubgraphResponse>("/graph/discovery");
+    const shallow = await get<GraphSubgraphResponse>("/graph/discovery?maxDepth=1");
+
+    // Three notes carry a distance; only the orphan is out of reach. The scene
+    // shrinks with maxDepth — the counts must not, and they must not count the
+    // virtual node, which is no document.
+    expect(full.body.reachableCount).toBe(3);
+    expect(full.body.unreachableCount).toBe(1);
+    expect(ids(shallow.body)).toEqual([0, 1]);
+    expect(shallow.body.reachableCount).toBe(3);
+    expect(shallow.body.unreachableCount).toBe(1);
+  });
+
+  test("an ad-hoc root is measured by a walk with no depth window", async () => {
+    useComputedFixture();
+
+    const { body } = await get<GraphSubgraphResponse>("/graph/discovery?root=index.md&maxDepth=1");
+
+    // The scene stops at depth 1, but index.md reaches beta.md at depth 2, so
+    // only the orphan is genuinely unreachable from it.
+    expect(ids(body)).toEqual([1, 2]);
+    expect(body.reachableCount).toBe(3);
+    expect(body.unreachableCount).toBe(1);
+  });
+
+  test("direction narrows what an ad-hoc root can reach", async () => {
+    useComputedFixture();
+
+    // alpha.md reaches beta.md and index.md following links out; the corpus is
+    // a cycle, so the whole cycle is reachable either way — but the orphan
+    // never is.
+    const { body } = await get<GraphSubgraphResponse>("/graph/discovery?root=orphan.md");
+
+    expect(body.reachableCount).toBe(1); // itself, and nothing else
+    expect(body.unreachableCount).toBe(3);
+  });
+
   test("404s on an unknown root", async () => {
     useComputedFixture();
 
@@ -413,6 +468,31 @@ describe("optional precompute state", () => {
 
     expect(status).toBe(200);
     expect(body).toEqual({ nodes: [], edges: [], truncated: false });
+    // With no root, "unreachable" has no meaning, so the counts stay off.
+    expect(body.reachableCount).toBeUndefined();
+    expect(body.unreachableCount).toBeUndefined();
+  });
+
+  test("a root that resolved no links leaves every note unreachable", async () => {
+    // The state core writes for an explicitly named root whose links all fail
+    // to resolve: graph_root present, graph_root_distances empty. Reading row
+    // counts instead of the key would misread this as "no root configured" and
+    // report nothing wrong with a graph nothing can be reached in.
+    useFixture({ ...linkedCorpus(), ...computedGraph(), ...ROOT_RESOLVED_NOTHING });
+
+    const maintenance = await get<GraphMaintenanceResponse>("/graph/maintenance");
+    const discovery = await get<GraphSubgraphResponse>("/graph/discovery");
+
+    expect(paths(maintenance.body.unreachable).sort()).toEqual([
+      "alpha.md",
+      "beta.md",
+      "index.md",
+      "orphan.md",
+    ]);
+    // The scene is the virtual root alone, and it reaches nothing.
+    expect(ids(discovery.body)).toEqual([0]);
+    expect(discovery.body.reachableCount).toBe(0);
+    expect(discovery.body.unreachableCount).toBe(4);
   });
 
   test("an explicit root still works on a rootless graph", async () => {

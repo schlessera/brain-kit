@@ -348,14 +348,29 @@ function applyCaps(
 
 function countGraph(db: Database): { nodeCount: number; edgeCount: number } {
   try {
-    const nodes = db
-      .query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM documents d WHERE ${MARKDOWN_ONLY}`)
-      .get();
     const edges = db.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM (${DISTINCT_EDGES_SQL})`).get();
-    return { nodeCount: nodes?.c ?? 0, edgeCount: edges?.c ?? 0 };
+    return { nodeCount: countMarkdownDocs(db), edgeCount: edges?.c ?? 0 };
   } catch {
     return { nodeCount: 0, edgeCount: 0 };
   }
+}
+
+/**
+ * Whether the precompute resolved a root at all.
+ *
+ * The key is deleted and rewritten each run, so its ABSENCE is the only signal
+ * that there is no root — an empty `graph_root_distances` does not mean the
+ * same thing. A named root whose links all failed to resolve is written with
+ * zero distance rows, and in that state every note really is unreachable.
+ */
+function hasResolvedRoot(meta: Map<string, string>): boolean {
+  return Boolean(meta.get("graph_root"));
+}
+
+function countMarkdownDocs(db: Database): number {
+  return (
+    db.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM documents d WHERE ${MARKDOWN_ONLY}`).get()?.c ?? 0
+  );
 }
 
 function parseDefaultRoot(meta: Map<string, string>): { path: string; virtual: boolean } | null {
@@ -522,6 +537,8 @@ export function getDiscovery(opts: DiscoveryOptions = {}): GraphSubgraphResponse
     requireComputedGraph(db, meta);
     const structure = loadLinkStructure(db);
 
+    const total = countMarkdownDocs(db);
+
     if (opts.root) {
       const rootId = lookupDocumentId(db, opts.root);
       const { distances, truncated } = bfs(structure, rootId, direction, maxDepth, MAX_NODES);
@@ -531,7 +548,16 @@ export function getDiscovery(opts: DiscoveryOptions = {}): GraphSubgraphResponse
         structure.edges,
         MAX_NODES
       );
-      return { ...capped, truncated: capped.truncated || truncated };
+      // Reach is a property of the graph, not of the scene, so it is measured
+      // by a second walk with no depth window. A BFS can neither exceed the
+      // node count in levels nor in nodes, so `total` bounds both exactly.
+      const reachable = bfs(structure, rootId, direction, total, total).distances.size;
+      return {
+        ...capped,
+        truncated: capped.truncated || truncated,
+        reachableCount: reachable,
+        unreachableCount: Math.max(0, total - reachable),
+      };
     }
 
     // Default root: the distances were computed at index time, so `direction`
@@ -565,7 +591,17 @@ export function getDiscovery(opts: DiscoveryOptions = {}): GraphSubgraphResponse
       edges.unshift(...rootLinks.map((id) => ({ source: 0, target: id })));
     }
 
-    return applyCaps(nodes, edges, MAX_NODES);
+    const response = applyCaps(nodes, edges, MAX_NODES);
+    if (hasResolvedRoot(meta)) {
+      // Every distance row is one reached DOCUMENT — a virtual root is none, so
+      // this needs no adjustment for the synthesized node. Counted over the
+      // whole table, not the depth-limited scene above.
+      const reachable =
+        db.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM graph_root_distances").get()?.c ?? 0;
+      response.reachableCount = reachable;
+      response.unreachableCount = Math.max(0, total - reachable);
+    }
+    return response;
   });
 }
 
@@ -573,7 +609,8 @@ export function getMaintenance(opts: MaintenanceOptions = {}): GraphMaintenanceR
   const staleDays = clamp(opts.staleDays ?? DEFAULT_STALE_DAYS, 1, 3650);
 
   return withDb(opts.brainPath, (db) => {
-    requireComputedGraph(db, readMetadata(db));
+    const meta = readMetadata(db);
+    requireComputedGraph(db, meta);
 
     const orphans = db
       .query<NodeRow, [number]>(
@@ -584,14 +621,13 @@ export function getMaintenance(opts: MaintenanceOptions = {}): GraphMaintenanceR
       .all(MAX_NODES)
       .map((row) => toNode(row));
 
-    // With no configured root nothing has a distance, and calling the whole
-    // corpus unreachable would be noise rather than a finding.
-    const rootedCount =
-      db.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM graph_root_distances").get()?.c ?? 0;
-    const unreachable =
-      rootedCount === 0
-        ? []
-        : db
+    // Keyed on whether a root was RESOLVED, not on whether any note has a
+    // distance: a named root that reached nothing leaves the distances empty,
+    // and then the whole corpus genuinely is unreachable. Only the absence of a
+    // root makes the finding meaningless.
+    const unreachable = !hasResolvedRoot(meta)
+      ? []
+      : db
             .query<NodeRow, [number]>(
               `${nodeSelect(true)}
                  LEFT JOIN graph_root_distances rd ON rd.document_id = d.id

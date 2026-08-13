@@ -161,6 +161,62 @@ describe("graph-store", () => {
     expect(calls.length).toBe(first);
   });
 
+  test("a slow older response never overwrites a newer scene", async () => {
+    // First request (depth=1) resolves AFTER the second (depth=2).
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => (releaseFirst = r));
+    const slowBody = { ...SUBGRAPH, nodes: SUBGRAPH.nodes.slice(0, 1), edges: [] };
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("depth=1")) {
+        await firstGate;
+        return new Response(JSON.stringify(slowBody), { status: 200 });
+      }
+      return new Response(JSON.stringify(SUBGRAPH), { status: 200 });
+    }) as typeof fetch;
+
+    useGraphStore.getState().setLocalParams({ center: "race.md", depth: 1 });
+    useGraphStore.getState().setLocalParams({ depth: 2 });
+    await settle();
+    expect(useGraphStore.getState().subgraph?.nodes).toHaveLength(2);
+
+    releaseFirst();
+    await settle();
+    // The stale depth=1 payload (1 node) must not have replaced the scene.
+    expect(useGraphStore.getState().subgraph?.nodes).toHaveLength(2);
+  });
+
+  test("a slow older ERROR never clobbers a newer scene", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => (releaseFirst = r));
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("depth=1")) {
+        await firstGate;
+        return new Response(JSON.stringify({ error: "boom" }), { status: 500 });
+      }
+      return new Response(JSON.stringify(SUBGRAPH), { status: 200 });
+    }) as typeof fetch;
+
+    useGraphStore.getState().setLocalParams({ center: "race2.md", depth: 1 });
+    useGraphStore.getState().setLocalParams({ depth: 2 });
+    await settle();
+    releaseFirst();
+    await settle();
+    const s = useGraphStore.getState();
+    expect(s.dataState).toBe("done");
+    expect(s.error).toBeNull();
+  });
+
+  test("forced meta refetch bypasses the done-state short-circuit", async () => {
+    const calls = mockFetch({ "/graph/meta": { body: META } });
+    await useGraphStore.getState().fetchMeta();
+    await useGraphStore.getState().fetchMeta(); // no-op: already done
+    expect(calls).toHaveLength(1);
+    await useGraphStore.getState().fetchMeta(true); // mount-time force
+    expect(calls).toHaveLength(2);
+  });
+
   test("display-only knobs never refetch", async () => {
     const calls = mockFetch({ "/graph/clusters": { body: SUBGRAPH } });
     useGraphStore.getState().setMode("clusters");

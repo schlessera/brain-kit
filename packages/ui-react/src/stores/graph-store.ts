@@ -115,6 +115,13 @@ export function clearGraphSceneCache(): void {
   sceneCache.clear();
 }
 
+/**
+ * Monotonic token for scene fetches. Every fetchScene call claims a new
+ * token; only the holder of the latest token may write results (success OR
+ * error), so a slow older response can never overwrite a newer scene.
+ */
+let sceneRequestToken = 0;
+
 function cachePut(key: string, value: GraphSubgraphResponse | GraphMaintenanceResponse) {
   if (sceneCache.size >= SCENE_CACHE_MAX) {
     const oldest = sceneCache.keys().next().value;
@@ -256,6 +263,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   fetchScene: async () => {
     const state = get();
+    const token = ++sceneRequestToken;
     const req = sceneRequest(state);
     if (!req) {
       // Local mode without a center: nothing to fetch, the page shows the picker.
@@ -278,15 +286,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       const data = await fetchGraphJson<GraphSubgraphResponse | GraphMaintenanceResponse>(
         `${req.endpoint}${req.query ? `?${req.query}` : ""}`
       );
-      if (get().mode !== requestedMode) return; // mode changed mid-flight
+      // The cache is always safe to fill; the visible scene belongs to the
+      // latest request only (rapid param changes race their responses).
       cachePut(cacheKey, data);
+      if (token !== sceneRequestToken) return;
       if (requestedMode === "maintenance") {
         set({ findings: data as GraphMaintenanceResponse, subgraph: null, dataState: "done" });
       } else {
         set({ subgraph: data as GraphSubgraphResponse, findings: null, dataState: "done" });
       }
     } catch (err) {
-      if (get().mode !== requestedMode) return;
+      if (token !== sceneRequestToken) return;
       set({ dataState: "error", error: toGraphError(err) });
     }
   },

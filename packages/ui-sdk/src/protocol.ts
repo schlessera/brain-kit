@@ -739,6 +739,17 @@ export interface GraphSubgraphResponse {
   edges: GraphEdgePayload[];
   /** A server cap dropped the lowest-ranked nodes or edges from this response. */
   truncated: boolean;
+  /**
+   * Notes reachable from the root, counted over the WHOLE graph — discovery
+   * only. This is deliberately not derivable from `nodes`, which holds just the
+   * scene: a depth-limited or truncated response shows fewer notes than the
+   * root actually reaches, and a virtual root contributes a node that is no
+   * document. Both counts cover documents only, and are omitted when no root
+   * was resolved (nothing to be reachable from).
+   */
+  reachableCount?: number;
+  /** Notes the root reaches by no path at all — discovery only. */
+  unreachableCount?: number;
 }
 
 export interface GraphMaintenanceResponse {

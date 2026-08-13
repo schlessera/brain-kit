@@ -136,6 +136,25 @@ test("mutating commands refuse to run without a brain.config", async () => {
   expect(doctor.code).toBe(0);
 });
 
+test("graph compute refuses without a brain.config; its readers behave like other readers", async () => {
+  const root = tempBrain({ empty: true });
+
+  // compute opens the database writable, so it is gated like `index`.
+  const compute = await runCli(root, ["graph", "compute"]);
+  expect(compute.code).toBe(1);
+  expect(compute.stderr).toContain("refusing to modify an uninitialized directory");
+
+  // export/stats only read, so they fail the way `list`/`stats` do.
+  for (const cmd of [["graph", "stats"], ["graph", "export", "--mode", "clusters"]]) {
+    const { code, stderr } = await runCli(root, cmd);
+    expect(code).toBe(1);
+    expect(stderr).toContain("Database not found");
+  }
+
+  // Nothing wrote a database into the uninitialized directory.
+  expect(existsSync(join(root, "brain.db"))).toBe(false);
+});
+
 test("skills sync and setup also refuse to run without a brain.config", async () => {
   const root = tempBrain({ empty: true });
   for (const cmd of [["skills", "sync"], ["setup"]]) {
