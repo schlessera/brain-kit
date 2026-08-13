@@ -81,6 +81,12 @@ export class Taxonomy {
   readonly assetTitleRules: AssetTitleRule[];
   readonly exclude: { dirs: string[]; files: string[]; segments: string[] };
   readonly defaultStaleness: StalenessVerdict;
+  /**
+   * `graph.root` from brain.config: the document the knowledge graph is
+   * measured from. It lives here because every indexing path already carries a
+   * taxonomy, and null means "fall back to the default entry files".
+   */
+  readonly graphRoot: string | null;
 
   private readonly classifierRules: ClassifierRule[];
   /** [prefix, type] sorted longest-prefix-first. */
@@ -98,6 +104,7 @@ export class Taxonomy {
     classifierRules: ClassifierRule[];
     exclude: { dirs: string[]; files: string[]; segments: string[] };
     defaultStaleness: StalenessVerdict;
+    graphRoot?: string | null;
   }) {
     this.types = args.types;
     this.dirAnchors = args.dirAnchors;
@@ -107,6 +114,7 @@ export class Taxonomy {
     this.classifierRules = args.classifierRules;
     this.exclude = args.exclude;
     this.defaultStaleness = args.defaultStaleness;
+    this.graphRoot = args.graphRoot ?? null;
 
     this.prefixIndex = Object.entries(this.types)
       .flatMap(([type, spec]) => spec.prefixes.map((p): [string, string] => [p, type]))
@@ -372,5 +380,6 @@ export function buildTaxonomy(opts: {
     classifierRules,
     exclude,
     defaultStaleness: user?.taxonomy?.defaultStaleness ?? DEFAULT_STALENESS,
+    graphRoot: user?.graph?.root ?? null,
   });
 }
