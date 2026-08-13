@@ -1,5 +1,15 @@
 # @schlessera/brain-ui-sdk
 
+## 0.7.0
+
+### Minor Changes
+
+- b8cbf72: Knowledge-graph view: `brain graph` command and schema-v8 derived tables
+  (metrics, communities, root distances, precomputed ForceAtlas2 layout) built
+  at index time; `/api/graph/*` REST endpoints served from read-only brain.db
+  access; a full-screen GraphPage with Clusters, Discovery, Local, and
+  Maintenance modes rendered via a lazy-loaded sigma.js WebGL canvas.
+
 ## 0.6.3
 
 ## 0.6.2
