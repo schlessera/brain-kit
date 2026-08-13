@@ -47,10 +47,13 @@
     "@simplewebauthn/browser": "^13.2.2",
     "clsx": "^2",
     "framer-motion": "^12.38.0",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^0.460",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "sigma": "^3",
     "tailwind-merge": "^3",
     "zustand": "^5"
   },

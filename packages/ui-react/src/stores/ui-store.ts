@@ -3,7 +3,11 @@ import { create } from "zustand";
 /** Which tab the settings panel opens on. */
 export type SettingsTab = "models" | "security";
 
+/** Full-screen surface currently shown inside the AppShell. */
+export type ActiveView = "chat" | "graph";
+
 interface UIState {
+  activeView: ActiveView;
   sessionPanelOpen: boolean;
   syncPanelOpen: boolean;
   whatsupPanelOpen: boolean;
@@ -12,6 +16,8 @@ interface UIState {
   filePanelOpen: boolean;
   settingsPanelOpen: boolean;
   settingsTab: SettingsTab;
+  /** Switch the full-screen view; closes any open panel so the new view starts clean. */
+  setActiveView: (view: ActiveView) => void;
   toggleSessionPanel: () => void;
   toggleSyncPanel: () => void;
   toggleWhatsupPanel: () => void;
@@ -44,7 +50,9 @@ const CLOSED = {
 
 export const useUIStore = create<UIState>((set) => ({
   ...CLOSED,
+  activeView: "chat",
   settingsTab: "models",
+  setActiveView: (view) => set({ ...CLOSED, activeView: view }),
   toggleSessionPanel: () =>
     set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen })),
   toggleSyncPanel: () =>
