@@ -64,6 +64,9 @@ const STYLES = `
   th, td { border: 1px solid var(--border); padding: 0.45em 0.7em; text-align: left; }
   th { background: var(--surface); font-weight: 600; }
   img { max-width: 100%; height: auto; }
+  /* Mermaid diagrams arrive pre-rendered as inline SVG (the page runs no JS) */
+  .mermaid-figure { margin: 1em 0; text-align: center; }
+  .mermaid-figure svg { max-width: 100%; height: auto; }
   .remote-image {
     display: inline-block; padding: 2px 8px; border: 1px dashed #b0b0b0;
     border-radius: 4px; color: #6b6b6b; font-size: 0.9em;

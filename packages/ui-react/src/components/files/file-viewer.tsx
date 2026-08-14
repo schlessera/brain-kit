@@ -11,6 +11,8 @@ import { API_BASE } from "../../lib/backend.js";
 import { fetchAsFile, shareFile, renderAndShare } from "../../lib/share.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
+import { inlineMermaidDiagrams, isMermaidPath } from "../../lib/mermaid.js";
+import { MermaidBlock } from "../chat/mermaid-block.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 
 export function FileViewer() {
@@ -32,7 +34,10 @@ export function FileViewer() {
   }
 
   const fileName = currentPath.split("/").pop() ?? currentPath;
-  const previewAvailable = content?.kind === "markdown" || content?.kind === "html";
+  const previewAvailable =
+    content?.kind === "markdown" ||
+    content?.kind === "html" ||
+    (content?.kind === "text" && isMermaidPath(content.path));
 
   return (
     <div className="flex h-full flex-col">
@@ -69,6 +74,14 @@ export function FileViewer() {
 function ViewerBody({ content, viewMode }: { content: NonNullable<ReturnType<typeof useFileStore.getState>["currentContent"]>; viewMode: "preview" | "raw" }) {
   if (content.kind === "binary") {
     return <FileViewerBinary content={content} />;
+  }
+  // Standalone mermaid source files (.mmd / .mermaid) preview as a diagram.
+  if (viewMode === "preview" && content.kind === "text" && isMermaidPath(content.path)) {
+    return (
+      <div className="brain-prose max-w-none px-6 py-4">
+        <MermaidBlock source={content.content ?? ""} />
+      </div>
+    );
   }
   if (viewMode === "raw" || (content.kind !== "markdown" && content.kind !== "html")) {
     return <FileViewerRaw content={content.content ?? ""} fileName={content.path} />;
@@ -216,9 +229,11 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         id: "md-png",
         label: "Share as image",
         hint: "Rendered PNG snapshot",
-        run: () =>
+        run: async () =>
           renderAndShare({
-            content: body,
+            // The render page runs without JavaScript — mermaid fences are
+            // pre-rendered to inline SVG on the client.
+            content: await inlineMermaidDiagrams(body),
             contentType: "markdown",
             format: "png",
             filename: baseName(fileName),
@@ -229,9 +244,9 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         id: "md-pdf",
         label: "Share as PDF",
         hint: "Vector PDF, A4",
-        run: () =>
+        run: async () =>
           renderAndShare({
-            content: body,
+            content: await inlineMermaidDiagrams(body),
             contentType: "markdown",
             format: "pdf",
             filename: baseName(fileName),

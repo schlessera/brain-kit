@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, Copy } from "lucide-react";
 import {
   classifyRepoPath,
   isInternalRepoDir,
@@ -11,6 +10,8 @@ import {
 } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { ShareBlock, type ShareBlockFormat } from "./share-block.js";
+import { CopyButton } from "./copy-button.js";
+import { MermaidBlock } from "./mermaid-block.js";
 
 const ENTITY_TAGS: Record<string, string> = {
   co: "entity-co",
@@ -90,20 +91,60 @@ function renderEntitiesInText(
   return nodes;
 }
 
-function CopyButton({ getText }: { getText: () => string }) {
-  const [copied, setCopied] = useState(false);
+/** Concatenate all text descendants of a React node tree. */
+function extractText(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (React.isValidElement(node)) {
+    return extractText((node.props as { children?: React.ReactNode }).children);
+  }
+  return "";
+}
+
+/**
+ * If a <pre>'s children are a ```mermaid / ```mmd fence, recover the raw
+ * diagram source. Text is extracted recursively because rehype-highlight
+ * and the linkify pass may have wrapped parts of it in elements.
+ */
+function mermaidSourceFrom(children: React.ReactNode): string | null {
+  for (const child of React.Children.toArray(children)) {
+    if (!React.isValidElement(child)) continue;
+    const props = child.props as { className?: string; children?: React.ReactNode };
+    if (typeof props.className === "string" && /\blanguage-(?:mermaid|mmd)\b/.test(props.className)) {
+      return extractText(props.children).replace(/\n$/, "");
+    }
+  }
+  return null;
+}
+
+function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
+  const mermaid = mermaidSourceFrom(children);
+  if (mermaid !== null) return <MermaidBlock source={mermaid} />;
+  return <CodePre {...props}>{children}</CodePre>;
+}
+
+function CodePre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
+  const ref = useRef<HTMLPreElement>(null);
   return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(getText());
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground opacity-0 transition-all hover:bg-surface-overlay hover:text-foreground group-hover:opacity-100"
-    >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
+    <div className="group relative">
+      <pre
+        ref={ref}
+        className="overflow-x-auto rounded-lg border border-border bg-surface p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed"
+        {...props}
+      >
+        {children}
+      </pre>
+      <CopyButton getText={() => ref.current?.textContent ?? ""} />
+    </div>
+  );
+}
+
+function MarkdownTable({ children, ...props }: React.ComponentPropsWithoutRef<"table">) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table {...props}>{children}</table>
+    </div>
   );
 }
 
@@ -209,77 +250,65 @@ function BrainMarkdownInner({ content, className, entityTags = false, fileLinks 
     if (fileLinks) void ensureWikilinks();
   }, [fileLinks, ensureWikilinks]);
 
-  // Override block/inline elements that can contain text. We need to do this
-  // whenever either entityTags or fileLinks is enabled so we can scan text nodes.
-  const useTextProcessing = entityTags || fileLinks;
-  const opts = { entityTags, fileLinks };
-  const textComponents = useTextProcessing
-    ? {
-        p: withTextProcessing("p", opts),
-        li: withTextProcessing("li", opts),
-        strong: withTextProcessing("strong", opts),
-        em: withTextProcessing("em", opts),
-        h1: withTextProcessing("h1", opts),
-        h2: withTextProcessing("h2", opts),
-        h3: withTextProcessing("h3", opts),
-        h4: withTextProcessing("h4", opts),
-        td: withTextProcessing("td", opts),
-        th: withTextProcessing("th", opts),
-        // Paths and wikilinks frequently appear inside inline code spans
-        // in brain notes (e.g. `talks/_index.md`). Process code elements
-        // too. Note: this also linkifies paths inside fenced code blocks,
-        // which is harmless in the brain UI context (paths in shell
-        // snippets remain clickable). The known downside is that literal
-        // `[[slug]]` syntax shown for teaching purposes will attempt to
-        // resolve as a wikilink.
-        code: withTextProcessing("code", opts),
-      }
-    : {};
+  // Memoized so component identities are stable across the per-token
+  // re-renders of a streaming message. Inline arrows here would be a new
+  // component type every render, forcing React to unmount and remount every
+  // block — which would destroy MermaidBlock's rendered-SVG state mid-stream.
+  const components = useMemo(() => {
+    const opts = { entityTags, fileLinks };
+    // Override block/inline elements that can contain text. We need to do this
+    // whenever either entityTags or fileLinks is enabled so we can scan text nodes.
+    const textComponents = entityTags || fileLinks
+      ? {
+          p: withTextProcessing("p", opts),
+          li: withTextProcessing("li", opts),
+          strong: withTextProcessing("strong", opts),
+          em: withTextProcessing("em", opts),
+          h1: withTextProcessing("h1", opts),
+          h2: withTextProcessing("h2", opts),
+          h3: withTextProcessing("h3", opts),
+          h4: withTextProcessing("h4", opts),
+          td: withTextProcessing("td", opts),
+          th: withTextProcessing("th", opts),
+          // Paths and wikilinks frequently appear inside inline code spans
+          // in brain notes (e.g. `talks/_index.md`). Process code elements
+          // too. Note: this also linkifies paths inside fenced code blocks,
+          // which is harmless in the brain UI context (paths in shell
+          // snippets remain clickable). The known downside is that literal
+          // `[[slug]]` syntax shown for teaching purposes will attempt to
+          // resolve as a wikilink.
+          code: withTextProcessing("code", opts),
+        }
+      : {};
+    return {
+      ...textComponents,
+      pre: MarkdownPre,
+      table: MarkdownTable,
+      a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<"a">) => {
+        if (fileLinks) {
+          const kind = classifyRepoPath(href);
+          if (kind === "file") {
+            return <FileLink path={href as string}>{children}</FileLink>;
+          }
+          if (kind === "dir") {
+            return <DirLink path={href as string}>{children}</DirLink>;
+          }
+        }
+        return (
+          <a target="_blank" rel="noopener noreferrer" href={href} {...props}>
+            {children}
+          </a>
+        );
+      },
+    };
+  }, [entityTags, fileLinks]);
 
   return (
     <div className={className ?? "brain-prose"}>
       <Markdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={entityTags ? [] : [rehypeHighlight]}
-        components={{
-          ...textComponents,
-          pre: ({ children, ...props }) => {
-            const ref = useRef<HTMLPreElement>(null);
-            return (
-              <div className="group relative">
-                <pre
-                  ref={ref}
-                  className="overflow-x-auto rounded-lg border border-border bg-surface p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed"
-                  {...props}
-                >
-                  {children}
-                </pre>
-                <CopyButton getText={() => ref.current?.textContent ?? ""} />
-              </div>
-            );
-          },
-          table: ({ children, ...props }) => (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table {...props}>{children}</table>
-            </div>
-          ),
-          a: ({ href, children, ...props }) => {
-            if (fileLinks) {
-              const kind = classifyRepoPath(href);
-              if (kind === "file") {
-                return <FileLink path={href as string}>{children}</FileLink>;
-              }
-              if (kind === "dir") {
-                return <DirLink path={href as string}>{children}</DirLink>;
-              }
-            }
-            return (
-              <a target="_blank" rel="noopener noreferrer" href={href} {...props}>
-                {children}
-              </a>
-            );
-          },
-        }}
+        components={components}
       >
         {processed}
       </Markdown>

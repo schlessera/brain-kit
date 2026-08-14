@@ -2,6 +2,7 @@ import { uiConfig } from "../../config.js";
 import type { RefObject } from "react";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
+import { inlineMermaidDiagrams } from "../../lib/mermaid.js";
 import type { ShareOption } from "../share/share-menu.js";
 
 interface BuildOpts {
@@ -18,9 +19,11 @@ export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): S
       id: "image",
       label: "Image (PNG)",
       hint: "Rendered snapshot",
-      run: () =>
+      run: async () =>
         renderAndShare({
-          content,
+          // The render page runs without JavaScript, so mermaid fences are
+          // pre-rendered to inline SVG here on the client.
+          content: await inlineMermaidDiagrams(content),
           contentType: "markdown",
           format: "png",
           filename: "message",
@@ -31,9 +34,9 @@ export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): S
       id: "pdf",
       label: "PDF",
       hint: "Vector PDF, A4",
-      run: () =>
+      run: async () =>
         renderAndShare({
-          content,
+          content: await inlineMermaidDiagrams(content),
           contentType: "markdown",
           format: "pdf",
           filename: "message",
