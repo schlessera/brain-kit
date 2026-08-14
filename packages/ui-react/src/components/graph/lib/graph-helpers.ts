@@ -164,6 +164,29 @@ export const DISTANCE_RAMP = [
 ] as const;
 
 /**
+ * Linear blend of two hex colors: t=0 → a, t=1 → b. Used for the gentle
+ * non-match fade during search highlight (half the strength of the hover
+ * fade, which jumps straight to the edge color). Falls back to `b` when a
+ * color is not parseable hex, so a bad token degrades to the strong fade
+ * rather than an invalid color string.
+ */
+export function mixColors(a: string, b: string, t: number): string {
+  const pa = parseHex(a);
+  const pb = parseHex(b);
+  if (!pa || !pb) return b;
+  const clamp = Math.max(0, Math.min(1, t));
+  const channel = (i: number) => Math.round(pa[i]! + (pb[i]! - pa[i]!) * clamp);
+  return `#${[0, 1, 2].map((i) => channel(i).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function parseHex(color: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return null;
+  const n = parseInt(m[1]!, 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+/**
  * Color for a community. Communities are numbered by size (0 = largest) at
  * index time, so the first eight — the ones a legend can carry — get the
  * distinguishable slots and the long tail shares one recessive color.

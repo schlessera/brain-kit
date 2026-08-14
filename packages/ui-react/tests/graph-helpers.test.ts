@@ -12,6 +12,7 @@ import {
   labelSet,
   matchScene,
   mergeSubgraphs,
+  mixColors,
   nodeSize,
   radialLayout,
   topLevelDir,
@@ -238,5 +239,27 @@ describe("matchScene", () => {
   test("queries under two characters match nothing", () => {
     expect(matchScene(nodes, "c").size).toBe(0);
     expect(matchScene(nodes, " ").size).toBe(0);
+  });
+});
+
+describe("mixColors", () => {
+  test("t=0 returns the first color, t=1 the second", () => {
+    expect(mixColors("#000000", "#ffffff", 0)).toBe("#000000");
+    expect(mixColors("#000000", "#ffffff", 1)).toBe("#ffffff");
+  });
+
+  test("t=0.5 blends channel-wise", () => {
+    expect(mixColors("#000000", "#ffffff", 0.5)).toBe("#808080");
+    expect(mixColors("#2a2d35", "#2a2d35", 0.5)).toBe("#2a2d35");
+  });
+
+  test("clamps t and tolerates a leading-#-less hex", () => {
+    expect(mixColors("#102030", "#304050", 2)).toBe("#304050");
+    expect(mixColors("102030", "#304050", 0)).toBe("#102030");
+  });
+
+  test("unparseable input degrades to the fade target", () => {
+    expect(mixColors("oklch(0.5 0.1 200)", "#2a2d35", 0.5)).toBe("#2a2d35");
+    expect(mixColors("#12345", "#2a2d35", 0.5)).toBe("#2a2d35");
   });
 });

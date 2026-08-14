@@ -10,6 +10,10 @@
 import { useEffect, useRef } from "react";
 import Graph from "graphology";
 import Sigma from "sigma";
+import type {
+  NodeHoverDrawingFunction,
+  NodeLabelDrawingFunction,
+} from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type {
   GraphEdgePayload,
@@ -18,11 +22,12 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import {
   labelSet,
+  mixColors,
   nodeSize,
   radialLayout,
   type SizeBy,
 } from "./lib/graph-helpers.js";
-import { useGraphTheme } from "./use-graph-theme.js";
+import { useGraphTheme, type GraphTheme } from "./use-graph-theme.js";
 
 export interface GraphCanvasProps {
   data: GraphSubgraphResponse;
@@ -46,6 +51,79 @@ function forceIterations(nodeCount: number): number {
   if (nodeCount <= 150) return 300;
   if (nodeCount <= 500) return 150;
   return 60;
+}
+
+/**
+ * Node label drawer: sigma's default fillText plus a thin round-joined
+ * stroke in `outline` underneath, so labels stay legible where they cross
+ * nodes, edges, or each other. Geometry matches sigma 3.0.x's
+ * drawDiscNodeLabel (x + size + 3, vertically centered on the node).
+ */
+function makeDrawNodeLabel(
+  theme: GraphTheme,
+  outline?: string
+): NodeLabelDrawingFunction {
+  return (context, data, settings) => {
+    if (!data.label) return;
+    const size = settings.labelSize;
+    context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
+    const x = data.x + data.size + 3;
+    const y = data.y + size / 3;
+    context.strokeStyle = outline ?? theme.background;
+    context.lineWidth = 3;
+    context.lineJoin = "round";
+    context.strokeText(data.label, x, y);
+    context.fillStyle = settings.labelColor.color ?? theme.label;
+    context.fillText(data.label, x, y);
+  };
+}
+
+/**
+ * Hover/selected label drawer. Sigma's default draws the plate in hardcoded
+ * #FFF — invisible under our near-white label text on a dark theme. Same
+ * plate geometry (rounded box grown out of the node circle), but filled with
+ * the overlay surface token, edged with the border token, and the label drawn
+ * light with its outline in the plate color so it reads as solid text.
+ */
+function makeDrawNodeHover(theme: GraphTheme): NodeHoverDrawingFunction {
+  const drawLabel = makeDrawNodeLabel(theme, theme.surfaceOverlay);
+  return (context, data, settings) => {
+    const size = settings.labelSize;
+    context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
+    context.fillStyle = theme.surfaceOverlay;
+    context.strokeStyle = theme.edge;
+    context.lineWidth = 1;
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 0;
+    context.shadowBlur = 8;
+    context.shadowColor = "#000";
+    const PADDING = 2;
+    if (typeof data.label === "string") {
+      const textWidth = context.measureText(data.label).width;
+      const boxWidth = Math.round(textWidth + 5);
+      const boxHeight = Math.round(size + 2 * PADDING);
+      const radius = Math.max(data.size, size / 2) + PADDING;
+      const angleRadian = Math.asin(boxHeight / 2 / radius);
+      const xDelta = Math.sqrt(Math.abs(radius ** 2 - (boxHeight / 2) ** 2));
+      context.beginPath();
+      context.moveTo(data.x + xDelta, data.y + boxHeight / 2);
+      context.lineTo(data.x + radius + boxWidth, data.y + boxHeight / 2);
+      context.lineTo(data.x + radius + boxWidth, data.y - boxHeight / 2);
+      context.lineTo(data.x + xDelta, data.y - boxHeight / 2);
+      context.arc(data.x, data.y, radius, angleRadian, -angleRadian);
+      context.closePath();
+      context.fill();
+      context.shadowBlur = 0;
+      context.stroke();
+    } else {
+      context.beginPath();
+      context.arc(data.x, data.y, data.size + PADDING, 0, Math.PI * 2);
+      context.closePath();
+      context.fill();
+      context.shadowBlur = 0;
+    }
+    drawLabel(context, data, settings);
+  };
 }
 
 export default function GraphCanvas({
@@ -92,6 +170,8 @@ export default function GraphCanvas({
       labelSize: 11,
       labelColor: { color: theme.label },
       labelRenderedSizeThreshold: 7,
+      defaultDrawNodeLabel: makeDrawNodeLabel(theme),
+      defaultDrawNodeHover: makeDrawNodeHover(theme),
       defaultEdgeType: "arrow",
       minCameraRatio: 0.05,
       maxCameraRatio: 6,
@@ -118,6 +198,10 @@ export default function GraphCanvas({
           out.color = theme.edge;
           out.label = undefined;
           out.forceLabel = false;
+        } else if (active === null && s.matchIds.size > 0 && !s.matchIds.has(id)) {
+          // Search highlight: non-matches recede at half the hover fade, so
+          // the amber matches pop without the rest of the scene vanishing.
+          out.color = mixColors((attrs.color as string) ?? theme.node, theme.edge, 0.5);
         }
         return out;
       },

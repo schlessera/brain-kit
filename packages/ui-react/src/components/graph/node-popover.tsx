@@ -3,6 +3,7 @@ import type { GraphNodePayload } from "@schlessera/brain-ui-sdk/protocol";
 import { useFileStore } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useGraphStore } from "../../stores/graph-store.js";
+import { communityColor } from "./lib/graph-helpers.js";
 
 /**
  * Detail card for the selected node, docked to the bottom-left of the canvas
@@ -47,8 +48,18 @@ export function NodePopover({
               {isVirtual ? "root" : node.type}
             </span>
             {communityLabel && (
-              <span className="truncate text-[10px] text-muted-foreground">
-                {communityLabel}
+              <span
+                title="Topic cluster inferred from this note's links"
+                className="flex min-w-0 items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              >
+                {node.community !== undefined && (
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: communityColor(node.community) }}
+                  />
+                )}
+                <span className="truncate">Topic: {communityLabel}</span>
               </span>
             )}
           </div>
