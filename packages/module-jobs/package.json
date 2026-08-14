@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-module-jobs",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "brain-kit module: job-search pipeline — board scraping, scoring, dedup, triage",
   "license": "MIT",
   "keywords": [
