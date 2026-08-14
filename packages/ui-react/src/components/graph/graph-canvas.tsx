@@ -227,10 +227,37 @@ export default function GraphCanvas({
       },
     });
 
+    // Camera gestures (mouse-drag pan, touch pan/pinch/rotate) sweep nodes
+    // under a pointer that isn't "pointing" at them, and sigma re-derives
+    // hover on every move — so without a gate, dragging flickers random nodes
+    // in and out of the hover fade. Clicks/taps are already drag-suppressed by
+    // sigma itself (draggedEventsTolerance / tapMoveTolerance); hover is not.
+    // Gate: button held or a touch in progress means the pointer is steering
+    // the camera, and mouse isMoving lingers for sigma's dragTimeout after
+    // release, absorbing the tail of the gesture.
+    const mouseCaptor = renderer.getMouseCaptor();
+    const touchCaptor = renderer.getTouchCaptor();
+    const isCameraGesture = () =>
+      mouseCaptor.isMouseDown ||
+      mouseCaptor.isMoving ||
+      touchCaptor.isMoving ||
+      touchCaptor.touchMode > 0;
+
     renderer.on("clickNode", ({ node }) => callbacksRef.current.onSelect(Number(node)));
     renderer.on("clickStage", () => callbacksRef.current.onSelect(null));
-    renderer.on("enterNode", ({ node }) => callbacksRef.current.onHover(Number(node)));
+    renderer.on("enterNode", ({ node }) => {
+      if (isCameraGesture()) return;
+      callbacksRef.current.onHover(Number(node));
+    });
     renderer.on("leaveNode", () => callbacksRef.current.onHover(null));
+
+    // A gesture that starts while a node is already hovered must drop that
+    // hover too, or the fade chases a stale node across the whole drag.
+    const clearHoverDuringGesture = () => {
+      if (isCameraGesture()) callbacksRef.current.onHover(null);
+    };
+    mouseCaptor.on("mousemovebody", clearHoverDuringGesture);
+    touchCaptor.on("touchmovebody", clearHoverDuringGesture);
 
     sigmaRef.current = renderer;
     return () => {

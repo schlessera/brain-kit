@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-sdk",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "brain-kit chat-UI SDK: the wire protocol, AgentBackend/SpeechProvider server seams, and client renderer/ASR registries",
   "license": "MIT",
   "keywords": [

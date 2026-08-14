@@ -1,5 +1,12 @@
 # @schlessera/brain-ui-react
 
+## 0.7.2
+
+### Patch Changes
+
+- Graph view: suppress node hover while a camera gesture (drag pan, pinch zoom/rotate) is in progress, so dragging no longer flickers random nodes in and out of the hover fade.
+  - @schlessera/brain-ui-sdk@0.7.2
+
 ## 0.7.1
 
 ### Patch Changes
