@@ -7,8 +7,18 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { API_BASE } from "../lib/backend.js";
+import { isMermaidPath } from "../lib/mermaid.js";
 
 export type ViewMode = "preview" | "raw";
+
+/** Kinds/paths the viewer can render as a preview (vs raw text only). */
+function hasPreview(content: FileContentResponse): boolean {
+  return (
+    content.kind === "markdown" ||
+    content.kind === "html" ||
+    (content.kind === "text" && isMermaidPath(content.path))
+  );
+}
 
 const FRONTMATTER_COLLAPSED_KEY = "brain-ui:frontmatter-collapsed";
 
@@ -204,9 +214,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       set({ currentContent: content, contentLoading: false });
       // Default mode: prefer preview when available; persist otherwise
       const { viewMode } = get();
-      if (content.kind !== "markdown" && content.kind !== "html" && viewMode === "preview") {
+      if (!hasPreview(content) && viewMode === "preview") {
         set({ viewMode: "raw" });
-      } else if ((content.kind === "markdown" || content.kind === "html") && viewMode === "raw") {
+      } else if (hasPreview(content) && viewMode === "raw") {
         // Keep raw if user toggled — but on a fresh open default back to preview
         set({ viewMode: "preview" });
       }

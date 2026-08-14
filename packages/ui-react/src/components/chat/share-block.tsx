@@ -4,6 +4,7 @@ import { BrainMarkdown } from "./brain-markdown.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
+import { inlineMermaidDiagrams } from "../../lib/mermaid.js";
 import { Share2 } from "lucide-react";
 
 export type ShareBlockFormat = "image" | "pdf" | "text" | "markdown" | "richtext";
@@ -86,7 +87,9 @@ async function runFormat(
   switch (fmt) {
     case "image":
       return renderAndShare({
-        content: body,
+        // The render page runs without JavaScript — mermaid fences are
+        // pre-rendered to inline SVG on the client.
+        content: await inlineMermaidDiagrams(body),
         contentType: "markdown",
         format: "png",
         filename,
@@ -94,7 +97,7 @@ async function runFormat(
       });
     case "pdf":
       return renderAndShare({
-        content: body,
+        content: await inlineMermaidDiagrams(body),
         contentType: "markdown",
         format: "pdf",
         filename,

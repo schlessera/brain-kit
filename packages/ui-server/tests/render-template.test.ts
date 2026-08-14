@@ -34,4 +34,17 @@ describe("buildHtmlDocument remote-asset handling", () => {
     expect(html).not.toContain("169.254.169.254");
     expect(html).toContain("[remote image — not embedded]");
   });
+
+  test("passes a pre-rendered mermaid figure through markdown intact", () => {
+    // The client inlines mermaid fences as a single-line <div class="mermaid-figure">
+    // (the page runs no JS, so the SVG must arrive pre-rendered). marked must
+    // emit that block verbatim, not wrap or escape it.
+    const svg = '<svg aria-roledescription="flowchart-v2" viewBox="0 0 100 50"><g class="root"></g></svg>';
+    const html = buildHtmlDocument({
+      content: `before\n\n<div class="mermaid-figure">${svg}</div>\n\nafter`,
+      contentType: "markdown",
+    });
+    expect(html).toContain(`<div class="mermaid-figure">${svg}</div>`);
+    expect(html).toContain(".mermaid-figure svg");
+  });
 });

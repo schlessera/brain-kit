@@ -20,6 +20,11 @@ export { GraphPage } from "./components/graph/graph-page.js";
 // Markdown renderer (also useful standalone, e.g. for a dev kitchen sink).
 export { BrainMarkdown } from "./components/chat/brain-markdown.js";
 
+// Mermaid: standalone diagram block (streaming-safe) + the fence-to-SVG
+// inliner the share pipeline uses before handing markdown to the no-JS renderer.
+export { MermaidBlock } from "./components/chat/mermaid-block.js";
+export { inlineMermaidDiagrams, renderMermaidSvg } from "./lib/mermaid.js";
+
 // Stores + selectors the shell reads (service-worker busy check, deep links).
 export {
   useChatStore,

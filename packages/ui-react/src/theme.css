@@ -316,6 +316,16 @@
   font-size: inherit;
 }
 
+/* Mermaid diagrams (rendered from ```mermaid fences) */
+.brain-prose .mermaid-figure {
+  margin: 0.75rem 0;
+  text-align: center;
+}
+.brain-prose .mermaid-figure svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Blockquotes */
 .brain-prose blockquote {
   border-left: 3px solid #e09f3e;
