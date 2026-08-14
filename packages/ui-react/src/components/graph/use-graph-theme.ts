@@ -2,6 +2,9 @@ import { useMemo } from "react";
 
 export interface GraphTheme {
   background: string;
+  /** Raised surface used for the hover-label plate (sigma's default is #FFF,
+   * unreadable under our near-white label text). */
+  surfaceOverlay: string;
   node: string;
   nodeSelected: string;
   edge: string;
@@ -12,6 +15,7 @@ export interface GraphTheme {
 
 const FALLBACK: GraphTheme = {
   background: "#0c0e12",
+  surfaceOverlay: "#1e2128",
   node: "#8a8691",
   nodeSelected: "#e09f3e",
   edge: "#2a2d35",
@@ -35,6 +39,7 @@ export function useGraphTheme(): GraphTheme {
     };
     return {
       background: token("--color-background", FALLBACK.background),
+      surfaceOverlay: token("--color-surface-overlay", FALLBACK.surfaceOverlay),
       node: token("--color-muted-foreground", FALLBACK.node),
       nodeSelected: token("--color-primary", FALLBACK.nodeSelected),
       edge: token("--color-border", FALLBACK.edge),

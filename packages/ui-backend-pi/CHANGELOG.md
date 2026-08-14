@@ -1,5 +1,12 @@
 # @schlessera/brain-backend-pi
 
+## 0.7.1
+
+### Patch Changes
+
+- @schlessera/brain@0.7.1
+- @schlessera/brain-ui-sdk@0.7.1
+
 ## 0.7.0
 
 ### Patch Changes
