@@ -9,7 +9,9 @@
  * streaming message a cache hit.
  */
 
-export type MermaidTheme = "dark" | "neutral";
+import { mermaidThemeVariables, type MermaidTheme } from "./mermaid-theme.js";
+
+export type { MermaidTheme };
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -17,36 +19,50 @@ let mermaidPromise: Promise<MermaidApi> | null = null;
 
 function loadMermaid(): Promise<MermaidApi> {
   if (!mermaidPromise) {
-    mermaidPromise = import("mermaid").then((mod) => {
-      const mermaid = mod.default;
-      mermaid.initialize({
-        startOnLoad: false,
-        // "strict" sanitizes label HTML and blocks script/click payloads —
-        // diagram sources arrive from the model and from repo files.
-        securityLevel: "strict",
-        // Never inject mermaid's own error SVG into the document; failures
-        // surface as a null render result and the caller shows the source.
-        suppressErrorRendering: true,
-        theme: "dark",
-        fontFamily: "ui-sans-serif, system-ui, sans-serif",
-      });
-      return mermaid;
-    });
+    mermaidPromise = import("mermaid").then((mod) => mod.default);
   }
   return mermaidPromise;
 }
 
-const INIT_DIRECTIVE_RE = /%%\{\s*init/;
+/** Config shared by both themes; only `themeVariables` differs per render. */
+function baseConfig(theme: MermaidTheme) {
+  return {
+    startOnLoad: false,
+    // "strict" sanitizes label HTML and blocks script/click payloads —
+    // diagram sources arrive from the model and from repo files.
+    securityLevel: "strict" as const,
+    // Never inject mermaid's own error SVG into the document; failures
+    // surface as a null render result and the caller shows the source.
+    suppressErrorRendering: true,
+    theme: "base" as const,
+    themeVariables: mermaidThemeVariables(theme),
+  };
+}
 
 /**
- * Theme is applied per-diagram via an init directive rather than re-calling
- * mermaid.initialize(), so concurrent renders for different targets (dark
- * in-app, neutral for the light share template) can't race on global config.
- * A source that carries its own init directive is left alone.
+ * Renders are serialized through this chain because the theme is applied by
+ * re-calling mermaid.initialize(), which mutates GLOBAL config — a dark
+ * in-app render and a light share render would otherwise race and one would
+ * come out in the other's palette.
+ *
+ * The obvious alternative, a per-diagram `%%{init: …}%%` directive, does not
+ * work: mermaid rewrites every `'` to `"` before JSON.parse-ing a directive
+ * (chunk-NSK5VX7P), so a quoted font stack makes the whole directive
+ * unparseable and it is silently dropped; and its themeVariables sanitizer
+ * rejects any value outside /^[\\d "#%(),.;A-Za-z]+$/, which blanks every
+ * hyphenated CSS keyword (`system-ui`, `-apple-system`). A dropped directive
+ * fails SILENTLY — the diagram renders in whatever the last global config
+ * was — so this path is not worth the theming it appears to buy.
  */
-function withThemeDirective(source: string, theme: MermaidTheme): string {
-  if (INIT_DIRECTIVE_RE.test(source)) return source;
-  return `%%{init: {"theme": "${theme}"}}%%\n${source}`;
+let renderChain: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = renderChain.then(fn, fn);
+  renderChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
 }
 
 const svgCache = new Map<string, string>();
@@ -78,16 +94,22 @@ export async function renderMermaidSvg(
   if (hit !== undefined) return hit;
   try {
     const mermaid = await loadMermaid();
-    const text = withThemeDirective(trimmed, theme);
-    const ok = await mermaid.parse(text, { suppressErrors: true });
-    if (!ok) return null;
-    const { svg } = await mermaid.render(`brain-mermaid-${++renderSeq}`, text);
-    if (svgCache.size >= CACHE_MAX) {
-      const oldest = svgCache.keys().next().value;
-      if (oldest !== undefined) svgCache.delete(oldest);
-    }
-    svgCache.set(key, svg);
-    return svg;
+    return await serialized(async () => {
+      // Re-check inside the lock: an identical render may have been queued
+      // ahead of this one while both were waiting.
+      const queued = svgCache.get(key);
+      if (queued !== undefined) return queued;
+      mermaid.initialize(baseConfig(theme));
+      const ok = await mermaid.parse(trimmed, { suppressErrors: true });
+      if (!ok) return null;
+      const { svg } = await mermaid.render(`brain-mermaid-${++renderSeq}`, trimmed);
+      if (svgCache.size >= CACHE_MAX) {
+        const oldest = svgCache.keys().next().value;
+        if (oldest !== undefined) svgCache.delete(oldest);
+      }
+      svgCache.set(key, svg);
+      return svg;
+    });
   } catch {
     return null;
   }
@@ -184,7 +206,7 @@ export function replaceMermaidFences(
  * block. Used by the share pipeline: the PNG/PDF renderer runs the page with
  * JavaScript disabled and all network denied, so the diagram must already be
  * SVG by the time the markdown reaches the server. Defaults to the light
- * "neutral" theme to match the share template. Fences that fail to render are
+ * theme to match the share template. Fences that fail to render are
  * left as code fences — the pre-feature behavior.
  */
 /**
@@ -219,12 +241,44 @@ export function inlineRenderedFences(
 
 export async function inlineMermaidDiagrams(
   md: string,
-  theme: MermaidTheme = "neutral"
+  theme: MermaidTheme = "light"
 ): Promise<string> {
   const fences = findMermaidFences(md);
   if (fences.length === 0) return md;
   const rendered = await Promise.all(fences.map((f) => renderMermaidSvg(f.source, theme)));
   return inlineRenderedFences(md, rendered);
+}
+
+const SVG_OPEN_TAG_RE = /<svg\b[^>]*>/i;
+const VIEWBOX_RE = /\bviewBox\s*=\s*"\s*[\d.+-]+\s+[\d.+-]+\s+([\d.+-]+)\s+([\d.+-]+)\s*"/i;
+
+/**
+ * Give a mermaid SVG an intrinsic pixel size taken from its viewBox.
+ *
+ * Mermaid ships its diagrams as `style="max-width: Npx"` with no width/height
+ * attribute, which is right for a responsive page and wrong for an export: a
+ * standalone .svg file then has no intrinsic size, and the PNG/PDF renderer
+ * lays it out at the full body width no matter how small the diagram is.
+ * Sizing it here is what lets the share page shrink-wrap the figure.
+ *
+ * Returns the input unchanged when there is no parseable viewBox — an
+ * un-sized export beats a corrupted one.
+ */
+export function sizeSvgForExport(svg: string, maxWidth = 1200): string {
+  const open = SVG_OPEN_TAG_RE.exec(svg);
+  if (!open) return svg;
+  const tag = open[0];
+  const vb = VIEWBOX_RE.exec(tag);
+  if (!vb) return svg;
+  const vbW = Number(vb[1]);
+  const vbH = Number(vb[2]);
+  if (!Number.isFinite(vbW) || !Number.isFinite(vbH) || vbW <= 0 || vbH <= 0) return svg;
+  const width = Math.max(1, Math.min(maxWidth, Math.round(vbW)));
+  const height = Math.max(1, Math.round((width / vbW) * vbH));
+  const sized = tag
+    .replace(/\s(?:width|height|style)\s*=\s*"[^"]*"/gi, "")
+    .replace(/<svg\b/i, `<svg width="${width}" height="${height}"`);
+  return svg.slice(0, open.index) + sized + svg.slice(open.index + tag.length);
 }
 
 /** Whether a repo path is a standalone mermaid source file (previewable as a diagram). */

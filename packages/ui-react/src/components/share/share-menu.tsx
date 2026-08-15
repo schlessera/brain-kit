@@ -17,8 +17,17 @@ interface ShareMenuProps {
   title?: string;
   /** When provided, override the default icon button with a custom trigger. */
   className?: string;
-  /** Optional render-prop for a custom trigger; receives the click handler. */
-  renderTrigger?: (props: { onClick: () => void; busy: boolean }) => React.ReactNode;
+  /**
+   * Optional render-prop for a custom trigger. Receives the click handler plus
+   * the status icon, so a custom trigger keeps the busy/done/error feedback
+   * instead of silently swallowing it.
+   */
+  renderTrigger?: (props: {
+    onClick: () => void;
+    busy: boolean;
+    status: Status;
+    icon: React.ReactNode;
+  }) => React.ReactNode;
 }
 
 type Status = "idle" | "busy" | "done" | "error";
@@ -35,13 +44,18 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
       if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Captured and stopped: an Escape that dismisses this menu must not also
+      // reach whatever the menu is layered over (the diagram viewer closes on
+      // Escape too, and dismissing both at once reads as a bug).
+      e.stopPropagation();
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -87,7 +101,7 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
   return (
     <div ref={wrapperRef} className={cn("relative inline-flex", className)}>
       {renderTrigger ? (
-        renderTrigger({ onClick: handleTrigger, busy: status === "busy" })
+        renderTrigger({ onClick: handleTrigger, busy: status === "busy", status, icon })
       ) : (
         <button
           onClick={handleTrigger}
