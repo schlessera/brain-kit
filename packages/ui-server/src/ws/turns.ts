@@ -4,11 +4,13 @@ import type {
   AskUserResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
-import type { ChatImageAttachment } from "@schlessera/brain-ui-sdk/protocol";
+import type { ChatImageAttachment, ClientEnvironment } from "@schlessera/brain-ui-sdk/protocol";
 
 export interface QueuedFollowUp {
   text: string;
   attachments: ChatImageAttachment[];
+  /** Device snapshot taken when the message was sent, not when it runs. */
+  client?: ClientEnvironment;
 }
 
 /**

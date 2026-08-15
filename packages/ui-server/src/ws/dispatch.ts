@@ -35,14 +35,13 @@ export async function handleClientMessage(
         });
         return;
       }
-      await handleChatMessage(
-        host,
-        ws,
-        msg.text,
-        msg.sessionId,
-        attachmentResult.attachments,
-        msg.providerId
-      );
+      await handleChatMessage(host, ws, {
+        text: msg.text,
+        sessionId: msg.sessionId,
+        attachments: attachmentResult.attachments,
+        providerId: msg.providerId,
+        client: msg.client,
+      });
       break;
     }
 

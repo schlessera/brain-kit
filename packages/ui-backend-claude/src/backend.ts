@@ -9,6 +9,7 @@ import {
 import type {
   ChatImageAttachment,
   ChatSession,
+  ClientEnvironment,
   ProviderInfo,
   ServerMessage,
   SessionHistoryMessage,
@@ -23,6 +24,7 @@ import type {
 import {
   BackendBusyError,
   BackendRequestError,
+  buildSystemPromptAppend,
   createWriteLock,
 } from "@schlessera/brain-ui-sdk/server";
 import { StreamAdapter } from "./stream-adapter.js";
@@ -134,6 +136,15 @@ export interface ClaudeBackendOptions {
   /** Backend-wide tool allowlist; a profile's own `allowedTools` overrides it. */
   allowedTools?: string[];
   /**
+   * Text appended to the Claude Code system prompt, describing the chat
+   * surface the answer renders on. Defaults to `buildSystemPromptAppend(...)`,
+   * rebuilt per turn from the client's reported device; setting this pins one
+   * STATIC string instead. Repo-specific instructions belong in the brain repo's own
+   * CLAUDE.md, which the SDK already loads; this is only for facts about the
+   * UI. Pass an empty string to append nothing.
+   */
+  systemPromptAppend?: string;
+  /**
    * Serializes MUTATING tool executions across every session this backend
    * runs, so two parallel turns never interleave writes/git ops in the shared
    * working tree. Defaults to a fresh per-instance lock; inject a shared one to
@@ -208,6 +219,22 @@ export function createClaudeBackend(
   });
 
   const writeLock = options.writeLock ?? createWriteLock();
+  // An explicit override is used verbatim; the default is rebuilt per turn so
+  // it can describe the device the CURRENT message came from.
+  const buildAppend = (
+    client: ClientEnvironment | undefined,
+    tools: { askUser: boolean; location: boolean }
+  ): string =>
+    options.systemPromptAppend ??
+    buildSystemPromptAppend({
+      ...(client ? { client } : {}),
+      // Named only when the bridge actually provides the handler — the MCP
+      // server (and the allowlist entry) is registered on the same condition.
+      tools: {
+        askUser: tools.askUser && ASK_USER_TOOL_NAME,
+        location: tools.location && GET_LOCATION_TOOL_NAME,
+      },
+    });
 
   const capabilities: BackendCapabilities = {
     resume: true,
@@ -344,6 +371,20 @@ export function createClaudeBackend(
         abortController,
         // Load CLAUDE.md and project skills from the brain repo.
         settingSources: ["project"],
+        // The brain repo's CLAUDE.md says what the agent is working ON; this
+        // says what it is rendering INTO. Appended to the preset rather than
+        // replacing it, so tool discipline and safety text stay intact.
+        systemPrompt: (() => {
+          const append = buildAppend(req.client, {
+            askUser: Boolean(askUser),
+            location: Boolean(getLocation),
+          });
+          return {
+            type: "preset" as const,
+            preset: "claude_code" as const,
+            ...(append ? { append } : {}),
+          };
+        })(),
         allowedTools: allowed,
         // The built-in AskUserQuestion picker needs a TTY; keep it disabled
         // even when no ask-user handler is present.

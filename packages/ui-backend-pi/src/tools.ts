@@ -93,6 +93,9 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_add: "mutate",
 };
 
+/** Name of pi's tappable-choice tool — also stated in the agent surface brief. */
+export const PI_ASK_USER_TOOL_NAME = "ask_user";
+
 export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   const { brain, turn, writeLock } = deps;
 
@@ -336,7 +339,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   } satisfies ToolDefinition;
 
   const ask_user = {
-    name: "ask_user",
+    name: PI_ASK_USER_TOOL_NAME,
     label: "Ask user",
     description:
       "Ask the user 1-4 clarifying questions with selectable options. Use when a " +
