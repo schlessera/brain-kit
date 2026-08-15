@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Code, ChartNetwork } from "lucide-react";
+import { Code, ChartNetwork, Expand } from "lucide-react";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
+import { ShareMenu } from "../share/share-menu.js";
 import { CopyButton } from "./copy-button.js";
+import { buildDiagramShareOptions } from "./mermaid-share.js";
+import { MermaidViewer } from "./mermaid-viewer.js";
 
 /**
  * A ```mermaid fence, rendered as a diagram.
@@ -16,6 +19,7 @@ import { CopyButton } from "./copy-button.js";
 export function MermaidBlock({ source }: { source: string }) {
   const [svg, setSvg] = useState<string | null>(() => peekMermaidSvg(source));
   const [showSource, setShowSource] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const latest = useRef(0);
   const lastAttempt = useRef(0);
 
@@ -44,11 +48,20 @@ export function MermaidBlock({ source }: { source: string }) {
   const diagramReady = svg !== null;
   const showDiagram = diagramReady && !showSource;
 
+  const iconBtn =
+    "flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground transition-all hover:bg-surface-overlay hover:text-foreground";
+
   return (
-    <div className="group relative my-3 overflow-hidden rounded-lg border border-border bg-surface">
+    // No `overflow-hidden` here: the share menu drops out of the toolbar and a
+    // clipping ancestor would cut off its lower entries on a short diagram.
+    // Children carry their own padding, so nothing bleeds past the radius.
+    <div className="group relative my-3 rounded-lg border border-border bg-surface">
       {showDiagram ? (
         <div
-          className="overflow-x-auto p-4 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          className="cursor-zoom-in overflow-x-auto p-4 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          // The whole diagram is the affordance: a phone-sized flowchart is
+          // unreadable in place, and the hover toolbar is pointer-only.
+          onClick={() => setZoomed(true)}
           dangerouslySetInnerHTML={{ __html: svg ?? "" }}
         />
       ) : (
@@ -56,22 +69,38 @@ export function MermaidBlock({ source }: { source: string }) {
           <code>{source}</code>
         </pre>
       )}
-      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100">
+      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-all focus-within:opacity-100 group-hover:opacity-100">
+        {showDiagram && (
+          <button type="button" title="Open diagram" onClick={() => setZoomed(true)} className={iconBtn}>
+            <Expand className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {diagramReady && (
+          <ShareMenu
+            options={buildDiagramShareOptions(source)}
+            title="Share diagram"
+            renderTrigger={({ onClick, busy, icon }) => (
+              <button type="button" title="Share diagram" onClick={onClick} disabled={busy} className={iconBtn}>
+                {icon}
+              </button>
+            )}
+          />
+        )}
         {diagramReady && (
           <button
             type="button"
             title={showDiagram ? "Show source" : "Show diagram"}
             onClick={() => setShowSource((s) => !s)}
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground transition-all hover:bg-surface-overlay hover:text-foreground"
+            className={iconBtn}
           >
             {showDiagram ? <Code className="h-3.5 w-3.5" /> : <ChartNetwork className="h-3.5 w-3.5" />}
           </button>
         )}
-        <CopyButton
-          getText={() => source}
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground transition-all hover:bg-surface-overlay hover:text-foreground"
-        />
+        <CopyButton getText={() => source} className={iconBtn} />
       </div>
+      {zoomed && svg && (
+        <MermaidViewer svg={svg} source={source} onClose={() => setZoomed(false)} />
+      )}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import type {
   ClientAskUserResponse,
   ClientCancelRequest,
   ClientChatMessage,
+  ClientEnvironment,
   ClientLocationError,
   ClientLocationResponse,
   ClientMessage,
@@ -128,6 +129,61 @@ const chatImageAttachmentSchema = z
     message: `image exceeds ${MAX_IMAGE_BYTES} decoded bytes`,
   });
 
+/**
+ * Is this a real BCP-47 tag / IANA zone, not merely tag-SHAPED?
+ *
+ * A character class is not enough here. These two values are the only
+ * free-form strings that reach the agent's system prompt, and
+ * `ignore-previous-instructions-now` is a perfectly well-formed sequence of
+ * hyphen-separated ASCII — so the check has to be "does the platform's own
+ * locale/timezone database accept this", which no instruction can satisfy.
+ */
+function isCanonicalLocale(tag: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(tag).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+function isKnownTimeZone(zone: string): boolean {
+  try {
+    // Throws RangeError for anything the ICU database doesn't know.
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Client-reported device capabilities.
+ *
+ * Every field is an enum, a boolean, a bounded integer, or a string the
+ * platform itself recognizes — because this object is rendered into the
+ * agent's system prompt, and anything that can open an authenticated socket
+ * would otherwise be writing system-prompt text.
+ *
+ * Unknown keys are STRIPPED rather than rejected, per the additive-only
+ * protocol contract at the top of this file: a newer client that adds a field
+ * must degrade on an older server, not fail to send every message.
+ */
+export const clientEnvironmentSchema = z.object({
+  formFactor: z.enum(["phone", "tablet", "desktop"]),
+  standalone: z.boolean().optional(),
+  touch: z.boolean().optional(),
+  camera: z.boolean().optional(),
+  microphone: z.boolean().optional(),
+  geolocation: z.boolean().optional(),
+  share: z.boolean().optional(),
+  shareFiles: z.boolean().optional(),
+  viewportWidth: z.number().int().min(1).max(20_000).optional(),
+  /** BCP-47, validated against Intl (en, en-GB, zh-Hans-CN). */
+  locale: z.string().max(35).refine(isCanonicalLocale, { message: "not a valid BCP-47 locale" }).optional(),
+  /** IANA zone, validated against the ICU database (Europe/Berlin, UTC). */
+  timeZone: z.string().max(64).refine(isKnownTimeZone, { message: "not a known IANA time zone" }).optional(),
+}) satisfies z.ZodType<ClientEnvironment>;
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -135,6 +191,7 @@ export const clientChatMessageSchema = z
     sessionId: id.optional(),
     providerId: id.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
+    client: clientEnvironmentSchema.optional(),
   })
   .refine(
     (m) =>

@@ -7,6 +7,9 @@ export function CopyButton({ getText, className }: { getText: () => string; clas
   return (
     <button
       type="button"
+      // Icon-only: without these it has no accessible name at all.
+      title={copied ? "Copied" : "Copy"}
+      aria-label={copied ? "Copied" : "Copy"}
       onClick={() => {
         navigator.clipboard.writeText(getText());
         setCopied(true);

@@ -17,6 +17,8 @@ export { createWriteLock } from "./write-lock.js";
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
 
+export { BRAIN_UI_SYSTEM_PROMPT_APPEND, buildSystemPromptAppend } from "./system-prompt.js";
+
 export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";
 

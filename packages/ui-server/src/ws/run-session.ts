@@ -1,4 +1,4 @@
-import type { ChatImageAttachment } from "@schlessera/brain-ui-sdk/protocol";
+import type { ChatImageAttachment, ClientEnvironment } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
@@ -18,6 +18,7 @@ export async function runSession(
     sessionId?: string;
     attachments: ChatImageAttachment[];
     providerId?: string;
+    client?: ClientEnvironment;
   }
 ): Promise<void> {
   const { coordinator } = host;
@@ -69,11 +70,12 @@ export async function runSession(
   let next: QueuedFollowUp | null = {
     text: initial.text,
     attachments: initial.attachments,
+    ...(initial.client ? { client: initial.client } : {}),
   };
 
   try {
     while (next && !turn.cancelled) {
-      const { text, attachments } = next;
+      const { text, attachments, client } = next;
       next = null;
 
       const abortController = new AbortController();
@@ -98,6 +100,7 @@ export async function runSession(
           profileId,
           signal: abortController.signal,
           bridge,
+          ...(client ? { client } : {}),
         });
       } catch (err) {
         emitTurnError(host, turn, err);
@@ -129,11 +132,15 @@ export async function runSession(
 export async function handleChatMessage(
   host: WsHost,
   ws: WSContext,
-  text: string,
-  sessionId: string | undefined,
-  attachments: ChatImageAttachment[],
-  requestedProviderId: string | undefined
+  msg: {
+    text: string;
+    sessionId?: string;
+    attachments: ChatImageAttachment[];
+    providerId?: string;
+    client?: ClientEnvironment;
+  }
 ): Promise<void> {
+  const { text, attachments, sessionId, providerId: requestedProviderId, client } = msg;
   const { coordinator } = host;
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
@@ -141,7 +148,9 @@ export async function handleChatMessage(
     const backend = runningTurn.backend;
     // Message to a session whose turn is running = a follow-up.
     if (backend.capabilities.followUp && backend.followUp) {
-      // Inject into the running turn; frames flow through its bridge.
+      // Inject into the running turn; frames flow through its bridge. The
+      // device snapshot is deliberately not forwarded: a follow-up joins a
+      // turn whose system prompt was already built and cannot be revised.
       backend.followUp({ sessionId, prompt: text, attachments }).catch((err) => {
         host.sendToClients(
           withTurnScope(
@@ -162,7 +171,7 @@ export async function handleChatMessage(
       );
     } else {
       // Queue it as the session's next turn; report queued immediately.
-      runningTurn.queue.push({ text, attachments });
+      runningTurn.queue.push({ text, attachments, ...(client ? { client } : {}) });
       host.sendToClients(withSessionId({ type: "status", status: "queued" }, sessionId));
     }
     return;
@@ -188,5 +197,6 @@ export async function handleChatMessage(
     sessionId,
     attachments,
     providerId: requestedProviderId,
+    ...(client ? { client } : {}),
   });
 }

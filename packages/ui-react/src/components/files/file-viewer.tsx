@@ -13,6 +13,7 @@ import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
 import { inlineMermaidDiagrams, isMermaidPath } from "../../lib/mermaid.js";
 import { MermaidBlock } from "../chat/mermaid-block.js";
+import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 
 export function FileViewer() {
@@ -292,6 +293,22 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
             filename: baseName(fileName),
             title: fileName,
           }),
+      },
+    ];
+  }
+
+  // A standalone .mmd/.mermaid file is a diagram, so it shares like one — the
+  // same PNG/PDF/SVG/source set the in-chat diagram offers, plus its source file.
+  if (content.kind === "text" && isMermaidPath(content.path)) {
+    const source = content.content ?? "";
+    return [
+      ...buildDiagramShareOptions(source, { filename: baseName(fileName) }),
+      {
+        id: "mmd-file",
+        label: "Share source file",
+        hint: "Original .mmd source",
+        run: async () =>
+          shareFile(new File([source], fileName, { type: "text/plain" }), { title: fileName }),
       },
     ];
   }

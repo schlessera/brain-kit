@@ -44,6 +44,11 @@ import { useDictation } from "../../voice/use-dictation.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { api } from "../../lib/api-client.js";
 import { getBackendUrl } from "../../lib/backend.js";
+import {
+  detectClientEnvironment,
+  primeClientEnvironment,
+  READING_COLUMN_ATTR,
+} from "../../lib/client-environment.js";
 import { cn } from "../../lib/utils.js";
 
 export function ChatPage() {
@@ -144,6 +149,12 @@ export function ChatPage() {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
+
+  // Probe the device inventory once on mount so the FIRST message already
+  // carries the camera/microphone facts (enumerateDevices is async).
+  useEffect(() => {
+    void primeClientEnvironment();
+  }, []);
 
   // Scroll listener: disable tailing when user scrolls up, re-enable at bottom
   const hasMessages = messages.length > 0;
@@ -300,6 +311,9 @@ export function ChatPage() {
       attachments: hasAttachments
         ? attachments.map((a) => a.attachment)
         : undefined,
+      // Measured per send, not once per session: the same tab can rotate,
+      // move to an external display, or be installed as a PWA mid-conversation.
+      client: detectClientEnvironment(),
     });
     setInput("");
     clearReview();
@@ -533,7 +547,12 @@ export function ChatPage() {
           </div>
         ) : (
           <div ref={scrollRef} className="h-full overflow-y-auto px-4 md:px-6">
-            <div className="mx-auto max-w-3xl divide-y divide-border/20">
+            {/* Tagged so the client-environment probe reports the width text
+                actually renders into, not the whole window. */}
+            <div
+              {...{ [READING_COLUMN_ATTR]: "" }}
+              className="mx-auto max-w-3xl divide-y divide-border/20"
+            >
               {messages.map((msg) => (
                 <MessageBubble
                   key={msg.id}

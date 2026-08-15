@@ -41,11 +41,12 @@ import {
   type ChatImageAttachment,
   type SessionHistoryMessage,
   type WriteLock,
+  buildSystemPromptAppend,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "./brain-access.js";
 import { createTurnContext, type TurnContext } from "./turn-context.js";
-import { createBrainTools } from "./tools.js";
+import { createBrainTools, PI_ASK_USER_TOOL_NAME } from "./tools.js";
 import { listPiSessions, getPiHistory } from "./history.js";
 
 export const PI_BACKEND_ID = "pi";
@@ -119,6 +120,12 @@ export interface CreatePiBackendOptions {
    */
   loadExtensions?: boolean;
   /**
+   * Text appended to the system prompt describing the chat surface the answer
+   * renders on. Defaults to `buildSystemPromptAppend()` with no device detail
+   * (see below); pass an empty string to append nothing.
+   */
+  systemPromptAppend?: string;
+  /**
    * Serializes mutating tool executions across all this backend's sessions so
    * concurrent agents never interleave writes/git ops in the shared working
    * tree. Defaults to a fresh in-process lock; inject one to share a lock with
@@ -166,6 +173,18 @@ interface ModelSpec {
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   const brainPath = options.brainPath;
   const sessionDir = options.sessionDir ?? join(brainPath, ".brain-kit-ui", "sessions");
+  // Built WITHOUT a client environment: pi's resource loader (and therefore
+  // its system prompt) is constructed once per backend and shared by every
+  // session, so unlike the Claude backend there is no per-turn hook to feed
+  // the current device into. The brief degrades to its device-unknown form.
+  const systemPromptAppend =
+    options.systemPromptAppend ??
+    buildSystemPromptAppend({
+      // pi's ask tool is registered under its bare name (see tools.ts) and pi
+      // has no location tool at all — naming Claude's MCP tools here would
+      // send the model after tools this backend does not have.
+      tools: { askUser: PI_ASK_USER_TOOL_NAME, location: false },
+    });
 
   // Shared across all sessions: read paths are parallel-safe (per-call handles,
   // busy_timeout on the write path) and the write lock is what serializes mutations.
@@ -193,6 +212,13 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         agentDir,
         settingsManager,
         noExtensions: !options.loadExtensions,
+        // Same chat-surface brief the Claude backend appends: what the answer
+        // renders into (diagrams, share blocks, who is reading), on top of
+        // whatever the brain repo's own context files say. Note the catch
+        // below falls back to pi's internal loader, which loses this.
+        ...(systemPromptAppend
+          ? { appendSystemPromptOverride: (base: string[]) => [...base, systemPromptAppend] }
+          : {}),
       });
       await loader.reload();
       sharedResources = { loader, settingsManager };

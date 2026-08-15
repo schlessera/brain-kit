@@ -75,6 +75,44 @@ export interface ClientChatMessage {
    */
   providerId?: string;
   attachments?: ChatImageAttachment[];
+  /**
+   * What the reader is holding, measured by the browser. Sent per message
+   * rather than once per connection because it genuinely changes mid-session:
+   * a phone rotates, a PWA gets installed, a laptop is plugged into a monitor.
+   */
+  client?: ClientEnvironment;
+}
+
+/**
+ * Feature-detected client capabilities, reported by the browser.
+ *
+ * Every field is a detection result, never a user-agent guess. This reaches
+ * the agent's system prompt, so it is deliberately a CLOSED shape of enums,
+ * booleans and tightly-bounded strings — a free-text field here would be a
+ * prompt-injection channel from anything that can open a socket.
+ */
+export interface ClientEnvironment {
+  formFactor: "phone" | "tablet" | "desktop";
+  /** Launched from the home screen / app shell rather than a browser tab. */
+  standalone?: boolean;
+  /** Primary input is a coarse pointer. */
+  touch?: boolean;
+  /** A camera can be opened (not whether permission was granted). */
+  camera?: boolean;
+  /** A microphone can be opened — the precondition for voice dictation. */
+  microphone?: boolean;
+  /** navigator.geolocation exists in a secure context. */
+  geolocation?: boolean;
+  /** The OS share sheet is reachable (navigator.share). */
+  share?: boolean;
+  /** The share sheet accepts files, not just text/URLs. */
+  shareFiles?: boolean;
+  /** CSS pixels across the reading column. */
+  viewportWidth?: number;
+  /** BCP-47 tag, e.g. "en-GB". */
+  locale?: string;
+  /** IANA zone, e.g. "Europe/Berlin". */
+  timeZone?: string;
 }
 
 /** Image attached to a chat message. */

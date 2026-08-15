@@ -39,6 +39,7 @@ import type {
   AskUserQuestion,
   ChatImageAttachment,
   ChatSession,
+  ClientEnvironment,
   GeoCoords,
   GeoRequestOptions,
   ProviderInfo,
@@ -120,6 +121,13 @@ export interface StartTurnRequest {
   /** Host-owned cancellation (user cancel + host timeout). */
   signal: AbortSignal;
   bridge: BackendBridge;
+  /**
+   * What the reader is on, as the browser measured it at send time. Absent
+   * when the client is older or headless. Backends that can vary their system
+   * prompt per turn should feed it to `buildSystemPromptAppend()`; it is
+   * advisory and never required.
+   */
+  client?: ClientEnvironment;
 }
 
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */
