@@ -1,7 +1,7 @@
 ---
 name: new-module
 description: Use when a recurring domain workflow has outgrown personal overlay skills and deserves to be installable in its own right, with its own directories, taxonomy types, commands, and skills.
-requires: [bun]
+compatibility: Requires bun to run the module's tests.
 ---
 
 # New Module — Author a Workflow Module

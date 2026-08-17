@@ -1,7 +1,7 @@
 ---
 name: brain-module
 description: Use when turning a workflow domain on or off — jobs, speaking, finance, or a locally authored module — or when a module's directories, taxonomy types, and skills should start or stop appearing.
-requires: [git]
+compatibility: Requires git.
 ---
 
 # Brain Module — Enable / Disable Domains

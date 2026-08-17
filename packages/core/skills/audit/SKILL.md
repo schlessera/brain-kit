@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Use when checking whether a brain is in good shape or asking what needs cleaning up — stale documents, index rows that lag their detail files, orphans, documents filed under the wrong type, noisy tags. Also use for a periodic tidy-up pass.
-requires: [git]
+compatibility: Requires git.
 ---
 
 # Audit — Triage and Fix Quality Findings

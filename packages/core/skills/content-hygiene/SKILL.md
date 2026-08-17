@@ -1,7 +1,7 @@
 ---
 name: content-hygiene
 description: Use for a recurring sweep over a brain's content, including scheduled and unattended runs — checking for stale, contradictory, or silently edited documents. Safe to run repeatedly — it fixes only what is mechanically certain and logs the rest as deduplicated issues for a human to judge.
-requires: [sha1sum]
+compatibility: Requires either sha1sum (GNU coreutils) or shasum (macOS and BSD) for the stable issue IDs.
 ---
 
 # Content Hygiene
@@ -140,7 +140,9 @@ For each issue (new + carried over):
    threshold class name; conflict → the canonical fact text; index-lag → the row's first-column
    value; propagation → the derivative path; silent-edit/orphan → the file path; todo/verify → the
    marker text; type-mismatch → the type name). Compute it deterministically, e.g. inline as
-   `printf '%s' "$s" | sha1sum | cut -c1-4`.
+   `printf '%s' "$s" | { sha1sum 2>/dev/null || shasum; } | cut -c1-4`. GNU systems have
+   `sha1sum`; macOS and the BSDs ship `shasum` instead, and both print the digest first, so the
+   IDs match either way.
 
 2. Apply the state machine:
 
@@ -214,4 +216,4 @@ If nothing changed and `still open` is unchanged, print one line:
 - `brain briefing --json` — silent-edit data.
 - `brain list --type index --json` — enumerate index documents for the lag pass.
 - `brain config check` — read `taxonomy.canonical` and `taxonomy.propagation`.
-- `sha1sum` — deterministic stable-ID hashing.
+- `sha1sum`, or `shasum` where that is what exists — deterministic stable-ID hashing.

@@ -1,7 +1,7 @@
 ---
 name: brain-init
 description: Use when setting up a brand-new brain for the first time, turning a fresh template into a personal one, or later when its identity, domains, or taxonomy need extending.
-requires: [git, claude]
+compatibility: Requires git. The MCP registration example uses claude; other agents register it their own way.
 ---
 
 # Brain Init — Personalized First-Run Interview

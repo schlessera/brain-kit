@@ -1,7 +1,7 @@
 ---
 name: process-notes
 description: Use when the capture inbox needs clearing — deciding for each unfiled note whether it belongs somewhere in the taxonomy, should be merged into a document that already covers it, or should be archived.
-requires: [git]
+compatibility: Requires git.
 ---
 
 # Process Notes — Clear the Inbox

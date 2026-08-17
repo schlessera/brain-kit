@@ -1,7 +1,7 @@
 ---
 name: brain-import
 description: Use when notes already live somewhere else and should be brought into the brain — an Obsidian vault, a Notion export, Apple Notes, or any folder of markdown. Also use to resume an import that stopped partway.
-requires: [git, cp]
+compatibility: Requires git and cp.
 ---
 
 # Brain Import — Bring Existing Notes In

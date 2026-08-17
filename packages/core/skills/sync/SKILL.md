@@ -2,7 +2,7 @@
 name: sync
 description: Use when asked to sync, commit, push, or pull a brain, and for scheduled or unattended synchronization. Also use when an earlier sync left conflicts, a dirty working tree, or a stalled merge behind.
 disable-model-invocation: true
-requires: [git]
+compatibility: Requires git.
 ---
 
 # Sync — Knowledge-Aware Brain Synchronization

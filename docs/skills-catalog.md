@@ -185,20 +185,20 @@ plus stating prerequisites in the body.
 All 13 live in `packages/core/skills/`. Twelve are a single `SKILL.md`;
 `content-hygiene` alone ships bundled `templates/`.
 
-| Skill | Lines | Binaries beyond `brain` | `requires:` | Network | Mutates |
+| Skill | Lines | Binaries beyond `brain` | `compatibility:` | Network | Mutates |
 |---|---|---|---|---|---|
 | `add` | 60 | — | *(none)* | only on `--smart` | writes files, no commit |
-| `audit` | 71 | `git` | `[git]` | — | yes + commit |
-| `brain-doctor` | 67 | `bun`, `claude` | `[bun, claude]` | npm, embeddings | repo **and host env** |
-| `brain-host` | 73 | `gh`, `git`, `ssh`, `curl`, `docker` | `[gh, git, ssh, curl, docker]` | GitHub API, SSH, DNS, fly.io | **outward-facing** |
-| `brain-import` | 91 | `cp`, `git` | `[git, cp]` | LLM (stage 3 only) | yes + per-stage commits |
-| `brain-init` | 151 | `git`, `claude`, `bun` | `[git, claude]` | Gemini embeddings | generates everything, 1 commit |
-| `brain-module` | 66 | `git` | `[git]` | — | yes + commit |
-| `content-hygiene` | 217 | **`sha1sum`**, `printf`, `cut` | `[sha1sum]` | — | narrow auto-fixes, no git |
+| `audit` | 71 | `git` | declared | — | yes + commit |
+| `brain-doctor` | 67 | `bun`, `claude` | declared | npm, embeddings | repo **and host env** |
+| `brain-host` | 73 | `gh`, `git`, `ssh`, `curl`, `docker` | declared | GitHub API, SSH, DNS, fly.io | **outward-facing** |
+| `brain-import` | 91 | `cp`, `git` | declared | LLM (stage 3 only) | yes + per-stage commits |
+| `brain-init` | 151 | `git`, `claude`, `bun` | declared | Gemini embeddings | generates everything, 1 commit |
+| `brain-module` | 66 | `git` | declared | — | yes + commit |
+| `content-hygiene` | 220 | `sha1sum` **or** `shasum`, `printf`, `cut` | declared | — | narrow auto-fixes, no git |
 | `generate-pdf` | 118 | — | *(none)* | only via `--allow-host` | writes the rendered file |
-| `new-module` | 86 | `bun` | `[bun]` | — | scaffolds, no commit |
-| `process-notes` | 73 | `git` | `[git]` | — | yes + commit |
-| `sync` | 142 | `git` | `[git]` | **git remote push/fetch** + embeddings | commits, resolves, **pushes** |
+| `new-module` | 86 | `bun` | declared | — | scaffolds, no commit |
+| `process-notes` | 73 | `git` | declared | — | yes + commit |
+| `sync` | 142 | `git` | declared | **git remote push/fetch** + embeddings | commits, resolves, **pushes** |
 | `whatsup` | 59 | — | *(none)* | — | **no — the only read-only skill** |
 
 Design properties worth preserving:
@@ -564,10 +564,9 @@ audit so earlier references still resolve.
 
 ### Correctness
 
-1. **`content-hygiene` depends on `sha1sum`** — GNU-only; macOS ships `shasum`.
-   The one skill built for unattended scheduling fails silently on a Mac. Note
-   the new CI gates do *not* catch this: `sha1sum` is correctly declared in
-   `requires:`, so the linter is satisfied. **Open.**
+1. ~~`content-hygiene` depends on `sha1sum`~~ — **closed.** The pipeline is now
+   `{ sha1sum 2>/dev/null || shasum; }`, which covers GNU and macOS/BSD; both
+   print the digest first, so the stable IDs match either way.
 2. **`nano-banana-2` cannot run in the deployed container** (no uv/pip), and
    writes generated PNGs into the git-tracked brain repo by design. **Open.**
 3. **Committed `.claude/settings.json` hooks fire on every turn in production
@@ -582,10 +581,14 @@ audit so earlier references still resolve.
 
 ### Conformance and portability
 
-7. **12 of 24 shipped skills carry non-spec frontmatter** (`requires:`,
-   `disable-model-invocation:`) and would be rejected by claude.ai upload, the
-   Skills API, and `skills-ref validate`. `compatibility` is the standard's
-   slot for this. **Open.**
+7. **Partly closed.** The ten `requires:` keys are gone — migrated to the
+   specification's `compatibility` field, which the linter now reads (matching
+   whole words, so "github" does not satisfy `git`), and `requires:` itself
+   warns as non-spec while still being honoured. **Two skills still carry
+   `disable-model-invocation:`** (`sync`, `new-submission`), which no
+   specification field replaces. Removing it would make `sync` — a skill that
+   pushes to a remote — model-invocable again, so it stays deliberately: a
+   safety property beats validator cleanliness. **Open by choice.**
 8. **`requires:` under-declares** because the linter only reads tagged shell
    fences, not prose tables — `brain-doctor`'s `bun install` and
    `claude mcp add` are still invisible to it, and the new gates inherit that

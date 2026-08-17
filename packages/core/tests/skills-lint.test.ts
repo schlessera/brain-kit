@@ -117,7 +117,7 @@ describe("lint rules — one fixture per rule", () => {
     expect(gitFinding?.message).toContain("git");
   });
 
-  test("shell command declared in requires: is allowed", () => {
+  test("shell command declared in requires: is still allowed", () => {
     const s = mkSkill("declared-git", {
       name: "declared-git",
       description: "d",
@@ -125,6 +125,64 @@ describe("lint rules — one fixture per rule", () => {
       body: shellBlock("git status"),
     });
     expect(rulesOf(lintSkills([s]))).not.toContain("shell-command");
+  });
+
+  test("requires: itself warns as non-spec frontmatter", () => {
+    // The specification allows six keys and rejects anything else outright, so
+    // `requires:` keeps working but tells the author where it moved.
+    const s = mkSkill("legacy-requires", {
+      name: "legacy-requires",
+      description: "d",
+      extraFm: { requires: ["git", "jq"] },
+      body: shellBlock("git status"),
+    });
+    const finding = lintSkills([s]).find((f) => f.rule === "non-spec-frontmatter");
+    expect(finding?.severity).toBe("warning");
+    expect(finding?.message).toContain("compatibility:");
+    expect(finding?.message).toContain("Requires git and jq");
+  });
+
+  test("shell command named in compatibility: is allowed", () => {
+    const s = mkSkill("compat-git", {
+      name: "compat-git",
+      description: "d",
+      extraFm: { compatibility: "Requires git." },
+      body: shellBlock("git status"),
+    });
+    expect(rulesOf(lintSkills([s]))).not.toContain("shell-command");
+    expect(rulesOf(lintSkills([s]))).not.toContain("non-spec-frontmatter");
+  });
+
+  test("compatibility: matches on whole words only", () => {
+    // "github" must not satisfy `git`, and a name is not satisfied by a prefix
+    // of a longer one.
+    const s = mkSkill("compat-github", {
+      name: "compat-github",
+      description: "d",
+      extraFm: { compatibility: "Requires github access and git-lfs." },
+      body: shellBlock("git status"),
+    });
+    expect(rulesOf(lintSkills([s]))).toContain("shell-command");
+  });
+
+  test("compatibility: tolerates a trailing sentence period", () => {
+    const s = mkSkill("compat-period", {
+      name: "compat-period",
+      description: "d",
+      extraFm: { compatibility: "Requires bun." },
+      body: shellBlock("bun test"),
+    });
+    expect(rulesOf(lintSkills([s]))).not.toContain("shell-command");
+  });
+
+  test("compatibility: keeps dotted names intact", () => {
+    const s = mkSkill("compat-dotted", {
+      name: "compat-dotted",
+      description: "d",
+      extraFm: { compatibility: "Requires docker.io." },
+      body: shellBlock("docker compose up"),
+    });
+    expect(rulesOf(lintSkills([s]))).toContain("shell-command");
   });
 
   test("brain commands are always allowed", () => {
