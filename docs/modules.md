@@ -147,6 +147,30 @@ bucket, and reconciliation warning from their frontmatter.
 - **Hygiene check:** `ledger generated block out of date` — flags ledgers whose
   generated table lags behind their frontmatter, surfaced by `brain audit`.
 
+### `@schlessera/brain-module-images`
+
+Image generation and editing, routed between OpenAI and Google image models by
+capability rather than by a configured favourite.
+
+- **Types contributed:** none. Generated images are assets that belong wherever
+  the thing they illustrate lives; the module owns no directory.
+- **Config:** `imagesDir` (fallback output directory, default `assets/images`),
+  `disabledModels` (hide a model even when its provider has a key — useful to
+  keep an expensive tier out of reach, or to drop one the account cannot use).
+- **Environment:** `OPENAI_API_KEY` and/or `GEMINI_API_KEY`. Neither is
+  required; each unlocks its own models, and `brain image models` reports what
+  is actually reachable. Some requests can only be served by one side — see the
+  module README for the routing table. GPT-image models additionally require
+  API Organization Verification on the OpenAI account.
+- **Skills:** `image-gen` (pick the model, price the call, write the file).
+- **CLI word:** `brain image` — `"<prompt>"` to generate, `models` to list what
+  is available. `--aspect`/`--resolution` work on every model; `--ref`,
+  `--mask`, `--transparent`, `--size` route by capability; `--dry-run` prices a
+  decision without spending, `--draft` takes the cheapest model that fits.
+- **Caveat:** every call costs money and the command says how much. Where
+  nothing in the request settles which model to use, it stops and asks rather
+  than guessing — there is no vendor benchmark for "nicer picture".
+
 ## Local (path) modules
 
 A module does not have to be published. Reference a directory in your own repo by

@@ -94,8 +94,8 @@ leaking paths.
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
 | `sync <verb>` | Mechanical git-sync verbs: `assess`, `group`, `pull`, `conflicts`, `push`, `post-sync` | orchestrated by the `/sync` skill; grouping is taxonomy-driven |
 
-Module packages add ONE namespaced top-level command each (e.g. `brain jobs …`,
-`brain finance …`) — see [modules.md](modules.md).
+Module packages add ONE namespaced top-level command each (`brain jobs …`,
+`brain finance …`, `brain image …`) — see [modules.md](modules.md).
 
 See also: [integration-contract.md](integration-contract.md) ·
 [quickstart.md](quickstart.md) · [concepts.md](concepts.md)

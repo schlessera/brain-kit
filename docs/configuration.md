@@ -289,6 +289,39 @@ modules: {
 }
 ```
 
+## Environment variables
+
+Configuration lives in `brain.config.ts`; environment holds the things that
+must not be committed (keys) or that differ per machine (paths, endpoints).
+Nothing here is required — every feature that needs a key degrades to a keyless
+path and says so, rather than failing at the call.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `BRAIN_ROOT` | root resolution | Which brain to operate on. See below. |
+| `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
+| `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
+| `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. |
+| `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
+| `BRAIN_RERANK_MODE` | search | Overrides the configured rerank mode. |
+| `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
+| `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
+| `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
+| `CHROME_CDP_URL` | `brain jobs scrape --browser` | Headless-Chrome DevTools endpoint. Default `http://127.0.0.1:9222`. |
+| `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. |
+| `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX` | `brain render` | `=1` launches Chrome without its sandbox. Required when running as root, as in a container; strictly weaker, so it is opt-in. |
+| `OPENAI_BASE_URL`, `GEMINI_BASE_URL` | images | Point a provider at a proxy or a compatible endpoint. |
+
+Two notes that have cost people time:
+
+- **A key present in a container is not automatically present in cron.** Cron
+  builds each job's environment from `/etc/environment`, not from the container
+  environment, so a deployment must export the keys its scheduled jobs need.
+  The failure reads as "no provider configured", not as a missing variable.
+- **Keys are read at the moment a feature needs one.** `brain image models`,
+  `brain doctor` and `brain config check` all report what is actually reachable,
+  which is a faster way to answer "did my key land?" than reading a shell.
+
 ## Root resolution and `BRAIN_ROOT`
 
 The `brain` CLI resolves the brain root (the directory it operates on) in this
