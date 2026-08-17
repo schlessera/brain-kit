@@ -1,7 +1,9 @@
 import { marked } from "marked";
-import type { RenderContentType } from "@schlessera/brain-ui-sdk/protocol";
 
 marked.setOptions({ gfm: true, breaks: false });
+
+/** What `content` holds — markdown to parse, or HTML to pass through. */
+export type RenderContentType = "markdown" | "html";
 
 const STYLES = `
   :root {
@@ -71,6 +73,11 @@ const STYLES = `
     display: inline-block; padding: 2px 8px; border: 1px dashed #b0b0b0;
     border-radius: 4px; color: #6b6b6b; font-size: 0.9em;
   }
+  /* Keep cards and table rows from splitting across printed pages */
+  @media print {
+    table, blockquote, pre, .mermaid-figure { break-inside: avoid; }
+    h1, h2, h3, h4 { break-after: avoid; }
+  }
   /* Trim trailing whitespace at the bottom so screenshots crop tightly */
   body > *:last-child { margin-bottom: 0; }
   body > *:first-child { margin-top: 0; }
@@ -85,34 +92,71 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The renderer denies the page all network access (see
+ * The renderer denies the page all network access by default (see
  * @schlessera/brain-render-puppeteer), so a remote `<img>` would silently render
  * as a broken-image box. Replace those with a visible, honest placeholder —
  * inlined `data:` images still render normally.
+ *
+ * `allowHosts` mirrors the renderer's own host allowlist: an image whose host
+ * the renderer will actually resolve is left alone. Passing hosts here without
+ * passing the same list to the renderer produces broken images, not
+ * placeholders — the two lists belong together.
  */
-function placeholderRemoteImages(html: string): string {
+function placeholderRemoteImages(html: string, allowHosts: string[]): string {
+  const allowed = new Set(allowHosts.map((h) => h.toLowerCase()));
+  // Attributes are consumed quote-aware rather than as `[^>]*`: an earlier
+  // attribute may legitimately contain `>` (`alt="<b>x</b>"`), and a bare
+  // `[^>]*` would end the match there, letting the image slip through
+  // unplaceholdered and render as a broken-image box.
   return html.replace(
-    /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi,
-    (tag, src: string) => {
-      if (/^data:/i.test(src)) return tag;
-      const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
-      const label = alt ? escapeHtml(alt) : "remote image";
-      return `<span class="remote-image">[${label} — not embedded]</span>`;
+    /<img\b((?:[^>"']|"[^"]*"|'[^']*')*)\/?>/gi,
+    (tag, attrs: string) => {
+      const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+      const value = src?.[1] ?? src?.[2];
+      if (!value) return tag;
+      if (/^data:/i.test(value)) return tag;
+      const host = hostOf(value);
+      if (host && allowed.has(host)) return tag;
+      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+      const label = alt?.[1] ?? alt?.[2];
+      return `<span class="remote-image">[${label ? escapeHtml(label) : "remote image"} — not embedded]</span>`;
     }
   );
 }
 
-export function buildHtmlDocument(opts: {
+export interface BuildHtmlDocumentOptions {
   content: string;
   contentType: RenderContentType;
   title?: string;
-}): string {
+  /**
+   * Image hosts the renderer has been told to resolve. Images on these hosts
+   * survive; every other remote image becomes a placeholder. Default: none.
+   */
+  allowHosts?: string[];
+}
+
+/**
+ * Wrap markdown or HTML in the shared print-ready document shell.
+ *
+ * The same function backs the UI's `/api/render` and the CLI's `brain render`,
+ * so a page shared from the app and a PDF produced on the command line are
+ * byte-identical for identical input.
+ */
+export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
   const rendered =
     opts.contentType === "markdown"
       ? (marked.parse(opts.content, { async: false }) as string)
       : opts.content;
-  const inner = placeholderRemoteImages(rendered);
+  const inner = placeholderRemoteImages(rendered, opts.allowHosts ?? []);
   const title = opts.title ?? "Shared from Brain";
   return `<!doctype html>
 <html lang="en">

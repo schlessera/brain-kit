@@ -5,5 +5,5 @@ This directory holds release notes consumed by
 `bun run changeset` when a change should ship, then use `bun run version` and
 `bun run release` for the release workflow.
 
-All ten `@schlessera/brain-*` packages are configured as a fixed group so they remain
+All eleven `@schlessera/brain-*` packages are configured as a fixed group so they remain
 on one lockstep version.

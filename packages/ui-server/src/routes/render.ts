@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
-import { buildHtmlDocument } from "../render/template.js";
+import { buildHtmlDocument } from "@schlessera/brain-render-template";
 
 const MAX_CONTENT_BYTES = 512 * 1024;
 

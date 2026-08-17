@@ -2,6 +2,8 @@ import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 
 const packages = [
+  // Must precede core and ui-server: both typecheck against its .d.ts.
+  "render-template",
   "core",
   "ui-sdk",
   "ui-backend-claude",
