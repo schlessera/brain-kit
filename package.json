@@ -8,7 +8,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "clean": "bun scripts/clean.ts",
-    "test": "bun test packages",
+    "test": "bun test packages tests --timeout 30000",
     "typecheck": "tsc --noEmit",
     "changeset": "changeset",
     "version": "changeset version && rm -f bun.lock && bun install",

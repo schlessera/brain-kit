@@ -17,7 +17,11 @@ jobs:
       - name: Typecheck (strict)
         run: bunx tsc --noEmit
       - name: Unit + integration tests (keyless, deterministic)
-        run: bun test packages tests
+        # 30s, not bun's default 5s: the CLI contract and onboarding suites
+        # spawn a `brain` subprocess per assertion, and under full-suite
+        # parallelism those tip over a 5s budget on machine load alone. Seen as
+        # an intermittent single failure that passes on its own every time.
+        run: bun test packages tests --timeout 30000
         env:
           # Belt and braces: tests must never reach for real providers.
           GEMINI_API_KEY: ""
