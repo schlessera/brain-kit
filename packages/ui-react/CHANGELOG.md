@@ -1,5 +1,11 @@
 # @schlessera/brain-ui-react
 
+## 0.12.1
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.12.1
+
 ## 0.12.0
 
 ### Patch Changes
