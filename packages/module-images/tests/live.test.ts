@@ -319,6 +319,65 @@ describe("live: openai image models", () => {
   );
 });
 
+/**
+ * One base image, reused by every reference test below. Created lazily so the
+ * suite spends nothing when it is skipped — a `beforeAll` would bill on every
+ * ordinary CI run.
+ */
+let sharedBase: { data: Uint8Array; mime: string } | null = null;
+async function baseImage() {
+  if (!sharedBase) {
+    const r = await geminiProvider.generate(
+      "gemini-3.1-flash-lite-image",
+      { prompt: PROMPT, resolution: "1K" },
+      GEMINI_KEY
+    );
+    sharedBase = r.images[0];
+  }
+  return sharedBase;
+}
+
+describe("live: reference images on every model", () => {
+  // Each model is exercised separately because they do not share a schema —
+  // this suite has already caught a PNG rejection, a response shape that does
+  // not match the docs, and a size rejection on one model but not its sibling.
+  const cases: { model: string; provider: "openai" | "gemini" }[] = [
+    { model: "gpt-image-2", provider: "openai" },
+    { model: "gpt-image-1.5", provider: "openai" },
+    { model: "gemini-3-pro-image", provider: "gemini" },
+    { model: "gemini-3.1-flash-image", provider: "gemini" },
+    { model: "gemini-3.1-flash-lite-image", provider: "gemini" },
+  ];
+
+  for (const { model, provider } of cases) {
+    live(
+      `${model} accepts a reference image and changes it`,
+      async () => {
+        const base = await baseImage();
+        const ref: ImageInput = { data: base.data, mime: base.mime, label: "base.jpg" };
+        const req = { prompt: "put it on a deep blue background", references: [ref] };
+
+        const edited =
+          provider === "openai"
+            ? await openaiProvider.generate(
+                model,
+                { ...req, quality: "low" as const, size: "1024x1024", format: "png" as const },
+                OPENAI_KEY
+              )
+            : await geminiProvider.generate(model, { ...req, resolution: "1K" as const }, GEMINI_KEY);
+
+        expect(edited.images).toHaveLength(1);
+        const bytes = edited.images[0].data;
+        expect(bytes.byteLength).toBeGreaterThan(10_000);
+        expect(provider === "openai" ? isPng(bytes) : isJpeg(bytes)).toBe(true);
+        // An edit that returns its input unchanged is a silent failure.
+        expect(Buffer.from(bytes).equals(Buffer.from(base.data))).toBe(false);
+      },
+      TIMEOUT * 2
+    );
+  }
+});
+
 describe("live suite wiring", () => {
   test("is skipped unless BRAIN_IMAGES_LIVE=1", () => {
     // A canary: if this file ever runs its live tests in CI, that is a bug.
