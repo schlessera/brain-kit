@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, extname, relative } from "path";
 
-import { safeResolve } from "@schlessera/brain";
+import { resolveWritable, safeResolve } from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { configSchema, type ImagesConfig } from "./module.js";
@@ -214,16 +214,20 @@ export const imageCommand: CommandModule = {
     const outRel =
       (parsed.flags.out as string | undefined) ??
       `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`;
-    const outAbs = safeResolve(ctx.root, outRel);
-    if (!outAbs) {
-      console.error(`Output path escapes the brain root: ${outRel}`);
+    const out = resolveWritable(ctx.root, outRel);
+    if (!out) {
+      console.error(
+        `Output path is neither inside the brain root nor under the temp directory: ${outRel}`
+      );
       return 1;
     }
+    const outAbs = out.abs;
+    const report = (abs: string) => (out.inRepo ? relative(ctx.root, abs) : abs);
 
     if (parsed.flags["dry-run"] === true) {
       const payload = {
         status: "dry-run",
-        output: relative(ctx.root, outAbs),
+        output: report(outAbs),
         provider: model.provider,
         model: model.id,
         estimatedCostUsd: model.approxCostUsd1K,
@@ -263,16 +267,16 @@ export const imageCommand: CommandModule = {
     let renamed: string | undefined;
     if (extname(outAbs).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
       finalAbs = outAbs.replace(/\.[^./\\]+$/, "") + "." + actualExt;
-      renamed = `${relative(ctx.root, outAbs)} → ${relative(ctx.root, finalAbs)} (model returned ${actualExt})`;
+      renamed = `${report(outAbs)} → ${report(finalAbs)} (model returned ${actualExt})`;
     }
 
     mkdirSync(dirname(finalAbs), { recursive: true });
     writeFileSync(finalAbs, first.data);
-    const written = [relative(ctx.root, finalAbs)];
+    const written = [report(finalAbs)];
     for (const [i, extra] of rest.entries()) {
       const alt = finalAbs.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
       writeFileSync(alt, extra.data);
-      written.push(relative(ctx.root, alt));
+      written.push(report(alt));
     }
 
     const payload = {

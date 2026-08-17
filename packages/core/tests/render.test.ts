@@ -7,7 +7,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -113,6 +114,28 @@ describe("brain render", () => {
     });
   });
 
+  describe("scratch space", () => {
+    test("writes to the temp directory, and says it is not viewable", async () => {
+      const out = join(tmpdir(), `brain-render-${Date.now()}.html`);
+      const res = await render(["notes/trip.md", "--format", "html", "--out", out, "--human"]);
+      expect(res.code).toBe(0);
+      expect(existsSync(out)).toBe(true);
+      expect(res.stdout).toContain("not viewable in a UI");
+      // Reported absolute, because `../../tmp/x.html` helps nobody.
+      expect(res.stdout).toContain(out);
+      rmSync(out, { force: true });
+    });
+
+    test("reads an input from the temp directory", async () => {
+      const src = join(tmpdir(), `brain-render-src-${Date.now()}.md`);
+      writeFileSync(src, "# From temp\n");
+      const res = await render([src, "--format", "html", "--out", "notes/from-temp.html"]);
+      expect(res.code).toBe(0);
+      expect(readFileSync(join(root, "notes/from-temp.html"), "utf8")).toContain("From temp");
+      rmSync(src, { force: true });
+    });
+  });
+
   describe("input handling", () => {
     test("reads stdin with --out", async () => {
       const proc = Bun.spawn(
@@ -141,16 +164,23 @@ describe("brain render", () => {
   });
 
   describe("rejects", () => {
-    test("an input path escaping the brain root", async () => {
+    test("an input path outside the brain and outside temp", async () => {
       const res = await render(["../../etc/passwd", "--format", "html"]);
       expect(res.code).toBe(1);
-      expect(res.stderr + res.stdout).toContain("escapes the brain root");
+      expect(res.stderr + res.stdout).toMatch(/neither inside the brain root/);
     });
 
-    test("an output path escaping the brain root", async () => {
+    test("an output path outside the brain and outside temp", async () => {
       const res = await render(["notes/trip.md", "--format", "html", "--out", "../escape.html"]);
       expect(res.code).toBe(1);
-      expect(res.stderr + res.stdout).toContain("escapes the brain root");
+      expect(res.stderr + res.stdout).toMatch(/neither inside the brain root/);
+    });
+
+    test("an absolute path to somewhere sensitive is still refused", async () => {
+      // The point of containment: scratch space is allowed, wandering is not.
+      const res = await render(["notes/trip.md", "--format", "html", "--out", "/etc/cron.d/x"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr + res.stdout).toMatch(/neither inside the brain root/);
     });
 
     test("a missing input file", async () => {

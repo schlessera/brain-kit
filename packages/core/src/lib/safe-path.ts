@@ -1,3 +1,4 @@
+import { tmpdir } from "os";
 import { lstatSync, realpathSync, readlinkSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 
@@ -75,4 +76,36 @@ export function safeResolve(root: string, relPath: string): string | null {
     if (!contains(candidate)) return null;
     return candidate;
   }
+}
+
+/**
+ * Resolve a path the caller may write to: inside the brain root, or under the
+ * system temp directory.
+ *
+ * Containment exists so a tool argument cannot wander into `~/.ssh`, not to
+ * deny scratch space. Refusing `/tmp` only pushed intermediates into the repo,
+ * where they show up as git noise — an HTML file that exists to be rendered
+ * two seconds later does not belong in a knowledge base.
+ *
+ * Returns `{ abs, inRepo }` so callers can warn that anything written outside
+ * the repo is invisible to a UI browsing it.
+ */
+export function resolveWritable(
+  root: string,
+  relOrAbs: string,
+  tmpDir: string = tmpdir()
+): { abs: string; inRepo: boolean } | null {
+  const contained = safeResolve(root, relOrAbs);
+  if (contained) return { abs: contained, inRepo: true };
+
+  if (relOrAbs.includes("\0")) return null;
+  const abs = resolve(relOrAbs);
+  let tmpReal: string;
+  try {
+    tmpReal = realpathSync(tmpDir);
+  } catch {
+    return null;
+  }
+  // The temp dir itself is not a writable target; something under it is.
+  return abs.startsWith(tmpReal + sep) ? { abs, inRepo: false } : null;
 }

@@ -79,9 +79,14 @@ Three images is plenty for a one-pager: one hero, one per major section.
 
 ## Size
 
-Shareable means downloadable. **Target under 400 KB**; the command prints the
-size on every run, so check it and re-render smaller if it is over. Full-size
-images are the cause essentially every time.
+The real ceiling is the file server's, currently 10 MB — a document over that
+cannot be previewed or downloaded at all. Below it, size is a judgement call
+about the reader's connection, not a rule: a few hundred KB is a comfortable
+one-pager, and a few MB is fine for something image-heavy on wifi.
+
+Do not refuse to produce a document for being over some small figure. If it is
+large, say so and say why — it is almost always full-size images — and offer to
+re-render with smaller ones.
 
 ## Where the file goes
 
@@ -106,7 +111,7 @@ keep it inline — the page cannot fetch a stylesheet or a webfont.
 
 ## Checks before reporting done
 
-- [ ] Size is under 400 KB
+- [ ] Size is comfortably under the 10 MB server cap
 - [ ] Every image renders — no `[… — not embedded]` left in the output
 - [ ] The file is inside the brain repo, at a path that makes sense
 - [ ] Links present and clickable; no iframes

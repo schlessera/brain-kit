@@ -1,3 +1,4 @@
+import { API_BASE } from "../../lib/backend.js";
 import React, { useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -53,6 +54,22 @@ function renderEntityTags(md: string): string {
   });
 
   return result;
+}
+
+/**
+ * Turn a markdown image source into something the browser can actually load.
+ *
+ * Anything already absolute — a `data:` URI, an http(s) URL, or a path that is
+ * already an API route — passes through. A repo-relative path is rewritten to
+ * the files endpoint, which is where brain content is served from.
+ */
+export function repoImageSrc(src: string): string {
+  const trimmed = src.trim();
+  if (!trimmed) return src;
+  if (/^(data:|blob:|https?:\/\/)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/api/")) return trimmed;
+  const rel = trimmed.replace(/^\.\//, "").replace(/^\/+/, "");
+  return `${API_BASE}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
 }
 
 /**
@@ -284,6 +301,25 @@ function BrainMarkdownInner({ content, className, entityTags = false, fileLinks 
       ...textComponents,
       pre: MarkdownPre,
       table: MarkdownTable,
+      /**
+       * An image the agent wrote into the brain is referenced by its repo path
+       * (`![](assets/images/x.png)`), which the browser would resolve against
+       * the app origin and 404 — the bytes live behind the files API. Rewrite
+       * repo-relative sources to that endpoint so a generated image actually
+       * appears. `data:` URIs and absolute URLs are left alone.
+       */
+      img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<"img">) => {
+        const resolved = typeof src === "string" ? repoImageSrc(src) : src;
+        return (
+          <img
+            {...props}
+            src={resolved}
+            alt={alt ?? ""}
+            loading="lazy"
+            className="my-2 max-w-full rounded"
+          />
+        );
+      },
       a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<"a">) => {
         if (fileLinks) {
           const kind = classifyRepoPath(href);

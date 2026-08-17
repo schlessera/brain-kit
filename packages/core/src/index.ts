@@ -94,7 +94,7 @@ export { archiveDocument } from "./lib/archiver.js";
 export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
-export { safeResolve } from "./lib/safe-path.js";
+export { resolveWritable, safeResolve } from "./lib/safe-path.js";
 export { exportOkfBundle, checkOkfBundle, OkfExportError } from "./lib/okf-exporter.js";
 export type {
   OkfExportOptions,

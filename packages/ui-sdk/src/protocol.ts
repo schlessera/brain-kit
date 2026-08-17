@@ -573,9 +573,9 @@ export interface FileResolveResponse {
 }
 
 /**
- * Cap for the JSON file-preview path (a 413 above it). Raw bytes served with
- * `?raw=1` stream straight from disk and are not bounded by this — images and
- * PDFs in the viewer never touch it.
+ * Cap for serving a file, on BOTH paths: the JSON preview and the `?raw=1`
+ * byte stream each 413 above it. That includes images and PDFs in the viewer,
+ * and the `<img>` sources the chat rewrites to this endpoint.
  */
 export const FILE_SIZE_CAP_BYTES = 10_485_760;
 

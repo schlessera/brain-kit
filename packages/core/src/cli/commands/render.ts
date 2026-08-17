@@ -3,7 +3,7 @@ import { dirname, extname, relative } from "path";
 import matter from "gray-matter";
 import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
 
-import { safeResolve } from "../../lib/safe-path.js";
+import { resolveWritable, safeResolve } from "../../lib/safe-path.js";
 import {
   noSandboxFromEnv,
   RendererUnavailableError,
@@ -89,8 +89,13 @@ export const renderCommand: CoreCommand = {
       raw = await readStdin();
       sourceLabel = "(stdin)";
     } else {
-      const abs = safeResolve(root, input);
-      if (!abs) throw new UsageError(`Path escapes the brain root: ${input}`);
+      const resolved = resolveWritable(root, input);
+      if (!resolved) {
+        throw new UsageError(
+          `Path is neither inside the brain root nor under the temp directory: ${input}`
+        );
+      }
+      const abs = resolved.abs;
       if (!existsSync(abs)) throw new UsageError(`No such file: ${input}`);
       raw = readFileSync(abs, "utf8");
       sourceLabel = relative(root, abs);
@@ -116,8 +121,13 @@ export const renderCommand: CoreCommand = {
       throw new UsageError("--out is required when reading from stdin");
     }
     const outRel = outFlag ?? input.replace(/\.[^./\\]+$/, "") + "." + format;
-    const outAbs = safeResolve(root, outRel);
-    if (!outAbs) throw new UsageError(`Output path escapes the brain root: ${outRel}`);
+    const out = resolveWritable(root, outRel);
+    if (!out) {
+      throw new UsageError(
+        `Output path is neither inside the brain root nor under the temp directory: ${outRel}`
+      );
+    }
+    const outAbs = out.abs;
     if (!existsSync(dirname(outAbs))) {
       throw new UsageError(`Output directory does not exist: ${relative(root, dirname(outAbs))}`);
     }
@@ -156,7 +166,10 @@ export const renderCommand: CoreCommand = {
     }
 
     const bytes = Bun.file(outAbs).size;
-    const outputRel = relative(root, outAbs);
+    // A path outside the repo is reported absolute: `../../tmp/x.pdf` is not
+    // a useful thing to hand back, and the caller should see that it landed
+    // somewhere the app cannot browse.
+    const outputRel = out.inRepo ? relative(root, outAbs) : outAbs;
     emit(
       cli.json,
       {
@@ -169,6 +182,9 @@ export const renderCommand: CoreCommand = {
       },
       () => {
         console.log(`Rendered ${sourceLabel} → ${outputRel} (${format}, ${formatBytes(bytes)})`);
+        if (!out.inRepo) {
+          console.log("  outside the brain repo — fine for an intermediate, not viewable in a UI");
+        }
         if (allowHosts.length > 0) {
           console.log(`  Images allowed from: ${allowHosts.join(", ")}`);
         }
