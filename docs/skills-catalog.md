@@ -61,8 +61,8 @@ called out where it changes the picture.
 | — of those, forks shadowing a package skill | **0** | was 13 |
 | — locally authored | 6 | `linkedin-audit`, `linkedin-conference-post`, `linkedin-post`, `publish-post`, `send-to-tickitoff`, `use-repo` |
 | — third-party | 2 | `find-skills`, `nano-banana-2` |
-| Personal `.claude/skills/` | 3 | all ccmux infrastructure |
-| Personal `.claude/commands/` | 12 | 3 brain wrappers, 9 ccmux |
+| Personal `.claude/skills/` | **0** | the three ccmux ones were removed |
+| Personal `.claude/commands/` | **3** | brain wrappers; the nine ccmux ones were removed |
 | `brain` core CLI commands | 26 | 25 released, `render` pending |
 | `brain` module CLI commands | 2 | `jobs`, `finance` |
 | MCP tools (`brain mcp`) | 8 | |
@@ -446,20 +446,21 @@ The real problems are different:
    silently overridden from input dimensions when `--resolution` is left
    default.
 
-### Personal `.claude/` layer — mostly dead
+### Personal `.claude/` layer — removed
 
-All 3 `.claude/skills/` (`devports`, `git-worktree`, `server-management`), 9 of
-12 `.claude/commands/`, and `.claude/CLAUDE.md` depend on **`ccmux`, which is
-not installed**. `.claude/CLAUDE.md` is loaded into every session in the repo
-and instructs the model to avoid ports 3000/5000/5173/8080 on a machine where
-none of that applies.
+This layer used to hold three ccmux skills (`devports`, `git-worktree`,
+`server-management`), nine ccmux slash commands, a `.claude/CLAUDE.md` session
+preamble asserting port rules for a tool that is not installed, and a committed
+`settings.json` whose five hooks and status line pointed at
+`/root/.claude-templates/` and `uv` — neither of which exists on the laptop or
+in the container.
 
-All 5 Claude Code hooks in `.claude/settings.json` point at
-`/root/.claude-templates/` and fail with permission denied locally. The same
-file is **committed**, so `settingSources: ["project"]` loads it in the
-container too, where it fires `uv run …` on every UserPromptSubmit / Stop /
-PreToolUse — and `uv` does not exist there either. They are `async: true`, so
-they fail silently rather than blocking.
+All of it is gone. `.claude/commands/` keeps the three brain wrappers (`add`,
+`audit`, `process-notes`); `.claude/skills/` is now purely the emitter's
+symlinks; `settings.local.json` is untracked and gitignored.
+
+Unrelated and still in place: `.githooks/` (brain's own `pre-commit` validate,
+`post-commit` index, `post-checkout`/`post-merge` skills sync).
 
 ## 6. Conformance against the Agent Skills standard
 
@@ -572,9 +573,12 @@ audit so earlier references still resolve.
    print the digest first, so the stable IDs match either way.
 2. **`nano-banana-2` cannot run in the deployed container** (no uv/pip), and
    writes generated PNGs into the git-tracked brain repo by design. **Open.**
-3. **Committed `.claude/settings.json` hooks fire on every turn in production
-   and every one fails** — `uv` and `/root/.claude-templates/` exist in neither
-   the container nor the laptop. **Open.**
+3. ~~Committed `.claude/settings.json` hooks fire on every turn in production
+   and every one fails~~ — **closed.** The file is deleted;
+   `settings.local.json` is untracked and gitignored, because hooks and a status
+   line are per-host and `local` is the scope that exists for that. This also
+   takes committed executable configuration out of a repo the container pulls
+   as root on a 02:00 cron.
 4. ~~13 forked skills silently shadow their packaged versions~~ — **closed**,
    one remains by design until the next release.
 5. **`publish-post` calls a stale command** (`bun run index` rather than
@@ -610,9 +614,9 @@ audit so earlier references still resolve.
 
 12. **`skills-lock.json` is stale by three deleted entries** and has not been
     touched since its initial commit. **Open.**
-13. **12 of 15 personal `.claude/` skills and commands are dead** (`ccmux` not
-    installed), and `.claude/CLAUDE.md` injects false port rules into every
-    session in the repo. **Open.**
+13. ~~12 of 15 personal `.claude/` skills and commands are dead~~ — **closed.**
+    The three ccmux skills, the nine ccmux commands and the `.claude/CLAUDE.md`
+    session preamble are removed; the three brain slash commands remain.
 14. **~1,830 tokens of standing description cost** in `~/brain`, plausibly
     already overflowing Claude Code's 1% listing budget and silently dropping
     trigger keywords. Up ~5% after the description rewrite. **Open.**
