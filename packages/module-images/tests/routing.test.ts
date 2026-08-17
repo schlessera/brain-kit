@@ -114,13 +114,6 @@ describe("documented-strength preferences", () => {
     expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2");
   });
 
-  test("stylization is the documented Gemini exception", () => {
-    // Google's own model card is the source: 1054 vs 1030 for gpt-image-2.
-    const d = route({ request: { prompt: "restyle this" }, available: ALL, intent: { stylize: true } });
-    expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gemini-3-pro-image");
-  });
-
   test("character consistency narrows to models that claim it, but picks no winner", () => {
     // No independent benchmark for identity preservation exists, and Google's
     // own card scores character editing as a tie inside the error bars. So the
@@ -149,11 +142,31 @@ describe("documented-strength preferences", () => {
     expect((d as { reason: string }).reason).toMatch(/SynthID/);
   });
 
-  test("draft takes the cheapest available model", () => {
+  test("draft takes the named quick-illustration model", () => {
     const d = route({ request: { prompt: "x" }, available: ALL, intent: { draft: true } });
     expect(d.kind).toBe("resolved");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gemini-3.1-flash-lite-image");
+  });
+
+  test("draft falls back to the cheapest that fits when the lite model cannot serve", () => {
+    // Lite is 1K-only, so a 2K request removes it before routing gets here.
+    const d = route({ request: { prompt: "x", resolution: "2K" }, available: ALL, intent: { draft: true } });
+    expect(d.kind).toBe("resolved");
     const picked = (d as { model: ModelCapabilities }).model;
-    expect(picked.approxCostUsd1K).toBe(Math.min(...ALL.map((m) => m.approxCostUsd1K)));
+    expect(picked.id).not.toBe("gemini-3.1-flash-lite-image");
+    expect((d as { reason: string }).reason).toMatch(/unavailable/);
+  });
+
+  test("the three named cases each land on their model", () => {
+    // The policy in one test: quality, transparency, throwaway.
+    const quality = route({ request: { prompt: "a precise product shot" }, available: ALL });
+    expect((quality as { model: ModelCapabilities }).model.id).toBe("gpt-image-2");
+
+    const transparent = route({ request: { prompt: "a logo", transparent: true }, available: ALL });
+    expect((transparent as { model: ModelCapabilities }).model.id).toBe("gpt-image-1.5");
+
+    const quick = route({ request: { prompt: "a doodle" }, available: ALL, intent: { draft: true } });
+    expect((quick as { model: ModelCapabilities }).model.id).toBe("gemini-3.1-flash-lite-image");
   });
 });
 

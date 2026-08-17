@@ -30,15 +30,27 @@ which they want if you do not already know.
 | A transparent background | `gpt-image-1.5` | `gpt-image-2` rejects it outright |
 | An exact odd pixel size | OpenAI | Gemini offers fixed ratios and 1K/2K/4K only |
 | Legible text inside the image | `gpt-image-2` | Leads arena.ai's text-rendering board by ~130 Elo — its widest margin |
-| Restyling rather than reproducing | `gemini-3-pro-image` | The one row where Google's own evaluation beats gpt-image-2 |
 | Recurring characters staying consistent | Gemini | Only models that document it — but no benchmark picks a winner, so the default decides |
 | More than 6 reference images | Gemini | Up to 10 (Flash) or 14 (Lite); OpenAI's practical ceiling is 8 |
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
 
+### The three cases worth knowing
+
+| Want | Gets | |
+|---|---|---|
+| Precision and quality | `gpt-image-2` | the default whenever nothing else applies |
+| A transparent background | `gpt-image-1.5` | the only model that can |
+| A quick throwaway illustration | `gemini-3.1-flash-lite-image` | pass `--draft`; about $0.03 |
+
+Everything else is fallback — reached when one of those cannot serve the
+request, never chosen ahead of them.
+
 Pass the intent flags when the user's words imply them — `--text-in-image`,
-`--stylize`, `--characters`, `--no-watermark`, `--draft` — because they are
-what turns a coin flip into a decision.
+`--characters`, `--no-watermark`, `--draft` — because they are what turns a
+coin flip into a decision. **`--draft` is the one to reach for often**: a
+sketch to think with, a placeholder, an illustration nobody will keep. Paying
+seven times more for those is waste, and asking first is friction.
 
 When nothing in the request decides, the command no longer asks: it takes the
 highest-ranked available model in the public preference arenas, and says so.

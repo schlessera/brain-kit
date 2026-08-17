@@ -13,7 +13,7 @@
  * behind the user's back.
  */
 
-import { DEFAULT_PREFERENCE, EXCEPTIONS } from "./evidence.js";
+import { DEFAULT_PREFERENCE, DRAFT_MODEL } from "./evidence.js";
 import { isGeminiAspect } from "./shape.js";
 import type { ImageRequest, ModelCapabilities, ProviderId } from "./types.js";
 
@@ -30,8 +30,6 @@ export interface RoutingInput {
   intent?: {
     /** The image is mostly type — a poster, a diagram, a menu. */
     textInImage?: boolean;
-    /** Restyling rather than reproducing — the one documented Gemini win. */
-    stylize?: boolean;
     /** Recurring characters must look the same across images. */
     characterConsistency?: boolean;
     /** Output must not carry a provider watermark. */
@@ -226,21 +224,6 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = clean;
   }
 
-  // Stylization is the one row where Google's own evaluation puts its flagship
-  // ahead of gpt-image-2 (1054 vs 1030). Narrow, but it is measured.
-  if (intent.stylize) {
-    for (const id of EXCEPTIONS.stylize) {
-      const match = pool.find((m) => m.id === id);
-      if (match) {
-        return {
-          kind: "resolved",
-          model: match,
-          reason: "stylization — the one capability Google's own evaluation puts ahead of gpt-image-2",
-        };
-      }
-    }
-  }
-
   // Character consistency intentionally does NOT pick a winner: no independent
   // benchmark for identity preservation exists, and Google's own card scores
   // character editing as a tie inside the error bars. It only narrows to models
@@ -264,12 +247,18 @@ export function route(input: RoutingInput): RoutingDecision {
     return { kind: "resolved", model: best, reason: "only gpt-image-1.5 supports a transparent background" };
   }
 
+  // A throwaway illustration has a named model rather than a price search: the
+  // cheapest thing that survived the capability filters might be cheap for
+  // reasons that have nothing to do with being a good quick sketch.
   if (intent.draft) {
-    const cheapest = [...pool].sort((a, b) => a.approxCostUsd1K - b.approxCostUsd1K)[0];
+    const lite = pool.find((m) => m.id === DRAFT_MODEL);
+    const pick = lite ?? [...pool].sort((a, b) => a.approxCostUsd1K - b.approxCostUsd1K)[0];
     return {
       kind: "resolved",
-      model: cheapest,
-      reason: `draft requested — cheapest available at about $${cheapest.approxCostUsd1K.toFixed(3)} per image`,
+      model: pick,
+      reason: lite
+        ? `quick illustration — about $${pick.approxCostUsd1K.toFixed(3)} per image`
+        : `quick illustration — ${DRAFT_MODEL} unavailable, cheapest that fits at about $${pick.approxCostUsd1K.toFixed(3)}`,
     };
   }
 

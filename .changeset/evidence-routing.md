@@ -25,8 +25,14 @@ shipped with.
 - **The Gemini default is Flash, not Pro.** Pro costs twice as much and scores
   below Flash on both arenas. Price was being used as a proxy for quality; it
   is not one.
-- **New `--stylize`** for the one exception Google's own evaluation supports:
-  restyling favours `gemini-3-pro-image` (1054 vs 1030).
+- **`--draft` now names its model** rather than searching for the cheapest
+  survivor: a quick throwaway illustration is `gemini-3.1-flash-lite-image` at
+  about $0.03, because "cheapest thing that happens to fit" and "good quick
+  sketch" are not the same question.
+
+The shipped policy is three named cases — quality to `gpt-image-2`,
+transparency to `gpt-image-1.5`, throwaway work to
+`gemini-3.1-flash-lite-image` — with everything else as fallback only.
 
 The ordering, its sources, its as-of date, and the claims that did NOT survive
 checking all live in `src/evidence.ts` — including the widely-repeated "Nano

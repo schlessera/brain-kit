@@ -33,13 +33,14 @@ serve at all:
 | PNG or WebP | OpenAI | Every Gemini image model serves JPEG only |
 | Exact custom pixels | `gpt-image-2` | Gemini has fixed ratios; `gpt-image-1.5` takes three presets |
 | Legible in-image text | `gpt-image-2` | Leads arena.ai's text-rendering board by ~130 Elo |
-| Restyling | `gemini-3-pro-image` | The one row Google's own card puts ahead of gpt-image-2 |
 | Character consistency | Gemini | Narrows to models that claim it; no benchmark picks a winner |
 | >6 reference images | Gemini | 10 (Flash) / 14 (Lite) vs OpenAI's practical 8 |
 | Watermark-free | OpenAI | Gemini always applies SynthID |
 
-When nothing in the request settles it, the command takes the highest-ranked
-available model in the public preference arenas and says that is what it did.
+The policy is three named cases — quality to `gpt-image-2`, transparency to
+`gpt-image-1.5`, throwaway work to `gemini-3.1-flash-lite-image` via `--draft`
+— and everything else as fallback. When nothing in the request settles it, the
+command takes the highest-ranked available model and says that is what it did.
 `src/evidence.ts` carries the ordering, the sources, the date, and — as
 importantly — the claims that did not survive checking. Set `preferredModels`
 in the module config to override it.

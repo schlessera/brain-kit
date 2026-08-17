@@ -30,18 +30,27 @@
  */
 
 /**
- * Default order for requests where capability does not decide.
+ * The routing policy, in three named cases and a fallback chain.
  *
- * gpt-image-2 leads arena.ai's overall text-to-image board (1381 vs 1246 for
- * gemini-3-pro-image), leads Artificial Analysis's (1370 vs 1298), wins all
- * five pillars of Alibaba's Qwen-Image-Bench, and — most tellingly — beats
- * Google's own flagship on 7 of 10 rows in Google's own model card, at
- * gpt-image-2's CHEAPEST quality tier. Four parties with different incentives
- * pointing the same way is as settled as this gets.
+ *   precision and quality  → gpt-image-2
+ *   transparency           → gpt-image-1.5   (enforced as a capability rule)
+ *   quick throwaway work   → gemini-3.1-flash-lite-image  (`--draft`)
  *
- * The Gemini slot is `gemini-3.1-flash-image`, NOT the Pro model: Flash
- * outranks Pro on both arenas (1264 vs 1246 text-to-image) at a fraction of
- * the price. Pro is the more expensive model, not the better-scoring one.
+ * Everything else is fallback: reached only when one of those is unavailable,
+ * never chosen in preference to them.
+ *
+ * The quality slot is measured rather than assumed. gpt-image-2 leads
+ * arena.ai's overall text-to-image board (1381 vs 1246 for gemini-3-pro-image),
+ * leads Artificial Analysis's (1370 vs 1298), wins all five pillars of
+ * Alibaba's Qwen-Image-Bench, and beats Google's own flagship on 7 of 10 rows
+ * in Google's own model card — at gpt-image-2's CHEAPEST quality tier. Four
+ * parties with different incentives pointing the same way.
+ *
+ * The fallback order below follows the same arenas, with one deliberate
+ * departure: flash-lite sits last despite outscoring both Pro and gpt-image-1.5
+ * on the text-to-image board, because its role here is the throwaway tier. When
+ * it is wanted, it is asked for by name or by `--draft`, not arrived at while
+ * looking for quality.
  */
 export const DEFAULT_PREFERENCE = [
   "gpt-image-2",
@@ -52,18 +61,23 @@ export const DEFAULT_PREFERENCE = [
 ];
 
 /**
- * Cases where the default order is documented to flip.
- *
- * Deliberately short. The evidence supports a default plus a couple of
- * exceptions; a fine-grained per-use-case ranking would be invention.
+ * The quick-illustration tier: a throwaway picture where fidelity is not the
+ * point and ~$0.03 is. Selected by `--draft`, by name, or never.
  */
-export const EXCEPTIONS = {
-  /**
-   * Stylization — restyling an image rather than reproducing it.
-   * Google's own card: Gemini 3 Pro Image 1054 vs gpt-image-2 1030. The one
-   * row where Google's flagship beats it outright.
-   */
-  stylize: ["gemini-3-pro-image", "gemini-3.1-flash-image"],
+export const DRAFT_MODEL = "gemini-3.1-flash-lite-image";
+
+/**
+ * There is one measured case where gemini-3-pro-image beats gpt-image-2:
+ * stylization, in Google's own evaluation, 1054 vs 1030 — a 24-point margin on
+ * a vendor's own board.
+ *
+ * It is deliberately NOT encoded. The policy above makes Pro a fallback model,
+ * and a 24-point edge on one row of one vendor's self-published table is not
+ * enough to override a stated preference. Recorded here so the finding is not
+ * lost, and so re-adding it is a decision rather than a rediscovery.
+ */
+export const UNENCODED_EXCEPTIONS = {
+  stylization: { winner: "gemini-3-pro-image", over: "gpt-image-2", margin: "1054 vs 1030" },
 } as const;
 
 /**
