@@ -28,12 +28,13 @@ versions are live at once:
 
 | Artifact | Version |
 |---|---|
-| Published npm packages / brain-ui deploy | **0.9.0** |
-| `~/brain/node_modules/@schlessera/brain` | **0.7.0** |
-| This working tree | 0.9.0 **plus unreleased work** (see below) |
+| Published npm packages | **0.10.0** |
+| `~/brain/node_modules/@schlessera/brain` | **0.10.0** |
+| brain-ui deploy | **0.9.0** — picks 0.10.0 up on its next lockfile bump + redeploy |
 
-Nothing in the remediation round is reachable from either running system until
-the next release is cut — that release is itself an open finding.
+0.10.0 shipped the remediation round: `brain render`, the shared render
+template, the `compatibility` migration, the codex and pi emitters, the CI
+gates, and the upstreamed sync autonomy rules.
 
 Two facts make this tractable:
 
@@ -56,9 +57,9 @@ called out where it changes the picture.
 | module-jobs skills | 3 | |
 | module-finance skills | **0** | ships a CLI, a hygiene check and a template instead |
 | **brain-kit total** | **24** | |
-| Installed in `~/brain/.agents/skills/` | 32 | 22 symlinks + 10 real dirs |
-| — of those, forks shadowing a package skill | 1 | `sync`, and only until the next release |
-| — locally authored | 7 | `generate-pdf` (retires on release), `linkedin-audit`, `linkedin-conference-post`, `linkedin-post`, `publish-post`, `send-to-tickitoff`, `use-repo` |
+| Installed in `~/brain/.agents/skills/` | 32 | 24 symlinks + 8 real dirs |
+| — of those, forks shadowing a package skill | **0** | was 13 |
+| — locally authored | 6 | `linkedin-audit`, `linkedin-conference-post`, `linkedin-post`, `publish-post`, `send-to-tickitoff`, `use-repo` |
 | — third-party | 2 | `find-skills`, `nano-banana-2` |
 | Personal `.claude/skills/` | 3 | all ccmux infrastructure |
 | Personal `.claude/commands/` | 12 | 3 brain wrappers, 9 ccmux |
@@ -368,10 +369,10 @@ There is **no `brain module add`** — modules are enabled by editing the
 
 ## 5. The installed layer (`~/brain`)
 
-`.agents/skills/` holds 32 entries: 22 symlinks into the packages and **10 real
-directories**. It used to hold 13 forks shadowing packaged skills; 12 are gone.
+`.agents/skills/` holds 32 entries: 24 symlinks into the packages and **8 real
+directories**, none of which shadows anything. It used to hold 13 forks.
 
-### Forks that shadow packages (1, was 13)
+### Forks that shadow packages (0, was 13)
 
 Because `syncSkills()` deliberately never overwrites a real directory,
 **`brain skills sync` cannot reconcile a fork** — it leaves it alone with a
@@ -385,12 +386,11 @@ caveat. Eleven were deleted and re-linked; `conference-aftermath` was not a fork
 at all but a different skill wearing a packaged name, and was split into the
 packaged skill plus `linkedin-conference-post`.
 
-**`sync` is the one that remains, and it ran the other way.** It is the kit file
-plus an *"Autonomy — no plans, no approval"* section — the matched pair to
+**`sync` was the last to go, and it ran the other way.** It was the kit file plus
+an *"Autonomy — no plans, no approval"* section — the matched pair to
 `brain.config.ts`'s `claude-autonomous` runner, without which a headless sync
-stalls waiting for an approval that cannot come. That section has since been
-upstreamed, so the fork now differs only by 12 lines of framing and retires on
-the next release.
+stalls waiting for an approval that cannot come. That section was upstreamed in
+0.10.0, and the fork was deleted once the release landed.
 
 ### Locally authored (7)
 
@@ -508,12 +508,12 @@ Run against all four skill sets:
 | core | 13 | 0 | 0 | 1 |
 | speaking | 8 | 0 | 0 | 1 |
 | jobs | 3 | 0 | 0 | 0 |
-| **installed `~/brain`** | **32** | **0** | **16** | **5** |
+| **installed `~/brain`** | **32** | **0** | **9** | **4** |
 
 Shipped skills are clean. All remaining debt is in the personal layer: the 16
-warnings are absolute paths in `generate-pdf` and `use-repo`, and undeclared
-shell commands in `find-skills`, `generate-pdf`, `nano-banana-2`,
-`publish-post`, `send-to-tickitoff` and `use-repo`. The 2 errors that used to
+warnings are absolute paths in `use-repo` and undeclared shell commands in
+`find-skills`, `nano-banana-2`, `publish-post`, `send-to-tickitoff` and
+`use-repo`. They dropped from 16 when the local `generate-pdf` retired. The 2 errors that used to
 sit in the forked `sync` are gone — its Claude-only tool references were
 reworded before the section went upstream.
 
@@ -623,13 +623,13 @@ audit so earlier references still resolve.
 
 ### Release and version skew
 
-16. **Nothing from the remediation round is reachable from either running
-    system.** `~/brain` runs 0.7.0, brain-ui deploys 0.9.0, and the work sits
-    unreleased. The release is the gate on retiring the last two local skills
-    and on PDF rendering working in the container — which additionally needs
-    `@schlessera/brain-render-puppeteer` added to the brain repo's own
-    dependencies, since the CLI resolves it from there and not from the app's
-    `node_modules`. **Open, new.**
+16. ~~Nothing from the remediation round is reachable~~ — **closed for the
+    laptop, open for the container.** 0.10.0 is published and `~/brain` runs it,
+    with `@schlessera/brain-render-puppeteer` added there so `brain render`
+    resolves it (the CLI runs from the brain repo, not the app). **brain-ui
+    still deploys 0.9.0** and picks this up only on its next lockfile bump and
+    redeploy — which is not free: a deploy saturates the VPS for 25-30 minutes
+    and fails roughly two times in three on the first attempt.
 
 ### Design questions for the redesign
 
