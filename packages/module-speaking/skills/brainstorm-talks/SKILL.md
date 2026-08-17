@@ -1,6 +1,6 @@
 ---
 name: brainstorm-talks
-description: Iterative, collaborative brainstorming for developing talk concepts. Generates ideas, then refines based on feedback to build 3-5 polished options. Use when you need fully developed concepts through interactive dialogue.
+description: Use when talk concepts need developing through back-and-forth — reacting to feedback, exploring angles, and refining until a few are genuinely ready. For a quick one-shot list instead, use /talk-ideas.
 ---
 
 # Collaborative Talk Brainstorming

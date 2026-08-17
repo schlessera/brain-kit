@@ -80,6 +80,19 @@ describe("bundled skills", () => {
     expect(findings).toEqual([]);
   });
 
+  test("the skills describe when to use them, not what they do", () => {
+    // The description is the triggering mechanism; mechanism belongs in the
+    // body. Leading with "Use ..." keeps that discipline visible.
+    const { skills } = discoverSkills(
+      { root: resolve(import.meta.dir, "fixtures"), modules: [loaded] },
+      { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
+    );
+    const offenders = skills
+      .filter((s) => !s.description.startsWith("Use "))
+      .map((s) => s.name);
+    expect(offenders).toEqual([]);
+  });
+
   test("no personal specifics leaked in from the source brain", () => {
     // The reference implementations named a real person, real CV variants, and
     // a real opportunity slug used as an example prep file. Those are exactly

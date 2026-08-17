@@ -1,6 +1,6 @@
 ---
 name: new-submission
-description: Creates a conference CFP submission with bio selection, abstract generation, takeaways, and status tracking. Use when submitting to a conference with a talk idea.
+description: Use when submitting a talk to a conference call for papers — choosing the bio, writing the abstract and takeaways, and putting the submission under tracking.
 disable-model-invocation: true
 ---
 

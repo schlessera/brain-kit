@@ -131,4 +131,13 @@ describe("shipped skills", () => {
     const findings = lintSkills(skills()).filter((f) => f.severity !== "info");
     expect(findings).toEqual([]);
   });
+
+  it("describes when to use each skill, not what it does", () => {
+    // The description is the triggering mechanism; mechanism belongs in the
+    // body. Leading with "Use ..." keeps that discipline visible.
+    const offenders = skills()
+      .filter((s) => !s.description.startsWith("Use "))
+      .map((s) => s.name);
+    expect(offenders).toEqual([]);
+  });
 });

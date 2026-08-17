@@ -50,6 +50,25 @@ describe("shipped core skills", () => {
     expect(blocking).toEqual([]);
   });
 
+  test("have trigger-first descriptions", () => {
+    // The description is the whole triggering mechanism — it is all the model
+    // sees when deciding whether a skill is relevant. So it must describe the
+    // SITUATION that should pull the skill in, not what the skill does or how
+    // it works; the body is where mechanism belongs. Leading with "Use ..."
+    // is a crude but effective proxy for having written it from that angle.
+    const { skills } = shippedSkills();
+    const offenders = skills
+      .filter((s) => !s.description.startsWith("Use "))
+      .map((s) => s.name);
+    expect(offenders).toEqual([]);
+  });
+
+  test("have descriptions within the spec's length cap", () => {
+    const { skills } = shippedSkills();
+    const tooLong = skills.filter((s) => s.description.length > 1024).map((s) => s.name);
+    expect(tooLong).toEqual([]);
+  });
+
   test("produce no lint warnings", () => {
     // Warnings are undeclared shell commands and absolute paths. Both are real
     // portability defects in a skill we ship, so hold them at zero too — the

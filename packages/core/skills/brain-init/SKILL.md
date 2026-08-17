@@ -1,6 +1,6 @@
 ---
 name: brain-init
-description: First-run onboarding interview — turn a fresh template into a personalized brain (identity, domains, taxonomy, generation, validation, handoff). Use on a new brain, or in amend mode to extend an existing one.
+description: Use when setting up a brand-new brain for the first time, turning a fresh template into a personal one, or later when its identity, domains, or taxonomy need extending.
 requires: [git, claude]
 ---
 

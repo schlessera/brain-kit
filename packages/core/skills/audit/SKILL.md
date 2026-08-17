@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Run the quality audit and act on it — triage findings by category, fix the mechanically safe ones, and propose content edits for the rest. Use to check a brain's health or clean up staleness, index lag, orphans, and type mismatches.
+description: Use when checking whether a brain is in good shape or asking what needs cleaning up — stale documents, index rows that lag their detail files, orphans, documents filed under the wrong type, noisy tags. Also use for a periodic tidy-up pass.
 requires: [git]
 ---
 

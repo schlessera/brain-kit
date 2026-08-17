@@ -1,6 +1,6 @@
 ---
 name: whatsup
-description: Quick daily briefing — surfaces the most urgent and relevant items from the brain. Dynamic output organized by what's actually going on, no fixed template. Use for a morning catch-up or an on-demand "what needs my attention?".
+description: Use for a catch-up on what deserves attention right now — a morning briefing, an on-demand check for anything urgent, overdue, or coming up soon, or a quick answer to what should be worked on next.
 ---
 
 # What's Up — Dynamic Daily Briefing

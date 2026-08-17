@@ -1,6 +1,6 @@
 ---
 name: new-module
-description: Author a new workflow module — interview the domain, collision-check the taxonomy, scaffold the package (manifest, skills, README, tests), and pass the quality gates. Use when a recurring domain workflow deserves its own module rather than personal-overlay skills.
+description: Use when a recurring domain workflow has outgrown personal overlay skills and deserves to be installable in its own right, with its own directories, taxonomy types, commands, and skills.
 requires: [bun]
 ---
 

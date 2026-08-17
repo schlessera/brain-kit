@@ -1,6 +1,6 @@
 ---
 name: generate-pdf
-description: Turn brain content into a polished, shareable PDF, PNG, or standalone HTML page — a note rendered as-is, or a designed one-pager assembled for the occasion (day plans, itineraries, briefings, summaries). Use when the user wants something they can send to another person.
+description: Use when the user wants something they can send, share, or print — a PDF, an image, or a standalone page — whether that is an existing note rendered as it stands or a designed one-pager assembled for the occasion, such as a day plan, itinerary, briefing, or summary.
 ---
 
 # Generate PDF

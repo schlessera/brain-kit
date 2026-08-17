@@ -1,6 +1,6 @@
 ---
 name: brain-doctor
-description: Diagnose and repair a brain — runs the check battery, explains failures in plain language, and applies fixes one at a time with consent until everything is green. Use when something is off, after setup, or to produce a bug report.
+description: Use when a brain is misbehaving and it is not obvious why — commands failing, search returning nothing, skills or slash commands missing, the index refusing to update, hooks not firing. Also use right after setup to confirm everything is wired, or to produce diagnostics for a bug report.
 requires: [bun, claude]
 ---
 

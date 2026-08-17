@@ -1,6 +1,6 @@
 ---
 name: brain-host
-description: Set up backup or hosting for a brain — private GitHub backup, a public HTTPS VPS, a home/Tailscale server, or fly.io. Interviews for intent, automates the safe parts, and generates a runbook. Use when the user wants their brain backed up or reachable.
+description: Use when a brain needs to exist somewhere beyond the local machine — backing it up off-device, reaching it from a phone, putting it behind HTTPS, or running it on a VPS, a home server, Tailscale, or fly.io. Also use when asked how to deploy, host, or self-host it.
 requires: [gh, git, ssh, curl, docker]
 ---
 

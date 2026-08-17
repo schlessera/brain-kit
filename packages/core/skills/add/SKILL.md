@@ -1,6 +1,6 @@
 ---
 name: add
-description: Quick-capture guidance for getting a thought into the brain fast — when to trust heuristic classification, when to override the type or path, and how title-matched content appends instead of duplicating. Use when capturing a note, idea, fact, or update.
+description: Use when capturing a thought, note, idea, fact, or update into the brain — jotting something down, recording what was just decided, remembering a detail. Also use when a capture landed under the wrong type or path, or when new content should extend an existing document instead of creating a second one.
 ---
 
 # Add — Quick Capture

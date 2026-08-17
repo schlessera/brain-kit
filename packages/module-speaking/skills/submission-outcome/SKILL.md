@@ -1,6 +1,6 @@
 ---
 name: submission-outcome
-description: Records a CFP acceptance or rejection and syncs every tracking layer (submission file, conference status, indexes, proposals registry). Use when a conference decision arrives — accepted, not selected, waitlisted, or backup — for any tracked submission.
+description: Use when a decision on a submitted talk arrives — accepted, not selected, waitlisted, or held as backup — for any submission being tracked.
 ---
 
 # Submission Outcome

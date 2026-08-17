@@ -1,6 +1,6 @@
 ---
 name: content-hygiene
-description: Recurring content-hygiene scan over the brain. Detects stale, conflicting, and silently edited content. Auto-fixes only mechanically clear cases; logs everything else as deduplicated, idempotent issues under the context directory. Safe to run repeatedly and on a schedule.
+description: Use for a recurring sweep over a brain's content, including scheduled and unattended runs — checking for stale, contradictory, or silently edited documents. Safe to run repeatedly — it fixes only what is mechanically certain and logs the rest as deduplicated issues for a human to judge.
 requires: [sha1sum]
 ---
 

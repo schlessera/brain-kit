@@ -1,6 +1,6 @@
 ---
 name: conference-aftermath
-description: Writes a post-conference retrospective, records the delivery in the talk registry, and archives the conference and its travel. Hands off to a content/publishing workflow if one is configured. Use within 48 hours of returning from a conference.
+description: Use after getting back from a conference, ideally within 48 hours — to capture the reflection while it is fresh, record that the talk was delivered, and close out the conference and its trip.
 ---
 
 # Conference Aftermath

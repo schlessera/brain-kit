@@ -1,6 +1,6 @@
 ---
 name: talk-ideas
-description: Generates 3-5 talk concepts tailored to a specific conference, mapping expertise to conference priorities. One-shot generation (use /brainstorm-talks for interactive refinement).
+description: Use when a conference needs talk concepts quickly — a one-shot set of tailored ideas to choose from. For developing concepts through dialogue instead, use /brainstorm-talks.
 ---
 
 # Talk Ideas Generation

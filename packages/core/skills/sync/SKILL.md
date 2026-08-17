@@ -1,6 +1,6 @@
 ---
 name: sync
-description: Sync the local brain with its remote when asked to sync, commit, push, or pull — smart semantic commits, knowledge-aware conflict resolution, and a reindex, so no knowledge is ever lost.
+description: Use when asked to sync, commit, push, or pull a brain, and for scheduled or unattended synchronization. Also use when an earlier sync left conflicts, a dirty working tree, or a stalled merge behind.
 disable-model-invocation: true
 requires: [git]
 ---
