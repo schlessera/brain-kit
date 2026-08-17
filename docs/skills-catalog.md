@@ -626,10 +626,9 @@ audit so earlier references still resolve.
 16. ~~Nothing from the remediation round is reachable~~ — **closed for the
     laptop, open for the container.** 0.10.0 is published and `~/brain` runs it,
     with `@schlessera/brain-render-puppeteer` added there so `brain render`
-    resolves it (the CLI runs from the brain repo, not the app). **brain-ui
-    still deploys 0.9.0** and picks this up only on its next lockfile bump and
-    redeploy — which is not free: a deploy saturates the VPS for 25-30 minutes
-    and fails roughly two times in three on the first attempt.
+    resolves it (the CLI runs from the brain repo, not the app). brain-ui was
+    bumped to 0.10.0 the same day; the container picks it up on the next
+    redeploy.
 
 ### Design questions for the redesign
 
