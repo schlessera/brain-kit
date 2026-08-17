@@ -15,6 +15,7 @@ const packages = [
   "ui-server",
   "ui-react",
   "module-finance",
+  "module-images",
   "module-jobs",
   "module-speaking",
 ];

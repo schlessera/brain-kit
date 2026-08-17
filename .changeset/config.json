@@ -13,6 +13,7 @@
       "@schlessera/brain-ui-server",
       "@schlessera/brain-ui-react",
       "@schlessera/brain-module-finance",
+      "@schlessera/brain-module-images",
       "@schlessera/brain-module-jobs",
       "@schlessera/brain-module-speaking"
     ]

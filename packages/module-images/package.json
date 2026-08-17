@@ -1,0 +1,56 @@
+{
+  "name": "@schlessera/brain-module-images",
+  "version": "0.10.0",
+  "description": "Image generation and editing for brain-kit — routes between OpenAI and Gemini image models by capability, not by preference",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "image-generation",
+    "gpt-image",
+    "nano-banana",
+    "gemini"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/module-images"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./module": {
+      "bun": "./src/module.ts",
+      "types": "./dist/module.d.ts",
+      "default": "./dist/module.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "skills"
+  ],
+  "scripts": {
+    "test": "bun test tests",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "@schlessera/brain": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

@@ -33,6 +33,8 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 
 ```
 packages/core                @schlessera/brain — CLI, MCP server, search, index, config, skills
+packages/module-images       @schlessera/brain-module-images — image generation/editing, routed
+                             between OpenAI and Gemini models by capability
 packages/module-jobs         @schlessera/brain-module-jobs — job-search scraping/scoring module
 packages/module-speaking     @schlessera/brain-module-speaking — talks/conferences/travel module
 packages/module-finance      @schlessera/brain-module-finance — client ledger / AR module
