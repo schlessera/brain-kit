@@ -33,7 +33,7 @@ const MODELS: ModelCapabilities[] = [
   {
     id: "gpt-image-2",
     provider: "openai",
-    summary: "OpenAI flagship — arbitrary dimensions, mask inpainting, no watermark",
+    summary: "OpenAI flagship — the default; leads the public arenas incl. text rendering, arbitrary sizes, masks, no watermark",
     transparentBackground: false,
     maskInpainting: true,
     arbitraryDimensions: true,
@@ -42,7 +42,7 @@ const MODELS: ModelCapabilities[] = [
     maxTotalPixels: 8_294_400,
     maxReferenceImages: 16,
     characterConsistency: 0,
-    strongTextRendering: false,
+    strongTextRendering: true,
     watermarked: false,
     outputFormats: ["png", "jpeg", "webp"],
     defaultFormat: "png",
@@ -51,7 +51,7 @@ const MODELS: ModelCapabilities[] = [
   {
     id: "gpt-image-1.5",
     provider: "openai",
-    summary: "OpenAI, one generation back — the transparent-background option",
+    summary: "OpenAI, one generation back — kept for one reason: the transparent-background option",
     transparentBackground: true,
     maskInpainting: true,
     // Verified live: a custom size is rejected with
