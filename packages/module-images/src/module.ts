@@ -12,6 +12,14 @@ export const configSchema = z
      * reach (GPT-image models need API Organization Verification).
      */
     disabledModels: z.array(z.string()).optional(),
+    /**
+     * Tie-break order for requests where capability does not decide.
+     *
+     * There is a defensible default (see evidence.ts), but it is a reading of
+     * public preference arenas at a point in time, not a fact about your work.
+     * State an order here and it wins over that default.
+     */
+    preferredModels: z.array(z.string()).optional(),
   })
   .strict();
 

@@ -103,22 +103,38 @@ describe("hard capability rules", () => {
 });
 
 describe("documented-strength preferences", () => {
-  test("in-image text routes to Gemini", () => {
+  test("in-image text routes to OpenAI, not Gemini", () => {
+    // This module originally routed text to Gemini, reasoning that Google
+    // documents text rendering as a strength and OpenAI documents nothing.
+    // arena.ai's dedicated text-rendering board says the opposite: gpt-image-2
+    // leads it by ~130 Elo, its widest category margin. Vendor silence is not
+    // weakness, and this test exists so that inference is not made again.
     const d = route({ request: { prompt: "a poster" }, available: ALL, intent: { textInImage: true } });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.provider).toBe("gemini");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2");
   });
 
-  test("character consistency routes to Gemini and names the guarantee", () => {
+  test("stylization is the documented Gemini exception", () => {
+    // Google's own model card is the source: 1054 vs 1030 for gpt-image-2.
+    const d = route({ request: { prompt: "restyle this" }, available: ALL, intent: { stylize: true } });
+    expect(d.kind).toBe("resolved");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gemini-3-pro-image");
+  });
+
+  test("character consistency narrows to models that claim it, but picks no winner", () => {
+    // No independent benchmark for identity preservation exists, and Google's
+    // own card scores character editing as a tie inside the error bars. So the
+    // rule filters and then defers, rather than asserting a winner.
     const d = route({
       request: { prompt: "the same knight again" },
       available: ALL,
       intent: { characterConsistency: true },
     });
     expect(d.kind).toBe("resolved");
-    const resolved = d as { model: ModelCapabilities; reason: string };
+    const resolved = d as { model: ModelCapabilities };
     expect(resolved.model.characterConsistency).toBeGreaterThan(0);
-    expect(resolved.reason).toMatch(/characters/);
+    // Flash outranks Pro on both public arenas at a fraction of the cost.
+    expect(resolved.model.id).toBe("gemini-3.1-flash-image");
   });
 
   test("no-watermark routes to OpenAI", () => {
@@ -142,18 +158,42 @@ describe("documented-strength preferences", () => {
 });
 
 describe("ambiguity", () => {
-  test("a plain prompt across two providers asks instead of guessing", () => {
+  test("a plain prompt resolves to the highest-ranked available model", () => {
     const d = route({ request: { prompt: "a nice landscape" }, available: ALL });
-    expect(d.kind).toBe("ambiguous");
-    const amb = d as { candidates: ModelCapabilities[]; reason: string };
-    expect(amb.candidates.length).toBeGreaterThan(1);
-    expect(amb.reason).toMatch(/no vendor benchmark/i);
+    expect(d.kind).toBe("resolved");
+    const resolved = d as { model: ModelCapabilities; reason: string };
+    expect(resolved.model.id).toBe("gpt-image-2");
+    expect(resolved.reason).toMatch(/arenas/);
   });
 
-  test("a plain prompt with one provider resolves to its strongest model", () => {
+  test("with Gemini only, the default prefers Flash over the pricier Pro", () => {
+    // Pro is the more expensive model, not the better-scoring one: Flash is
+    // ahead on both arenas (1264 vs 1246 text-to-image).
     const d = route({ request: { prompt: "a nice landscape" }, available: GEMINI_ONLY });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gemini-3-pro-image");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gemini-3.1-flash-image");
+  });
+
+  test("a configured preference beats the evidence-based default", () => {
+    const d = route({
+      request: { prompt: "a nice landscape" },
+      available: ALL,
+      preferredModels: ["gemini-3-pro-image"],
+    });
+    expect(d.kind).toBe("resolved");
+    const resolved = d as { model: ModelCapabilities; reason: string };
+    expect(resolved.model.id).toBe("gemini-3-pro-image");
+    expect(resolved.reason).toMatch(/configured preference/);
+  });
+
+  test("a preference never overrides a capability rule", () => {
+    const d = route({
+      request: { prompt: "x", mask: img(), references: [img()] },
+      available: ALL,
+      preferredModels: ["gemini-3-pro-image"],
+    });
+    expect(d.kind).toBe("resolved");
+    expect((d as { model: ModelCapabilities }).model.provider).toBe("openai");
   });
 
   test("quality is the bias, not cost — the strongest model wins a tie", () => {

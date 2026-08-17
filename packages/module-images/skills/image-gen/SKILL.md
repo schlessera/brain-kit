@@ -29,15 +29,21 @@ which they want if you do not already know.
 | A mask — change *this* region | OpenAI | Google's image API has no mask concept at all |
 | A transparent background | `gpt-image-1.5` | `gpt-image-2` rejects it outright |
 | An exact odd pixel size | OpenAI | Gemini offers fixed ratios and 1K/2K/4K only |
-| Legible text inside the image | Gemini | Vendor documents text rendering as a strength; OpenAI claims nothing |
-| Recurring characters staying consistent | Gemini | Documented for 4-5 characters; OpenAI makes no such claim |
+| Legible text inside the image | `gpt-image-2` | Leads arena.ai's text-rendering board by ~130 Elo — its widest margin |
+| Restyling rather than reproducing | `gemini-3-pro-image` | The one row where Google's own evaluation beats gpt-image-2 |
+| Recurring characters staying consistent | Gemini | Only models that document it — but no benchmark picks a winner, so the default decides |
 | More than 6 reference images | Gemini | Up to 10 (Flash) or 14 (Lite); OpenAI's practical ceiling is 8 |
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
 
 Pass the intent flags when the user's words imply them — `--text-in-image`,
-`--characters`, `--no-watermark`, `--draft` — because they are what turns a
-coin flip into a decision.
+`--stylize`, `--characters`, `--no-watermark`, `--draft` — because they are
+what turns a coin flip into a decision.
+
+When nothing in the request decides, the command no longer asks: it takes the
+highest-ranked available model in the public preference arenas, and says so.
+That default is a reading of leaderboards on a date, not a law — if the user
+prefers something else, set `preferredModels` in the module config and it wins.
 
 ## Shape
 
@@ -60,7 +66,9 @@ no aspect came back 1408x768, not square.
 
 ## Cost
 
-Quality is the default; cost is reported, never quietly optimised. Rough per
+Quality is the default; cost is reported, never quietly optimised. Note that
+price does not track quality here: `gemini-3-pro-image` costs twice
+`gemini-3.1-flash-image` and scores below it on both public arenas. Rough per
 image at ~1K:
 
 | | |

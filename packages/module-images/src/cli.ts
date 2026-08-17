@@ -36,6 +36,7 @@ Routing:
   --provider openai|gemini    Pin a provider
   --model <id>                Pin a model
   --text-in-image             The image is mostly type — poster, diagram, menu
+  --stylize                   Restyling an existing image rather than reproducing it
   --characters                Recurring characters must stay consistent
   --no-watermark              Output must not carry SynthID
   --draft                     Cheapest acceptable model
@@ -55,7 +56,8 @@ interface ParsedArgs {
 }
 
 const BOOLEANS = new Set([
-  "transparent", "dry-run", "text-in-image", "characters", "no-watermark", "draft", "json", "human",
+  "transparent", "dry-run", "text-in-image", "characters", "stylize", "no-watermark", "draft",
+  "json", "human",
 ]);
 const REPEATABLE = new Set(["ref"]);
 
@@ -176,8 +178,10 @@ export const imageCommand: CommandModule = {
       available: models,
       pinnedProvider: parsed.flags.provider as "openai" | "gemini" | undefined,
       pinnedModel: parsed.flags.model as string | undefined,
+      ...(cfg.preferredModels ? { preferredModels: cfg.preferredModels } : {}),
       intent: {
         textInImage: parsed.flags["text-in-image"] === true,
+        stylize: parsed.flags.stylize === true,
         characterConsistency: parsed.flags.characters === true,
         noWatermark: parsed.flags["no-watermark"] === true,
         draft: parsed.flags.draft === true,

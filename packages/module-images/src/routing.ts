@@ -13,6 +13,7 @@
  * behind the user's back.
  */
 
+import { DEFAULT_PREFERENCE, EXCEPTIONS } from "./evidence.js";
 import { isGeminiAspect } from "./shape.js";
 import type { ImageRequest, ModelCapabilities, ProviderId } from "./types.js";
 
@@ -23,10 +24,14 @@ export interface RoutingInput {
   /** Caller pinned a provider or model explicitly. */
   pinnedProvider?: ProviderId;
   pinnedModel?: string;
+  /** Configured tie-break order; wins over the evidence-based default. */
+  preferredModels?: string[];
   /** Hints the caller extracted from the user's intent. */
   intent?: {
     /** The image is mostly type — a poster, a diagram, a menu. */
     textInImage?: boolean;
+    /** Restyling rather than reproducing — the one documented Gemini win. */
+    stylize?: boolean;
     /** Recurring characters must look the same across images. */
     characterConsistency?: boolean;
     /** Output must not carry a provider watermark. */
@@ -221,29 +226,34 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = clean;
   }
 
-  if (intent.characterConsistency) {
-    const consistent = byCapability(pool, (m) => m.characterConsistency > 0);
-    if (consistent.length > 0) {
-      const best = strongestFirst(consistent)[0];
-      return {
-        kind: "resolved",
-        model: best,
-        reason: `documents consistency for up to ${best.characterConsistency} characters; no OpenAI image model makes that claim`,
-      };
+  // Stylization is the one row where Google's own evaluation puts its flagship
+  // ahead of gpt-image-2 (1054 vs 1030). Narrow, but it is measured.
+  if (intent.stylize) {
+    for (const id of EXCEPTIONS.stylize) {
+      const match = pool.find((m) => m.id === id);
+      if (match) {
+        return {
+          kind: "resolved",
+          model: match,
+          reason: "stylization — the one capability Google's own evaluation puts ahead of gpt-image-2",
+        };
+      }
     }
   }
 
-  if (intent.textInImage) {
-    const texty = byCapability(pool, (m) => m.strongTextRendering);
-    if (texty.length > 0) {
-      const best = strongestFirst(texty)[0];
-      return {
-        kind: "resolved",
-        model: best,
-        reason: "vendor documents legible in-image text as a strength; OpenAI makes no such claim",
-      };
-    }
+  // Character consistency intentionally does NOT pick a winner: no independent
+  // benchmark for identity preservation exists, and Google's own card scores
+  // character editing as a tie inside the error bars. It only narrows to models
+  // that document the capability at all, and lets the default order decide.
+  if (intent.characterConsistency) {
+    const consistent = byCapability(pool, (m) => m.characterConsistency > 0);
+    if (consistent.length > 0) pool = consistent;
   }
+
+  // `textInImage` used to route to Gemini, reasoning from vendor documentation.
+  // That was backwards: arena.ai's dedicated text-rendering board puts
+  // gpt-image-2 ~130 Elo clear, its widest margin of any category. There is
+  // nothing left to special-case — the default order already leads with it.
 
   if (req.mask) {
     const best = strongestFirst(pool)[0];
@@ -268,20 +278,45 @@ export function route(input: RoutingInput): RoutingDecision {
     return { kind: "resolved", model: pool[0], reason: "the only available model that fits the request" };
   }
 
-  // One provider left, several of its models: take its strongest.
+  // Nothing measurable decides between what is left. A stated preference wins;
+  // otherwise fall back to what the public arenas measure. Both sit ABOVE the
+  // strongest-model shortcut — someone who prefers the cheap workhorse should
+  // get it, not the flagship of whichever provider happened to survive — and
+  // BELOW every capability rule, because preference cannot make a model do
+  // something it cannot do.
+  const byPreference = (order: readonly string[], why: string): RoutingDecision | null => {
+    for (const id of order) {
+      const match = pool.find((m) => m.id === id);
+      if (match) return { kind: "resolved", model: match, reason: why };
+    }
+    return null;
+  };
+
+  const configured = byPreference(
+    input.preferredModels ?? [],
+    "no capability signal either way — using the configured preference"
+  );
+  if (configured) return configured;
+
+  const measured = byPreference(
+    DEFAULT_PREFERENCE,
+    "no capability signal either way — highest-ranked available model in the public preference " +
+      "arenas (as of 2026-08-17; override with `preferredModels`)"
+  );
+  if (measured) return measured;
+
+  // Only reachable if the pool holds a model this file has never heard of.
   const providers = new Set(pool.map((m) => m.provider));
   if (providers.size === 1) {
     const best = strongestFirst(pool)[0];
     return { kind: "resolved", model: best, reason: `strongest available ${best.provider} model` };
   }
 
-  // Genuinely a preference call across providers. There is no published
-  // benchmark that settles "which makes the nicer picture", so do not pretend.
   return {
     kind: "ambiguous",
     candidates: strongestFirst(pool),
     reason:
-      "Nothing in the request favours one model on capability grounds, and no vendor benchmark " +
-      "settles general image quality. Ask which to use.",
+      "Nothing in the request favours one model on capability grounds, and no ranking covers " +
+      "the models available here. Ask which to use.",
   };
 }

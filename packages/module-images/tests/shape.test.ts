@@ -126,8 +126,9 @@ describe("routing on shape", () => {
     expect((d as { model: ModelCapabilities }).model.id).not.toBe("gemini-3.1-flash-lite-image");
   });
 
-  test("a legal ratio leaves both providers in play", () => {
+  test("a legal ratio leaves both providers in play, and the default decides", () => {
     const d = route({ request: { prompt: "x", aspect: "16:9" }, available: ALL });
-    expect(d.kind).toBe("ambiguous");
+    expect(d.kind).toBe("resolved");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2");
   });
 });
