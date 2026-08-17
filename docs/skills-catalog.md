@@ -381,9 +381,10 @@ warning. Reconciling means deleting the fork on purpose, which is what was done.
 
 The drift direction had been consistent: **brain-kit was the de-personalized
 rewrite; the installed copies were the older personal originals.** Six named
-Alain directly; the kit sources have zero such mentions. The kit versions also
-carried improvements the forks lacked — e.g. `jobs-review`'s terms-of-service
-caveat. Eleven were deleted and re-linked; `conference-aftermath` was not a fork
+the brain's owner directly; the kit sources have zero such mentions. The kit
+versions also carried improvements the forks lacked — e.g. `jobs-review`'s
+terms-of-service caveat. Eleven were deleted and re-linked;
+`conference-aftermath` was not a fork
 at all but a different skill wearing a packaged name, and was split into the
 packaged skill plus `linkedin-conference-post`.
 
