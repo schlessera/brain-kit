@@ -1,5 +1,68 @@
 # @schlessera/brain-ui-server
 
+## 0.11.0
+
+### Minor Changes
+
+- 604abbc: Add a mask bridge: the reader paints the region an image edit applies to
+
+  Masked inpainting needs someone to point at part of a picture, and there is no
+  server-side substitute for that. This mirrors the existing location bridge: the
+  agent calls `mcp__brain-ui__request_image_mask`, the browser opens a canvas over
+  the image, and the painted PNG comes back over the socket.
+
+  - **ui-sdk** — `mask_request` / `mask_response` / `mask_error` frames, validated
+    at the boundary with the same decoded-byte budget as a chat image, plus
+    `BackendBridge.requestMask`.
+  - **ui-server** — pending-mask state on the turn coordinator, the bridge method,
+    and inbound routing. Cancels reject the promise like every other pending
+    interactive request, so a disconnect mid-paint fails the tool instead of
+    hanging the turn.
+  - **ui-react** — a `MaskEditor` modal: paint with a sized brush, undo, clear.
+    Strokes are drawn on a capped working canvas and rescaled to the source
+    image's true pixel dimensions on export, so a mask drawn on a phone lines up
+    with a 4K original. Painted pixels export as fully transparent, which is the
+    convention the edit endpoint reads.
+  - **ui-backend-claude** — the tool, auto-allowed like the other bridge tools
+    (the editor itself is the approval), and a system-prompt line telling the
+    agent to ask rather than guess coordinates.
+
+  The mask is written next to its image and the path returned, because what
+  consumes it is `brain image --mask <path>`.
+
+- cdfa039: Raise the preview, upload and share size limits to match the frame budget
+
+  The socket already accepts ~12MB inbound (brain-ui sets `maxPayloadLength` to
+  `MAX_CLIENT_FRAME_BYTES + 64KB`), but the limits layered above it were never
+  lifted to use that headroom. Worst case today was 6MB decoded — about 8MB once
+  base64 inflates it — against a 12MB frame.
+
+  - `MAX_IMAGE_BYTES` 2MB → 4MB. This mostly governs GIFs: everything else is
+    downscaled to 1568px and re-encoded to JPEG client-side, landing far below
+    either number, while a GIF passes through untouched so its animation
+    survives.
+  - `MAX_TOTAL_IMAGE_BYTES` 6MB → 8MB, which is ~10.7MB base64 and still leaves
+    the JSON envelope room inside the 12MB frame.
+  - `FILE_SIZE_CAP_BYTES` 5MB → 10MB for the JSON preview path. Raw bytes
+    (`?raw=1`) stream from disk and were never bounded by it, so this only ever
+    affected text previews.
+  - Render/share content 512KB → 4MB. That bound predated inlined assets: a
+    shared document carries `data:` image URIs and pre-rendered mermaid SVGs,
+    which pass 512KB without the prose being long. It is an HTTP body, not a
+    socket frame.
+
+  Left alone: `MAX_WS_MESSAGE_BYTES` (512KB, server → client). That one bounds
+  what the browser renders and what reverse proxies will pass, which is a
+  different risk than what the user can send.
+
+### Patch Changes
+
+- Updated dependencies [604abbc]
+- Updated dependencies [cdfa039]
+  - @schlessera/brain-ui-sdk@0.11.0
+  - @schlessera/brain-backend-claude@0.11.0
+  - @schlessera/brain-render-template@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes
