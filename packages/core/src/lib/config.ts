@@ -182,7 +182,7 @@ export const brainConfigSchema = z
       .optional(),
     skills: z
       .object({
-        /** Extra skill emitters to run on `brain skills sync` (claude always runs; add "codex", "gemini"). */
+        /** Extra skill emitters to run on `brain skills sync` (claude always runs; add "codex", "gemini", "pi"). */
         emitters: z.array(z.string()).optional(),
       })
       .strict()

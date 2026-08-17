@@ -156,9 +156,12 @@ Two in-process tools replace missing host capabilities:
 `AskUserQuestion` is disallowed because its picker needs a TTY) and
 `mcp__brain-ui__get_current_location`.
 
-The pi backend supports skills via the `.agents` convention with a completely
-different tool vocabulary — but pi **is not installed in production**;
-`AGENT_BACKEND=pi` fails at boot. Claude is the only backend that runs.
+The pi backend supports skills and has a completely different tool vocabulary —
+but it does **not** read `.agents/skills/`, contrary to what the extending docs
+claimed: pi 0.80.6 scans `<agentDir>/skills` (`$PI_AGENT_DIR`, else
+`~/.pi/agent`) and `<cwd>/.pi/skills`. A `pi` emitter now covers that. pi is in
+any case **not installed in production** — `AGENT_BACKEND=pi` fails at boot, so
+Claude is the only backend that runs.
 
 ### 1d. What the standard says is guaranteed elsewhere
 

@@ -37,6 +37,7 @@ layout, returning what it wrote and what stale entries it removed.
 | `claude` | Symlinks in `.claude/skills/` (Windows junction fallback)      | Always.                               |
 | `codex`  | `.codex/prompts/<name>.md` + a managed "Skills index" block in `AGENTS.md` | Opt-in via `skills.emitters`. |
 | `gemini` | A managed "Skills index" block in `GEMINI.md`                   | Opt-in via `skills.emitters`.         |
+| `pi`     | Symlinks in `.pi/skills/` (Windows junction fallback)           | Opt-in via `skills.emitters`.         |
 
 The `claude` emitter always runs. Add others in `brain.config.ts`:
 
@@ -44,9 +45,10 @@ The `claude` emitter always runs. Add others in `brain.config.ts`:
 skills: { emitters: ["codex"] }   // claude always; also emit for codex
 ```
 
-The **pi family needs no emitter** — pi and OMP-style agents discover
-`.agents/skills/` (and `.claude` directories) natively, so the canonical home is
-enough for them.
+pi does **not** read `.agents/skills/`, despite the name. It discovers skills
+from `<agentDir>/skills` (user level — `$PI_AGENT_DIR`, else `~/.pi/agent`) and
+from `<cwd>/.pi/skills` (project level), so a brain's skills are invisible to it
+without the `pi` emitter even though they sit one directory away.
 
 ## Skill discovery layers
 
