@@ -1,11 +1,7 @@
 ---
 name: brain-import
-description: >-
-  Import existing notes into a brain — Obsidian vault, plain markdown, Notion
-  export, or Apple Notes. Staged and fully resumable — mechanical stamping
-  first, then structure mapping, then optional enrichment. Use when the user
-  has notes elsewhere to bring in.
-requires: [git, cp]
+description: Use when notes already live somewhere else and should be brought into the brain — an Obsidian vault, a Notion export, Apple Notes, or any folder of markdown. Also use to resume an import that stopped partway.
+compatibility: Requires git and cp.
 ---
 
 # Brain Import — Bring Existing Notes In

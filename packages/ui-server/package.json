@@ -46,11 +46,11 @@
   },
   "dependencies": {
     "@schlessera/brain-backend-claude": "workspace:*",
+    "@schlessera/brain-render-template": "workspace:*",
     "@schlessera/brain-ui-sdk": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",
     "hono": "^4",
     "ignore": "^7.0.5",
-    "marked": "^18.0.4",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

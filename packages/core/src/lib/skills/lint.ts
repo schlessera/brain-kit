@@ -6,7 +6,8 @@
  * | frontmatter has name + description; name matches directory  | error    |
  * | body references a Claude-only tool outside an agent:claude section | error |
  * | "Claude should…" acting-agent phrasing                      | warning  |
- * | shell command that is neither `brain …` nor in `requires:`  | warning  |
+ * | shell command that is neither `brain …` nor in `compatibility:` | warning |
+ * | `requires:` present (not a specification field)              | warning  |
  * | allowed-tools / disable-model-invocation present            | info     |
  * | absolute path in body                                       | warning  |
  *
@@ -127,21 +128,51 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
     add("absolute-path", "warning", `absolute path "${p}" in body; prefer repo-relative paths`);
   }
 
-  // Rule: shell commands must be `brain …` or declared in `requires:` → warning.
-  const requires = Array.isArray(frontmatter.requires)
+  // Rule: `requires:` is not a specification field → warning.
+  // The standard allows exactly six keys, and a skill carrying anything else is
+  // rejected by claude.ai upload, the Skills API, and the reference validator.
+  // `compatibility` is the sanctioned slot for the same statement, and reads
+  // better besides: prose a human can act on rather than a bare token list.
+  const legacyRequires = Array.isArray(frontmatter.requires)
     ? (frontmatter.requires as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
-  const allowed = new Set(requires);
+  if (legacyRequires.length > 0) {
+    add(
+      "non-spec-frontmatter",
+      "warning",
+      `\`requires:\` is not a specification field; state it in \`compatibility:\` instead, e.g. "Requires ${legacyRequires.join(" and ")}"`
+    );
+  }
+
+  // Rule: shell commands must be `brain …` or named in `compatibility:` → warning.
+  const compatibility =
+    typeof frontmatter.compatibility === "string" ? frontmatter.compatibility : "";
   for (const cmd of findShellCommands(body)) {
-    if (cmd === "brain" || allowed.has(cmd)) continue;
+    if (cmd === "brain") continue;
+    if (legacyRequires.includes(cmd)) continue; // honoured while it still exists
+    if (mentionsWord(compatibility, cmd)) continue;
     add(
       "shell-command",
       "warning",
-      `shell command \`${cmd}\` is neither \`brain …\` nor declared in \`requires:\``
+      `shell command \`${cmd}\` is neither \`brain …\` nor named in \`compatibility:\``
     );
   }
 
   return findings;
+}
+
+/**
+ * Whether `text` names `word` as a whole word. Word-boundary rather than
+ * substring so "Requires github access" does not silently satisfy a `git`
+ * dependency, and dots in names like `docker.io` do not split.
+ */
+function mentionsWord(text: string, word: string): boolean {
+  if (!text) return false;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Trailing boundary: not a word character or hyphen, and not a dot that
+  // continues a name. A sentence-ending "Requires git." still counts; "git-lfs"
+  // and "docker.io" do not satisfy `git` / `docker`.
+  return new RegExp(`(^|[^\\w.-])${escaped}(?![\\w-])(?!\\.[A-Za-z0-9])`).test(text);
 }
 
 /** Remove `<!-- agent:claude --> … <!-- /agent:claude -->` regions. */

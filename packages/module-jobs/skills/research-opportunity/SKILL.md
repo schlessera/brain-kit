@@ -1,6 +1,6 @@
 ---
 name: research-opportunity
-description: Researches a job opportunity from a URL or pasted job description, assesses fit against your search criteria, stores it in the opportunity tracker, and discusses whether to pursue. Use when a role turns up that is worth evaluating properly.
+description: Use when a specific role turns up that deserves a proper look, given as a link or a pasted job description — to research the company, weigh it against the search criteria, and decide whether to pursue it.
 ---
 
 # Research Opportunity

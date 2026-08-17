@@ -50,6 +50,8 @@ const MUTATING_COMMANDS = new Set([
   "skills", "setup",
   // graph compute rebuilds the derived tables through a writable open.
   "graph",
+  // render writes the rendered file into the repo.
+  "render",
 ]);
 
 /**

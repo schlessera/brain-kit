@@ -8,6 +8,7 @@
       "@schlessera/brain-ui-sdk",
       "@schlessera/brain-backend-claude",
       "@schlessera/brain-backend-pi",
+      "@schlessera/brain-render-template",
       "@schlessera/brain-render-puppeteer",
       "@schlessera/brain-ui-server",
       "@schlessera/brain-ui-react",

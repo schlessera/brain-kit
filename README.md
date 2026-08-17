@@ -40,6 +40,8 @@ packages/ui-sdk              @schlessera/brain-ui-sdk — chat-UI wire protocol 
                              AgentBackend/SpeechProvider seams, renderer/ASR registries
 packages/ui-backend-claude   @schlessera/brain-backend-claude — AgentBackend on the Claude Agent SDK
 packages/ui-backend-pi       @schlessera/brain-backend-pi — AgentBackend on the pi coding-agent SDK
+packages/render-template     @schlessera/brain-render-template — shared markdown/HTML → print-ready
+                             document shell (marked + stylesheet); used by /api/render and `brain render`
 packages/ui-render-puppeteer @schlessera/brain-render-puppeteer — optional HTML→PNG/PDF renderer
                              (network-denied, scriptless; see its header for the threat model)
 packages/ui-server           @schlessera/brain-ui-server — Hono app factory: WS turn coordinator,

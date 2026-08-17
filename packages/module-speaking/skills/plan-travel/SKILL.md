@@ -1,6 +1,6 @@
 ---
 name: plan-travel
-description: Creates a trip plan under travel/{trip-slug}/ — itinerary with transport, accommodation, and per-traveler requirements checklist, plus index sync and conference cross-links. Use when a trip needs planning, conference travel or otherwise, especially right after a talk acceptance or attendance confirmation.
+description: Use when a trip needs planning, for a conference or otherwise — especially right after a talk is accepted or attendance is confirmed, and whenever a traveler has requirements that need lead time to arrange.
 ---
 
 # Plan Travel

@@ -1,6 +1,6 @@
 ---
 name: jobs-review
-description: Reviews the scraped job queue conversationally — surfaces top-scored pending jobs with their score breakdowns, hands promising roles to /research-opportunity, dismisses the rest. Use to review scraped jobs, check the queue, or triage job-board findings.
+description: Use when working through scraped jobs — checking the queue, seeing whether anything good turned up, triaging job-board findings — to decide which roles are worth pursuing and clear away the rest.
 ---
 
 # Jobs Review

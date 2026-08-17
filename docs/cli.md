@@ -20,6 +20,25 @@ Usage: brain <command> [args] [flags]
 | `list` | List/browse documents | `--type/--tag/--status`, `--json` = bare array |
 | `process` | Assimilate an inbox note into proper brain content | uses the configured completions provider; degrades keyless |
 | `archive <path>` | Set `status: archived`, move per convention, reindex | |
+| `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--as markdown\|html`, `--title`, `--width`, repeatable `--allow-host`; frontmatter is stripped |
+
+### Rendering
+
+`brain render` wraps content in the same document shell the UI's `/api/render`
+uses ([`@schlessera/brain-render-template`](../packages/render-template)), so a
+page shared from the app and a PDF produced here are identical for identical
+input. The output path must stay inside the brain root, and defaults to the
+input path with the format's extension.
+
+PDF and PNG drive a headless browser through the optional
+[`@schlessera/brain-render-puppeteer`](../packages/ui-render-puppeteer); install
+it in the brain repo (`bun add @schlessera/brain-render-puppeteer`) and have
+Chrome available. Without it the command explains what is missing and
+`--format html` still works.
+
+The page resolves no hostname by default, so remote images become a visible
+`[alt — not embedded]` placeholder. `--allow-host <host>` opens specific image
+hosts; `data:` URIs always render.
 
 ## Search + context
 

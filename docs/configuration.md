@@ -269,7 +269,7 @@ emitter always runs; list additional built-in emitters to also emit for them.
 | `emitters` | `string[]` | `[]`    | `codex`, `gemini`      |
 
 ```ts
-skills: { emitters: ["codex"] }   // also emit .codex/prompts + AGENTS.md index
+skills: { emitters: ["codex", "pi"] }   // .codex/prompts + AGENTS.md index; .pi/skills symlinks
 ```
 
 See [extending/skill-emitters.md](extending/skill-emitters.md).

@@ -1,6 +1,6 @@
 ---
 name: talk-prep
-description: Creates talk preparation materials from submission or accepted talk. Generates description, session outline, target audience analysis, and speaking notes. Use after acceptance to develop presentation materials.
+description: Use once a talk is accepted and the presentation materials need building — the public description, the session outline, who the audience is, and the speaking notes.
 ---
 
 # Talk Preparation

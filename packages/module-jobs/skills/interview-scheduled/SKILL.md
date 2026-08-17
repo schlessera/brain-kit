@@ -1,6 +1,6 @@
 ---
 name: interview-scheduled
-description: Records a newly scheduled interview and performs the full sync — opportunity status, pipeline index, current focus, and the prep file's deadline. Use whenever an interview, screening, or evaluation call is booked, rebooked, or confirmed.
+description: Use when an interview, screening, or evaluation call is booked, rebooked, or confirmed for an opportunity already being tracked — so the date reaches every place that would otherwise miss it.
 ---
 
 # Interview Scheduled

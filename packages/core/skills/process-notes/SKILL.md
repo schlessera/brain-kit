@@ -1,7 +1,7 @@
 ---
 name: process-notes
-description: Process the inbox — go through unfiled notes and decide, for each, whether to file it into the taxonomy, enrich it, merge it into existing content, or archive it. Keeps index registries in sync. Use to clear captured notes into their proper homes.
-requires: [git]
+description: Use when the capture inbox needs clearing — deciding for each unfiled note whether it belongs somewhere in the taxonomy, should be merged into a document that already covers it, or should be archived.
+compatibility: Requires git.
 ---
 
 # Process Notes — Clear the Inbox

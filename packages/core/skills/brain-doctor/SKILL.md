@@ -1,7 +1,7 @@
 ---
 name: brain-doctor
-description: Diagnose and repair a brain — runs the check battery, explains failures in plain language, and applies fixes one at a time with consent until everything is green. Use when something is off, after setup, or to produce a bug report.
-requires: [bun, claude]
+description: Use when a brain is misbehaving and it is not obvious why — commands failing, search returning nothing, skills or slash commands missing, the index refusing to update, hooks not firing. Also use right after setup to confirm everything is wired, or to produce diagnostics for a bug report.
+compatibility: Requires bun. Some fixes shell out to claude to register the MCP server; other agents register it their own way.
 ---
 
 # Brain Doctor — Diagnose and Repair

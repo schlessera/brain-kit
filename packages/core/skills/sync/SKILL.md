@@ -1,8 +1,8 @@
 ---
 name: sync
-description: Sync the local brain with its remote when asked to sync, commit, push, or pull — smart semantic commits, knowledge-aware conflict resolution, and a reindex, so no knowledge is ever lost.
+description: Use when asked to sync, commit, push, or pull a brain, and for scheduled or unattended synchronization. Also use when an earlier sync left conflicts, a dirty working tree, or a stalled merge behind.
 disable-model-invocation: true
-requires: [git]
+compatibility: Requires git.
 ---
 
 # Sync — Knowledge-Aware Brain Synchronization
@@ -14,6 +14,31 @@ conflict resolution never silently drops content.
 **This skill orchestrates; `brain sync` does the mechanical git plumbing.** The agent handles
 commit messages and conflict resolution; the CLI handles staging, pulling, pushing, and the
 post-sync reindex. Run all five phases in order and report progress at each boundary.
+
+## Autonomy — no plans, no approval
+
+A sync is frequently unattended: on a schedule, from a container, or through an agent runner with
+nobody watching. It must therefore complete on its own, and these rules override any default
+cautiousness. They hold in an interactive session too — every decision below has a defined
+conservative default, so there is nothing worth stopping to ask about.
+
+- **Never stop to plan.** Do not enter a plan-and-approve mode, write a plan document, or present
+  a plan and wait for a go. There may be nobody to approve it — a sync that ends with "awaiting
+  approval" is a failed sync.
+- **Never ask questions.** No interactive prompts, no "should I…" in the output. Take the default,
+  and note what was decided in the final report.
+- **Resolve leftover repo state in place.** Stale unmerged index entries (UU without MERGE_HEAD),
+  stale `AUTO_MERGE` refs, and autostash entries from interrupted pulls are part of the job:
+  resolve conflicted files with the Phase 4 strategy table, then continue the phases.
+- **Autostash handling:** if an autostash's changes are fully subsumed by the resolved working
+  tree (verify by content, e.g. cache keys ⊆ merged file), drop it and say so; if it applies
+  cleanly, pop and fold it into the commits; otherwise leave it and report it.
+- **Conservative default everywhere:** when two resolution options exist, pick the one that keeps
+  more content (union / keep-both over overwrite) and touches less state. Never delete, reset, or
+  rewrite history to make a problem go away.
+- **Truly unresolvable items** (malformed stash entries, binary conflicts, files >100KB) are the
+  only allowed leftovers: leave them untouched, complete every other phase, and list them in the
+  final report. Blocked-on-network is the only reason to stop early.
 
 ## Phase 1 — Assess & clean
 

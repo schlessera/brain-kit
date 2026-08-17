@@ -21,6 +21,7 @@ export { lintSkills, type LintFinding, type LintSeverity } from "./lint.js";
 export { claudeEmitter } from "./emitters/claude.js";
 export { codexEmitter } from "./emitters/codex.js";
 export { geminiEmitter } from "./emitters/gemini.js";
+export { piEmitter } from "./emitters/pi.js";
 export {
   INDEX_START,
   INDEX_END,
@@ -32,6 +33,7 @@ export {
 import { claudeEmitter } from "./emitters/claude.js";
 import { codexEmitter } from "./emitters/codex.js";
 import { geminiEmitter } from "./emitters/gemini.js";
+import { piEmitter } from "./emitters/pi.js";
 import type { SkillEmitter } from "../seams.js";
 
 /** All built-in emitters. syncSkills defaults to [claudeEmitter]; the others are opt-in. */
@@ -39,4 +41,5 @@ export const BUILTIN_EMITTERS: Record<string, SkillEmitter> = {
   claude: claudeEmitter,
   codex: codexEmitter,
   gemini: geminiEmitter,
+  pi: piEmitter,
 };

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { buildTaxonomy, type LoadedModule } from "@schlessera/brain";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import { buildTaxonomy, discoverSkills, lintSkills, type LoadedModule } from "@schlessera/brain";
 
 import manifest, { configSchema } from "../src/module";
 
@@ -87,5 +90,54 @@ describe("speaking taxonomy roundtrip", () => {
 
   it("classifies travel vocabulary", () => {
     expect(taxonomy.classify("flight and hotel booking confirmed")).toBe("travel");
+  });
+});
+
+describe("shipped skills", () => {
+  // The module's skills reach a user's repo verbatim, so hold them to the same
+  // bar as the core ones: no Claude-only tool references outside an
+  // `<!-- agent:claude -->` region, no undeclared shell commands, no absolute
+  // paths, and a frontmatter name matching the directory.
+  const forSkills: LoadedModule = {
+    key: "@schlessera/brain-module-speaking",
+    manifest: { name: manifest.name, ...contribution },
+    dir: resolve(import.meta.dir, ".."),
+    config: {},
+  };
+
+  function skills() {
+    const { skills, warnings } = discoverSkills(
+      { root: mkdtempSync(join(tmpdir(), "brain-speaking-skills-")), modules: [forSkills] },
+      { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
+    );
+    expect(warnings).toEqual([]);
+    return skills;
+  }
+
+  it("ships the eight speaking skills", () => {
+    expect(skills().map((s) => s.name).sort()).toEqual([
+      "brainstorm-talks",
+      "conference-aftermath",
+      "conference-research",
+      "new-submission",
+      "plan-travel",
+      "submission-outcome",
+      "talk-ideas",
+      "talk-prep",
+    ]);
+  });
+
+  it("passes the lint rules with no errors or warnings", () => {
+    const findings = lintSkills(skills()).filter((f) => f.severity !== "info");
+    expect(findings).toEqual([]);
+  });
+
+  it("describes when to use each skill, not what it does", () => {
+    // The description is the triggering mechanism; mechanism belongs in the
+    // body. Leading with "Use ..." keeps that discipline visible.
+    const offenders = skills()
+      .filter((s) => !s.description.startsWith("Use "))
+      .map((s) => s.name);
+    expect(offenders).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 ---
 name: conference-research
-description: Researches a conference by finding CFP details, analyzing past themes, identifying audience characteristics, and documenting findings. Use before /talk-ideas and /new-submission.
+description: Use when sizing up a conference before submitting or attending — what its call for papers asks for, what it has programmed in past years, and who is in the room. Run before /talk-ideas and /new-submission.
 ---
 
 # Conference Research

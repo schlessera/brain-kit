@@ -3,6 +3,10 @@ import { resolve } from "path";
 import { assertPublishArtifacts } from "./check-dist.js";
 
 const packages = [
+  // Ahead of core and ui-server, both of which depend on it: publishing a
+  // dependent before its dependency leaves the dependent uninstallable in the
+  // window between the two `bun publish` calls.
+  "render-template",
   "core",
   "ui-sdk",
   "ui-backend-claude",
