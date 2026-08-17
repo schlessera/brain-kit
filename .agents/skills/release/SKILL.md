@@ -8,7 +8,9 @@ compatibility: Requires bun (and bunx) and git. Publishing additionally needs np
 
 **This skill is the procedure; `CONTRIBUTING.md` and `AGENTS.md` carry the
 reasoning behind it.** Every trap listed here has actually happened at least
-once, and most were documented in prose before they happened again.
+once, and most were documented in prose before they happened again. A release
+that hits something new is not finished until that lands here or in a test — see
+[When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
 Eleven packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on all eleven at once.
@@ -90,3 +92,30 @@ git push origin main --follow-tags
   through its own lockfile bump and a redeploy.
 - If a release retires a local skill that was shadowing a packaged one, delete
   the local copy and run `brain skills sync`, or the fork keeps winning.
+
+## When the release hits something not in this skill
+
+**Capturing it is part of the release, not follow-up work.** Do it in the same
+commit as the fix, while the evidence is still in front of you — every item
+above was written down somewhere before it went wrong a second time, which is
+exactly what this section exists to stop.
+
+Take the first option that fits:
+
+1. **Can a check catch it?** Add it to `tests/release-manifest.test.ts` and
+   stop. A test fails the build; a checklist only helps whoever reads it.
+   Anything decidable from a manifest, a config file, or a script's contents
+   belongs here. Prove it fails before you fix it — reintroduce the mistake,
+   watch the assertion go red, then revert.
+2. **Is it a sequence, a judgment call, or something about the environment?**
+   Add it to this skill, in the section it belongs to, in the same voice as its
+   neighbours: what to do, and the symptom that tells you to do it. Symptoms
+   matter more than causes — "lands on 1.0.0 instead of 0.10.0" is what a future
+   agent will actually be looking at.
+3. **Is it the reasoning behind a rule that is already here?** Put it in
+   `CONTRIBUTING.md` and link it, rather than growing this file. The skill stays
+   the procedure; the docs carry the why.
+
+If a pitfall recurred despite already being written down, that is a signal about
+*placement*, not diligence: the note was somewhere nothing loads automatically.
+Move it into this skill or into a test.
