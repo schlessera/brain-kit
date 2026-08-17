@@ -28,9 +28,9 @@ versions are live at once:
 
 | Artifact | Version |
 |---|---|
-| Published npm packages | **0.10.0** |
-| `~/brain/node_modules/@schlessera/brain` | **0.10.0** |
-| brain-ui deploy | **0.9.0** — picks 0.10.0 up on its next lockfile bump + redeploy |
+| Published npm packages | **0.11.0** |
+| `~/brain/node_modules/@schlessera/brain` | **0.11.0** |
+| brain-ui deploy | **0.11.0** in the repo; the container picks it up on the next redeploy |
 
 0.10.0 shipped the remediation round: `brain render`, the shared render
 template, the `compatibility` migration, the codex and pi emitters, the CI
@@ -52,15 +52,16 @@ called out where it changes the picture.
 
 | Layer | Count | Notes |
 |---|---|---|
-| brain-kit core skills | 13 | `packages/core/skills/`; `generate-pdf` is new |
+| brain-kit core skills | 13 | `packages/core/skills/` |
 | module-speaking skills | 8 | |
 | module-jobs skills | 3 | |
+| module-images skills | 1 | `image-gen`; the module also ships `brain image` |
 | module-finance skills | **0** | ships a CLI, a hygiene check and a template instead |
-| **brain-kit total** | **24** | |
-| Installed in `~/brain/.agents/skills/` | 32 | 24 symlinks + 8 real dirs |
+| **brain-kit total** | **25** | |
+| Installed in `~/brain/.agents/skills/` | 32 | 25 symlinks + 7 real dirs |
 | — of those, forks shadowing a package skill | **0** | was 13 |
 | — locally authored | 6 | `linkedin-audit`, `linkedin-conference-post`, `linkedin-post`, `publish-post`, `send-to-tickitoff`, `use-repo` |
-| — third-party | 2 | `find-skills`, `nano-banana-2` |
+| — third-party | 1 | `find-skills` |
 | Personal `.claude/skills/` | **0** | the three ccmux ones were removed |
 | Personal `.claude/commands/` | **3** | brain wrappers; the nine ccmux ones were removed |
 | `brain` core CLI commands | 26 | 25 released, `render` pending |
@@ -509,12 +510,12 @@ Run against all four skill sets:
 | core | 13 | 0 | 0 | 1 |
 | speaking | 8 | 0 | 0 | 1 |
 | jobs | 3 | 0 | 0 | 0 |
-| **installed `~/brain`** | **32** | **0** | **9** | **4** |
+| **installed `~/brain`** | **32** | **0** | **8** | **4** |
 
 Shipped skills are clean. All remaining debt is in the personal layer: the 16
 warnings are absolute paths in `use-repo` and undeclared shell commands in
-`find-skills`, `nano-banana-2`, `publish-post`, `send-to-tickitoff` and
-`use-repo`. They dropped from 16 when the local `generate-pdf` retired. The 2 errors that used to
+`find-skills`, `publish-post`, `send-to-tickitoff` and `use-repo`. They dropped
+from 16 as `generate-pdf` and then `nano-banana-2` retired. The 2 errors that used to
 sit in the forked `sync` are gone — its Claude-only tool references were
 reworded before the section went upstream.
 
@@ -571,8 +572,13 @@ audit so earlier references still resolve.
 1. ~~`content-hygiene` depends on `sha1sum`~~ — **closed.** The pipeline is now
    `{ sha1sum 2>/dev/null || shasum; }`, which covers GNU and macOS/BSD; both
    print the digest first, so the stable IDs match either way.
-2. **`nano-banana-2` cannot run in the deployed container** (no uv/pip), and
-   writes generated PNGs into the git-tracked brain repo by design. **Open.**
+2. ~~`nano-banana-2` cannot run in the deployed container~~ — **closed.**
+   Retired in favour of `@schlessera/brain-module-images`, which is bun and
+   plain `fetch` and therefore runs in the container. `.agents/skills/` now
+   contains no reference to python, uv or pip at all. The replacement also
+   fixes the unsandboxed output path: `brain image` refuses to write outside
+   the brain, routes across five models by capability rather than pinning one,
+   and reports the cost of each call.
 3. ~~Committed `.claude/settings.json` hooks fire on every turn in production
    and every one fails~~ — **closed.** The file is deleted;
    `settings.local.json` is untracked and gitignored, because hooks and a status
@@ -612,8 +618,9 @@ audit so earlier references still resolve.
 
 ### Hygiene and dead weight
 
-12. **`skills-lock.json` is stale by three deleted entries** and has not been
-    touched since its initial commit. **Open.**
+12. ~~`skills-lock.json` is stale by three deleted entries~~ — **closed.** Down
+    to the one skill still on disk (`find-skills`); the LinkedIn trio and
+    `nano-banana-2` are gone from it.
 13. ~~12 of 15 personal `.claude/` skills and commands are dead~~ — **closed.**
     The three ccmux skills, the nine ccmux commands and the `.claude/CLAUDE.md`
     session preamble are removed; the three brain slash commands remain.
