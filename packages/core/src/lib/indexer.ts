@@ -393,6 +393,83 @@ function saveAssetCache(db: Database, root: string): void {
   writeFileSync(assetCachePath(root), lines.join("\n") + "\n", "utf-8");
 }
 
+/**
+ * Drop sidecar entries nothing can reach any more.
+ *
+ * The caches are keyed by content — an asset by `${content_hash}:${title}`, a
+ * chunk context by a hash of title/heading/body — so deleting a file does not
+ * remove its entry, it just makes it unreachable. `saveAssetCache` and
+ * `saveContextCache` rebuild from the DB and would clear it, but they only run
+ * on an `--embeddings` pass, and deliberately so: they exclude placeholder rows,
+ * so rebuilding on a keyless machine would empty the cache for everyone.
+ *
+ * Pruning by reachability is safe where rebuilding is not. It asks only whether
+ * a key still corresponds to something in the index, which is true regardless of
+ * whether this machine can generate descriptions. Left alone, the file grows
+ * forever and a deletion is never quite a deletion — the description of a
+ * removed image stays in a tracked file.
+ *
+ * Writes only when something was actually removed, so a no-op index run leaves
+ * no git diff.
+ */
+function pruneSidecarCaches(
+  db: Database,
+  root: string,
+  quiet: boolean
+): { assets: number; contexts: number } {
+  const removed = { assets: 0, contexts: 0 };
+
+  const prune = (path: string, live: Set<string>): number => {
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf-8");
+    } catch {
+      return 0; // no cache yet
+    }
+    const lines = raw.split("\n").filter((l) => l.trim());
+    const kept = lines.filter((line) => {
+      try {
+        const entry = JSON.parse(line) as { k?: string };
+        return !entry.k || live.has(entry.k);
+      } catch {
+        return true; // leave malformed lines alone; not ours to discard
+      }
+    });
+    if (kept.length === lines.length) return 0;
+    writeFileSync(path, kept.length ? kept.join("\n") + "\n" : "", "utf-8");
+    return lines.length - kept.length;
+  };
+
+  try {
+    const assetRows = db
+      .prepare(
+        `SELECT content_hash, title FROM documents
+         WHERE asset_type != 'markdown' AND content_hash IS NOT NULL`
+      )
+      .all() as { content_hash: string; title: string }[];
+    removed.assets = prune(
+      assetCachePath(root),
+      new Set(assetRows.map((r) => assetCacheKey(r.content_hash, r.title)))
+    );
+
+    const chunkRows = db
+      .prepare(
+        `SELECT c.heading, c.content, d.title
+         FROM chunks c JOIN documents d ON d.id = c.document_id
+         WHERE d.asset_type = 'markdown'`
+      )
+      .all() as { heading: string; content: string; title: string }[];
+    removed.contexts = prune(
+      contextCachePath(root),
+      new Set(chunkRows.map((r) => chunkContextKey(r.title, r.heading, r.content)))
+    );
+  } catch (e) {
+    if (!quiet) console.warn(`  Could not prune sidecar caches: ${(e as Error).message}`);
+  }
+
+  return removed;
+}
+
 function saveContextCache(db: Database, root: string): void {
   const rows = db
     .prepare(
@@ -1383,6 +1460,16 @@ export async function indexAll(
     } catch (e) {
       if (!quiet) console.warn(`  Could not write sidecar caches: ${(e as Error).message}`);
     }
+  }
+
+  // Unreachable sidecar entries go on every run, not just embeddings ones: a
+  // deleted asset's description lives in a tracked file until something removes
+  // it, and `brain index` is the only thing that knows what is still reachable.
+  const pruned = pruneSidecarCaches(db, root, quiet);
+  if (!quiet && (pruned.assets || pruned.contexts)) {
+    console.log(
+      `  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`
+    );
   }
 
   // Derived graph tables last: they read the link graph this run just wrote,

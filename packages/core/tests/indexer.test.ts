@@ -672,3 +672,66 @@ describe("provider failure semantics (fake provider)", () => {
 
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
 });
+
+
+describe("sidecar cache pruning", () => {
+  test("an entry whose asset is gone is dropped, and live ones are kept", async () => {
+    const root = makeCorpus({
+      "note.md": md("Note", "Body text."),
+      "assets/logo.png": FAKE_PNG,
+    });
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
+
+    const cachePath = join(root, ".asset-cache.jsonl");
+    const before = readFileSync(cachePath, "utf-8").split("\n").filter(Boolean);
+    // Stands in for an asset deleted before this run: the key is unreachable,
+    // which is the only property being tested.
+    writeFileSync(
+      cachePath,
+      [...before, JSON.stringify({ k: "deadbeef:Gone", v: "a description of nothing" })].join("\n") + "\n"
+    );
+
+    await runIndex(root);
+
+    const after = readFileSync(cachePath, "utf-8");
+    expect(after).not.toContain("deadbeef:Gone");
+    expect(after).not.toContain("a description of nothing");
+    for (const line of before) expect(after).toContain(line);
+  });
+
+  test("deleting an asset removes its description from the tracked cache", async () => {
+    const root = makeCorpus({
+      "note.md": md("Note", "Body text."),
+      "assets/logo.png": FAKE_PNG,
+    });
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
+    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf-8").trim()).not.toBe("");
+
+    unlinkSync(join(root, "assets/logo.png"));
+    await runIndex(root);
+
+    // The whole point: a deletion is a deletion, without needing an
+    // --embeddings pass to notice.
+    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf-8").trim()).toBe("");
+  });
+
+  test("a run with nothing to prune leaves the file byte-identical", async () => {
+    // content-hygiene relies on a no-op index producing no git diff.
+    const root = makeCorpus({ "note.md": md("Note", "Body text.") });
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
+
+    const cachePath = join(root, ".context-cache.jsonl");
+    const before = readFileSync(cachePath, "utf-8");
+    await runIndex(root);
+    expect(readFileSync(cachePath, "utf-8")).toBe(before);
+  });
+
+  test("a malformed line is left alone rather than silently discarded", async () => {
+    const root = makeCorpus({ "note.md": md("Note", "Body text.") });
+    await runIndex(root);
+    const cachePath = join(root, ".asset-cache.jsonl");
+    writeFileSync(cachePath, "not json at all\n");
+    await runIndex(root);
+    expect(readFileSync(cachePath, "utf-8")).toContain("not json at all");
+  });
+});
