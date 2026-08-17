@@ -83,6 +83,8 @@ export interface SurfaceTools {
   askUser?: string | false;
   /** Name of the browser-geolocation tool, or false when absent. */
   location?: string | false;
+  /** Name of the mask-painting tool, or false when absent. */
+  mask?: string | false;
 }
 
 function toolSection(tools: SurfaceTools): string {
@@ -101,6 +103,15 @@ function toolSection(tools: SurfaceTools): string {
   browser's own geolocation (the browser handles consent, so there is no
   approval card). Use it for "here", "nearby", "on my way" instead of asking
   the reader where they are.`
+    );
+  }
+  if (tools.mask) {
+    lines.push(
+      `- **Let the reader point at the region.** When an edit applies to part of
+  an image rather than all of it, call \`${tools.mask}\` — they paint over the
+  area and you get a mask back. Guessing coordinates from a description is
+  worse than asking, and describing the whole change in words is the fallback
+  when they decline.`
     );
   }
   return lines.length ? `\n${lines.join("\n")}` : "";

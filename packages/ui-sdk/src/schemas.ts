@@ -27,6 +27,8 @@ import type {
   ClientEnvironment,
   ClientLocationError,
   ClientLocationResponse,
+  ClientMaskError,
+  ClientMaskResponse,
   ClientMessage,
   ClientSessionResume,
   ClientToolApproval,
@@ -301,6 +303,31 @@ export const clientLocationErrorSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientLocationError>;
 
+/**
+ * A mask is a PNG of the same dimensions as the image it covers. Bounded by the
+ * same decoded-byte budget as a chat image: a mask is mostly flat colour and
+ * compresses hard, so anything near this ceiling is not a mask.
+ */
+export const clientMaskResponseSchema = z.looseObject({
+  type: z.literal("mask_response"),
+  requestId: id,
+  maskPng: z
+    .string()
+    .max(MAX_IMAGE_BASE64_CHARS)
+    .refine((b64) => decodedBase64Bytes(b64) <= MAX_IMAGE_BYTES, {
+      message: `mask exceeds ${MAX_IMAGE_BYTES} decoded bytes`,
+    }),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientMaskResponse>;
+
+export const clientMaskErrorSchema = z.looseObject({
+  type: z.literal("mask_error"),
+  requestId: id,
+  code: z.enum(["cancelled", "failed"]),
+  message: z.string().max(MAX_ANSWER_CHARS),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientMaskError>;
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientChatMessageSchema,
   clientToolApprovalSchema,
@@ -311,6 +338,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientAskUserCancelSchema,
   clientLocationResponseSchema,
   clientLocationErrorSchema,
+  clientMaskResponseSchema,
+  clientMaskErrorSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
 // --- Boundary helper ---

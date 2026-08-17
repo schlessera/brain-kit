@@ -81,6 +81,32 @@ export async function handleClientMessage(
       break;
     }
 
+    case "mask_response": {
+      const pending = coordinator.pendingMask.get(msg.requestId);
+      if (pending && turnIdMatches(pending, msg.turnId)) {
+        coordinator.pendingMask.delete(msg.requestId);
+        // Decoded here rather than in the tool: the boundary already validated
+        // the base64 and its size, so the backend gets bytes it can trust.
+        pending.resolve(Uint8Array.from(Buffer.from(msg.maskPng, "base64")));
+      }
+      break;
+    }
+
+    case "mask_error": {
+      const pending = coordinator.pendingMask.get(msg.requestId);
+      if (pending && turnIdMatches(pending, msg.turnId)) {
+        coordinator.pendingMask.delete(msg.requestId);
+        pending.reject(
+          new Error(
+            msg.code === "cancelled"
+              ? `The user did not mark an area${msg.message ? `: ${msg.message}` : ""}`
+              : msg.message || "The mask editor failed"
+          )
+        );
+      }
+      break;
+    }
+
     case "tool_approval": {
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
       if (pending && turnIdMatches(pending, msg.turnId)) {

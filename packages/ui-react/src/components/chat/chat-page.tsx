@@ -22,6 +22,7 @@ import { useConnectionStore } from "../../stores/connection-store.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
+import { MaskEditor } from "../images/mask-editor.js";
 import {
   fileToAttachment,
   validateAttachments,
@@ -506,6 +507,15 @@ export function ChatPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Mask editor: modal, mounted here because it answers over the socket
+          this page owns. Renders nothing unless the agent has asked. */}
+      <MaskEditor
+        onSubmit={(requestId, maskPng) => send({ type: "mask_response", requestId, maskPng })}
+        onCancel={(requestId, message) =>
+          send({ type: "mask_error", requestId, code: "cancelled", message })
+        }
+      />
+
       {/* Panels */}
       <SessionDrawer
         open={sessionPanelOpen}

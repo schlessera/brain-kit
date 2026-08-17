@@ -33,6 +33,8 @@ describe("clientMessageSchema", () => {
         timestamp: 123,
       },
       { type: "location_error", requestId: "r1", code: 1, message: "denied" },
+      { type: "mask_response", requestId: "r1", maskPng: "iVBORw0KGgo=" },
+      { type: "mask_error", requestId: "r1", code: "cancelled", message: "closed" },
     ];
     for (const f of frames) {
       expect(clientMessageSchema.safeParse(f).success).toBe(true);
@@ -56,6 +58,8 @@ describe("clientMessageSchema", () => {
       { type: "session_resume", sessionId: "" },
       { type: "location_error", requestId: "r", code: 9, message: "m" },
       { type: "location_response", requestId: "r", coords: { latitude: "x" }, timestamp: 1 },
+      { type: "mask_response", requestId: "r" }, // no mask
+      { type: "mask_error", requestId: "r", code: "nope", message: "m" }, // unknown code
     ];
     for (const f of bad) {
       expect(clientMessageSchema.safeParse(f).success).toBe(false);
@@ -155,5 +159,26 @@ describe("additive-protocol + limit invariants", () => {
     const res = parseClientMessage(buf);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("bytes");
+  });
+});
+
+describe("mask frames", () => {
+  test("a mask larger than the image budget is rejected at the boundary", () => {
+    // The socket cap is 12MB, but a mask is flat colour and compresses hard:
+    // anything approaching the per-image ceiling is not a mask.
+    const huge = "A".repeat(Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 64);
+    const result = clientMessageSchema.safeParse({
+      type: "mask_response",
+      requestId: "r1",
+      maskPng: huge,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("a plausible mask passes", () => {
+    const png = Buffer.alloc(4096, 7).toString("base64");
+    expect(
+      clientMessageSchema.safeParse({ type: "mask_response", requestId: "r1", maskPng: png }).success
+    ).toBe(true);
   });
 });

@@ -111,6 +111,31 @@ export function makeBridge(
         coordinator.pendingLocation.set(requestId, { turn, turnId, resolve, reject });
       });
     },
+    requestMask: (imagePath, instruction) => {
+      if (!hasClients()) {
+        return Promise.reject(
+          new Error(`No ${host.appName} client is connected to paint a mask in.`)
+        );
+      }
+      const requestId = coordinator.nextMaskRequestId();
+      host.sendToClients(
+        withTurnScope({ type: "mask_request", requestId, imagePath, instruction }, turn, turnId)
+      );
+      host.sendToClients(
+        withTurnScope(
+          { type: "status", status: "tool_executing", detail: "Waiting for you to mark the area" },
+          turn,
+          turnId
+        )
+      );
+      return new Promise<Uint8Array>((resolve, reject) => {
+        if (coordinator.collidesAcrossTurns(coordinator.pendingMask, requestId, turn)) {
+          reject(new Error("Duplicate mask request id"));
+          return;
+        }
+        coordinator.pendingMask.set(requestId, { turn, turnId, resolve, reject });
+      });
+    },
   };
 }
 

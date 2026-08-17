@@ -3,6 +3,7 @@ import { WSClient } from "../lib/ws-client.js";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
 import { useProviderStore } from "../stores/provider-store.js";
+import { useMaskStore } from "../stores/mask-store.js";
 import { getWsUrl } from "../lib/backend.js";
 import type {
   ServerMessage,
@@ -188,6 +189,17 @@ export function handleServerMessage(msg: ServerMessage) {
 
     case "location_request":
       requestBrowserLocation(msg);
+      break;
+
+    case "mask_request":
+      // Opens the editor; the answer travels back from the component, because
+      // only the user can say which part of the picture they meant.
+      useMaskStore.getState().open({
+        requestId: msg.requestId,
+        imagePath: msg.imagePath,
+        ...(msg.instruction ? { instruction: msg.instruction } : {}),
+        ...(msg.turnId ? { turnId: msg.turnId } : {}),
+      });
       break;
 
     case "result":

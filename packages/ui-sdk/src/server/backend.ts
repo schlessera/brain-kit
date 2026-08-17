@@ -105,6 +105,12 @@ export interface BackendBridge {
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
   askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
   getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
+  /**
+   * Ask the user to paint a mask over an image. Resolves with a PNG whose
+   * fully transparent pixels mark the editable region; rejects if the user
+   * cancels or no client is connected.
+   */
+  requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
 }
 
 export interface StartTurnRequest {

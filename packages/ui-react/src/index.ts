@@ -38,6 +38,8 @@ export {
   type MessageAttachment,
 } from "./stores/chat-store.js";
 export { useFileStore } from "./stores/file-store.js";
+export { useMaskStore, type MaskRequest } from "./stores/mask-store.js";
+export { MaskEditor } from "./components/images/mask-editor.js";
 export { useUIStore, type ActiveView } from "./stores/ui-store.js";
 export { useGraphStore, type GraphMode } from "./stores/graph-store.js";
 export { useConnectionStore } from "./stores/connection-store.js";

@@ -62,7 +62,9 @@ export type ClientMessage =
   | ClientAskUserResponse
   | ClientAskUserCancel
   | ClientLocationResponse
-  | ClientLocationError;
+  | ClientLocationError
+  | ClientMaskResponse
+  | ClientMaskError;
 
 export interface ClientChatMessage {
   type: "chat_message";
@@ -185,7 +187,8 @@ export type ServerMessage =
   | ServerSessionInfo
   | ServerSessionHistory
   | ServerAskUserRequest
-  | ServerLocationRequest;
+  | ServerLocationRequest
+  | ServerMaskRequest;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -685,6 +688,48 @@ export interface ClientLocationError {
   code: number;
   message: string;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
+}
+
+/**
+ * Server → Client. The agent needs a mask painted over an image before it can
+ * edit part of it. The browser opens an editor on `imagePath`, and replies with
+ * a ClientMaskResponse (or a ClientMaskError) carrying the same requestId.
+ *
+ * Same shape as the location bridge, and for the same reason: the information
+ * only exists on the client. A mask is a human pointing at a region, and there
+ * is no server-side substitute for that.
+ */
+export interface ServerMaskRequest extends SessionScoped {
+  type: "mask_request";
+  requestId: string;
+  /** Repo-relative path of the image to paint over. */
+  imagePath: string;
+  /** What the agent intends to change, shown to the user as guidance. */
+  instruction?: string;
+}
+
+/**
+ * Client → Server. The painted mask as a base64 PNG, matching the source
+ * image's dimensions, where **fully transparent pixels mark the editable
+ * region** — the convention OpenAI's edit endpoint expects, so the bytes can
+ * be passed through unmodified.
+ */
+export interface ClientMaskResponse {
+  type: "mask_response";
+  requestId: string;
+  /** base64-encoded PNG, no data: prefix. */
+  maskPng: string;
+  turnId?: string;
+}
+
+/** Client → Server. The user closed the editor, or it could not run. */
+export interface ClientMaskError {
+  type: "mask_error";
+  requestId: string;
+  /** `cancelled` = the user declined; `failed` = the editor could not produce a mask. */
+  code: "cancelled" | "failed";
+  message: string;
   turnId?: string;
 }
 

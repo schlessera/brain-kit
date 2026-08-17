@@ -30,6 +30,7 @@ import {
 import { StreamAdapter } from "./stream-adapter.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
+import { MASK_TOOL_NAME } from "./mask-tool.js";
 import {
   DEFAULT_PROFILES,
   getProfile,
@@ -223,7 +224,7 @@ export function createClaudeBackend(
   // it can describe the device the CURRENT message came from.
   const buildAppend = (
     client: ClientEnvironment | undefined,
-    tools: { askUser: boolean; location: boolean }
+    tools: { askUser: boolean; location: boolean; mask: boolean }
   ): string =>
     options.systemPromptAppend ??
     buildSystemPromptAppend({
@@ -233,6 +234,7 @@ export function createClaudeBackend(
       tools: {
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
+        mask: tools.mask && MASK_TOOL_NAME,
       },
     });
 
@@ -304,6 +306,7 @@ export function createClaudeBackend(
     // Only wire ask-user / location tools when the host bridge offers them.
     const askUser = req.bridge.askUser;
     const getLocation = req.bridge.getLocation;
+    const requestMask = req.bridge.requestMask;
 
     // Scope every frame to its session once the identity is known. For a
     // resume that is up front (the requested id); for a new session it is null
@@ -364,6 +367,9 @@ export function createClaudeBackend(
       // handled by the browser's geolocation prompt).
       if (askUser) allowed.push(ASK_USER_TOOL_NAME);
       if (getLocation) allowed.push(GET_LOCATION_TOOL_NAME);
+      // Auto-allowed like the other bridge tools: the approval is the editor
+      // itself — nothing happens unless the user paints and confirms.
+      if (requestMask) allowed.push(MASK_TOOL_NAME);
 
       const sdkOptions: Options = {
         cwd: options.brainPath,
@@ -378,6 +384,7 @@ export function createClaudeBackend(
           const append = buildAppend(req.client, {
             askUser: Boolean(askUser),
             location: Boolean(getLocation),
+            mask: Boolean(requestMask),
           });
           return {
             type: "preset" as const,
@@ -455,9 +462,14 @@ export function createClaudeBackend(
         sdkOptions.pathToClaudeCodeExecutable = options.claudeCodePath;
       }
       if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
-      if (askUser || getLocation) {
+      if (askUser || getLocation || requestMask) {
         sdkOptions.mcpServers = {
-          "brain-ui": createBrainUiMcpServer({ askUser, getLocation }),
+          "brain-ui": createBrainUiMcpServer({
+            askUser,
+            getLocation,
+            requestMask,
+            brainPath: options.brainPath,
+          }),
         };
       }
       if (Object.keys(profileEnv).length > 0) {

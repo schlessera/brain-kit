@@ -53,6 +53,13 @@ export interface PendingLocation {
   reject: (err: Error) => void;
 }
 
+export interface PendingMask {
+  turn: RunningTurn;
+  turnId: string;
+  resolve: (png: Uint8Array) => void;
+  reject: (err: Error) => void;
+}
+
 /**
  * Mutable turn state for one ws host: the running session slots and every
  * pending interactive round-trip. This used to be six module-level globals
@@ -67,11 +74,17 @@ export class TurnCoordinator {
   readonly pendingApprovals = new Map<string, PendingApproval>();
   readonly pendingAskUser = new Map<string, PendingAskUser>();
   readonly pendingLocation = new Map<string, PendingLocation>();
+  readonly pendingMask = new Map<string, PendingMask>();
 
   private locationCounter = 0;
+  private maskCounter = 0;
 
   nextLocationRequestId(): string {
     return `loc-${Date.now().toString(36)}-${++this.locationCounter}`;
+  }
+
+  nextMaskRequestId(): string {
+    return `mask-${Date.now().toString(36)}-${++this.maskCounter}`;
   }
 
   /** True while any session has a running turn. */
@@ -111,6 +124,11 @@ export class TurnCoordinator {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.pendingLocation.delete(id);
+    }
+    for (const [id, p] of this.pendingMask) {
+      if (p.turn !== turn) continue;
+      p.reject(new Error(reason));
+      this.pendingMask.delete(id);
     }
   }
 
