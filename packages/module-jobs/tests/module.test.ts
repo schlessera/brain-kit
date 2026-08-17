@@ -74,8 +74,10 @@ describe("bundled skills", () => {
       { root: resolve(import.meta.dir, "fixtures"), modules: [loaded] },
       { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
     );
-    const blocking = lintSkills(skills).filter((f) => f.severity === "error");
-    expect(blocking).toEqual([]);
+    // Warnings too, not just errors: an undeclared shell command or an absolute
+    // path in a skill we ship is a portability defect, not a style preference.
+    const findings = lintSkills(skills).filter((f) => f.severity !== "info");
+    expect(findings).toEqual([]);
   });
 
   test("no personal specifics leaked in from the source brain", () => {
