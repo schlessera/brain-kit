@@ -3,7 +3,14 @@ import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
 
-const MAX_CONTENT_BYTES = 512 * 1024;
+/**
+ * Cap on the content string posted for rendering. The old 512KB bound
+ * predated inlined assets: a shared document carries `data:` image URIs and
+ * pre-rendered mermaid SVGs, which pass that on their own without the prose
+ * being long. This is an HTTP body, not a socket frame, so it is not bounded
+ * by the WebSocket budget.
+ */
+const MAX_CONTENT_BYTES = 4 * 1024 * 1024;
 
 /**
  * Rendering seam. The deployment owns the actual renderer process (e.g. the

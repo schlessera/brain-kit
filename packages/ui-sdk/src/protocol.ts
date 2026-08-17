@@ -132,10 +132,22 @@ export const ALLOWED_IMAGE_MEDIA_TYPES = [
 ] as const;
 
 export const MAX_IMAGES_PER_MESSAGE = 4;
-/** Per-image cap on decoded (not base64) bytes, post-downscale. */
-export const MAX_IMAGE_BYTES = 2_000_000;
-/** Cap on summed decoded bytes across one message. */
-export const MAX_TOTAL_IMAGE_BYTES = 6_000_000;
+/**
+ * Per-image cap on decoded (not base64) bytes, post-downscale.
+ *
+ * Mostly governs GIFs. Everything else is downscaled to DOWNSCALE_MAX_EDGE and
+ * re-encoded to JPEG client-side, which lands far below this; a GIF passes
+ * through untouched so its animation survives, and is only size-checked.
+ */
+export const MAX_IMAGE_BYTES = 4_000_000;
+/**
+ * Cap on summed decoded bytes across one message.
+ *
+ * Bounded by the frame budget rather than by taste: base64 inflates 4/3, so
+ * this must stay under MAX_CLIENT_FRAME_BYTES with room for the JSON envelope.
+ * 8MB decoded is ~10.7MB encoded against a 12MB frame.
+ */
+export const MAX_TOTAL_IMAGE_BYTES = 8_000_000;
 /** Longest-edge target for client-side downscaling (vision-model optimum). */
 export const DOWNSCALE_MAX_EDGE = 1568;
 
@@ -560,7 +572,12 @@ export interface FileResolveResponse {
   type?: "dir" | "file";
 }
 
-export const FILE_SIZE_CAP_BYTES = 5_242_880;
+/**
+ * Cap for the JSON file-preview path (a 413 above it). Raw bytes served with
+ * `?raw=1` stream straight from disk and are not bounded by this — images and
+ * PDFs in the viewer never touch it.
+ */
+export const FILE_SIZE_CAP_BYTES = 10_485_760;
 
 export interface WikilinkMapResponse {
   generatedAt: number;
