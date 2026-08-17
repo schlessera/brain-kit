@@ -17,7 +17,7 @@ jobs:
       - name: Typecheck (strict)
         run: bunx tsc --noEmit
       - name: Unit + integration tests (keyless, deterministic)
-        run: bun test packages
+        run: bun test packages tests
         env:
           # Belt and braces: tests must never reach for real providers.
           GEMINI_API_KEY: ""

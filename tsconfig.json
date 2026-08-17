@@ -20,7 +20,8 @@
     "packages/*/src/**/*.tsx",
     "packages/*/tests/**/*.ts",
     "packages/*/tests/**/*.tsx",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

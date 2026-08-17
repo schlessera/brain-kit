@@ -64,9 +64,14 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 
 ## Releasing
 
-- Full sequence: changeset → `bun run version` → `bun run build && bun run
-  typecheck && bun test packages` → commit `release: version X.Y.Z` → push →
-  `bun run release`.
+**Load the `release` skill (`.agents/skills/release/`) before doing any of
+this.** It is the operational checklist, kept next to the guards that enforce
+it (`tests/release-manifest.test.ts`); the notes below and in CONTRIBUTING.md
+are the reasoning behind it.
+
+- Full sequence: changeset → `bun run version` → **read the version it
+  produced** → `bun run build && bun run typecheck && bun test packages tests`
+  → commit `chore: version packages to X.Y.Z` → push → `bun run release`.
 - **`bun run version` MUST be followed by `rm bun.lock && bun install` before
   `bun run release`** — `bun run version` chains this for you; doing
   `changeset version` by hand does not. Bun resolves `workspace:*` pins from
@@ -76,7 +81,12 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
   once, in 0.2.0. `scripts/publish.ts` refuses the release if the pins are
   stale.
 - **Verify the version changesets produced before publishing.** A minor-only
-  changeset has bumped the whole fixed group to a major before; the two config
-  guards that prevent it are documented in CONTRIBUTING.md.
+  changeset has bumped the whole fixed group to a major twice now; the two
+  config guards that prevent it are documented in CONTRIBUTING.md and asserted
+  by `tests/release-manifest.test.ts`.
+- **A new package must be added to `scripts/publish.ts` and `scripts/build.ts`**
+  — both drive hardcoded lists, and a package missing from them is silently
+  skipped while its dependents ship pinned to a version nobody published.
+  Asserted by `tests/release-manifest.test.ts`.
 - Publishing needs interactive auth, so the final `bun run release` runs from a
   human's terminal.

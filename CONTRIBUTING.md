@@ -47,7 +47,9 @@ needs an API key or the network.
 
 ## Releasing
 
-`bun run version` (changesets), then `bun run release`.
+`bun run version` (changesets), then `bun run release`. The step-by-step
+checklist is the repo-local `release` skill (`.agents/skills/release/`), which
+agents load automatically; what follows is why it says what it says.
 
 `bun run version` chains `rm bun.lock && bun install` after `changeset version`,
 and that second half is not optional: bun resolves `workspace:*` pins from the
@@ -68,7 +70,9 @@ turns every release into a major (0.4.0 → 1.0.0 instead of 0.5.0):
   can't evaluate the `workspace:` protocol as a semver range, so it treats every
   new version as out of range and majors anyway.
 
-With the `fixed` group, one such major promotes all ten packages.
+With the `fixed` group, one such major promotes all eleven packages.
+`tests/release-manifest.test.ts` asserts both guards, so this fails the build
+rather than the release.
 
 ## What not to send
 
