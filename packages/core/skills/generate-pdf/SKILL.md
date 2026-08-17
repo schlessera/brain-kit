@@ -88,6 +88,18 @@ Do not refuse to produce a document for being over some small figure. If it is
 large, say so and say why — it is almost always full-size images — and offer to
 re-render with smaller ones.
 
+### Do not go looking for an image tool
+
+There is no `magick`, `convert`, `gm`, `cjpeg` or `ffmpeg` in a deployment, and
+probing for one wastes a turn. A hosting container **does** have `python3` —
+and finding it is a trap: it has no pip, no `ensurepip` and no Pillow, so a
+script that imports an image library dies on the import rather than at the
+point you could have predicted it.
+
+Ask for the size you want up front instead. `brain image` takes `--resolution`
+and `--aspect`; image hosts take a size in the URL; `brain render` takes
+`--width`.
+
 ## Where the file goes
 
 Output must live inside the brain repo — `brain render` refuses paths that
