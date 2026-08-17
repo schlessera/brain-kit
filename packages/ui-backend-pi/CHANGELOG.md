@@ -1,5 +1,13 @@
 # @schlessera/brain-backend-pi
 
+## 0.12.0
+
+### Patch Changes
+
+- Updated dependencies [4281c59]
+  - @schlessera/brain@0.12.0
+  - @schlessera/brain-ui-sdk@0.12.0
+
 ## 0.11.0
 
 ### Patch Changes

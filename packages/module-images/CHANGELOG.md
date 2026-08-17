@@ -1,5 +1,74 @@
 # @schlessera/brain-module-images
 
+## 0.12.0
+
+### Minor Changes
+
+- 45e2008: Route on measured evidence instead of vendor documentation, and stop asking
+
+  The router's tie-break was "no vendor publishes a head-to-head, so ask the
+  user". That is true of vendors and false of the field: public preference arenas
+  carry millions of votes, and checking them overturned two rules this module
+  shipped with.
+
+  - **In-image text routed to Gemini. That was backwards.** The rule reasoned
+    from documentation — Google documents text rendering as a strength, OpenAI
+    documents nothing — but vendor silence is not weakness. arena.ai has a
+    dedicated text-rendering board and `gpt-image-2` leads it by ~130 Elo, its
+    widest category margin.
+  - **Character consistency claimed a Gemini win it cannot support.** No
+    independent benchmark for identity preservation exists, and Google's own
+    model card scores character editing as a tie inside the error bars. The rule
+    now narrows to models that document the capability and lets the default
+    decide, rather than asserting a winner.
+  - **Ambiguity now resolves.** A request with no capability signal takes the
+    highest-ranked available model and says so, instead of stopping to ask.
+    `preferredModels` in the module config overrides it.
+  - **The Gemini default is Flash, not Pro.** Pro costs twice as much and scores
+    below Flash on both arenas. Price was being used as a proxy for quality; it
+    is not one.
+  - **`--draft` now names its model** rather than searching for the cheapest
+    survivor: a quick throwaway illustration is `gemini-3.1-flash-lite-image` at
+    about $0.03, because "cheapest thing that happens to fit" and "good quick
+    sketch" are not the same question.
+
+  The shipped policy is three named cases — quality to `gpt-image-2`,
+  transparency to `gpt-image-1.5`, throwaway work to
+  `gemini-3.1-flash-lite-image` — with everything else as fallback only.
+
+  The ordering, its sources, its as-of date, and the claims that did NOT survive
+  checking all live in `src/evidence.ts` — including the widely-repeated "Nano
+  Banana Pro beats GPT-Image on text rendering", which is Google's own eval
+  against GPT-Image **1**, five months before gpt-image-2 existed.
+
+### Patch Changes
+
+- 4281c59: Fix three things a real session on a phone turned up
+
+  - **Images written into the brain did not display in chat.** The markdown
+    renderer overrode headings, code and links but not `img`, so
+    `![](assets/images/x.png)` resolved against the app origin and 404'd — the
+    bytes are served by the files API. Repo-relative sources are now rewritten to
+    that endpoint; `data:` URIs and absolute URLs pass through untouched.
+  - **Scratch files had nowhere to go.** `brain render` and `brain image` refused
+    any path outside the repo, which pushed intermediates — an HTML file that
+    exists to be rendered two seconds later — into a knowledge base as git noise.
+    Both now also accept paths under the system temp directory, report them
+    absolute, and say that a file written there is not viewable in a UI. Anywhere
+    else is still refused: this is scratch space, not free rein.
+  - **The generate-pdf skill refused documents over 400 KB**, citing a file-viewer
+    download limit that does not exist. The real ceiling is the file server's
+    (10 MB, both the preview and raw paths); below that, size is a judgement call
+    about the reader's connection. The skill no longer refuses to produce a
+    document for being over an invented figure.
+
+  Also corrects a comment on `FILE_SIZE_CAP_BYTES` claiming the `?raw=1` path was
+  unbounded. It is not — `resolveForRaw` enforces the same cap, which is why
+  raising it to 10 MB mattered for images and PDFs in the viewer too.
+
+- Updated dependencies [4281c59]
+  - @schlessera/brain@0.12.0
+
 ## 0.11.0
 
 ### Minor Changes
