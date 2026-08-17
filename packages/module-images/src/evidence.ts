@@ -91,6 +91,11 @@ export const UNENCODED_EXCEPTIONS = {
  *   (The contrary figure circulating — "Nano Banana Pro 1198 beats GPT-Image
  *   1150" — is Google's own eval against GPT-Image **1**, five months before
  *   gpt-image-2 existed.)
+ *   The `strongTextRendering` flag now carries this direction rather than the
+ *   vendor's: gpt-image-2 true, every Gemini model false. Retracting the ROUTING
+ *   rule alone left the flag and the model `summary` strings still asserting the
+ *   old version to anyone running `brain image models`, which is where a
+ *   retracted claim survives a release. `tests/providers.test.ts` guards both.
  *
  * - "Gemini keeps characters consistent across edits." No independent
  *   benchmark for identity preservation exists. Google's own card puts

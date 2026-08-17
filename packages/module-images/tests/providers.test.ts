@@ -33,6 +33,34 @@ function stub(response: unknown, init: { status?: number } = {}) {
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 const ref = (): ImageInput => ({ data: new Uint8Array([1, 2, 3]), mime: "image/png", label: "a.png" });
 
+/**
+ * The capability tables are also copy: `brain image models` prints `summary`
+ * verbatim, and the skill teaches from it. Both claims guarded here were shipped
+ * once, sourced from vendor documentation, and retracted in `evidence.ts` when
+ * the public arenas said the opposite. Routing was corrected; these strings and
+ * flags were not, so they kept telling users the retracted version for a whole
+ * release. That is what this block exists to prevent happening twice.
+ */
+describe("capability tables agree with the evidence", () => {
+  const ALL = [...openaiProvider.models, ...geminiProvider.models];
+
+  test("no summary re-asserts a retracted claim", () => {
+    for (const m of ALL) {
+      // "Gemini renders text better" — backwards; gpt-image-2 leads the
+      // dedicated text-rendering board by ~130-155 Elo.
+      if (m.provider === "gemini") expect(m.summary).not.toMatch(/text render/i);
+      // "Gemini keeps characters consistent" — no independent benchmark exists
+      // and Google's own card is a tie inside the error bars, so a summary may
+      // state the documented ceiling but never claim it as a win.
+      expect(m.summary).not.toMatch(/consistency/i);
+    }
+  });
+
+  test("the measured text-rendering lead sits on gpt-image-2 alone", () => {
+    expect(ALL.filter((m) => m.strongTextRendering).map((m) => m.id)).toEqual(["gpt-image-2"]);
+  });
+});
+
 describe("openai provider", () => {
   test("generation posts JSON to /images/generations with a bearer token", async () => {
     const calls = stub({ data: [{ b64_json: PNG_B64 }], usage: { total_tokens: 10 } });

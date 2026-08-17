@@ -82,7 +82,11 @@ export interface ModelCapabilities {
   maxReferenceImages: number;
   /** Vendor documents a character-consistency guarantee. */
   characterConsistency: number;
-  /** Vendor documents text rendering as a strength. */
+  /**
+   * Measured lead on text inside the image, not a vendor claim. This field was
+   * originally set from vendor documentation, which put it exactly backwards —
+   * see the retracted-claims list in `evidence.ts` before changing a value.
+   */
   strongTextRendering: boolean;
   /** Output carries a provider watermark (Gemini: SynthID, no documented opt-out). */
   watermarked: boolean;
