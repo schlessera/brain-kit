@@ -1,5 +1,12 @@
 # @schlessera/brain-module-images
 
+## 0.13.1
+
+### Patch Changes
+
+- Updated dependencies [01004ef]
+  - @schlessera/brain@0.13.1
+
 ## 0.13.0
 
 ### Patch Changes
