@@ -322,7 +322,7 @@ function contextCachePath(root: string): string {
 
 export function chunkContextKey(title: string, heading: string, content: string): string {
   return createHash("sha256")
-    .update(`${title} ${heading} ${content}`)
+    .update(`${title}\u0000${heading}\u0000${content}`)
     .digest("hex");
 }
 

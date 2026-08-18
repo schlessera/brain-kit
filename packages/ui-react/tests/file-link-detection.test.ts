@@ -203,9 +203,9 @@ describe("bare-dir extraction", () => {
 // `<f>notes/foo.md</f>` produces both an entity span AND a file-link inside.
 // ----------------------------------------------------------------------------
 
-const ENTITY_START = "​​";
-const ENTITY_SEP = "​";
-const ENTITY_END = "​​​";
+const ENTITY_START = "\u200B\u200B";
+const ENTITY_SEP = "\u200B";
+const ENTITY_END = "\u200B\u200B\u200B";
 
 function renderEntityTags(md: string): string {
   return md.replace(

@@ -16,6 +16,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck (strict)
         run: bunx tsc --noEmit
+      - name: Invisible-character gate
+        # A raw NUL byte makes grep/ripgrep treat a source file as binary, so it
+        # drops out of every search silently. Caught that way once already
+        # (indexer.ts, chunkContextKey). Escapes, not raw bytes.
+        run: bun run lint
       - name: Unit + integration tests (keyless, deterministic)
         # 30s, not bun's default 5s: the CLI contract and onboarding suites
         # spawn a `brain` subprocess per assertion, and under full-suite

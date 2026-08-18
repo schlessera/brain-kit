@@ -10,6 +10,7 @@ deliberately.
 bun install
 bun test            # all packages
 bun run typecheck   # strict tsc, no emit
+bun run lint        # refuses raw control/invisible characters in source
 ```
 
 Tests and typecheck run from live TS source — no build needed. The
@@ -40,7 +41,11 @@ needs an API key or the network.
    `docs/extending/`. Run `brain module lint` before submitting.
 5. **No personal data** in fixtures or examples — the CI leakage gate will
    reject known private strings; use the "Alex Example" persona.
-6. Versioning is lockstep across `@schlessera/brain-*` via changesets; add a
+6. **No raw control or invisible characters** — write them as escape
+   sequences. A single raw NUL byte makes grep and ripgrep classify the file
+   as binary and drop it from every search; escaping leaves the runtime value
+   untouched. `bun run lint` is the gate.
+7. Versioning is lockstep across `@schlessera/brain-*` via changesets; add a
    changeset to any user-visible change. Keep the changeset itself short —
    what was added / changed / removed, in one line each. The commit it links to
    carries the reasoning.

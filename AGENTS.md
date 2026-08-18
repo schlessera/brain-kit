@@ -45,6 +45,12 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 - Packages ship both `src/` and a built `dist/` behind conditional exports —
   `bun` resolves source, `types`/`default` resolve the build. Never force a
   condition in a consumer; all three outputs come from the same source.
+- No raw control or invisible characters in source — spell them as escape
+  sequences. One raw NUL byte makes grep and ripgrep treat the whole file as
+  binary, so it vanishes from every search, and an editor that trims
+  whitespace silently corrupts a zero-width delimiter. Escaping never changes
+  the runtime value, so hashes and wire formats stay put. `bun run lint`
+  enforces this; CI runs it as the invisible-character gate.
 - Config-driven taxonomy: document types are runtime-validated strings (zod),
   not compile-time unions.
 - Modules own content domains (types, skills, one CLI namespace) and are

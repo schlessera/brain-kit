@@ -26,12 +26,13 @@ const ENTITY_TAGS: Record<string, string> = {
 
 // Use a unicode marker that won't appear in normal text to wrap entities
 // so they survive markdown parsing without relying on rehypeRaw
-const ENTITY_START = "​​"; // zero-width spaces as delimiter
-const ENTITY_SEP = "​";
-const ENTITY_END = "​​​";
+const ENTITY_START = "\u200B\u200B"; // zero-width spaces as delimiter
+const ENTITY_SEP = "\u200B";
+const ENTITY_END = "\u200B\u200B\u200B";
 
 function renderEntityTags(md: string): string {
-  // Convert entity tags to marker-based format: ​​tag​content​​​
+  // Convert entity tags to marker-based format:
+  //   START tag SEP content END  (START/SEP/END are ZWSP runs, see above)
   let result = md.replace(
     /<(co|p|proj|ev|d|st|f)>([\s\S]*?)<\/\1>/g,
     (_match, tag, content) => `${ENTITY_START}${tag}${ENTITY_SEP}${content}${ENTITY_END}`
