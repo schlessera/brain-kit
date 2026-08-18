@@ -14,6 +14,7 @@ import { stripMarkdown } from "../../lib/strip-markdown.js";
 import { inlineMermaidDiagrams, isMermaidPath } from "../../lib/mermaid.js";
 import { MermaidBlock } from "../chat/mermaid-block.js";
 import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
+import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 
 export function FileViewer() {
@@ -182,9 +183,17 @@ function formatSize(bytes: number): string {
 function buildFileShareOptions(content: FileContentResponse, fileName: string): ShareOption[] {
   const rawUrl = `${API_BASE}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
 
-  // Single-action share for previewable images / PDFs: ship the bytes as-is.
   if (content.kind === "binary") {
-    if (content.mime?.startsWith("image/") || content.mime === "application/pdf") {
+    // An image gets both: the original bytes, and a lighter re-encode for
+    // messaging. The original is first, and nothing is downgraded unasked.
+    if (content.mime?.startsWith("image/")) {
+      return buildImageShareOptions(rawUrl, fileName, {
+        mime: content.mime,
+        bytes: content.size,
+      });
+    }
+    // A PDF ships as-is: there is no client-side recompression for one.
+    if (content.mime === "application/pdf") {
       return [
         {
           id: "file",

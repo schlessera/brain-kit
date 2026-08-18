@@ -1,6 +1,7 @@
 import { FileWarning, Download } from "lucide-react";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { API_BASE } from "../../lib/backend.js";
+import { ZoomableImage } from "../images/zoomable-image.js";
 
 export function FileViewerBinary({ content }: { content: FileContentResponse }) {
   const isImage = content.mime?.startsWith("image/");
@@ -11,7 +12,15 @@ export function FileViewerBinary({ content }: { content: FileContentResponse }) 
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
         <div className="flex max-h-full max-w-full overflow-auto rounded-lg border border-border bg-surface p-2">
-          <img src={rawUrl} alt={content.path} className="max-h-[70vh] max-w-full object-contain" />
+          {/* Tap to open the zoom viewer: the panel is narrow, so the preview is
+              a thumbnail of anything larger than it. */}
+          <ZoomableImage
+            src={rawUrl}
+            alt={content.path}
+            className="max-h-[70vh] max-w-full cursor-zoom-in object-contain"
+            mime={content.mime}
+            bytes={content.size}
+          />
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
           <span>

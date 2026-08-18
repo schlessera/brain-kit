@@ -12,6 +12,7 @@ import {
 import { useUIStore } from "../../stores/ui-store.js";
 import { ShareBlock, type ShareBlockFormat } from "./share-block.js";
 import { CopyButton } from "./copy-button.js";
+import { ZoomableImage } from "../images/zoomable-image.js";
 import { MermaidBlock } from "./mermaid-block.js";
 
 const ENTITY_TAGS: Record<string, string> = {
@@ -311,13 +312,17 @@ function BrainMarkdownInner({ content, className, entityTags = false, fileLinks 
        */
       img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<"img">) => {
         const resolved = typeof src === "string" ? repoImageSrc(src) : src;
+        // Inline, an image is only as wide as the viewport. Tapping it opens the
+        // zoom viewer, the same way a mermaid diagram does.
+        if (typeof resolved !== "string") {
+          return <img {...props} alt={alt ?? ""} loading="lazy" className="my-2 max-w-full rounded" />;
+        }
         return (
-          <img
-            {...props}
+          <ZoomableImage
             src={resolved}
-            alt={alt ?? ""}
-            loading="lazy"
-            className="my-2 max-w-full rounded"
+            alt={alt}
+            className="my-2 max-w-full cursor-zoom-in rounded"
+            imgProps={{ ...props, loading: "lazy" }}
           />
         );
       },

@@ -16,6 +16,7 @@ import { isAskUserTool } from "../../lib/tool-names.js";
 import { motion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
+import { ZoomableImage } from "../images/zoomable-image.js";
 
 export function MessageBubble({
   message,
@@ -104,11 +105,14 @@ function UserAttachments({ message }: { message: ChatMessage }) {
     return (
       <div className="flex flex-wrap gap-2">
         {message.attachments.map((a, i) => (
-          <img
+          // Zoomable: the thumbnail is an object-cover crop, so the full frame
+          // is not even visible until it opens.
+          <ZoomableImage
             key={i}
             src={a.previewUrl}
             alt="Attached image"
-            className="h-20 w-20 rounded-lg border border-border/60 object-cover"
+            toolbar={false}
+            className="h-20 w-20 cursor-zoom-in rounded-lg border border-border/60 object-cover"
           />
         ))}
       </div>
