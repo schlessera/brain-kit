@@ -1,5 +1,181 @@
 # @schlessera/brain-ui-react
 
+## 0.13.0
+
+### Minor Changes
+
+- c79e632: Zoom images the way diagrams zoom, and stop treating quality as a problem
+
+  An inline image is only as wide as the viewport, so a generated one was visible
+  but not legible — the same complaint mermaid diagrams had before they got a
+  viewer. Images now get that viewer, and the pan/zoom surface behind it is shared
+  rather than copied.
+
+  - **`ZoomViewer`** (`components/viewer/`) is the extracted stage: pointer pan,
+    pinch and wheel zoom, fit/zoom/close toolbar, Escape, body-scroll lock,
+    re-fit-while-untouched. `MermaidViewer` is now a thin wrapper over it and
+    behaves exactly as before (diagrams still fit up to 250%; images cap fit at
+    100%, since past that a raster shows only interpolation).
+  - **Tapping an image opens it** — in chat markdown, in the file viewer's binary
+    preview, and on a user message's attachment thumbnails (those are
+    object-cover crops, so the full frame was not even visible before).
+  - **Sharing an image is now two explicit actions.** "Share original" ships the
+    bytes untouched; "Share optimized" re-encodes toward 2048px / 1 MiB for
+    messaging, and falls back to the original when the image is already inside
+    that target rather than recompressing for show. Nothing is downgraded
+    silently, and the file on disk is never touched.
+  - The `generate-pdf` skill's size guidance already said the 10 MB server cap is
+    the only real ceiling; this makes the UI live up to it, because a
+    full-resolution image is what makes zooming worth anything.
+
+- 2be49b8: Pick up a system share and file it, behind one confirmation
+
+  Third phase of the Android share target: the app now claims what the service
+  worker stashed, shows it, and — once the user taps "Add to brain" — uploads it
+  to the staging directory and starts a chat session whose first turn reads,
+  stores and processes it. The user watches the tool timeline and keeps talking in
+  the same session.
+
+  **The confirmation is the security boundary, not a nicety.** The share target is
+  reachable by any website: a page that auto-submits a cross-site form to it is
+  indistinguishable from the system share sheet. Acting on a share automatically
+  would let a drive-by write into the knowledge base, spend subscription credit,
+  and put attacker-authored text in front of a model with tool access. So nothing
+  is uploaded and no turn starts until the arriving share has been shown — title,
+  url, text, thumbnails — and confirmed. A real share pays one tap.
+
+  Shares queue and run one at a time. That is also a correctness requirement, not
+  just pacing: the client holds a single unbound chat draft, so two turns started
+  before the first `session_info` arrives would land in the same buffer and the
+  second session's transcript would be dropped for the rest of the connection.
+
+  `?share=<id>` is moved into a localStorage claim and stripped from the URL
+  immediately, so the intake survives a login round-trip, a manual reload, and the
+  shell's own service-worker auto-reload — a reload preserves the query string,
+  and a second pass over the same id while the first upload was in flight would
+  file the share twice. `ShareStore.take()` makes the claim atomic underneath
+  that. Orphans are recovered from the stash by listing it, because a share whose
+  landing page never ran leaves a record nobody holds the id for.
+
+  `sendClientMessage()` is now exported from `use-websocket`: `useWebSocket()`
+  owns the socket through a per-instance guard, so a second caller would build a
+  second client and orphan the first. Anything that needs to send but not to own
+  goes through the module-level sender, which reports failure instead of dropping
+  silently.
+
+  `hasPendingShare()` is exported for the deployment shell's reload guard —
+  reloading mid-intake is exactly what the claim above protects against.
+
+  The upload does not go through `api-client`: `fetchJson` hardcodes a JSON
+  content type, which would break the multipart boundary, and flattens errors to a
+  message, discarding the `limit` a 413 carries — the only thing that lets the
+  card say which cap was hit.
+
+- 2be49b8: Answer a system share in the service worker
+
+  Second phase of the Android share target: `@schlessera/brain-ui-sdk/share-target`
+  is a new export holding the service-worker half — `registerShareTarget()`,
+  `handleShareTargetRequest()`, and an IndexedDB store that parks the payload
+  until the app can upload it.
+
+  A POST share target is a cross-site POST _navigation_, and it has to be answered
+  locally rather than by a server route, for two independent reasons. The session
+  cookie is `SameSite=Strict`, which is exactly the case such a navigation does not
+  carry — a server route would see an unauthenticated request with the payload
+  already consumed and unrecoverable. And answering locally keeps the payload on
+  the device until the app is authenticated and online, so a share made offline or
+  logged out is queued rather than lost. The handler therefore stashes the payload
+  and redirects to the app with `?share=<id>`.
+
+  It never rejects and never hangs: a browser mid-navigation has to land
+  somewhere, so a body that will not parse (what Chrome produces when the
+  manifest's `accept` lists an extension without its MIME type), an empty share, a
+  share past the caps, or a store that refuses — or takes longer than five seconds
+  to accept — the write each redirect with `?share_error=` for the app to explain.
+  The timeout matters because `indexedDB.open()` can hang with no event at all on
+  a corrupted backing store, and an unsettled response promise is a blank tab.
+
+  The caps the server enforces are enforced here too, before anything touches the
+  device: an oversized body is refused on `content-length` before `formData()`
+  buffers it whole in the worker, and file count, per-file size, total size and
+  text length are checked after parsing. Otherwise a share is written to the
+  user's own phone first and only refused minutes later, on upload.
+
+  `ShareStore.take()` reads and deletes in one transaction. The shell reloads
+  itself when a new worker takes over and a reload keeps the query string, so
+  `?share=<id>` can be read twice; the atomic claim is what stops one share being
+  filed into the knowledge base twice.
+
+  Anything reachable by the share sheet is also reachable by any website — a page
+  that auto-submits a cross-site form to the action URL is indistinguishable from
+  a real share, and `Sec-Fetch-Site` cannot tell them apart from inside a worker.
+  A stashed share is therefore untrusted input, and the client intake that follows
+  shows it on a confirmation card rather than acting on it.
+
+  The stash is bounded: after each successful stash the handler prunes records
+  older than `SHARE_STASH_TTL_MS` (24h), so a share abandoned behind a login
+  prompt does not sit on the device holding whole files forever.
+
+  No Workbox dependency — a plain `fetch` listener works with or without a router,
+  and Workbox's own routes are GET-only by default, so nothing competes for the
+  POST. It is a separate export subpath so a service worker can import it without
+  dragging in the renderer and ASR registries that `./client` holds. Persistence
+  stays concrete — the swap and in-memory implementations are named `*ForTests`
+  and are not part of the package's public exports, so this is a test hook and
+  not a storage seam.
+
+  `@schlessera/brain-ui-react` gains a dev-only `ShareHarness` component: it posts
+  the same multipart body to the same path from inside the page, through exactly
+  the same handler, stash and redirect. Everything except the manifest
+  registration itself can be verified without reinstalling the PWA — which on
+  Android means waiting for a WebAPK update.
+
+### Patch Changes
+
+- a4eb4d0: Spell control and invisible characters as escapes so grep can see the source
+
+  `chunkContextKey` embedded raw NUL bytes as hash field separators, which makes
+  grep and ripgrep classify `indexer.ts` as binary — the file silently dropped out
+  of every search. `brain-markdown.tsx` had the milder version: its entity
+  delimiters were runs of one, two and three literal zero-width spaces, unreadable
+  in a diff and destroyable by any editor that trims whitespace.
+
+  Both now use escape sequences. The runtime strings are byte-identical, so
+  existing `.context-cache.jsonl` keys still match and no LLM-generated context is
+  regenerated.
+
+  `bun run lint` (`scripts/check-invisibles.ts`) refuses raw control and invisible
+  characters in tracked files and runs in CI as the invisible-character gate.
+
+- e7e0092: Bound a session's follow-up queue by bytes instead of by message count
+
+  `MAX_SESSION_QUEUE = 5` was a placeholder with no reasoning behind it, and it
+  measured the wrong thing: a queue of five sentences and a queue of five
+  four-image messages differ by roughly 50 MB, and only the second is a problem.
+  Every queued entry is held in the host process (attachments still base64) until
+  its turn runs.
+
+  - **20 MiB warns, 50 MiB refuses.** Past the warn mark the message is still
+    accepted and the `queued` status carries a `detail` note saying how much is
+    parked; the server logs it too. Past the hard cap it is refused with
+    `SESSION_QUEUE_FULL`, naming both the parked total and what the rejected
+    message needed — an explicit error frame, never a silent drop.
+  - **`MAX_SESSION_QUEUE` survives as a depth backstop, raised to 50.** Bytes do
+    not bound count, and each entry becomes its own turn: ~500k one-line messages
+    fit inside 50 MiB and would run a session for days.
+  - `queuedFollowUpBytes` / `queuedBytes` (ui-server `ws/turns`) do the
+    accounting, measuring the payload as it arrived on the wire.
+  - The client stores the note per session (`queueNotes`) and the session drawer's
+    Queued pill turns red and shows it on hover.
+
+  Only affects backends without native follow-up — with `capabilities.followUp`
+  (pi) messages go into the running turn and no host queue exists. The default
+  Claude backend is the one that queues.
+
+- Updated dependencies [2be49b8]
+- Updated dependencies [2be49b8]
+  - @schlessera/brain-ui-sdk@0.13.0
+
 ## 0.12.1
 
 ### Patch Changes
