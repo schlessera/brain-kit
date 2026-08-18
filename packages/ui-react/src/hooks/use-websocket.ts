@@ -106,7 +106,11 @@ export function handleServerMessage(msg: ServerMessage) {
   // session's pre-binding frames) apply to the buffer in view.
   const frameSessionId = (msg as { sessionId?: string }).sessionId;
   if (frameSessionId) {
-    state.setRunState(frameSessionId, runStateForFrame(msg));
+    // `detail` on a queued status is the host's queue-pressure note; it rides
+    // along so the session's badge can show WHY it is queued deep.
+    const queueNote =
+      msg.type === "status" && msg.status === "queued" ? msg.detail : undefined;
+    state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
   }
 
   // Resolve the target buffer key for this frame.

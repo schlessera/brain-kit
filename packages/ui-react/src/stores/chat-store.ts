@@ -111,6 +111,12 @@ interface ChatState {
    * absence of a running/queued turn.
    */
   runStates: Record<string, "streaming" | "queued" | "idle">;
+  /**
+   * Per-session note attached to a `queued` status — the host sends one once a
+   * session's follow-up queue grows heavy. Cleared when the session leaves the
+   * queued state, so a stale warning cannot outlive the queue it described.
+   */
+  queueNotes: Record<string, string>;
 
   // Buffer mutations (key: sessionId, or null for the draft)
   addUserMessage: (
@@ -165,7 +171,11 @@ interface ChatState {
   setActiveSession: (sessionId: string | null) => void;
   /** New chat: drop the draft, unbind the view, unpin the provider. */
   clearMessages: () => void;
-  setRunState: (sessionId: string, state: "streaming" | "queued" | "idle") => void;
+  setRunState: (
+    sessionId: string,
+    state: "streaming" | "queued" | "idle",
+    note?: string
+  ) => void;
 }
 
 let messageCounter = 0;
@@ -309,6 +319,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     // relaunch re-request the full transcript instead of showing nothing.
     activeSessionId: readPersistedSessionId(),
     runStates: {},
+    queueNotes: {},
 
     // createIfMissing: a user-initiated send must never be dropped, even when
     // the active session's buffer hasn't been materialized yet (cold start
@@ -589,13 +600,23 @@ export const useChatStore = create<ChatState>((set, get) => {
         return { activeSessionId: sessionId, buffers };
       }),
 
-    setRunState: (sessionId, runState) =>
+    setRunState: (sessionId, runState, note) =>
       set((state) => {
-        if (state.runStates[sessionId] === runState) return state;
+        const noteChanged = (state.queueNotes[sessionId] ?? undefined) !== note;
+        if (state.runStates[sessionId] === runState && !noteChanged) return state;
+
         const runStates = { ...state.runStates };
         if (runState === "idle") delete runStates[sessionId];
         else runStates[sessionId] = runState;
-        return { runStates };
+
+        // The note belongs to the queued state; anything else ends it. A
+        // `queued` frame with no note also clears, so a queue that drained back
+        // under the warn mark stops claiming it is heavy.
+        const queueNotes = { ...state.queueNotes };
+        if (runState === "queued" && note) queueNotes[sessionId] = note;
+        else delete queueNotes[sessionId];
+
+        return { runStates, queueNotes };
       }),
 
     clearMessages: () => {

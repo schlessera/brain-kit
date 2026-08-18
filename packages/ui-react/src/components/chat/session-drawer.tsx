@@ -32,6 +32,7 @@ export function SessionDrawer({
   const clearMessages = useChatStore((s) => s.clearMessages);
   const currentSessionId = useChatStore((s) => s.activeSessionId);
   const runStates = useChatStore((s) => s.runStates);
+  const queueNotes = useChatStore((s) => s.queueNotes);
   // A running/queued session other than the one in view is reattachable. Derive
   // it from the live per-session run-state (kept current by the frame demux)
   // rather than the deprecated status.activeSessionId, which multi-session
@@ -128,7 +129,7 @@ export function SessionDrawer({
                       <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
                         {session.title || "Untitled"}
                       </div>
-                      <RunBadge state={runStates[session.id]} />
+                      <RunBadge state={runStates[session.id]} note={queueNotes[session.id]} />
                     </div>
                     <div className="mt-0.5 flex items-center gap-2">
                       <span className="text-[11px] text-muted-foreground">
@@ -153,14 +154,29 @@ export function SessionDrawer({
 }
 
 /** Live run-state pill on a session row (streaming / queued). */
-function RunBadge({ state }: { state?: "streaming" | "queued" | "idle" }) {
+function RunBadge({
+  state,
+  note,
+}: {
+  state?: "streaming" | "queued" | "idle";
+  /** Host's queue-pressure note, present only once the queue is heavy. */
+  note?: string;
+}) {
   if (state !== "streaming" && state !== "queued") return null;
   const running = state === "streaming";
+  // A note only ever accompanies a queue under pressure, so it doubles as the
+  // "this is getting heavy" signal: the pill turns red and says how much.
+  const heavy = !running && Boolean(note);
   return (
     <span
+      title={note}
       className={cn(
         "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-        running ? "bg-primary/15 text-primary" : "bg-amber-500/15 text-amber-500"
+        running
+          ? "bg-primary/15 text-primary"
+          : heavy
+            ? "bg-destructive/15 text-destructive"
+            : "bg-amber-500/15 text-amber-500"
       )}
     >
       {running ? "Running" : "Queued"}

@@ -14,6 +14,32 @@ export interface QueuedFollowUp {
 }
 
 /**
+ * Bytes one queued entry keeps alive in this process until its turn runs.
+ *
+ * Attachments dominate and are still base64 here — the host never decodes a
+ * follow-up's images, it hands the same strings to the backend when the turn
+ * starts — so their wire length IS the retained size. (A JS string may cost
+ * two bytes per character internally; this deliberately measures the payload,
+ * not the engine's representation, so the number matches what the sender put
+ * on the wire.) The client snapshot is a handful of short fields and is not
+ * worth walking.
+ */
+export function queuedFollowUpBytes(entry: QueuedFollowUp): number {
+  let bytes = Buffer.byteLength(entry.text, "utf-8");
+  for (const attachment of entry.attachments) {
+    bytes += attachment.data.length;
+  }
+  return bytes;
+}
+
+/** Total bytes currently parked in a session's follow-up queue. */
+export function queuedBytes(turn: RunningTurn): number {
+  let bytes = 0;
+  for (const entry of turn.queue) bytes += queuedFollowUpBytes(entry);
+  return bytes;
+}
+
+/**
  * One RUNNING session slot. `abortController`/`timeoutHandle` belong to the
  * turn currently executing; a queued follow-up runs as the next turn in the
  * same slot (same sessionId) after the current one resolves.
