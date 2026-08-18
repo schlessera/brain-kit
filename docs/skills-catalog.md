@@ -203,7 +203,7 @@ All 14 live in `packages/core/skills/`. Thirteen are a single `SKILL.md`;
 | `generate-pdf` | 118 | — | *(none)* | only via `--allow-host` | writes the rendered file |
 | `new-module` | 86 | `bun` | declared | — | scaffolds, no commit |
 | `process-notes` | 73 | `git` | declared | — | yes + commit |
-| `share` | 113 | `git`, `mv`, `rm` | declared | fetches a shared link | yes, no commit |
+| `share` | 128 | `git`, `mv`, `rm`, `exiftool` | declared | fetches a shared link | yes, no commit |
 | `sync` | 142 | `git` | declared | **git remote push/fetch** + embeddings | commits, resolves, **pushes** |
 | `whatsup` | 59 | — | *(none)* | — | **no — the only read-only skill** |
 

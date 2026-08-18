@@ -1,7 +1,7 @@
 ---
 name: share
 description: Use when something arrived from the system share sheet and is waiting in the share inbox — a link, a page of text, a photo, a PDF — and needs reading, filing, and connecting to what the brain already holds. Also use when asked to process, clear, or check the share inbox.
-compatibility: Requires git, mv and rm. Fetching a shared link needs a web-fetch tool; without one, file the link and say it was not fetched.
+compatibility: Requires git, mv, rm and exiftool. Fetching a shared link needs a web-fetch tool; without one, file the link and say it was not fetched.
 ---
 
 # Share — File What Arrived From the Share Sheet
@@ -37,6 +37,20 @@ Branch on what the manifest holds, in this order:
 - **An image.** It is already attached to this turn, so describe it from what is visible. A
   screenshot of text is content; a photo of a whiteboard is content; a meme is probably not worth
   filing at all.
+
+  Then read what the file says about itself, because the name will not tell you:
+
+  ```bash
+  exiftool -DateTimeOriginal -Make -Model -GPSPosition .brain-ui/inbox/<id>/<file>
+  ```
+
+  `DateTimeOriginal` is when the photo was TAKEN, which is usually the date the note wants —
+  a photo shared today can be years old, and dating it "today" quietly makes the brain wrong.
+  `GPSPosition` places it, which is often the single most useful fact about a photo of a
+  building, a menu, or a conference badge. Say where it was, not the raw coordinates — and if
+  the location is somewhere private, that is a reason to leave it out of the note rather than a
+  detail to record precisely. A screenshot carries none of this; that absence is itself a
+  signal that the image came from a screen rather than a camera.
 - **A PDF or a text file.** Read it from its staged path.
 - **Plain text with no link.** Take it as written — this is the quick-capture case.
 
@@ -110,4 +124,5 @@ outcome, not a failure.
 - `brain search "<subject>" --json` — find an existing home before creating one.
 - `brain add "<content>" [--type] [--title] [--tags]` — capture.
 - `brain process <path>` — assimilate a note into the taxonomy.
+- `exiftool` — read a photo's capture time, camera and location before dating the note.
 - `mv`, `rm` — move kept binaries into the assets tree and clear the staging directory.
