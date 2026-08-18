@@ -89,6 +89,30 @@ describe("app wiring — auth guard ordering", () => {
     );
   });
 
+  test("a share that reaches the server without a worker lands in the app", async () => {
+    // No service worker intercepted it — the POST must not become a bare 404
+    // inside the app window. Public by necessity: a share navigation is
+    // cross-site, so the SameSite=Strict cookie is absent by construction.
+    const res = await app().fetch(
+      new Request("http://localhost/share-target", { method: "POST" })
+    );
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/?share_error=no_worker");
+  });
+
+  test("the share intake route is behind the auth guard", async () => {
+    // It writes files into the brain root, so mount position is the whole
+    // defense: an unauthenticated POST must never reach the staging code.
+    const res = await app().fetch(
+      new Request("http://localhost/api/share", {
+        method: "POST",
+        body: new FormData(),
+      })
+    );
+    expect(res.status).toBe(401);
+  });
+
   test("the graph routes are behind the auth guard", async () => {
     // Every one of these enumerates note paths and titles, so an unauthenticated
     // caller must not reach them — not even /graph/meta, which counts the corpus.

@@ -30,6 +30,7 @@ import {
 } from "../../lib/image-attachments.js";
 import { MessageBubble } from "./message-bubble.js";
 import { WelcomeState } from "./welcome-state.js";
+import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
 import { SessionDrawer } from "./session-drawer.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
@@ -598,6 +599,11 @@ export function ChatPage() {
       {/* Input composer */}
       <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         <div className="mx-auto max-w-3xl">
+          {/* Anything shared from the OS waits here for a tap. Above the
+              composer, so it reads as something to act on rather than a
+              notification that has already happened. */}
+          <ShareIntake />
+
           {/* Voice review card sits above the composer */}
           <ReviewCard
             text={reviewText}

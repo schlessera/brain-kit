@@ -46,9 +46,29 @@ export { useConnectionStore } from "./stores/connection-store.js";
 export { useProviderStore } from "./stores/provider-store.js";
 export { useVoiceStore } from "./voice/voice-store.js";
 
+// A stand-in for the system share sheet, so the share-target path can be
+// exercised without reinstalling the PWA. Meant for a dev route — it lists and
+// deletes stashed shares — so the shell should gate it behind a DEV check
+// rather than linking it from the app.
+export { ShareHarness } from "./components/dev/share-harness.js";
+
 // Connectivity probes.
 export { useVpnStatus } from "./hooks/use-vpn-status.js";
-export { useWebSocket, handleServerMessage, runStateForFrame } from "./hooks/use-websocket.js";
+export {
+  useWebSocket,
+  sendClientMessage,
+  handleServerMessage,
+  runStateForFrame,
+} from "./hooks/use-websocket.js";
+
+// Share intake. The shell needs `hasPendingShare` for its service-worker
+// reload guard: reloading mid-intake would file a share twice or lose it.
+export {
+  useShareStore,
+  hasPendingShare,
+  type ShareIntakeState,
+} from "./stores/share-store.js";
+export { ShareIntake } from "./components/chat/share-card.js";
 
 // API surface (typed REST client + backend URL helpers).
 export { api } from "./lib/api-client.js";

@@ -35,5 +35,9 @@ export {
 // their own routes on top.
 export * as brainClient from "./brain/client.js";
 
+// Share staging: a deployment can sweep expired staging dirs at boot; the
+// intake route also sweeps opportunistically on every share.
+export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";
+
 // Voice keyterm cache rebuild (used by deployments after `brain sync`).
 export { buildKeyterms, writeCache } from "./voice/keyterm-builder.js";

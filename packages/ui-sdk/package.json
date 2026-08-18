@@ -49,6 +49,11 @@
       "bun": "./src/client/index.ts",
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
+    },
+    "./share-target": {
+      "bun": "./src/client/share-target.ts",
+      "types": "./dist/client/share-target.d.ts",
+      "default": "./dist/client/share-target.js"
     }
   },
   "files": [

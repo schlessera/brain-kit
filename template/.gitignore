@@ -13,4 +13,10 @@ node_modules/
 # Per-task agent working directories.
 workspaces/*/
 
+# brain-ui's scratch space inside the content repo: the keyterm and model
+# caches, and shares staged from the system share sheet before the agent files
+# them. All of it is regenerated or transient, and a staged share can hold
+# anything you happened to share — never commit it.
+.brain-ui/
+
 # Add your own ignores below (local extensions, editor files, OS cruft, …).

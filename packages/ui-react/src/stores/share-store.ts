@@ -1,0 +1,54 @@
+import { create } from "zustand";
+import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
+
+/**
+ * Shares waiting for the user to confirm them.
+ *
+ * They queue rather than run: a share is untrusted input (any website can POST
+ * to the share target), and the client can only have ONE unbound chat draft at
+ * a time — two turns started before the first `session_info` arrives would put
+ * both messages in the same buffer and then silently drop the second session's
+ * transcript. One at a time, each behind a tap, solves both.
+ */
+export interface ShareIntakeState {
+  /** Claimed shares, oldest first. The head is the one on screen. */
+  queue: StoredShare[];
+  /** An upload or send is in flight; no second share may start. */
+  busy: boolean;
+  /** Something the user needs to see rather than a silent failure. */
+  error: string | null;
+  /** Non-fatal notes about the last confirm (images over the vision cap, …). */
+  notes: string[];
+
+  enqueue: (record: StoredShare) => void;
+  remove: (id: string) => void;
+  setBusy: (busy: boolean) => void;
+  setError: (error: string | null) => void;
+  setNotes: (notes: string[]) => void;
+}
+
+export const useShareStore = create<ShareIntakeState>((set) => ({
+  queue: [],
+  busy: false,
+  error: null,
+  notes: [],
+
+  enqueue: (record) =>
+    set((state) =>
+      state.queue.some((queued) => queued.id === record.id)
+        ? state
+        : { queue: [...state.queue, record] }
+    ),
+
+  remove: (id) =>
+    set((state) => ({ queue: state.queue.filter((queued) => queued.id !== id) })),
+
+  setBusy: (busy) => set({ busy }),
+  setError: (error) => set({ error }),
+  setNotes: (notes) => set({ notes }),
+}));
+
+/** Whether a share is pending — the shell reads this to defer a reload. */
+export function hasPendingShare(state: ShareIntakeState): boolean {
+  return state.queue.length > 0 || state.busy;
+}

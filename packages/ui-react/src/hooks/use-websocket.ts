@@ -384,6 +384,25 @@ function handleStatusChange(status: "connecting" | "connected" | "disconnected")
 // Singleton client - survives React re-renders
 let wsClient: WSClient | null = null;
 
+/**
+ * Send on the live socket from outside a component.
+ *
+ * `useWebSocket()` OWNS the socket — its construction guard is a per-instance
+ * ref, so a second caller would build a second client, overwrite this
+ * singleton, and orphan the first; unmounting either one would then close the
+ * socket for both. Anything that needs to send but not to own (the share
+ * intake) goes through here instead of calling the hook again.
+ *
+ * Returns false when there is no open socket, since `WSClient.send` drops
+ * silently in that case and a caller that just staged an upload needs to know.
+ */
+export function sendClientMessage(msg: ClientMessage): boolean {
+  if (!wsClient) return false;
+  if (useConnectionStore.getState().wsStatus !== "connected") return false;
+  wsClient.send(msg);
+  return true;
+}
+
 export function useWebSocket() {
   const initialized = useRef(false);
 

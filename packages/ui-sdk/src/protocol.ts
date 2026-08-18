@@ -587,6 +587,104 @@ export interface WikilinkMapResponse {
 }
 
 // ============================================================
+// Share intake (system share sheet -> staged for the agent)
+// ============================================================
+
+/**
+ * Staging root for an incoming share, relative to the brain root. Dot-prefixed
+ * on purpose: `.brain-ui/` is gitignored in a brain repo and the file browser's
+ * walker hides dot-directories, so a staged share is neither committed by a
+ * routine `git add -A` nor listed in the file tree before the agent has decided
+ * where it belongs. It is not sealed off: an authenticated request that already
+ * knows the id can still read the bytes back through the raw file route, which
+ * serves them under a `default-src none` CSP.
+ */
+export const SHARE_STAGING_DIR = ".brain-ui/inbox";
+
+/** Files accepted in a single share. */
+export const SHARE_MAX_FILES = 10;
+
+/**
+ * Per-file cap. Deliberately larger than FILE_SIZE_CAP_BYTES: staging is a
+ * one-off streamed write, not a payload the viewer has to hold in memory.
+ */
+export const SHARE_MAX_FILE_BYTES = 25_000_000;
+
+/** Cap across every file in one share. */
+export const SHARE_MAX_TOTAL_BYTES = 50_000_000;
+
+/** Cap for each of the title/text/url fields, in UTF-8 bytes. */
+export const SHARE_MAX_TEXT_BYTES = 200_000;
+
+/**
+ * How many staged shares may sit in the inbox at once.
+ *
+ * The per-file and per-share caps bound one upload; nothing bounds the sum, and
+ * filling the volume the brain repo lives on breaks git, the search index and
+ * the session store — a far wider blast radius than the inbox itself.
+ */
+export const SHARE_MAX_STAGED = 50;
+
+/**
+ * How many intakes may be staged at once. Each one holds its whole payload in
+ * memory while the multipart parser runs, so unbounded concurrency multiplies
+ * the per-share cap by however many clients ask at the same time.
+ */
+export const SHARE_MAX_CONCURRENT_INTAKE = 3;
+
+/**
+ * Shared text at or below this length is inlined into the chat prompt; longer
+ * text stays in meta.json and the agent reads it from there.
+ */
+export const SHARE_MAX_INLINE_TEXT = 2_000;
+
+/** How long a staged share survives on the server before it is pruned (7 days). */
+export const SHARE_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a share stashed in the BROWSER survives before it is dropped.
+ *
+ * Same 7 days as the server side, deliberately. A stash is normally a hand-off
+ * of a few seconds, which argues for something much shorter — but a share made
+ * offline waits in the stash for as long as the device stays offline, and a
+ * stash that expires first turns "queued rather than lost" into a lie.
+ */
+export const SHARE_STASH_TTL_MS = SHARE_STAGING_TTL_MS;
+
+export interface SharedFileMeta {
+  /** File name as stored, after sanitizing whatever the sharing app supplied. */
+  name: string;
+  /** Repo-relative path, e.g. `.brain-ui/inbox/<id>/photo.jpg`. */
+  path: string;
+  mediaType: string;
+  bytes: number;
+}
+
+/** Answer to POST /api/share: where the payload was staged. */
+export interface ShareIntakeResult {
+  /** Server-minted. The client never supplies a path component. */
+  id: string;
+  /** Repo-relative staging directory. */
+  dir: string;
+  receivedAt: number;
+  title?: string;
+  text?: string;
+  url?: string;
+  files: SharedFileMeta[];
+  /**
+   * Names the server could not write (a full disk, a filesystem that refused
+   * the name). Recorded rather than fatal: one unwritable file must not throw
+   * away the rest of the share, and the agent should know something is missing.
+   */
+  skipped?: string[];
+}
+
+/** `meta.json`, written next to the staged files for the agent to read. */
+export interface ShareStagingManifest extends ShareIntakeResult {
+  source: "web-share-target";
+}
+
+// ============================================================
 // Ask User (clarifying-question bridge)
 // ============================================================
 

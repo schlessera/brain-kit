@@ -9,6 +9,7 @@ import { brainRoutes } from "./routes/brain.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { filesRoutes } from "./routes/files.js";
+import { shareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { providerRoutes } from "./routes/providers.js";
 import { modelRoutes } from "./routes/models.js";
@@ -114,6 +115,9 @@ export function createApp(options: CreateAppOptions = {}) {
   // /api/status is intentionally NOT here — it leaks the git SHA, cron errors,
   // and a session oracle, so it lives behind the guard below.
   app.route("/api", healthRoutes);
+  // Not under /api, and not behind the guard: this is where a system share
+  // lands when no service worker was around to intercept it. See the route.
+  app.route("/", shareTargetFallbackRoutes);
   app.route("/api", authRoutes(authMode, { passwordDisabled: passwordLoginDisabled }));
   app.route("/api", passkeyPublicRoutes(authMode));
 
@@ -130,6 +134,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/api", sessionRoutes);
   app.route("/api", voiceRoutes);
   app.route("/api", filesRoutes);
+  app.route("/api", shareRoutes);
   app.route("/api", createRenderRoutes(options.renderer));
   app.route("/api", providerRoutes);
   app.route("/api", modelRoutes);

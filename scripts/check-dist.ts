@@ -15,7 +15,15 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
   requireFile(join(packageDir, "dist", "index.js"), packageName);
 
   if (packageName === "@schlessera/brain-ui-sdk") {
-    for (const entry of ["protocol.js", "schemas.js", "server/index.js", "client/index.js"]) {
+    for (const entry of [
+      "protocol.js",
+      "schemas.js",
+      "server/index.js",
+      "client/index.js",
+      // Its own export subpath: a service worker must import it without
+      // dragging in the renderer/ASR registries that client/index.js holds.
+      "client/share-target.js",
+    ]) {
       requireFile(join(packageDir, "dist", entry), packageName);
     }
   }
