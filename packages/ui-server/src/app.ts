@@ -33,7 +33,11 @@ import {
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
 import { getHiddenModelIds } from "./db/settings.js";
-import { createBackendRegistry, type BackendRegistry } from "./agent/backend.js";
+import {
+  assertBackendResolvable,
+  createBackendRegistry,
+  type BackendRegistry,
+} from "./agent/backend.js";
 import { createBrainClient } from "./brain/client.js";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { WsHost } from "./ws/host.js";
@@ -113,7 +117,12 @@ function isAllowedWsOrigin(c: Context, allowedOrigins: string[]): boolean {
 
 export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // The edge: ambient environment becomes explicit configuration exactly once.
-  const config = options.config ?? resolveServerConfig();
+  // options.dbPath folds into the config here, so the handle's `config` and
+  // the database actually opened can never disagree.
+  const resolved = options.config ?? resolveServerConfig();
+  const config: ServerConfig = options.dbPath
+    ? { ...resolved, dbPath: options.dbPath }
+    : resolved;
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono();
@@ -123,11 +132,16 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // guarantee on an unsafe auth configuration.
   assertAuthConfig(authMode, auth);
   assertPasskeyConfig(config.webauthn);
+  // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
+  // first turn — otherwise /api/health reports healthy while every turn is
+  // guaranteed to fail. Resolution only; the module still loads lazily.
+  // Skipped when the embedder injects its own registry.
+  if (!options.registry) assertBackendResolvable(config.agent);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  const db = createUiDb(options.dbPath ?? config.dbPath);
+  const db = createUiDb(config.dbPath);
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain });
   const registry =

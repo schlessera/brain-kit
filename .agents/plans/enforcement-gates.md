@@ -109,7 +109,12 @@ without its root cause closed will come back under a different name.
   impossible instead of merely detectable. The gate also asserts that every
   literal `process.env.X` inside the chokepoint itself is declared, so the one
   file allowed to read the environment cannot read something it does not
-  document. Closes the documentation half of RC3.
+  document, and that every chokepoint package re-exports `ENV_VARS` from its
+  package entry. That last rule came from the consumer side: the `brain-ui`
+  shell had to read `process.env.BRAIN_UI_REVERSE_GEOCODE` raw because
+  `ui-backend-claude`'s resolver was not exported, which moves the ambient read
+  out of the library and straight into its consumer — RC3 one level out. Closes
+  the documentation half of RC3.
 - **G5 — one `openBrainDb()` wrapper, lint-enforced.** Ban raw `new Database(`
   in `ui-server/src` outside `src/db/`; route every reader through a wrapper
   that asserts `schema_version`. Makes the gate impossible to forget on the next
@@ -285,3 +290,10 @@ Newest last.
   0 fail across the repo, tsc and lint clean, env docs in sync.
 - Second review pass: no auth defect; R4/R5/R6 sent back to W2; R3 closed by
   writing the changeset and adding G10 so the next omission fails the build.
+- W7 landed in the `brain-ui` shell (uncommitted there): explicit
+  `@schlessera/brain-backend-claude` dependency, `createApp` handle wiring, and
+  a shutdown path that only waits for the flush when a turn was actually
+  cancelled. Typechecks clean against the local package via a temporary symlink;
+  red against the published 0.13.x until this release ships, which is expected.
+- Chokepoint reachability added to G4 and currently red for the six packages
+  W3 is exporting from.

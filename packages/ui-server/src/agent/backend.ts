@@ -31,6 +31,38 @@ import type {
 /** The runtime shape of @schlessera/brain-backend-claude, without importing it. */
 type ClaudeBackendModule = typeof import("@schlessera/brain-backend-claude");
 
+/**
+ * Discovery freshness, as exposed on the public registry surface.
+ *
+ * Deliberately a LOCAL structural mirror of the Claude backend's
+ * `ModelSourceState`/`ModelSource` rather than an import: both backend
+ * packages are optional peers, and a type imported here would survive into
+ * the emitted `.d.ts`, forcing a pi-only TypeScript consumer to install the
+ * Claude package (and its Agent SDK) just to typecheck. The claude package's
+ * `ModelSource` is assignable to this by structure; `list()` is omitted on
+ * purpose — it returns Claude profile inputs, only the registry internals
+ * consume it, and exposing it would drag those types back into the public
+ * declaration graph. tests/declaration-surface.test.ts holds the line.
+ */
+export interface ModelDiscoveryState {
+  enabled: boolean;
+  /** When discovery last succeeded; null when it never has. */
+  refreshedAt: number | null;
+  /** The cached result is older than the TTL (or absent). */
+  stale: boolean;
+  /** Last discovery failure, if the current list is served despite one. */
+  error?: string;
+}
+
+/** The slice of the Claude backend's discovery source the routes consume. */
+export interface ModelDiscoverySource {
+  state(): ModelDiscoveryState;
+  /** Refresh if stale. Awaits only when there is nothing cached to serve. */
+  ensureFresh(): Promise<void>;
+  /** Force a refresh regardless of TTL. Rejects on failure. */
+  refresh(): Promise<void>;
+}
+
 export interface BackendRegistryOptions {
   /** Where the brain repo lives (handed to every backend). */
   brainPath: string;
@@ -71,7 +103,7 @@ export interface BackendRegistry {
    * The Claude backend's discovery source, once the registry is built. Null
    * when discovery is disabled or the deployment runs a different backend.
    */
-  getModelSource(): Promise<ModelSource | null>;
+  getModelSource(): Promise<ModelDiscoverySource | null>;
   /** Drop the profile memo so the next read reflects a refresh or settings change. */
   invalidateProfiles(): void;
 }
@@ -115,6 +147,60 @@ function buildSnapshot(
   return { backends: ordered, byId, defaultBackendId: resolvedDefaultId };
 }
 
+
+const BACKEND_SPECIFIERS = {
+  claude: "@schlessera/brain-backend-claude",
+  pi: "@schlessera/brain-backend-pi",
+} as const;
+
+function unknownBackendError(primary: string): Error {
+  return new Error(
+    `AGENT_BACKEND="${primary}" does not match any configured backend ` +
+      `(expected "claude" or "pi").`
+  );
+}
+
+function missingBackendError(primary: "claude" | "pi"): Error {
+  if (primary === "pi") {
+    return new Error(
+      'AGENT_BACKEND=pi but "@schlessera/brain-backend-pi" is not installed. ' +
+        "Add it (with its pi SDK dependencies) or set AGENT_BACKEND=claude."
+    );
+  }
+  return new Error(
+    `AGENT_BACKEND=${primary} but "@schlessera/brain-backend-claude" is not installed. ` +
+      "Add it (it carries the Claude Agent SDK) or set AGENT_BACKEND=pi."
+  );
+}
+
+/**
+ * Boot-time guard: the SELECTED backend's package must at least RESOLVE, so a
+ * broken install refuses to start instead of reporting healthy and failing
+ * every agent turn (the guarantee the old static import gave, restored without
+ * giving up the lazy load — `require.resolve` never executes the module, so
+ * the Agent SDK still loads on first use only). Called by `createApp()` next
+ * to the auth assertions; skipped when an explicit registry is injected.
+ *
+ * An unrecognized AGENT_BACKEND fails here too, for the same reason.
+ *
+ * The `resolve` parameter exists for tests (simulating an absent package);
+ * production callers pass nothing.
+ */
+export function assertBackendResolvable(
+  agent: AgentConfig,
+  resolve: (specifier: string) => void = (specifier) => {
+    createRequire(import.meta.url).resolve(specifier);
+  }
+): void {
+  const primary = agent.backend || "claude";
+  if (!(primary in BACKEND_SPECIFIERS)) throw unknownBackendError(primary);
+  const key = primary as keyof typeof BACKEND_SPECIFIERS;
+  try {
+    resolve(BACKEND_SPECIFIERS[key]);
+  } catch {
+    throw missingBackendError(key);
+  }
+}
 
 export function createBackendRegistry(
   options: BackendRegistryOptions
@@ -245,11 +331,7 @@ export function createBackendRegistry(
     try {
       claude = require("@schlessera/brain-backend-claude");
     } catch {
-      throw new Error(
-        `AGENT_BACKEND=${agent.backend ?? "claude"} but ` +
-          '"@schlessera/brain-backend-claude" is not installed. ' +
-          "Add it (it carries the Claude Agent SDK) or set AGENT_BACKEND=pi."
-      );
+      throw missingBackendError("claude");
     }
     if (typeof claude.createClaudeBackend !== "function") {
       throw new Error(
@@ -283,10 +365,7 @@ export function createBackendRegistry(
     try {
       mod = require("@schlessera/brain-backend-pi");
     } catch {
-      throw new Error(
-        'AGENT_BACKEND=pi but "@schlessera/brain-backend-pi" is not installed. ' +
-          "Add it (with its pi SDK dependencies) or set AGENT_BACKEND=claude."
-      );
+      throw missingBackendError("pi");
     }
     if (typeof mod.createPiBackend !== "function") {
       throw new Error(
@@ -311,10 +390,7 @@ export function createBackendRegistry(
     // misconfiguration — fail loudly instead of silently coercing to claude and
     // running on the wrong backend with nothing in the logs.
     if (agent.backend && !backends.some((b) => b.id === primary)) {
-      throw new Error(
-        `AGENT_BACKEND="${primary}" does not match any configured backend ` +
-          `(expected "claude" or "pi").`
-      );
+      throw unknownBackendError(primary);
     }
     return buildSnapshot(backends, primary);
   }
@@ -353,7 +429,7 @@ export function createStaticBackendRegistry(
 function makeRegistry(
   getRegistry: () => Promise<RegistrySnapshot>,
   getHidden: () => string[],
-  getModelSource: () => Promise<ModelSource | null>
+  getModelSource: () => Promise<ModelDiscoverySource | null>
 ): BackendRegistry {
   let profileSnapshot: ProfileSnapshot | null = null;
 

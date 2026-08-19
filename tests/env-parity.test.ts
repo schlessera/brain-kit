@@ -167,6 +167,25 @@ describe("environment documentation", () => {
     });
   }
 
+  for (const dir of withEnv) {
+    test(`packages/${dir}: the chokepoint is reachable from the package entry`, () => {
+      // A contract a consumer cannot read is a contract a consumer will guess
+      // at. The brain-ui shell had to peek at process.env.BRAIN_UI_REVERSE_GEOCODE
+      // raw because ui-backend-claude's resolver was not exported — the ambient
+      // read moved out of the library and straight into its consumer, which is
+      // RC3 one level out. Checked against the API-surface report rather than by
+      // importing the package, since several entries pull bun:sqlite or a DOM.
+      const report = readFileSync(join(ROOT, "api-report", `${dir}.txt`), "utf8");
+      const rootExports = /export "\." \([^)]*\)\n([\s\S]*?)(?=\nexport "|$)/.exec(report);
+      expect(rootExports).not.toBeNull();
+      const names = rootExports![1]
+        .split("\n")
+        .map((line) => line.trim().replace(/^type /, ""))
+        .filter(Boolean);
+      expect(names).toContain("ENV_VARS");
+    });
+  }
+
   for (const dir of allPackages.filter((d) => !withEnv.includes(d))) {
     test(`packages/${dir}: no stale env block without a descriptor`, () => {
       let readme: string;
