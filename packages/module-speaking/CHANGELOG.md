@@ -1,5 +1,12 @@
 # @schlessera/brain-module-speaking
 
+## 0.14.0
+
+### Patch Changes
+
+- Updated dependencies [59de559]
+  - @schlessera/brain@0.14.0
+
 ## 0.13.1
 
 ### Patch Changes

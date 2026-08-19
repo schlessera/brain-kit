@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-module-images",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "Image generation and editing for brain-kit — routes between OpenAI and Gemini image models by capability, not by preference",
   "license": "MIT",
   "keywords": [
