@@ -187,6 +187,30 @@ its source has a single owner for the duration.
 | W6 | F7 docs, G4 env docs, G9 | `README.md`, `ROADMAP.md`, `docs/` | done |
 | W7 | D2 consumer change | `brain-ui` repo | blocked on W2 |
 
+## Adversarial review
+
+The guards were reviewed by an independent model (gpt-5.6-sol, high effort)
+against commit d809656, with the review prompt pointed at one question: how
+could someone satisfy each guard while the thing it guards is broken. Three
+findings, all real:
+
+- **R1 — the env-parity read check had a hole where its own subject lives.**
+  It scanned for `process.env.X`, but every resolver takes the environment as a
+  parameter and reads `env.X`, so a variable added to the chokepoint and left
+  out of the descriptor passed. Fixed with an AST detector covering direct,
+  bracket, typed-parameter, defaulted-parameter and aliased reads, proven
+  against `tests/fixtures/env-reads.fixture.ts` rather than assumed.
+- **R2 — `check-module-casts.ts` matched raw lines**, so a cast inside a comment
+  or a string failed the lint while a cast split across two lines by a formatter
+  passed. Sent back to be rewritten on TypeScript assertion nodes, the way
+  `check-env-access.ts` already works.
+- **R3 — no changeset** for a release that changes exported module-author types
+  and every package's environment handling. Written at the end of the pass.
+
+The first two are the useful kind of finding: a gate that is noisy is a gate
+that gets deleted, and a gate with a hole where its own subject lives is worse
+than no gate, because it reads as coverage.
+
 ## Progress log
 
 Newest last.
@@ -225,3 +249,7 @@ Newest last.
   first time, having previously existed only in the consumer's `.env.example`.
   W2's richer `required: false | string` (the CONDITION that makes a variable
   required) was adopted as the shared contract over W3's boolean.
+- Non-ui-server work committed as d809656 so the review had a stable snapshot
+  while W2 kept editing.
+- R1 fixed and proven on a fixture; R2 delegated back to W4; R3 pending the end
+  of the pass.

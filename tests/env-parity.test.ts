@@ -14,6 +14,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
+import ts from "typescript";
 import {
   BEGIN,
   END,
@@ -26,6 +27,73 @@ import {
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
 
+/** Names that look like an environment variable rather than a field. */
+const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
+
+/**
+ * Every environment variable name read in a chokepoint file, whether through
+ * `process.env` directly or through a parameter holding the environment.
+ *
+ * Syntactic on purpose: the object being read is either `process.env` or an
+ * identifier declared as `NodeJS.ProcessEnv`/`ProcessEnv`, which is exactly how
+ * every resolver in this repo is written, and needs no type checker.
+ */
+function envReadsIn(file: string): Set<string> {
+  const source = ts.createSourceFile(
+    file,
+    readFileSync(file, "utf8"),
+    ts.ScriptTarget.ESNext,
+    true
+  );
+  const envIdentifiers = new Set<string>();
+  const names = new Set<string>();
+
+  const typeNamesEnv = (type: ts.TypeNode | undefined): boolean =>
+    !!type && /(^|\.)ProcessEnv$/.test(type.getText(source).replace(/\s/g, ""));
+
+  const isEnvObject = (node: ts.Expression): boolean => {
+    if (ts.isIdentifier(node)) return envIdentifiers.has(node.text);
+    return (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "process" &&
+      node.name.text === "env"
+    );
+  };
+
+  // Two passes: collect the identifiers that hold an environment first, since a
+  // parameter is declared before it is read but a variable may not be.
+  const collect = (node: ts.Node): void => {
+    if (
+      (ts.isParameter(node) || ts.isVariableDeclaration(node)) &&
+      ts.isIdentifier(node.name) &&
+      (typeNamesEnv(node.type) ||
+        (node.initializer !== undefined && isEnvObject(node.initializer)))
+    ) {
+      envIdentifiers.add(node.name.text);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && isEnvObject(node.expression)) {
+      if (ENV_NAME.test(node.name.text)) names.add(node.name.text);
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      isEnvObject(node.expression) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      ENV_NAME.test(node.argumentExpression.text)
+    ) {
+      names.add(node.argumentExpression.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return names;
+}
+
 const withEnv = packagesWithEnv();
 const allPackages = readdirSync(PACKAGES_DIR, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -34,6 +102,20 @@ const allPackages = readdirSync(PACKAGES_DIR, { withFileTypes: true })
 describe("environment documentation", () => {
   test("some package declares an environment contract", () => {
     expect(withEnv.length).toBeGreaterThan(0);
+  });
+
+  test("the env-read detector sees both read forms", () => {
+    // A gate is only worth what it catches, so prove it on a fixture rather
+    // than trusting that the real chokepoints happen to pass.
+    const fixture = join(ROOT, "tests", "fixtures", "env-reads.fixture.ts");
+    const found = envReadsIn(fixture);
+    expect([...found].sort()).toEqual([
+      "ALIASED_READ",
+      "BRACKET_READ",
+      "DEFAULTED_PARAM_READ",
+      "DIRECT_READ",
+      "TYPED_PARAM_READ",
+    ]);
   });
 
   for (const dir of withEnv) {
@@ -69,17 +151,17 @@ describe("environment documentation", () => {
     test(`packages/${dir}: every literal env read is declared`, async () => {
       // The chokepoint lint proves nothing else in the package reads the
       // environment. This proves the chokepoint itself declares what it reads:
-      // a `process.env.NEW_THING` added inside env.ts and left out of ENV_VARS
-      // would otherwise be invisible to the documentation and to G4.
+      // a variable read inside env.ts and left out of ENV_VARS would otherwise
+      // be invisible to the documentation and to this gate.
+      //
+      // Reads take two forms and BOTH must be covered. `process.env.X` is the
+      // obvious one. The resolvers, though, take the environment as a parameter
+      // (`resolveEnv(env: NodeJS.ProcessEnv = process.env)`) and then read
+      // `env.X` — so a text scan for `process.env` sees almost nothing and
+      // passes while the descriptor omits a real variable. Found by an
+      // adversarial review of exactly this test.
       const pkg = await loadPackageEnv(dir);
-      const source = readFileSync(pkg.envModule, "utf8");
-      const literals = new Set<string>();
-      for (const match of source.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)\b/g)) {
-        literals.add(match[1]);
-      }
-      for (const match of source.matchAll(/process\.env\[\s*["']([A-Z][A-Z0-9_]*)["']/g)) {
-        literals.add(match[1]);
-      }
+      const literals = envReadsIn(pkg.envModule);
       const declared = new Set(pkg.vars.map((spec) => spec.name));
       expect([...literals].filter((name) => !declared.has(name)).sort()).toEqual([]);
     });
