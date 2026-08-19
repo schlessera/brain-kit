@@ -41,3 +41,7 @@ export type {
 export { ALL_SOURCES, SOURCES, REVIEW_STATUSES } from "./types.js";
 
 export { default, configSchema, type JobsConfig } from "./module.js";
+
+// Environment contract (chokepoint: src/config/env.ts).
+export { ENV_VARS, resolveEnv } from "./config/env.js";
+export type { EnvVarSpec, JobsEnv } from "./config/env.js";

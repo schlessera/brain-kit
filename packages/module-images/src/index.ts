@@ -13,3 +13,5 @@ export {
   type Provider,
   type ProviderId,
 } from "./types.js";
+export { ENV_VARS, resolveEnv, readEnvVar } from "./config/env.js";
+export type { EnvVarSpec, ImagesEnv } from "./config/env.js";

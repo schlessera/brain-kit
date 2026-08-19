@@ -7,6 +7,10 @@ export "." (./src/index.ts)
   type BrainAccess
   type BrainToolDeps
   type CreatePiBackendOptions
+  DYNAMIC_ENV_READS
+  type DynamicEnvReadSpec
+  ENV_VARS
+  type EnvVarSpec
   PI_BACKEND_ID
   type PiProfile
   type PiSessionFactory
@@ -23,3 +27,4 @@ export "." (./src/index.ts)
   listPiSessions
   mapPiEvent
   normalizeMessages
+  readEnvVar

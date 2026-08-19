@@ -22,3 +22,8 @@ export type {
   DiscoverResult,
   AliasChecks,
 } from "./model-discovery.js";
+
+// Environment contract (chokepoint: src/config/env.ts). envSnapshot stays
+// internal — the whole-environment passthrough is not for consumers.
+export { ENV_VARS, DYNAMIC_ENV_READS, resolveEnv, readEnvVar } from "./config/env.js";
+export type { EnvVarSpec, DynamicEnvReadSpec, ClaudeBackendEnv } from "./config/env.js";

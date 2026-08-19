@@ -23,16 +23,21 @@ export "." (./src/index.ts)
   type CommandModule
   type CompletionProvider
   type ContentPart
+  type CoreEnv
   DEFAULT_CANONICAL
   DEFAULT_DIR_ANCHORS
   DEFAULT_EXCLUDE
   DEFAULT_STALENESS
+  DYNAMIC_ENV_READS
   type Document
   type DocumentRelevance
   type DocumentStatus
   type DocumentType
+  type DynamicEnvReadSpec
+  ENV_VARS
   type EmbeddingProvider
   type Enrichment
+  type EnvVarSpec
   type HygieneContext
   type IndexOptions
   type IndexStats
@@ -106,11 +111,13 @@ export "." (./src/index.ts)
   loadUserConfig
   normalizeFrontmatterDates
   openDatabase
+  readEnvVar
   repoRelativePathSchema
   rerank
   resolveAgentRunner
   resolveCompletionProvider
   resolveEmbeddingProvider
+  resolveEnv
   resolveRoot
   resolveWikiLink
   resolveWritable

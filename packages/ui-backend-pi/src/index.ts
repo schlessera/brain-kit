@@ -25,3 +25,8 @@ export { createTurnContext } from "./turn-context.js";
 export type { TurnContext } from "./turn-context.js";
 
 export { listPiSessions, getPiHistory, normalizeMessages } from "./history.js";
+
+// Environment contract (chokepoint: src/config/env.ts). No resolveEnv here:
+// the package's only read is data-driven (config-named apiKeyEnv).
+export { ENV_VARS, DYNAMIC_ENV_READS, readEnvVar } from "./config/env.js";
+export type { EnvVarSpec, DynamicEnvReadSpec } from "./config/env.js";

@@ -4,12 +4,15 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  ENV_VARS
+  type EnvVarSpec
   type GeneratedImage
   type ImageInput
   ImageProviderError
   type ImageRequest
   type ImageResult
   type ImagesConfig
+  type ImagesEnv
   type ModelCapabilities
   PROVIDERS
   type Provider
@@ -22,6 +25,8 @@ export "." (./src/index.ts)
   estimateOpenAiCost
   manifest
   providerFor
+  readEnvVar
+  resolveEnv
   route
 
 export "./module" (./src/module.ts)

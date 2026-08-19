@@ -134,3 +134,7 @@ export type {
   Asset,
 } from "./lib/types.js";
 export { VALID_STATUSES, VALID_RELEVANCES, ASSET_EXTENSIONS } from "./lib/types.js";
+
+// Environment contract (chokepoint: src/config/env.ts)
+export { ENV_VARS, DYNAMIC_ENV_READS, resolveEnv, readEnvVar } from "./config/env.js";
+export type { EnvVarSpec, DynamicEnvReadSpec, CoreEnv } from "./config/env.js";

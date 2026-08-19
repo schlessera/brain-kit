@@ -5,8 +5,11 @@
 
 export "." (./src/index.ts)
   ALL_SOURCES
+  ENV_VARS
+  type EnvVarSpec
   type JobRow
   type JobsConfig
+  type JobsEnv
   type LocationScoring
   REVIEW_STATUSES
   type RawJob
@@ -31,6 +34,7 @@ export "." (./src/index.ts)
   openDatabase
   parseScoringConfig
   rescoreAllJobs
+  resolveEnv
   runScrape
   scoreJob
   scoreMaxes

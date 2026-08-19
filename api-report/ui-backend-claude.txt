@@ -5,10 +5,15 @@
 
 export "." (./src/index.ts)
   type AliasChecks
+  type ClaudeBackendEnv
   type ClaudeBackendOptions
   DEFAULT_PROFILES
+  DYNAMIC_ENV_READS
   type DiscoverOptions
   type DiscoverResult
+  type DynamicEnvReadSpec
+  ENV_VARS
+  type EnvVarSpec
   type InferenceProfile
   type InferenceProfileInput
   type ModelSource
@@ -20,3 +25,5 @@ export "." (./src/index.ts)
   defineProfiles
   discoverAnthropicModels
   modelCachePath
+  readEnvVar
+  resolveEnv
