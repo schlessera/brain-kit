@@ -3,8 +3,11 @@
 Turn a set of architecture findings into deterministic mechanisms that make the
 same drift impossible, and land the fixes those mechanisms require.
 
-Status: in progress on branch `enforcement-gates`. Workstream status is tracked
-in [Workstreams](#workstreams); every item carries its own state.
+Status: complete on branch `enforcement-gates`, unmerged and unpushed. Ten
+gates and five fixes landed across nine commits; 1483 tests pass, typecheck,
+lint and build are clean, and a changeset covers the eight packages whose
+shipped files moved. The `brain-ui` consumer change sits uncommitted in that
+repo and cannot be verified end to end until these packages publish.
 
 This plan exists because the findings below are not bugs — they are the residue
 of decisions that were correct when made and were never re-checked. Fixing them
@@ -195,12 +198,12 @@ its source has a single owner for the duration.
 | id | Scope | Owns | State |
 | --- | --- | --- | --- |
 | W1 | G1, G2, G3, G8 + CI yml package list | `tests/`, `scripts/`, `.github/` | done (f19f878) |
-| W2 | F1, F2 (full injection), G5 | `packages/ui-server/src/` | done (73834da); review fixes in flight |
+| W2 | F1, F2 (full injection), G5 | `packages/ui-server/src/` | done |
 | W3 | F6, core env chokepoint (+ 5 more packages) | `packages/core/src/providers/`, `packages/core/src/config/` | done |
 | W4 | F5, G7 | `packages/core/src/lib/module-*.ts`, `packages/module-*/` | done |
 | W5 | G6 | `packages/ui-server/tests/integration/` | done |
 | W6 | F7 docs, G4 env docs, G9 | `README.md`, `ROADMAP.md`, `docs/` | done |
-| W7 | D2 consumer change | `brain-ui` repo | in progress |
+| W7 | D2 consumer change | `brain-ui` repo | done |
 
 ## Adversarial review
 
@@ -344,3 +347,38 @@ R9 through R11 are the sharpest lesson of the pass: G10 was written to enforce a
 rule that had been walked into, and was itself walkable within the hour. A gate
 gets the same adversarial reading as the code it guards, or it is just a
 comment that runs.
+- W2's final round landed as 38cf63f: the backend specifiers are gone from
+  every type position in `src`, the lazily-required module is typed by
+  hand-written structural mirrors with property-style members (so
+  `strictFunctionTypes` checks them contravariantly rather than bivariantly),
+  and five type-level assignability assertions against the real package fail the
+  build if a mirror drifts. The declaration gate now walks both the emitted
+  `.d.ts` and `src/`. `dbPath: ""` is honoured again.
+- Final state: 1483 pass / 24 skip / 0 fail, tsc clean, lint clean, build clean,
+  env docs in sync, changeset gate satisfied.
+
+## What this pass actually bought
+
+Ten gates, each closing a root cause rather than a finding:
+
+| Gate | Closes | Form |
+| --- | --- | --- |
+| G1 | RC1 | Every workspace enumeration asserted against the `packages/*` glob |
+| G2 | RC2 | Internal dependency edges declared in a table; undeclared imports fail |
+| G3 | RC3 | AST lint: one env reader per package, no module-scope freezing, no writes |
+| G4 | RC3 | Env docs generated from the descriptor; chokepoint reachable from the entry |
+| G5 | RC4 | One `openBrainDb()`; no raw `new Database(` outside `src/db/` |
+| G6 | RC4 | core's indexer feeds every ui-server reader; content asserted, not absence of throw |
+| G7 | RC5 | Module contract compiled from an author's seat |
+| G8 | RC6 | API surface snapshot; every export change is a reviewable diff |
+| G9 | doc drift | Repo-rooted paths and relative links resolve |
+| G10 | release drift | A changeset is required when shipped files change |
+
+The lesson worth keeping: three review rounds found holes in the GATES, not in
+the fixes. R1 (the env gate scanned the one read form its subjects do not use),
+R2 (a line-based lint that both cried wolf and missed the formatter's output)
+and R9/R10 (a changeset gate walkable within the hour of being written) were all
+mechanisms that read as coverage while catching nothing. A gate earns the same
+adversarial reading as the code it guards, and a gate nobody has watched fail is
+a gate nobody should trust — which is why every one of these was proven against
+a deliberate perturbation before being called done.
