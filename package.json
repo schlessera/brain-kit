@@ -8,7 +8,8 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "clean": "bun scripts/clean.ts",
-    "lint": "bun scripts/check-invisibles.ts",
+    "lint": "bun scripts/lint.ts",
+    "api-report": "bun scripts/api-report.ts",
     "test": "bun test packages tests --timeout 30000",
     "typecheck": "tsc --noEmit",
     "changeset": "changeset",

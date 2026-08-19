@@ -58,9 +58,11 @@ jobs:
             ui-backend-claude \
             ui-backend-pi \
             ui-render-puppeteer \
+            render-template \
             ui-server \
             ui-react \
             module-finance \
+            module-images \
             module-jobs \
             module-speaking
           do
@@ -92,9 +94,11 @@ jobs:
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
                 "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
                 "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
                 "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
+                "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
                 "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
                 "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
               },
@@ -108,9 +112,11 @@ jobs:
               "@schlessera/brain-backend-claude",
               "@schlessera/brain-backend-pi",
               "@schlessera/brain-render-puppeteer",
+              "@schlessera/brain-render-template",
               "@schlessera/brain-ui-server",
               "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
+              "@schlessera/brain-module-images",
               "@schlessera/brain-module-jobs",
               "@schlessera/brain-module-speaking",
             ];
@@ -134,6 +140,7 @@ jobs:
             "@schlessera/brain-ui-sdk/client",
             "@schlessera/brain-backend-claude",
             "@schlessera/brain-render-puppeteer",
+            "@schlessera/brain-render-template",
             "@schlessera/brain-ui-react",
           ];
           for (const name of nodePackages) {
@@ -146,6 +153,7 @@ jobs:
           const bunApiPackages = [
             "@schlessera/brain",
             "@schlessera/brain-module-finance",
+            "@schlessera/brain-module-images",
             "@schlessera/brain-module-jobs",
             "@schlessera/brain-module-speaking",
             "@schlessera/brain-backend-pi",

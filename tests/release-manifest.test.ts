@@ -44,6 +44,32 @@ function scriptPackageList(file: string): string[] {
 
 const packages = publishablePackages();
 const names = new Set(packages.map((p) => p.manifest.name));
+const dirs = packages.map((p) => p.dir).sort();
+const sortedNames = [...names].sort();
+
+/** Strips a subpath import down to its package name (`@scope/name/sub` → `@scope/name`). */
+function packageNameOf(specifier: string): string {
+  return specifier.split("/").slice(0, 2).join("/");
+}
+
+const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+
+/** The `for package in \ ... do` loop the pack job drives. */
+function ciPackLoop(): string[] {
+  const block = /for package in([\s\S]*?)\n\s*do\n/.exec(CI_YML);
+  if (!block) throw new Error("could not find the pack job's package loop in ci.yml");
+  return block[1]
+    .split(/\s+/)
+    .map((t) => t.replace(/\\$/, "").trim())
+    .filter(Boolean);
+}
+
+/** A `const <name> = [ ... ]` string list inside one of the smoke-test heredocs. */
+function ciImportList(variable: string): string[] {
+  const block = new RegExp(`const ${variable} = \\[([\\s\\S]*?)\\];`).exec(CI_YML);
+  if (!block) throw new Error(`could not find \`const ${variable} = [...]\` in ci.yml`);
+  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
 
 describe("release manifests", () => {
   test("there are packages to check", () => {
@@ -108,5 +134,96 @@ describe("release manifests", () => {
     // The fixed group guarantees this after a release; a drift here means a
     // hand-edited manifest and a release that will not do what it appears to.
     expect(new Set(packages.map((p) => p.manifest.version)).size).toBe(1);
+  });
+});
+
+// G1: every hand-maintained enumeration of the workspace is asserted against
+// the packages/* glob. The CI pack job shipped for months with a 10-package
+// list while 12 packages published — module-images and render-template got no
+// pack check and no consumer-import smoke test, and nothing could notice,
+// because the guard above only reads scripts/*.ts and the docs are prose.
+describe("workspace enumerations", () => {
+  test("the CI pack loop covers exactly the publishable package directories", () => {
+    // A package missing here publishes with no tarball-shape check and no
+    // smoke test; a stale entry fails the job on a directory that is gone.
+    expect(ciPackLoop().sort()).toEqual(dirs);
+  });
+
+  test("the CI smoke-test overrides pin a tarball for every publishable package", () => {
+    // The overrides map is how the consumer install resolves workspace deps to
+    // the packed tarballs. A package absent here resolves from the public
+    // registry instead, and the smoke test silently tests the PREVIOUS release.
+    const overridden = [...CI_YML.matchAll(/"(@schlessera\/[^"]+)":\s*`file:/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(overridden).toEqual(sortedNames);
+  });
+
+  test("the CI bun smoke-test import list covers every publishable package", () => {
+    expect(ciImportList("names").map(packageNameOf).sort()).toEqual(sortedNames);
+  });
+
+  test("the CI node smoke-test lists cover every publishable package, once", () => {
+    // Every package must be probed under Node — either it imports cleanly
+    // (nodePackages) or it fails only on its documented bun: dependency
+    // (bunApiPackages). A package in neither list gets no check at all; a
+    // package in both would hide a regression in one of the two expectations.
+    const node = ciImportList("nodePackages").map(packageNameOf);
+    const bunOnly = ciImportList("bunApiPackages").map(packageNameOf);
+    const both = node.filter((n) => bunOnly.includes(n));
+    expect(both).toEqual([]);
+    expect([...new Set([...node, ...bunOnly])].sort()).toEqual(sortedNames);
+  });
+
+  test("the README repository layout block enumerates exactly the publishable packages", () => {
+    const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+    const block = /## Repository layout\s*\n+```\n([\s\S]*?)```/.exec(readme);
+    if (!block) throw new Error("could not find the Repository layout code block in README.md");
+    const rows = [...block[1].matchAll(/^packages\/([a-z-]+)\s+(@schlessera\/[a-z-]+)/gm)];
+    expect(rows.map((m) => m[1]).sort()).toEqual(dirs);
+    expect(rows.map((m) => m[2]).sort()).toEqual(sortedNames);
+  });
+
+  test("the ROADMAP package table enumerates exactly the publishable packages", () => {
+    const roadmap = readFileSync(join(ROOT, "ROADMAP.md"), "utf8");
+    const section = /## Where this stands\n([\s\S]*?)\n## /.exec(roadmap);
+    if (!section) throw new Error("could not find the 'Where this stands' section in ROADMAP.md");
+    // First-column code spans of the table. Grouped rows abbreviate siblings
+    // (`brain-module-jobs` / `-speaking` / `-finance`); a span starting with a
+    // hyphen continues the previous span's prefix.
+    const listed: string[] = [];
+    for (const line of section[1].split("\n")) {
+      if (!/^\|\s*`/.test(line)) continue;
+      const firstCell = line.split("|")[1] ?? "";
+      for (const span of firstCell.matchAll(/`([^`]+)`/g)) {
+        const token = span[1];
+        const previous = listed[listed.length - 1];
+        const expanded =
+          token.startsWith("-") && previous
+            ? previous.slice(0, previous.lastIndexOf("-")) + token
+            : token;
+        listed.push(expanded);
+      }
+    }
+    expect(listed.map((n) => `@schlessera/${n.replace(/^@schlessera\//, "")}`).sort()).toEqual(
+      sortedNames
+    );
+  });
+
+  test("the ROADMAP prose package count agrees with the packages/* glob", () => {
+    // "Ten packages ship in lockstep" survived two package additions because
+    // no machine ever read the word "Ten".
+    const roadmap = readFileSync(join(ROOT, "ROADMAP.md"), "utf8");
+    const words: Record<string, number> = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+      eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+      fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
+      nineteen: 19, twenty: 20,
+    };
+    const counts = [...roadmap.matchAll(/\b([A-Za-z]+|\d+)\s+packages\s+ship\b/g)].map((m) =>
+      /^\d+$/.test(m[1]) ? Number(m[1]) : words[m[1].toLowerCase()]
+    );
+    expect(counts.length).toBeGreaterThan(0);
+    for (const count of counts) expect(count).toBe(packages.length);
   });
 });
