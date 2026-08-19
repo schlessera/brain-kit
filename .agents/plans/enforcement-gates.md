@@ -137,9 +137,13 @@ without its root cause closed will come back under a different name.
   path in a table is not a link and nothing ever resolved it. Scope is narrow by
   design — package-relative and content-repo paths are addressed to a reader,
   and a gate that cries wolf gets deleted.
-- **G10 — a changeset is required when published source changes.** A
-  pull-request CI job: if `packages/*/src` or a package manifest moved, a
-  changeset must be in the diff. Tests, fixtures and docs are ignored. Added
+- **G10 — a changeset is required when shipped package files change.** A
+  pull-request CI job (`scripts/check-changeset.ts`): what counts as shipped is
+  read from each package's own `files` field, so `skills/`, `migrations/`,
+  `templates/` and `docs/` count the moment a manifest says they ship, and the
+  rule follows a package that starts shipping something new. It requires an
+  ADDED changeset — editing one already on the base branch is someone else's
+  work — and exempts `changeset version` release pull requests explicitly. Tests, fixtures and docs are ignored. Added
   during the pass for the same reason as G9 — CONTRIBUTING.md has asked for this
   since the repo opened, the commit that made `ui-server`'s exports breaking
   shipped without one, and a review caught it rather than the build.
@@ -311,3 +315,32 @@ Newest last.
   while it sat in the tree, so that commit's message does not mention G6. The
   content is correct and the branch is unpushed; the record is here instead of
   in a history rewrite while other work is in flight.
+
+## Third review round
+
+Run over the whole delta since `73834da`, again asking how each new gate could
+be satisfied while the rule behind it is broken. Five findings:
+
+- **R7 — the optional-peer type leak was closed in `dist` but not in `src`.**
+  `agent/backend.ts` still carried `import type` and `typeof import(...)`
+  references to the Claude package, and the declaration-surface test inspected
+  only the emitted `.d.ts`, so it was green while the source graph still
+  required the package. Scope matters and was checked: the `brain-ui` shell sets
+  no `customConditions`, so the shipped consumer resolves `types` → `dist` and
+  is unaffected; the exposure is a consumer that sets the `bun` condition, as
+  this repo's own tsconfig does. Fixing one of two resolution paths and calling
+  the requirement removed is exactly the kind of half-measure a gate is supposed
+  to prevent.
+- **R8 — `dbPath: ""` regressed.** The effective-config fold used a truthiness
+  check, and SQLite treats an empty string as a valid anonymous temporary
+  database. The coercion bug the injection refactor was otherwise free of.
+- **R9 — the changeset gate missed everything shipped outside `src/`.**
+- **R10 — the changeset gate counted any changeset in the diff**, so a pull
+  request could pass on one already sitting on the base branch.
+- **R11 — the changeset named two packages** while eight had shipped files
+  change.
+
+R9 through R11 are the sharpest lesson of the pass: G10 was written to enforce a
+rule that had been walked into, and was itself walkable within the hour. A gate
+gets the same adversarial reading as the code it guards, or it is just a
+comment that runs.
