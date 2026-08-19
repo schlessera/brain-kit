@@ -75,7 +75,7 @@ turns every release into a major (0.4.0 → 1.0.0 instead of 0.5.0):
   can't evaluate the `workspace:` protocol as a semver range, so it treats every
   new version as out of range and majors anyway.
 
-With the `fixed` group, one such major promotes all eleven packages.
+With the `fixed` group, one such major promotes all twelve packages.
 `tests/release-manifest.test.ts` asserts both guards, so this fails the build
 rather than the release.
 

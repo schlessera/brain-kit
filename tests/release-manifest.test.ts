@@ -210,20 +210,32 @@ describe("workspace enumerations", () => {
     );
   });
 
-  test("the ROADMAP prose package count agrees with the packages/* glob", () => {
+  test("every prose package count agrees with the packages/* glob", () => {
     // "Ten packages ship in lockstep" survived two package additions because
     // no machine ever read the word "Ten".
-    const roadmap = readFileSync(join(ROOT, "ROADMAP.md"), "utf8");
+    // Every document that states how many packages ship. ROADMAP said "Ten"
+    // through two package additions; the release skill and CONTRIBUTING said
+    // "eleven" through one, and the skill is the file an agent loads BEFORE
+    // cutting a release — the worst possible place for a stale number.
+    const sources = [
+      "ROADMAP.md",
+      "CONTRIBUTING.md",
+      ".agents/skills/release/SKILL.md",
+    ];
+    const prose = sources.map((f) => readFileSync(join(ROOT, f), "utf8")).join("\n");
     const words: Record<string, number> = {
       one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
       eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
       fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
       nineteen: 19, twenty: 20,
     };
-    const counts = [...roadmap.matchAll(/\b([A-Za-z]+|\d+)\s+packages\s+ship\b/g)].map((m) =>
-      /^\d+$/.test(m[1]) ? Number(m[1]) : words[m[1].toLowerCase()]
-    );
-    expect(counts.length).toBeGreaterThan(0);
+    // "N packages ship", "N packages move", "all N packages".
+    const counts = [
+      ...prose.matchAll(/\b(?:all\s+)?([A-Za-z]+|\d+)\s+packages\b/g),
+    ]
+      .map((m) => (/^\d+$/.test(m[1]) ? Number(m[1]) : words[m[1].toLowerCase()]))
+      .filter((n): n is number => n !== undefined);
+    expect(counts.length).toBeGreaterThan(2);
     for (const count of counts) expect(count).toBe(packages.length);
   });
 });
