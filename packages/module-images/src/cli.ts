@@ -4,7 +4,8 @@ import { dirname, extname, relative } from "path";
 import { resolveWritable, safeResolve } from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
-import { configSchema, type ImagesConfig } from "./module.js";
+import { readEnvVar } from "./config/env.js";
+import type { ImagesConfig } from "./module.js";
 import { availableModels, providerFor } from "./providers/index.js";
 import { route, type RoutingDecision } from "./routing.js";
 import { ImageProviderError, type ImageInput, type ImageRequest } from "./types.js";
@@ -114,11 +115,11 @@ function describe(decision: RoutingDecision): string {
   return decision.reason;
 }
 
-export const imageCommand: CommandModule = {
+export const imageCommand: CommandModule<ImagesConfig> = {
   summary: "Generate and edit images, routed between providers by capability",
   helpBlock: HELP,
 
-  async run(argv: string[], ctx: CommandContext): Promise<number> {
+  async run(argv: string[], ctx: CommandContext<ImagesConfig>): Promise<number> {
     let parsed: ParsedArgs;
     try {
       parsed = parseArgs(argv);
@@ -126,7 +127,9 @@ export const imageCommand: CommandModule = {
       console.error((e as Error).message);
       return 1;
     }
-    const cfg: ImagesConfig = configSchema.parse(ctx.config ?? {});
+    // ctx.config is the loader-validated block, typed by the module contract
+    // (defaults already applied — no re-parse, no cast).
+    const cfg = ctx.config;
     const models = availableModels(cfg);
 
     if (parsed.positional[0] === "models") {
@@ -243,7 +246,7 @@ export const imageCommand: CommandModule = {
     }
 
     const provider = providerFor(model.provider);
-    const apiKey = process.env[provider.apiKeyEnv];
+    const apiKey = readEnvVar(provider.apiKeyEnv);
     if (!apiKey) {
       console.error(`${provider.apiKeyEnv} is not set.`);
       return 1;

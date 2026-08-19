@@ -8,6 +8,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "clean": "bun scripts/clean.ts",
+    "env-docs": "bun scripts/env-docs.ts",
     "lint": "bun scripts/lint.ts",
     "api-report": "bun scripts/api-report.ts",
     "test": "bun test packages tests --timeout 30000",

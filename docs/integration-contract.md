@@ -5,14 +5,14 @@ on. Anything NOT listed here is an internal implementation detail and can
 change without notice. Contract changes require a `CONTRACT:` commit prefix, a
 same-commit update of this file, and a major version bump of `@schlessera/brain-*`.
 
-Lineage: this is the public successor of the private brain's
-`scripts/INTEGRATION.md`; shapes are unchanged unless marked.
+Lineage: this is the public successor of the `INTEGRATION.md` that lived in
+the private brain's `scripts` directory; shapes are unchanged unless marked.
 
 ## Consumers
 
 | Consumer | Surfaces used |
 |----------|---------------|
-| brain-ui (`server/src/brain/client.ts`) | CLI `--json` commands, brain.db reads (voice keyterms), file paths |
+| brain-ui (`packages/ui-server/src/brain/client.ts`) | CLI `--json` commands, brain.db reads (voice keyterms), file paths |
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 

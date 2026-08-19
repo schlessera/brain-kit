@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { safeResolve } from "@schlessera/brain";
 
+import { resolveEnv } from "./config/env.js";
 import { openDatabase } from "./db.js";
 import { runScrape } from "./scrape.js";
 import { scrapeSites } from "./browser-scrape.js";
@@ -27,7 +28,7 @@ import {
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
 import { ALL_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
 import type { ReviewStatus, Source } from "./types.js";
-import { configSchema, type JobsConfig } from "./module.js";
+import type { JobsConfig } from "./module.js";
 
 // ---------------------------------------------------------------------------
 // Resolution: config + taxonomy + paths from the brain root
@@ -42,13 +43,12 @@ interface JobsCtx {
   criteriaPath: string;
 }
 
-async function resolveJobsCtx(ctx: CommandContext): Promise<JobsCtx> {
-  // ctx.config is the loader-validated block; ctx.taxonomy the merged
-  // taxonomy. No re-loading of brain.config (the old reload path silently
-  // fell back to schema defaults on any error).
-  const jobsConfig = configSchema.parse(
-    ctx.config ?? { criteria: "career/opportunities/search-criteria.md" }
-  );
+async function resolveJobsCtx(ctx: CommandContext<JobsConfig>): Promise<JobsCtx> {
+  // ctx.config is the loader-validated block, typed by the module contract;
+  // ctx.taxonomy the merged taxonomy. No re-loading of brain.config (the old
+  // reload path silently fell back to schema defaults on any error), and no
+  // re-parse — the loader already applied the schema and its defaults.
+  const jobsConfig = ctx.config;
 
   const opportunitiesDir = ctx.taxonomy.dirForType("opportunity") ?? jobsConfig.opportunitiesDir;
   // dbPath is schema-constrained to a repo-relative path; safeResolve also
@@ -233,7 +233,7 @@ async function runBrowserPhase(
     return [];
   }
 
-  const cdpUrl = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
+  const cdpUrl = resolveEnv().cdpUrl;
   if (!(await chromeReachable(cdpUrl))) {
     if (!jctx.json) {
       console.log(
@@ -705,7 +705,7 @@ Subcommands:
   scaffold <id>           Create an opportunity dir from a job, mark interested
   show <id> | open <id> | decide <id> <status> | search <query> | gc [--purge]`;
 
-const command: CommandModule = {
+const command: CommandModule<JobsConfig> = {
   summary: "Job-search pipeline: scrape boards, score, dedup, triage",
   helpBlock: HELP,
   async run(args, ctx) {

@@ -17,8 +17,9 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
-import { homedir } from "os";
 import { join, relative, sep } from "path";
+
+import { resolveEnv } from "../../config/env.js";
 
 import type { SkillEmitter } from "../seams.js";
 import { discoverSkills, type DiscoverOptions, type SkillSources } from "./discover.js";
@@ -110,7 +111,7 @@ export function installBinLinks(root: string): BinLinkResult {
   const linked: string[] = [];
   const warnings: string[] = [];
 
-  const binDir = process.env.XDG_BIN_HOME || join(homedir(), ".local", "bin");
+  const binDir = resolveEnv().binDir;
   mkdirSync(binDir, { recursive: true });
 
   const target = join(root, "node_modules", ".bin", "brain");

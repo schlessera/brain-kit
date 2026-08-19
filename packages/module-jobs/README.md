@@ -153,3 +153,18 @@ Before scraping a board:
 
 **You are responsible for how you use these scrapers.** They are provided as-is,
 with no warranty, for individual use.
+
+## Environment
+
+Every variable this package reads, and what happens when it is unset. This
+table is generated from the package's env chokepoint — the single file allowed
+to touch `process.env`.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `CHROME_CDP_URL` | DevTools endpoint of the Chrome instance used to scrape browser-only job boards. Unreachable/absent Chrome skips the browser phase. | http://127.0.0.1:9222 |
+
+Generated from `packages/module-jobs/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

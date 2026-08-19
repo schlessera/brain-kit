@@ -3,10 +3,11 @@
  *
  * Ported from the reference brain's embedder, trimmed to embeddings only:
  * asset description and chunk-context generation now live in enrichment.ts on
- * top of a CompletionProvider. Retrieval asymmetry, batching,
- * retry/backoff, and the GOOGLE_API_KEY-suppression hack are preserved verbatim.
+ * top of a CompletionProvider. Retrieval asymmetry, batching, and
+ * retry/backoff are preserved verbatim.
  */
 
+import { readEnvVar } from "../../config/env.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults.js";
@@ -49,17 +50,13 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
 
   async function getClient() {
     if (!client) {
-      const apiKey = process.env[apiKeyEnv];
+      const apiKey = readEnvVar(apiKeyEnv);
       if (!apiKey) {
         throw new Error(
           `${apiKeyEnv} environment variable is required for Gemini embeddings`
         );
       }
 
-      // Temporarily unset GOOGLE_API_KEY to suppress the SDK's
-      // "Both GOOGLE_API_KEY and GEMINI_API_KEY are set" warning.
-      const savedGoogleKey = process.env.GOOGLE_API_KEY;
-      delete process.env.GOOGLE_API_KEY;
       const { GoogleGenAI } = await import("@google/genai").catch(() => {
         throw new Error(
           "@google/genai is not installed — it is an optional peer dependency " +
@@ -67,8 +64,13 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
             "Install it with `bun add @google/genai`."
         );
       });
+      // When both GOOGLE_API_KEY and GEMINI_API_KEY are set, the SDK logs a
+      // one-line "using GOOGLE_API_KEY" warning from its constructor even
+      // though the explicit `apiKey` option below is what actually wins
+      // (verified against @google/genai 2.17.1: getApiKeyFromEnv() runs
+      // unconditionally). Cosmetic, so we accept it — the old delete/restore
+      // of GOOGLE_API_KEY was a process-global mutation spanning an await.
       client = new GoogleGenAI({ apiKey });
-      if (savedGoogleKey) process.env.GOOGLE_API_KEY = savedGoogleKey;
     }
     return client;
   }

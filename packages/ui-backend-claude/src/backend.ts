@@ -27,6 +27,7 @@ import {
   buildSystemPromptAppend,
   createWriteLock,
 } from "@schlessera/brain-ui-sdk/server";
+import { envSnapshot } from "./config/env.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
@@ -473,7 +474,7 @@ export function createClaudeBackend(
         };
       }
       if (Object.keys(profileEnv).length > 0) {
-        sdkOptions.env = { ...process.env, ...profileEnv };
+        sdkOptions.env = { ...envSnapshot(), ...profileEnv };
       }
 
       const queryPrompt =

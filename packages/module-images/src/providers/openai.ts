@@ -14,6 +14,7 @@ import {
   OPENAI_PRESET_SIZES as PRESETS,
   type Resolution,
 } from "../shape.js";
+import { resolveEnv } from "../config/env.js";
 import {
   ImageProviderError,
   type ImageRequest,
@@ -21,8 +22,6 @@ import {
   type ModelCapabilities,
   type Provider,
 } from "../types.js";
-
-const BASE = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
 
 /**
  * gpt-image-2 is the current flagship. gpt-image-1.5 is kept for exactly one
@@ -186,7 +185,7 @@ export const openaiProvider: Provider = {
       // `transparent` is only legal on models that support it; routing guarantees that.
       if (req.transparent) payload.background = "transparent";
 
-      const res = await fetch(`${BASE}/images/generations`, {
+      const res = await fetch(`${resolveEnv().openaiBaseUrl}/images/generations`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -212,7 +211,7 @@ export const openaiProvider: Provider = {
       form.append("mask", new Blob([req.mask.data as BlobPart], { type: "image/png" }), "mask.png");
     }
 
-    const res = await fetch(`${BASE}/images/edits`, { method: "POST", headers, body: form });
+    const res = await fetch(`${resolveEnv().openaiBaseUrl}/images/edits`, { method: "POST", headers, body: form });
     if (!res.ok) await readError(res);
     return decode((await res.json()) as OpenAiImageResponse, model, req);
   },

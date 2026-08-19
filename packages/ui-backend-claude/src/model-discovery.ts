@@ -26,6 +26,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { resolveEnv } from "./config/env.js";
 import type { InferenceProfileInput } from "./profiles.js";
 
 const MODELS_URL = "https://api.anthropic.com/v1/models";
@@ -87,10 +88,11 @@ function authHeaders(): Record<string, string> | null {
     "anthropic-version": ANTHROPIC_VERSION,
     accept: "application/json",
   };
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const { anthropicApiKey, claudeCodeOauthToken } = resolveEnv();
+  const apiKey = anthropicApiKey?.trim();
   if (apiKey) return { ...base, "x-api-key": apiKey };
 
-  const oauth = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  const oauth = claudeCodeOauthToken?.trim();
   if (oauth) {
     return {
       ...base,

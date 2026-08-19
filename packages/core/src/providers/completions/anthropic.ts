@@ -6,6 +6,7 @@
  * with multimodal content blocks and configurable max_tokens.
  */
 
+import { readEnvVar } from "../../config/env.js";
 import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { CLAUDE_FAST_MODEL } from "../../lib/llm-defaults.js";
@@ -64,7 +65,7 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     parts?: ContentPart[];
     maxTokens?: number;
   }): Promise<string> {
-    const apiKey = process.env[apiKeyEnv];
+    const apiKey = readEnvVar(apiKeyEnv);
     if (!apiKey) {
       throw new Error(`${apiKeyEnv} environment variable is required for Anthropic completions`);
     }

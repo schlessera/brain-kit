@@ -22,11 +22,10 @@
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 import { existsSync } from "node:fs";
 
+import { resolveEnv } from "./config/env.js";
 import { Semaphore } from "./semaphore.js";
 
-const CHROME_PATH_CANDIDATES = [
-  process.env.PUPPETEER_EXECUTABLE_PATH,
-  process.env.BRAIN_UI_CHROME_PATH,
+const CHROME_PATH_FALLBACKS = [
   "/usr/bin/google-chrome-stable",
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
@@ -42,7 +41,10 @@ const DEVICE_SCALE_FACTOR = 2;
 const MAX_PDF_PAGES = 50;
 
 function resolveChromePath(explicit?: string): string {
-  for (const p of [explicit, ...CHROME_PATH_CANDIDATES]) {
+  // Env candidates are resolved per call, not at import — the process may
+  // gain the variables after this module loads.
+  const { puppeteerExecutablePath, chromePath } = resolveEnv();
+  for (const p of [explicit, puppeteerExecutablePath, chromePath, ...CHROME_PATH_FALLBACKS]) {
     if (p && existsSync(p)) return p;
   }
   throw new Error(

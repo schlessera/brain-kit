@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { safeResolve } from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
-import { configSchema, type FinanceConfig } from "./module.js";
+import type { FinanceConfig } from "./module.js";
 import {
   buildPortfolio,
   renderReport,
@@ -75,15 +75,14 @@ function newClient(opts: FinanceOptions, slug: string): number {
   return 0;
 }
 
-const command: CommandModule = {
+const command: CommandModule<FinanceConfig> = {
   summary: "Accounts-receivable report, ledger sync, and client scaffolding",
   helpBlock: HELP,
-  async run(args: string[], ctx: CommandContext): Promise<number> {
+  async run(args: string[], ctx: CommandContext<FinanceConfig>): Promise<number> {
     const sub = args[0];
-    // ctx.config is the loader-validated block; re-parse only to brand the
-    // type (defaults already applied, never a silent fallback).
-    const cfg = configSchema.parse(ctx.config ?? {});
-    const opts = optionsFrom(ctx.root, cfg);
+    // ctx.config is the loader-validated block, typed by the module contract
+    // (defaults already applied — no re-parse, no cast).
+    const opts = optionsFrom(ctx.root, ctx.config);
 
     if (!sub || sub === "report") {
       const pf = buildPortfolio(opts);

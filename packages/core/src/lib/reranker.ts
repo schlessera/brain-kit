@@ -1,3 +1,4 @@
+import { resolveEnv } from "../config/env.js";
 import type { SearchResult } from "./types.js";
 
 export interface RerankerConfig {
@@ -60,7 +61,7 @@ function isAssetResult(path: string): boolean {
  * Get the default reranker mode based on environment.
  */
 export function getDefaultRerankerMode(): RerankerConfig["mode"] {
-  const envMode = process.env.BRAIN_RERANK_MODE;
+  const envMode = resolveEnv().rerankMode;
   if (envMode === "none" || envMode === "heuristic") return envMode;
   return "heuristic";
 }

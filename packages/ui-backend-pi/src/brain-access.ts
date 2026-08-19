@@ -14,6 +14,8 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 
+import { readEnvVar } from "./config/env.js";
+
 import {
   initContext,
   openDatabase,
@@ -159,7 +161,7 @@ function resolveEmbeddings(ctx: BrainContext): EmbeddingProvider | undefined {
       return resolveEmbeddingProvider(embCfg);
     }
     const keyEnv = embCfg?.apiKeyEnv ?? "GEMINI_API_KEY";
-    if (process.env[keyEnv]) return resolveEmbeddingProvider(embCfg);
+    if (readEnvVar(keyEnv)) return resolveEmbeddingProvider(embCfg);
   } catch {
     /* degrade to FTS-only */
   }

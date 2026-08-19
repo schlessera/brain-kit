@@ -20,6 +20,7 @@ import { resolve } from "path";
 import { Glob } from "bun";
 import matter from "gray-matter";
 
+import { readEnvVar } from "./config/env.js";
 import { initContext } from "./lib/context.js";
 import type { BrainContext } from "./lib/context.js";
 import { openDatabase, initVecSupport } from "./lib/db.js";
@@ -59,7 +60,7 @@ export async function startMcpServer(
   const embKeyEnv = embConfig?.apiKeyEnv ?? "GEMINI_API_KEY";
   try {
     if (embCustom) embeddings = resolveEmbeddingProvider(embConfig);
-    else if (process.env[embKeyEnv]) embeddings = resolveEmbeddingProvider(embConfig);
+    else if (readEnvVar(embKeyEnv)) embeddings = resolveEmbeddingProvider(embConfig);
   } catch (e) {
     console.error(`brain MCP: embedding provider unavailable — ${(e as Error).message}`);
   }

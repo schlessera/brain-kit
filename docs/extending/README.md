@@ -91,7 +91,8 @@ there is no ambiguity:
   modules may extend taxonomy values, but the file-first model is fixed.
 - The chunking strategy and hybrid-search ranking pipeline (fusion weights,
   heuristic reranker). Tunable constants, not interfaces.
-- The wire protocol (`shared/protocol.ts`) — it is the contract every backend
+- The wire protocol (`packages/ui-sdk/src/protocol.ts`, published as
+  `@schlessera/brain-ui-sdk/protocol`) — it is the contract every backend
   targets.
 - Bun + Hono server, React PWA client — no framework adapters.
 - The `brain` CLI surface and MCP tool names (contract-stable per the integration

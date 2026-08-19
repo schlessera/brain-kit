@@ -11,6 +11,8 @@
 
 import { join } from "path";
 
+import { readEnvVar } from "../config/env.js";
+
 import { buildTaxonomy } from "../lib/taxonomy.js";
 import { resolveRoot } from "../lib/config.js";
 import { CONFIG_FILENAMES } from "../lib/config.js";
@@ -71,10 +73,10 @@ const COMPLETION_KEY_ENV: Record<string, string> = {
 };
 
 function completionEntryAvailable(entry: unknown): boolean {
-  if (entry === undefined) return !!process.env.GEMINI_API_KEY; // default gemini-flash
+  if (entry === undefined) return !!readEnvVar("GEMINI_API_KEY"); // default gemini-flash
   if (typeof entry !== "string") return true; // custom provider value
   const env = COMPLETION_KEY_ENV[entry];
-  return env ? !!process.env[env] : true; // unknown built-in name → let the resolver decide
+  return env ? !!readEnvVar(env) : true; // unknown built-in name → let the resolver decide
 }
 
 /**
@@ -99,7 +101,7 @@ function resolveProviders(brain: BrainContext): {
       embeddings = resolveEmbeddingProvider(embCfg);
     } else {
       const keyEnv = embCfg?.apiKeyEnv ?? "GEMINI_API_KEY";
-      if (process.env[keyEnv]) embeddings = resolveEmbeddingProvider(embCfg);
+      if (readEnvVar(keyEnv)) embeddings = resolveEmbeddingProvider(embCfg);
     }
   } catch (e) {
     console.error(`Warning: embedding provider unavailable — ${(e as Error).message}`);

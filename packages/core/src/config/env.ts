@@ -1,0 +1,141 @@
+/**
+ * Environment chokepoint — the ONLY file in this package allowed to touch
+ * `process.env` (enforced by `scripts/check-env-access.ts`).
+ *
+ * Two exports matter to the rest of the package:
+ * - `resolveEnv()` reads every statically-named variable at CALL time and
+ *   returns a plain config object. Call it where the value is needed; never
+ *   capture the result at module scope — a key absent at import time may be
+ *   present at call time, and the lint bans module-scope env constants.
+ * - `readEnvVar()` covers the config-named reads (a `brain.config` provider
+ *   block can point at any variable via `apiKeyEnv`), which no static list
+ *   can enumerate. `DYNAMIC_ENV_READS` documents those families.
+ *
+ * `ENV_VARS` is the runtime-introspectable contract: the env parity gate
+ * diffs it against the package's env documentation in both directions.
+ */
+
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/** One environment variable this package reads. */
+export interface EnvVarSpec {
+  /** Variable name as it appears in the environment. */
+  name: string;
+  /** What it controls. */
+  description: string;
+  /** Behaviour when the variable is unset, when there is a default. */
+  default?: string;
+  /** True when the package cannot do its job at all without it. */
+  required: boolean;
+}
+
+/** A family of reads whose variable NAME is data, not code. */
+export interface DynamicEnvReadSpec {
+  /** Where the variable name comes from. */
+  source: string;
+  /** What the value is used for. */
+  description: string;
+}
+
+export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: "BRAIN_ROOT",
+    description: "Brain repository root, overriding cwd-based discovery.",
+    default: "nearest ancestor with brain.config.* or .git, else cwd",
+    required: false,
+  },
+  {
+    name: "BRAIN_RERANK_MODE",
+    description: 'Search reranker mode: "heuristic" or "none".',
+    default: "heuristic",
+    required: false,
+  },
+  {
+    name: "XDG_BIN_HOME",
+    description: "Directory the `brain` CLI symlink is installed into.",
+    default: "~/.local/bin",
+    required: false,
+  },
+  {
+    name: "NO_COLOR",
+    description: "Any non-empty value suppresses ANSI color in CLI output.",
+    required: false,
+  },
+  {
+    name: "BRAIN_CHROME_NO_SANDBOX",
+    description:
+      '"1" launches the render Chrome without its sandbox (required when running as root).',
+    default: "sandbox on",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_CHROME_NO_SANDBOX",
+    description:
+      "Same as BRAIN_CHROME_NO_SANDBOX — the spelling the brain-ui Docker image already sets.",
+    default: "sandbox on",
+    required: false,
+  },
+  {
+    name: "GEMINI_API_KEY",
+    description:
+      "Default API key for the built-in Gemini embedding/completion providers " +
+      "(default name only — a config `apiKeyEnv` can point elsewhere). Absent " +
+      "key degrades vector search to FTS.",
+    required: false,
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    description:
+      "Default API key for the built-in Anthropic completion provider " +
+      "(default name only — a config `apiKeyEnv` can point elsewhere).",
+    required: false,
+  },
+];
+
+export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
+  {
+    source: "brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv`",
+    description:
+      "API key for a built-in provider, read at call time under whatever " +
+      "name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY).",
+  },
+];
+
+/** Statically-named environment configuration, resolved at call time. */
+export interface CoreEnv {
+  /** BRAIN_ROOT, or undefined to fall back to cwd-based discovery. */
+  brainRoot: string | undefined;
+  /** BRAIN_RERANK_MODE, unvalidated (the reranker validates it). */
+  rerankMode: string | undefined;
+  /** XDG_BIN_HOME with the ~/.local/bin fallback applied. */
+  binDir: string;
+  /** NO_COLOR is set (to anything non-empty). */
+  noColor: boolean;
+  /** Either no-sandbox spelling is "1". */
+  chromeNoSandbox: boolean;
+}
+
+/** Resolve the statically-named variables. Reads happen here and only here. */
+export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
+  return {
+    brainRoot: env.BRAIN_ROOT || undefined,
+    rerankMode: env.BRAIN_RERANK_MODE,
+    binDir: env.XDG_BIN_HOME || join(homedir(), ".local", "bin"),
+    noColor: !!env.NO_COLOR,
+    chromeNoSandbox:
+      env.BRAIN_CHROME_NO_SANDBOX === "1" || env.BRAIN_UI_CHROME_NO_SANDBOX === "1",
+  };
+}
+
+/**
+ * Call-time read of a single variable whose name is data (see
+ * `DYNAMIC_ENV_READS`) or whose presence gates a feature. Never cache the
+ * result at module scope.
+ */
+export function readEnvVar(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  return env[name];
+}

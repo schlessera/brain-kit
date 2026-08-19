@@ -14,6 +14,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 
+import { resolveEnv } from "../config/env.js";
 import type { BrainContext } from "../lib/context.js";
 import { openDatabase } from "../lib/db.js";
 import { EMBEDDING_DIMENSIONS } from "../lib/models.js";
@@ -23,7 +24,9 @@ import type { EmbeddingProvider } from "../lib/seams.js";
 export class UsageError extends Error {}
 
 /** True when ANSI color must be suppressed (honored by any colorized output). */
-export const NO_COLOR = !!process.env.NO_COLOR;
+export function noColor(): boolean {
+  return resolveEnv().noColor;
+}
 
 export type Flags = Record<string, string | boolean>;
 

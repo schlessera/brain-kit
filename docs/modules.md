@@ -47,7 +47,7 @@ load, and unknown keys are load errors):
 | `taxonomy`      | `{ types?, classifierHints?, assetTitleRules?, propagation? }` | Types, capture hints, and rules merged into the effective taxonomy.                     |
 | `skills`        | `string`                                         | Path to the module's `skills/` directory (relative to the package root).                             |
 | `commands`      | `Record<word, () => import(...)>`                | **One** namespaced top-level CLI word, lazily imported (e.g. `brain jobs …`).                         |
-| `hygieneChecks` | `((ctx) => AuditIssue[])[]`                       | Extra checks surfaced by `brain audit`. `ctx` is `{ db, root, config }`.                              |
+| `hygieneChecks` | `((ctx) => AuditIssue[])[]`                       | Extra checks surfaced by `brain audit`. `ctx` is `{ db, root, config }`, with `config` typed by your configSchema. |
 | `indexRules`    | `{ dirAnchors?: string[] }`                       | Directory anchor files (for `[[dir/]]` wiki-link resolution).                                         |
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
 | `cron`          | `{ name, schedule, command }[]`                   | Advisory schedules consumed by container entrypoints and `brain doctor`.                              |
@@ -55,6 +55,32 @@ load, and unknown keys are load errors):
 Module commands receive `{ root, json, config, taxonomy }` — the module's own
 validated config block and the fully-merged taxonomy — so they never re-load
 `brain.config` themselves.
+
+`defineModule` threads the configSchema's parsed type end to end: `setup(config)`,
+`ctx.config` in every command's `run()`, and `ctx.config` in every hygiene check
+are all the schema's output type. No cast, no re-parse — the loader already
+failed hard on an invalid block, so what arrives is the validated value with
+defaults applied. A command that lives in its own file names the type once:
+
+```ts
+import type { CommandContext, CommandModule } from "@schlessera/brain";
+import type { JobsConfig } from "./module.js";
+
+const command: CommandModule<JobsConfig> = {
+  summary: "…",
+  async run(args, ctx) {
+    ctx.config.boards; // typed string[] — straight off the schema
+    return 0;
+  },
+};
+export default command;
+```
+
+Modules that ignore config (or declare no configSchema) need none of this —
+the parameter defaults to `unknown` and everything compiles as before.
+`bun run lint` refuses `ctx.config as X` in first-party module sources
+(`scripts/check-module-casts.ts`): the generic makes the cast unnecessary,
+and a cast would hide the contract regressing back to `unknown`.
 
 How the contribution merges into the taxonomy — collisions, ordering,
 overrides — is covered in

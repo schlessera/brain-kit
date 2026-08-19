@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
+import { readEnvVar } from "../../config/env.js";
 import { openDatabase } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { validate } from "../../lib/validate.js";
@@ -55,8 +56,8 @@ function preflight(cli: CliContext): Record<string, unknown> {
     config,
     contentDirs: { present, missing },
     keys: {
-      GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-      ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
+      GEMINI_API_KEY: !!readEnvVar("GEMINI_API_KEY"),
+      ANTHROPIC_API_KEY: !!readEnvVar("ANTHROPIC_API_KEY"),
     },
   };
 }

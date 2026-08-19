@@ -1,3 +1,4 @@
+import { resolveEnv } from "../../config/env.js";
 import type { DocumentRenderer } from "../../lib/seams.js";
 
 /** Thrown when PDF/PNG was asked for but the optional renderer is absent. */
@@ -46,8 +47,5 @@ export async function resolveDocumentRenderer(opts: {
  * image already sets, so honour it as well as the CLI-native spelling.
  */
 export function noSandboxFromEnv(): boolean {
-  return (
-    process.env.BRAIN_CHROME_NO_SANDBOX === "1" ||
-    process.env.BRAIN_UI_CHROME_NO_SANDBOX === "1"
-  );
+  return resolveEnv().chromeNoSandbox;
 }

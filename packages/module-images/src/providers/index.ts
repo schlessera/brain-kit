@@ -1,3 +1,4 @@
+import { readEnvVar } from "../config/env.js";
 import type { ImagesConfig } from "../module.js";
 import type { ModelCapabilities, Provider, ProviderId } from "../types.js";
 import { geminiProvider } from "./gemini.js";
@@ -19,9 +20,9 @@ export function providerFor(id: ProviderId): Provider {
  * and the difference should surface as "here is what I can do" rather than as a
  * failed API call.
  */
-export function availableModels(cfg: ImagesConfig, env = process.env): ModelCapabilities[] {
+export function availableModels(cfg: ImagesConfig, env?: NodeJS.ProcessEnv): ModelCapabilities[] {
   const disabled = new Set(cfg.disabledModels ?? []);
-  return PROVIDERS.filter((p) => !!env[p.apiKeyEnv]?.trim())
+  return PROVIDERS.filter((p) => !!readEnvVar(p.apiKeyEnv, env)?.trim())
     .flatMap((p) => p.models)
     .filter((m) => !disabled.has(m.id));
 }

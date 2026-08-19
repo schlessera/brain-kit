@@ -2,6 +2,8 @@ import { existsSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { z } from "zod";
 
+import { resolveEnv } from "../config/env.js";
+
 import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams.js";
 
 // ---------------------------------------------------------------------------
@@ -260,7 +262,8 @@ export const CONFIG_FILENAMES = ["brain.config.ts", "brain.config.json"];
  */
 export function resolveRoot(explicit?: string): string {
   if (explicit) return resolve(explicit);
-  if (process.env.BRAIN_ROOT) return resolve(process.env.BRAIN_ROOT);
+  const { brainRoot } = resolveEnv();
+  if (brainRoot) return resolve(brainRoot);
 
   const findUp = (marker: (dir: string) => boolean): string | null => {
     let dir = process.cwd();

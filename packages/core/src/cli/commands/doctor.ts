@@ -3,6 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 
+import { readEnvVar, resolveEnv } from "../../config/env.js";
 import { openDatabase, initVecSupport, getMeta, embeddingIdentityMatches } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
 import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
@@ -95,7 +96,7 @@ function checkGitHooks(root: string): Check {
 
 function checkSymlinks(root: string): Check {
   const broken: string[] = [];
-  const binDir = process.env.XDG_BIN_HOME || join(homedir(), ".local", "bin");
+  const binDir = resolveEnv().binDir;
   const binLink = join(binDir, "brain");
   try {
     if (lstatSync(binLink).isSymbolicLink() && !existsSync(binLink)) broken.push(binLink);
@@ -156,7 +157,7 @@ function checkDb(cli: CliContext): Check {
 
 async function checkEmbeddings(cli: CliContext): Promise<Check> {
   const keyEnv = (typeof cli.brain.config?.embeddings?.provider === "string" && cli.brain.config.embeddings?.apiKeyEnv) || "GEMINI_API_KEY";
-  if (!process.env[keyEnv]) {
+  if (!readEnvVar(keyEnv)) {
     return { id: "embeddings", status: "warn", detail: `${keyEnv} not set — vector search disabled (FTS still works)`, fix: `set ${keyEnv} to enable semantic search` };
   }
   if (!existsSync(cli.brain.dbPath)) return { id: "embeddings", status: "warn", detail: "no index yet", fix: "run `brain index --embeddings`" };

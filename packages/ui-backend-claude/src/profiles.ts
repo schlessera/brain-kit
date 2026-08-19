@@ -1,5 +1,7 @@
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
 
+import { readEnvVar } from "./config/env.js";
+
 /**
  * A resolved inference profile: a (model, endpoint, credentials) target the
  * Claude backend can run a conversation on. Descends from brain-ui's hardcoded
@@ -25,7 +27,7 @@ export interface InferenceProfile {
   source?: "builtin" | "declared" | "discovered";
   /** Env vars that must be present (non-empty) for this profile to be usable. */
   requiredEnvKeys: string[];
-  /** Environment overrides merged over `process.env` before the query runs. */
+  /** Environment overrides merged over the host environment before the query runs. */
   buildEnv(): Record<string, string>;
 }
 
@@ -93,14 +95,14 @@ export function defineProfiles(
           env.ANTHROPIC_BASE_URL = input.baseUrl;
         }
         if (input.authTokenEnv !== undefined) {
-          env.ANTHROPIC_AUTH_TOKEN = process.env[input.authTokenEnv] ?? "";
+          env.ANTHROPIC_AUTH_TOKEN = readEnvVar(input.authTokenEnv) ?? "";
           // Clear any inherited API key / OAuth token so the bearer-token path
           // wins over ambient credentials from the host process.
           env.ANTHROPIC_API_KEY = "";
           env.CLAUDE_CODE_OAUTH_TOKEN = "";
         }
         if (input.apiKeyEnv !== undefined) {
-          env.ANTHROPIC_API_KEY = process.env[input.apiKeyEnv] ?? "";
+          env.ANTHROPIC_API_KEY = readEnvVar(input.apiKeyEnv) ?? "";
         }
         if (input.modelAliases && input.model !== undefined) {
           Object.assign(env, modelEnv(input.model));
@@ -128,7 +130,7 @@ export function getProfile(
 
 export function isAvailable(profile: InferenceProfile): boolean {
   return profile.requiredEnvKeys.every((key) => {
-    const value = process.env[key];
+    const value = readEnvVar(key);
     return typeof value === "string" && value.trim().length > 0;
   });
 }

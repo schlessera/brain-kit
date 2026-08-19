@@ -47,3 +47,19 @@ Chrome against a live listener** and proves the page cannot reach it over
 fetch, WebSocket, prerender, preconnect, iframe, or popup
 (`tests/runtime.test.ts`). Predicate-only tests hid exactly these holes once;
 keep the runtime suite green.
+
+## Environment
+
+Every variable this package reads, and what happens when it is unset. This
+table is generated from the package's env chokepoint — the single file allowed
+to touch `process.env`.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `BRAIN_UI_CHROME_PATH` | Chrome/Chromium executable to launch (brain-ui's spelling; checked after PUPPETEER_EXECUTABLE_PATH). | well-known system install paths |
+| `PUPPETEER_EXECUTABLE_PATH` | Chrome/Chromium executable to launch (checked first). | well-known system install paths |
+
+Generated from `packages/ui-render-puppeteer/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

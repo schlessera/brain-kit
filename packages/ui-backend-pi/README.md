@@ -131,3 +131,24 @@ metadata table.
 the in-process `brain_search`/`brain_context` wrappers against a keyless FTS
 corpus, the pure `mapPiEvent` adapter, and history normalization (synthetic +
 a real `SessionManager` session file).
+
+## Environment
+
+Every variable this package reads, and what happens when it is unset. This
+table is generated from the package's env chokepoint — the single file allowed
+to touch `process.env`.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | Default API key gating the brain's embedding provider (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades search to FTS-only. | — |
+
+Reads whose variable *name* is configuration rather than code:
+
+| Name comes from | What the value is used for |
+| --- | --- |
+| brain.config `embeddings.apiKeyEnv` | API key presence check for the configured embedding provider, read at call time under whatever name the config declares (default: GEMINI_API_KEY). |
+
+Generated from `packages/ui-backend-pi/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

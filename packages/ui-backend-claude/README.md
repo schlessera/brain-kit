@@ -123,3 +123,29 @@ results back onto their assistant tool calls.
 `bun test` — no live model calls. The backend is exercised through an injected
 `queryFn` plus the shared cross-backend contract suite (terminal-frame
 invariants, capability honesty, permission gating).
+
+## Environment
+
+Every variable this package reads, and what happens when it is unset. This
+table is generated from the package's env chokepoint — the single file allowed
+to touch `process.env`.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | API key for the Anthropic Models API (model discovery). Takes precedence over the subscription token, mirroring the Agent SDK. | — |
+| `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token for the Anthropic Models API (model discovery), used when no API key is set. | — |
+| `NOMINATIM_URL` | Reverse-geocoding endpoint. | https://nominatim.openstreetmap.org |
+| `NOMINATIM_USER_AGENT` | Identifying User-Agent for Nominatim (usage-policy requirement). | brain-kit-ui/1.0 |
+
+Reads whose variable *name* is configuration rather than code:
+
+| Name comes from | What the value is used for |
+| --- | --- |
+| full environment passthrough | The Claude Code subprocess inherits the entire host environment (with profile overrides merged on top) when a profile overrides env. |
+| inference profile `authTokenEnv` / `apiKeyEnv` | Credential for a declared inference profile, read at query time under whatever name the profile declares (also drives profile availability). |
+
+Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

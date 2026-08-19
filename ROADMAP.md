@@ -6,14 +6,15 @@ with dates.
 
 ## Where this stands
 
-Ten packages ship in lockstep on npm under `@schlessera/brain-*`:
+Twelve packages ship in lockstep on npm under `@schlessera/brain-*`:
 
 | Package | What it is |
 | --- | --- |
 | `brain` | Core: CLI, MCP server, hybrid search, indexer, config/taxonomy, skills |
-| `brain-module-jobs` / `-speaking` / `-finance` | First-party content modules |
+| `brain-module-jobs` / `-speaking` / `-finance` / `-images` | First-party content modules |
 | `brain-ui-sdk` | Chat-UI wire protocol, runtime schemas, `AgentBackend`/`SpeechProvider` seams |
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
+| `brain-render-template` | Shared markdown/HTML → print-ready document shell |
 | `brain-render-puppeteer` | Optional HTML→PNG/PDF renderer, network-denied and scriptless |
 | `brain-ui-server` | Hono app factory: WS turn coordinator, auth, session catalog, routes |
 | `brain-ui-react` | React chat/files/voice components, stores, WS transport |

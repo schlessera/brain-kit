@@ -6,6 +6,7 @@
  * brain's generateContent usage and whatsup's Gemini backend.
  */
 
+import { readEnvVar } from "../../config/env.js";
 import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults.js";
@@ -45,13 +46,10 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
 
   async function getClient() {
     if (!client) {
-      const apiKey = process.env[apiKeyEnv];
+      const apiKey = readEnvVar(apiKeyEnv);
       if (!apiKey) {
         throw new Error(`${apiKeyEnv} environment variable is required for Gemini completions`);
       }
-      // Suppress the SDK's dual-key warning (see embeddings provider).
-      const savedGoogleKey = process.env.GOOGLE_API_KEY;
-      delete process.env.GOOGLE_API_KEY;
       const { GoogleGenAI } = await import("@google/genai").catch(() => {
         throw new Error(
           "@google/genai is not installed — it is an optional peer dependency " +
@@ -59,8 +57,10 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
             "Install it with `bun add @google/genai`."
         );
       });
+      // The SDK may log a cosmetic dual-key warning when both GOOGLE_API_KEY
+      // and GEMINI_API_KEY are set; the explicit apiKey option still wins
+      // (see embeddings provider for the evidence).
       client = new GoogleGenAI({ apiKey });
-      if (savedGoogleKey) process.env.GOOGLE_API_KEY = savedGoogleKey;
     }
     return client;
   }

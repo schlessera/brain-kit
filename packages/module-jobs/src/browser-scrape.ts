@@ -8,6 +8,8 @@
  */
 
 import { Database } from "bun:sqlite";
+
+import { resolveEnv } from "./config/env.js";
 import { openDatabase, logScrapeRun } from "./db.js";
 import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
 import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
@@ -395,7 +397,7 @@ export async function scrapeSites(opts: {
   sites?: string[];
   queries?: string[];
 }): Promise<Array<{ source: string; found: number; newJobs: number }>> {
-  const cdpUrl = opts.cdpUrl || process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
+  const cdpUrl = opts.cdpUrl || resolveEnv().cdpUrl;
   const verbose = opts.verbose ?? false;
   const browserSites = buildBrowserSites(opts.queries ?? []);
   const sites = opts.sites ?? Object.keys(browserSites);

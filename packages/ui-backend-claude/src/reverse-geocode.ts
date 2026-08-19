@@ -1,5 +1,7 @@
 import type { GeoCoords } from "@schlessera/brain-ui-sdk";
 
+import { resolveEnv } from "./config/env.js";
+
 /**
  * Reverse geocoding via OpenStreetMap's Nominatim. Turns a raw lat/long fix
  * into a human-readable place so Claude sees "Kreuzberg, Berlin, Germany"
@@ -17,10 +19,10 @@ const REQUEST_TIMEOUT_MS = 5000;
 
 // Read at call time (not module load) so config and tests can override it.
 function nominatimUrl(): string {
-  return process.env.NOMINATIM_URL || "https://nominatim.openstreetmap.org";
+  return resolveEnv().nominatimUrl;
 }
 function userAgent(): string {
-  return process.env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0";
+  return resolveEnv().nominatimUserAgent;
 }
 
 /**
@@ -30,10 +32,7 @@ function userAgent(): string {
  * then returns raw coordinates only.
  */
 function reverseGeocodeEnabled(): boolean {
-  const v = (
-    process.env.BRAIN_UI_REVERSE_GEOCODE ?? process.env.BRAIN_UI_REVERSE_GEOCODE
-  )?.toLowerCase();
-  return v !== "0" && v !== "off" && v !== "false";
+  return resolveEnv().reverseGeocodeEnabled;
 }
 const CACHE_TTL_MS = 5 * 60 * 1000;
 

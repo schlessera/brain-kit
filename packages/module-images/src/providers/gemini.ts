@@ -14,10 +14,8 @@
  * ends up in logs and proxy history.
  */
 
+import { resolveEnv } from "../config/env.js";
 import { ImageProviderError, type ModelCapabilities, type Provider } from "../types.js";
-
-const BASE =
-  process.env.GEMINI_BASE_URL?.trim() || "https://generativelanguage.googleapis.com/v1beta";
 
 const MODELS: ModelCapabilities[] = [
   {
@@ -156,7 +154,7 @@ export const geminiProvider: Provider = {
     if (req.aspect) responseFormat.aspect_ratio = req.aspect;
     if (req.resolution) responseFormat.image_size = req.resolution;
 
-    const res = await fetch(`${BASE}/interactions`, {
+    const res = await fetch(`${resolveEnv().geminiBaseUrl}/interactions`, {
       method: "POST",
       headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ model, input, response_format: responseFormat }),

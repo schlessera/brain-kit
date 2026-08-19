@@ -69,3 +69,21 @@ that all three Gemini models reject `image/png`, that their bytes arrive in
 `steps[].content[]` rather than the documented `output_image`, and that
 `gpt-image-1.5` rejects custom sizes that `gpt-image-2` accepts. None of those
 three are in the vendor documentation.
+
+## Environment
+
+Every variable this package reads, and what happens when it is unset. This
+table is generated from the package's env chokepoint — the single file allowed
+to touch `process.env`.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | API key for Google's image models (the gemini provider's declared apiKeyEnv). Absent key hides that provider's models. | — |
+| `GEMINI_BASE_URL` | Override for the Gemini Interactions API endpoint. | https://generativelanguage.googleapis.com/v1beta |
+| `OPENAI_API_KEY` | API key for the OpenAI image models (the openai provider's declared apiKeyEnv). Absent key hides that provider's models. | — |
+| `OPENAI_BASE_URL` | Override for the OpenAI REST endpoint. | https://api.openai.com/v1 |
+
+Generated from `packages/module-images/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

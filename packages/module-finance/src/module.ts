@@ -15,19 +15,20 @@ export const configSchema = z
 
 export type FinanceConfig = z.infer<typeof configSchema>;
 
-function optionsFrom(ctx: HygieneContext): FinanceOptions {
-  const cfg = configSchema.parse(ctx.config ?? {});
+function optionsFrom(ctx: HygieneContext<FinanceConfig>): FinanceOptions {
+  // ctx.config is the loader-validated block, typed by the module contract —
+  // defaults already applied, no re-parse or cast needed.
   return {
     root: ctx.root,
-    clientsDir: cfg.clientsDir,
-    feeTolerance: cfg.feeTolerance,
-    defaultCurrency: cfg.currency,
-    defaultTermsDays: cfg.termsDays,
+    clientsDir: ctx.config.clientsDir,
+    feeTolerance: ctx.config.feeTolerance,
+    defaultCurrency: ctx.config.currency,
+    defaultTermsDays: ctx.config.termsDays,
   };
 }
 
 /** Hygiene: flag ledgers whose generated table block lags behind their frontmatter. */
-function checkLedgerBlocksUpToDate(ctx: HygieneContext): AuditIssue[] {
+function checkLedgerBlocksUpToDate(ctx: HygieneContext<FinanceConfig>): AuditIssue[] {
   return checkSync(optionsFrom(ctx)).map((path) => ({
     path,
     severity: "warning" as const,
