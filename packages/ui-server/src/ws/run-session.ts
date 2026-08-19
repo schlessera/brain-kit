@@ -26,7 +26,7 @@ export async function runSession(
   coordinator.startingSessions += 1;
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
   try {
-    target = await resolveTurnTarget(host.catalog, initial.sessionId, initial.providerId);
+    target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
   } catch (err) {
     host.sendToClients({
       type: "error",

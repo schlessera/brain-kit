@@ -14,9 +14,8 @@
  * are too interactive to shell out for.
  */
 
-import { Database } from "bun:sqlite";
-import { existsSync } from "fs";
-import { basename, join } from "path";
+import type { Database } from "bun:sqlite";
+import { basename } from "path";
 import type {
   GraphCommunityPayload,
   GraphEdgePayload,
@@ -25,7 +24,7 @@ import type {
   GraphNodePayload,
   GraphSubgraphResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { getBrainRoot } from "../files/walker.js";
+import { BrainDbUnavailableError, openBrainDb } from "../db/brain-db.js";
 
 /** brain.db schema that first carries the graph tables. */
 export const MIN_SCHEMA_VERSION = 8;
@@ -59,8 +58,8 @@ export class GraphNotFoundError extends Error {
 }
 
 export interface GraphReadOptions {
-  /** Defaults to the repo the rest of the server reads (BRAIN_PATH). */
-  brainPath?: string;
+  /** The brain repo to read — injected by the route layer from ServerConfig. */
+  brainPath: string;
 }
 
 export interface ClustersOptions extends GraphReadOptions {
@@ -89,13 +88,25 @@ export const DEFAULT_STALE_DAYS = 180;
 
 // --- db access -------------------------------------------------------------
 
-function openDb(brainPath?: string): Database {
-  const dbPath = join(brainPath ?? getBrainRoot(), "brain.db");
-  if (!existsSync(dbPath)) throw new GraphUnavailableError("schema");
-  return new Database(dbPath, { readonly: true });
+/**
+ * Every open goes through src/db/brain-db.ts (the package-wide brain.db
+ * chokepoint). A missing file or a schema older than the package's baseline
+ * maps onto the same "schema" unavailability the route layer already renders;
+ * the graph-specific v8 gate stays per-mode below, because the neighborhood
+ * mode deliberately works on repos that predate the graph tables.
+ */
+function openDb(brainPath: string): Database {
+  try {
+    return openBrainDb(brainPath).db;
+  } catch (err) {
+    if (err instanceof BrainDbUnavailableError) {
+      throw new GraphUnavailableError("schema");
+    }
+    throw err;
+  }
 }
 
-function withDb<T>(brainPath: string | undefined, fn: (db: Database) => T): T {
+function withDb<T>(brainPath: string, fn: (db: Database) => T): T {
   const db = openDb(brainPath);
   try {
     return fn(db);
@@ -423,7 +434,7 @@ function isStale(db: Database, computedAt: string): boolean {
   return computed < indexed;
 }
 
-export function getGraphMeta(opts: GraphReadOptions = {}): GraphMetaResponse {
+export function getGraphMeta(opts: GraphReadOptions): GraphMetaResponse {
   let db: Database;
   try {
     db = openDb(opts.brainPath);
@@ -478,7 +489,7 @@ function unavailable(
 
 // --- modes -----------------------------------------------------------------
 
-export function getClusters(opts: ClustersOptions = {}): GraphSubgraphResponse {
+export function getClusters(opts: ClustersOptions): GraphSubgraphResponse {
   return withDb(opts.brainPath, (db) => {
     requireComputedGraph(db, readMetadata(db));
 
@@ -528,7 +539,7 @@ export function getNeighborhood(opts: NeighborhoodOptions): GraphSubgraphRespons
   });
 }
 
-export function getDiscovery(opts: DiscoveryOptions = {}): GraphSubgraphResponse {
+export function getDiscovery(opts: DiscoveryOptions): GraphSubgraphResponse {
   const maxDepth = clamp(opts.maxDepth ?? MAX_DISCOVERY_DEPTH, 1, MAX_DISCOVERY_DEPTH);
   const direction = opts.direction ?? "out";
 
@@ -605,7 +616,7 @@ export function getDiscovery(opts: DiscoveryOptions = {}): GraphSubgraphResponse
   });
 }
 
-export function getMaintenance(opts: MaintenanceOptions = {}): GraphMaintenanceResponse {
+export function getMaintenance(opts: MaintenanceOptions): GraphMaintenanceResponse {
   const staleDays = clamp(opts.staleDays ?? DEFAULT_STALE_DAYS, 1, 3650);
 
   return withDb(opts.brainPath, (db) => {

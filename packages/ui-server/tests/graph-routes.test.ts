@@ -4,7 +4,7 @@ import type {
   GraphMetaResponse,
   GraphSubgraphResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { graphRoutes } from "../src/routes/graph";
+import { createGraphRoutes } from "../src/routes/graph";
 import {
   computedGraph,
   createBrainFixture,
@@ -15,9 +15,10 @@ import {
 
 const BRAIN_PATH = `/tmp/brain-ui-graph-${process.pid}`;
 
+const graphRoutes = createGraphRoutes({ brainRoot: BRAIN_PATH });
+
 function useFixture(opts: FixtureOptions): void {
   createBrainFixture(BRAIN_PATH, opts);
-  process.env.BRAIN_PATH = BRAIN_PATH;
 }
 
 /** The full v8 corpus: linked notes plus everything an index run precomputes. */
@@ -28,7 +29,6 @@ function useComputedFixture(overrides: Partial<FixtureOptions> = {}): void {
 
 afterEach(() => {
   removeBrainFixture(BRAIN_PATH);
-  delete process.env.BRAIN_PATH;
 });
 
 async function get<T>(path: string): Promise<{ status: number; body: T }> {

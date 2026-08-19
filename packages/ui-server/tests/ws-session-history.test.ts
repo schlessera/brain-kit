@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { sendSessionHistory } from "../src/ws/history";
-import { resetClientsForTests, type WSContext } from "../src/ws/clients";
+import { type WSContext } from "../src/ws/clients";
 import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink";
 import type { SessionHistoryMessage, ServerSessionHistory } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -22,10 +22,6 @@ function frames(ws: { sent: string[] }): ServerSessionHistory[] {
 function userMsg(content: string): SessionHistoryMessage {
   return { role: "user", content, toolCalls: [] };
 }
-
-beforeEach(() => {
-  resetClientsForTests();
-});
 
 describe("sendSessionHistory chunking", () => {
   test("small history is one replacing frame (no append)", () => {

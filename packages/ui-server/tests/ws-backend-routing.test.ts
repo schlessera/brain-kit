@@ -5,52 +5,37 @@ import {
   expect,
   test,
 } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
-import {
-  resetBackendForTests,
-  setBackendsForTests,
-} from "../src/agent/backend";
-import { closeDb, getDb } from "../src/db/client";
-import {
-  handleClientMessage,
-  resetForTests,
-  resolveTurnTarget,
-} from "../src/ws/handler";
-import {
-  resetClientsForTests,
-  type WSContext,
-} from "../src/ws/clients";
+import { resolveTurnTarget } from "../src/ws/routing";
+import type { WSContext } from "../src/ws/clients";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createSessionCatalog } from "../src/ws/session-catalog";
+import {
+  closeDb,
+  getDb,
+  handleClientMessage,
+  removeDbFile,
+  resetForTests,
+  setBackendsForTests,
+  testRegistry,
+  useTestDb,
+} from "./helpers/test-host";
 
-const catalog = createSessionCatalog();
+const catalog = createSessionCatalog(() => getDb());
 
 const TEST_DB = `/tmp/brain-ui-ws-routing-${process.pid}.db`;
 
-function removeTestDb() {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    const path = TEST_DB + suffix;
-    if (existsSync(path)) unlinkSync(path);
-  }
-}
-
 beforeEach(() => {
   closeDb();
-  removeTestDb();
-  process.env.DB_PATH = TEST_DB;
-  resetBackendForTests();
+  removeDbFile(TEST_DB);
+  useTestDb(TEST_DB);
   resetForTests();
-  resetClientsForTests();
 });
 
 afterEach(() => {
   resetForTests();
-  resetClientsForTests();
-  resetBackendForTests();
   closeDb();
-  removeTestDb();
-  delete process.env.DB_PATH;
+  removeDbFile(TEST_DB);
 });
 
 function insertSession(
@@ -81,7 +66,7 @@ describe("resolveTurnTarget", () => {
     const gemini = makeFakeBackend({ id: "gemini" });
     setBackendsForTests([claude, gemini], "claude");
 
-    const target = await resolveTurnTarget(catalog, undefined, "gemini");
+    const target = await resolveTurnTarget(testRegistry(), catalog, undefined, "gemini");
 
     expect(target.backend).toBe(gemini);
     expect(target.profileId).toBe("gemini");
@@ -93,7 +78,7 @@ describe("resolveTurnTarget", () => {
     setBackendsForTests([claude, gemini], "claude");
     insertSession("resume-gemini", "gemini", "gemini");
 
-    const target = await resolveTurnTarget(catalog, "resume-gemini", "claude");
+    const target = await resolveTurnTarget(testRegistry(), catalog, "resume-gemini", "claude");
 
     expect(target.backend).toBe(gemini);
     expect(target.profileId).toBe("gemini");
@@ -105,7 +90,7 @@ describe("resolveTurnTarget", () => {
     setBackendsForTests([claude, gemini], "claude");
     insertSession("legacy", "claude", null);
 
-    const target = await resolveTurnTarget(catalog, "legacy", "gemini");
+    const target = await resolveTurnTarget(testRegistry(), catalog, "legacy", "gemini");
 
     expect(target.backend).toBe(claude);
     expect(target.profileId).toBe("claude");
@@ -117,7 +102,7 @@ describe("resolveTurnTarget", () => {
     setBackendsForTests([claude, gemini], "claude");
     insertSession("stale-profile", "removed", "gemini");
 
-    const target = await resolveTurnTarget(catalog, "stale-profile", "claude");
+    const target = await resolveTurnTarget(testRegistry(), catalog, "stale-profile", "claude");
 
     expect(target.backend).toBe(gemini);
     expect(target.profileId).toBeUndefined();

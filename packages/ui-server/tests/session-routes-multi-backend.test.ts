@@ -5,36 +5,32 @@ import {
   expect,
   test,
 } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
-import {
-  resetBackendForTests,
-  setBackendsForTests,
-} from "../src/agent/backend";
-import { closeDb, getDb } from "../src/db/client";
-import { sessionRoutes } from "../src/routes/sessions";
+import type { Database } from "bun:sqlite";
+import type { Hono } from "hono";
+import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
+import { createStaticBackendRegistry } from "../src/agent/backend";
+import { createUiDb } from "../src/db/client";
+import { createSessionRoutes } from "../src/routes/sessions";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
-const TEST_DB = `/tmp/brain-ui-session-routes-${process.pid}.db`;
+let db: Database;
+let sessionRoutes: Hono;
 
-function removeTestDb() {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    const path = TEST_DB + suffix;
-    if (existsSync(path)) unlinkSync(path);
-  }
+function setBackendsForTests(backends: AgentBackend[], defaultBackendId?: string) {
+  sessionRoutes = createSessionRoutes({
+    registry: createStaticBackendRegistry(backends, defaultBackendId),
+    db,
+  });
 }
 
+const getDb = () => db;
+
 beforeEach(() => {
-  closeDb();
-  removeTestDb();
-  process.env.DB_PATH = TEST_DB;
-  resetBackendForTests();
+  db = createUiDb(":memory:");
 });
 
 afterEach(() => {
-  resetBackendForTests();
-  closeDb();
-  removeTestDb();
-  delete process.env.DB_PATH;
+  db.close();
 });
 
 describe("multi-backend session routes", () => {

@@ -6,21 +6,21 @@ import { getConnInfo } from "hono/bun";
  * localhost.
  *
  * SECURITY: header trust is OFF by default. An exposed port lets anyone spoof
- * `x-forwarded-for`, so the real socket address is used unless `TRUST_PROXY=1`
- * — set that ONLY when a trusted reverse proxy in front of brain-ui sets the
- * forwarding header.
+ * `x-forwarded-for`, so the real socket address is used unless the resolved
+ * config says `trustProxy` (TRUST_PROXY=1) — set that ONLY when a trusted
+ * reverse proxy in front of brain-ui sets the forwarding header.
  */
 export interface TailscaleGuardOptions {
-  /** Trust x-forwarded-for / x-real-ip. Defaults to `TRUST_PROXY === "1"`. */
-  trustProxy?: boolean;
+  /** Trust x-forwarded-for / x-real-ip. */
+  trustProxy: boolean;
+  /** How many trusted proxies front the app (default 1). */
+  trustProxyHops?: number;
 }
 
-export function tailscaleGuard(
-  options: TailscaleGuardOptions = {}
-): MiddlewareHandler {
-  const trustProxy = options.trustProxy ?? process.env.TRUST_PROXY === "1";
+export function tailscaleGuard(options: TailscaleGuardOptions): MiddlewareHandler {
+  const { trustProxy, trustProxyHops } = options;
   return async (c, next) => {
-    if (isTailscaleAllowed(c, trustProxy)) {
+    if (isTailscaleAllowed(c, trustProxy, trustProxyHops)) {
       await next();
     } else {
       return c.json({ error: "VPN access required" }, 403);
@@ -29,8 +29,12 @@ export function tailscaleGuard(
 }
 
 /** True when the request's client IP is a Tailscale or loopback address. */
-export function isTailscaleAllowed(c: Context, trustProxy: boolean): boolean {
-  const ip = clientIp(c, trustProxy);
+export function isTailscaleAllowed(
+  c: Context,
+  trustProxy: boolean,
+  trustProxyHops = 1
+): boolean {
+  const ip = clientIp(c, trustProxy, trustProxyHops);
   return isTailscaleIp(ip) || isLocalIp(ip);
 }
 
@@ -42,11 +46,12 @@ export function isTailscaleAllowed(c: Context, trustProxy: boolean): boolean {
  *
  * X-Forwarded-For is parsed RIGHT-TO-LEFT: each proxy appends the address it saw,
  * so the rightmost entries are the trusted hops we control and the leftmost is
- * client-controllable. `TRUST_PROXY_HOPS` (default 1) is how many proxies front
- * this app; the client IP is the entry just before them. Taking the leftmost
- * entry (the old behaviour) let a client spoof its address by pre-seeding XFF.
+ * client-controllable. `trustProxyHops` (TRUST_PROXY_HOPS, default 1) is how many
+ * proxies front this app; the client IP is the entry just before them. Taking the
+ * leftmost entry (the old behaviour) let a client spoof its address by
+ * pre-seeding XFF.
  */
-export function clientIp(c: Context, trustProxy: boolean): string {
+export function clientIp(c: Context, trustProxy: boolean, trustProxyHops = 1): string {
   if (trustProxy) {
     const forwarded = c.req.header("x-forwarded-for");
     if (forwarded) {
@@ -55,7 +60,7 @@ export function clientIp(c: Context, trustProxy: boolean): string {
         .map((part) => part.trim())
         .filter(Boolean);
       if (parts.length > 0) {
-        const hops = Math.max(1, Number(process.env.TRUST_PROXY_HOPS) || 1);
+        const hops = Math.max(1, trustProxyHops);
         const ip = parts[Math.max(0, parts.length - hops)];
         if (ip) return ip;
       }

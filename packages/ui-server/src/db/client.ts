@@ -2,40 +2,21 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-let db: Database | null = null;
-let configuredPath: string | null = null;
-
 /**
- * Override the database path before the first `getDb()` call (used by
- * `createApp({ dbPath })`). Configuring after the handle exists would silently
- * split state across two files — refuse instead.
+ * The UI's OWN SQLite database (sessions, passkeys, settings, cron runs) —
+ * distinct from the brain database, which is opened read-only via
+ * src/db/brain-db.ts.
+ *
+ * No module-level handle: `createApp()` opens one per app instance and threads
+ * it to every consumer, so two apps with different configuration can coexist
+ * in one process and a test gets an isolated database by construction.
  */
-export function configureDb(dbPath: string): void {
-  if (db && configuredPath !== dbPath) {
-    throw new Error(
-      "configureDb() called after the database was opened; set dbPath before the first use"
-    );
-  }
-  configuredPath = dbPath;
-}
-
-export function getDb(): Database {
-  if (!db) {
-    const dbPath =
-      configuredPath || process.env.DB_PATH || join(process.cwd(), "brain-ui.db");
-    db = new Database(dbPath, { create: true });
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec("PRAGMA foreign_keys = ON");
-    runMigrations(db);
-  }
+export function createUiDb(dbPath: string): Database {
+  const db = new Database(dbPath, { create: true });
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
+  runMigrations(db);
   return db;
-}
-
-export function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
-  }
 }
 
 function runMigrations(database: Database) {

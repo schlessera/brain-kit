@@ -1,5 +1,4 @@
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { getBackendForSession } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { locationErrorText } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
@@ -158,7 +157,7 @@ export async function handleClientMessage(
       });
 
       try {
-        const backend = await getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
+        const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         const messages = await backend.getHistory(msg.sessionId);
         sendSessionHistory(ws, msg.sessionId, messages);
         // A resume of a RUNNING session (reattach) must not report idle: idle

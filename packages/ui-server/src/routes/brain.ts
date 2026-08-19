@@ -1,16 +1,20 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import type { BrainClient } from "../brain/client.js";
+import { subprocessEnv } from "../config/env.js";
 import {
-  brainSearch,
-  brainBriefing,
-  brainStats,
-  brainList,
-  brainAdd,
-  brainCliCommand,
-} from "../brain/client.js";
-import { buildKeyterms, writeCache } from "../voice/keyterm-builder.js";
+  buildKeyterms,
+  writeCache,
+  type KeytermSettings,
+} from "../voice/keyterm-builder.js";
 import { existsSync } from "fs";
 import { join } from "path";
+
+export interface BrainRoutesDeps {
+  brain: BrainClient;
+  brainPath: string;
+  keyterms: KeytermSettings;
+}
 
 /**
  * Locate the brain repo's `whatsup` script, relative to the repo root.
@@ -31,14 +35,17 @@ function findWhatsupScript(brainPath: string): string | null {
   return null;
 }
 
-export const brainRoutes = new Hono()
+export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
+  const { brain, brainPath, keyterms } = deps;
+
+  return new Hono()
   .get("/brain/search", async (c) => {
     const q = c.req.query("q");
     if (!q) {
       return c.json({ error: "Query parameter 'q' is required" }, 400);
     }
     try {
-      const { results, warnings } = await brainSearch(q, {
+      const { results, warnings } = await brain.search(q, {
         type: c.req.query("type"),
         tag: c.req.query("tag"),
         limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
@@ -55,7 +62,7 @@ export const brainRoutes = new Hono()
 
   .get("/brain/briefing", async (c) => {
     try {
-      const content = await brainBriefing();
+      const content = await brain.briefing();
       return c.json({ content });
     } catch (err) {
       return c.json(
@@ -66,10 +73,6 @@ export const brainRoutes = new Hono()
   })
 
   .post("/brain/whatsup", async (c) => {
-    const BRAIN_PATH =
-      process.env.BRAIN_PATH ||
-      `${process.env.HOME || "/root"}/brain`;
-
     // Defeat reverse-proxy buffering for SSE
     c.header("X-Accel-Buffering", "no");
 
@@ -91,7 +94,7 @@ export const brainRoutes = new Hono()
       try {
         await send({ type: "start", text: "Running whatsup briefing..." });
 
-        const script = findWhatsupScript(BRAIN_PATH);
+        const script = findWhatsupScript(brainPath);
         if (!script) {
           // Terminate with the frames the client actually handles: it only
           // reads "progress" and "done", so an "error" type would leave the
@@ -109,10 +112,10 @@ export const brainRoutes = new Hono()
         // --claude backend uses --bare mode, which can't read the
         // CLAUDE_CODE_OAUTH_TOKEN either).
         const proc = Bun.spawn(["bun", script, "--gemini"], {
-          cwd: BRAIN_PATH,
+          cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...process.env, NO_COLOR: "1" },
+          env: subprocessEnv({ NO_COLOR: "1" }),
         });
 
         const reader = proc.stdout.getReader();
@@ -159,7 +162,7 @@ export const brainRoutes = new Hono()
 
   .get("/brain/stats", async (c) => {
     try {
-      const stats = await brainStats();
+      const stats = await brain.stats();
       return c.json(stats);
     } catch (err) {
       return c.json(
@@ -171,7 +174,7 @@ export const brainRoutes = new Hono()
 
   .get("/brain/list", async (c) => {
     try {
-      const results = await brainList({
+      const results = await brain.list({
         type: c.req.query("type"),
         tag: c.req.query("tag"),
         status: c.req.query("status"),
@@ -190,9 +193,6 @@ export const brainRoutes = new Hono()
   .post("/brain/sync", async (c) => {
     // Stream sync output via SSE so the client sees live progress.
     // brain sync spawns a nested Claude Code process that can take minutes.
-    const BRAIN_PATH =
-      process.env.BRAIN_PATH ||
-      `${process.env.HOME || "/root"}/brain`;
 
     return streamSSE(c, async (stream) => {
       const send = (data: {
@@ -212,17 +212,17 @@ export const brainRoutes = new Hono()
 
       // Merge stderr into stdout — brain sync spawns a nested Claude Code
       // process whose output goes to stderr. The command comes from
-      // brainCliCommand() (packaged bin or legacy vendored script), passed to
+      // brain.cliCommand() (packaged bin or legacy vendored script), passed to
       // bash as positional args rather than interpolated into the script, so a
       // BRAIN_PATH containing spaces or shell metacharacters stays inert.
-      const [cliBin, ...cliArgs] = brainCliCommand();
+      const [cliBin, ...cliArgs] = brain.cliCommand();
       const proc = Bun.spawn(
         ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
         {
-          cwd: BRAIN_PATH,
+          cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...process.env, NO_COLOR: "1" },
+          env: subprocessEnv({ NO_COLOR: "1" }),
         }
       );
 
@@ -254,8 +254,8 @@ export const brainRoutes = new Hono()
       // Rebuild voice keyterms cache after a successful sync.
       if (exitCode === 0) {
         try {
-          const cache = buildKeyterms();
-          writeCache(cache);
+          const cache = buildKeyterms(keyterms);
+          writeCache(keyterms, cache);
           await send({
             type: "progress",
             text: `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
@@ -290,7 +290,7 @@ export const brainRoutes = new Hono()
       return c.json({ error: "Field 'content' is required" }, 400);
     }
     try {
-      await brainAdd(body.content, {
+      await brain.add(body.content, {
         type: body.type,
         title: body.title,
         tags: body.tags,
@@ -303,3 +303,4 @@ export const brainRoutes = new Hono()
       );
     }
   });
+}

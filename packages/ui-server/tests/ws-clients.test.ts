@@ -1,14 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  addClient,
-  removeClient,
-  broadcast,
-  sendTo,
-  hasClients,
-  clientCount,
-  resetClientsForTests,
-  type WSContext,
-} from "../src/ws/clients";
+import { ClientSet, sendTo, type WSContext } from "../src/ws/clients";
 import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -25,9 +16,17 @@ function fakeSocket() {
 
 const IDLE: ServerMessage = { type: "status", status: "idle" };
 
+let clients: ClientSet;
+
 beforeEach(() => {
-  resetClientsForTests();
+  clients = new ClientSet();
 });
+
+const addClient = (ws: WSContext) => clients.add(ws);
+const removeClient = (ws: WSContext) => clients.remove(ws);
+const broadcast = (msg: ServerMessage) => clients.broadcast(msg);
+const hasClients = () => clients.hasClients();
+const clientCount = () => clients.count();
 
 describe("ws client registry", () => {
   test("broadcast reaches every attached client", () => {

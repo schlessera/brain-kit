@@ -4,30 +4,41 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  type AgentConfig
   type AppRenderer
+  type AuthConfig
   type AuthMode
+  type AuthRuntime
+  type BackendRegistry
+  type BrainClient
+  BrainDbUnavailableError
+  type BrainUiApp
   type CreateAppOptions
+  ENV_VARS
+  type EnvVarDescriptor
+  type KeytermSettings
+  MIN_BRAIN_SCHEMA_VERSION
+  type ServerConfig
   type SessionCatalog
+  type VoiceConfig
+  type WebAuthnConfig
   WsHost
   type WsHostOptions
-  brainClient
   buildKeyterms
-  cancelActiveTurn
-  closeDb
-  configureDb
-  configureWsHost
   createApp
+  createBackendRegistry
+  createBrainClient
   createSessionCatalog
-  defaultWsHost
-  getBackends
-  getBackendsInfo
-  getDb
+  createStaticBackendRegistry
+  createUiDb
+  createWsUpgrade
   handleClientMessage
-  isTurnActive
+  openBrainDb
   pruneShareStaging
-  resetForTests
   resolveAuthMode
+  resolveServerConfig
   resolveTurnTarget
   shareStagingRoot
   websocket
+  withBrainDb
   writeCache

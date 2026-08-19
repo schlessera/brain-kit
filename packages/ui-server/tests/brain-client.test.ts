@@ -1,15 +1,16 @@
 import { describe, test, expect, beforeAll } from "bun:test";
-import {
-  brainSearch,
-  brainBriefing,
-  brainStats,
-  brainList,
-  brainRead,
-  brainValidate,
-} from "../src/brain/client";
+import { createBrainClient } from "../src/brain/client";
 
 // These tests require the brain repo at ~/brain
 const BRAIN_AVAILABLE = Bun.spawnSync(["test", "-d", `${process.env.HOME}/brain/.git`]).exitCode === 0;
+
+const client = createBrainClient({ brainPath: `${process.env.HOME}/brain` });
+const brainSearch = client.search;
+const brainBriefing = client.briefing;
+const brainStats = client.stats;
+const brainList = client.list;
+const brainRead = client.read;
+const brainValidate = client.validate;
 
 describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
   describe("brainSearch", () => {

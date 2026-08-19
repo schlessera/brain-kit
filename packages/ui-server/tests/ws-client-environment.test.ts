@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
 import type { ClientEnvironment } from "@schlessera/brain-ui-sdk/protocol";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { resetBackendForTests, setBackendsForTests } from "../src/agent/backend";
-import { closeDb, getDb } from "../src/db/client";
-import { handleClientMessage, resetForTests } from "../src/ws/handler";
-import { resetClientsForTests, type WSContext } from "../src/ws/clients";
+import type { WSContext } from "../src/ws/clients";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import {
+  closeDb,
+  getDb,
+  handleClientMessage,
+  removeDbFile,
+  resetForTests,
+  setBackendsForTests,
+  useTestDb,
+} from "./helpers/test-host";
 
 /**
  * The device snapshot is only useful if it survives the whole path — frame →
@@ -17,29 +22,17 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 
 const TEST_DB = `/tmp/brain-ui-ws-client-env-${process.pid}.db`;
 
-function removeTestDb() {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    const path = TEST_DB + suffix;
-    if (existsSync(path)) unlinkSync(path);
-  }
-}
-
 beforeEach(() => {
   closeDb();
-  removeTestDb();
-  process.env.DB_PATH = TEST_DB;
-  resetBackendForTests();
+  removeDbFile(TEST_DB);
+  useTestDb(TEST_DB);
   resetForTests();
-  resetClientsForTests();
 });
 
 afterEach(() => {
   resetForTests();
-  resetClientsForTests();
-  resetBackendForTests();
   closeDb();
-  removeTestDb();
-  delete process.env.DB_PATH;
+  removeDbFile(TEST_DB);
 });
 
 async function waitFor(condition: () => boolean): Promise<void> {

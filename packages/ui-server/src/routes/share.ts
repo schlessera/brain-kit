@@ -82,39 +82,49 @@ export const shareTargetFallbackRoutes = new Hono().post("/share-target", (c) =>
   c.redirect("/?share_error=no_worker", 303)
 );
 
-/**
- * In-flight intakes. Each one holds its whole payload in memory while the
- * multipart parser runs, so without a bound the per-share cap multiplies by
- * however many clients ask at once — on a box that also runs headless Chrome
- * for the renderer.
- */
-let inFlight = 0;
-
-/** At most one sweep per interval: the intake path should not stat the inbox on every upload. */
-let lastPrune = 0;
 const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
-
-function maybePrune(): void {
-  const now = Date.now();
-  if (now - lastPrune < PRUNE_INTERVAL_MS) return;
-  lastPrune = now;
-  // Deliberately not awaited: pruning is housekeeping, and the client is
-  // waiting on the staging result, not on it.
-  void pruneShareStaging().catch((err) => {
-    console.error("[share] prune failed:", err);
-  });
-}
 
 function firstString(form: FormData, name: string): string | undefined {
   const value = form.get(name);
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-export const shareRoutes = new Hono().post("/share", async (c) => {
+export interface ShareRoutesDeps {
+  brainRoot: string;
+  /** ALLOWED_ORIGINS — the same-origin check's split-topology allowlist. */
+  allowedOrigins: string[];
+}
+
+export function createShareRoutes(deps: ShareRoutesDeps): Hono {
+  const { brainRoot, allowedOrigins } = deps;
+
+  /**
+   * In-flight intakes. Each one holds its whole payload in memory while the
+   * multipart parser runs, so without a bound the per-share cap multiplies by
+   * however many clients ask at once — on a box that also runs headless Chrome
+   * for the renderer.
+   */
+  let inFlight = 0;
+
+  /** At most one sweep per interval: the intake path should not stat the inbox on every upload. */
+  let lastPrune = 0;
+
+  function maybePrune(): void {
+    const now = Date.now();
+    if (now - lastPrune < PRUNE_INTERVAL_MS) return;
+    lastPrune = now;
+    // Deliberately not awaited: pruning is housekeeping, and the client is
+    // waiting on the staging result, not on it.
+    void pruneShareStaging(brainRoot).catch((err) => {
+      console.error("[share] prune failed:", err);
+    });
+  }
+
+  return new Hono().post("/share", async (c) => {
   // See middleware/origin.ts: a multipart POST is a CORS-simple request, so it
   // reaches this route with no preflight, and in tailscale mode the credential
   // is the source IP. This route is only ever called by the app itself.
-  if (!isSameOriginRequest(c)) {
+  if (!isSameOriginRequest(c, allowedOrigins)) {
     return c.json({ error: "cross_origin_rejected" }, 403);
   }
 
@@ -154,7 +164,7 @@ export const shareRoutes = new Hono().post("/share", async (c) => {
 
   inFlight += 1;
   try {
-    const result = await stageShare({
+    const result = await stageShare(brainRoot, {
       title: firstString(form, "title"),
       text: firstString(form, "text"),
       url: firstString(form, "url"),
@@ -176,3 +186,4 @@ export const shareRoutes = new Hono().post("/share", async (c) => {
     inFlight -= 1;
   }
 });
+}

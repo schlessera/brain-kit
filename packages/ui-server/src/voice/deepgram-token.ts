@@ -32,11 +32,13 @@ function requestGrant(apiKey: string, ttlSeconds: number): Promise<Response> {
   });
 }
 
-export async function mintDeepgramToken(ttlSeconds = 60): Promise<{
+export async function mintDeepgramToken(
+  apiKey: string | null,
+  ttlSeconds = 60
+): Promise<{
   token: string;
   expiresAt: number;
 }> {
-  const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {
     throw new Error("DEEPGRAM_API_KEY is not set");
   }

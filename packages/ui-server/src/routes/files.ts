@@ -10,7 +10,6 @@ import {
   TooLargeError,
 } from "../files/walker.js";
 
-let wikilinkCache: { generatedAt: number; map: Record<string, string> } | null = null;
 const WIKILINK_TTL_MS = 30_000;
 
 function errorResponse(err: unknown): { body: { error: string; size?: number }; status: 400 | 404 | 413 | 500 } {
@@ -27,11 +26,14 @@ function errorResponse(err: unknown): { body: { error: string; size?: number }; 
   return { body: { error: err instanceof Error ? err.message : "internal_error" }, status: 500 };
 }
 
-export const filesRoutes = new Hono()
+export function createFilesRoutes(deps: { brainRoot: string }): Hono {
+  const { brainRoot } = deps;
+  let wikilinkCache: { generatedAt: number; map: Record<string, string> } | null = null;
+  return new Hono()
   .get("/files/tree", async (c) => {
     const path = c.req.query("path") ?? "";
     try {
-      const entries = await listDirectory(path);
+      const entries = await listDirectory(path, brainRoot);
       return c.json({ path, entries });
     } catch (err) {
       const { body, status } = errorResponse(err);
@@ -45,7 +47,7 @@ export const filesRoutes = new Hono()
     const raw = c.req.query("raw") === "1";
     try {
       if (raw) {
-        const { abs, mime, size } = await resolveForRaw(path);
+        const { abs, mime, size } = await resolveForRaw(path, brainRoot);
         const file = Bun.file(abs);
         return new Response(file, {
           status: 200,
@@ -59,7 +61,7 @@ export const filesRoutes = new Hono()
           },
         });
       }
-      const result = await readFileContent(path);
+      const result = await readFileContent(path, brainRoot);
       return c.json({ path, ...result });
     } catch (err) {
       const { body, status } = errorResponse(err);
@@ -71,7 +73,7 @@ export const filesRoutes = new Hono()
     const path = c.req.query("path");
     if (!path) return c.json({ error: "missing_path" }, 400);
     try {
-      const result = await resolveAncestors(path);
+      const result = await resolveAncestors(path, brainRoot);
       return c.json({ path, ...result });
     } catch (err) {
       const { body, status } = errorResponse(err);
@@ -84,7 +86,7 @@ export const filesRoutes = new Hono()
     const now = Date.now();
     try {
       if (refresh || !wikilinkCache || now - wikilinkCache.generatedAt > WIKILINK_TTL_MS) {
-        const map = await buildWikilinkMap();
+        const map = await buildWikilinkMap(brainRoot);
         wikilinkCache = { generatedAt: now, map };
       }
       return c.json({
@@ -97,3 +99,4 @@ export const filesRoutes = new Hono()
       return c.json(body, status);
     }
   });
+}

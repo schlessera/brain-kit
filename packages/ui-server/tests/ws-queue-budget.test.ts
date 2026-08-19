@@ -1,9 +1,14 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import { handleClientMessage, resetForTests } from "../src/ws/handler";
-import { setBackendForTests } from "../src/agent/backend";
-import { addClient, resetClientsForTests, type WSContext } from "../src/ws/clients";
+import type { WSContext } from "../src/ws/clients";
+import {
+  addClient,
+  closeDb,
+  handleClientMessage,
+  resetForTests,
+  setBackendForTests,
+} from "./helpers/test-host";
 import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
 import { queuedBytes, queuedFollowUpBytes } from "../src/ws/turns";
 
@@ -117,12 +122,12 @@ describe("queued follow-up byte accounting", () => {
 describe("queue budget (ws handler)", () => {
   beforeEach(() => {
     resetForTests();
-    resetClientsForTests();
+    closeDb();
   });
 
   afterEach(() => {
     resetForTests();
-    resetClientsForTests();
+    closeDb();
   });
 
   async function startSession() {

@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import type { ServerResultMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { getDb } from "../db/client.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -42,8 +41,8 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
      provider_id = COALESCE(excluded.provider_id, provider_id),
      backend_id = COALESCE(excluded.backend_id, backend_id)`;
 
-/** SQLite-backed catalog over the package's session database. */
-export function createSessionCatalog(db: () => Database = getDb): SessionCatalog {
+/** SQLite-backed catalog over the app's own database (injected by createApp). */
+export function createSessionCatalog(db: () => Database): SessionCatalog {
   return {
     getStoredProviderId(sessionId) {
       const row = db()

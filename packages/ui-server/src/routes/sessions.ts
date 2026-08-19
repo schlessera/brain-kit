@@ -1,18 +1,24 @@
 import { Hono } from "hono";
-import { getBackendForSession, getBackends } from "../agent/backend.js";
-import { getDb } from "../db/client.js";
+import type { Database } from "bun:sqlite";
+import type { BackendRegistry } from "../agent/backend.js";
 
-function getStoredBackendId(sessionId: string): string | null {
-  const row = getDb()
-    .query("SELECT backend_id AS backendId FROM sessions WHERE id = ?")
-    .get(sessionId) as { backendId: string | null } | null;
-  return row?.backendId ?? null;
-}
+export function createSessionRoutes(deps: {
+  registry: BackendRegistry;
+  db: Database;
+}): Hono {
+  const { registry, db } = deps;
 
-export const sessionRoutes = new Hono()
+  function getStoredBackendId(sessionId: string): string | null {
+    const row = db
+      .query("SELECT backend_id AS backendId FROM sessions WHERE id = ?")
+      .get(sessionId) as { backendId: string | null } | null;
+    return row?.backendId ?? null;
+  }
+
+  return new Hono()
   .get("/sessions", async (c) => {
     try {
-      const backends = await getBackends();
+      const backends = await registry.getBackends();
       const sessions = (
         await Promise.all(
           backends.map(async (backend) =>
@@ -37,7 +43,7 @@ export const sessionRoutes = new Hono()
   .get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     try {
-      const backend = await getBackendForSession(getStoredBackendId(id));
+      const backend = await registry.getBackendForSession(getStoredBackendId(id));
       const messages = await backend.getHistory(id);
       return c.json({ id, messages });
     } catch (err) {
@@ -47,3 +53,4 @@ export const sessionRoutes = new Hono()
       );
     }
   });
+}

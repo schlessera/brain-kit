@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import type { Database } from "bun:sqlite";
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -13,13 +14,14 @@ import type {
 } from "@simplewebauthn/server";
 import {
   type AuthMode,
+  type AuthRuntime,
   issueSessionCookie,
   consumeLoginToken,
   LOGIN_RATE_LIMIT,
   GLOBAL_LOGIN_RATE_LIMIT,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
-import { getDb } from "../db/client.js";
+import type { WebAuthnConfig } from "../config/env.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -27,27 +29,33 @@ import { getDb } from "../db/client.js";
  * login. A successful assertion mints the same session cookie as password login
  * (issueSessionCookie), so authGuard / isWsAuthorized / TTL are untouched.
  *
- * Self-contained on purpose — this module (plus its auth.ts imports) is slated
- * to move wholesale into @schlessera/ui-server.
+ * Everything environmental is injected as a {@link PasskeyContext} — the
+ * resolved WebAuthn identity, the auth runtime (for trust/proxy semantics and
+ * the cookie secret), the origin allowlist, and the app's own database.
  *
  * Credentials are RP-scoped: a credential registered on localhost does not
  * exist for the production domain and vice versa. Rows carry rp_id so all
  * environments share the table.
  */
 
+/** Injected per-app dependencies for every passkey route and helper. */
+export interface PasskeyContext {
+  db: Database;
+  webauthn: WebAuthnConfig;
+  auth: AuthRuntime;
+  /** ALLOWED_ORIGINS — split-topology origins also valid for ceremonies. */
+  allowedOrigins: string[];
+}
+
 const CHALLENGE_TTL_MS = 120_000; // > the 60s ceremony timeout
 // Pending challenges are unauthenticated state; cap and evict oldest-first so
 // login-options spam can't grow memory. Losing one costs a retried ceremony.
 const MAX_PENDING_CHALLENGES = 100;
 const OPTIONS_RATE_LIMIT = 10; // login-options per IP per minute (own bucket)
-// Branding/identity are config-injected with the historical values as
-// defaults, so existing deployments keep their credentials.
-function rpName(): string {
-  return process.env.WEBAUTHN_RP_NAME || "Brain UI";
-}
-// The single "user" every passkey belongs to. Stable across registrations so
-// an authenticator overwrites its existing entry instead of stacking
-// duplicates for the same site.
+
+// The single "user" every passkey belongs to (webauthn.userId). Stable across
+// registrations so an authenticator overwrites its existing entry instead of
+// stacking duplicates for the same site.
 //
 // WARNING: the user handle is part of the WebAuthn wire contract — it is
 // burned into every resident credential at registration. Changing
@@ -55,25 +63,20 @@ function rpName(): string {
 // (authenticators will present a handle the server no longer recognizes as
 // the same user and re-registration stacks a second entry). Set it before the
 // first passkey is registered and never change it.
-function userName(): string {
-  return process.env.WEBAUTHN_USER_NAME || "owner";
+function userId(webauthn: WebAuthnConfig): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(webauthn.userId) as Uint8Array<ArrayBuffer>;
 }
+
 /** WebAuthn caps `user.id` at 64 bytes; browsers reject anything longer. */
 const MAX_USER_ID_BYTES = 64;
-
-function userId(): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(
-    process.env.WEBAUTHN_USER_ID || "brain-ui-owner"
-  ) as Uint8Array<ArrayBuffer>;
-}
 
 /**
  * Refuse to boot on a WebAuthn user handle the browser would reject. Called
  * from createApp(): an oversized handle otherwise produces registration
  * options that look fine server-side and fail silently in every browser.
  */
-export function assertPasskeyConfig(): void {
-  const bytes = userId().byteLength;
+export function assertPasskeyConfig(webauthn: WebAuthnConfig): void {
+  const bytes = userId(webauthn).byteLength;
   if (bytes > MAX_USER_ID_BYTES) {
     throw new Error(
       `WEBAUTHN_USER_ID is ${bytes} bytes; WebAuthn allows at most ${MAX_USER_ID_BYTES}. ` +
@@ -136,13 +139,6 @@ function challengeFromResponse(response: {
 
 // --- RP / origin resolution ---
 
-function envList(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
@@ -153,7 +149,7 @@ function isLoopbackHostname(hostname: string): boolean {
  * unconfigured. WEBAUTHN_ORIGINS / WEBAUTHN_RP_ID remain as overrides for
  * proxies that rewrite Host.
  */
-function resolveRp(c: Context): { rpID: string; origin: string } | null {
+function resolveRp(c: Context, ctx: PasskeyContext): { rpID: string; origin: string } | null {
   const origin = c.req.header("origin");
   if (!origin) return null;
 
@@ -165,22 +161,21 @@ function resolveRp(c: Context): { rpID: string; origin: string } | null {
   }
 
   const allowed =
-    envList("WEBAUTHN_ORIGINS").includes(origin) ||
-    envList("ALLOWED_ORIGINS").includes(origin) ||
+    ctx.webauthn.origins.includes(origin) ||
+    ctx.allowedOrigins.includes(origin) ||
     url.host === c.req.header("host") ||
     // Dev escape hatch: the vite proxy sets changeOrigin, so the server sees
     // Host localhost:3000 but Origin http://localhost:5173. Opt-in via an
     // explicit flag — NOT NODE_ENV, whose absence must never widen the RP.
-    (process.env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN === "1" &&
-      isLoopbackHostname(url.hostname));
+    (ctx.webauthn.allowLoopbackOrigin && isLoopbackHostname(url.hostname));
   if (!allowed) return null;
 
-  return { rpID: process.env.WEBAUTHN_RP_ID ?? url.hostname, origin };
+  return { rpID: ctx.webauthn.rpId ?? url.hostname, origin };
 }
 
 /** rpID for endpoints where same-origin GETs legitimately omit Origin. */
-function rpIdForRead(c: Context): string {
-  if (process.env.WEBAUTHN_RP_ID) return process.env.WEBAUTHN_RP_ID;
+function rpIdForRead(c: Context, ctx: PasskeyContext): string {
+  if (ctx.webauthn.rpId) return ctx.webauthn.rpId;
   const origin = c.req.header("origin");
   if (origin) {
     try {
@@ -224,14 +219,14 @@ function toSummary(row: CredentialRow) {
   };
 }
 
-function credentialsForRp(rpID: string): CredentialRow[] {
-  return getDb()
+function credentialsForRp(db: Database, rpID: string): CredentialRow[] {
+  return db
     .query("SELECT * FROM passkey_credentials WHERE rp_id = ?")
     .all(rpID) as CredentialRow[];
 }
 
-function credentialById(id: string): CredentialRow | null {
-  return getDb()
+function credentialById(db: Database, id: string): CredentialRow | null {
+  return db
     .query("SELECT * FROM passkey_credentials WHERE id = ?")
     .get(id) as CredentialRow | null;
 }
@@ -263,11 +258,11 @@ function notEnabled(c: Context) {
  * until it has its own credential. Host-derived rpID is fine here: a forged
  * Host can at most re-enable password auth, which still requires the password.
  */
-export function passwordLoginDisabled(c: Context): boolean {
-  if (process.env.BRAIN_UI_ALLOW_PASSWORD === "1") return false;
-  const row = getDb()
+export function passwordLoginDisabled(c: Context, ctx: PasskeyContext): boolean {
+  if (ctx.auth.allowPassword) return false;
+  const row = ctx.db
     .query("SELECT COUNT(*) AS n FROM passkey_credentials WHERE rp_id = ?")
-    .get(rpIdForRead(c)) as { n: number };
+    .get(rpIdForRead(c, ctx)) as { n: number };
   return row.n > 0;
 }
 
@@ -275,7 +270,11 @@ export function passwordLoginDisabled(c: Context): boolean {
  * Unauthenticated passkey routes. Mount BEFORE the auth guard, next to
  * authRoutes.
  */
-export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hono {
+export function passkeyPublicRoutes(
+  mode: AuthMode,
+  ctx: PasskeyContext,
+  deps: PasskeyDeps = {}
+): Hono {
   const verifyAuthentication = deps.verifyAuthenticationResponse ?? realVerifyAuthentication;
   const now = deps.now ?? Date.now;
   const app = new Hono();
@@ -286,21 +285,21 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
     if (mode !== "password") {
       return c.json({ password: false, passkey: false });
     }
-    const row = getDb()
+    const row = ctx.db
       .query("SELECT COUNT(*) AS n FROM passkey_credentials WHERE rp_id = ?")
-      .get(rpIdForRead(c)) as { n: number };
-    return c.json({ password: !passwordLoginDisabled(c), passkey: row.n > 0 });
+      .get(rpIdForRead(c, ctx)) as { n: number };
+    return c.json({ password: !passwordLoginDisabled(c, ctx), passkey: row.n > 0 });
   });
 
   app.post("/auth/passkey/login-options", async (c) => {
     if (mode !== "password") return notEnabled(c);
-    const ip = clientIp(c, process.env.TRUST_PROXY === "1") || "unknown";
+    const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
     // Own bucket: conditional-UI mounts fire this on every login-screen load
     // and must not starve real verify attempts of their shared budget.
     if (!consumeLoginToken(`pk-opt:${ip}`, OPTIONS_RATE_LIMIT)) {
       return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
-    const rp = resolveRp(c);
+    const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     // Empty allowCredentials + discoverable credentials = usernameless login.
@@ -315,14 +314,14 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
 
   app.post("/auth/passkey/login-verify", async (c) => {
     if (mode !== "password") return notEnabled(c);
-    const ip = clientIp(c, process.env.TRUST_PROXY === "1") || "unknown";
+    const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
     // Same buckets as password login: one combined online-guess budget.
     const perIpOk = consumeLoginToken(`ip:${ip}`, LOGIN_RATE_LIMIT);
     const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
     if (!perIpOk || !globalOk) {
       return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
-    const rp = resolveRp(c);
+    const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     let response: AuthenticationResponseJSON;
@@ -334,7 +333,8 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
 
     const fail = () => c.json({ error: "Passkey verification failed" }, 401);
 
-    const row = typeof response?.id === "string" ? credentialById(response.id) : null;
+    const row =
+      typeof response?.id === "string" ? credentialById(ctx.db, response.id) : null;
     if (!row || row.rp_id !== rp.rpID) return fail();
 
     const challenge = challengeFromResponse(response);
@@ -351,7 +351,7 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
         credential: toWebAuthnCredential(row),
       });
       if (!result.verified) return fail();
-      getDb()
+      ctx.db
         .prepare(
           "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
         )
@@ -371,7 +371,7 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
       return fail();
     }
 
-    await issueSessionCookie(c);
+    await issueSessionCookie(c, ctx.auth);
     return c.json({ ok: true });
   });
 
@@ -382,24 +382,28 @@ export function passkeyPublicRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hon
  * Session-gated passkey routes. Mount AFTER the auth guard — gating comes from
  * mount position, not per-route checks.
  */
-export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}): Hono {
+export function passkeyManagementRoutes(
+  mode: AuthMode,
+  ctx: PasskeyContext,
+  deps: PasskeyDeps = {}
+): Hono {
   const verifyRegistration = deps.verifyRegistrationResponse ?? realVerifyRegistration;
   const now = deps.now ?? Date.now;
   const app = new Hono();
 
   app.post("/auth/passkey/register-options", async (c) => {
     if (mode !== "password") return notEnabled(c);
-    const rp = resolveRp(c);
+    const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     const options = await generateRegistrationOptions({
-      rpName: rpName(),
+      rpName: ctx.webauthn.rpName,
       rpID: rp.rpID,
-      userName: userName(),
-      userID: userId(),
-      userDisplayName: rpName(),
+      userName: ctx.webauthn.userName,
+      userID: userId(ctx.webauthn),
+      userDisplayName: ctx.webauthn.rpName,
       attestationType: "none",
-      excludeCredentials: credentialsForRp(rp.rpID).map((row) => ({
+      excludeCredentials: credentialsForRp(ctx.db, rp.rpID).map((row) => ({
         id: row.id,
         transports: toWebAuthnCredential(row).transports,
       })),
@@ -415,7 +419,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
 
   app.post("/auth/passkey/register-verify", async (c) => {
     if (mode !== "password") return notEnabled(c);
-    const rp = resolveRp(c);
+    const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     let body: { response?: RegistrationResponseJSON; label?: unknown };
@@ -444,7 +448,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
       const { credential, aaguid, credentialDeviceType, credentialBackedUp } =
         result.registrationInfo;
       const createdAt = now();
-      getDb()
+      ctx.db
         .prepare(
           `INSERT INTO passkey_credentials
              (id, public_key, counter, transports, rp_id, aaguid, device_type,
@@ -463,7 +467,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
           sanitizeLabel(body.label),
           createdAt
         );
-      const row = credentialById(credential.id);
+      const row = credentialById(ctx.db, credential.id);
       return c.json({ ok: true, credential: row ? toSummary(row) : null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -476,7 +480,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
   // delete stale localhost/dev credentials. The client badges foreign RPs.
   app.get("/auth/passkey/list", (c) => {
     if (mode !== "password") return notEnabled(c);
-    const rows = getDb()
+    const rows = ctx.db
       .query("SELECT * FROM passkey_credentials ORDER BY created_at DESC")
       .all() as CredentialRow[];
     return c.json({ credentials: rows.map(toSummary) });
@@ -490,7 +494,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
-    const result = getDb()
+    const result = ctx.db
       .prepare("UPDATE passkey_credentials SET label = ? WHERE id = ?")
       .run(sanitizeLabel(body.label), c.req.param("id"));
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
@@ -499,7 +503,7 @@ export function passkeyManagementRoutes(mode: AuthMode, deps: PasskeyDeps = {}):
 
   app.delete("/auth/passkey/:id", (c) => {
     if (mode !== "password") return notEnabled(c);
-    const result = getDb()
+    const result = ctx.db
       .prepare("DELETE FROM passkey_credentials WHERE id = ?")
       .run(c.req.param("id"));
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);

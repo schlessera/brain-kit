@@ -12,7 +12,6 @@ import {
   type ShareIntakeResult,
   type ShareStagingManifest,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { getBrainRoot } from "../files/walker.js";
 
 /**
  * Staging for an incoming system share.
@@ -123,9 +122,9 @@ export interface ShareInput {
   files: File[];
 }
 
-/** Absolute staging root. Read per call, so a test can move BRAIN_PATH. */
-export function shareStagingRoot(): string {
-  return join(getBrainRoot(), SHARE_STAGING_DIR);
+/** Absolute staging root inside the given brain repo. */
+export function shareStagingRoot(brainPath: string): string {
+  return join(brainPath, SHARE_STAGING_DIR);
 }
 
 /**
@@ -270,7 +269,10 @@ async function countStaged(root: string): Promise<number> {
  * observe a share that is missing files or a manifest — not even if the process
  * is killed mid-write, which `try/catch` cleanup cannot cover.
  */
-export async function stageShare(input: ShareInput): Promise<ShareIntakeResult> {
+export async function stageShare(
+  brainPath: string,
+  input: ShareInput
+): Promise<ShareIntakeResult> {
   const title = cleanTextField(input.title);
   const rawUrl = cleanTextField(input.url);
   const { url, leftover } = splitUrl(rawUrl);
@@ -297,7 +299,7 @@ export async function stageShare(input: ShareInput): Promise<ShareIntakeResult> 
     throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
   }
 
-  const root = shareStagingRoot();
+  const root = shareStagingRoot(brainPath);
   if ((await countStaged(root)) >= SHARE_MAX_STAGED) {
     throw new ShareTooLargeError("inbox_full", SHARE_MAX_STAGED);
   }
@@ -392,8 +394,8 @@ export async function stageShare(input: ShareInput): Promise<ShareIntakeResult> 
  * deployment can sweep at boot too — scheduling belongs to the container
  * crontab, and this sweep is cheap and bounded.
  */
-export async function pruneShareStaging(now = Date.now()): Promise<number> {
-  const root = shareStagingRoot();
+export async function pruneShareStaging(brainPath: string, now = Date.now()): Promise<number> {
+  const root = shareStagingRoot(brainPath);
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });

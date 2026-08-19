@@ -5,7 +5,6 @@ import type {
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { hasClients } from "./clients.js";
 import { withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
@@ -87,7 +86,7 @@ export function makeBridge(
       });
     },
     getLocation: (options) => {
-      if (!hasClients()) {
+      if (!host.clients.hasClients()) {
         return Promise.reject(
           new Error(`No ${host.appName} client is connected to read the location from.`)
         );
@@ -112,7 +111,7 @@ export function makeBridge(
       });
     },
     requestMask: (imagePath, instruction) => {
-      if (!hasClients()) {
+      if (!host.clients.hasClients()) {
         return Promise.reject(
           new Error(`No ${host.appName} client is connected to paint a mask in.`)
         );

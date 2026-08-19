@@ -25,10 +25,6 @@ const HARD_EXCLUDE_FILE_NAMES = new Set(
   ].map((n) => n.toLowerCase())
 );
 
-export function getBrainRoot(): string {
-  return process.env.BRAIN_PATH || join(process.env.HOME || "/root", "brain");
-}
-
 export class PathEscapeError extends Error {
   constructor(rel: string) {
     super(`path_escape: ${rel}`);
@@ -54,7 +50,7 @@ export class TooLargeError extends Error {
  * Resolve a repo-relative path to an absolute path, rejecting any escape
  * outside the brain root (including via symlinks).
  */
-export async function safeResolve(rel: string, root = getBrainRoot()): Promise<string> {
+export async function safeResolve(rel: string, root: string): Promise<string> {
   if (typeof rel !== "string") throw new PathEscapeError(String(rel));
   // Reject absolute paths and null bytes
   if (rel.startsWith("/") || rel.startsWith("\\") || rel.includes("\0")) {
@@ -123,7 +119,7 @@ function isHardExcluded(name: string, isDir: boolean): boolean {
  * List entries of a directory, applying ignore rules.
  * Always excludes: .git, node_modules, *.db*. Then applies .gitignore.
  */
-export async function listDirectory(rel: string, root = getBrainRoot()): Promise<FileEntry[]> {
+export async function listDirectory(rel: string, root: string): Promise<FileEntry[]> {
   const abs = await safeResolve(rel, root);
   let s;
   try {
@@ -260,7 +256,7 @@ export interface FileContent {
   content?: string;
 }
 
-export async function readFileContent(rel: string, root = getBrainRoot()): Promise<FileContent> {
+export async function readFileContent(rel: string, root: string): Promise<FileContent> {
   const abs = await safeResolve(rel, root);
   let s;
   try {
@@ -314,7 +310,7 @@ export async function readFileContent(rel: string, root = getBrainRoot()): Promi
  * Stream raw bytes of a file (for image/binary preview).
  * Returns the absolute path; caller uses Bun.file() to stream.
  */
-export async function resolveForRaw(rel: string, root = getBrainRoot()): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind }> {
+export async function resolveForRaw(rel: string, root: string): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind }> {
   const abs = await safeResolve(rel, root);
   let s;
   try {
@@ -336,7 +332,7 @@ export async function resolveForRaw(rel: string, root = getBrainRoot()): Promise
  * If two files share a slug (rare), the first one encountered wins —
  * deterministic given the sorted directory traversal.
  */
-export async function buildWikilinkMap(root = getBrainRoot()): Promise<Record<string, string>> {
+export async function buildWikilinkMap(root: string): Promise<Record<string, string>> {
   const matcher = await loadIgnore(root);
   const out: Record<string, string> = {};
 
@@ -397,7 +393,7 @@ export async function buildWikilinkMap(root = getBrainRoot()): Promise<Record<st
  * Return ancestor directories of a path, root-first (excluding root and the path itself).
  *   resolve("a/b/c.md") -> { ancestors: ["a", "a/b"], exists, type }
  */
-export async function resolveAncestors(rel: string, root = getBrainRoot()): Promise<{ ancestors: string[]; exists: boolean; type?: "dir" | "file" }> {
+export async function resolveAncestors(rel: string, root: string): Promise<{ ancestors: string[]; exists: boolean; type?: "dir" | "file" }> {
   const normalized = rel.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
   if (!normalized) return { ancestors: [], exists: true, type: "dir" };
   const parts = normalized.split("/");

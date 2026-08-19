@@ -8,11 +8,13 @@
  *                 work, so it returns empty url/token.
  *
  * VOICE_PROVIDER selects the provider; default is deepgram when
- * DEEPGRAM_API_KEY is set, else webspeech.
+ * DEEPGRAM_API_KEY is set, else webspeech. Both arrive here as the resolved
+ * {@link VoiceConfig} — this module reads no environment.
  */
 
 import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { defineSpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import type { VoiceConfig } from "../config/env.js";
 import { mintDeepgramToken } from "./deepgram-token.js";
 
 const DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen";
@@ -47,23 +49,25 @@ function buildDeepgramUrl(keyterms: string[]): string {
   return url;
 }
 
-export const deepgramSpeechProvider: SpeechProvider = defineSpeechProvider({
-  id: "deepgram",
-  capabilities: {
-    streaming: true,
-    interimResults: true,
-    keyterms: true,
-    endpointing: true,
-  },
-  async createSession({ keyterms }) {
-    const { token, expiresAt } = await mintDeepgramToken(TOKEN_TTL_SECONDS);
-    return {
-      url: buildDeepgramUrl(keyterms),
-      token,
-      expiresAt,
-    };
-  },
-});
+export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvider {
+  return defineSpeechProvider({
+    id: "deepgram",
+    capabilities: {
+      streaming: true,
+      interimResults: true,
+      keyterms: true,
+      endpointing: true,
+    },
+    async createSession({ keyterms }) {
+      const { token, expiresAt } = await mintDeepgramToken(apiKey, TOKEN_TTL_SECONDS);
+      return {
+        url: buildDeepgramUrl(keyterms),
+        token,
+        expiresAt,
+      };
+    },
+  });
+}
 
 export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
   id: "webspeech",
@@ -80,21 +84,21 @@ export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
 });
 
 /**
- * Select the active speech provider from env.
+ * Select the active speech provider from the resolved voice config.
  *
  * webspeech is OPT-IN ONLY (`VOICE_PROVIDER=webspeech`): on Chromium it streams
  * microphone audio to Google, so it must never be a silent fallback when the
  * Deepgram key goes missing. Every other unresolved case throws so the caller
  * 500s loudly instead of quietly degrading to third-party egress.
  */
-export function pickSpeechProvider(): SpeechProvider {
-  const configured = process.env.VOICE_PROVIDER?.trim().toLowerCase();
+export function pickSpeechProvider(voice: VoiceConfig): SpeechProvider {
+  const configured = voice.provider;
   if (configured === "webspeech") return webspeechSpeechProvider;
   if (configured === "deepgram") {
-    if (!process.env.DEEPGRAM_API_KEY) {
+    if (!voice.deepgramApiKey) {
       throw new Error("VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.");
     }
-    return deepgramSpeechProvider;
+    return createDeepgramSpeechProvider(voice.deepgramApiKey);
   }
   if (configured) {
     throw new Error(
@@ -102,7 +106,7 @@ export function pickSpeechProvider(): SpeechProvider {
     );
   }
   // Auto-detect: Deepgram when its key is present; otherwise fail loudly.
-  if (process.env.DEEPGRAM_API_KEY) return deepgramSpeechProvider;
+  if (voice.deepgramApiKey) return createDeepgramSpeechProvider(voice.deepgramApiKey);
   throw new Error(
     'No speech provider configured. Set DEEPGRAM_API_KEY, or set ' +
       'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +

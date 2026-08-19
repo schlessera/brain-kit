@@ -4,17 +4,16 @@ import type {
   AgentBackend,
   FollowUpRequest,
 } from "@schlessera/brain-ui-sdk/server";
-import {
-  handleClientMessage,
-  resetForTests,
-  isTurnActive,
-} from "../src/ws/handler";
-import { setBackendForTests } from "../src/agent/backend";
+import type { WSContext } from "../src/ws/clients";
 import {
   addClient,
-  resetClientsForTests,
-  type WSContext,
-} from "../src/ws/clients";
+  closeDb,
+  handleClientMessage,
+  isTurnActive,
+  resetForTests,
+  setBackendForTests,
+  setMaxConcurrentSessions,
+} from "./helpers/test-host";
 
 // ---------------------------------------------------------------------------
 // A controllable fake backend: each turn emits session_info, then hangs until
@@ -106,19 +105,14 @@ const sid = (f: ServerMessage): string | undefined =>
   (f as { sessionId?: string }).sessionId;
 
 describe("parallel sessions (ws handler)", () => {
-  let savedCap: string | undefined;
-
   beforeEach(() => {
-    savedCap = process.env.MAX_CONCURRENT_SESSIONS;
     resetForTests();
-    resetClientsForTests();
+    closeDb();
   });
 
   afterEach(() => {
     resetForTests();
-    resetClientsForTests();
-    if (savedCap === undefined) delete process.env.MAX_CONCURRENT_SESSIONS;
-    else process.env.MAX_CONCURRENT_SESSIONS = savedCap;
+    closeDb();
   });
 
   test("two sessions stream interleaved over one socket, demuxed by sessionId", async () => {
@@ -149,7 +143,7 @@ describe("parallel sessions (ws handler)", () => {
   });
 
   test("concurrency cap: a start beyond the cap is rejected with SESSION_LIMIT", async () => {
-    process.env.MAX_CONCURRENT_SESSIONS = "2";
+    setMaxConcurrentSessions(2);
     const { backend, controls } = makeFakeBackend({ concurrentSessions: true, followUp: false });
     setBackendForTests(backend);
     const { ws, sent } = fakeClient();

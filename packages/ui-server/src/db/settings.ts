@@ -6,12 +6,12 @@
 // corrupt row degrades to the caller's fallback rather than throwing, because
 // a bad preference must never take a route down.
 
-import { getDb } from "./client.js";
+import type { Database } from "bun:sqlite";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
 
-export function getSetting<T>(key: string, fallback: T): T {
-  const row = getDb()
+export function getSetting<T>(db: Database, key: string, fallback: T): T {
+  const row = db
     .query("SELECT value FROM settings WHERE key = ?")
     .get(key) as { value: string } | null;
   if (!row) return fallback;
@@ -23,24 +23,22 @@ export function getSetting<T>(key: string, fallback: T): T {
   }
 }
 
-export function setSetting(key: string, value: unknown): void {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-    .run(key, JSON.stringify(value), Date.now());
+export function setSetting(db: Database, key: string, value: unknown): void {
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).run(key, JSON.stringify(value), Date.now());
 }
 
 /** Profile ids the user keeps out of the model picker. */
-export function getHiddenModelIds(): string[] {
-  const value = getSetting<unknown>(HIDDEN_MODELS_KEY, []);
+export function getHiddenModelIds(db: Database): string[] {
+  const value = getSetting<unknown>(db, HIDDEN_MODELS_KEY, []);
   if (!Array.isArray(value)) return [];
   return value.filter((id): id is string => typeof id === "string");
 }
 
 /** Replace the hidden set (the client always sends the full list, not a delta). */
-export function setHiddenModelIds(ids: string[]): void {
+export function setHiddenModelIds(db: Database, ids: string[]): void {
   const unique = [...new Set(ids.filter((id) => typeof id === "string" && id))];
-  setSetting(HIDDEN_MODELS_KEY, unique);
+  setSetting(db, HIDDEN_MODELS_KEY, unique);
 }

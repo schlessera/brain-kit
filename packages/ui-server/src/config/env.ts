@@ -1,0 +1,401 @@
+/**
+ * The package's ONLY `process.env` reader.
+ *
+ * Everything `@schlessera/brain-ui-server` can be configured with is declared
+ * here twice: once as a runtime descriptor ({@link ENV_VARS}, the artifact the
+ * env-parity gate diffs against the documentation) and once as the resolver
+ * ({@link resolveServerConfig}) that turns an environment into a plain,
+ * fully-resolved {@link ServerConfig}.
+ *
+ * `createApp()` resolves the environment ONCE, at the edge; every consumer
+ * inside the package receives the resolved object (or a slice of it) and never
+ * touches `process.env` itself. Tests vary configuration by passing their own
+ * env record to the resolver — no global mutation required.
+ */
+
+import { join } from "path";
+
+// --- descriptor -------------------------------------------------------------
+
+export interface EnvVarDescriptor {
+  /** The environment variable, exactly as read. */
+  name: string;
+  /** What it controls. */
+  description: string;
+  /** Human-readable default applied when unset, or null when there is none. */
+  default: string | null;
+  /**
+   * `false` when optional; otherwise a human-readable statement of the
+   * condition under which boot fails without it.
+   */
+  required: false | string;
+}
+
+/**
+ * Every environment variable this package reads. Order groups by concern.
+ * The env-parity gate (G4) asserts this list equals the package's env
+ * documentation in both directions — add here and to the docs together.
+ */
+export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  // core paths / identity
+  {
+    name: "BRAIN_PATH",
+    description: "Path to the brain repo the server operates on.",
+    default: "$HOME/brain",
+    required: false,
+  },
+  {
+    name: "HOME",
+    description: "Fallback anchor for the BRAIN_PATH default only.",
+    default: "/root",
+    required: false,
+  },
+  {
+    name: "DB_PATH",
+    description: "SQLite file for the UI's own database (sessions, passkeys, settings).",
+    default: "./brain-ui.db",
+    required: false,
+  },
+  {
+    name: "HOST",
+    description:
+      "Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "SOURCE_COMMIT",
+    description: "Git SHA reported by /api/status (baked at image build time).",
+    default: "dev",
+    required: false,
+  },
+  {
+    name: "ALLOWED_ORIGINS",
+    description:
+      "Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "MAX_CONCURRENT_SESSIONS",
+    description: "Cap on concurrently RUNNING agent sessions.",
+    default: "3",
+    required: false,
+  },
+  // auth
+  {
+    name: "AUTH_MODE",
+    description:
+      "Authentication mode: password | tailscale | proxy | none. Unset auto-detects (password when a hash is set, else tailscale).",
+    default: "(auto-detect)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_PASSWORD_HASH",
+    description: "Bun.password argon2id hash of the shared password.",
+    default: null,
+    required: "AUTH_MODE=password",
+  },
+  {
+    name: "COOKIE_SECRET",
+    description: "Secret signing the session cookie.",
+    default: null,
+    required: "AUTH_MODE=password",
+  },
+  {
+    name: "TRUST_PROXY",
+    description:
+      'Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy.',
+    default: "0",
+    required: "AUTH_MODE=proxy",
+  },
+  {
+    name: "TRUST_PROXY_HOPS",
+    description: "How many trusted proxies front the app (x-forwarded-for parse depth).",
+    default: "1",
+    required: false,
+  },
+  {
+    name: "PROXY_AUTH_HEADER",
+    description: "Header a fronting auth proxy sets for AUTH_MODE=proxy.",
+    default: "x-forwarded-user",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH",
+    description:
+      'Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access.',
+    default: "0",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_ALLOW_PASSWORD",
+    description:
+      'Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery).',
+    default: "0",
+    required: false,
+  },
+  // WebAuthn / passkeys
+  {
+    name: "WEBAUTHN_RP_NAME",
+    description: "Relying-party display name shown by authenticators.",
+    default: "Brain UI",
+    required: false,
+  },
+  {
+    name: "WEBAUTHN_USER_NAME",
+    description: "WebAuthn user name shown by authenticators.",
+    default: "owner",
+    required: false,
+  },
+  {
+    name: "WEBAUTHN_USER_ID",
+    description:
+      "Stable WebAuthn user handle (wire contract — burned into every resident credential; max 64 bytes; never change it after the first passkey).",
+    default: "brain-ui-owner",
+    required: false,
+  },
+  {
+    name: "WEBAUTHN_RP_ID",
+    description: "Relying-party id override for proxies that rewrite Host.",
+    default: "(derived from the request origin)",
+    required: false,
+  },
+  {
+    name: "WEBAUTHN_ORIGINS",
+    description: "Comma-separated extra origins allowed for WebAuthn ceremonies.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_ALLOW_LOOPBACK_ORIGIN",
+    description:
+      'Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy).',
+    default: "0",
+    required: false,
+  },
+  // agent backend
+  {
+    name: "AGENT_BACKEND",
+    description: 'Primary agent backend: "claude" (default) or "pi".',
+    default: "claude",
+    required: false,
+  },
+  {
+    name: "CLAUDE_CODE_PATH",
+    description: "Path to the Claude Code native binary handed to the Agent SDK.",
+    default: "/usr/local/bin/claude",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_CLAUDE_DEFAULT_MODEL",
+    description: "Model the built-in default Claude profile is pinned to.",
+    default: "claude-sonnet-4-6",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_CLAUDE_PROFILES",
+    description:
+      "JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}).",
+    default: "(none)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODEL_DISCOVERY",
+    description:
+      'Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF.',
+    default: "on (off under NODE_ENV=test)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODEL_TTL_HOURS",
+    description: "How long a model-discovery result stays fresh, in hours.",
+    default: "24",
+    required: false,
+  },
+  {
+    name: "NODE_ENV",
+    description:
+      "Only consulted for test-runner detection: flips the model-discovery default to off under bun test. Never gates any security behavior.",
+    default: "(unset)",
+    required: false,
+  },
+  // voice
+  {
+    name: "DEEPGRAM_API_KEY",
+    description: "Deepgram API key for streaming ASR (short-lived tokens are minted from it).",
+    default: null,
+    required: "VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech)",
+  },
+  {
+    name: "VOICE_PROVIDER",
+    description:
+      'Speech provider: "deepgram" or "webspeech" (opt-in only — Chromium streams audio to Google). Unset auto-detects deepgram when its key is present.',
+    default: "(auto-detect)",
+    required: false,
+  },
+  {
+    name: "VOICE_KEYTERM_LIMIT",
+    description: "Maximum custom-vocabulary terms built from the brain database.",
+    default: "500",
+    required: false,
+  },
+  {
+    name: "VOICE_CACHE_DIR",
+    description: "Directory holding the keyterm cache JSON.",
+    default: "$BRAIN_PATH/.brain-ui",
+    required: false,
+  },
+] as const;
+
+// --- resolved configuration --------------------------------------------------
+
+export type AuthModeName = "password" | "tailscale" | "proxy" | "none";
+
+export interface AuthConfig {
+  /** Validated AUTH_MODE, or null to auto-detect. */
+  mode: AuthModeName | null;
+  /** The raw AUTH_MODE value when it did not validate (for the boot warning). */
+  invalidMode: string | null;
+  passwordHash: string | null;
+  cookieSecret: string | null;
+  trustProxy: boolean;
+  trustProxyHops: number;
+  /** Lowercased proxy auth header name. */
+  proxyAuthHeader: string;
+  dangerouslyDisableAuth: boolean;
+  allowPassword: boolean;
+}
+
+export interface WebAuthnConfig {
+  rpName: string;
+  userName: string;
+  userId: string;
+  rpId: string | null;
+  origins: string[];
+  allowLoopbackOrigin: boolean;
+}
+
+export interface AgentConfig {
+  /** Trimmed, lowercased AGENT_BACKEND; null when unset (defaults to claude). */
+  backend: string | null;
+  claudeCodePath: string;
+  defaultModel: string;
+  /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed lazily by the registry. */
+  profilesJson: string | null;
+  modelDiscovery: boolean;
+  modelTtlMs: number;
+}
+
+export interface VoiceConfig {
+  /** Trimmed, lowercased VOICE_PROVIDER; null when unset (auto-detect). */
+  provider: string | null;
+  deepgramApiKey: string | null;
+  keytermLimit: number;
+  /** Resolved keyterm cache directory. */
+  cacheDir: string;
+}
+
+/** Fully-resolved server configuration. Plain data — safe to construct in tests. */
+export interface ServerConfig {
+  brainPath: string;
+  dbPath: string;
+  /** Bind host, for the loopback check in auth validation. Empty when unset. */
+  host: string;
+  sourceCommit: string;
+  allowedOrigins: string[];
+  maxConcurrentSessions: number;
+  auth: AuthConfig;
+  webauthn: WebAuthnConfig;
+  agent: AgentConfig;
+  voice: VoiceConfig;
+}
+
+// --- resolver ----------------------------------------------------------------
+
+type EnvRecord = Record<string, string | undefined>;
+
+function list(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function flag(raw: string | undefined): boolean {
+  return raw === "1";
+}
+
+const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "none"];
+
+/**
+ * Resolve an environment into a {@link ServerConfig}. Defaults to the real
+ * process environment; tests pass their own record instead of mutating it.
+ */
+export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig {
+  const brainPath = env.BRAIN_PATH || join(env.HOME || "/root", "brain");
+
+  const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
+  const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
+
+  const rawDiscovery = env.BRAIN_UI_MODEL_DISCOVERY?.trim().toLowerCase();
+  const modelDiscovery = rawDiscovery
+    ? !(rawDiscovery === "0" || rawDiscovery === "off" || rawDiscovery === "false")
+    : env.NODE_ENV !== "test";
+
+  const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
+  const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
+
+  return {
+    brainPath,
+    dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
+    host: env.HOST ?? "",
+    sourceCommit: env.SOURCE_COMMIT ?? "dev",
+    allowedOrigins: list(env.ALLOWED_ORIGINS),
+    maxConcurrentSessions: Math.max(1, Number(env.MAX_CONCURRENT_SESSIONS) || 3),
+    auth: {
+      mode: validMode,
+      invalidMode: validMode ? null : rawAuthMode,
+      passwordHash: env.BRAIN_UI_PASSWORD_HASH || null,
+      cookieSecret: env.COOKIE_SECRET || null,
+      trustProxy: flag(env.TRUST_PROXY),
+      trustProxyHops: Math.max(1, Number(env.TRUST_PROXY_HOPS) || 1),
+      proxyAuthHeader: (env.PROXY_AUTH_HEADER || "x-forwarded-user").toLowerCase(),
+      dangerouslyDisableAuth: flag(env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH),
+      allowPassword: flag(env.BRAIN_UI_ALLOW_PASSWORD),
+    },
+    webauthn: {
+      rpName: env.WEBAUTHN_RP_NAME || "Brain UI",
+      userName: env.WEBAUTHN_USER_NAME || "owner",
+      userId: env.WEBAUTHN_USER_ID || "brain-ui-owner",
+      rpId: env.WEBAUTHN_RP_ID || null,
+      origins: list(env.WEBAUTHN_ORIGINS),
+      allowLoopbackOrigin: flag(env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN),
+    },
+    agent: {
+      backend: env.AGENT_BACKEND?.trim().toLowerCase() || null,
+      claudeCodePath: env.CLAUDE_CODE_PATH || "/usr/local/bin/claude",
+      defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || "claude-sonnet-4-6",
+      profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
+      modelDiscovery,
+      modelTtlMs: ttlHours * 60 * 60 * 1000,
+    },
+    voice: {
+      provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,
+      deepgramApiKey: env.DEEPGRAM_API_KEY || null,
+      keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
+      cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
+    },
+  };
+}
+
+/**
+ * The parent environment for spawned subprocesses (brain CLI, whatsup), plus
+ * overrides. Child processes legitimately inherit the whole environment
+ * (PATH, credentials for the tools they run) — that is process plumbing, not
+ * configuration, but it still reads `process.env`, so it lives behind this
+ * chokepoint.
+ */
+export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
+  return { ...process.env, ...extra };
+}

@@ -1,8 +1,6 @@
 import { upgradeWebSocket, websocket } from "hono/bun";
 import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
-import { getBackendForSession } from "../agent/backend.js";
-import { addClient, removeClient, hasClients } from "./clients.js";
 import { withTurnScope } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage } from "./dispatch.js";
@@ -49,7 +47,7 @@ export function createWsUpgrade(host: WsHost) {
           )
         );
         try {
-          const backend = await getBackendForSession(
+          const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
           );
           const history = await backend.getHistory(sid);
@@ -57,7 +55,7 @@ export function createWsUpgrade(host: WsHost) {
         } catch (err) {
           console.error("[ws] snapshot-on-connect failed:", err);
         } finally {
-          addClient(ws);
+          host.clients.add(ws);
           host.sendMessage(
             ws,
             withTurnScope(
@@ -74,7 +72,7 @@ export function createWsUpgrade(host: WsHost) {
         return;
       }
 
-      addClient(ws);
+      host.clients.add(ws);
       host.sendMessage(ws, {
         type: "status",
         status: "idle",
@@ -119,11 +117,11 @@ export function createWsUpgrade(host: WsHost) {
 
     onClose(_evt, ws) {
       console.log("[ws] Client disconnected");
-      removeClient(ws);
+      host.clients.remove(ws);
       // Turns keep running in the background. Only reject pending interactive
       // requests once the LAST client leaves — while another client remains it
       // can still answer them.
-      if (hasClients()) return;
+      if (host.clients.hasClients()) return;
       for (const turn of host.coordinator.running) {
         host.coordinator.drainPendingForTurn(turn, "Client disconnected");
       }

@@ -3,55 +3,34 @@ import { Hono } from "hono";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
+import type { Database } from "bun:sqlite";
 import { authRoutes, authGuard, resetLoginRateLimiter } from "../src/middleware/auth";
 import {
   passkeyPublicRoutes,
   passkeyManagementRoutes,
   passwordLoginDisabled,
+  type PasskeyContext,
   type PasskeyDeps,
 } from "../src/middleware/passkeys";
-import { getDb, closeDb } from "../src/db/client";
+import { createUiDb } from "../src/db/client";
+import { resolveServerConfig } from "../src/config/env";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const TEST_DB = join(tmpdir(), `passkeys-test-${process.pid}.db`);
 
-const ENV_KEYS = [
-  "AUTH_MODE",
-  "BRAIN_UI_PASSWORD_HASH",
-  "COOKIE_SECRET",
-  "NODE_ENV",
-  "HOST",
-  "TRUST_PROXY",
-  "ALLOWED_ORIGINS",
-  "WEBAUTHN_ORIGINS",
-  "WEBAUTHN_RP_ID",
-  "BRAIN_UI_ALLOW_PASSWORD",
-  "BRAIN_UI_ALLOW_LOOPBACK_ORIGIN",
-  "DB_PATH",
-] as const;
-const saved: Record<string, string | undefined> = {};
+let db: Database;
 
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
-  for (const k of ENV_KEYS) saved[k] = process.env[k];
-  closeDb();
-  for (const k of ENV_KEYS) delete process.env[k];
-  process.env.DB_PATH = TEST_DB;
-  process.env.BRAIN_UI_PASSWORD_HASH = HASH;
-  process.env.COOKIE_SECRET = SECRET;
-  process.env.TRUST_PROXY = "1";
+  db = createUiDb(TEST_DB);
 });
 
 afterAll(() => {
-  closeDb();
+  db.close();
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(TEST_DB + suffix, { force: true });
-  }
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
   }
 });
 
@@ -60,14 +39,35 @@ beforeEach(() => {
   getDb().exec("DELETE FROM passkey_credentials");
 });
 
+const getDb = () => db;
+
 // Mirrors the app.ts mount order: public routes before the guard, management
-// routes after it.
-function fullApp(deps: PasskeyDeps = {}) {
+// routes after it. Configuration is injected per app instance — tests vary it
+// by passing env overrides through the real resolver, never by mutation.
+function fullApp(deps: PasskeyDeps = {}, env: Record<string, string | undefined> = {}) {
+  const config = resolveServerConfig({
+    BRAIN_UI_PASSWORD_HASH: HASH,
+    COOKIE_SECRET: SECRET,
+    TRUST_PROXY: "1",
+    ...env,
+  });
+  const auth = { ...config.auth, host: config.host };
+  const ctx: PasskeyContext = {
+    db,
+    webauthn: config.webauthn,
+    auth,
+    allowedOrigins: config.allowedOrigins,
+  };
   const app = new Hono();
-  app.route("/api", authRoutes("password", { passwordDisabled: passwordLoginDisabled }));
-  app.route("/api", passkeyPublicRoutes("password", deps));
-  app.use("/api/*", authGuard("password"));
-  app.route("/api", passkeyManagementRoutes("password", deps));
+  app.route(
+    "/api",
+    authRoutes("password", auth, {
+      passwordDisabled: (c) => passwordLoginDisabled(c, ctx),
+    })
+  );
+  app.route("/api", passkeyPublicRoutes("password", ctx, deps));
+  app.use("/api/*", authGuard("password", auth));
+  app.route("/api", passkeyManagementRoutes("password", ctx, deps));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   return app;
 }
@@ -199,9 +199,16 @@ const verifiedRegistration = (id = "cred-new") =>
 
 describe("mode gating", () => {
   test("non-password mode rejects every passkey route", async () => {
+    const config = resolveServerConfig({});
+    const ctx: PasskeyContext = {
+      db,
+      webauthn: config.webauthn,
+      auth: { ...config.auth, host: config.host },
+      allowedOrigins: config.allowedOrigins,
+    };
     const app = new Hono();
-    app.route("/api", passkeyPublicRoutes("tailscale"));
-    app.route("/api", passkeyManagementRoutes("tailscale"));
+    app.route("/api", passkeyPublicRoutes("tailscale", ctx));
+    app.route("/api", passkeyManagementRoutes("tailscale", ctx));
 
     const methods = await app.request("/api/auth/methods", { headers: headers() });
     expect(await methods.json()).toEqual({ password: false, passkey: false });
@@ -275,29 +282,29 @@ describe("origin / RP resolution", () => {
     });
     expect(res.status).toBe(400);
 
-    process.env.ALLOWED_ORIGINS = "https://evil.test";
-    res = await fullApp().request("/api/auth/passkey/login-options", {
-      method: "POST",
-      headers: headers({ origin: "https://evil.test" }, "10.2.0.3"),
-      body: "{}",
-    });
+    res = await fullApp({}, { ALLOWED_ORIGINS: "https://evil.test" }).request(
+      "/api/auth/passkey/login-options",
+      {
+        method: "POST",
+        headers: headers({ origin: "https://evil.test" }, "10.2.0.3"),
+        body: "{}",
+      }
+    );
     expect(res.status).toBe(200);
     expect((await res.json()).rpId).toBe("evil.test");
-    delete process.env.ALLOWED_ORIGINS;
   });
 
   test("WEBAUTHN_ORIGINS + WEBAUTHN_RP_ID overrides apply", async () => {
-    process.env.WEBAUTHN_ORIGINS = "https://alias.test";
-    process.env.WEBAUTHN_RP_ID = "canonical.test";
-    const res = await fullApp().request("/api/auth/passkey/login-options", {
+    const res = await fullApp(
+      {},
+      { WEBAUTHN_ORIGINS: "https://alias.test", WEBAUTHN_RP_ID: "canonical.test" }
+    ).request("/api/auth/passkey/login-options", {
       method: "POST",
       headers: headers({ origin: "https://alias.test" }, "10.2.0.4"),
       body: "{}",
     });
     expect(res.status).toBe(200);
     expect((await res.json()).rpId).toBe("canonical.test");
-    delete process.env.WEBAUTHN_ORIGINS;
-    delete process.env.WEBAUTHN_RP_ID;
   });
 
   test("localhost escape hatch requires the explicit opt-in flag", async () => {
@@ -314,14 +321,15 @@ describe("origin / RP resolution", () => {
     });
     expect(res.status).toBe(400);
 
-    process.env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN = "1";
-    res = await fullApp().request("/api/auth/passkey/login-options", {
-      method: "POST",
-      headers: devHeaders("10.2.0.6"),
-      body: "{}",
-    });
+    res = await fullApp({}, { BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" }).request(
+      "/api/auth/passkey/login-options",
+      {
+        method: "POST",
+        headers: devHeaders("10.2.0.6"),
+        body: "{}",
+      }
+    );
     expect(res.status).toBe(200);
-    delete process.env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN;
   });
 });
 
@@ -517,17 +525,17 @@ describe("password auto-disable", () => {
 
   test("BRAIN_UI_ALLOW_PASSWORD=1 re-enables password login", async () => {
     seedCredential();
-    process.env.BRAIN_UI_ALLOW_PASSWORD = "1";
-    try {
-      const res = await passwordLogin("10.5.2.1");
-      expect(res.status).toBe(200);
-      const methods = await fullApp().request("/api/auth/methods", {
-        headers: headers(),
-      });
-      expect(await methods.json()).toEqual({ password: true, passkey: true });
-    } finally {
-      delete process.env.BRAIN_UI_ALLOW_PASSWORD;
-    }
+    const allowPassword = { BRAIN_UI_ALLOW_PASSWORD: "1" };
+    const res = await fullApp({}, allowPassword).request("/api/auth/login", {
+      method: "POST",
+      headers: headers({}, "10.5.2.1"),
+      body: JSON.stringify({ password: PASSWORD }),
+    });
+    expect(res.status).toBe(200);
+    const methods = await fullApp({}, allowPassword).request("/api/auth/methods", {
+      headers: headers(),
+    });
+    expect(await methods.json()).toEqual({ password: true, passkey: true });
   });
 
   test("deleting the last passkey re-enables password login", async () => {

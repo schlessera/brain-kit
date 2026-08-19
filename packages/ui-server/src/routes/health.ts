@@ -1,6 +1,4 @@
 import { Hono } from "hono";
-import { getCronStatus } from "../cron/scheduler.js";
-import { isTurnActive } from "../ws/handler.js";
 
 const startTime = Date.now();
 
@@ -15,15 +13,24 @@ export const healthRoutes = new Hono().get("/health", (c) => {
   });
 });
 
+export interface StatusDeps {
+  /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
+  sourceCommit: string;
+  getCronStatus(): unknown;
+  isTurnActive(): boolean;
+}
+
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
 // cron job errors (raw stderr with filesystem paths), and whether a turn is
 // active — none of which should be readable unauthenticated.
-export const statusRoutes = new Hono().get("/status", (c) => {
-  return c.json({
-    healthy: true,
-    uptime: Date.now() - startTime,
-    version: process.env.SOURCE_COMMIT ?? "dev",
-    cronJobs: getCronStatus(),
-    activeSession: isTurnActive(),
+export function createStatusRoutes(deps: StatusDeps): Hono {
+  return new Hono().get("/status", (c) => {
+    return c.json({
+      healthy: true,
+      uptime: Date.now() - startTime,
+      version: deps.sourceCommit,
+      cronJobs: deps.getCronStatus(),
+      activeSession: deps.isTurnActive(),
+    });
   });
-});
+}

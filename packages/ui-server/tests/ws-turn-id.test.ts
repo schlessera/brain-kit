@@ -7,9 +7,14 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import { handleClientMessage, resetForTests } from "../src/ws/handler";
-import { setBackendForTests } from "../src/agent/backend";
-import { addClient, resetClientsForTests, type WSContext } from "../src/ws/clients";
+import type { WSContext } from "../src/ws/clients";
+import {
+  addClient,
+  closeDb,
+  handleClientMessage,
+  resetForTests,
+  setBackendForTests,
+} from "./helpers/test-host";
 
 interface TurnControl {
   toolUseId: string;
@@ -101,11 +106,11 @@ const turnIdOf = (f: ServerMessage): string | undefined =>
 describe("turnId stamping and correlation", () => {
   beforeEach(() => {
     resetForTests();
-    resetClientsForTests();
+    closeDb();
   });
   afterEach(() => {
     resetForTests();
-    resetClientsForTests();
+    closeDb();
   });
 
   test("turn-scoped frames carry a turnId; two sessions get distinct ids", async () => {

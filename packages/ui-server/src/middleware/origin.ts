@@ -13,14 +13,7 @@ import type { Context } from "hono";
  * The check is free because the routes that use it are only ever called by the
  * app itself, same-origin. Same shape as the WebSocket upgrade's origin guard.
  */
-export function allowedOriginList(): string[] {
-  return (process.env.ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
-
-export function isSameOriginRequest(c: Context, allowed = allowedOriginList()): boolean {
+export function isSameOriginRequest(c: Context, allowed: string[]): boolean {
   // Chromium and Firefox send this, and it is not settable by script.
   const site = c.req.header("sec-fetch-site");
   if (site) return site === "same-origin" || site === "none";

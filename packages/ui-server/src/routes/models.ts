@@ -6,22 +6,25 @@
 // was last refreshed and why it might be stale.
 
 import { Hono } from "hono";
+import type { Database } from "bun:sqlite";
 import type {
   ModelCatalogEntry,
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk";
-import {
-  getModelSource,
-  invalidateProfiles,
-  listAllProviders,
-} from "../agent/backend.js";
+import type { BackendRegistry } from "../agent/backend.js";
 import { getHiddenModelIds, setHiddenModelIds } from "../db/settings.js";
 
-async function buildCatalog(): Promise<ModelCatalogResponse> {
-  const source = await getModelSource();
-  const hidden = new Set(getHiddenModelIds());
+export function createModelRoutes(deps: {
+  registry: BackendRegistry;
+  db: Database;
+}): Hono {
+  const { registry, db } = deps;
+
+  async function buildCatalog(): Promise<ModelCatalogResponse> {
+  const source = await registry.getModelSource();
+  const hidden = new Set(getHiddenModelIds(db));
   const models: ModelCatalogEntry[] = (
-    await listAllProviders({ includeHidden: true })
+    await registry.listAllProviders({ includeHidden: true })
   ).map((profile) => ({ ...profile, hidden: hidden.has(profile.id) }));
 
   const state = source?.state();
@@ -36,11 +39,11 @@ async function buildCatalog(): Promise<ModelCatalogResponse> {
   };
 }
 
-export const modelRoutes = new Hono()
+  return new Hono()
   .get("/models", async (c) => {
     // Serves the cached roster immediately and refreshes behind the response
     // when stale; only a cold start (nothing cached) waits on the network.
-    const source = await getModelSource();
+    const source = await registry.getModelSource();
     await source?.ensureFresh();
     return c.json(await buildCatalog());
   })
@@ -55,14 +58,14 @@ export const modelRoutes = new Hono()
       return c.json({ error: "hidden must be an array of profile ids" }, 400);
     }
 
-    setHiddenModelIds(hidden as string[]);
+    setHiddenModelIds(db, hidden as string[]);
     // The picker reads through a memo — drop it so the change is immediate.
-    invalidateProfiles();
+    registry.invalidateProfiles();
     return c.json(await buildCatalog());
   })
 
   .post("/models/refresh", async (c) => {
-    const source = await getModelSource();
+    const source = await registry.getModelSource();
     if (!source) {
       return c.json(
         { error: "Model discovery is not available on this backend" },
@@ -80,6 +83,7 @@ export const modelRoutes = new Hono()
         }`
       );
     }
-    invalidateProfiles();
+    registry.invalidateProfiles();
     return c.json(await buildCatalog());
   });
+}

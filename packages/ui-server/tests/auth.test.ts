@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll } from "bun:test";
 import { Hono } from "hono";
 import {
   resolveAuthMode,
@@ -7,121 +7,123 @@ import {
   authRoutes,
   isWsAuthorized,
   type AuthMode,
+  type AuthRuntime,
 } from "../src/middleware/auth";
+import { resolveServerConfig } from "../src/config/env";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
 const SECRET = "test-cookie-secret-0123456789abcdef";
 
-// Snapshot the env keys these tests mutate so nothing leaks between files.
-const ENV_KEYS = [
-  "AUTH_MODE",
-  "BRAIN_UI_PASSWORD_HASH",
-  "COOKIE_SECRET",
-  "NODE_ENV",
-  "HOST",
-  "TRUST_PROXY",
-  "PROXY_AUTH_HEADER",
-  "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH",
-] as const;
-const saved: Record<string, string | undefined> = {};
+/**
+ * Configuration is injected, not ambient: build an AuthRuntime from an
+ * explicit env record through the real resolver, so these tests exercise the
+ * same resolution path production uses — with zero process.env mutation.
+ */
+function auth(env: Record<string, string | undefined> = {}): AuthRuntime {
+  const config = resolveServerConfig(env);
+  return { ...config.auth, host: config.host };
+}
 
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
-  for (const k of ENV_KEYS) saved[k] = process.env[k];
 });
-
-afterAll(() => {
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
-});
-
-function clearEnv() {
-  for (const k of ENV_KEYS) delete process.env[k];
-}
 
 describe("resolveAuthMode", () => {
   test("honors an explicit AUTH_MODE", () => {
-    clearEnv();
     for (const mode of ["password", "tailscale", "proxy", "none"] as AuthMode[]) {
-      process.env.AUTH_MODE = mode;
-      expect(resolveAuthMode()).toBe(mode);
+      expect(resolveAuthMode(auth({ AUTH_MODE: mode }))).toBe(mode);
     }
   });
 
   test("defaults to password when a hash is present", () => {
-    clearEnv();
-    process.env.BRAIN_UI_PASSWORD_HASH = HASH;
-    expect(resolveAuthMode()).toBe("password");
+    expect(resolveAuthMode(auth({ BRAIN_UI_PASSWORD_HASH: HASH }))).toBe("password");
   });
 
   test("defaults to tailscale with no hash", () => {
-    clearEnv();
-    expect(resolveAuthMode()).toBe("tailscale");
+    expect(resolveAuthMode(auth())).toBe("tailscale");
+  });
+
+  test("an unknown AUTH_MODE falls back to auto-detection", () => {
+    expect(resolveAuthMode(auth({ AUTH_MODE: "carrier-pigeon" }))).toBe("tailscale");
+    expect(
+      resolveAuthMode(auth({ AUTH_MODE: "carrier-pigeon", BRAIN_UI_PASSWORD_HASH: HASH }))
+    ).toBe("password");
   });
 });
 
 describe("assertAuthConfig", () => {
   test("password mode requires hash + cookie secret", () => {
-    clearEnv();
-    expect(() => assertAuthConfig("password")).toThrow(/BRAIN_UI_PASSWORD_HASH/);
-    process.env.BRAIN_UI_PASSWORD_HASH = HASH;
-    expect(() => assertAuthConfig("password")).toThrow(/COOKIE_SECRET/);
-    process.env.COOKIE_SECRET = SECRET;
-    expect(() => assertAuthConfig("password")).not.toThrow();
+    expect(() => assertAuthConfig("password", auth())).toThrow(
+      /BRAIN_UI_PASSWORD_HASH/
+    );
+    expect(() =>
+      assertAuthConfig("password", auth({ BRAIN_UI_PASSWORD_HASH: HASH }))
+    ).toThrow(/COOKIE_SECRET/);
+    expect(() =>
+      assertAuthConfig(
+        "password",
+        auth({ BRAIN_UI_PASSWORD_HASH: HASH, COOKIE_SECRET: SECRET })
+      )
+    ).not.toThrow();
   });
 
   test("none refuses a non-loopback host regardless of NODE_ENV", () => {
     for (const nodeEnv of ["production", "development", undefined]) {
-      clearEnv();
-      if (nodeEnv !== undefined) process.env.NODE_ENV = nodeEnv;
-      process.env.HOST = "0.0.0.0";
-      expect(() => assertAuthConfig("none")).toThrow(/refuses to start/);
+      expect(() =>
+        assertAuthConfig("none", auth({ NODE_ENV: nodeEnv, HOST: "0.0.0.0" }))
+      ).toThrow(/refuses to start/);
     }
   });
 
   test("none refuses when HOST is unset (fail closed)", () => {
-    clearEnv();
-    expect(() => assertAuthConfig("none")).toThrow(/refuses to start/);
+    expect(() => assertAuthConfig("none", auth())).toThrow(/refuses to start/);
   });
 
   test("none is allowed on a loopback host", () => {
-    clearEnv();
-    process.env.NODE_ENV = "production";
-    process.env.HOST = "127.0.0.1";
-    expect(() => assertAuthConfig("none")).not.toThrow();
+    expect(() =>
+      assertAuthConfig("none", auth({ NODE_ENV: "production", HOST: "127.0.0.1" }))
+    ).not.toThrow();
   });
 
   test("none on a non-loopback host requires the explicit escape hatch", () => {
-    clearEnv();
-    process.env.HOST = "0.0.0.0";
-    process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH = "1";
-    expect(() => assertAuthConfig("none")).not.toThrow();
-    delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
+    expect(() =>
+      assertAuthConfig(
+        "none",
+        auth({ HOST: "0.0.0.0", BRAIN_UI_DANGEROUSLY_DISABLE_AUTH: "1" })
+      )
+    ).not.toThrow();
+  });
+
+  test("proxy mode refuses to boot without TRUST_PROXY", () => {
+    expect(() => assertAuthConfig("proxy", auth())).toThrow(/TRUST_PROXY/);
+    expect(() => assertAuthConfig("proxy", auth({ TRUST_PROXY: "1" }))).not.toThrow();
   });
 });
 
+function passwordAuth(): AuthRuntime {
+  return auth({
+    BRAIN_UI_PASSWORD_HASH: HASH,
+    COOKIE_SECRET: SECRET,
+    // Read x-forwarded-for so each test can use a distinct rate-limit bucket.
+    TRUST_PROXY: "1",
+  });
+}
+
 function passwordApp() {
+  const runtime = passwordAuth();
   const app = new Hono();
-  app.route("/api", authRoutes("password"));
-  app.use("/api/*", authGuard("password"));
+  app.route("/api", authRoutes("password", runtime));
+  app.use("/api/*", authGuard("password", runtime));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   // Un-guarded probe so isWsAuthorized can be tested with a real Hono context.
-  app.get("/wscheck", async (c) => c.json({ ok: await isWsAuthorized(c, "password") }));
+  app.get("/wscheck", async (c) =>
+    c.json({ ok: await isWsAuthorized(c, "password", runtime) })
+  );
   return app;
 }
 
 describe("password login + guard", () => {
-  beforeAll(() => {
-    clearEnv();
-    process.env.BRAIN_UI_PASSWORD_HASH = HASH;
-    process.env.COOKIE_SECRET = SECRET;
-    // Read x-forwarded-for so each test can use a distinct rate-limit bucket.
-    process.env.TRUST_PROXY = "1";
-  });
-
   test("guard blocks an unauthenticated request with 401", async () => {
     const app = passwordApp();
     const res = await app.request("/api/secret");
@@ -180,33 +182,39 @@ describe("password login + guard", () => {
 describe("isWsAuthorized", () => {
   test("none mode always authorizes", async () => {
     const ctx = { req: { header: () => undefined } };
-    expect(await isWsAuthorized(ctx as never, "none")).toBe(true);
+    expect(await isWsAuthorized(ctx as never, "none", auth())).toBe(true);
   });
 
   test("password mode rejects without a cookie", async () => {
-    clearEnv();
-    process.env.COOKIE_SECRET = SECRET;
     const ctx = { req: { header: () => undefined } };
-    expect(await isWsAuthorized(ctx as never, "password")).toBe(false);
+    expect(
+      await isWsAuthorized(ctx as never, "password", auth({ COOKIE_SECRET: SECRET }))
+    ).toBe(false);
   });
 
   test("proxy mode authorizes when the trusted header is present", async () => {
-    clearEnv();
-    process.env.PROXY_AUTH_HEADER = "x-forwarded-user";
-    process.env.TRUST_PROXY = "1";
     const ctx = {
       req: { header: (n: string) => (n === "x-forwarded-user" ? "alex" : undefined) },
     };
-    expect(await isWsAuthorized(ctx as never, "proxy")).toBe(true);
+    expect(
+      await isWsAuthorized(
+        ctx as never,
+        "proxy",
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" })
+      )
+    ).toBe(true);
   });
 
   test("proxy mode denies the header when TRUST_PROXY is not set", async () => {
-    clearEnv();
-    process.env.PROXY_AUTH_HEADER = "x-forwarded-user";
-    delete process.env.TRUST_PROXY;
     const ctx = {
       req: { header: (n: string) => (n === "x-forwarded-user" ? "alex" : undefined) },
     };
-    expect(await isWsAuthorized(ctx as never, "proxy")).toBe(false);
+    expect(
+      await isWsAuthorized(
+        ctx as never,
+        "proxy",
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user" })
+      )
+    ).toBe(false);
   });
 });

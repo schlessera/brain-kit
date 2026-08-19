@@ -3,7 +3,6 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
 import { createApp } from "../src/app";
-import { closeDb } from "../src/db/client";
 
 // Hermetic wiring test: boots the real app in a deployed-like config and asserts
 // the wiring that the three prod lockouts (auth-guard ordering, CORS, WS origin)
@@ -32,12 +31,10 @@ beforeAll(async () => {
   delete process.env.ALLOWED_ORIGINS;
   delete process.env.TRUST_PROXY;
   // Passkey routes touch the DB; never let a wiring test open a real db file.
-  closeDb();
   process.env.DB_PATH = TEST_DB;
 });
 
 afterAll(() => {
-  closeDb();
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(TEST_DB + suffix, { force: true });
   }

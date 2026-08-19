@@ -1,52 +1,45 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
+import type { Database } from "bun:sqlite";
+import type { Hono } from "hono";
 import {
-  getBackendForProfile,
-  listAllProviders,
-  resetBackendForTests,
-  setBackendsForTests,
+  createStaticBackendRegistry,
+  type BackendRegistry,
 } from "../src/agent/backend";
-import { closeDb } from "../src/db/client";
-import { getHiddenModelIds } from "../src/db/settings";
-import { modelRoutes } from "../src/routes/models";
-import { providerRoutes } from "../src/routes/providers";
+import { createUiDb } from "../src/db/client";
+import { getHiddenModelIds as readHiddenModelIds } from "../src/db/settings";
+import { createModelRoutes } from "../src/routes/models";
+import { createProviderRoutes } from "../src/routes/providers";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
-const TEST_DB = `/tmp/brain-ui-models-routes-${process.pid}.db`;
+let db: Database;
+let registry: BackendRegistry;
+let modelRoutes: Hono;
+let providerRoutes: Hono;
 
-function removeTestDb() {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    const path = TEST_DB + suffix;
-    if (existsSync(path)) unlinkSync(path);
-  }
-}
-
-/** Two profiles on one backend, so hiding one still leaves a picker entry. */
-function installBackend() {
-  setBackendsForTests([
-    makeFakeBackend({
-      id: "claude",
-      profiles: [
-        { id: "claude-opus-5", label: "Claude Opus 5", vendor: "anthropic" },
-        { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", vendor: "anthropic" },
-      ],
-    }),
-  ]);
-}
+const getHiddenModelIds = () => readHiddenModelIds(db);
 
 beforeEach(() => {
-  closeDb();
-  removeTestDb();
-  process.env.DB_PATH = TEST_DB;
-  resetBackendForTests();
-  installBackend();
+  db = createUiDb(":memory:");
+  /** Two profiles on one backend, so hiding one still leaves a picker entry. */
+  registry = createStaticBackendRegistry(
+    [
+      makeFakeBackend({
+        id: "claude",
+        profiles: [
+          { id: "claude-opus-5", label: "Claude Opus 5", vendor: "anthropic" },
+          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", vendor: "anthropic" },
+        ],
+      }),
+    ],
+    "claude",
+    { getHiddenModelIds }
+  );
+  modelRoutes = createModelRoutes({ registry, db });
+  providerRoutes = createProviderRoutes({ registry });
 });
 
 afterEach(() => {
-  resetBackendForTests();
-  closeDb();
-  removeTestDb();
-  delete process.env.DB_PATH;
+  db.close();
 });
 
 describe("model catalog routes", () => {
@@ -97,9 +90,9 @@ describe("model catalog routes", () => {
       body: JSON.stringify({ hidden: ["claude-haiku-4-5"] }),
     });
 
-    expect(await getBackendForProfile("claude-haiku-4-5")).toBeDefined();
+    expect(await registry.getBackendForProfile("claude-haiku-4-5")).toBeDefined();
     expect(
-      (await listAllProviders({ includeHidden: true })).map((p) => p.id)
+      (await registry.listAllProviders({ includeHidden: true })).map((p: { id: string }) => p.id)
     ).toContain("claude-haiku-4-5");
   });
 
@@ -116,7 +109,7 @@ describe("model catalog routes", () => {
     });
 
     expect(getHiddenModelIds()).toEqual([]);
-    expect((await listAllProviders()).map((p) => p.id)).toEqual([
+    expect((await registry.listAllProviders()).map((p: { id: string }) => p.id)).toEqual([
       "claude-opus-5",
       "claude-haiku-4-5",
     ]);

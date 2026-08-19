@@ -1,24 +1,34 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import type { Keyterm, PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
+import { BrainDbUnavailableError, withBrainDb } from "../db/brain-db.js";
 
-const BRAIN_PATH =
-  process.env.BRAIN_PATH || join(process.env.HOME || "/root", "brain");
-
-const DEFAULT_LIMIT = Number(process.env.VOICE_KEYTERM_LIMIT || 500);
-
-const CACHE_PATH = join(
-  process.env.VOICE_CACHE_DIR || join(BRAIN_PATH, ".brain-ui"),
-  "keyterms.json"
-);
+/**
+ * Everything the keyterm builder needs to know about its surroundings —
+ * derived from the resolved ServerConfig by the caller (createApp / the
+ * deployment shell). No ambient environment.
+ */
+export interface KeytermSettings {
+  brainPath: string;
+  /** Directory holding keyterms.json (VOICE_CACHE_DIR). */
+  cacheDir: string;
+  /** Maximum vocabulary size (VOICE_KEYTERM_LIMIT). */
+  limit: number;
+}
 
 // Bump whenever the extractor logic, scoring, or stoplists change so that
 // post-deploy the first request rebuilds the cache instead of serving a
 // stale snapshot baked under the old algorithm.
 const CACHE_VERSION = 2;
 
-const OVERRIDES_PATH = join(BRAIN_PATH, ".voice-overrides.md");
+function cachePath(settings: KeytermSettings): string {
+  return join(settings.cacheDir, "keyterms.json");
+}
+
+function overridesPath(brainPath: string): string {
+  return join(brainPath, ".voice-overrides.md");
+}
 
 // Common English words to exclude from extracted vocab.
 // Kept short and aggressive — anything ambiguous, drop it.
@@ -107,17 +117,19 @@ interface LinkRow {
   target: string;
 }
 
-export interface BuildOptions {
-  limit?: number;
-  brainPath?: string;
-}
-
 export interface KeytermsCache {
   version: number;
   keyterms: string[];
   generatedAt: number;
   count: number;
   overrides: PronunciationOverride[];
+  /**
+   * Set when the brain database's schema is older than this package's SQL —
+   * the vocabulary degrades to empty (voice keeps working, just without
+   * domain bias) instead of erroring. Degraded results are never persisted,
+   * so the first request after `brain index` upgrades the schema rebuilds.
+   */
+  degraded?: true;
 }
 
 function normalize(s: string): string {
@@ -347,10 +359,11 @@ function dedupeAndRank(terms: Keyterm[], limit: number): string[] {
   return sorted.slice(0, limit).map((k) => k.term);
 }
 
-export function loadOverrides(): PronunciationOverride[] {
-  if (!existsSync(OVERRIDES_PATH)) return [];
+export function loadOverrides(brainPath: string): PronunciationOverride[] {
+  const path = overridesPath(brainPath);
+  if (!existsSync(path)) return [];
   try {
-    const md = readFileSync(OVERRIDES_PATH, "utf-8");
+    const md = readFileSync(path, "utf-8");
     const out: PronunciationOverride[] = [];
     for (const line of md.split("\n")) {
       // Format:  - Doe → DOH   (also accepts "->")
@@ -367,47 +380,66 @@ export function loadOverrides(): PronunciationOverride[] {
   }
 }
 
-export function buildKeyterms(opts: BuildOptions = {}): KeytermsCache {
-  const limit = opts.limit ?? DEFAULT_LIMIT;
-  const brainPath = opts.brainPath ?? BRAIN_PATH;
-  const dbPath = join(brainPath, "brain.db");
+export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
+  const { brainPath, limit } = settings;
 
-  if (!existsSync(dbPath)) {
-    throw new Error(`brain.db not found at ${dbPath}`);
-  }
-
-  const db = new Database(dbPath, { readonly: true });
   try {
-    const all: Keyterm[] = [
-      ...extractTags(db),
-      ...extractTitles(db),
-      ...extractPaths(db),
-      ...extractLinks(db),
-      ...extractFromContent(db),
-    ];
-    const keyterms = dedupeAndRank(all, limit);
-    return {
-      version: CACHE_VERSION,
-      keyterms,
-      generatedAt: Date.now(),
-      count: keyterms.length,
-      overrides: loadOverrides(),
-    };
-  } finally {
-    db.close();
+    return withBrainDb(brainPath, {}, (db) => {
+      const all: Keyterm[] = [
+        ...extractTags(db),
+        ...extractTitles(db),
+        ...extractPaths(db),
+        ...extractLinks(db),
+        ...extractFromContent(db),
+      ];
+      const keyterms = dedupeAndRank(all, limit);
+      return {
+        version: CACHE_VERSION,
+        keyterms,
+        generatedAt: Date.now(),
+        count: keyterms.length,
+        overrides: loadOverrides(brainPath),
+      };
+    });
+  } catch (err) {
+    if (err instanceof BrainDbUnavailableError) {
+      if (err.reason === "missing") {
+        // Preserved behavior: no brain.db is a hard error the caller reports.
+        throw new Error(`brain.db not found at ${join(brainPath, "brain.db")}`);
+      }
+      // Schema too old for this package's SQL: degrade to no custom
+      // vocabulary rather than breaking voice entirely. Pronunciation
+      // overrides live in markdown, so they survive.
+      console.warn(
+        `[voice] brain.db schema_version=${err.schemaVersion} is older than this ` +
+          "server's keyterm SQL; serving an empty custom vocabulary until the " +
+          "repo is re-indexed."
+      );
+      return {
+        version: CACHE_VERSION,
+        keyterms: [],
+        generatedAt: Date.now(),
+        count: 0,
+        overrides: loadOverrides(brainPath),
+        degraded: true,
+      };
+    }
+    throw err;
   }
 }
 
-export function writeCache(cache: KeytermsCache): void {
-  const dir = dirname(CACHE_PATH);
+export function writeCache(settings: KeytermSettings, cache: KeytermsCache): void {
+  const path = cachePath(settings);
+  const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2), "utf-8");
+  writeFileSync(path, JSON.stringify(cache, null, 2), "utf-8");
 }
 
-export function readCache(): KeytermsCache | null {
-  if (!existsSync(CACHE_PATH)) return null;
+export function readCache(settings: KeytermSettings): KeytermsCache | null {
+  const path = cachePath(settings);
+  if (!existsSync(path)) return null;
   try {
-    const cache = JSON.parse(readFileSync(CACHE_PATH, "utf-8")) as KeytermsCache;
+    const cache = JSON.parse(readFileSync(path, "utf-8")) as KeytermsCache;
     if (cache.version !== CACHE_VERSION) return null;
     return cache;
   } catch {
@@ -415,12 +447,14 @@ export function readCache(): KeytermsCache | null {
   }
 }
 
-export function getKeyterms(forceRebuild = false): KeytermsCache {
+export function getKeyterms(settings: KeytermSettings, forceRebuild = false): KeytermsCache {
   if (!forceRebuild) {
-    const cached = readCache();
+    const cached = readCache(settings);
     if (cached) return cached;
   }
-  const fresh = buildKeyterms();
-  writeCache(fresh);
+  const fresh = buildKeyterms(settings);
+  // A degraded (schema-too-old) result is served but never persisted — the
+  // cache must not outlive the condition that produced it.
+  if (!fresh.degraded) writeCache(settings, fresh);
   return fresh;
 }

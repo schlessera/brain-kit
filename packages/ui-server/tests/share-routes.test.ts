@@ -9,7 +9,7 @@ import {
   SHARE_STAGING_DIR,
   SHARE_STAGING_TTL_MS,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { shareRoutes } from "../src/routes/share";
+import { createShareRoutes } from "../src/routes/share";
 import {
   ShareTooLargeError,
   pruneShareStaging,
@@ -19,19 +19,16 @@ import {
 } from "../src/share/staging";
 
 const BRAIN_ROOT = `/tmp/brain-ui-share-${process.pid}`;
-let previousBrainPath: string | undefined;
+
+const shareRoutes = createShareRoutes({ brainRoot: BRAIN_ROOT, allowedOrigins: [] });
 
 beforeEach(async () => {
-  previousBrainPath = process.env.BRAIN_PATH;
-  process.env.BRAIN_PATH = BRAIN_ROOT;
   await rm(BRAIN_ROOT, { recursive: true, force: true });
   await mkdir(BRAIN_ROOT, { recursive: true });
 });
 
 afterEach(async () => {
   await rm(BRAIN_ROOT, { recursive: true, force: true });
-  if (previousBrainPath === undefined) delete process.env.BRAIN_PATH;
-  else process.env.BRAIN_PATH = previousBrainPath;
 });
 
 function post(form: FormData) {
@@ -184,7 +181,7 @@ describe("POST /api/share", () => {
       error: "text_too_large",
       limit: SHARE_MAX_TEXT_BYTES,
     });
-    await expect(readdir(shareStagingRoot())).rejects.toThrow();
+    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).rejects.toThrow();
   });
 
   test("a body with no content-length is still capped while streaming", async () => {
@@ -232,7 +229,7 @@ describe("POST /api/share", () => {
 
     expect(response.status).toBe(403);
     expect((await response.json()).error).toBe("cross_origin_rejected");
-    await expect(readdir(shareStagingRoot())).rejects.toThrow();
+    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).rejects.toThrow();
   });
 
   test("a same-origin POST from the app is accepted", async () => {
@@ -342,18 +339,18 @@ describe("share staging", () => {
       arrayBuffer: async () => oversized.buffer,
     } as unknown as File;
 
-    await expect(stageShare({ files: [liar] })).rejects.toBeInstanceOf(
+    await expect(stageShare(BRAIN_ROOT, { files: [liar] })).rejects.toBeInstanceOf(
       ShareTooLargeError
     );
     // The half-written directory is removed, not left for the agent to read.
-    await expect(readdir(shareStagingRoot())).resolves.toEqual([]);
+    await expect(readdir(shareStagingRoot(BRAIN_ROOT))).resolves.toEqual([]);
   });
 
   test("a share is only visible once it is whole", async () => {
     // Staged into `.<id>.partial` and renamed into place after meta.json, so a
     // crash mid-write cannot leave the agent a share with missing files.
-    const result = await stageShare({ text: "atomic", files: [] });
-    const entries = await readdir(shareStagingRoot());
+    const result = await stageShare(BRAIN_ROOT, { text: "atomic", files: [] });
+    const entries = await readdir(shareStagingRoot(BRAIN_ROOT));
 
     expect(entries).toEqual([result.id]);
     expect(entries.some((e) => e.includes("partial"))).toBe(false);
@@ -364,12 +361,12 @@ describe("share staging", () => {
     // data:, file:///etc/shadow, the cloud metadata address over a bogus scheme
     // — becomes plain text instead.
     for (const hostile of ["javascript:alert(1)", "file:///etc/shadow", "data:text/html,x"]) {
-      const result = await stageShare({ url: hostile, files: [] });
+      const result = await stageShare(BRAIN_ROOT, { url: hostile, files: [] });
       expect(result.url).toBeUndefined();
       expect(result.text).toContain(hostile);
     }
 
-    const ok = await stageShare({ url: "https://example.com/post", files: [] });
+    const ok = await stageShare(BRAIN_ROOT, { url: "https://example.com/post", files: [] });
     expect(ok.url).toBe("https://example.com/post");
   });
 
@@ -379,17 +376,17 @@ describe("share staging", () => {
     const file = new File(["x"], "note.txt", { type: "text/plain" });
     Object.defineProperty(file, "type", { value: "a/".padEnd(505, "b") });
 
-    const result = await stageShare({ files: [file] });
+    const result = await stageShare(BRAIN_ROOT, { files: [file] });
 
     expect(result.files[0]!.mediaType).toBe("application/octet-stream");
   });
 
   test("the inbox refuses to grow without bound", async () => {
     for (let n = 0; n < SHARE_MAX_STAGED; n += 1) {
-      await mkdir(join(shareStagingRoot(), `share-${n}`), { recursive: true });
+      await mkdir(join(shareStagingRoot(BRAIN_ROOT), `share-${n}`), { recursive: true });
     }
 
-    await expect(stageShare({ text: "one too many", files: [] })).rejects.toMatchObject({
+    await expect(stageShare(BRAIN_ROOT, { text: "one too many", files: [] })).rejects.toMatchObject({
       reason: "inbox_full",
     });
   });
@@ -406,33 +403,33 @@ describe("share staging", () => {
       }) as unknown as File;
 
     await expect(
-      stageShare({ files: [liar("a.bin"), liar("b.bin"), liar("c.bin")] })
+      stageShare(BRAIN_ROOT, { files: [liar("a.bin"), liar("b.bin"), liar("c.bin")] })
     ).rejects.toMatchObject({ reason: "share_too_large" });
   });
 
   test("pruneShareStaging sweeps orphaned partial directories sooner", async () => {
-    const partial = join(shareStagingRoot(), ".abc.partial");
+    const partial = join(shareStagingRoot(BRAIN_ROOT), ".abc.partial");
     await mkdir(partial, { recursive: true });
     const anHourAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     await utimes(partial, anHourAgo, anHourAgo);
 
-    expect(await pruneShareStaging()).toBe(1);
-    expect(await readdir(shareStagingRoot())).toEqual([]);
+    expect(await pruneShareStaging(BRAIN_ROOT)).toBe(1);
+    expect(await readdir(shareStagingRoot(BRAIN_ROOT))).toEqual([]);
   });
 
   test("pruneShareStaging removes expired shares and keeps fresh ones", async () => {
-    const fresh = await stageShare({ text: "keep me", files: [] });
-    const stale = await stageShare({ text: "sweep me", files: [] });
+    const fresh = await stageShare(BRAIN_ROOT, { text: "keep me", files: [] });
+    const stale = await stageShare(BRAIN_ROOT, { text: "sweep me", files: [] });
 
     const staleDir = join(BRAIN_ROOT, stale.dir);
     const expired = new Date(Date.now() - SHARE_STAGING_TTL_MS - 60_000);
     await utimes(staleDir, expired, expired);
 
-    expect(await pruneShareStaging()).toBe(1);
-    expect(await readdir(shareStagingRoot())).toEqual([fresh.id]);
+    expect(await pruneShareStaging(BRAIN_ROOT)).toBe(1);
+    expect(await readdir(shareStagingRoot(BRAIN_ROOT))).toEqual([fresh.id]);
   });
 
   test("pruneShareStaging is a no-op when nothing has been staged", async () => {
-    expect(await pruneShareStaging()).toBe(0);
+    expect(await pruneShareStaging(BRAIN_ROOT)).toBe(0);
   });
 });

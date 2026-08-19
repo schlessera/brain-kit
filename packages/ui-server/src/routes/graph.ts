@@ -49,8 +49,10 @@ function invalid(param: string) {
   return { error: "invalid_param", param } as const;
 }
 
-export const graphRoutes = new Hono()
-  .get("/graph/meta", (c) => c.json(getGraphMeta()))
+export function createGraphRoutes(deps: { brainRoot: string }): Hono {
+  const { brainRoot } = deps;
+  return new Hono()
+  .get("/graph/meta", (c) => c.json(getGraphMeta({ brainPath: brainRoot })))
 
   .get("/graph/clusters", (c) => {
     const rawCommunity = c.req.query("community");
@@ -61,7 +63,7 @@ export const graphRoutes = new Hono()
     }
 
     try {
-      return c.json(getClusters({ community, includeIsolates: c.req.query("isolates") === "1" }));
+      return c.json(getClusters({ brainPath: brainRoot, community, includeIsolates: c.req.query("isolates") === "1" }));
     } catch (err) {
       const { body, status } = errorResponse(err);
       return c.json(body, status);
@@ -77,7 +79,7 @@ export const graphRoutes = new Hono()
     if (direction === null) return c.json(invalid("direction"), 400);
 
     try {
-      return c.json(getNeighborhood({ center, depth, direction }));
+      return c.json(getNeighborhood({ brainPath: brainRoot, center, depth, direction }));
     } catch (err) {
       const { body, status } = errorResponse(err);
       return c.json(body, status);
@@ -92,7 +94,7 @@ export const graphRoutes = new Hono()
     if (maxDepth === null) return c.json(invalid("maxDepth"), 400);
 
     try {
-      return c.json(getDiscovery({ root, direction, maxDepth }));
+      return c.json(getDiscovery({ brainPath: brainRoot, root, direction, maxDepth }));
     } catch (err) {
       const { body, status } = errorResponse(err);
       return c.json(body, status);
@@ -104,9 +106,10 @@ export const graphRoutes = new Hono()
     if (staleDays === null) return c.json(invalid("staleDays"), 400);
 
     try {
-      return c.json(getMaintenance({ staleDays }));
+      return c.json(getMaintenance({ brainPath: brainRoot, staleDays }));
     } catch (err) {
       const { body, status } = errorResponse(err);
       return c.json(body, status);
     }
   });
+}

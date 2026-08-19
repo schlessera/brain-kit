@@ -1,38 +1,57 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import type { Database } from "bun:sqlite";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { join } from "path";
-import { healthRoutes, statusRoutes } from "./routes/health.js";
-import { brainRoutes } from "./routes/brain.js";
-import { sessionRoutes } from "./routes/sessions.js";
-import { voiceRoutes } from "./routes/voice.js";
-import { filesRoutes } from "./routes/files.js";
-import { shareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
+import { resolveServerConfig, type ServerConfig } from "./config/env.js";
+import { healthRoutes, createStatusRoutes } from "./routes/health.js";
+import { createBrainRoutes } from "./routes/brain.js";
+import { createSessionRoutes } from "./routes/sessions.js";
+import { createVoiceRoutes } from "./routes/voice.js";
+import { createFilesRoutes } from "./routes/files.js";
+import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
-import { providerRoutes } from "./routes/providers.js";
-import { modelRoutes } from "./routes/models.js";
-import { graphRoutes } from "./routes/graph.js";
+import { createProviderRoutes } from "./routes/providers.js";
+import { createModelRoutes } from "./routes/models.js";
+import { createGraphRoutes } from "./routes/graph.js";
 import {
   resolveAuthMode,
   assertAuthConfig,
   authGuard,
   authRoutes,
   isWsAuthorized,
+  type AuthRuntime,
 } from "./middleware/auth.js";
 import {
   passkeyPublicRoutes,
   passkeyManagementRoutes,
   passwordLoginDisabled,
   assertPasskeyConfig,
+  type PasskeyContext,
 } from "./middleware/passkeys.js";
-import { configureDb } from "./db/client.js";
-import { configureWsHost, wsUpgrade, websocket } from "./ws/handler.js";
+import { createUiDb } from "./db/client.js";
+import { getHiddenModelIds } from "./db/settings.js";
+import { createBackendRegistry, type BackendRegistry } from "./agent/backend.js";
+import { createBrainClient } from "./brain/client.js";
+import { createCronScheduler } from "./cron/scheduler.js";
+import { WsHost } from "./ws/host.js";
+import { createWsUpgrade, websocket } from "./ws/connection.js";
+import { createSessionCatalog } from "./ws/session-catalog.js";
+import type { KeytermSettings } from "./voice/keyterm-builder.js";
 
 export type { AppRenderer };
 
 export interface CreateAppOptions {
+  /**
+   * Fully-resolved configuration. When omitted, `createApp` resolves it from
+   * the process environment ONCE, here at the edge — nothing deeper in the
+   * package touches the ambient environment. Pass an explicit object (e.g. from
+   * `resolveServerConfig(customEnv)`) to run two differently-configured apps
+   * in one process or to vary configuration in tests without env mutation.
+   */
+  config?: ServerConfig;
   /**
    * Directory of a built SPA to serve at `/*` with an index.html fallback.
    * The deployment shell decides whether (and what) to serve — the package
@@ -41,7 +60,7 @@ export interface CreateAppOptions {
   staticRoot?: string;
   /** Display name used in connection/status copy. Default "Brain UI". */
   appName?: string;
-  /** SQLite path override; falls back to DB_PATH, then ./brain-ui.db. */
+  /** SQLite path override; falls back to config.dbPath (DB_PATH, ./brain-ui.db). */
   dbPath?: string;
   /**
    * PNG/PDF renderer for `POST /api/render`. The deployment owns the actual
@@ -51,6 +70,26 @@ export interface CreateAppOptions {
   renderer?: AppRenderer;
   /** Per-turn timeout in ms (default 10 minutes). */
   turnTimeoutMs?: number;
+  /** Backend registry override (tests/embedders); default is built from config. */
+  registry?: BackendRegistry;
+}
+
+/** What `createApp` hands back to the deployment shell. */
+export interface BrainUiApp {
+  fetch: Hono["fetch"];
+  websocket: typeof websocket;
+  /** The configuration this instance runs on (resolved or injected). */
+  config: ServerConfig;
+  /** The app's own SQLite handle (sessions, passkeys, settings). */
+  db: Database;
+  /** The WebSocket coordinator (turn state, clients, catalog, registry). */
+  wsHost: WsHost;
+  /** True while any session has a running turn. */
+  isTurnActive(): boolean;
+  /** Cancel every running turn (used on shutdown). Returns true if any was. */
+  cancelActiveTurns(): boolean;
+  /** Release process-held resources (the SQLite handle). */
+  close(): void;
 }
 
 // Cross-site WebSocket hijacking (CSWSH) defense. CORS does not apply to the WS
@@ -72,20 +111,51 @@ function isAllowedWsOrigin(c: Context, allowedOrigins: string[]): boolean {
   }
 }
 
-export function createApp(options: CreateAppOptions = {}) {
+export function createApp(options: CreateAppOptions = {}): BrainUiApp {
+  // The edge: ambient environment becomes explicit configuration exactly once.
+  const config = options.config ?? resolveServerConfig();
+  const auth: AuthRuntime = { ...config.auth, host: config.host };
+
   const app = new Hono();
-  const authMode = resolveAuthMode();
+  const authMode = resolveAuthMode(auth);
   // Validate inside the factory, not the bin entry: every consumer of the app
   // (a deployment bin, tests, another embedder) gets the same refuse-to-boot
   // guarantee on an unsafe auth configuration.
-  assertAuthConfig(authMode);
-  assertPasskeyConfig();
+  assertAuthConfig(authMode, auth);
+  assertPasskeyConfig(config.webauthn);
 
-  if (options.dbPath) configureDb(options.dbPath);
-  configureWsHost({
+  // Per-instance state: the app's own database, the brain CLI wrapper, the
+  // backend registry, and the WebSocket host. No module-level singletons —
+  // two apps with different configuration coexist in one process.
+  const db = createUiDb(options.dbPath ?? config.dbPath);
+  const brain = createBrainClient({ brainPath: config.brainPath });
+  const cron = createCronScheduler({ db, brain });
+  const registry =
+    options.registry ??
+    createBackendRegistry({
+      brainPath: config.brainPath,
+      agent: config.agent,
+      getHiddenModelIds: () => getHiddenModelIds(db),
+    });
+  const host = new WsHost({
+    registry,
+    catalog: createSessionCatalog(() => db),
     ...(options.appName ? { appName: options.appName } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
+    maxConcurrentSessions: () => config.maxConcurrentSessions,
   });
+  const wsUpgrade = createWsUpgrade(host);
+  const passkeyCtx: PasskeyContext = {
+    db,
+    webauthn: config.webauthn,
+    auth,
+    allowedOrigins: config.allowedOrigins,
+  };
+  const keyterms: KeytermSettings = {
+    brainPath: config.brainPath,
+    cacheDir: config.voice.cacheDir,
+    limit: config.voice.keytermLimit,
+  };
 
   // Middleware
   app.use("*", logger());
@@ -94,10 +164,7 @@ export function createApp(options: CreateAppOptions = {}) {
   // different origin than the API. ALLOWED_ORIGINS is a comma-separated
   // allowlist; empty/unset means same-origin (the default), so the CORS
   // middleware is skipped entirely.
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const allowedOrigins = config.allowedOrigins;
   if (allowedOrigins.length > 0) {
     app.use(
       "/api/*",
@@ -118,27 +185,45 @@ export function createApp(options: CreateAppOptions = {}) {
   // Not under /api, and not behind the guard: this is where a system share
   // lands when no service worker was around to intercept it. See the route.
   app.route("/", shareTargetFallbackRoutes);
-  app.route("/api", authRoutes(authMode, { passwordDisabled: passwordLoginDisabled }));
-  app.route("/api", passkeyPublicRoutes(authMode));
+  app.route(
+    "/api",
+    authRoutes(authMode, auth, {
+      passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
+    })
+  );
+  app.route("/api", passkeyPublicRoutes(authMode, passkeyCtx));
 
   // Auth guard for every other /api/* route. The probe below is intentionally
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
   // (tailscale) from /api/vpn-check and shows the login / VPN screen.
-  app.use("/api/*", authGuard(authMode));
+  app.use("/api/*", authGuard(authMode, auth));
   app.get("/api/vpn-check", (c) => c.json({ vpn: true }));
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
-  app.route("/api", passkeyManagementRoutes(authMode));
-  app.route("/api", statusRoutes);
-  app.route("/api", brainRoutes);
-  app.route("/api", sessionRoutes);
-  app.route("/api", voiceRoutes);
-  app.route("/api", filesRoutes);
-  app.route("/api", shareRoutes);
+  app.route("/api", passkeyManagementRoutes(authMode, passkeyCtx));
+  app.route(
+    "/api",
+    createStatusRoutes({
+      sourceCommit: config.sourceCommit,
+      getCronStatus: () => cron.getCronStatus(),
+      isTurnActive: () => host.coordinator.isTurnActive(),
+    })
+  );
+  app.route(
+    "/api",
+    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms })
+  );
+  app.route("/api", createSessionRoutes({ registry, db }));
+  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
+  app.route("/api", createFilesRoutes({ brainRoot: config.brainPath }));
+  app.route(
+    "/api",
+    createShareRoutes({ brainRoot: config.brainPath, allowedOrigins })
+  );
   app.route("/api", createRenderRoutes(options.renderer));
-  app.route("/api", providerRoutes);
-  app.route("/api", modelRoutes);
-  app.route("/api", graphRoutes);
+  app.route("/api", createProviderRoutes({ registry }));
+  app.route("/api", createModelRoutes({ registry, db }));
+  app.route("/api", createGraphRoutes({ brainRoot: config.brainPath }));
 
   // WebSocket endpoint. Browsers can't set headers on the WS handshake, so the
   // upgrade authenticates via the session cookie (or IP/proxy header) INSIDE
@@ -147,7 +232,7 @@ export function createApp(options: CreateAppOptions = {}) {
     if (!isAllowedWsOrigin(c, allowedOrigins)) {
       return c.json({ error: "Cross-origin WebSocket rejected" }, 403);
     }
-    if (!(await isWsAuthorized(c, authMode))) {
+    if (!(await isWsAuthorized(c, authMode, auth))) {
       return c.json({ error: "Authentication required" }, 401);
     }
     return wsUpgrade(c, next);
@@ -164,5 +249,13 @@ export function createApp(options: CreateAppOptions = {}) {
   return {
     fetch: app.fetch,
     websocket,
+    config,
+    db,
+    wsHost: host,
+    isTurnActive: () => host.coordinator.isTurnActive(),
+    cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
+    close: () => {
+      db.close();
+    },
   };
 }

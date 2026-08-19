@@ -11,13 +11,14 @@ pieces through `createApp()`.
 ## Usage
 
 ```ts
-import { createApp, cancelActiveTurn, closeDb } from "@schlessera/brain-ui-server";
+import { createApp } from "@schlessera/brain-ui-server";
 
 const app = createApp({
   staticRoot: "./client/dist",        // optional: serve a built SPA + fallback
   renderer,                           // optional: { renderPng, renderPdf }
   appName: "Brain UI",                // branding in status copy
-  dbPath: process.env.DB_PATH,        // session/passkey SQLite (default ./brain-ui.db)
+  // config: resolveServerConfig(env) // optional: explicit configuration;
+  //                                  // omitted = resolved from process.env once
 });
 
 export default {
@@ -27,9 +28,12 @@ export default {
 };
 ```
 
-One app per process: `createApp()` configures a process-wide host (WebSocket
-coordinator, SQLite handle, backend registry) — calling it twice with
-different options reconfigures the first app rather than creating a second.
+Apps are self-contained: each `createApp()` call builds its own WebSocket
+coordinator, SQLite handle and backend registry from its (resolved or
+injected) configuration, so two differently-configured apps coexist in one
+process. The returned handle carries `config`, `db`, `wsHost`,
+`isTurnActive()`, `cancelActiveTurns()` and `close()` for the deployment
+shell's lifecycle wiring.
 
 ## What it owns
 
@@ -58,13 +62,48 @@ different options reconfigures the first app rather than creating a second.
 
 ## Environment
 
-The package reads the same env contract the brain-ui deployment documents:
-`AUTH_MODE`, `BRAIN_UI_PASSWORD_HASH`, `COOKIE_SECRET`, `TRUST_PROXY`,
-`WEBAUTHN_*`, `BRAIN_PATH`, `DB_PATH`, `AGENT_BACKEND`,
-`BRAIN_UI_CLAUDE_PROFILES`, `BRAIN_UI_MODEL_DISCOVERY`,
-`BRAIN_UI_MODEL_TTL_HOURS`, `MAX_CONCURRENT_SESSIONS`, `DEEPGRAM_API_KEY`,
-`VOICE_*`, `NOMINATIM_*`, `ALLOWED_ORIGINS`. `createApp()` options win over
-env where both exist.
+Every variable this package reads, and what happens when it is unset.
+`createApp()` configuration wins over the environment where both exist.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `AGENT_BACKEND` | Primary agent backend: "claude" (default) or "pi". | claude |
+| `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
+| `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
+| `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
+| `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
+| `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |
+| `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-sonnet-4-6 |
+| `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
+| `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH` | Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access. | 0 |
+| `BRAIN_UI_MODEL_DISCOVERY` | Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
+| `BRAIN_UI_MODEL_TTL_HOURS` | How long a model-discovery result stays fresh, in hours. | 24 |
+| `BRAIN_UI_PASSWORD_HASH` | Bun.password argon2id hash of the shared password. | **required** — AUTH_MODE=password |
+| `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |
+| `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
+| `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |
+| `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
+| `HOME` | Fallback anchor for the BRAIN_PATH default only. | /root |
+| `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
+| `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
+| `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery default to off under bun test. Never gates any security behavior. | (unset) |
+| `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
+| `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
+| `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |
+| `TRUST_PROXY_HOPS` | How many trusted proxies front the app (x-forwarded-for parse depth). | 1 |
+| `VOICE_CACHE_DIR` | Directory holding the keyterm cache JSON. | $BRAIN_PATH/.brain-ui |
+| `VOICE_KEYTERM_LIMIT` | Maximum custom-vocabulary terms built from the brain database. | 500 |
+| `VOICE_PROVIDER` | Speech provider: "deepgram" or "webspeech" (opt-in only — Chromium streams audio to Google). Unset auto-detects deepgram when its key is present. | (auto-detect) |
+| `WEBAUTHN_ORIGINS` | Comma-separated extra origins allowed for WebAuthn ceremonies. | (empty) |
+| `WEBAUTHN_RP_ID` | Relying-party id override for proxies that rewrite Host. | (derived from the request origin) |
+| `WEBAUTHN_RP_NAME` | Relying-party display name shown by authenticators. | Brain UI |
+| `WEBAUTHN_USER_ID` | Stable WebAuthn user handle (wire contract — burned into every resident credential; max 64 bytes; never change it after the first passkey). | brain-ui-owner |
+| `WEBAUTHN_USER_NAME` | WebAuthn user name shown by authenticators. | owner |
+
+Generated from `packages/ui-server/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->
 
 Model discovery is on by default and needs no configuration beyond the Claude
 credential the agent already uses (`CLAUDE_CODE_OAUTH_TOKEN` or

@@ -5,39 +5,75 @@
  * decides the port/idleTimeout, wires SIGTERM, and injects deployment-only
  * pieces (static client build, PNG/PDF renderer). Everything else — routes,
  * auth, passkeys, the WebSocket turn coordinator, the session catalog — lives
- * behind createApp().
+ * behind createApp(), which returns a handle carrying the app's own resources
+ * (config, database, ws host) instead of module-level singletons.
  */
-export { createApp, type CreateAppOptions, type AppRenderer } from "./app.js";
+export {
+  createApp,
+  type CreateAppOptions,
+  type BrainUiApp,
+  type AppRenderer,
+} from "./app.js";
 
-// Process lifecycle helpers for the bin entry.
-export { websocket, cancelActiveTurn, isTurnActive } from "./ws/handler.js";
-export { getDb, closeDb, configureDb } from "./db/client.js";
+// Configuration: the package's single environment chokepoint. The descriptor
+// (ENV_VARS) is the artifact the env-parity gate diffs against documentation.
+export {
+  ENV_VARS,
+  resolveServerConfig,
+  type EnvVarDescriptor,
+  type ServerConfig,
+  type AuthConfig,
+  type WebAuthnConfig,
+  type AgentConfig,
+  type VoiceConfig,
+} from "./config/env.js";
 
 // Boot-time diagnostics (fail fast on a bad AGENT_BACKEND / profile config,
 // log the resolved auth mode).
-export { getBackends, getBackendsInfo } from "./agent/backend.js";
-export { resolveAuthMode, type AuthMode } from "./middleware/auth.js";
+export {
+  createBackendRegistry,
+  createStaticBackendRegistry,
+  type BackendRegistry,
+} from "./agent/backend.js";
+export {
+  resolveAuthMode,
+  type AuthMode,
+  type AuthRuntime,
+} from "./middleware/auth.js";
+
+// The app's own SQLite database (sessions, passkeys, settings).
+export { createUiDb } from "./db/client.js";
+
+// Brain database access (read-only, schema-gated) for embedders adding
+// their own readers.
+export {
+  openBrainDb,
+  withBrainDb,
+  BrainDbUnavailableError,
+  MIN_BRAIN_SCHEMA_VERSION,
+} from "./db/brain-db.js";
 
 // WebSocket internals for embedders and tests.
+export { WsHost, type WsHostOptions } from "./ws/host.js";
+export { createWsUpgrade, websocket } from "./ws/connection.js";
+export { handleClientMessage } from "./ws/dispatch.js";
+export { resolveTurnTarget } from "./ws/routing.js";
 export {
-  WsHost,
-  type WsHostOptions,
-  defaultWsHost,
-  configureWsHost,
-  handleClientMessage,
-  resetForTests,
-  resolveTurnTarget,
   createSessionCatalog,
   type SessionCatalog,
-} from "./ws/handler.js";
+} from "./ws/session-catalog.js";
 
 // Brain repo access (spawned CLI wrapper) — useful for embedders that add
 // their own routes on top.
-export * as brainClient from "./brain/client.js";
+export { createBrainClient, type BrainClient } from "./brain/client.js";
 
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.
 export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";
 
 // Voice keyterm cache rebuild (used by deployments after `brain sync`).
-export { buildKeyterms, writeCache } from "./voice/keyterm-builder.js";
+export {
+  buildKeyterms,
+  writeCache,
+  type KeytermSettings,
+} from "./voice/keyterm-builder.js";

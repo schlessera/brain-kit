@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
 import { isTailscaleAllowed, clientIp } from "./tailscale.js";
+import type { AuthConfig } from "../config/env.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -20,9 +21,20 @@ import { isTailscaleAllowed, clientIp } from "./tailscale.js";
  *                 explicit BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1 escape hatch.
  *
  * Default: `password` when BRAIN_UI_PASSWORD_HASH is set, else `tailscale`.
+ *
+ * All configuration is injected as the resolved {@link AuthRuntime} — this
+ * module never reads the environment, so two apps with different auth
+ * configuration can coexist and tests vary it without global mutation. The
+ * validation semantics themselves are unchanged.
  */
 
 export type AuthMode = "password" | "tailscale" | "proxy" | "none";
+
+/** What the auth layer needs from the resolved server config. */
+export interface AuthRuntime extends AuthConfig {
+  /** Bind host, for the loopback check on AUTH_MODE=none. */
+  host: string;
+}
 
 const COOKIE_NAME = "brain_ui_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -35,22 +47,15 @@ const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // verify cost, makes online guessing infeasible without being a lockout an
 // attacker could weaponize to deny the owner access.
 export const GLOBAL_LOGIN_RATE_LIMIT = 20; // attempts per window, all IPs combined
-const DEFAULT_PROXY_HEADER = "x-forwarded-user";
 
-export function resolveAuthMode(): AuthMode {
-  const explicit = process.env.AUTH_MODE?.trim().toLowerCase();
-  if (
-    explicit === "password" ||
-    explicit === "tailscale" ||
-    explicit === "proxy" ||
-    explicit === "none"
-  ) {
-    return explicit;
+export function resolveAuthMode(auth: AuthRuntime): AuthMode {
+  if (auth.mode) return auth.mode;
+  if (auth.invalidMode) {
+    console.warn(
+      `[auth] Unknown AUTH_MODE="${auth.invalidMode}"; auto-detecting instead.`
+    );
   }
-  if (explicit) {
-    console.warn(`[auth] Unknown AUTH_MODE="${explicit}"; auto-detecting instead.`);
-  }
-  if (process.env.BRAIN_UI_PASSWORD_HASH) return "password";
+  if (auth.passwordHash) return "password";
   return "tailscale";
 }
 
@@ -58,18 +63,18 @@ export function resolveAuthMode(): AuthMode {
  * Validate the auth configuration at startup. Throws (refusing to boot) on an
  * unsafe or unusable configuration.
  */
-export function assertAuthConfig(mode: AuthMode): void {
-  const host = process.env.HOST ?? "";
+export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime): void {
+  const host = auth.host;
   const loopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
 
   if (mode === "password") {
-    if (!process.env.BRAIN_UI_PASSWORD_HASH) {
+    if (!auth.passwordHash) {
       throw new Error(
         "AUTH_MODE=password requires BRAIN_UI_PASSWORD_HASH. Generate one with:\n" +
           "  bun -e 'console.log(await Bun.password.hash(process.argv[1]))' 'your-password'"
       );
     }
-    if (!process.env.COOKIE_SECRET) {
+    if (!auth.cookieSecret) {
       throw new Error(
         "AUTH_MODE=password requires COOKIE_SECRET (a long random string used to " +
           "sign the session cookie). Generate one with:\n  openssl rand -hex 32"
@@ -81,7 +86,7 @@ export function assertAuthConfig(mode: AuthMode): void {
   // difference between "auth required" and "agent with file-write access
   // exposed to the network".
   if (mode === "none" && !loopback) {
-    if (process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH === "1") {
+    if (auth.dangerouslyDisableAuth) {
       console.warn(
         "[auth] AUTH_MODE=none on a non-loopback host, allowed by " +
           "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1 — every network peer has full " +
@@ -100,7 +105,7 @@ export function assertAuthConfig(mode: AuthMode): void {
   }
 
   if (mode === "proxy") {
-    if (process.env.TRUST_PROXY !== "1") {
+    if (!auth.trustProxy) {
       throw new Error(
         "AUTH_MODE=proxy requires TRUST_PROXY=1 — the proxy-auth header is only " +
           "trustworthy when a fronting proxy is guaranteed to set it and strip " +
@@ -108,7 +113,7 @@ export function assertAuthConfig(mode: AuthMode): void {
       );
     }
     console.log(
-      `[auth] mode: proxy (trusting header "${proxyHeaderName()}"; ensure your ` +
+      `[auth] mode: proxy (trusting header "${auth.proxyAuthHeader}"; ensure your ` +
         "upstream proxy sets it and strips any client-supplied copy)"
     );
     return;
@@ -117,11 +122,11 @@ export function assertAuthConfig(mode: AuthMode): void {
 }
 
 /** Middleware guarding /api/* according to the resolved mode. */
-export function authGuard(mode: AuthMode): MiddlewareHandler {
+export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler {
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
-        if (isTailscaleAllowed(c, process.env.TRUST_PROXY === "1")) {
+        if (isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) {
           await next();
         } else {
           return c.json({ error: "VPN access required" }, 403);
@@ -129,7 +134,7 @@ export function authGuard(mode: AuthMode): MiddlewareHandler {
       };
     case "proxy":
       return async (c, next) => {
-        if (hasProxyAuth(c)) {
+        if (hasProxyAuth(c, auth)) {
           await next();
         } else {
           return c.json(
@@ -140,7 +145,7 @@ export function authGuard(mode: AuthMode): MiddlewareHandler {
       };
     case "password":
       return async (c, next) => {
-        if (await hasValidSession(c)) {
+        if (await hasValidSession(c, auth)) {
           await next();
         } else {
           return c.json(
@@ -163,16 +168,20 @@ export function authGuard(mode: AuthMode): MiddlewareHandler {
  * middleware may sit on the WS route (immutable-header errors). Mirrors
  * {@link authGuard} without emitting a response.
  */
-export async function isWsAuthorized(c: Context, mode: AuthMode): Promise<boolean> {
+export async function isWsAuthorized(
+  c: Context,
+  mode: AuthMode,
+  auth: AuthRuntime
+): Promise<boolean> {
   switch (mode) {
     case "none":
       return true;
     case "tailscale":
-      return isTailscaleAllowed(c, process.env.TRUST_PROXY === "1");
+      return isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops);
     case "proxy":
-      return hasProxyAuth(c);
+      return hasProxyAuth(c, auth);
     case "password":
-      return hasValidSession(c);
+      return hasValidSession(c, auth);
   }
 }
 
@@ -183,8 +192,8 @@ export async function isWsAuthorized(c: Context, mode: AuthMode): Promise<boolea
  * both password login and passkey login (middleware/passkeys.ts) call this, so
  * authGuard / isWsAuthorized / TTL semantics stay identical across methods.
  */
-export async function issueSessionCookie(c: Context): Promise<void> {
-  const secret = process.env.COOKIE_SECRET ?? "";
+export async function issueSessionCookie(c: Context, auth: AuthRuntime): Promise<void> {
+  const secret = auth.cookieSecret ?? "";
   await setSignedCookie(c, COOKIE_NAME, String(Date.now()), secret, {
     httpOnly: true,
     sameSite: "Strict",
@@ -197,8 +206,8 @@ export async function issueSessionCookie(c: Context): Promise<void> {
   });
 }
 
-async function hasValidSession(c: Context): Promise<boolean> {
-  const secret = process.env.COOKIE_SECRET ?? "";
+async function hasValidSession(c: Context, auth: AuthRuntime): Promise<boolean> {
+  const secret = auth.cookieSecret ?? "";
   if (!secret) return false;
   try {
     const value = await getSignedCookie(c, secret, COOKIE_NAME);
@@ -217,17 +226,13 @@ async function hasValidSession(c: Context): Promise<boolean> {
 
 // --- proxy mode helpers ---
 
-function proxyHeaderName(): string {
-  return (process.env.PROXY_AUTH_HEADER || DEFAULT_PROXY_HEADER).toLowerCase();
-}
-
-function hasProxyAuth(c: Context): boolean {
+function hasProxyAuth(c: Context, auth: AuthRuntime): boolean {
   // The proxy-auth header is only meaningful when a trusted proxy fronts the app
   // and TRUST_PROXY says so; otherwise a client could set it directly. Gate on
-  // TRUST_PROXY, consistent with tailscale-mode XFF trust. (assertAuthConfig
+  // trustProxy, consistent with tailscale-mode XFF trust. (assertAuthConfig
   // already refuses to boot proxy mode without it — this is belt-and-braces.)
-  if (process.env.TRUST_PROXY !== "1") return false;
-  const user = c.req.header(proxyHeaderName());
+  if (!auth.trustProxy) return false;
+  const user = c.req.header(auth.proxyAuthHeader);
   return !!user && user.trim().length > 0;
 }
 
@@ -259,6 +264,7 @@ export function consumeLoginToken(key: string, limit: number): boolean {
 /** Login/logout routes. Only functional in `password` mode. */
 export function authRoutes(
   mode: AuthMode,
+  auth: AuthRuntime,
   deps: {
     /**
      * When provided and returning true, password login is refused (the app
@@ -276,7 +282,7 @@ export function authRoutes(
       return c.json({ error: "Password login is not enabled" }, 400);
     }
 
-    const key = clientIp(c, process.env.TRUST_PROXY === "1") || "unknown";
+    const key = clientIp(c, auth.trustProxy, auth.trustProxyHops) || "unknown";
     const perIpOk = consumeLoginToken(`ip:${key}`, LOGIN_RATE_LIMIT);
     const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
     if (!perIpOk || !globalOk) {
@@ -290,8 +296,8 @@ export function authRoutes(
       );
     }
 
-    const hash = process.env.BRAIN_UI_PASSWORD_HASH ?? "";
-    const secret = process.env.COOKIE_SECRET ?? "";
+    const hash = auth.passwordHash ?? "";
+    const secret = auth.cookieSecret ?? "";
     let body: { password?: unknown };
     try {
       body = await c.req.json();
@@ -308,7 +314,7 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    await issueSessionCookie(c);
+    await issueSessionCookie(c, auth);
     return c.json({ ok: true });
   });
 
