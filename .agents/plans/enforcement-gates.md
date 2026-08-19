@@ -194,7 +194,7 @@ its source has a single owner for the duration.
 | W2 | F1, F2 (full injection), G5 | `packages/ui-server/src/` | done (73834da); review fixes in flight |
 | W3 | F6, core env chokepoint (+ 5 more packages) | `packages/core/src/providers/`, `packages/core/src/config/` | done |
 | W4 | F5, G7 | `packages/core/src/lib/module-*.ts`, `packages/module-*/` | done |
-| W5 | G6 | `packages/ui-server/tests/integration/` | in progress |
+| W5 | G6 | `packages/ui-server/tests/integration/` | done |
 | W6 | F7 docs, G4 env docs, G9 | `README.md`, `ROADMAP.md`, `docs/` | done |
 | W7 | D2 consumer change | `brain-ui` repo | in progress |
 
@@ -297,3 +297,17 @@ Newest last.
   red against the published 0.13.x until this release ships, which is expected.
 - Chokepoint reachability added to G4 and currently red for the six packages
   W3 is exporting from.
+- W5 landed G6 as `packages/ui-server/tests/integration/brain-db-schema-contract.test.ts`:
+  core's real `indexAll()` over the fixture corpus once in `beforeAll`, then
+  every ui-server reader asserted on real content — 11 tests, 345ms. Graph
+  precompute needed no separate step, and the test asserts `graphNodes > 10` so
+  a future opt-out cannot hollow it out. Teeth proven against BOTH drift
+  classes: a downgraded `schema_version` (10 of 11 fail, including the keyterm
+  reader's silent degradation) and a renamed column with the version left
+  untouched (6 of 11 fail) — the second is exactly what a version constant
+  cannot see, and is the reason G6 was worth building rather than trusting
+  `MIN_BRAIN_SCHEMA_VERSION`.
+- Bookkeeping: W5's test file was swept into commit ce5044d by an `-A` stage
+  while it sat in the tree, so that commit's message does not mention G6. The
+  content is correct and the branch is unpushed; the record is here instead of
+  in a history rewrite while other work is in flight.
