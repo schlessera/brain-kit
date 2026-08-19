@@ -22,6 +22,7 @@ import {
   authGuard,
   authRoutes,
   isWsAuthorized,
+  type AuthMode,
   type AuthRuntime,
 } from "./middleware/auth.js";
 import {
@@ -88,6 +89,12 @@ export interface BrainUiApp {
   websocket: typeof websocket;
   /** The configuration this instance runs on (resolved or injected). */
   config: ServerConfig;
+  /**
+   * The auth mode this instance resolved and validated at boot — so the
+   * deployment shell can log it without re-deriving the AuthRuntime that
+   * resolveAuthMode needs.
+   */
+  authMode: AuthMode;
   /** The app's own SQLite handle (sessions, passkeys, settings). */
   db: Database;
   /** The WebSocket coordinator (turn state, clients, catalog, registry). */
@@ -268,6 +275,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     fetch: app.fetch,
     websocket,
     config,
+    authMode,
     db,
     wsHost: host,
     isTurnActive: () => host.coordinator.isTurnActive(),

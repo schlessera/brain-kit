@@ -93,3 +93,14 @@ describe("createApp boot validation", () => {
     }
   });
 });
+
+describe("BrainUiApp handle", () => {
+  test("exposes the resolved authMode so the shell need not re-derive it", () => {
+    const app = createApp({
+      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:" }),
+      registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
+    });
+    expect(app.authMode).toBe("none");
+    app.close();
+  });
+});
