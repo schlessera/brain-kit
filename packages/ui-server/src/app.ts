@@ -64,7 +64,11 @@ export interface CreateAppOptions {
   staticRoot?: string;
   /** Display name used in connection/status copy. Default "Brain UI". */
   appName?: string;
-  /** SQLite path override; falls back to config.dbPath (DB_PATH, ./brain-ui.db). */
+  /**
+   * SQLite path override; folded into the effective config, so `app.config.dbPath`
+   * always names the database actually opened. Falls back to config.dbPath
+   * (DB_PATH, ./brain-ui.db).
+   */
   dbPath?: string;
   /**
    * PNG/PDF renderer for `POST /api/render`. The deployment owns the actual

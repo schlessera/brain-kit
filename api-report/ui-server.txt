@@ -18,12 +18,15 @@ export "." (./src/index.ts)
   type EnvVarDescriptor
   type KeytermSettings
   MIN_BRAIN_SCHEMA_VERSION
+  type ModelDiscoverySource
+  type ModelDiscoveryState
   type ServerConfig
   type SessionCatalog
   type VoiceConfig
   type WebAuthnConfig
   WsHost
   type WsHostOptions
+  assertBackendResolvable
   buildKeyterms
   createApp
   createBackendRegistry

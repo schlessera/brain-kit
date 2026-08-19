@@ -31,9 +31,12 @@ export {
 // Boot-time diagnostics (fail fast on a bad AGENT_BACKEND / profile config,
 // log the resolved auth mode).
 export {
+  assertBackendResolvable,
   createBackendRegistry,
   createStaticBackendRegistry,
   type BackendRegistry,
+  type ModelDiscoverySource,
+  type ModelDiscoveryState,
 } from "./agent/backend.js";
 export {
   resolveAuthMode,
