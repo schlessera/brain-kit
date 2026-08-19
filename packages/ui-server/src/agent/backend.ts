@@ -1,9 +1,4 @@
 import { createRequire } from "module";
-import type {
-  InferenceProfile,
-  InferenceProfileInput,
-  ModelSource,
-} from "@schlessera/brain-backend-claude";
 import type { AgentConfig } from "../config/env.js";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
 import type {
@@ -19,8 +14,8 @@ import type {
  *
  * BOTH backend packages are optional peers loaded lazily (the same
  * `createRequire` path): a deployment installs the one its AGENT_BACKEND
- * names, and the other never has to be present. Type-only imports above are
- * erased at runtime, so they cost nothing.
+ * names, and the other never has to be present — at runtime AND at
+ * type-check time (see the structural mirrors below).
  *
  * The old five hardcoded personal inference profiles are gone: the Claude
  * backend ships the single "claude" default, and additional Anthropic-compatible
@@ -28,21 +23,97 @@ import type {
  * .env.example) rather than in code.
  */
 
-/** The runtime shape of @schlessera/brain-backend-claude, without importing it. */
-type ClaudeBackendModule = typeof import("@schlessera/brain-backend-claude");
+/*
+ * Structural mirrors of @schlessera/brain-backend-claude.
+ *
+ * Both backend packages are optional peers, and NOTHING here may reference
+ * their specifiers — not even in a type position. A type import (or a
+ * `typeof import(...)`) is resolved by TypeScript, so it would either survive
+ * into the emitted `.d.ts` (breaking the `types`-condition consumer) or, once
+ * scrubbed there, still break the `bun`-condition consumer whose tsconfig
+ * follows `src/index.ts` (this repo's own root tsconfig does exactly that).
+ * Either way a pi-only TypeScript deployment would need the Claude package —
+ * and its Anthropic Agent SDK — installed just to typecheck. Half of F1
+ * undone.
+ *
+ * So the slice of the Claude module this registry drives is mirrored here by
+ * hand, in exchange for two mechanical guards in
+ * tests/declaration-surface.test.ts: type-level assertions that the REAL
+ * module (tests may import it; only src must stay clean) is assignable to
+ * these mirrors — so drift fails the build — and a scan proving no backend
+ * specifier appears anywhere under src/ or in any emitted declaration.
+ * Function members are property-style on purpose: strictFunctionTypes checks
+ * them contravariantly, where method syntax would be bivariant and let an
+ * incompatible drift slide.
+ */
+
+/** Mirror of the Claude package's `InferenceProfileInput` (declarative shape). */
+export interface ClaudeProfileInput {
+  id: string;
+  label: string;
+  vendor?: string;
+  /** Model id. Undefined = the SDK/CLI default model. */
+  model?: string;
+  /** Anthropic-compatible endpoint. */
+  baseUrl?: string;
+  /** Name of the env var holding a bearer token. */
+  authTokenEnv?: string;
+  /** Name of the env var holding an x-api-key. */
+  apiKeyEnv?: string;
+  /** Remap the CLI's model-alias envs to `model`. Requires `model`. */
+  modelAliases?: boolean;
+  allowedTools?: string[];
+  /** Context window in tokens, when known. Presentation only. */
+  contextWindow?: number;
+  /** Where this profile came from. Presentation only. */
+  source?: "builtin" | "declared" | "discovered";
+}
+
+/** Mirror of the Claude package's resolved `InferenceProfile`. */
+export interface ClaudeProfile {
+  id: string;
+  label: string;
+  vendor?: string;
+  model?: string;
+  allowedTools?: string[];
+  contextWindow?: number;
+  source?: "builtin" | "declared" | "discovered";
+  /** Env vars that must be present (non-empty) for this profile to be usable. */
+  requiredEnvKeys: string[];
+  /** Environment overrides merged over the host environment. */
+  buildEnv: () => Record<string, string>;
+}
+
+/**
+ * The slice of the lazily-required Claude module this registry drives. The
+ * real module carries more (and looser-optional) options; assignability is
+ * asserted in tests/declaration-surface.test.ts.
+ */
+export interface ClaudeBackendModule {
+  createClaudeBackend: (options: {
+    brainPath: string;
+    claudeCodePath?: string;
+    profiles?: ClaudeProfile[] | (() => ClaudeProfile[]);
+  }) => AgentBackend;
+  createModelSource: (options: {
+    brainPath: string;
+    ttlMs?: number;
+    enabled?: boolean;
+  }) => ClaudeModelSource;
+  defineProfiles: (inputs: ClaudeProfileInput[]) => ClaudeProfile[];
+}
+
+/** Discovery source as the registry internals see it: the public slice + list(). */
+export interface ClaudeModelSource extends ModelDiscoverySource {
+  list: () => ClaudeProfileInput[];
+}
 
 /**
  * Discovery freshness, as exposed on the public registry surface.
  *
- * Deliberately a LOCAL structural mirror of the Claude backend's
- * `ModelSourceState`/`ModelSource` rather than an import: both backend
- * packages are optional peers, and a type imported here would survive into
- * the emitted `.d.ts`, forcing a pi-only TypeScript consumer to install the
- * Claude package (and its Agent SDK) just to typecheck. The claude package's
- * `ModelSource` is assignable to this by structure; `list()` is omitted on
- * purpose — it returns Claude profile inputs, only the registry internals
- * consume it, and exposing it would drag those types back into the public
- * declaration graph. tests/declaration-surface.test.ts holds the line.
+ * `list()` is omitted on purpose — it returns Claude profile inputs, only the
+ * registry internals consume it (see {@link ClaudeModelSource}), and exposing
+ * it would put those types on every consumer's plate for no reader.
  */
 export interface ModelDiscoveryState {
   enabled: boolean;
@@ -209,7 +280,7 @@ export function createBackendRegistry(
   const getHidden = options.getHiddenModelIds ?? (() => []);
 
   let cachedRegistry: Promise<RegistrySnapshot> | null = null;
-  let modelSource: ModelSource | null = null;
+  let modelSource: ClaudeModelSource | null = null;
 
   /**
    * Declared profiles (built-in default + BRAIN_UI_CLAUDE_PROFILES) plus every
@@ -221,16 +292,16 @@ export function createBackendRegistry(
    * array only on a successful refresh, so steady state is one comparison.
    */
   let mergeCache: {
-    declared: InferenceProfile[];
-    discovered: InferenceProfileInput[];
-    result: InferenceProfile[];
+    declared: ClaudeProfile[];
+    discovered: ClaudeProfileInput[];
+    result: ClaudeProfile[];
   } | null = null;
 
   function mergeDiscovered(
     claude: ClaudeBackendModule,
-    declared: InferenceProfile[],
-    discovered: InferenceProfileInput[]
-  ): InferenceProfile[] {
+    declared: ClaudeProfile[],
+    discovered: ClaudeProfileInput[]
+  ): ClaudeProfile[] {
     if (
       mergeCache &&
       mergeCache.declared === declared &&
@@ -252,7 +323,7 @@ export function createBackendRegistry(
   // defaults to", silently changing model/behaviour/billing on every CLI bump.
   // Re-pin it (a committed default, overridable per deploy via
   // BRAIN_UI_CLAUDE_DEFAULT_MODEL) so the default stays on a known model.
-  function builtinDefaultProfiles(claude: ClaudeBackendModule): InferenceProfile[] {
+  function builtinDefaultProfiles(claude: ClaudeBackendModule): ClaudeProfile[] {
     return claude.defineProfiles([
       {
         id: "claude",
@@ -267,15 +338,14 @@ export function createBackendRegistry(
 
   /**
    * The Claude roster: the pinned built-in "claude" default first, plus any
-   * extra profiles from BRAIN_UI_CLAUDE_PROFILES (a JSON array of
-   * InferenceProfileInput
-   * {id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}).
+   * extra profiles from BRAIN_UI_CLAUDE_PROFILES (a JSON array of profile
+   * inputs: {id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}).
    *
    * A malformed or duplicate-id roster THROWS — caught at boot by the registry
    * fail-fast — rather than silently degrading to default-only and rebilling
    * every pinned session to the subscription with nothing in the logs.
    */
-  function loadClaudeProfiles(claude: ClaudeBackendModule): InferenceProfile[] {
+  function loadClaudeProfiles(claude: ClaudeBackendModule): ClaudeProfile[] {
     const base = builtinDefaultProfiles(claude);
     const raw = agent.profilesJson;
     if (!raw) return base;
@@ -297,7 +367,7 @@ export function createBackendRegistry(
     // Reject duplicate ids (including collisions with the built-in "claude"): a
     // duplicate silently shadows and can resolve to the wrong credentials.
     const seen = new Set(base.map((profile) => profile.id));
-    for (const input of inputs as InferenceProfileInput[]) {
+    for (const input of inputs as ClaudeProfileInput[]) {
       if (!input || typeof input.id !== "string" || input.id.length === 0) {
         throw new Error(
           "Each BRAIN_UI_CLAUDE_PROFILES entry needs a non-empty string id."
@@ -311,7 +381,7 @@ export function createBackendRegistry(
       seen.add(input.id);
     }
 
-    const declared = (inputs as InferenceProfileInput[]).map((input) => ({
+    const declared = (inputs as ClaudeProfileInput[]).map((input) => ({
       source: "declared" as const,
       ...input,
     }));

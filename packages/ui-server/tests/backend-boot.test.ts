@@ -9,7 +9,7 @@
  * lazily), and `createApp()` calls it next to the auth assertions.
  */
 import { describe, expect, test } from "bun:test";
-import { rmSync } from "fs";
+import { existsSync, rmSync } from "fs";
 import { assertBackendResolvable, createStaticBackendRegistry } from "../src/agent/backend";
 import { createApp } from "../src/app";
 import { resolveServerConfig } from "../src/config/env";
@@ -75,6 +75,20 @@ describe("createApp boot validation", () => {
     });
     expect(app.config.agent.backend).toBe("gemini");
     app.close();
+  });
+
+  test('dbPath: "" is honored (SQLite anonymous temporary database)', () => {
+    // A truthiness check here once made the empty override fall through to
+    // the resolved config — exactly the coercion class the injection refactor
+    // was meant to end. "" is a valid SQLite database name.
+    const app = createApp({
+      config: resolveServerConfig({ ...baseEnv, DB_PATH: "/tmp/should-not-open.db" }),
+      dbPath: "",
+      registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
+    });
+    expect(app.config.dbPath).toBe("");
+    app.close();
+    expect(existsSync("/tmp/should-not-open.db")).toBe(false);
   });
 
   test("app.config.dbPath reports the database actually opened", () => {

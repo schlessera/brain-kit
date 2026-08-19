@@ -131,9 +131,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // options.dbPath folds into the config here, so the handle's `config` and
   // the database actually opened can never disagree.
   const resolved = options.config ?? resolveServerConfig();
-  const config: ServerConfig = options.dbPath
-    ? { ...resolved, dbPath: options.dbPath }
-    : resolved;
+  // Checked against undefined, not truthiness: SQLite treats "" as a valid
+  // anonymous temporary database, and an explicit empty override must not
+  // silently fall back to the resolved path.
+  const config: ServerConfig =
+    options.dbPath !== undefined ? { ...resolved, dbPath: options.dbPath } : resolved;
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono();
