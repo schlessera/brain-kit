@@ -174,6 +174,40 @@ jobs:
           NODE
           ./node_modules/.bin/brain --version
 
+  changeset:
+    # A user-visible change without a changeset publishes with no version entry
+    # and no changelog line. CONTRIBUTING.md has said so since the repo opened;
+    # prose does not fail a build, and a review caught exactly this omission on
+    # the commit that made ui-server's exports breaking.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a changeset for package source changes
+        run: |
+          set -euo pipefail
+          # checkout used fetch-depth: 0, so the base ref is already local.
+          BASE="origin/${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "$BASE"...HEAD)
+          # Only published source counts. Tests, fixtures and docs do not ship.
+          SHIPPED=$(grep -E '^packages/[^/]+/(src/|package\.json$)' <<< "$CHANGED" || true)
+          if [ -z "$SHIPPED" ]; then
+            echo "No published package source changed; no changeset required."
+            exit 0
+          fi
+          ADDED=$(grep -E '^\.changeset/.+\.md$' <<< "$CHANGED" | grep -v '^\.changeset/README\.md$' || true)
+          if [ -z "$ADDED" ]; then
+            echo "Published package source changed but no changeset was added:"
+            echo "$SHIPPED"
+            echo
+            echo "Run \`bun run changeset\` and describe what was added, changed or removed."
+            exit 1
+          fi
+          echo "Changeset present:"
+          echo "$ADDED"
+
   leakage:
     runs-on: ubuntu-latest
     steps:
