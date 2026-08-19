@@ -132,6 +132,12 @@ without its root cause closed will come back under a different name.
   path in a table is not a link and nothing ever resolved it. Scope is narrow by
   design — package-relative and content-repo paths are addressed to a reader,
   and a gate that cries wolf gets deleted.
+- **G10 — a changeset is required when published source changes.** A
+  pull-request CI job: if `packages/*/src` or a package manifest moved, a
+  changeset must be in the diff. Tests, fixtures and docs are ignored. Added
+  during the pass for the same reason as G9 — CONTRIBUTING.md has asked for this
+  since the repo opened, the commit that made `ui-server`'s exports breaking
+  shipped without one, and a review caught it rather than the build.
 - **G8 — API surface snapshot.** Each package's exported names are written to a
   checked-in report and diffed by a test, so every surface addition is visible
   in review. Does not fix F4; closes RC6.
@@ -180,12 +186,12 @@ its source has a single owner for the duration.
 | id | Scope | Owns | State |
 | --- | --- | --- | --- |
 | W1 | G1, G2, G3, G8 + CI yml package list | `tests/`, `scripts/`, `.github/` | done (f19f878) |
-| W2 | F1, F2 (full injection), G5 | `packages/ui-server/src/` | in progress |
+| W2 | F1, F2 (full injection), G5 | `packages/ui-server/src/` | done (73834da); review fixes in flight |
 | W3 | F6, core env chokepoint (+ 5 more packages) | `packages/core/src/providers/`, `packages/core/src/config/` | done |
 | W4 | F5, G7 | `packages/core/src/lib/module-*.ts`, `packages/module-*/` | done |
-| W5 | G6 | `packages/ui-server/tests/integration/` | blocked on W2 |
+| W5 | G6 | `packages/ui-server/tests/integration/` | in progress |
 | W6 | F7 docs, G4 env docs, G9 | `README.md`, `ROADMAP.md`, `docs/` | done |
-| W7 | D2 consumer change | `brain-ui` repo | blocked on W2 |
+| W7 | D2 consumer change | `brain-ui` repo | in progress |
 
 ## Adversarial review
 
@@ -207,7 +213,26 @@ findings, all real:
 - **R3 — no changeset** for a release that changes exported module-author types
   and every package's environment handling. Written at the end of the pass.
 
-The first two are the useful kind of finding: a gate that is noisy is a gate
+A second review pass covered W2's `ui-server` refactor (commit `73834da`) with
+auth equivalence as its first priority. It found **no** auth or injection
+defect — it probed the `AUTH_MODE=none` loopback refusal, the WebAuthn handle
+validation, CSWSH and trust-proxy handling, resolver-boundary coercion, and
+two-instance isolation. Four other findings, all verified against the code:
+
+- **R4 — the optional Claude peer is still mandatory at type-check time.**
+  `BackendRegistry` is publicly exported and its `getModelSource()` references a
+  type imported from `@schlessera/brain-backend-claude`, so the emitted `.d.ts`
+  keeps that import and a pi-only TypeScript deployment must install the package
+  anyway. Runtime is fine; half of F1's purpose is not.
+- **R5 — a missing backend package now surfaces on first use, not at boot.**
+  The registry is lazy, so `createApp()` succeeds and `/api/health` reports
+  healthy while every agent turn is guaranteed to fail. Before the change the
+  static import failed at boot. `require.resolve` is synchronous, so the
+  boot-time guarantee costs nothing.
+- **R6 — `app.config.dbPath` misreports** when `options.dbPath` overrides it.
+- **R3 — no changeset**, which produced G10.
+
+The first two of the earlier round are the useful kind of finding: a gate that is noisy is a gate
 that gets deleted, and a gate with a hole where its own subject lives is worse
 than no gate, because it reads as coverage.
 
@@ -253,3 +278,10 @@ Newest last.
   while W2 kept editing.
 - R1 fixed and proven on a fixture; R2 delegated back to W4; R3 pending the end
   of the pass.
+- W2 landed as 73834da: 32 env variables behind one chokepoint, `createApp()`
+  returning a handle, `configureDb`/`configureWsHost` dissolved rather than
+  half-migrated, `ws/handler.ts`'s module-global client set moved onto the host,
+  both backends optional peers, and every `brain.db` read gated. 1421 pass /
+  0 fail across the repo, tsc and lint clean, env docs in sync.
+- Second review pass: no auth defect; R4/R5/R6 sent back to W2; R3 closed by
+  writing the changeset and adding G10 so the next omission fails the build.
