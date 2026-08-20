@@ -39,5 +39,11 @@ validation from scratch.
   a client/server protocol drift, since both shipped implementations are on
   opposite ends of it.
 
+The frame parsers no longer use Node's `Buffer` — they accept
+`string | ArrayBufferView | ArrayBuffer` and measure UTF-8 length with
+`TextEncoder`. Both parsers now run on both ends of the socket, and the client
+end is a browser bundle; the build caught this the moment `ui-react` imported
+the SDK client.
+
 `turnId` is still not REQUIRED — that is a protocol-rev change with a
 deprecation window, deliberately out of scope.

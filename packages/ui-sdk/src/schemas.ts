@@ -363,6 +363,19 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
 
 // --- Boundary helper ---
 
+/**
+ * UTF-8 byte length, without `Buffer`.
+ *
+ * These parsers run on BOTH ends of the socket, and the client end is a
+ * browser bundle: reaching for Node's `Buffer` here made `ui-react` fail to
+ * compile the moment it imported the SDK client, which is the build telling us
+ * a browser package had picked up a Node global. `TextEncoder` is in every
+ * runtime this ships to.
+ */
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 export type ParseFrameResult<T> =
   | { ok: true; message: T }
   | { ok: false; error: string };
@@ -374,7 +387,9 @@ export type ParseFrameResult<T> =
  * throws. Servers should ALSO set a socket-level max payload so oversized
  * frames are dropped before they are materialized at all.
  */
-export function parseClientMessage(raw: string | Buffer | ArrayBuffer): ParseFrameResult<ClientMessage> {
+export function parseClientMessage(
+  raw: string | ArrayBufferView | ArrayBuffer
+): ParseFrameResult<ClientMessage> {
   // Binary input: reject on raw byte length without decoding.
   if (typeof raw !== "string") {
     if (raw.byteLength > MAX_CLIENT_FRAME_BYTES) {
@@ -387,7 +402,7 @@ export function parseClientMessage(raw: string | Buffer | ArrayBuffer): ParseFra
       : // ArrayBuffer or any view over one (Uint8Array, DataView, Buffer) —
         // decoding a view via toString() would stringify the byte list.
         new TextDecoder().decode(raw as unknown as ArrayBuffer);
-  if (typeof raw === "string" && Buffer.byteLength(text, "utf-8") > MAX_CLIENT_FRAME_BYTES) {
+  if (typeof raw === "string" && utf8ByteLength(text) > MAX_CLIENT_FRAME_BYTES) {
     return { ok: false, error: `Frame exceeds ${MAX_CLIENT_FRAME_BYTES} bytes` };
   }
   let json: unknown;
@@ -627,7 +642,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
  * as a fatal condition — see the section header.
  */
 export function parseServerMessage(
-  raw: string | Buffer | ArrayBuffer
+  raw: string | ArrayBufferView | ArrayBuffer
 ): ParseFrameResult<ServerMessage> {
   if (typeof raw !== "string") {
     if (raw.byteLength > MAX_SERVER_FRAME_BYTES) {
@@ -636,7 +651,7 @@ export function parseServerMessage(
   }
   const text =
     typeof raw === "string" ? raw : new TextDecoder().decode(raw as unknown as ArrayBuffer);
-  if (typeof raw === "string" && Buffer.byteLength(text, "utf-8") > MAX_SERVER_FRAME_BYTES) {
+  if (typeof raw === "string" && utf8ByteLength(text) > MAX_SERVER_FRAME_BYTES) {
     return { ok: false, error: `Frame exceeds ${MAX_SERVER_FRAME_BYTES} bytes` };
   }
   let json: unknown;
