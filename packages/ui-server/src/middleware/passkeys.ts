@@ -1,3 +1,5 @@
+import type { Logger } from "@opentelemetry/api-logs";
+import type { Counter } from "@opentelemetry/api";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Database } from "bun:sqlite";
@@ -45,6 +47,14 @@ export interface PasskeyContext {
   auth: AuthRuntime;
   /** ALLOWED_ORIGINS — split-topology origins also valid for ceremonies. */
   allowedOrigins: string[];
+  /** Where ceremony failures are reported; absent means silence. */
+  log?: Logger;
+  /**
+   * Counts failed ceremonies, split by reason. A rate of these is the signal
+   * that distinguishes one fumbled login from someone working through a list,
+   * and it is not recoverable from a log line nobody is tailing.
+   */
+  failures?: Counter;
 }
 
 const CHALLENGE_TTL_MS = 120_000; // > the 60s ceremony timeout
@@ -362,11 +372,20 @@ export function passkeyPublicRoutes(
       // credential. Cloud passkeys legitimately sit at 0, so warn, don't
       // revoke.
       if (/counter/i.test(message)) {
-        console.warn(
-          `[passkeys] counter regression for credential ${row.id} — possible cloned credential`
-        );
+        ctx.failures?.add(1, { reason: "counter_regression", ceremony: "authentication" });
+        ctx.log?.emit({
+          severityText: "WARN",
+          body: "counter regression — possible cloned credential",
+          attributes: { "credential.id": row.id },
+        });
       } else {
-        console.warn(`[passkeys] authentication failed: ${message}`);
+        ctx.failures?.add(1, { reason: "verification_failed", ceremony: "authentication" });
+        // The message is the library's, never the assertion payload.
+        ctx.log?.emit({
+          severityText: "WARN",
+          body: "passkey authentication failed",
+          attributes: { error: message },
+        });
       }
       return fail();
     }
@@ -471,7 +490,12 @@ export function passkeyManagementRoutes(
       return c.json({ ok: true, credential: row ? toSummary(row) : null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[passkeys] registration failed: ${message}`);
+      ctx.failures?.add(1, { reason: "verification_failed", ceremony: "registration" });
+      ctx.log?.emit({
+        severityText: "WARN",
+        body: "passkey registration failed",
+        attributes: { error: message },
+      });
       return c.json({ error: "Passkey registration failed" }, 400);
     }
   });

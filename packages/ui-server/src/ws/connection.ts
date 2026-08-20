@@ -21,7 +21,7 @@ export { websocket };
 export function createWsHandlers(host: WsHost) {
   return {
     async onOpen(_evt: Event, ws: WSContext) {
-      console.log("[ws] Client connected");
+      host.log.emit({ severityText: "INFO", body: "client connected" });
       const { coordinator, catalog } = host;
 
       // Handshake first (rev 2, additive): protocol revision + coarse
@@ -62,7 +62,11 @@ export function createWsHandlers(host: WsHost) {
           const history = await backend.getHistory(sid);
           if (history.length > 0) sendSessionHistory(ws, sid, history);
         } catch (err) {
-          console.error("[ws] snapshot-on-connect failed:", err);
+          host.log.emit({
+            severityText: "ERROR",
+            body: "snapshot-on-connect failed",
+            attributes: { error: err instanceof Error ? err.message : String(err) },
+          });
         } finally {
           host.clients.add(ws);
           host.sendMessage(
@@ -139,7 +143,7 @@ export function createWsHandlers(host: WsHost) {
     },
 
     onClose(_evt: CloseEvent, ws: WSContext) {
-      console.log("[ws] Client disconnected");
+      host.log.emit({ severityText: "INFO", body: "client disconnected" });
       host.clients.remove(ws);
       // Turns keep running in the background. Only reject pending interactive
       // requests once the LAST client leaves — while another client remains it

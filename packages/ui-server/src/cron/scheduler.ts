@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { Logger } from "@opentelemetry/api-logs";
 import type { BrainClient } from "../brain/client.js";
 
 // Scheduling is owned by the container crontab (config/crontab) — sync at
@@ -25,8 +26,10 @@ interface CronJob {
 export function createCronScheduler(deps: {
   db: Database;
   brain: BrainClient;
+  /** Where run outcomes are reported; absent means silence. */
+  log?: Logger;
 }): CronScheduler {
-  const { db, brain } = deps;
+  const { db, brain, log } = deps;
 
   const jobs: CronJob[] = [
     {
@@ -57,14 +60,22 @@ export function createCronScheduler(deps: {
       db.prepare(
         "UPDATE cron_runs SET status = 'success', finished_at = ?, duration_ms = ? WHERE job_name = ? AND started_at = ?"
       ).run(Date.now(), durationMs, job.name, startedAt);
-      console.log(`[cron] ${job.name} completed in ${durationMs}ms`);
+      log?.emit({
+        severityText: "INFO",
+        body: "job completed",
+        attributes: { job: job.name, "duration.ms": durationMs },
+      });
     } catch (err) {
       const durationMs = Date.now() - startedAt;
       const message = err instanceof Error ? err.message : String(err);
       db.prepare(
         "UPDATE cron_runs SET status = 'error', finished_at = ?, duration_ms = ?, error_message = ? WHERE job_name = ? AND started_at = ?"
       ).run(Date.now(), durationMs, message, job.name, startedAt);
-      console.error(`[cron] ${job.name} failed: ${message}`);
+      log?.emit({
+        severityText: "ERROR",
+        body: "job failed",
+        attributes: { job: job.name, error: message },
+      });
     }
   }
 

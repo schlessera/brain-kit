@@ -145,14 +145,19 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // silently fall back to the resolved path.
   const config: ServerConfig =
     options.dbPath !== undefined ? { ...resolved, dbPath: options.dbPath } : resolved;
+  // First thing built, because everything below may want to report — including
+  // the auth validation that can refuse to boot and the migration runner.
+  const observability =
+    options.observability ?? createObservability({ minSeverity: config.logLevel });
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono();
-  const authMode = resolveAuthMode(auth);
+  const authLog = observability.logger("auth");
+  const authMode = resolveAuthMode(auth, authLog);
   // Validate inside the factory, not the bin entry: every consumer of the app
   // (a deployment bin, tests, another embedder) gets the same refuse-to-boot
   // guarantee on an unsafe auth configuration.
-  assertAuthConfig(authMode, auth);
+  assertAuthConfig(authMode, auth, authLog);
   assertPasskeyConfig(config.webauthn);
   // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
   // first turn — otherwise /api/health reports healthy while every turn is
@@ -163,9 +168,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  const db = createUiDb(config.dbPath);
+  const db = createUiDb(config.dbPath, { log: observability.logger("db") });
   const brain = createBrainClient({ brainPath: config.brainPath });
-  const cron = createCronScheduler({ db, brain });
+  const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -173,7 +178,6 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db),
     });
-  const observability = options.observability ?? createObservability();
   const host = new WsHost({
     registry,
     observability,
@@ -188,6 +192,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
+    log: observability.logger("passkeys"),
+    failures: observability.meter("auth").createCounter("auth.failures", {
+      description: "Failed authentication ceremonies, by reason",
+    }),
   };
   const keyterms: KeytermSettings = {
     brainPath: config.brainPath,

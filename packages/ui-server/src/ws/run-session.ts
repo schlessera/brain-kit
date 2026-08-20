@@ -41,10 +41,11 @@ export async function runSession(
 
   const { backend, profileId: initialProfileId } = target;
   if (target.droppedPin) {
-    console.warn(
-      `[agent] session ${initial.sessionId} pinned profile "${target.droppedPin}" ` +
-        `is unavailable; running on the default profile.`
-    );
+    host.log.emit({
+      severityText: "WARN",
+      body: "pinned profile unavailable; running on the default profile",
+      attributes: { "session.id": initial.sessionId, profile: target.droppedPin },
+    });
     host.sendToClients({
       type: "status",
       status: "thinking",
@@ -82,7 +83,11 @@ export async function runSession(
       const abortController = new AbortController();
       turn.abortController = abortController;
       const timeoutHandle = setTimeout(() => {
-        console.log("[agent] Turn timed out after", host.turnTimeoutMs, "ms");
+        host.log.emit({
+          severityText: "WARN",
+          body: "turn timed out",
+          attributes: { "timeout.ms": host.turnTimeoutMs },
+        });
         abortController.abort();
         // Reject any pending interactive request for this turn too. A bridge
         // that awaits askUser/approval without racing the abort signal would
@@ -204,7 +209,15 @@ export async function handleChatMessage(
           ? `Queue is holding ${formatMb(total)} across ${runningTurn.queue.length} messages (limit ${formatMb(QUEUE_MAX_BYTES)}).`
           : undefined;
       if (detail) {
-        console.warn(`[ws] session ${sessionId} queue at ${formatMb(total)} across ${runningTurn.queue.length} messages`);
+        host.log.emit({
+          severityText: "WARN",
+          body: "session follow-up queue is heavy",
+          attributes: {
+            "session.id": sessionId,
+            size: formatMb(total),
+            queued: runningTurn.queue.length,
+          },
+        });
       }
       host.sendToClients(
         withSessionId({ type: "status", status: "queued", ...(detail ? { detail } : {}) }, sessionId)

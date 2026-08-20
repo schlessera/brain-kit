@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import {
   listDirectory,
@@ -12,7 +13,7 @@ import {
 
 const WIKILINK_TTL_MS = 30_000;
 
-function errorResponse(err: unknown): { body: { error: string; size?: number }; status: 400 | 404 | 413 | 500 } {
+function errorResponse(err: unknown, log?: Logger): { body: { error: string; size?: number }; status: 400 | 404 | 413 | 500 } {
   if (err instanceof PathEscapeError) {
     return { body: { error: "invalid_path" }, status: 400 };
   }
@@ -22,12 +23,12 @@ function errorResponse(err: unknown): { body: { error: string; size?: number }; 
   if (err instanceof TooLargeError) {
     return { body: { error: "file_too_large", size: err.size }, status: 413 };
   }
-  console.error("[files]", err);
+  log?.emit({ severityText: "ERROR", body: "file request failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
   return { body: { error: err instanceof Error ? err.message : "internal_error" }, status: 500 };
 }
 
-export function createFilesRoutes(deps: { brainRoot: string }): Hono {
-  const { brainRoot } = deps;
+export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
+  const { brainRoot, log } = deps;
   let wikilinkCache: { generatedAt: number; map: Record<string, string> } | null = null;
   return new Hono()
   .get("/files/tree", async (c) => {
@@ -36,7 +37,7 @@ export function createFilesRoutes(deps: { brainRoot: string }): Hono {
       const entries = await listDirectory(path, brainRoot);
       return c.json({ path, entries });
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -64,7 +65,7 @@ export function createFilesRoutes(deps: { brainRoot: string }): Hono {
       const result = await readFileContent(path, brainRoot);
       return c.json({ path, ...result });
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -76,7 +77,7 @@ export function createFilesRoutes(deps: { brainRoot: string }): Hono {
       const result = await resolveAncestors(path, brainRoot);
       return c.json({ path, ...result });
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -95,7 +96,7 @@ export function createFilesRoutes(deps: { brainRoot: string }): Hono {
         slugs: wikilinkCache.map,
       });
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   });

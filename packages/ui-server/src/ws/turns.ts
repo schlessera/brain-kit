@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import type {
   AgentBackend,
   PermissionDecision,
@@ -93,6 +94,13 @@ export interface PendingMask {
  * explicit object with a defined lifecycle.
  */
 export class TurnCoordinator {
+  /**
+   * Where collisions are reported. Assigned by the owning WsHost so the
+   * coordinator reports through the same consumer as everything else; absent
+   * (a bare coordinator in a test) means silence.
+   */
+  log?: Logger;
+
   readonly running = new Set<RunningTurn>();
   readonly bySession = new Map<string, RunningTurn>();
   startingSessions = 0;
@@ -173,9 +181,11 @@ export class TurnCoordinator {
   ): boolean {
     const existing = map.get(id);
     if (existing && existing.turn !== turn) {
-      console.error(
-        `[ws] interactive id collision: "${id}" is already pending for another turn`
-      );
+      this.log?.emit({
+        severityText: "ERROR",
+        body: "interactive id collision: already pending for another turn",
+        attributes: { "request.id": id },
+      });
       return true;
     }
     return false;

@@ -95,6 +95,7 @@ export class WsHost {
       .createCounter("ws.frames.dropped", {
         description: "Inbound frames refused before reaching a handler",
       });
+    this.coordinator.log = this.log;
   }
 
   /**
