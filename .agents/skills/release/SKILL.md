@@ -13,7 +13,7 @@ that hits something new is not finished until that lands here or in a test — s
 [When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
 Thirteen packages move in lockstep through a changesets `fixed` group. One
-mistake therefore lands on all twelve at once.
+mistake therefore lands on all thirteen at once.
 
 ## Before you version
 
@@ -50,7 +50,7 @@ bunx tsc --noEmit && bun test packages tests && bun run build
 ## The version is wrong — usually a surprise major
 
 A release of minor changesets that lands on `1.0.0` instead of `0.10.0` means
-something was promoted to a major and the fixed group spread it to all eleven.
+something was promoted to a major and the fixed group spread it to all thirteen.
 It is nearly always a peer dependency:
 
 - **An internal peer dependency with a range that the new version escapes.**

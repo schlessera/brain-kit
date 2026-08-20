@@ -229,9 +229,13 @@ describe("workspace enumerations", () => {
       fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
       nineteen: 19, twenty: 20,
     };
-    // "N packages ship", "N packages move", "all N packages".
+    // "N packages ship", "N packages move", "all N packages" — and the bare
+    // "lands on all N at once" / "spread it to all N", where the noun is
+    // implied. The release skill carried two of those, one stale for two
+    // package additions, precisely because the word "packages" was missing.
     const counts = [
       ...prose.matchAll(/\b(?:all\s+)?([A-Za-z]+|\d+)\s+packages\b/g),
+      ...prose.matchAll(/\ball\s+([A-Za-z]+|\d+)\b(?!\s+packages\b)/g),
     ]
       .map((m) => (/^\d+$/.test(m[1]) ? Number(m[1]) : words[m[1].toLowerCase()]))
       .filter((n): n is number => n !== undefined);
