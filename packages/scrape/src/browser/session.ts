@@ -61,6 +61,17 @@ export interface BrowserSessionOptions {
   /** Cap on queued page requests before the session refuses more. */
   maxQueue?: number;
   userAgent?: string;
+  /**
+   * How a browser is obtained. Defaults to `puppeteer.launch` (or `connect`
+   * when `browserUrl` is set).
+   *
+   * Injected so crash recovery is testable: the handling that drops a dead
+   * browser handle is the difference between "the next page relaunches" and
+   * "every scrape fails until the process restarts", and with the puppeteer
+   * call hardcoded the only way to exercise it was to start real Chrome and
+   * kill it.
+   */
+  launch?: () => Promise<any>;
 }
 
 /** What a caller does with one loaded page. */
@@ -131,23 +142,44 @@ export function createBrowserSession(options: BrowserSessionOptions = {}): Brows
   async function getBrowser(): Promise<any> {
     if (browser) return browser;
     if (launching) return launching;
-    launching = (async () => {
+    const pending = (async () => {
+      if (options.launch) return options.launch();
       const puppeteer = await loadPuppeteer();
       if (options.browserUrl) {
-        browser = await puppeteer.connect({ browserURL: options.browserUrl });
-      } else {
-        const args = ["--disable-dev-shm-usage"];
-        if (options.noSandbox) args.push("--no-sandbox", "--disable-setuid-sandbox");
-        browser = await puppeteer.launch({
-          executablePath: resolveChromePath(options.executablePath),
-          headless: true,
-          args,
-        });
+        return puppeteer.connect({ browserURL: options.browserUrl });
       }
-      launching = null;
-      return browser;
+      const args = ["--disable-dev-shm-usage"];
+      if (options.noSandbox) args.push("--no-sandbox", "--disable-setuid-sandbox");
+      return puppeteer.launch({
+        executablePath: resolveChromePath(options.executablePath),
+        headless: true,
+        args,
+      });
     })();
-    return launching;
+    launching = pending;
+
+    pending
+      .then((launched) => {
+        browser = launched;
+        if (launching === pending) launching = null;
+        // Chrome dying (OOM is the realistic trigger for a scrape over a big
+        // listing) must not leave a dead handle cached, or every later load
+        // fails against it until the process restarts. Drop it and let the
+        // next call relaunch. The identity checks stop a LATE handler from
+        // discarding the browser that already replaced this one.
+        launched.once?.("disconnected", () => {
+          if (browser === launched) browser = null;
+          if (launching === pending) launching = null;
+        });
+      })
+      .catch(() => {
+        // A rejected promise left in the cache would be handed to every future
+        // caller, so one transient failure would disable scraping for the life
+        // of the process.
+        if (launching === pending) launching = null;
+      });
+
+    return pending;
   }
 
   function cancelIdleClose(): void {

@@ -87,11 +87,6 @@ Roughly in order. Items move down as they land.
   integration suite additionally needs a populated brain; its spawns now honor a
   `BRAIN_PATH` override, so pointing them at a fixture corpus is the remaining
   work. Until that lands, those suites only run locally.
-- **Hardening follow-ups** carried over from the security review rounds, none
-  currently exploitable:
-
-  - Renderer browser-crash recovery is verified by inspection only; testing it
-    needs an injection seam in `brain-render-puppeteer`.
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn
   approval) are tracked in the `brain-ui` roadmap.

@@ -94,6 +94,25 @@ export interface RendererOptions {
    * user-namespace privileges) but strictly weaker — opt-in. Default false.
    */
   noSandbox?: boolean;
+  /**
+   * How a browser is launched. Defaults to `puppeteer.launch` with the
+   * hardened argument set below.
+   *
+   * Exists so crash RECOVERY is testable. The five lines that drop a dead
+   * browser handle are the difference between "the next render relaunches" and
+   * "every render fails until the process restarts", and with `puppeteer.launch`
+   * hardcoded the only way to exercise them was to start real Chrome and kill
+   * it. A caller that overrides this owns the isolation arguments too — the
+   * defaults below are the security posture, not a convenience.
+   */
+  launch?: (args: LaunchArgs) => Promise<Browser>;
+}
+
+/** What the default launcher would have used, handed to an injected one. */
+export interface LaunchArgs {
+  executablePath: string;
+  headless: true;
+  args: string[];
 }
 
 export interface RenderOptions {
@@ -125,7 +144,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   function getBrowser(): Promise<Browser> {
     if (!browserPromise) {
       const executablePath = resolveChromePath(options.executablePath);
-      const launched = puppeteer.launch({
+      const launchArgs: LaunchArgs = {
         executablePath,
         headless: true,
         args: [
@@ -142,7 +161,8 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
           "--disable-dev-shm-usage",
           "--disable-gpu",
         ],
-      });
+      };
+      const launched = (options.launch ?? ((a: LaunchArgs) => puppeteer.launch(a)))(launchArgs);
       browserPromise = launched;
       launched
         .then((browser) => {
