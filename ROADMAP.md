@@ -92,13 +92,6 @@ Roughly in order. Items move down as they land.
 
   - Renderer browser-crash recovery is verified by inspection only; testing it
     needs an injection seam in `brain-render-puppeteer`.
-  - No WebSocket rate limiting. Frames are size-, cardinality-, and
-    depth-bounded, so cheap CPU amplification is closed, but a flood of
-    individually valid frames is unmetered behind the auth guard.
-  - `turnId` is stamped by the host, echoed by the client, and verified when
-    present — but still not REQUIRED. Making it mandatory is a protocol-rev
-    change and needs a deprecation window; see
-    [.agents/plans/client-protocol-half.md](.agents/plans/client-protocol-half.md).
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn
   approval) are tracked in the `brain-ui` roadmap.
