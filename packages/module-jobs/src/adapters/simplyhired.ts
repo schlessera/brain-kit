@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 // SimplyHired uses Chakra UI with consistent class patterns
@@ -32,8 +31,8 @@ export class SimplyHiredAdapter extends BaseAdapter {
         if (opts.verbose) console.log(`[simplyhired] Searching: ${query}...`);
 
         const url = `${BASE_URL}?q=${encodeURIComponent(query)}&l=remote&pn=1`;
-        const html = await httpGetText(url, {
-          rateLimit: 3000,
+        const html = await this.http.getText(url, {
+          delayMs: 3000,
           proxy: opts.proxy,
         });
 

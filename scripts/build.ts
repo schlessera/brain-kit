@@ -9,6 +9,8 @@ const packages = [
   "ui-backend-claude",
   "ui-backend-pi",
   "ui-render-puppeteer",
+  // Ahead of module-jobs, which depends on it.
+  "scrape",
   "ui-server",
   "ui-react",
   "module-finance",

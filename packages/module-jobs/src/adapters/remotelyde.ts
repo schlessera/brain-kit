@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 // remotely.de uses Next.js RSC with JSON-LD JobPosting schema
@@ -22,8 +21,8 @@ export class RemotelyDeAdapter extends BaseAdapter {
         const url = page === 1 ? BASE_URL : `${BASE_URL}?page=${page}`;
         if (opts.verbose) console.log(`[remotelyde] Fetching page ${page}...`);
 
-        const html = await httpGetText(url, {
-          rateLimit: 2000,
+        const html = await this.http.getText(url, {
+          delayMs: 2000,
           proxy: opts.proxy,
         });
 

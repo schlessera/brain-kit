@@ -1,148 +1,80 @@
-import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+/**
+ * NoDesk — remote jobs listing.
+ *
+ * Browser-only: the listing is client-rendered, so the HTTP adapter that used
+ * to live here saw an empty shell. Replaced by the `browser-scrape.ts`
+ * implementation, now an adapter like everything else.
+ */
+import { BrowserAdapter, type BrowserJobRecord } from "./browser-base.js";
 
-const BASE_URL = "https://nodesk.co/remote-jobs/";
+const LISTING_URL = "https://nodesk.co/remote-jobs/";
 
-export class NodeskAdapter extends BaseAdapter {
+export class NodeskAdapter extends BrowserAdapter {
   readonly source = "nodesk" as const;
-  readonly name = "Nodesk";
+  readonly name = "NoDesk";
   readonly tier = 2 as const;
+  protected readonly readySelector = 'a[href^="/remote-jobs/"]';
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
-    const jobs: RawJob[] = [];
-
-    try {
-      if (opts.verbose) console.log("[nodesk] Fetching remote jobs page...");
-
-      const html = await httpGetText(BASE_URL, {
-        rateLimit: 2000,
-        proxy: opts.proxy,
-      });
-
-      // Parse job listings from HTML
-      // Nodesk uses .job-listing divs with structured content
-      const listingRegex =
-        /<article[^>]*class="[^"]*job[^"]*"[^>]*>[\s\S]*?<\/article>/gi;
-      const listings = html.match(listingRegex) || [];
-
-      // Fallback: try different container patterns
-      const cards = listings.length > 0 ? listings : this.extractCards(html);
-
-      for (const card of cards) {
-        const job = this.parseCard(card);
-        if (job) jobs.push(job);
-      }
-
-      // If regex approach didn't work, try line-by-line link extraction
-      if (jobs.length === 0) {
-        const linkJobs = this.extractFromLinks(html);
-        jobs.push(...linkJobs);
-      }
-
-      if (opts.verbose) console.log(`[nodesk] Found ${jobs.length} jobs`);
-    } catch (err) {
-      errors.push(`Nodesk fetch failed: ${err}`);
-    }
-
-    return this.makeResult(jobs, errors);
+  protected urls(): string[] {
+    return [LISTING_URL];
   }
 
-  private extractCards(html: string): string[] {
-    // Try various card patterns
-    const patterns = [
-      /<div[^>]*class="[^"]*job-listing[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>/gi,
-      /<li[^>]*class="[^"]*job[^"]*"[^>]*>[\s\S]*?<\/li>/gi,
-      /<div[^>]*class="[^"]*listing[^"]*"[^>]*>[\s\S]*?(?=<div[^>]*class="[^"]*listing)/gi,
+  /**
+   * Runs INSIDE the page. `/remote-jobs/<slug>` is used for both postings and
+   * category pages, so the slug shape is the filter: a real posting's slug has
+   * at least three hyphenated parts and is not one of the known category
+   * names.
+   */
+  protected extract(): BrowserJobRecord[] {
+    const jobs: BrowserJobRecord[] = [];
+    const seen = new Set<string>();
+    const skipPaths = [
+      "collections",
+      "new",
+      "customer-support",
+      "design",
+      "engineering",
+      "marketing",
+      "non-tech",
+      "operations",
+      "product",
+      "sales",
+      "entry-level",
+      "other",
     ];
 
-    for (const pattern of patterns) {
-      const matches = html.match(pattern);
-      if (matches && matches.length > 0) return matches;
-    }
-    return [];
-  }
+    for (const link of document.querySelectorAll('a[href^="/remote-jobs/"]')) {
+      const href = link.getAttribute("href") || "";
+      if (seen.has(href) || href === "/remote-jobs/") continue;
 
-  private parseCard(cardHtml: string): RawJob | null {
-    // Extract title and URL
-    const titleMatch = cardHtml.match(/<a[^>]*href="(\/remote-jobs\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    if (!titleMatch) return null;
-
-    const [, href, titleHtml] = titleMatch;
-    const title = this.stripHtml(titleHtml);
-    if (!title) return null;
-
-    // Extract company
-    const companyMatch =
-      cardHtml.match(/<a[^>]*href="\/remote-companies\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i) ||
-      cardHtml.match(/class="[^"]*company[^"]*"[^>]*>([\s\S]*?)<\//i);
-    const company = companyMatch ? this.stripHtml(companyMatch[1]) : "Unknown";
-
-    // Extract location/region
-    const locationMatch = cardHtml.match(/(?:Europe|US|Asia|Canada|Anywhere|Remote|Global|Worldwide)/i);
-    const location = locationMatch ? locationMatch[0] : "Remote";
-
-    // Extract tags
-    const tagMatches = cardHtml.match(/<span[^>]*class="[^"]*tag[^"]*"[^>]*>([\s\S]*?)<\/span>/gi);
-    const tags = tagMatches
-      ? tagMatches.map((t) => this.stripHtml(t).toLowerCase()).filter(Boolean)
-      : undefined;
-
-    // Extract job type
-    const typeMatch = cardHtml.match(/(?:Full-Time|Part-Time|Contract|Freelance|Internship)/i);
-    let jobType: RawJob["job_type"] = "full_time";
-    if (typeMatch) {
-      const t = typeMatch[0].toLowerCase();
-      if (t.includes("contract") || t.includes("freelance")) jobType = "contract";
-      else if (t.includes("part")) jobType = "part_time";
-    }
-
-    // Extract salary if present
-    const salaryMatch = cardHtml.match(/\$[\d,]+\s*-\s*\$[\d,]+/);
-    const salaryRaw = salaryMatch ? salaryMatch[0] : undefined;
-
-    return {
-      source: "nodesk",
-      source_id: href,
-      title,
-      company,
-      url: `https://nodesk.co${href}`,
-      source_url: `https://nodesk.co${href}`,
-      location,
-      remote_type: "fully_remote",
-      job_type: jobType,
-      tags,
-      salary_raw: salaryRaw,
-      salary_currency: salaryRaw ? "USD" : undefined,
-    };
-  }
-
-  private extractFromLinks(html: string): RawJob[] {
-    const jobs: RawJob[] = [];
-    // Match links to individual job pages
-    const linkRegex = /<a[^>]*href="(\/remote-jobs\/[a-z0-9-]+\/)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    const seen = new Set<string>();
-
-    while ((match = linkRegex.exec(html)) !== null) {
-      const [, href, titleHtml] = match;
-      if (seen.has(href)) continue;
+      const slug = href.replace("/remote-jobs/", "").replace(/\/$/, "");
+      if (!slug || slug.includes("/") || skipPaths.includes(slug)) continue;
+      if (slug.split("-").length < 3) continue;
       seen.add(href);
 
-      const title = this.stripHtml(titleHtml);
+      const title = link.textContent?.trim();
       if (!title || title.length < 5) continue;
 
+      // Walk up until the container holds enough text to be the whole card.
+      let container = link.parentElement;
+      for (let i = 0; i < 5 && container; i++) {
+        if ((container.textContent?.length || 0) > 100) break;
+        container = container.parentElement;
+      }
+
+      const company =
+        container?.querySelector('a[href*="/remote-companies/"]')?.textContent?.trim() || "";
+      const text = container?.textContent || "";
+      const locMatch = text.match(
+        /Remote:\s*(.*?)(?:\n|Engineering|Design|Marketing|Sales|Product|Customer|Non|Operations|Other)/s
+      );
+
       jobs.push({
-        source: "nodesk",
-        source_id: href,
         title,
-        company: "Unknown",
-        url: `https://nodesk.co${href}`,
-        source_url: `https://nodesk.co${href}`,
-        location: "Remote",
+        company,
+        href: `https://nodesk.co${href}`,
+        location: locMatch ? locMatch[1].replace(/[·]/g, ",").trim() : "Remote",
         remote_type: "fully_remote",
-        job_type: "full_time",
       });
     }
     return jobs;

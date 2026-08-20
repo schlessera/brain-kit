@@ -58,6 +58,7 @@ jobs:
             ui-backend-claude \
             ui-backend-pi \
             ui-render-puppeteer \
+            scrape \
             render-template \
             ui-server \
             ui-react \
@@ -94,6 +95,7 @@ jobs:
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
                 "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
                 "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-scrape": `file:${tarballs}/scrape.tgz`,
                 "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
@@ -113,6 +115,7 @@ jobs:
               "@schlessera/brain-backend-pi",
               "@schlessera/brain-render-puppeteer",
               "@schlessera/brain-render-template",
+              "@schlessera/brain-scrape",
               "@schlessera/brain-ui-server",
               "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
@@ -141,6 +144,7 @@ jobs:
             "@schlessera/brain-backend-claude",
             "@schlessera/brain-render-puppeteer",
             "@schlessera/brain-render-template",
+            "@schlessera/brain-scrape",
             "@schlessera/brain-ui-react",
           ];
           for (const name of nodePackages) {

@@ -46,6 +46,8 @@ packages/render-template     @schlessera/brain-render-template — shared markdo
                              document shell (marked + stylesheet); used by /api/render and `brain render`
 packages/ui-render-puppeteer @schlessera/brain-render-puppeteer — optional HTML→PNG/PDF renderer
                              (network-denied, scriptless; see its header for the threat model)
+packages/scrape              @schlessera/brain-scrape — scraping base: polite HTTP (robots.txt,
+                             per-host pacing), optional headless Chrome, site-adapter seam
 packages/ui-server           @schlessera/brain-ui-server — Hono app factory: WS turn coordinator,
                              auth (password/passkeys/tailscale/proxy), session catalog, routes
 packages/ui-react            @schlessera/brain-ui-react — React chat/files/voice components,

@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 const RSS_URL = "https://weworkremotely.com/remote-jobs.rss";
@@ -16,7 +15,7 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
     try {
       if (opts.verbose) console.log("[weworkremotely] Fetching RSS feed...");
 
-      const xml = await httpGetText(RSS_URL, {
+      const xml = await this.http.getText(RSS_URL, {
         headers: { Accept: "application/rss+xml, application/xml, text/xml" },
         proxy: opts.proxy,
       });

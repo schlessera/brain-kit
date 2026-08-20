@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetJson } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 const API_URL = "https://remoteok.com/api";
@@ -35,9 +34,9 @@ export class RemoteOKAdapter extends BaseAdapter {
     try {
       if (opts.verbose) console.log("[remoteok] Fetching API...");
 
-      const data = await httpGetJson<RemoteOKJob[]>(API_URL, {
+      const data = await this.http.getJson<RemoteOKJob[]>(API_URL, {
         headers: { Accept: "application/json" },
-        rateLimit: 1000,
+        delayMs: 1000,
         proxy: opts.proxy,
       });
 

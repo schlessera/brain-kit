@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 // Webflow-based site with category pages
@@ -28,8 +27,8 @@ export class RemoteInEuropeAdapter extends BaseAdapter {
         const category = pageUrl.split("/").pop() || "all";
         if (opts.verbose) console.log(`[remoteineurope] Fetching: ${category}...`);
 
-        const html = await httpGetText(pageUrl, {
-          rateLimit: 2000,
+        const html = await this.http.getText(pageUrl, {
+          delayMs: 2000,
           proxy: opts.proxy,
         });
 

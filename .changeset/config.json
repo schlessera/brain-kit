@@ -10,6 +10,7 @@
       "@schlessera/brain-backend-pi",
       "@schlessera/brain-render-template",
       "@schlessera/brain-render-puppeteer",
+      "@schlessera/brain-scrape",
       "@schlessera/brain-ui-server",
       "@schlessera/brain-ui-react",
       "@schlessera/brain-module-finance",

@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetJson } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 const API_URL = "https://www.workingnomads.com/api/exposed_jobs/";
@@ -27,7 +26,7 @@ export class WorkingNomadsAdapter extends BaseAdapter {
     try {
       if (opts.verbose) console.log("[workingnomads] Fetching API...");
 
-      const data = await httpGetJson<WorkingNomadsJob[]>(API_URL, {
+      const data = await this.http.getJson<WorkingNomadsJob[]>(API_URL, {
         proxy: opts.proxy,
       });
 

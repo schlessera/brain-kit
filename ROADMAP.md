@@ -6,7 +6,7 @@ with dates.
 
 ## Where this stands
 
-Twelve packages ship in lockstep on npm under `@schlessera/brain-*`:
+Thirteen packages ship in lockstep on npm under `@schlessera/brain-*`:
 
 | Package | What it is |
 | --- | --- |
@@ -16,6 +16,7 @@ Twelve packages ship in lockstep on npm under `@schlessera/brain-*`:
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |
 | `brain-render-puppeteer` | Optional HTML→PNG/PDF renderer, network-denied and scriptless |
+| `brain-scrape` | Scraping base: polite HTTP, robots.txt, headless Chrome, site-adapter seam |
 | `brain-ui-server` | Hono app factory: WS turn coordinator, auth, session catalog, routes |
 | `brain-ui-react` | React chat/files/voice components, stores, WS transport |
 
