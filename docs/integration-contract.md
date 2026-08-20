@@ -100,6 +100,25 @@ the fixture corpus with the real CLI and then reads it back with the shipped
 exported from `@schlessera/brain` — and that test fails when this document, the
 `brain doctor` check, or a reader floor disagrees with it.
 
+### Revision negotiation
+
+`PROTOCOL_REV` is **3**. A client announces what it speaks with a `client_hello`
+as its first frame; a host that does not understand the frame ignores it, and a
+client that never sends one is treated as rev 2.
+
+That handshake is what makes a field enforceable without a flag day. A host
+applies rev-3 rules only to connections that declared rev 3:
+
+- **rev 2** — parallel sessions, host-minted `turnId`, `server_hello`.
+- **rev 3** — `client_hello`, and `turnId` echoed on every interactive reply.
+  A client declaring 3 MUST echo; a reply without one is refused, because it
+  cannot be correlated to the turn that raised the request. Clients that
+  declare nothing keep the rev-2 tolerance indefinitely.
+
+A host must never REQUIRE `client_hello`, and must not refuse a client
+declaring a revision it does not recognise — it holds it to the newest rules it
+knows.
+
 ### Server → client frames
 
 Both directions are now schema-validated at the boundary

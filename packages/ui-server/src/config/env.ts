@@ -66,6 +66,22 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_WS_RATE",
+    description:
+      "Sustained inbound WebSocket frames per second per connection. 0 " +
+      "disables metering entirely.",
+    default: "20",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WS_BURST",
+    description:
+      "Inbound WebSocket frames absorbable in one burst before the sustained " +
+      "rate applies. Opening the app legitimately fires several at once.",
+    default: "60",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_LOG_LEVEL",
     description:
       "Minimum severity the console log consumer emits: TRACE, DEBUG, INFO, " +
@@ -318,6 +334,8 @@ export interface ServerConfig {
   maxConcurrentSessions: number;
   /** Threshold for the console log consumer (BRAIN_UI_LOG_LEVEL). */
   logLevel: Severity;
+  /** Inbound WebSocket frame metering, per connection. */
+  wsRate: { ratePerSecond: number; burst: number };
   auth: AuthConfig;
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
@@ -346,6 +364,13 @@ function flag(raw: string | undefined): boolean {
  * must never be the reason a server refuses to boot, and silently emitting
  * nothing would be worse than emitting too much.
  */
+/** A non-negative number, falling back rather than throwing on nonsense. */
+function positiveNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 function parseSeverity(raw: string | undefined): Severity {
   const upper = raw?.trim().toUpperCase();
   return (SEVERITIES as readonly string[]).includes(upper ?? "")
@@ -408,6 +433,10 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       modelTtlMs: ttlHours * 60 * 60 * 1000,
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
+    wsRate: {
+      ratePerSecond: positiveNumber(env.BRAIN_UI_WS_RATE, 20),
+      burst: positiveNumber(env.BRAIN_UI_WS_BURST, 60),
+    },
     voice: {
       provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,

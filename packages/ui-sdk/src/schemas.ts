@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import type {
   AskUserAnnotation,
+  ClientHello,
   MessagePart,
   SessionHistoryMessage,
   ServerAskUserRequest,
@@ -205,6 +206,12 @@ export const clientEnvironmentSchema = z.object({
   timeZone: z.string().max(64).refine(isKnownTimeZone, { message: "not a known IANA time zone" }).optional(),
 }) satisfies z.ZodType<ClientEnvironment>;
 
+export const clientHelloSchema = z.looseObject({
+  type: z.literal("client_hello"),
+  protocolRev: z.number(),
+  capabilities: z.record(z.string(), z.boolean()).optional(),
+}) satisfies z.ZodType<ClientHello>;
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -349,6 +356,7 @@ export const clientMaskErrorSchema = z.looseObject({
 }) satisfies z.ZodType<ClientMaskError>;
 
 export const clientMessageSchema = z.discriminatedUnion("type", [
+  clientHelloSchema,
   clientChatMessageSchema,
   clientToolApprovalSchema,
   clientToolDenialSchema,

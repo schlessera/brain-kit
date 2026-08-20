@@ -82,6 +82,8 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_MODEL_DISCOVERY` | Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
 | `BRAIN_UI_MODEL_TTL_HOURS` | How long a model-discovery result stays fresh, in hours. | 24 |
 | `BRAIN_UI_PASSWORD_HASH` | Bun.password argon2id hash of the shared password. | **required** — AUTH_MODE=password |
+| `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
+| `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
 | `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |

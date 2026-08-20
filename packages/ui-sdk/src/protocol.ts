@@ -39,7 +39,18 @@ export interface SessionScoped {
 }
 
 /** Protocol revision spoken by this ui-sdk build. Additions never bump it; only semantics changes do. */
-export const PROTOCOL_REV = 2;
+export const PROTOCOL_REV = 3;
+
+/**
+ * What each revision added, and what a peer declaring it promises.
+ *
+ * - **2** — parallel sessions, host-minted `turnId`, `server_hello`.
+ * - **3** — the client half: `client_hello`, and `turnId` echoed on every
+ *   interactive reply. A client declaring 3 is REQUIRED to echo, which is what
+ *   lets a host reject a reply it cannot correlate instead of guessing. A
+ *   client that declares nothing is treated as rev 2 and stays tolerated.
+ */
+export const PROTOCOL_REV_CLIENT_ECHO = 3;
 
 /**
  * Composite session identity for multi-backend hosts. The wire keeps plain
@@ -54,6 +65,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientHello
   | ClientChatMessage
   | ClientToolApproval
   | ClientToolDenial
@@ -65,6 +77,25 @@ export type ClientMessage =
   | ClientLocationError
   | ClientMaskResponse
   | ClientMaskError;
+
+/**
+ * Client → Server. First frame a client sends after the socket opens (rev 3,
+ * additive).
+ *
+ * The protocol had no client→server handshake, so a host could not tell a
+ * current client from one two versions old — which meant no field could ever
+ * be made mandatory without breaking the old one. Declaring a revision here is
+ * what creates the deprecation window: a host applies rev-3 rules only to
+ * clients that say they speak rev 3, and keeps tolerating everyone else.
+ *
+ * A host must not REQUIRE this frame. Its absence means "rev 2".
+ */
+export interface ClientHello {
+  type: "client_hello";
+  protocolRev: number;
+  /** Coarse, additive capability flags. */
+  capabilities?: Record<string, boolean>;
+}
 
 export interface ClientChatMessage {
   type: "chat_message";

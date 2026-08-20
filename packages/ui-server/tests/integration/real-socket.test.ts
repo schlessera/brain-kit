@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { BrainUiClient, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
+import { BrainUiClient, PROTOCOL_REV, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
 import { createApp } from "../../src/app";
 import { createRecordingObservability } from "../../src/observability/index";
@@ -96,7 +96,7 @@ function connect(url: string) {
 }
 
 describe("a real client on a real socket", () => {
-  test("completes the rev-2 handshake the client half now reads", async () => {
+  test("completes the handshake the client half now reads", async () => {
     const { url } = start();
     const { client, waitFor } = connect(url);
 
@@ -104,7 +104,7 @@ describe("a real client on a real socket", () => {
     expect(arrived).toBe(true);
 
     // The whole point of W2: protocolRev stops being advisory.
-    expect(client.protocolRev).toBe(2);
+    expect(client.protocolRev).toBe(PROTOCOL_REV);
     expect(typeof client.capabilities).toBe("object");
     client.close();
   });
@@ -217,5 +217,26 @@ describe("the SPA fallback", () => {
     expect(await res.text()).toContain("shell");
 
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("rev-3 negotiation end to end", () => {
+  test("the SDK client declares its revision and the server accepts it", async () => {
+    // The deprecation window's whole mechanism: without a client_hello the
+    // server cannot tell a current client from a two-year-old one, so no
+    // field could ever be made mandatory.
+    const { url, observability } = start();
+    const client = new BrainUiClient({ url, handlers: { onAny: () => {} } });
+    client.connect();
+
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !client.isConnected) await Bun.sleep(20);
+    await Bun.sleep(100);
+
+    // Accepted silently — a hello is not answered, and must not be counted as
+    // a dropped frame.
+    expect(observability.metrics.total("ws.frames.dropped")).toBe(0);
+    expect(client.protocolRev).toBe(PROTOCOL_REV);
+    client.close();
   });
 });

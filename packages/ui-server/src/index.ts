@@ -59,7 +59,11 @@ export {
 // WebSocket internals for embedders and tests.
 export { WsHost, type WsHostOptions } from "./ws/host.js";
 export { createWsUpgrade, createWsHandlers, websocket } from "./ws/connection.js";
-export { handleClientMessage } from "./ws/dispatch.js";
+export {
+  handleClientMessage,
+  turnIdMatches,
+  type ConnectionState,
+} from "./ws/dispatch.js";
 export { resolveTurnTarget } from "./ws/routing.js";
 export {
   createSessionCatalog,

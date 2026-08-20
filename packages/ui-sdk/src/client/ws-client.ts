@@ -26,6 +26,7 @@
  * Bun and Node 22+ all provide. State belongs to the consumer; this owns the
  * socket.
  */
+import { PROTOCOL_REV } from "../protocol.js";
 import type { ClientMessage, ServerMessage } from "../protocol.js";
 import { parseServerMessage } from "../schemas.js";
 
@@ -74,25 +75,49 @@ export interface BrainUiClientOptions {
   socketFactory?: (url: string) => WebSocket;
 }
 
-/** Frames that belong to a turn, and so should carry its id when known. */
-const TURN_SCOPED: ReadonlySet<string> = new Set([
-  "tool_approval",
-  "tool_denial",
-  "ask_user_response",
-  "ask_user_cancel",
-  "location_response",
-  "location_error",
-  "mask_response",
-  "mask_error",
-]);
+/**
+ * Interactive request frames, and the field that correlates a reply to them.
+ *
+ * The turn id is remembered PER REQUEST, not per connection. Tracking only the
+ * most recent turn looks right with one session and is wrong the moment two
+ * run in parallel: a delta from session B arrives between session A's approval
+ * request and the user answering it, the reply carries B's turn id, the host's
+ * echo check fails, and A's turn waits for an approval that will never be
+ * accepted. That failure is invisible until the ten-minute timeout.
+ */
+const REQUEST_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
+  tool_approval_request: "toolUseId",
+  ask_user_request: "requestId",
+  location_request: "requestId",
+  mask_request: "requestId",
+};
+
+/** Reply frames, and the field naming the request they answer. */
+const REPLY_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
+  tool_approval: "toolUseId",
+  tool_denial: "toolUseId",
+  ask_user_response: "requestId",
+  ask_user_cancel: "requestId",
+  location_response: "requestId",
+  location_error: "requestId",
+  mask_response: "requestId",
+  mask_error: "requestId",
+};
+
+/**
+ * Cap on remembered requests. A turn that raises thousands of approvals
+ * without answering them must not grow this without bound; the oldest are
+ * dropped, which costs an echo, not correctness.
+ */
+const MAX_TRACKED_REQUESTS = 256;
 
 export class BrainUiClient {
   private ws: WebSocket | null = null;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
-  /** Latest turn id seen on an inbound scoped frame, echoed back on replies. */
-  private currentTurnId: string | null = null;
+  /** requestId/toolUseId → the turn id of the request that raised it. */
+  private readonly turnByRequest = new Map<string, string>();
 
   /** Protocol revision the server announced, or null before its hello. */
   protocolRev: number | null = null;
@@ -117,6 +142,15 @@ export class BrainUiClient {
 
       ws.onopen = () => {
         this.reconnectAttempt = 0;
+        // Declare what we speak before anything else. A host uses this to
+        // decide which revision's rules apply to this connection; a host that
+        // does not understand the frame ignores it, since unknown frame types
+        // are not errors in either direction.
+        try {
+          ws.send(JSON.stringify({ type: "client_hello", protocolRev: PROTOCOL_REV }));
+        } catch {
+          // A socket that cannot take the hello will surface via onclose.
+        }
         this.options.onStatusChange?.("connected");
       };
       ws.onmessage = (evt: MessageEvent) => this.receive(evt.data);
@@ -124,6 +158,8 @@ export class BrainUiClient {
         // A new connection re-negotiates: the old hello does not describe it.
         this.protocolRev = null;
         this.capabilities = {};
+        // Pending exchanges do not survive a reconnect; the host drains them.
+        this.turnByRequest.clear();
         this.options.onStatusChange?.("disconnected");
         if (!this.closed) this.scheduleReconnect();
       };
@@ -151,9 +187,19 @@ export class BrainUiClient {
       this.options.onHello?.({ protocolRev: this.protocolRev, capabilities: this.capabilities });
     }
 
-    // Remember the turn a scoped frame belongs to, so replies can echo it.
+    // Remember which turn raised this request, so its reply echoes THAT turn.
+    const requestKey = REQUEST_KEYS[frame.type];
     const turnId = (frame as { turnId?: string }).turnId;
-    if (typeof turnId === "string" && turnId) this.currentTurnId = turnId;
+    if (requestKey && typeof turnId === "string" && turnId) {
+      const id = (frame as unknown as Record<string, unknown>)[requestKey];
+      if (typeof id === "string" && id) {
+        if (this.turnByRequest.size >= MAX_TRACKED_REQUESTS) {
+          const oldest = this.turnByRequest.keys().next().value;
+          if (oldest !== undefined) this.turnByRequest.delete(oldest);
+        }
+        this.turnByRequest.set(id, turnId);
+      }
+    }
 
     const handlers = this.options.handlers;
     const handler = handlers?.[frame.type] as ((f: ServerMessage) => void) | undefined;
@@ -184,12 +230,22 @@ export class BrainUiClient {
    */
   send(msg: ClientMessage): boolean {
     if (this.ws?.readyState !== 1) return false;
-    const framed =
-      this.currentTurnId && TURN_SCOPED.has(msg.type) && !("turnId" in msg && msg.turnId)
-        ? { ...msg, turnId: this.currentTurnId }
-        : msg;
-    this.ws.send(JSON.stringify(framed));
+    this.ws.send(JSON.stringify(this.withTurnId(msg)));
     return true;
+  }
+
+  /** Stamp the turn id of the request this frame replies to, if known. */
+  private withTurnId(msg: ClientMessage): ClientMessage {
+    if ("turnId" in msg && msg.turnId) return msg; // an explicit id wins
+    const replyKey = REPLY_KEYS[msg.type];
+    if (!replyKey) return msg;
+    const id = (msg as unknown as Record<string, unknown>)[replyKey];
+    if (typeof id !== "string" || !id) return msg;
+    const turnId = this.turnByRequest.get(id);
+    if (!turnId) return msg;
+    // The exchange is over; nothing else will reply to this request.
+    this.turnByRequest.delete(id);
+    return { ...msg, turnId } as ClientMessage;
   }
 
   close(): void {

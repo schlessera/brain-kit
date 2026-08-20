@@ -3,7 +3,7 @@ import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
-import { handleClientMessage } from "./dispatch.js";
+import { handleClientMessage, type ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import type { WSContext } from "./clients.js";
 
@@ -19,6 +19,13 @@ export { websocket };
  * assertion about the shipped code rather than about a re-implementation.
  */
 export function createWsHandlers(host: WsHost) {
+  // One bucket per connection, created here so it lives and dies with the
+  // socket rather than in a map keyed by something a peer controls.
+  const limiter = host.newRateLimiter();
+  // Per-connection negotiation state: what revision this client declared.
+  // Lives with the socket, like the limiter.
+  const connection: ConnectionState = {};
+
   return {
     async onOpen(_evt: Event, ws: WSContext) {
       host.log.emit({ severityText: "INFO", body: "client connected" });
@@ -101,6 +108,18 @@ export function createWsHandlers(host: WsHost) {
       // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
       // binary frame cannot be decoded correctly here. The protocol is JSON
       // text; reject anything else rather than parse a slab.
+      // Metered BEFORE parsing: the point is to bound work an unmetered peer
+      // can make this process do, and parsing is most of that work.
+      if (limiter && !limiter.take().allowed) {
+        host.reportDroppedFrame("rate_limited");
+        host.sendMessage(ws, {
+          type: "error",
+          code: "RATE_LIMITED",
+          message: "Too many frames; slow down.",
+        });
+        return;
+      }
+
       const raw = evt.data;
       if (typeof raw !== "string") {
         host.reportDroppedFrame("binary_frame");

@@ -1,3 +1,4 @@
+import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
 import { locationErrorText } from "./frames.js";
@@ -6,23 +7,51 @@ import { validateAttachments } from "./attachments.js";
 import { handleChatMessage } from "./run-session.js";
 import type { WsHost } from "./host.js";
 
+/** Per-connection negotiation state, owned by the socket handler. */
+export interface ConnectionState {
+  /** Revision the client declared via `client_hello`; absent means rev 2. */
+  protocolRev?: number;
+}
+
 /**
- * A client MAY echo the request's turnId (rev 2). When it does, it must match
- * the turn that raised the request — a stale echo from before a reconnect or
- * a follow-up would otherwise resolve the wrong turn's pending promise.
- * Absent turnId stays valid: the field is optional on the wire.
+ * Does this reply's echoed turnId identify the turn that raised the request?
+ *
+ * A wrong id is always refused: a stale echo from before a reconnect or a
+ * follow-up would resolve a different turn's pending promise.
+ *
+ * A MISSING id depends on who is speaking. A client that declared rev 3
+ * promised to echo, so silence means the reply cannot be correlated and is
+ * refused. A client that declared nothing is rev 2, where the field is
+ * optional, and is still tolerated — that tolerance is the deprecation window,
+ * and it is what lets this be enforced at all without breaking clients that
+ * predate `client_hello`.
  */
-function turnIdMatches(pending: { turnId: string }, echoed: string | undefined): boolean {
-  return echoed === undefined || echoed === pending.turnId;
+export function turnIdMatches(
+  pending: { turnId: string },
+  echoed: string | undefined,
+  requireEcho: boolean
+): boolean {
+  if (echoed === undefined) return !requireEcho;
+  return echoed === pending.turnId;
 }
 
 export async function handleClientMessage(
   host: WsHost,
   ws: WSContext,
-  msg: ClientMessage
+  msg: ClientMessage,
+  connection: ConnectionState = {}
 ): Promise<void> {
   const { coordinator, catalog } = host;
+  const requireEcho = (connection.protocolRev ?? 2) >= PROTOCOL_REV_CLIENT_ECHO;
   switch (msg.type) {
+    case "client_hello": {
+      // Record what this connection speaks. Never rejected on version: a
+      // future client declaring rev 9 is simply held to the rules this host
+      // knows, and an unknown capability flag is ignored.
+      connection.protocolRev = msg.protocolRev;
+      return;
+    }
+
     case "chat_message": {
       const attachmentResult = validateAttachments(msg.attachments);
       if (!attachmentResult.ok) {
@@ -46,7 +75,7 @@ export async function handleClientMessage(
 
     case "ask_user_response": {
       const pending = coordinator.pendingAskUser.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
         pending.resolve({ answers: msg.answers, annotations: msg.annotations });
       }
@@ -55,7 +84,7 @@ export async function handleClientMessage(
 
     case "ask_user_cancel": {
       const pending = coordinator.pendingAskUser.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
         pending.reject(new Error(msg.reason || "User cancelled the question"));
       }
@@ -64,7 +93,7 @@ export async function handleClientMessage(
 
     case "location_response": {
       const pending = coordinator.pendingLocation.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingLocation.delete(msg.requestId);
         pending.resolve({ coords: msg.coords, timestamp: msg.timestamp });
       }
@@ -73,7 +102,7 @@ export async function handleClientMessage(
 
     case "location_error": {
       const pending = coordinator.pendingLocation.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingLocation.delete(msg.requestId);
         pending.reject(new Error(locationErrorText(msg.code, msg.message)));
       }
@@ -82,7 +111,7 @@ export async function handleClientMessage(
 
     case "mask_response": {
       const pending = coordinator.pendingMask.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingMask.delete(msg.requestId);
         // Decoded here rather than in the tool: the boundary already validated
         // the base64 and its size, so the backend gets bytes it can trust.
@@ -93,7 +122,7 @@ export async function handleClientMessage(
 
     case "mask_error": {
       const pending = coordinator.pendingMask.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingMask.delete(msg.requestId);
         pending.reject(
           new Error(
@@ -108,7 +137,7 @@ export async function handleClientMessage(
 
     case "tool_approval": {
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingApprovals.delete(msg.toolUseId);
         pending.resolve(
           msg.updatedInput
@@ -121,7 +150,7 @@ export async function handleClientMessage(
 
     case "tool_denial": {
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
-      if (pending && turnIdMatches(pending, msg.turnId)) {
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingApprovals.delete(msg.toolUseId);
         pending.resolve({ behavior: "deny", message: msg.message });
       }

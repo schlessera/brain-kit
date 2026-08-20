@@ -20,6 +20,7 @@ export "." (./src/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -54,6 +55,7 @@ export "." (./src/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
   type ProviderInfo
@@ -124,6 +126,7 @@ export "./client" (./src/client/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -159,6 +162,7 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
   type ProtocolError
@@ -237,6 +241,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -271,6 +276,7 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
   type ProviderInfo
@@ -329,6 +335,7 @@ export "./schemas" (./src/schemas.ts)
   clientCancelSchema
   clientChatMessageSchema
   clientEnvironmentSchema
+  clientHelloSchema
   clientLocationErrorSchema
   clientLocationResponseSchema
   clientMaskErrorSchema
@@ -381,6 +388,7 @@ export "./server" (./src/server/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -417,6 +425,7 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PermissionDecision
   type PermissionRequest

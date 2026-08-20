@@ -4,6 +4,7 @@ import { TurnCoordinator } from "./turns.js";
 import type { SessionCatalog } from "./session-catalog.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import { createSilentObservability, type Observability } from "../observability/index.js";
+import { FrameRateLimiter } from "./rate-limit.js";
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -58,6 +59,12 @@ export interface WsHostOptions {
    * passes one gets no output, not a surprise stream on stdout.
    */
   observability?: Observability;
+  /**
+   * Inbound frame metering policy, per connection. Omitted (or a rate of 0)
+   * means no metering — which is what a test wants, and what an embedder
+   * fronting the socket with its own limiter wants.
+   */
+  wsRate?: { ratePerSecond: number; burst: number };
 }
 
 /**
@@ -75,6 +82,7 @@ export class WsHost {
   turnTimeoutMs: number;
   maxConcurrentSessions: () => number;
   readonly observability: Observability;
+  readonly wsRate: { ratePerSecond: number; burst: number } | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
   private readonly framesDropped: ReturnType<
@@ -89,6 +97,8 @@ export class WsHost {
     this.maxConcurrentSessions =
       options.maxConcurrentSessions ?? (() => DEFAULT_MAX_CONCURRENT_SESSIONS);
     this.observability = options.observability ?? createSilentObservability();
+    this.wsRate =
+      options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.log = this.observability.logger("ws");
     this.framesDropped = this.observability
       .meter("ws")
@@ -96,6 +106,11 @@ export class WsHost {
         description: "Inbound frames refused before reaching a handler",
       });
     this.coordinator.log = this.log;
+  }
+
+  /** A metering bucket for one new connection, or null when metering is off. */
+  newRateLimiter(): FrameRateLimiter | null {
+    return this.wsRate ? new FrameRateLimiter(this.wsRate) : null;
   }
 
   /**

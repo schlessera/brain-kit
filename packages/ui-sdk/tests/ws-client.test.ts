@@ -7,7 +7,12 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { BrainUiClient, type ProtocolError, type ServerMessage } from "../src/client/index.js";
+import {
+  BrainUiClient,
+  PROTOCOL_REV,
+  type ProtocolError,
+  type ServerMessage,
+} from "../src/client/index.js";
 
 /** A WebSocket stand-in the test drives directly. */
 class FakeSocket {
@@ -62,7 +67,11 @@ function makeClient(handlers: Record<string, unknown> = {}) {
   client.connect();
   const socket = sockets[0];
   socket.open();
-  return { client, socket, sockets, statuses, errors };
+  // The client announces itself on open (rev 3). Assertions are about what the
+  // test sent, so the handshake is filtered out rather than counted.
+  const replies = () =>
+    socket.sent.map((s) => JSON.parse(s)).filter((m) => m.type !== "client_hello");
+  return { client, socket, sockets, statuses, errors, replies };
 }
 
 describe("dispatch", () => {
@@ -167,7 +176,7 @@ describe("turnId echo", () => {
   test("a reply carries the turn id the server stamped", () => {
     // The host verifies an echo when present; before this, no shipped client
     // sent one, so the check could never fire.
-    const { client, socket } = setup({ tool_approval_request: () => {} });
+    const { client, socket, replies } = setup({ tool_approval_request: () => {} });
 
     socket.deliver({
       type: "tool_approval_request",
@@ -179,29 +188,93 @@ describe("turnId echo", () => {
     });
     client.send({ type: "tool_approval", toolUseId: "t1" } as never);
 
-    expect(JSON.parse(socket.sent[0])).toEqual({
-      type: "tool_approval",
-      toolUseId: "t1",
-      turnId: "turn-9",
-    });
+    expect(replies()).toEqual([
+      { type: "tool_approval", toolUseId: "t1", turnId: "turn-9" },
+    ]);
   });
 
-  test("frames that are not turn-scoped are left alone", () => {
-    const { client, socket } = setup({ text_delta: () => {} });
+  test("frames that are not replies are left alone", () => {
+    const { client, socket, replies } = setup({ text_delta: () => {} });
     socket.deliver({ type: "text_delta", text: "x", sessionId: "s1", turnId: "turn-9" });
 
     client.send({ type: "chat_message", content: "hi" } as never);
 
-    expect(JSON.parse(socket.sent[0]).turnId).toBeUndefined();
+    expect(replies()[0].turnId).toBeUndefined();
+  });
+
+  test("a reply echoes ITS OWN request's turn, not the latest one seen", () => {
+    // Parallel sessions: an unrelated turn's frames arrive between the request
+    // and the answer. Tracking only "the most recent turn id" sent the wrong
+    // one, the host's echo check refused it, and the turn waited for an
+    // approval that could never be accepted — invisible until the timeout.
+    const { client, socket, replies } = setup({ tool_approval_request: () => {}, text_delta: () => {} });
+
+    socket.deliver({
+      type: "tool_approval_request",
+      toolUseId: "tool-A",
+      toolName: "Write",
+      input: {},
+      sessionId: "session-A",
+      turnId: "turn-A",
+    });
+    // Session B is streaming at the same time.
+    socket.deliver({ type: "text_delta", text: "b", sessionId: "session-B", turnId: "turn-B" });
+
+    client.send({ type: "tool_approval", toolUseId: "tool-A" } as never);
+
+    expect(replies()[0].turnId).toBe("turn-A");
+  });
+
+  test("two concurrent requests each get their own turn back", () => {
+    const { client, socket, replies } = setup({ tool_approval_request: () => {}, ask_user_request: () => {} });
+
+    socket.deliver({
+      type: "tool_approval_request",
+      toolUseId: "tool-A", toolName: "Write", input: {},
+      sessionId: "sA", turnId: "turn-A",
+    });
+    socket.deliver({
+      type: "ask_user_request",
+      requestId: "req-B",
+      questions: [{ question: "q", header: "h", multiSelect: false, options: [{ label: "l", description: "d" }] }],
+      sessionId: "sB", turnId: "turn-B",
+    });
+
+    client.send({ type: "ask_user_response", requestId: "req-B", answers: {} } as never);
+    client.send({ type: "tool_approval", toolUseId: "tool-A" } as never);
+
+    expect(replies()[0].turnId).toBe("turn-B");
+    expect(replies()[1].turnId).toBe("turn-A");
+  });
+
+  test("a reply to an unknown request carries no id rather than a wrong one", () => {
+    const { client, socket, replies } = setup({ text_delta: () => {} });
+    socket.deliver({ type: "text_delta", text: "x", sessionId: "s1", turnId: "turn-9" });
+
+    client.send({ type: "tool_approval", toolUseId: "never-requested" } as never);
+
+    expect(replies()[0].turnId).toBeUndefined();
   });
 
   test("an explicit turnId on the outbound frame wins", () => {
-    const { client, socket } = setup({ text_delta: () => {} });
+    const { client, socket, replies } = setup({ text_delta: () => {} });
     socket.deliver({ type: "text_delta", text: "x", sessionId: "s1", turnId: "turn-9" });
 
     client.send({ type: "tool_approval", toolUseId: "t1", turnId: "explicit" } as never);
 
-    expect(JSON.parse(socket.sent[0]).turnId).toBe("explicit");
+    expect(replies()[0].turnId).toBe("explicit");
+  });
+});
+
+describe("the client hello", () => {
+  test("is the first frame out, declaring the revision this client speaks", () => {
+    // Without it a host cannot tell a current client from an old one, and so
+    // could never require a field without breaking the old one.
+    const { socket } = setup({});
+    expect(JSON.parse(socket.sent[0])).toEqual({
+      type: "client_hello",
+      protocolRev: PROTOCOL_REV,
+    });
   });
 });
 

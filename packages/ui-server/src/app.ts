@@ -185,6 +185,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     ...(options.appName ? { appName: options.appName } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
+    wsRate: config.wsRate,
   });
   const wsUpgrade = createWsUpgrade(host);
   const passkeyCtx: PasskeyContext = {
