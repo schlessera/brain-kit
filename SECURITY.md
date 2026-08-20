@@ -16,10 +16,9 @@ within a week, not hours.
 2. **Prompt injection is a real, unresolved risk.** Imported notes, scraped
    job postings, and any third-party text your agent reads can contain
    instructions that steer it. Mitigations shipped: skills frame imported and
-   scraped content as untrusted data; write-capable tools sit behind your
-   agent's permission gating; hosting docs recommend container isolation.
-   Residual risk remains and is stated here honestly: a sufficiently crafty
-   payload can influence an agent that reads it.
+   scraped content as untrusted data; hosting docs recommend container
+   isolation. Residual risk remains and is stated here honestly: a
+   sufficiently crafty payload can influence an agent that reads it.
 3. **Keep the content repo private.** The template pushes `--private`,
    `brain init` preflights remote visibility, and `brain doctor` warns loudly
    when the remote is public. Your brain contains your life — treat the git
@@ -54,6 +53,42 @@ within a week, not hours.
    (restic/borg). True end-to-end encryption is incompatible with a
    server-side agent that must read plaintext to operate — any setup claiming
    otherwise is misrepresenting something.
+
+## What tool approvals are, and are not
+
+The chat UI shows an approval card for some tool calls. **That is a
+confirmation, not a containment boundary,** and the difference matters if you
+are reasoning about what an agent can do.
+
+`Bash` is auto-allowed, and the Agent SDK never consults the permission
+callback for an allow-listed tool. An agent with `Bash` can therefore reach any
+effect a gated tool would have had — through the CLI, a heredoc, or a script it
+just wrote. For a while `brain archive x.md` typed into Bash ran silently while
+the same operation through the `brain_archive` MCP tool raised a card; the
+gated path was the one the documentation steers away from, so the confirmation
+almost never fired.
+
+What ships now is a configurable pattern list
+(`BRAIN_UI_CONFIRM_BASH`): a Bash command matching one of them raises the
+normal approval card. The shipped set covers `brain archive`, recursive `rm`,
+and the git operations that discard work. It is deliberately a seatbelt:
+
+- It catches a destructive command **you did not intend** — the realistic
+  failure, where an agent misreads a request or follows an injected
+  instruction and does something surprising in plain sight.
+- It does **not** stop an agent that is working around it, and nothing here
+  pretends otherwise. A command-string match cannot.
+
+`brain archive` is on the list for a reason worth stating: archiving is a
+visibility change. An archived document drops out of search, briefings and
+context assembly, so a silent archive surfaces later as holes in output you
+cannot account for — answers that should have cited something simply do not,
+with nothing pointing at why. It is easy to undo and easy to miss, which is the
+combination worth confirming.
+
+**The real boundary is auth.** Only someone who can reach the UI can drive the
+agent at all; that is what `AUTH_MODE` protects, and it is why `AUTH_MODE=none`
+refuses to start on a non-loopback host.
 
 ## Scope
 

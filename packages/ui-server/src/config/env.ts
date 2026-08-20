@@ -66,6 +66,19 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CONFIRM_BASH",
+    description:
+      "JSON array of regex sources; a Bash command matching any of them raises " +
+      "a confirmation card before it runs. Unset uses the shipped defaults " +
+      "(brain archive, rm -r, git push --force, git reset --hard, git clean -f, " +
+      "git checkout -- ). An empty array [] disables the confirmation. Not a " +
+      "security boundary — an agent with Bash can reach the same effect another " +
+      "way; it stops a destructive command you did not intend, not one that is " +
+      "trying to get past you.",
+    default: "the shipped pattern set",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_WS_RATE",
     description:
       "Sustained inbound WebSocket frames per second per connection. 0 " +
@@ -306,6 +319,11 @@ export interface WebAuthnConfig {
 export interface AgentConfig {
   /** Trimmed, lowercased AGENT_BACKEND; null when unset (defaults to claude). */
   backend: string | null;
+  /**
+   * Bash-confirmation regex sources; null means "use the backend's defaults".
+   * An empty array is a deliberate opt-out and is passed through as such.
+   */
+  confirmBashPatterns: string[] | null;
   claudeCodePath: string;
   defaultModel: string;
   /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed lazily by the registry. */
@@ -371,6 +389,28 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+/**
+ * Parse BRAIN_UI_CONFIRM_BASH into pattern sources.
+ *
+ * Unset or unparseable → null, meaning the backend's shipped defaults. An
+ * explicit `[]` is honoured as "no confirmation": disabling the seatbelt is a
+ * choice a deployment is allowed to make, and silently re-enabling it would be
+ * worse than obeying. Malformed JSON falls back to the defaults rather than
+ * throwing — a typo here must not stop the server booting, and the safe
+ * direction to fail is "more confirmation", not less.
+ */
+function parseConfirmBash(raw: string | undefined): string[] | null {
+  const text = raw?.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((p): p is string => typeof p === "string");
+  } catch {
+    return null;
+  }
+}
+
 function parseSeverity(raw: string | undefined): Severity {
   const upper = raw?.trim().toUpperCase();
   return (SEVERITIES as readonly string[]).includes(upper ?? "")
@@ -426,6 +466,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     },
     agent: {
       backend: env.AGENT_BACKEND?.trim().toLowerCase() || null,
+      confirmBashPatterns: parseConfirmBash(env.BRAIN_UI_CONFIRM_BASH),
       claudeCodePath: env.CLAUDE_CODE_PATH || "/usr/local/bin/claude",
       defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || "claude-sonnet-4-6",
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,

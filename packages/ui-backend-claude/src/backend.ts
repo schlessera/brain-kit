@@ -68,8 +68,13 @@ const DEFAULT_ALLOWED_TOOLS = [
   // narrower than the raw file tools above: an agent that wanted to write the
   // repo could already do it with Write/Edit, and doing it through brain_add /
   // brain_update keeps frontmatter and the search index correct. Deliberately
-  // absent: `brain_archive`, which moves files between directories — that one
-  // keeps its approval card.
+  // absent: `brain_archive`, which changes what search and briefings can see —
+  // that one keeps its approval card.
+  //
+  // That card used to be trivially sidestepped: `brain archive x.md` through
+  // the auto-allowed Bash tool did the same thing with no prompt, and the CLI
+  // is the form the brain repo's own CLAUDE.md documents. DEFAULT_CONFIRM_BASH_PATTERNS
+  // closes that gap from the PreToolUse hook, so both paths now confirm.
   `${BRAIN_MCP_PREFIX}brain_search`,
   `${BRAIN_MCP_PREFIX}brain_context`,
   `${BRAIN_MCP_PREFIX}brain_read`,
@@ -110,6 +115,68 @@ const MUTATING_TOOLS = new Set([
 
 const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
 
+/**
+ * Bash commands that raise a confirmation card before they run.
+ *
+ * WHY THIS EXISTS. `Bash` is auto-allowed, and the SDK never consults
+ * `canUseTool` for an allowlisted tool — so `brain archive x.md` typed into
+ * Bash ran silently while the same operation through `brain_archive` raised a
+ * card. Worse, the brain repo's own CLAUDE.md documents the CLI form, so the
+ * gated path was the one nobody took. The approval existed on the path the
+ * documentation steers away from.
+ *
+ * WHAT THIS IS NOT. It is not containment. An agent with Bash can always reach
+ * the same effect another way — `sh -c`, a heredoc, a script it just wrote —
+ * and nothing here tries to stop that. The threat this addresses is an agent
+ * doing something destructive you did not intend, not an adversary evading a
+ * control. Read it as a seatbelt, not a lock; the real boundary is auth.
+ *
+ * Matched case-insensitively against the whole command string, so a pattern
+ * fires wherever it appears in a pipeline.
+ */
+export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly string[] = [
+  // Archiving is a VISIBILITY change, and that is the reason to confirm it —
+  // not that it is hard to undo (it is a move inside a git repo). An archived
+  // document drops out of search, briefings and context assembly, so a silent
+  // archive shows up later as holes in output you cannot account for: results
+  // that should have been there simply are not, with nothing pointing at why.
+  // The MCP equivalent already asks; this is the path people actually use.
+  String.raw`\bbrain\s+archive\b`,
+  // Recursive delete, in any of its spellings.
+  String.raw`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]`,
+  // History rewrites and discards — recoverable only if you notice in time.
+  String.raw`\bgit\s+push\b.*--force`,
+  String.raw`\bgit\s+reset\b.*--hard`,
+  String.raw`\bgit\s+clean\b.*-[a-zA-Z]*f`,
+  // Truncation via redirect into a tracked path is easy to do by accident.
+  String.raw`\bgit\s+checkout\b.*\s--\s`,
+];
+
+/** Compile pattern sources, skipping (and reporting) any that will not parse. */
+function compileConfirmPatterns(
+  sources: readonly string[],
+  onInvalid: (source: string, message: string) => void
+): RegExp[] {
+  const compiled: RegExp[] = [];
+  for (const source of sources) {
+    try {
+      compiled.push(new RegExp(source, "i"));
+    } catch (e) {
+      // A bad pattern must not take the backend down: the safe direction to
+      // fail is "this one never matches", reported loudly.
+      onInvalid(source, e instanceof Error ? e.message : String(e));
+    }
+  }
+  return compiled;
+}
+
+/** The command string a Bash tool call is about to run, if it has one. */
+function bashCommand(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const command = (input as { command?: unknown }).command;
+  return typeof command === "string" && command.trim() ? command : null;
+}
+
 export interface ClaudeBackendOptions {
   /** Working directory for the agent — the brain repo the model operates on. */
   brainPath: string;
@@ -137,6 +204,17 @@ export interface ClaudeBackendOptions {
   defaultTimeoutMs?: number;
   /** Backend-wide tool allowlist; a profile's own `allowedTools` overrides it. */
   allowedTools?: string[];
+  /**
+   * Regex sources; a Bash command matching any of them raises a confirmation
+   * card before it runs. Defaults to {@link DEFAULT_CONFIRM_BASH_PATTERNS}.
+   * An EMPTY array disables the confirmation entirely — which is a real
+   * choice, not a misconfiguration, so it is honoured as given.
+   *
+   * Configurable because "destructive" is deployment-specific: a published
+   * package can ship `rm -rf`, but it cannot know which of YOUR commands are
+   * the ones worth stopping on.
+   */
+  confirmBashPatterns?: readonly string[];
   /**
    * Text appended to the Claude Code system prompt, describing the chat
    * surface the answer renders on. Defaults to `buildSystemPromptAppend(...)`,
@@ -214,6 +292,16 @@ export function createClaudeBackend(
     return list && list.length > 0 ? list : DEFAULT_PROFILES;
   };
   const queryFn = options.queryFn ?? query;
+  // Compiled once per backend: the sources are configuration, not per-turn
+  // input. `?? DEFAULT` rather than `|| DEFAULT` so an explicit empty array
+  // disables confirmation instead of silently restoring the defaults.
+  const confirmPatterns = compileConfirmPatterns(
+    options.confirmBashPatterns ?? DEFAULT_CONFIRM_BASH_PATTERNS,
+    (source, message) =>
+      console.warn(
+        `[claude-backend] ignoring unparseable confirmBashPatterns entry ${JSON.stringify(source)}: ${message}`
+      )
+  );
   const history = createHistory({
     brainPath: options.brainPath,
     listSessionsFn: options.listSessionsFn,
@@ -432,11 +520,45 @@ export function createClaudeBackend(
               hooks: [
                 async (hookInput) => {
                   if (
-                    hookInput.hook_event_name === "PreToolUse" &&
-                    MUTATING_TOOLS.has(hookInput.tool_name)
+                    hookInput.hook_event_name !== "PreToolUse" ||
+                    !MUTATING_TOOLS.has(hookInput.tool_name)
                   ) {
-                    await acquireForTool(hookInput.tool_use_id);
+                    return { continue: true };
                   }
+
+                  // Confirmation for a Bash command that matches a configured
+                  // pattern. It happens HERE, not in canUseTool, for the same
+                  // reason the lock does: Bash is auto-allowed, so canUseTool
+                  // is never consulted for it.
+                  //
+                  // Asked BEFORE the lock is taken — a user deliberating for
+                  // ten minutes must not hold the write lock against every
+                  // other session that whole time.
+                  if (hookInput.tool_name === "Bash" && confirmPatterns.length > 0) {
+                    const command = bashCommand(hookInput.tool_input);
+                    if (command && confirmPatterns.some((re) => re.test(command))) {
+                      const decision = await req.bridge.requestPermission({
+                        toolUseId: hookInput.tool_use_id,
+                        toolName: "Bash",
+                        input: hookInput.tool_input as Record<string, unknown>,
+                        description:
+                          "This command matches a pattern configured to require confirmation.",
+                      });
+                      if (decision.behavior !== "allow") {
+                        return {
+                          continue: true,
+                          hookSpecificOutput: {
+                            hookEventName: "PreToolUse",
+                            permissionDecision: "deny",
+                            permissionDecisionReason:
+                              decision.message ?? "Denied by the user.",
+                          },
+                        };
+                      }
+                    }
+                  }
+
+                  await acquireForTool(hookInput.tool_use_id);
                   return { continue: true };
                 },
               ],

@@ -95,6 +95,7 @@ export interface ClaudeBackendModule {
     brainPath: string;
     claudeCodePath?: string;
     profiles?: ClaudeProfile[] | (() => ClaudeProfile[]);
+    confirmBashPatterns?: readonly string[];
   }) => AgentBackend;
   createModelSource: (options: {
     brainPath: string;
@@ -423,6 +424,11 @@ export function createBackendRegistry(
     return claude.createClaudeBackend({
       brainPath,
       claudeCodePath: agent.claudeCodePath,
+      // Omitted entirely when unconfigured, so the backend's own defaults
+      // apply; an explicit [] passes through and disables confirmation.
+      ...(agent.confirmBashPatterns !== null
+        ? { confirmBashPatterns: agent.confirmBashPatterns }
+        : {}),
       // A function, not an array: discovery refreshes in the background and the
       // new roster has to be visible without restarting the process.
       profiles: () =>

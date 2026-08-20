@@ -7,6 +7,7 @@ export "." (./src/index.ts)
   type AliasChecks
   type ClaudeBackendEnv
   type ClaudeBackendOptions
+  DEFAULT_CONFIRM_BASH_PATTERNS
   DEFAULT_PROFILES
   DYNAMIC_ENV_READS
   type DiscoverOptions
