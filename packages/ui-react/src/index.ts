@@ -72,4 +72,4 @@ export { ShareIntake } from "./components/chat/share-card.js";
 
 // API surface (typed REST client + backend URL helpers).
 export { api } from "./lib/api-client.js";
-export { API_BASE, getWsUrl, getBackendUrl } from "./lib/backend.js";
+export { apiBase, getWsUrl, getBackendUrl } from "./lib/backend.js";

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eraser, RotateCcw, X } from "lucide-react";
 
-import { API_BASE } from "../../lib/backend.js";
+import { apiBase } from "../../lib/backend.js";
 import { useMaskStore } from "../../stores/mask-store.js";
 
 /**
@@ -43,7 +43,7 @@ export function MaskEditor({
   const [error, setError] = useState<string | null>(null);
 
   const rawUrl = request
-    ? `${API_BASE}/files/content?path=${encodeURIComponent(request.imagePath)}&raw=1`
+    ? `${apiBase()}/files/content?path=${encodeURIComponent(request.imagePath)}&raw=1`
     : null;
 
   // Reset per request: a second mask on a different image must not inherit the

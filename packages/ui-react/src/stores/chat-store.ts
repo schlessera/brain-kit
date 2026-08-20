@@ -6,6 +6,7 @@ import type {
   AskUserAnnotation,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { useProviderStore } from "./provider-store.js";
+import { registerDevHandle } from "../config.js";
 
 export type { MessagePart };
 
@@ -631,10 +632,12 @@ export const useChatStore = create<ChatState>((set, get) => {
 });
 
 // Dev-only handle so browser automation / manual debugging can inject
-// fixture messages without a live Claude session. The env read is defensive:
-// outside a Vite build `import.meta.env` does not exist.
-const devEnv = (import.meta as { env?: Record<string, unknown> }).env;
-if (typeof window !== "undefined" && devEnv?.DEV) {
+// fixture messages without a live Claude session. Registered rather than
+// installed: whether this is a development build is the shell's call
+// (`configureBrainUi({ devTools: true })`), not something a component library
+// infers from its bundler.
+registerDevHandle(() => {
+  if (typeof window === "undefined") return;
   (window as unknown as { __chatStore?: typeof useChatStore }).__chatStore =
     useChatStore;
-}
+});

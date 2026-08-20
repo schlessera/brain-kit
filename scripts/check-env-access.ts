@@ -15,6 +15,13 @@
 //   3. No writes, anywhere: `process.env.X = …`, `process.env[k] = …` and
 //      `delete process.env.X` mutate global state for every other consumer in
 //      the process — the Gemini providers did exactly this across an `await`.
+//   4. No `import.meta.env`, anywhere. It is the browser-side version of the
+//      same mistake and it has no chokepoint that could contain it: the value
+//      is injected by whichever bundler the CONSUMER runs, so a library that
+//      reads it silently supports exactly one bundler. ui-react read
+//      `VITE_BACKEND_URL` this way, which left a webpack or Next.js consumer
+//      with no way to reach a split-topology backend at all. Browser packages
+//      take configuration through their own boot call (`configureBrainUi`).
 //
 // Detection is AST-based (the TypeScript compiler API), so comments and string
 // literals mentioning process.env do not trip it.
@@ -29,7 +36,7 @@ interface Finding {
   file: string;
   line: number;
   column: number;
-  rule: 1 | 2 | 3;
+  rule: 1 | 2 | 3 | 4;
   message: string;
 }
 
@@ -45,6 +52,23 @@ function isProcessEnv(node: ts.Node): boolean {
       node.argumentExpression.text === "env";
   }
   return false;
+}
+
+/**
+ * True for `import.meta.env`, however it is spelled — including the cast form
+ * `(import.meta as { env?: … }).env` that a library uses to read it
+ * defensively outside a bundler.
+ */
+function isImportMetaEnv(node: ts.Node): boolean {
+  if (!ts.isPropertyAccessExpression(node) || node.name.text !== "env") return false;
+  let target: ts.Node = node.expression;
+  // Unwrap parentheses and `as`/`satisfies` casts around `import.meta`.
+  for (;;) {
+    if (ts.isParenthesizedExpression(target)) target = target.expression;
+    else if (ts.isAsExpression(target) || ts.isSatisfiesExpression(target)) target = target.expression;
+    else break;
+  }
+  return ts.isMetaProperty(target) && target.keywordToken === ts.SyntaxKind.ImportKeyword;
 }
 
 /** The assignment / delete construct this access participates in, if any. */
@@ -98,7 +122,7 @@ export function scanSource(file: string, text: string): Finding[] {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const findings: Finding[] = [];
-  const record = (node: ts.Node, rule: 1 | 2 | 3, message: string) => {
+  const record = (node: ts.Node, rule: 1 | 2 | 3 | 4, message: string) => {
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
     findings.push({ file, line: line + 1, column: character + 1, rule, message });
   };
@@ -126,6 +150,14 @@ export function scanSource(file: string, text: string): Finding[] {
         );
       }
     }
+    if (isImportMetaEnv(node)) {
+      record(
+        node,
+        4,
+        "import.meta.env in a published package — that binds the library to one " +
+          "bundler; take the value through the package's boot configuration instead"
+      );
+    }
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -146,15 +178,18 @@ if (import.meta.main) {
   const root = resolve(process.argv[2] ?? process.cwd());
   const findings = scanPackages(root);
   if (findings.length === 0) {
-    console.log("All process.env access goes through the per-package chokepoints.");
+    console.log(
+      "All process.env access goes through the per-package chokepoints, and no " +
+        "package reads import.meta.env."
+    );
     process.exit(0);
   }
 
-  console.error("Ambient process.env access found:");
+  console.error("Ambient environment access found:");
   for (const f of findings) {
     console.error(`  ${relative(root, resolve(root, f.file))}:${f.line}:${f.column}: [rule ${f.rule}] ${f.message}`);
   }
-  const byRule = [1, 2, 3].map(
+  const byRule = [1, 2, 3, 4].map(
     (r) => `rule ${r}: ${findings.filter((f) => f.rule === r).length}`
   );
   console.error(

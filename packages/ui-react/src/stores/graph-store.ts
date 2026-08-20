@@ -4,7 +4,8 @@ import type {
   GraphSubgraphResponse,
   GraphMaintenanceResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { API_BASE } from "../lib/backend.js";
+import { apiBase } from "../lib/backend.js";
+import { registerDevHandle } from "../config.js";
 import { buildQuery, mergeSubgraphs } from "../components/graph/lib/graph-helpers.js";
 
 export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
@@ -135,7 +136,7 @@ function cachePut(key: string, value: GraphSubgraphResponse | GraphMaintenanceRe
 }
 
 async function fetchGraphJson<T>(pathAndQuery: string): Promise<T> {
-  const res = await fetch(`${API_BASE}/graph${pathAndQuery}`);
+  const res = await fetch(`${apiBase()}/graph${pathAndQuery}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as Record<string, unknown>);
     const err = new Error(
@@ -336,10 +337,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 }));
 
 // Dev-only handle for exercising the view with injected fixtures (the
-// window.__chatStore precedent). The env read is defensive: outside a Vite
-// build `import.meta.env` does not exist.
-const devEnv = (import.meta as { env?: Record<string, unknown> }).env;
-if (typeof window !== "undefined" && devEnv?.DEV) {
+// window.__chatStore precedent), gated on the shell's `devTools` flag.
+registerDevHandle(() => {
+  if (typeof window === "undefined") return;
   (window as unknown as { __graphStore?: typeof useGraphStore }).__graphStore =
     useGraphStore;
-}
+});

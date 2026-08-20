@@ -1,4 +1,4 @@
-import { API_BASE } from "../../lib/backend.js";
+import { apiBase } from "../../lib/backend.js";
 import React, { useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -71,7 +71,7 @@ export function repoImageSrc(src: string): string {
   if (/^(data:|blob:|https?:\/\/)/i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("/api/")) return trimmed;
   const rel = trimmed.replace(/^\.\//, "").replace(/^\/+/, "");
-  return `${API_BASE}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
+  return `${apiBase()}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
 }
 
 /**

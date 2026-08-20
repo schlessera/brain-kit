@@ -4,7 +4,7 @@ import {
   type ShareIntakeResult,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
-import { API_BASE } from "./backend.js";
+import { apiBase } from "./backend.js";
 import {
   fileToAttachment,
   validateAttachments,
@@ -85,7 +85,7 @@ export async function uploadShare(
 
   let response: Response;
   try {
-    response = await fetchImpl(`${API_BASE}/share`, {
+    response = await fetchImpl(`${apiBase()}/share`, {
       method: "POST",
       body: form,
     });

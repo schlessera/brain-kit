@@ -15,7 +15,7 @@ import type {
 import { useGraphStore, type GraphMode } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFileStore } from "../../stores/file-store.js";
-import { API_BASE } from "../../lib/backend.js";
+import { apiBase } from "../../lib/backend.js";
 import { FilePanel } from "../files/file-panel.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 import { GraphControls } from "./graph-controls.js";
@@ -550,7 +550,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
     void (async () => {
       try {
         const res = await fetch(
-          `${API_BASE}/graph/maintenance?${buildQuery({ staleDays })}`
+          `${apiBase()}/graph/maintenance?${buildQuery({ staleDays })}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as GraphMaintenanceResponse;
@@ -634,7 +634,7 @@ function DiscoveryStart() {
     void (async () => {
       try {
         const res = await fetch(
-          `${API_BASE}/brain/list?${buildQuery({ type: "index", limit: 6 })}`
+          `${apiBase()}/brain/list?${buildQuery({ type: "index", limit: 6 })}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as {

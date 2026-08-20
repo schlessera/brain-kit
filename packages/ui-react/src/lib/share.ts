@@ -1,4 +1,4 @@
-import { API_BASE } from "./backend.js";
+import { apiBase } from "./backend.js";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 
 export type ShareKind = "file" | "text" | "richtext";
@@ -125,7 +125,7 @@ export async function renderToFile(
   req: RenderRequest,
   filename: string
 ): Promise<File> {
-  const res = await fetch(`${API_BASE}/render`, {
+  const res = await fetch(`${apiBase()}/render`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
