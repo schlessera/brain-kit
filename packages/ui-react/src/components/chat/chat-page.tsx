@@ -297,10 +297,14 @@ export function ChatPage() {
     // queues it or delivers it live; don't pre-start a second assistant bubble
     // (the backend's next frames start it).
     if (!isStreaming) startAssistantMessage();
+    // Correlate this turn when it is starting a NEW conversation, so its
+    // session_info can be told apart from a background turn's.
+    const draftId = sessionId ? undefined : useChatStore.getState().startDraftTurn();
     send({
       type: "chat_message",
       text,
       sessionId: sessionId ?? undefined,
+      ...(draftId ? { draftId } : {}),
       // Provider only applies to new conversations; resumed sessions are
       // pinned server-side to their original combo.
       // Only send a provider the server actually offers — a stale persisted

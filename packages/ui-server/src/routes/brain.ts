@@ -118,6 +118,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
           env: subprocessEnv({ NO_COLOR: "1" }),
         });
 
+        // Start draining stderr NOW, not after the process exits.
+        //
+        // The stdout loop below can run for minutes. Meanwhile stderr fills an
+        // OS pipe buffer that nothing is reading — and once it is full the
+        // child blocks on write, never exits, and `await proc.exited` never
+        // resolves. A chatty run deadlocked the request; a quiet one looked
+        // fine, which is why this survived.
+        const stderrText = new Response(proc.stderr).text();
+
         const reader = proc.stdout.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -139,7 +148,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
 
         const exitCode = await proc.exited;
 
-        const stderr = await new Response(proc.stderr).text();
+        const stderr = await stderrText;
         if (stderr.trim()) {
           for (const line of stderr.split("\n")) {
             if (line.trim()) await send({ type: "progress", text: line });

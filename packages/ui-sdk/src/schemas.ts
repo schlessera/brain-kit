@@ -211,6 +211,7 @@ export const clientChatMessageSchema = z
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
     providerId: id.optional(),
+    draftId: id.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     client: clientEnvironmentSchema.optional(),
   })
@@ -578,6 +579,7 @@ export const serverSessionInfoSchema = z.looseObject({
   sessionId: z.string().max(MAX_ID_CHARS),
   isNew: z.boolean(),
   providerId: z.string().max(MAX_ID_CHARS).optional(),
+  draftId: z.string().max(MAX_ID_CHARS).optional(),
 }) satisfies z.ZodType<ServerSessionInfo>;
 
 export const serverSessionHistorySchema = z.looseObject({

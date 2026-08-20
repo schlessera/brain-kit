@@ -96,6 +96,31 @@ export function runStateForFrame(msg: ServerMessage): "streaming" | "queued" | "
   return "streaming";
 }
 
+/**
+ * Does this frame announce the identity of the conversation THIS client just
+ * started?
+ *
+ * The old test was `session_info || result` for any unknown session, which
+ * adopted whichever arrived first — an older background turn finishing, or
+ * another client's new session, would capture the user's draft and bind it to
+ * a transcript they never wrote. `draftId` is minted per draft turn and echoed
+ * on `session_info`, so a match is proof.
+ *
+ * A server too old to echo it sends no `draftId`, and the pre-existing
+ * behaviour applies rather than the draft never binding at all: correctness
+ * where the information exists, compatibility where it does not.
+ */
+function isOurDraftAnnouncement(
+  state: ReturnType<typeof useChatStore.getState>,
+  msg: ServerMessage
+): boolean {
+  if (msg.type !== "session_info" && msg.type !== "result") return false;
+  const pending = state.pendingDraftId;
+  if (msg.type === "session_info" && msg.draftId) return msg.draftId === pending;
+  // No echo to compare against.
+  return true;
+}
+
 export function handleServerMessage(msg: ServerMessage) {
   const state = useChatStore.getState();
 
@@ -119,7 +144,7 @@ export function handleServerMessage(msg: ServerMessage) {
     key = state.activeSessionId; // null = the draft view
   } else if (state.buffers[frameSessionId]) {
     key = frameSessionId;
-  } else if (state.draft && (msg.type === "session_info" || msg.type === "result")) {
+  } else if (state.draft && isOurDraftAnnouncement(state, msg)) {
     // A draft run just got its server identity: adopt the draft buffer.
     state.bindDraftSession(frameSessionId);
     key = frameSessionId;

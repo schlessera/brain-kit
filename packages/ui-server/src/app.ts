@@ -291,8 +291,24 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   if (options.staticRoot) {
     const staticRoot = options.staticRoot;
     app.use("/*", serveStatic({ root: staticRoot }));
-    // SPA fallback
-    app.get("*", serveStatic({ path: join(staticRoot, "index.html") }));
+
+    // SPA fallback, served directly rather than through serveStatic({ path }).
+    //
+    // That helper resolves its path the same way it resolves `root` — against
+    // the process working directory — so `join(staticRoot, "index.html")`
+    // only lands correctly when `staticRoot` is itself cwd-relative. It is in
+    // the shipped layout, which is why this went unnoticed; an embedder
+    // passing an absolute directory, or a process that changed cwd, got a
+    // fallback that silently 404ed every deep link. Reading the file
+    // ourselves removes the ambiguity for both cases.
+    const indexPath = join(staticRoot, "index.html");
+    app.get("*", async (c) => {
+      const file = Bun.file(indexPath);
+      if (!(await file.exists())) return c.notFound();
+      return new Response(file, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    });
   }
 
   return {

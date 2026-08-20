@@ -13,6 +13,9 @@
  * implementations on opposite ends of a socket.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import { BrainUiClient, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
@@ -182,5 +185,37 @@ describe("auth refuses to boot through a real socket", () => {
     expect(
       observability.logs.count({ scope: "auth", severity: "ERROR" })
     ).toBe(1);
+  });
+});
+
+describe("the SPA fallback", () => {
+  test("serves index.html for a deep link from an ABSOLUTE static root", async () => {
+    // The rough edge: `serveStatic({ path })` resolves against the process cwd,
+    // so an absolute staticRoot produced a fallback that 404ed every deep link.
+    const dir = mkdtempSync(join(tmpdir(), "brain-spa-"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>shell</title>");
+
+    const config = resolveServerConfig({
+      AUTH_MODE: "none",
+      HOST: "127.0.0.1",
+      DB_PATH: ":memory:",
+      BRAIN_PATH: "/tmp/brain-spa-test",
+    });
+    const backend = makeFakeBackend({ id: "fake" });
+    const app = createApp({
+      config,
+      dbPath: ":memory:",
+      staticRoot: dir,
+      observability: createRecordingObservability(),
+      registry: createStaticBackendRegistry([backend], backend.id),
+    });
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch, websocket: app.websocket });
+    running.push({ server, app, url: "" });
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/some/deep/link`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("shell");
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });

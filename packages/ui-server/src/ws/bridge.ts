@@ -23,10 +23,14 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   return {
-    emit: (msg) => {
+    emit: (message) => {
+      let msg = message;
       if (msg.type === "session_info") {
         turn.sessionId = msg.sessionId;
         if (msg.providerId) turn.providerId = msg.providerId;
+        // Echo the client's correlation id, so it can recognise which
+        // announcement is its own rather than adopting the first to arrive.
+        if (turn.draftId) msg = { ...msg, draftId: turn.draftId };
         coordinator.bySession.set(msg.sessionId, turn);
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.

@@ -78,6 +78,18 @@ export interface ClientChatMessage {
   providerId?: string;
   attachments?: ChatImageAttachment[];
   /**
+   * Client-minted correlation id for a NEW conversation (rev 2, additive).
+   *
+   * A client that starts a conversation has no session id yet, so it cannot
+   * tell which `session_info` announces ITS turn — it previously adopted the
+   * first one that arrived for an unknown session, which could belong to an
+   * older background turn or another client entirely. Send an opaque id here
+   * and the server echoes it on `session_info`; ignore any frame that does not
+   * carry yours. Meaningless on a resumed session, and servers that do not
+   * understand it simply omit the echo.
+   */
+  draftId?: string;
+  /**
    * What the reader is holding, measured by the browser. Sent per message
    * rather than once per connection because it genuinely changes mid-session:
    * a phone rotates, a PWA gets installed, a laptop is plugged into a monitor.
@@ -344,6 +356,12 @@ export interface ServerSessionInfo {
   isNew: boolean;
   /** Provider+model profile this session is pinned to. */
   providerId?: string;
+  /**
+   * Echo of the `draftId` the client sent on the `chat_message` that started
+   * this conversation (rev 2, additive). Absent on a resumed session, and on
+   * any turn whose client did not send one.
+   */
+  draftId?: string;
 }
 
 /** Safe profile metadata exposed to the client (never keys/env). */

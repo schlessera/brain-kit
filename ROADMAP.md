@@ -102,17 +102,6 @@ Roughly in order. Items move down as they land.
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn
   approval) are tracked in the `brain-ui` roadmap.
-- **Rough edges named by the extraction review**, ported verbatim rather than
-  fixed at the time, and not re-verified since:
-  - A follow-up message sent mid-stream can drop deltas once the user message
-    is appended to the buffer.
-  - The file store has a stale-response race between overlapping fetches.
-  - `whatsup` streams stderr through a pipe nothing drains — a chatty run can
-    deadlock.
-  - The SPA fallback builds its index path with `join()` against a configured
-    static root; correct for the shipped layout, fragile for others.
-  - Draft adoption can bind to a stale session's result — `chat_message` frames
-    carry no correlation id.
 
 ## Later
 

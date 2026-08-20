@@ -20,6 +20,8 @@ export async function runSession(
     attachments: ChatImageAttachment[];
     providerId?: string;
     client?: ClientEnvironment;
+    /** Client correlation id for a new conversation; echoed on session_info. */
+    draftId?: string;
   }
 ): Promise<void> {
   const { coordinator } = host;
@@ -56,6 +58,8 @@ export async function runSession(
   const turn: RunningTurn = {
     sessionId: initial.sessionId ?? null,
     turnId: crypto.randomUUID(),
+    // Only meaningful when the client had no session id to send.
+    draftId: initial.sessionId ? null : (initial.draftId ?? null),
     providerId: initialProfileId ?? null,
     backend,
     abortController: new AbortController(),
@@ -149,9 +153,10 @@ export async function handleChatMessage(
     attachments: ChatImageAttachment[];
     providerId?: string;
     client?: ClientEnvironment;
+    draftId?: string;
   }
 ): Promise<void> {
-  const { text, attachments, sessionId, providerId: requestedProviderId, client } = msg;
+  const { text, attachments, sessionId, providerId: requestedProviderId, client, draftId } = msg;
   const { coordinator } = host;
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
@@ -247,5 +252,6 @@ export async function handleChatMessage(
     attachments,
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
+    ...(draftId ? { draftId } : {}),
   });
 }

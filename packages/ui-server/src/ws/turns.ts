@@ -55,6 +55,12 @@ export interface RunningTurn {
   timeoutHandle: ReturnType<typeof setTimeout>;
   queue: QueuedFollowUp[];
   cancelled: boolean;
+  /**
+   * Correlation id the client minted for this NEW conversation, echoed back on
+   * `session_info` so the client can tell its own turn's identity from a
+   * background turn's. Null on a resumed session or a client that sent none.
+   */
+  draftId: string | null;
 }
 
 // Pending interactive requests are tagged with their turn so a per-session
