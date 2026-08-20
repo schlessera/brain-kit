@@ -53,3 +53,27 @@ peer dependency of this submodule only.
 
 The protocol is a compatibility contract: additive changes only, unknown fields
 must be preserved, and `server_hello.protocolRev` announces the revision.
+
+## Speaking the protocol
+
+`@schlessera/brain-ui-sdk/client` exports `BrainUiClient`: socket lifecycle
+(1s-doubling backoff to 30s, `reconnectNow`), validated inbound frames,
+`server_hello` capture, and `turnId` echo on turn-scoped replies. It has no
+React, no DOM beyond `WebSocket`, and takes a `socketFactory` so it is testable
+with no network.
+
+```ts
+import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
+
+const client = new BrainUiClient({
+  url: "wss://host/ws",
+  handlers: { text_delta: (f) => render(f.text) },
+  onProtocolError: (e) => report(e.reason, e.detail),
+});
+client.connect();
+```
+
+A frame that fails validation is dropped and passed to `onProtocolError`, never
+thrown — the protocol is additive, so an unrecognised frame must not break an
+older client. Register `onAny` instead of per-type handlers when your dispatch
+shares a preamble; it counts as handling.

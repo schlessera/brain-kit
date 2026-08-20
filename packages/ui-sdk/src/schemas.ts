@@ -20,6 +20,25 @@ import { z } from "zod";
 
 import type {
   AskUserAnnotation,
+  MessagePart,
+  SessionHistoryMessage,
+  ServerAskUserRequest,
+  ServerError,
+  ServerHello,
+  ServerLocationRequest,
+  ServerMaskRequest,
+  ServerMessage,
+  ServerResultMessage,
+  ServerSessionHistory,
+  ServerSessionInfo,
+  ServerStatus,
+  ServerTextDelta,
+  ServerThinkingDelta,
+  ServerToolApprovalRequest,
+  ServerToolInputDelta,
+  ServerToolResult,
+  ServerToolUseComplete,
+  ServerToolUseStart,
   ClientAskUserCancel,
   ClientAskUserResponse,
   ClientCancelRequest,
@@ -395,4 +414,248 @@ export function parseClientMessage(raw: string | Buffer | ArrayBuffer): ParseFra
     };
   }
   return { ok: true, message: parsed.data as ClientMessage };
+}
+
+// ============================================================
+// Server → client frames (W1)
+//
+// The other direction, added because "the server is the trusted peer" stops
+// being the whole story the moment a second client exists, and because a
+// client that CASTS its inbound frames cannot tell a protocol drift from a
+// bug in its own rendering. The receiving policy is deliberately softer than
+// the server's: a frame that fails validation is DROPPED and reported, never
+// thrown, because the protocol is additive by contract and a client that
+// hard-fails an unrecognised frame turns every additive server change into a
+// breaking one.
+//
+// Same rules as above otherwise: `looseObject` so a newer peer's optional
+// fields survive the boundary, and each schema bound to its interface with
+// `satisfies` so the two cannot drift without a compile error.
+// ============================================================
+
+/**
+ * Cap on one server→client frame.
+ *
+ * Sized from the server's own history chunker (400 KB per chunk) with room
+ * for the envelope and a large single tool result, NOT from the client frame
+ * cap — the two directions carry different things. A `session_history` replay
+ * is split precisely so no single frame approaches this.
+ */
+export const MAX_SERVER_FRAME_BYTES = 2_000_000;
+
+// A discriminated union upstream, so it must be one here too: a flat object
+// with three optional fields would accept `{ kind: "tool" }` with no index.
+const messagePartSchema = z.discriminatedUnion("kind", [
+  z.looseObject({ kind: z.literal("thinking"), text: z.string() }),
+  z.looseObject({ kind: z.literal("text"), text: z.string() }),
+  z.looseObject({ kind: z.literal("tool"), toolIndex: z.number() }),
+]) satisfies z.ZodType<MessagePart>;
+
+const historyMessageSchema: z.ZodType<SessionHistoryMessage> = z.looseObject({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  thinking: z.string().optional(),
+  toolCalls: z.array(
+    z.looseObject({
+      id: z.string(),
+      name: z.string(),
+      input: z.record(z.string(), z.unknown()),
+      output: z.string().optional(),
+      isError: z.boolean().optional(),
+    })
+  ),
+  parts: z.array(messagePartSchema).optional(),
+  attachmentCount: z.number().optional(),
+});
+
+/** Every session-scoped frame carries these, both optional on the wire. */
+const sessionScoped = {
+  sessionId: z.string().max(MAX_ID_CHARS).optional(),
+  turnId: z.string().max(MAX_ID_CHARS).optional(),
+};
+
+export const serverHelloSchema = z.looseObject({
+  type: z.literal("server_hello"),
+  protocolRev: z.number(),
+  capabilities: z.record(z.string(), z.boolean()).optional(),
+}) satisfies z.ZodType<ServerHello>;
+
+export const serverTextDeltaSchema = z.looseObject({
+  type: z.literal("text_delta"),
+  text: z.string(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerTextDelta>;
+
+export const serverThinkingDeltaSchema = z.looseObject({
+  type: z.literal("thinking_delta"),
+  text: z.string(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerThinkingDelta>;
+
+export const serverToolUseStartSchema = z.looseObject({
+  type: z.literal("tool_use_start"),
+  toolUseId: z.string().max(MAX_ID_CHARS),
+  toolName: z.string(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolUseStart>;
+
+export const serverToolInputDeltaSchema = z.looseObject({
+  type: z.literal("tool_input_delta"),
+  toolUseId: z.string().max(MAX_ID_CHARS),
+  partialJson: z.string(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolInputDelta>;
+
+export const serverToolUseCompleteSchema = z.looseObject({
+  type: z.literal("tool_use_complete"),
+  toolUseId: z.string().max(MAX_ID_CHARS),
+  toolName: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolUseComplete>;
+
+export const serverToolResultSchema = z.looseObject({
+  type: z.literal("tool_result"),
+  toolUseId: z.string().max(MAX_ID_CHARS),
+  output: z.string(),
+  isError: z.boolean(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolResult>;
+
+export const serverToolApprovalRequestSchema = z.looseObject({
+  type: z.literal("tool_approval_request"),
+  toolUseId: z.string().max(MAX_ID_CHARS),
+  toolName: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  description: z.string().optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolApprovalRequest>;
+
+export const serverResultSchema = z.looseObject({
+  type: z.literal("result"),
+  sessionId: z.string().max(MAX_ID_CHARS),
+  outcome: z.enum(["success", "error", "cancelled"]).optional(),
+  // Absent means "unknown", 0 means "actually free" — so this must stay
+  // optional rather than defaulting.
+  costUsd: z.number().optional(),
+  durationMs: z.number(),
+  numTurns: z.number(),
+  isError: z.boolean(),
+}) satisfies z.ZodType<ServerResultMessage>;
+
+export const serverErrorSchema = z.looseObject({
+  type: z.literal("error"),
+  code: z.string(),
+  message: z.string(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerError>;
+
+export const serverStatusSchema = z.looseObject({
+  type: z.literal("status"),
+  status: z.enum(["thinking", "tool_executing", "idle", "cancelled", "queued"]),
+  detail: z.string().optional(),
+  activeSessionId: z.string().max(MAX_ID_CHARS).optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerStatus>;
+
+export const serverSessionInfoSchema = z.looseObject({
+  type: z.literal("session_info"),
+  sessionId: z.string().max(MAX_ID_CHARS),
+  isNew: z.boolean(),
+  providerId: z.string().max(MAX_ID_CHARS).optional(),
+}) satisfies z.ZodType<ServerSessionInfo>;
+
+export const serverSessionHistorySchema = z.looseObject({
+  type: z.literal("session_history"),
+  messages: z.array(historyMessageSchema),
+  append: z.boolean().optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerSessionHistory>;
+
+export const serverAskUserRequestSchema = z.looseObject({
+  type: z.literal("ask_user_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  questions: z.array(
+    z.looseObject({
+      question: z.string(),
+      header: z.string(),
+      multiSelect: z.boolean(),
+      options: z.array(z.looseObject({ label: z.string(), description: z.string() })),
+    })
+  ),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerAskUserRequest>;
+
+export const serverLocationRequestSchema = z.looseObject({
+  type: z.literal("location_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  options: z.looseObject({}).optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerLocationRequest>;
+
+export const serverMaskRequestSchema = z.looseObject({
+  type: z.literal("mask_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  imagePath: z.string(),
+  instruction: z.string().optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerMaskRequest>;
+
+export const serverMessageSchema = z.discriminatedUnion("type", [
+  serverHelloSchema,
+  serverTextDeltaSchema,
+  serverThinkingDeltaSchema,
+  serverToolUseStartSchema,
+  serverToolInputDeltaSchema,
+  serverToolUseCompleteSchema,
+  serverToolResultSchema,
+  serverToolApprovalRequestSchema,
+  serverResultSchema,
+  serverErrorSchema,
+  serverStatusSchema,
+  serverSessionInfoSchema,
+  serverSessionHistorySchema,
+  serverAskUserRequestSchema,
+  serverLocationRequestSchema,
+  serverMaskRequestSchema,
+]) satisfies z.ZodType<ServerMessage>;
+
+/**
+ * Parse + validate one inbound SERVER frame. Never throws.
+ *
+ * A caller should treat `ok: false` as "ignore this frame and report it", not
+ * as a fatal condition — see the section header.
+ */
+export function parseServerMessage(
+  raw: string | Buffer | ArrayBuffer
+): ParseFrameResult<ServerMessage> {
+  if (typeof raw !== "string") {
+    if (raw.byteLength > MAX_SERVER_FRAME_BYTES) {
+      return { ok: false, error: `Frame exceeds ${MAX_SERVER_FRAME_BYTES} bytes` };
+    }
+  }
+  const text =
+    typeof raw === "string" ? raw : new TextDecoder().decode(raw as unknown as ArrayBuffer);
+  if (typeof raw === "string" && Buffer.byteLength(text, "utf-8") > MAX_SERVER_FRAME_BYTES) {
+    return { ok: false, error: `Frame exceeds ${MAX_SERVER_FRAME_BYTES} bytes` };
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "Frame is not valid JSON" };
+  }
+  if (exceedsDepth(json, MAX_JSON_DEPTH)) {
+    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels` };
+  }
+  const parsed = serverMessageSchema.safeParse(json);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".");
+    return {
+      ok: false,
+      error: path ? `${path}: ${issue?.message}` : (issue?.message ?? "Frame failed validation"),
+    };
+  }
+  return { ok: true, message: parsed.data as ServerMessage };
 }

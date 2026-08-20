@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { WSClient } from "../lib/ws-client.js";
+import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
 import { useProviderStore } from "../stores/provider-store.js";
@@ -268,6 +268,11 @@ export function handleServerMessage(msg: ServerMessage) {
     }
 
     case "error":
+      // ALWAYS recorded. Appending to the transcript only works while a
+      // message is streaming, and this used to be the whole handler — so an
+      // error arriving between turns (a rejected frame, a failed resume) was
+      // dropped as silently on the client as it was on the server.
+      useConnectionStore.getState().reportError(msg.code, msg.message);
       if (buffer()?.isStreaming) {
         state.appendText(key, `\n\n**Error:** ${msg.message}`);
         state.finishAssistantMessage(key);
@@ -382,7 +387,7 @@ function handleStatusChange(status: "connecting" | "connected" | "disconnected")
 }
 
 // Singleton client - survives React re-renders
-let wsClient: WSClient | null = null;
+let wsClient: BrainUiClient | null = null;
 
 /**
  * Send on the live socket from outside a component.
@@ -393,8 +398,8 @@ let wsClient: WSClient | null = null;
  * socket for both. Anything that needs to send but not to own (the share
  * intake) goes through here instead of calling the hook again.
  *
- * Returns false when there is no open socket, since `WSClient.send` drops
- * silently in that case and a caller that just staged an upload needs to know.
+ * Returns false when there is no open socket: `send` drops silently in that
+ * case and a caller that just staged an upload needs to know.
  */
 export function sendClientMessage(msg: ClientMessage): boolean {
   if (!wsClient) return false;
@@ -410,7 +415,26 @@ export function useWebSocket() {
     if (initialized.current) return;
     initialized.current = true;
 
-    wsClient = new WSClient(getWsUrl(), handleServerMessage, handleStatusChange);
+    wsClient = new BrainUiClient({
+      url: getWsUrl(),
+      // One handler with a shared preamble, rather than sixteen copies of the
+      // session-buffer demux — see handleServerMessage.
+      handlers: { onAny: handleServerMessage },
+      onStatusChange: handleStatusChange,
+      // A frame the SDK refused. Surfaced rather than logged into a console
+      // nobody is attached to; the server-side counterpart is the
+      // ws.frames.dropped counter.
+      onProtocolError: (err) => {
+        useConnectionStore
+          .getState()
+          .reportError(
+            "PROTOCOL_ERROR",
+            err.frameType
+              ? `Dropped a ${err.frameType} frame: ${err.detail}`
+              : `Dropped an unreadable frame: ${err.detail}`
+          );
+      },
+    });
     wsClient.connect();
 
     // Skip the exponential backoff when the network demonstrably returns.

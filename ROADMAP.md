@@ -89,18 +89,15 @@ Roughly in order. Items move down as they land.
   work. Until that lands, those suites only run locally.
 - **Hardening follow-ups** carried over from the security review rounds, none
   currently exploitable:
-  - No end-to-end test drives the auth boot refusal through a real socket.
+
   - Renderer browser-crash recovery is verified by inspection only; testing it
     needs an injection seam in `brain-render-puppeteer`.
   - No WebSocket rate limiting. Frames are size-, cardinality-, and
     depth-bounded, so cheap CPU amplification is closed, but a flood of
     individually valid frames is unmetered behind the auth guard.
-  - `ui-sdk` has schemas for client→server frames only; the client casts
-    inbound server frames, and the transport itself lives in `ui-react` rather
-    than in the package that owns the protocol. `server_hello` and `turnId` are
-    advisory client-side: the server stamps both and verifies an echo when
-    present, but no shipped client reads `protocolRev` or echoes `turnId`. All
-    of it is additive, and planned in
+  - `turnId` is stamped by the host, echoed by the client, and verified when
+    present — but still not REQUIRED. Making it mandatory is a protocol-rev
+    change and needs a deprecation window; see
     [.agents/plans/client-protocol-half.md](.agents/plans/client-protocol-half.md).
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn

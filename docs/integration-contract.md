@@ -100,6 +100,23 @@ the fixture corpus with the real CLI and then reads it back with the shipped
 exported from `@schlessera/brain` — and that test fails when this document, the
 `brain doctor` check, or a reader floor disagrees with it.
 
+### Server → client frames
+
+Both directions are now schema-validated at the boundary
+(`@schlessera/brain-ui-sdk/schemas`). The receiving policies differ on purpose:
+
+- A **server** rejecting a client frame answers with an `error` frame and
+  counts the drop. Inbound validation is a trust boundary.
+- A **client** rejecting a server frame DROPS it and reports it, never throws.
+  The protocol is additive, so a client that hard-failed an unrecognised frame
+  would turn every additive server change into a breaking one for older
+  clients. Unknown object keys are preserved in both directions.
+
+A third-party client may rely on that: adding a frame type, or an optional
+field to an existing one, is not a breaking change. `BrainUiClient`
+(`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
+way to speak the protocol without reimplementing it.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

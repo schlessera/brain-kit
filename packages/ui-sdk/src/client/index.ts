@@ -13,4 +13,15 @@ export {
   resetAsrClients,
 } from "./asr.js";
 
+export {
+  BrainUiClient,
+  createBrainUiClient,
+} from "./ws-client.js";
+export type {
+  BrainUiClientOptions,
+  ServerFrameHandlers,
+  ConnectionStatus,
+  ProtocolError,
+} from "./ws-client.js";
+
 export * from "../protocol.js";
