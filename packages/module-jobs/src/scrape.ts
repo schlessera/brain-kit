@@ -2,9 +2,19 @@ import { Database } from "bun:sqlite";
 import { openDatabase, getLastCursor, logScrapeRun } from "./db.js";
 import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
 import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
+import {
+  ScrapeClient,
+  createBrowserSession,
+  stripHtml,
+  type BrowserSession,
+  type ScrapeContext,
+} from "@schlessera/brain-scrape";
+
+import { resolveEnv as resolveScrapeEnv } from "@schlessera/brain-scrape";
+import { resolveEnv } from "./config/env.js";
 import type { RawJob, ScrapeResult, Source } from "./types.js";
-import { SOURCES, EUR_RATES } from "./types.js";
-import { stripHtml } from "./html.js";
+import { SOURCES } from "./types.js";
+import { eurRates } from "./salary.js";
 
 // Adapter registry
 import { RemoteOKAdapter } from "./adapters/remoteok.js";
@@ -69,6 +79,8 @@ export async function runScrape(opts: {
   proxy?: string;
   verbose?: boolean;
   dryRun?: boolean;
+  /** Currency → EUR overrides from module config; see salary.ts. */
+  rates?: Record<string, number>;
 }): Promise<ScrapeReport> {
   const db = openDatabase(opts.dbPath);
   const sources = opts.sources ?? [...SOURCES];
@@ -82,19 +94,58 @@ export async function runScrape(opts: {
     total_errors: [],
   };
 
+  const adapters = sources.map((source) => getAdapter(source, opts.queries));
+  // Two chokepoints: the scraping base owns SCRAPE_*, this module owns the
+  // legacy CHROME_CDP_URL. SCRAPE_CHROME_URL wins when both are set.
+  const env = resolveScrapeEnv();
+  const chromeUrl = env.chromeUrl ?? resolveEnv().cdpUrl;
+
+  // One client for the whole run, so the per-host rate limiter and the
+  // robots.txt cache are shared by every board instead of each adapter
+  // pacing itself in ignorance of the others.
+  const http = new ScrapeClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
+
+  // The browser is created only if some selected board needs one, and its
+  // absence downgrades those boards rather than failing the run — a scheduled
+  // scrape on a host without Chrome should lose the browser boards, not
+  // everything.
+  let browser: BrowserSession | undefined;
+  if (adapters.some((a) => a.needsBrowser)) {
+    try {
+      browser = createBrowserSession({
+        browserUrl: chromeUrl,
+        executablePath: env.chromePath,
+        noSandbox: env.noSandbox,
+        userAgent: env.userAgent,
+      });
+    } catch (e) {
+      report.total_errors.push(`Browser boards unavailable: ${(e as Error).message}`);
+    }
+  }
+
+  const ctx: ScrapeContext = {
+    http,
+    browser,
+    log: opts.verbose ? (message) => console.log(message) : () => {},
+  };
+
   // 1. Run all adapters in parallel
   const results = await Promise.allSettled(
-    sources.map(async (source) => {
+    adapters.map(async (adapter) => {
+      const source = adapter.source;
       const start = Date.now();
-      const adapter = getAdapter(source, opts.queries);
       const lastCursor = incremental ? getLastCursor(db, source) : null;
 
       logScrapeRun(db, source, "running");
 
       try {
-        const result = await adapter.scrape({
+        if (adapter.needsBrowser && !browser) {
+          throw new Error("needs a browser and none is available");
+        }
+        const result = await adapter.bind(ctx).scrape({
           incremental,
           lastCursor: lastCursor ?? undefined,
+          queries: opts.queries,
           proxy: opts.proxy,
           verbose: opts.verbose,
           dryRun: opts.dryRun,
@@ -111,6 +162,8 @@ export async function runScrape(opts: {
     })
   );
 
+  await browser?.close();
+
   // 2. Ingest results
   for (const settled of results) {
     if (settled.status === "rejected") {
@@ -121,7 +174,7 @@ export async function runScrape(opts: {
     const { source, result, duration_ms, lastCursor } = settled.value;
     const ingestStats = opts.dryRun
       ? { new: result.jobs.length, updated: 0 }
-      : ingestJobs(db, result.jobs, opts.verbose);
+      : ingestJobs(db, result.jobs, opts.verbose, opts.rates);
 
     // Log completed run
     if (!opts.dryRun) {
@@ -173,7 +226,13 @@ export interface IngestStats {
   updated: number;
 }
 
-export function ingestJobs(db: Database, jobs: RawJob[], verbose = false): IngestStats {
+export function ingestJobs(
+  db: Database,
+  jobs: RawJob[],
+  verbose = false,
+  rateOverrides?: Record<string, number>
+): IngestStats {
+  const rates = eurRates(rateOverrides);
   const stats: IngestStats = { new: 0, updated: 0 };
   if (jobs.length === 0) return stats;
 
@@ -234,7 +293,8 @@ export function ingestJobs(db: Database, jobs: RawJob[], verbose = false): Inges
       const { salaryMin, salaryMax } = convertSalary(
         job.salary_min,
         job.salary_max,
-        job.salary_currency
+        job.salary_currency,
+        rates
       );
 
       const tagsJson = job.tags ? JSON.stringify(job.tags) : null;
@@ -318,11 +378,12 @@ export function ingestJobs(db: Database, jobs: RawJob[], verbose = false): Inges
 function convertSalary(
   min: number | undefined | null,
   max: number | undefined | null,
-  currency: string | undefined | null
+  currency: string | undefined | null,
+  rates: Record<string, number> = eurRates()
 ): { salaryMin: number | null; salaryMax: number | null } {
   if (!min && !max) return { salaryMin: null, salaryMax: null };
 
-  const rate = EUR_RATES[currency?.toUpperCase() ?? "USD"] ?? EUR_RATES.USD;
+  const rate = rates[currency?.toUpperCase() ?? "USD"] ?? rates.USD;
 
   return {
     salaryMin: min ? Math.round(min * rate * 100) : null,

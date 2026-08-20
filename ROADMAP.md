@@ -6,7 +6,7 @@ with dates.
 
 ## Where this stands
 
-Twelve packages ship in lockstep on npm under `@schlessera/brain-*`:
+Thirteen packages ship in lockstep on npm under `@schlessera/brain-*`:
 
 | Package | What it is |
 | --- | --- |
@@ -16,6 +16,7 @@ Twelve packages ship in lockstep on npm under `@schlessera/brain-*`:
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |
 | `brain-render-puppeteer` | Optional HTML→PNG/PDF renderer, network-denied and scriptless |
+| `brain-scrape` | Scraping base: polite HTTP, robots.txt, headless Chrome, site-adapter seam |
 | `brain-ui-server` | Hono app factory: WS turn coordinator, auth, session catalog, routes |
 | `brain-ui-react` | React chat/files/voice components, stores, WS transport |
 
@@ -35,9 +36,13 @@ What that means in practice:
 - **Search degrades gracefully.** FTS5 works with no keys at all; embeddings
   are additive.
 
-Test baseline: 890 pass / 2 skip in this repo, 98 pass / 3 skip in `brain-ui`.
-Integration tests are keyless and run against the fixture corpus in
-`packages/core/fixtures/corpus/`.
+Test baseline: 1512 pass / 24 skip / 0 fail in this repo (`bun run test`),
+104 pass / 3 skip / 0 fail in `brain-ui`. Integration tests are keyless and run
+against the fixture corpus in `packages/core/fixtures/corpus/`.
+
+Run the suite through `bun run test`, not a bare `bun test packages tests` — the
+script supplies `--timeout 30000`, and the CLI onboarding tests spawn a real
+`brain` process per assertion, which does not fit the 5s default.
 
 ## What binds future work
 
@@ -91,11 +96,12 @@ Roughly in order. Items move down as they land.
     depth-bounded, so cheap CPU amplification is closed, but a flood of
     individually valid frames is unmetered behind the auth guard.
   - `ui-sdk` has schemas for client→server frames only; the client casts
-    inbound server frames. Correct while the server is the trusted peer,
-    revisit if a shared or multi-tenant host ever fronts the SDK.
-  - `server_hello` and `turnId` are advisory client-side: the server stamps
-    both and verifies an echo when present, but no shipped client reads
-    `protocolRev` or echoes `turnId`. Implementing the client half is additive.
+    inbound server frames, and the transport itself lives in `ui-react` rather
+    than in the package that owns the protocol. `server_hello` and `turnId` are
+    advisory client-side: the server stamps both and verifies an echo when
+    present, but no shipped client reads `protocolRev` or echoes `turnId`. All
+    of it is additive, and planned in
+    [.agents/plans/client-protocol-half.md](.agents/plans/client-protocol-half.md).
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn
   approval) are tracked in the `brain-ui` roadmap.

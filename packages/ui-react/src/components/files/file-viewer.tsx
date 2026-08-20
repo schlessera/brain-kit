@@ -7,7 +7,7 @@ import { FileViewerHtml } from "./file-viewer-html.js";
 import { FileViewerRaw } from "./file-viewer-raw.js";
 import { FileViewerBinary } from "./file-viewer-binary.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
-import { API_BASE } from "../../lib/backend.js";
+import { apiBase } from "../../lib/backend.js";
 import { fetchAsFile, shareFile, renderAndShare } from "../../lib/share.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
@@ -181,7 +181,7 @@ function formatSize(bytes: number): string {
 }
 
 function buildFileShareOptions(content: FileContentResponse, fileName: string): ShareOption[] {
-  const rawUrl = `${API_BASE}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
+  const rawUrl = `${apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
 
   if (content.kind === "binary") {
     // An image gets both: the original bytes, and a lighter re-encode for

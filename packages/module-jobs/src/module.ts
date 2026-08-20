@@ -20,6 +20,13 @@ export const configSchema = z
       .default(["software engineer", "backend engineer", "platform engineer"]),
     /** Jobs database path, relative to the brain root; defaults to `<root>/jobs.db`. */
     dbPath: repoRelativePathSchema.optional(),
+    /**
+     * Currency → EUR conversion rates, overriding the stale fallbacks the
+     * package ships. Rates move; a released package cannot. Anyone who cares
+     * about the comparison being accurate sets them here rather than waiting
+     * for a version bump.
+     */
+    rates: z.record(z.string(), z.number().positive()).optional(),
   })
   .strict();
 
@@ -37,9 +44,9 @@ export default defineModule({
     skills: "./skills",
     commands: { jobs: () => import("./cli.js") },
     indexRules: { dirAnchors: ["status.md"] },
-    // One unified run: `--browser` appends the headless-Chrome pass to the API
-    // pass, and skips it cleanly when no Chrome is reachable — so a host
-    // without Chrome loses the browser boards, not the whole scrape.
+    // One run, one pipeline: `--browser` adds the boards that need Chrome to
+    // the source list, and a host without Chrome loses those boards rather
+    // than the whole scrape.
     cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all --browser" }],
   }),
 });

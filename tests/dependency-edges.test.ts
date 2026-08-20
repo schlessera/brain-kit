@@ -44,12 +44,22 @@ const ALLOWED_EDGES: Record<string, Edges> = {
   // Content modules extend core and nothing else.
   "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  "@schlessera/brain-module-jobs": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  // jobs is the one module that fetches from the web, so it is the one module
+  // allowed the scraping base. `puppeteer-core` stays optional underneath it.
+  "@schlessera/brain-module-jobs": {
+    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"],
+    optionalPeers: [],
+  },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   // Leaves: no internal edges at all.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   "@schlessera/brain-render-puppeteer": { dependencies: [], optionalPeers: [] },
   "@schlessera/brain-ui-sdk": { dependencies: [], optionalPeers: [] },
+  // The scraping base is infrastructure, not a content domain: it knows
+  // nothing about documents, taxonomy or the index, so it must NEVER depend on
+  // core. An edge here would mean scraping logic had started reasoning about
+  // what it was scraping, which is the consuming module's job.
+  "@schlessera/brain-scrape": { dependencies: [], optionalPeers: [] },
   // Agent backends implement the SDK seam; pi additionally embeds core.
   "@schlessera/brain-backend-claude": {
     dependencies: ["@schlessera/brain-ui-sdk"],

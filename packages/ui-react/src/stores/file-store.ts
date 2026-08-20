@@ -6,7 +6,7 @@ import type {
   WikilinkMapResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
-import { API_BASE } from "../lib/backend.js";
+import { apiBase } from "../lib/backend.js";
 import { isMermaidPath } from "../lib/mermaid.js";
 
 export type ViewMode = "preview" | "raw";
@@ -76,7 +76,7 @@ interface FileState {
 }
 
 async function fetchTree(path: string): Promise<FileEntry[]> {
-  const url = `${API_BASE}/files/tree${path ? `?path=${encodeURIComponent(path)}` : ""}`;
+  const url = `${apiBase()}/files/tree${path ? `?path=${encodeURIComponent(path)}` : ""}`;
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -87,7 +87,7 @@ async function fetchTree(path: string): Promise<FileEntry[]> {
 }
 
 async function fetchContent(path: string): Promise<FileContentResponse> {
-  const res = await fetch(`${API_BASE}/files/content?path=${encodeURIComponent(path)}`);
+  const res = await fetch(`${apiBase()}/files/content?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     const err = new Error(body.error || `HTTP ${res.status}`);
@@ -99,7 +99,7 @@ async function fetchContent(path: string): Promise<FileContentResponse> {
 }
 
 async function fetchResolve(path: string): Promise<FileResolveResponse> {
-  const res = await fetch(`${API_BASE}/files/resolve?path=${encodeURIComponent(path)}`);
+  const res = await fetch(`${apiBase()}/files/resolve?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -108,7 +108,7 @@ async function fetchResolve(path: string): Promise<FileResolveResponse> {
 }
 
 async function fetchWikilinks(): Promise<WikilinkMapResponse> {
-  const res = await fetch(`${API_BASE}/files/wikilinks`);
+  const res = await fetch(`${apiBase()}/files/wikilinks`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);

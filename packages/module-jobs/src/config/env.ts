@@ -23,22 +23,31 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "CHROME_CDP_URL",
     description:
-      "DevTools endpoint of the Chrome instance used to scrape browser-only " +
-      "job boards. Unreachable/absent Chrome skips the browser phase.",
-    default: "http://127.0.0.1:9222",
+      "Legacy alias for SCRAPE_CHROME_URL: the DevTools endpoint of an " +
+      "already-running Chrome used for browser-only boards. Kept so an " +
+      "existing deployment keeps working; SCRAPE_CHROME_URL wins when both " +
+      "are set. Unreachable or absent Chrome downgrades the browser boards " +
+      "and leaves the rest of the scrape alone.",
     required: false,
   },
 ];
 
-/** Statically-named environment configuration, resolved at call time. */
+/**
+ * Statically-named environment configuration, resolved at call time.
+ *
+ * Everything else this module needs to scrape politely — User-Agent,
+ * robots.txt enforcement, the Chrome executable — is read by
+ * `@schlessera/brain-scrape`'s own chokepoint under `SCRAPE_*`. This file
+ * exists only for the one variable that predates that package.
+ */
 export interface JobsEnv {
-  /** CHROME_CDP_URL with the local-Chrome default applied. */
-  cdpUrl: string;
+  /** CHROME_CDP_URL, or undefined when unset. */
+  cdpUrl?: string;
 }
 
 /** Resolve the statically-named variables. Reads happen here and only here. */
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): JobsEnv {
   return {
-    cdpUrl: env.CHROME_CDP_URL || "http://127.0.0.1:9222",
+    cdpUrl: env.CHROME_CDP_URL?.trim() || undefined,
   };
 }

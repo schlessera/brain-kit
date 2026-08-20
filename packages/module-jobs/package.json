@@ -1,7 +1,7 @@
 {
   "name": "@schlessera/brain-module-jobs",
   "version": "0.14.0",
-  "description": "brain-kit module: job-search pipeline — board scraping, scoring, dedup, triage",
+  "description": "brain-kit module: job-search pipeline \u2014 board scraping, scoring, dedup, triage",
   "license": "MIT",
   "keywords": [
     "brain-kit",
@@ -51,6 +51,7 @@
   },
   "dependencies": {
     "@schlessera/brain": "workspace:*",
+    "@schlessera/brain-scrape": "workspace:*",
     "gray-matter": "^4.0.3",
     "zod": "^4.4.3"
   },

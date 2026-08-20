@@ -1,4 +1,4 @@
-import { API_BASE } from "./backend.js";
+import { apiBase } from "./backend.js";
 import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
@@ -46,7 +46,7 @@ export interface BackendInfo {
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",

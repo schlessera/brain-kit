@@ -32,6 +32,31 @@ export function App() {
 }
 ```
 
+## Configuration
+
+`configureBrainUi()` is this package's only configuration entry, and it must
+run before the first render. Nothing in here reads the ambient environment —
+no `import.meta.env`, no bundler globals — so the package works the same under
+Vite, webpack, Next.js or a plain bundle. The shell reads whatever it likes and
+passes values in.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `appName` | `"Brain UI"` | Product name on the login screen and connection status |
+| `assistantName` | `"Brain"` | Name the assistant speaks as in the transcript |
+| `shareTitle` | `"Shared from Brain"` | Default title for shared artifacts |
+| `composerPlaceholder` | `"Ask your brain anything..."` | Composer placeholder |
+| `backendUrl` | `""` (same-origin) | Origin of the API/WebSocket backend, for a split topology |
+| `devTools` | `false` | Install the `window.__chatStore` / `window.__graphStore` fixture-injection handles |
+
+Same-origin is the default topology: the server serves the built client and the
+API/WS from one origin, so nothing needs configuring. Set `backendUrl` only when
+the client and backend live on different origins — a Vite shell would pass
+`import.meta.env.VITE_BACKEND_URL`, but that read belongs in the shell, not here.
+
+Because configuration arrives at boot rather than at import, the API base is a
+function: use `apiBase()`, not a constant.
+
 ## Styles
 
 Two ways to get the CSS, pick one:

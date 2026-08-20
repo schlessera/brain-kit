@@ -76,6 +76,14 @@ The self-hosted chat UI adds four more in `@schlessera/brain-ui-sdk` (ships with
 brain-ui repo, v0.1): `AgentBackend` and `SpeechProvider` (server), `ToolRenderer`
 and `AsrClient` (client). Those are documented with brain-ui.
 
+`@schlessera/brain-scrape` adds one more, `SiteAdapter`, for modules that fetch
+from the web. It clears the second-implementation bar by a distance — eleven
+sites already implement it — and it exists because the alternative was
+observed: without a seam that is actually load-bearing, `module-jobs` grew a
+SECOND scraper with its own site registry and its own browser client, and
+implemented one site through both. `needsBrowser` on the adapter is the only
+thing that decides how it is served.
+
 Note the split: **modules** contribute content-domain things (types, skills, CLI
 words — see [modules.md](../modules.md)); **provider seams** are infrastructure.
 They are separate mechanisms. A module never contributes an embedding provider.

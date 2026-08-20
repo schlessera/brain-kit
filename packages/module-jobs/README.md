@@ -47,10 +47,9 @@ opportunity directory (`[[career/opportunities/acme]]`) resolves to that dir's
 ### Cron
 
 Advisory schedule (consumed by container entrypoints / `brain doctor`):
-`scrape` daily at 06:00 — `jobs scrape --all --browser`, i.e. one unified run
-covering both the API boards and the headless-Chrome ones. The Chrome pass is
-skipped cleanly when no browser is reachable, so a host without Chrome loses
-the browser boards rather than the whole scrape.
+`scrape` daily at 06:00 — `jobs scrape --all --browser`, i.e. one run covering
+every board including the ones that need Chrome. A host without a usable
+browser loses those boards rather than the whole scrape.
 
 ## The scoring criteria file
 
@@ -106,7 +105,7 @@ marker (or 0 if an excluded marker matches); the compensation dimension compares
 
 ```
 brain jobs scrape [sources...]   # configured boards (--all for every API board,
-                                 #   --browser to append the Chrome pass)
+                                 #   --browser to add the Chrome boards)
 brain jobs score                 # score unscored jobs + classify (--rescore for all)
 brain jobs triage                # interactive one-at-a-time review (TTY)
 brain jobs review                # list the review queue
@@ -115,23 +114,31 @@ brain jobs scaffold <id>         # create an opportunity dir from a job
 brain jobs show|open|decide|search|gc …
 ```
 
-### API and browser passes
+### Boards that need a browser
 
-Some boards need a real browser. `scrape` therefore has two passes, and the
-flags compose:
+`builtin`, `nodesk` and `dice` are client-rendered, so they are scraped through
+headless Chrome. They are ordinary sources: the adapter declares `needsBrowser`
+and the runner supplies a browser when one of the selected boards wants it.
+There is no second pass and no second pipeline — these two flags just select
+sources.
 
-| Invocation                        | Runs                                       |
-| --------------------------------- | ------------------------------------------ |
-| `brain jobs scrape`               | the configured API boards                  |
-| `brain jobs scrape --all`         | every API board                            |
-| `brain jobs scrape --browser`     | the API pass, **then** the browser pass     |
-| `brain jobs scrape --browser-only`| only the browser pass                      |
+| Invocation                        | Runs                                        |
+| --------------------------------- | ------------------------------------------- |
+| `brain jobs scrape`               | the configured boards                       |
+| `brain jobs scrape --all`         | every board                                 |
+| `brain jobs scrape --browser`     | the configured boards **plus** the browser ones |
+| `brain jobs scrape --browser-only`| only the browser ones                       |
 
-The browser path speaks raw Chrome DevTools Protocol — no Playwright or
-Puppeteer dependency — and covers `builtin`, `nodesk`, and `dice`. Start Chrome
-with `--remote-debugging-port=9222 --headless=new` first, or point
-`CHROME_CDP_URL` at an existing instance. When nothing is listening there, the
-browser pass reports that it was skipped and the API results still land.
+Chrome comes from `@schlessera/brain-scrape`, which launches and owns it — the
+old requirement to start Chrome yourself on port 9222 is gone. Install the
+optional peer `puppeteer-core` and have a Chrome or Chromium on the host; set
+`SCRAPE_CHROME_PATH` if it is somewhere unusual, or `SCRAPE_CHROME_URL`
+(or the legacy `CHROME_CDP_URL`) to attach to an instance you already run. With
+no usable browser, those boards report it and every other board still lands.
+
+Scraping goes through the shared client, so every board obeys `robots.txt`,
+honours `Crawl-delay`, and identifies itself honestly. See
+[@schlessera/brain-scrape](../scrape/README.md).
 
 ## Boards & sources
 
@@ -164,7 +171,7 @@ to touch `process.env`.
 
 | Variable | What it controls | Unset |
 | --- | --- | --- |
-| `CHROME_CDP_URL` | DevTools endpoint of the Chrome instance used to scrape browser-only job boards. Unreachable/absent Chrome skips the browser phase. | http://127.0.0.1:9222 |
+| `CHROME_CDP_URL` | Legacy alias for SCRAPE_CHROME_URL: the DevTools endpoint of an already-running Chrome used for browser-only boards. Kept so an existing deployment keeps working; SCRAPE_CHROME_URL wins when both are set. Unreachable or absent Chrome downgrades the browser boards and leaves the rest of the scrape alone. | — |
 
 Generated from `packages/module-jobs/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->

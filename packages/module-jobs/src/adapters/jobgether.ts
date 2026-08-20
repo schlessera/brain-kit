@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetText } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 // Jobgether has card-based layout with structured job data
@@ -26,8 +25,8 @@ export class JobgetherAdapter extends BaseAdapter {
       try {
         if (opts.verbose) console.log(`[jobgether] Fetching: ${searchUrl.split("?")[1]}...`);
 
-        const html = await httpGetText(searchUrl, {
-          rateLimit: 3000,
+        const html = await this.http.getText(searchUrl, {
+          delayMs: 3000,
           proxy: opts.proxy,
         });
 

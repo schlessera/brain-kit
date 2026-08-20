@@ -39,7 +39,6 @@ export "." (./src/index.ts)
   scoreJob
   scoreMaxes
   scoreNewJobs
-  scrapeSites
   searchJobs
   setReviewStatus
 

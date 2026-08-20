@@ -22,7 +22,6 @@ export {
 } from "./score.js";
 export { openDatabase } from "./db.js";
 export { runScrape, ingestJobs, getAdapter } from "./scrape.js";
-export { scrapeSites } from "./browser-scrape.js";
 export {
   getReviewQueue,
   getJobById,

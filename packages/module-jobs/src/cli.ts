@@ -3,10 +3,8 @@ import { join, resolve } from "node:path";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { safeResolve } from "@schlessera/brain";
 
-import { resolveEnv } from "./config/env.js";
 import { openDatabase } from "./db.js";
 import { runScrape } from "./scrape.js";
-import { scrapeSites } from "./browser-scrape.js";
 import {
   loadScoringConfig,
   scoreMaxes,
@@ -26,7 +24,7 @@ import {
   formatJobDetail,
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
-import { ALL_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import { ALL_SOURCES, BROWSER_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
 import type { ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
 
@@ -119,9 +117,10 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   const dryRun = a.flag("dry-run");
   const full = a.flag("full");
   const all = a.flag("all");
-  // `--browser` is ADDITIVE: the API pass runs first, then the Chrome pass, so
-  // one scheduled `jobs scrape --all --browser` covers every source. The old
-  // exclusive behavior is `--browser-only`.
+  // Browser boards are ordinary sources now — `needsBrowser` on the adapter is
+  // what makes them different, and the runner supplies a browser when one of
+  // the selected boards wants it. These two flags survive as source SELECTORS
+  // (they used to select a second, parallel scrape pipeline).
   const browserOnly = a.flag("browser-only");
   const browser = a.flag("browser") || browserOnly;
   const proxy = a.option("proxy");
@@ -135,25 +134,20 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
 
   // Source selection: explicit positionals > --all > configured boards.
   const configured = jctx.config.boards.filter((b): b is Source => (ALL_SOURCES as readonly string[]).includes(b));
-  const sources: Source[] =
+  const base: Source[] =
     requested.length > 0 ? requested : all ? [...ALL_SOURCES] : configured.length > 0 ? configured : [...SOURCES];
+  const sources: Source[] = browserOnly
+    ? [...BROWSER_SOURCES]
+    : browser
+      ? [...new Set([...base, ...BROWSER_SOURCES])]
+      : base;
 
   const scoringConfig = tryLoadScoring(jctx, false);
 
-  if (!jctx.json && !browserOnly) {
+  if (!jctx.json) {
     console.log(
       `Scraping ${sources.join(", ")}${full ? " (full)" : " (incremental)"}${dryRun ? " [DRY RUN]" : ""}...`
     );
-  }
-
-  if (browserOnly) {
-    const browserResults = await runBrowserPhase(jctx, scoringConfig, verbose, dryRun);
-    if (jctx.json) {
-      emitJson({ browser: browserResults });
-    } else {
-      printBrowserResults(browserResults);
-    }
-    return 0;
   }
 
   const report = await runScrape({
@@ -165,16 +159,11 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     proxy,
     verbose,
     dryRun,
+    rates: jctx.config.rates,
   });
 
-  // Unified run: the Chrome pass follows the API pass so one invocation covers
-  // every source. Its failures never discard the API results.
-  const browserResults = browser
-    ? await runBrowserPhase(jctx, scoringConfig, verbose, dryRun)
-    : null;
-
   if (jctx.json) {
-    emitJson(browserResults ? { report, browser: browserResults } : { report });
+    emitJson({ report });
     return 0;
   }
 
@@ -193,11 +182,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     for (const e of report.total_errors) console.log(`  - ${e}`);
   }
 
-  if (browserResults) printBrowserResults(browserResults);
-
-  const totalNew =
-    report.total_new + (browserResults?.reduce((sum, r) => sum + r.newJobs, 0) ?? 0);
-  if (!dryRun && totalNew > 0) {
+  if (!dryRun && report.total_new > 0) {
     const db = openDatabase(jctx.dbPath);
     const topJobs = getReviewQueue(db, { status: "queued", limit: 5 });
     if (topJobs.length > 0) {
@@ -209,71 +194,6 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   return 0;
 }
 
-interface BrowserResult {
-  source: string;
-  found: number;
-  newJobs: number;
-}
-
-/**
- * The headless-Chrome pass. Chrome is an external prerequisite (it must already
- * be listening on CHROME_CDP_URL), so this probes first and skips cleanly when
- * it is absent — a scheduled unified run on a host without Chrome should lose
- * the browser boards, not the whole scrape. Any failure inside the pass is
- * likewise contained.
- */
-async function runBrowserPhase(
-  jctx: JobsCtx,
-  scoringConfig: ScoringConfig | null,
-  verbose: boolean,
-  dryRun: boolean
-): Promise<BrowserResult[]> {
-  if (dryRun) {
-    if (!jctx.json) console.log("\nBrowser boards: skipped (--dry-run)");
-    return [];
-  }
-
-  const cdpUrl = resolveEnv().cdpUrl;
-  if (!(await chromeReachable(cdpUrl))) {
-    if (!jctx.json) {
-      console.log(
-        `\nBrowser boards: skipped — no Chrome at ${cdpUrl}. Start one with\n` +
-          "  google-chrome --headless=new --remote-debugging-port=9222 --no-first-run"
-      );
-    }
-    return [];
-  }
-
-  try {
-    return await scrapeSites({
-      dbPath: jctx.dbPath,
-      scoringConfig,
-      verbose,
-      queries: jctx.config.queries,
-      cdpUrl,
-    });
-  } catch (e) {
-    if (!jctx.json) console.log(`\nBrowser boards: failed — ${(e as Error).message}`);
-    return [];
-  }
-}
-
-async function chromeReachable(cdpUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${cdpUrl}/json/version`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-function printBrowserResults(results: BrowserResult[]): void {
-  if (results.length === 0) return;
-  console.log("\n--- Browser Boards ---");
-  for (const r of results) console.log(`  ${r.source}: ${r.found} found, ${r.newJobs} new`);
-}
 
 async function cmdScore(args: string[], jctx: JobsCtx): Promise<number> {
   const a = makeArgs(args);

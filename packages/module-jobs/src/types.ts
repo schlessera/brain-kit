@@ -1,3 +1,5 @@
+import type { ScrapeContext } from "@schlessera/brain-scrape";
+
 // All known source identifiers (adapters exist for all)
 export const ALL_SOURCES = [
   "remoteok",
@@ -27,6 +29,15 @@ export const SOURCES = [
   "remotelyde",
   "remoteineurope",
 ] as const satisfies readonly Source[];
+
+/**
+ * Boards that only exist after JavaScript runs, and therefore need Chrome.
+ *
+ * They used to be a second scrape pipeline with its own site registry, its own
+ * CDP client and its own ingest path. They are ordinary adapters now — this
+ * list exists only so `--browser` / `--browser-only` can still select them.
+ */
+export const BROWSER_SOURCES = ["builtin", "nodesk", "dice"] as const satisfies readonly Source[];
 
 export const REVIEW_STATUSES = [
   "pending",
@@ -78,9 +89,14 @@ export interface ScraperAdapter {
   readonly source: Source;
   readonly name: string;
   readonly tier: 1 | 2 | 3;
+  /** Decides whether this adapter is handed a browser or an HTTP client. */
   readonly needsBrowser: boolean;
   readonly needsProxy: boolean;
-  scrape(opts: ScrapeOptions & { lastCursor?: string }): Promise<ScrapeResult>;
+  /** Receive the run's shared scrape context. Called before `scrape()`. */
+  bind(ctx: ScrapeContext): this;
+  scrape(
+    opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }
+  ): Promise<ScrapeResult>;
 }
 
 /**
@@ -126,25 +142,3 @@ export interface JobRow {
   is_duplicate: number;
   duplicate_of: number | null;
 }
-
-// Currency conversion to EUR (approximate, for filtering only). Ingested
-// salaries are normalized to EUR minor units (cents) so a single benchmark can
-// compare postings across currencies.
-export const EUR_RATES: Record<string, number> = {
-  EUR: 1,
-  USD: 0.92,
-  GBP: 1.16,
-  CHF: 1.04,
-  PLN: 0.23,
-  CZK: 0.041,
-  SEK: 0.088,
-  NOK: 0.086,
-  DKK: 0.134,
-  CAD: 0.67,
-  AUD: 0.60,
-  INR: 0.011,
-  JPY: 0.0061,
-  CNY: 0.13,
-  KRW: 0.00067,
-  BRL: 0.16,
-};

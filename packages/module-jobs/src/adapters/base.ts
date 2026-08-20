@@ -1,5 +1,18 @@
-import type { ScraperAdapter, ScrapeOptions, ScrapeResult, RawJob, Source } from "../types.js";
-import { stripHtml } from "../html.js";
+/**
+ * Shared behaviour for the job-board adapters.
+ *
+ * Everything generic about scraping — the HTTP client, robots.txt, per-host
+ * pacing, retries, HTML stripping, RSS parsing, the headless browser — now
+ * lives in `@schlessera/brain-scrape`. What is left here is the part that is
+ * actually about jobs: the `RawJob` shape and the `ScrapeResult` envelope.
+ *
+ * `bind()` is how an adapter receives its context. It is called by the runner
+ * before `scrape()`, so an adapter never constructs a client and two adapters
+ * never end up with two rate limiters for the same host.
+ */
+import { parseRssItems, stripHtml, type ScrapeContext } from "@schlessera/brain-scrape";
+
+import type { RawJob, ScrapeResult, ScraperAdapter, Source } from "../types.js";
 
 export abstract class BaseAdapter implements ScraperAdapter {
   abstract readonly source: Source;
@@ -8,47 +21,32 @@ export abstract class BaseAdapter implements ScraperAdapter {
   needsBrowser = false;
   needsProxy = false;
 
-  abstract scrape(opts: ScrapeOptions & { lastCursor?: string }): Promise<ScrapeResult>;
+  /** Set by `bind()`; reading it before then is a runner bug, not a site bug. */
+  protected ctx!: ScrapeContext;
+
+  bind(ctx: ScrapeContext): this {
+    this.ctx = ctx;
+    return this;
+  }
+
+  /** The polite HTTP client for this run. */
+  protected get http() {
+    if (!this.ctx) {
+      throw new Error(`${this.name} adapter was run without bind(ctx)`);
+    }
+    return this.ctx.http;
+  }
+
+  abstract scrape(
+    opts: import("../types.js").ScrapeOptions & { lastCursor?: string }
+  ): Promise<ScrapeResult>;
 
   protected stripHtml(html: string): string {
     return stripHtml(html);
   }
 
   protected parseRssItems(xml: string): Array<Record<string, string>> {
-    const items: Array<Record<string, string>> = [];
-    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-    let match: RegExpExecArray | null;
-
-    while ((match = itemRegex.exec(xml)) !== null) {
-      const itemXml = match[1];
-      const item: Record<string, string> = {};
-
-      // Extract standard and namespaced tags
-      const tagRegex = /<(\w[\w:-]*?)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/g;
-      let tagMatch: RegExpExecArray | null;
-
-      while ((tagMatch = tagRegex.exec(itemXml)) !== null) {
-        const tagName = tagMatch[1].replace(":", "_"); // e.g. dc:creator -> dc_creator
-        let value = tagMatch[2].trim();
-        // Handle CDATA
-        const cdataMatch = value.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-        if (cdataMatch) value = cdataMatch[1];
-        item[tagName] = value;
-      }
-
-      // Extract self-closing tags with url attribute (e.g. media:content)
-      const selfClosingRegex = /<([\w:-]+)\s+([^>]*?)\/>/g;
-      let scMatch: RegExpExecArray | null;
-      while ((scMatch = selfClosingRegex.exec(itemXml)) !== null) {
-        const tagName = scMatch[1].replace(":", "_");
-        const attrs = scMatch[2];
-        const urlMatch = attrs.match(/url="([^"]+)"/);
-        if (urlMatch) item[`${tagName}_url`] = urlMatch[1];
-      }
-
-      items.push(item);
-    }
-    return items;
+    return parseRssItems(xml);
   }
 
   protected makeResult(jobs: RawJob[], errors: string[], cursor?: string): ScrapeResult {

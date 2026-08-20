@@ -12,7 +12,7 @@ once, and most were documented in prose before they happened again. A release
 that hits something new is not finished until that lands here or in a test — see
 [When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
-Twelve packages move in lockstep through a changesets `fixed` group. One
+Thirteen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on all twelve at once.
 
 ## Before you version

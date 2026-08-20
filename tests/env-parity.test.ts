@@ -23,6 +23,7 @@ import {
   packagesWithEnv,
   renderBlock,
 } from "../scripts/env-docs.ts";
+import { scanPackages, scanSource } from "../scripts/check-env-access.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
@@ -116,6 +117,27 @@ describe("environment documentation", () => {
       "DIRECT_READ",
       "TYPED_PARAM_READ",
     ]);
+  });
+
+  test("no published package reads import.meta.env, and the gate proves it", () => {
+    // Rule 4 (see scripts/check-env-access.ts): `process.env` has a chokepoint
+    // it can be contained in; `import.meta.env` has none, because the value is
+    // injected by whichever bundler the CONSUMER runs. Proven on a fixture,
+    // then asserted over the real tree.
+    const fixture = join(ROOT, "tests", "fixtures", "import-meta-env.fixture.ts");
+    const found = scanSource(
+      "packages/fixture/src/import-meta-env.ts",
+      readFileSync(fixture, "utf8")
+    ).filter((f) => f.rule === 4);
+    // Direct, cast and bracketed spellings all count.
+    expect(found.length).toBe(3);
+
+    const real = scanPackages(ROOT).filter((f) => f.rule === 4);
+    expect(
+      real.map((f) => `${f.file}:${f.line}`),
+      "a published package is reading import.meta.env — take it through the " +
+        "package's boot configuration (e.g. configureBrainUi) instead"
+    ).toEqual([]);
   });
 
   for (const dir of withEnv) {

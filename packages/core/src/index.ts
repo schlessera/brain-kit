@@ -66,7 +66,14 @@ export type {
 } from "./lib/seams.js";
 
 // Database + search
-export { openDatabase, initVecSupport, hasVecSupport, getMeta, setMeta } from "./lib/db.js";
+export {
+  openDatabase,
+  initVecSupport,
+  hasVecSupport,
+  getMeta,
+  setMeta,
+  SCHEMA_VERSION,
+} from "./lib/db.js";
 export type { SchemaOptions } from "./lib/db.js";
 export { hybridSearch, filterSearch } from "./lib/search-engine.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";

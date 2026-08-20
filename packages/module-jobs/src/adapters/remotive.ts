@@ -1,5 +1,4 @@
 import { BaseAdapter } from "./base.js";
-import { httpGetJson } from "../http.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
@@ -45,8 +44,8 @@ export class RemotiveAdapter extends BaseAdapter {
         if (opts.verbose) console.log(`[remotive] Fetching category: ${category}...`);
 
         const url = `${API_URL}?category=${category}&limit=100`;
-        const data = await httpGetJson<RemotiveResponse>(url, {
-          rateLimit: DELAY_MS,
+        const data = await this.http.getJson<RemotiveResponse>(url, {
+          delayMs: DELAY_MS,
           proxy: opts.proxy,
         });
 

@@ -412,6 +412,38 @@ describe("embedding provider change (mismatch requires --force)", () => {
     }
   );
 
+  test.if(vecAvailable)(
+    "a run refused for mismatch still banks the descriptions it produced",
+    async () => {
+      // The refusal happens AFTER the asset phase, so a run that declines to
+      // embed has still paid a vision model for its descriptions. Dropping
+      // them on the floor means paying again next run. This is easy to lose
+      // when the phase's "did it embed anything" answer is used to decide
+      // whether the sidecar caches are written.
+      const root = makeCorpus({
+        "notes/alpha.md": md("Alpha", "alpha content"),
+      });
+
+      // Seed vectors with provider A and no assets in play.
+      await runIndex(root, { embeddings: true, provider: makeProvider("ok", "fake:A") });
+
+      // Add an asset, then run with a DIFFERENT provider and no --force: the
+      // embedding pass is refused, but the description must survive.
+      mkdirSync(join(root, "media"), { recursive: true });
+      writeFileSync(join(root, "media/photo.png"), FAKE_PNG);
+      const refused = await runIndex(root, {
+        embeddings: true,
+        provider: makeProvider("ok", "fake:B"),
+        enrichment: makeEnrichment("ok"),
+      });
+      expect(refused.embeddings).toBe(0); // refused, as the test above pins
+
+      const cached = readAssetCache(root);
+      expect(cached.length).toBe(1);
+      expect(cached[0].v).toContain("Fake description of");
+    }
+  );
+
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
 });
 
