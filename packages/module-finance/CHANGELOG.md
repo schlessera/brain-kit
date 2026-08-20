@@ -1,5 +1,13 @@
 # @schlessera/brain-module-finance
 
+## 0.15.0
+
+### Patch Changes
+
+- Updated dependencies [4d3d28a]
+- Updated dependencies [0af99c4]
+  - @schlessera/brain@0.15.0
+
 ## 0.14.0
 
 ### Minor Changes
