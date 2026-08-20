@@ -58,6 +58,7 @@ export "." (./src/index.ts)
   type PropagationRule
   type RerankerConfig
   type ResolvedTypeSpec
+  SCHEMA_VERSION
   type SchemaOptions
   type SearchDeps
   type SearchOptions

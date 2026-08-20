@@ -94,6 +94,12 @@ Prefer the CLI/MCP. If reading directly:
 - Open read-only. Writers must set `PRAGMA busy_timeout` (core uses 5000ms).
 - **Do not write to brain.db from outside** — markdown is the source of truth.
 
+Everything above is enforced by `tests/brain-db-contract.test.ts`, which indexes
+the fixture corpus with the real CLI and then reads it back with the shipped
+`ui-server` readers. `schema_version` has exactly one source — `SCHEMA_VERSION`,
+exported from `@schlessera/brain` — and that test fails when this document, the
+`brain doctor` check, or a reader floor disagrees with it.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

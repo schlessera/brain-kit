@@ -4,7 +4,13 @@ import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 
 import { readEnvVar, resolveEnv } from "../../config/env.js";
-import { openDatabase, initVecSupport, getMeta, embeddingIdentityMatches } from "../../lib/db.js";
+import {
+  openDatabase,
+  initVecSupport,
+  getMeta,
+  embeddingIdentityMatches,
+  SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
+} from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
 import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
@@ -20,7 +26,6 @@ const HELP = `brain doctor — health check battery
 
 --json: { "checks": [{ "id", "status": "pass"|"warn"|"fail", "detail", "fix"? }] }`;
 
-const EXPECTED_SCHEMA_VERSION = 8;
 const MIN_BUN = [1, 3, 5];
 
 type Status = "pass" | "warn" | "fail";

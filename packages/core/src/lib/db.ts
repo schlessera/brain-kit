@@ -1,7 +1,20 @@
 import { Database } from "bun:sqlite";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 
-const SCHEMA_VERSION = 8;
+/**
+ * The brain.db schema this build writes, and the ONE place the number lives.
+ *
+ * Exported because it is a published contract, not an implementation detail:
+ * `brain doctor` compares an existing database against it, the
+ * integration-contract doc quotes it, and out-of-tree readers (ui-server's
+ * graph reader and keyterm builder) gate their SQL on it. Those all used to
+ * carry their own copy of the digit, so a bump meant four silent edits.
+ * `tests/brain-db-contract.test.ts` now fails when any of them drifts.
+ *
+ * Bumping it is a contract change: update docs/integration-contract.md in the
+ * same commit and re-check every floor the contract test lists.
+ */
+export const SCHEMA_VERSION = 8;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
