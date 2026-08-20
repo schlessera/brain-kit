@@ -45,6 +45,8 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "0.221.0",
     "@schlessera/brain-render-template": "workspace:*",
     "@schlessera/brain-ui-sdk": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",

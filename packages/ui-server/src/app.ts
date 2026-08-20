@@ -45,6 +45,7 @@ import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
+import { createObservability, type Observability } from "./observability/index.js";
 
 export type { AppRenderer };
 
@@ -81,6 +82,12 @@ export interface CreateAppOptions {
   turnTimeoutMs?: number;
   /** Backend registry override (tests/embedders); default is built from config. */
   registry?: BackendRegistry;
+  /**
+   * Where this app reports. Defaults to the console consumer; a test passes
+   * `createRecordingObservability()` and then asserts on what the server
+   * actually said, through the same emission path production uses.
+   */
+  observability?: Observability;
 }
 
 /** What `createApp` hands back to the deployment shell. */
@@ -99,6 +106,8 @@ export interface BrainUiApp {
   db: Database;
   /** The WebSocket coordinator (turn state, clients, catalog, registry). */
   wsHost: WsHost;
+  /** Where this app reports — resolved or injected. */
+  observability: Observability;
   /** True while any session has a running turn. */
   isTurnActive(): boolean;
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
@@ -164,8 +173,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db),
     });
+  const observability = options.observability ?? createObservability();
   const host = new WsHost({
     registry,
+    observability,
     catalog: createSessionCatalog(() => db),
     ...(options.appName ? { appName: options.appName } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
@@ -234,6 +245,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       sourceCommit: config.sourceCommit,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
+      // Undefined when the injected consumer cannot be read back (a real OTel
+      // SDK exports elsewhere), in which case the field is simply absent.
+      getMetrics: () => observability.metrics?.snapshot(),
     })
   );
   app.route(
@@ -280,6 +294,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     authMode,
     db,
     wsHost: host,
+    observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {

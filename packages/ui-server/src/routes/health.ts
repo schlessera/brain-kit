@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 
+import type { MetricSnapshot } from "../observability/index.js";
+
 const startTime = Date.now();
 
 // Public liveness probe. Deliberately minimal: no version/commit, no cron
@@ -18,6 +20,8 @@ export interface StatusDeps {
   sourceCommit: string;
   getCronStatus(): unknown;
   isTurnActive(): boolean;
+  /** Recorded counters; undefined when the consumer cannot be read back. */
+  getMetrics?(): MetricSnapshot | undefined;
 }
 
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
@@ -31,6 +35,9 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       version: deps.sourceCommit,
       cronJobs: deps.getCronStatus(),
       activeSession: deps.isTurnActive(),
+      // Counters the server recorded this process lifetime — dropped frames,
+      // handler failures. Behind the auth guard with everything else here.
+      metrics: deps.getMetrics?.() ?? [],
     });
   });
 }
