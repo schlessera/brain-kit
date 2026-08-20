@@ -1,5 +1,13 @@
 # @schlessera/brain-module-jobs
 
+## 0.16.0
+
+### Patch Changes
+
+- Updated dependencies [f068ec2]
+  - @schlessera/brain-scrape@0.16.0
+  - @schlessera/brain@0.16.0
+
 ## 0.15.0
 
 ### Minor Changes

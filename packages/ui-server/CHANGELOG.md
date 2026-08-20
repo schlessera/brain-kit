@@ -1,5 +1,189 @@
 # @schlessera/brain-ui-server
 
+## 0.16.0
+
+### Minor Changes
+
+- a7362e1: Move the client half of the wire protocol into the SDK, and validate both
+  directions.
+
+  `ui-sdk` described itself as owning the protocol while its `./client` subpath
+  held only two registries: the actual transport was `ui-react`'s
+  `ws-client.ts`, which cast every inbound frame, and dispatch handled 15 of the
+  16 server frame types inside a React hook. Any non-React consumer — a CLI, a
+  mobile shell, an integration test — reimplemented reconnection, framing and
+  validation from scratch.
+
+  - **`parseServerMessage`** validates server→client frames, with one schema per
+    member bound to its interface by `satisfies` so the two cannot drift. The
+    receiving policy is softer than the server's on purpose: a frame that fails
+    is DROPPED and reported, never thrown, because the protocol is additive and a
+    client that hard-fails an unrecognised frame turns every additive server
+    change into a breaking one. Unknown keys survive the boundary.
+  - **`BrainUiClient`** (`@schlessera/brain-ui-sdk/client`) is the transport:
+    the same backoff and `reconnectNow` as before, plus validation,
+    `server_hello` capture — so `protocolRev` and capabilities are readable
+    rather than advisory — and `turnId` echo on turn-scoped replies, which finally
+    gives the host's echo verification something to verify. A `socketFactory`
+    option makes it testable with no network.
+  - **`ui-react`** keeps every store write and becomes a handler set.
+    `ws-client.ts` is deleted; `handleServerMessage` and `runStateForFrame` keep
+    their signatures.
+  - **`error` frames are no longer dropped outside a turn.** The old handler only
+    appended to a streaming transcript, so an error between turns went nowhere —
+    no console, no store, no UI. `useConnectionStore` gained `lastError`, and
+    protocol-level drops land there too.
+  - **A real-socket integration test** drives `BrainUiClient` against a real
+    `createApp()`, closing the ROADMAP item about the auth boot refusal never
+    being exercised through a socket. It is also the first test that would catch
+    a client/server protocol drift, since both shipped implementations are on
+    opposite ends of it.
+
+  The frame parsers no longer use Node's `Buffer` — they accept
+  `string | ArrayBufferView | ArrayBuffer` and measure UTF-8 length with
+  `TextEncoder`. Both parsers now run on both ends of the socket, and the client
+  end is a browser bundle; the build caught this the moment `ui-react` imported
+  the SDK client.
+
+  `turnId` is still not REQUIRED — that is a protocol-rev change with a
+  deprecation window, deliberately out of scope.
+
+- 3bfae80: Add swappable observability consumers, and instrument the WebSocket frame path.
+
+  The producing side is the standard OpenTelemetry API — `logger.emit()`,
+  `counter.add()` — so instrumentation is written once and stays portable. The
+  consuming side is ours: a console consumer for production, a recording
+  consumer for tests, an in-memory meter that `/api/status` reads. Choosing where
+  reports go is an argument, never a change to instrumentation.
+
+  `createApp({ observability })` and `new WsHost({ observability })` take one by
+  injection, defaulting to the console consumer (WsHost defaults to silence, so
+  an embedder gets no surprise stream on stdout). Nothing requires the
+  OpenTelemetry globals; `installGlobally()` exists for code that cannot be
+  handed an argument and returns a restore function, so a test cannot strand a
+  sink for the next one. Two apps in one process report separately.
+
+  `createRecordingObservability()` is the test surface: `logs.find({ scope,
+severity, body, attributes })`, `metrics.value(name, attributes)`,
+  `metrics.total(name)`, `metrics.snapshot()`. It is the same in-memory meter
+  production uses, so an assertion is about the real recorder rather than a
+  double. `createWsHandlers(host)` was split out of `createWsUpgrade` so a test
+  drives the actual frame path without an HTTP server.
+
+  Three holes are now instrumented. A `parseClientMessage` rejection was answered
+  to the client and never logged — the inbound validation already shipped had no
+  observability at all. A handler that threw sent `INTERNAL_ERROR` and discarded
+  the cause. Both now emit, and dropped frames land on a `ws.frames.dropped`
+  counter split by reason, exposed on `/api/status` next to `cronJobs`. Reported
+  detail is always a bounded token, never the frame body, which is
+  caller-supplied and capped at 12 MB.
+
+  `@opentelemetry/api` is caretted (stable 1.x, zero dependencies).
+  `@opentelemetry/api-logs` is pinned EXACT: the logs API is 0.x. That was
+  measured rather than assumed — the producing surface is unchanged across
+  0.57 → 0.221 and the global handshake is keyed on a compatibility constant that
+  has stayed at 1, so mixed copies interoperate. The churn is in
+  `@opentelemetry/sdk-logs`, which is precisely the package these consumers
+  replace and which is not a dependency.
+
+- 794c54c: Report through the observability layer instead of `console`, and make the
+  threshold configurable.
+
+  All 31 `console.*` sites in this package now emit through the injected
+  `Observability`: structured, severity-filtered, assertable in a test, and
+  routable somewhere else later without touching a call site. A test enforces
+  it — AST-based, so the shell command inside an auth error message that
+  contains the literal text `console.log` does not trip it. The console consumer
+  itself is the one exemption, and the test asserts that exemption is still real
+  so the list cannot rot.
+
+  `BRAIN_UI_LOG_LEVEL` (default `INFO`) sets the console consumer's threshold. An
+  unrecognised value falls back rather than throwing: a typo in a log level must
+  not be why a server refuses to boot, and silently emitting nothing would be
+  worse than emitting too much. The two security-critical boot messages —
+  unknown `AUTH_MODE`, and `AUTH_MODE=none` deliberately permitted on a
+  non-loopback host — emit at ERROR so a log threshold can never be the reason
+  nobody saw them.
+
+  Failed passkey ceremonies now increment an `auth.failures` counter split by
+  reason and ceremony, alongside the log. A rate of those is what distinguishes
+  one fumbled login from someone working through a list, and it was not
+  recoverable from a log line nobody tails.
+
+  Observability is constructed first in `createApp` — before the auth validation
+  that can refuse to boot and before the migration runner — so nothing that can
+  report is built before somewhere to report exists.
+
+- 7ea32f7: Meter inbound WebSocket frames, and make `turnId` enforceable via a rev-3
+  handshake.
+
+  **Rate limiting.** Frames were size-, cardinality- and depth-bounded but not
+  metered, so a flood of individually valid frames was unbounded behind the auth
+  guard. Each connection now gets a token bucket — `BRAIN_UI_WS_RATE` (default 20
+  frames/sec) and `BRAIN_UI_WS_BURST` (default 60), with `0` disabling it. A
+  bucket rather than a fixed window because the real traffic is bursty: opening
+  the app fires several frames at once and an approval storm is a dozen in a
+  second, both legitimate. The bucket lives on the socket, not in a map keyed by
+  something a peer controls — that map is itself the memory-exhaustion bug a rate
+  limiter is supposed to prevent. Metering runs BEFORE parsing, since parsing is
+  most of the work being bounded, and refusals land on the existing
+  `ws.frames.dropped` counter under `reason: rate_limited`.
+
+  **Protocol rev 3.** `turnId` could not be made mandatory because there was no
+  client→server handshake: a host could not tell a current client from a
+  two-year-old one, so enforcing would have broken every tool approval in older
+  UIs. `client_hello` fixes that — a client declares its revision, and a host
+  applies rev-3 rules only to connections that declared rev 3. Clients that send
+  no hello are treated as rev 2 and keep today's tolerance indefinitely. This is
+  therefore additive: no existing client changes behaviour.
+
+  **A bug in the previous release's turnId echo is fixed here.** `BrainUiClient`
+  tracked "the most recent turn id seen", which is correct with one session and
+  wrong with two: a delta from session B arriving between session A's approval
+  request and the user answering it made the reply carry B's id, the host refused
+  the mismatch, and A's turn waited for an approval that could never be accepted
+  — invisible until the ten-minute timeout. Turn ids are now tracked per request
+  id and consumed when the reply goes out.
+
+- 0fc9c44: Fix the five rough edges carried over from the extraction review.
+
+  They were ported verbatim and never re-verified. All five were still real, and
+  every one fails silently — which is why they survived: nothing errored, data
+  just went missing or appeared in the wrong place.
+
+  - **A follow-up sent mid-stream dropped every delta that followed it.**
+    `mutateLastAssistant` indexed the END of the buffer, so once the user's
+    second message was appended the still-streaming assistant message was no
+    longer last, `role === "assistant"` failed, and each write was discarded. The
+    turn kept running and its output stopped appearing. It now finds the last
+    ASSISTANT message.
+  - **Draft adoption could bind to another turn's session.** A client starting a
+    conversation has no session id, so it adopted the first `session_info` or
+    `result` for an unknown session — possibly an older background turn's, or
+    another client's. `chat_message` gains an optional client-minted `draftId`,
+    echoed on `session_info`, and adoption requires a match. Additive: a server
+    that does not echo it falls back to the previous behaviour rather than
+    leaving the draft unbound.
+  - **The file store showed one file's content under another's name.** Two rapid
+    clicks raced and the SLOWER fetch won. Both the success and error paths now
+    drop a response for a path the user has already navigated away from.
+  - **`whatsup` could deadlock.** stderr was only drained after
+    `await proc.exited`, so a child that filled the pipe buffer blocked on write
+    and never exited. It is drained concurrently with stdout now.
+  - **The SPA fallback 404ed deep links from an absolute static root.**
+    `serveStatic({ path })` resolves against the process cwd, so
+    `join(staticRoot, "index.html")` only worked when `staticRoot` was itself
+    cwd-relative — true of the shipped layout, not of an embedder passing an
+    absolute directory. The fallback serves the file directly now.
+
+### Patch Changes
+
+- Updated dependencies [a7362e1]
+- Updated dependencies [7ea32f7]
+- Updated dependencies [0fc9c44]
+  - @schlessera/brain-ui-sdk@0.16.0
+  - @schlessera/brain-render-template@0.16.0
+
 ## 0.15.0
 
 ### Patch Changes
