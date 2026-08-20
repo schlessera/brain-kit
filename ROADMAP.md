@@ -36,9 +36,13 @@ What that means in practice:
 - **Search degrades gracefully.** FTS5 works with no keys at all; embeddings
   are additive.
 
-Test baseline: 890 pass / 2 skip in this repo, 98 pass / 3 skip in `brain-ui`.
-Integration tests are keyless and run against the fixture corpus in
-`packages/core/fixtures/corpus/`.
+Test baseline: 1512 pass / 24 skip / 0 fail in this repo (`bun run test`),
+104 pass / 3 skip / 0 fail in `brain-ui`. Integration tests are keyless and run
+against the fixture corpus in `packages/core/fixtures/corpus/`.
+
+Run the suite through `bun run test`, not a bare `bun test packages tests` — the
+script supplies `--timeout 30000`, and the CLI onboarding tests spawn a real
+`brain` process per assertion, which does not fit the 5s default.
 
 ## What binds future work
 
