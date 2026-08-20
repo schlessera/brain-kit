@@ -45,6 +45,7 @@ import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
+import { createObservability, type Observability } from "./observability/index.js";
 
 export type { AppRenderer };
 
@@ -81,6 +82,12 @@ export interface CreateAppOptions {
   turnTimeoutMs?: number;
   /** Backend registry override (tests/embedders); default is built from config. */
   registry?: BackendRegistry;
+  /**
+   * Where this app reports. Defaults to the console consumer; a test passes
+   * `createRecordingObservability()` and then asserts on what the server
+   * actually said, through the same emission path production uses.
+   */
+  observability?: Observability;
 }
 
 /** What `createApp` hands back to the deployment shell. */
@@ -99,6 +106,8 @@ export interface BrainUiApp {
   db: Database;
   /** The WebSocket coordinator (turn state, clients, catalog, registry). */
   wsHost: WsHost;
+  /** Where this app reports — resolved or injected. */
+  observability: Observability;
   /** True while any session has a running turn. */
   isTurnActive(): boolean;
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
@@ -136,14 +145,19 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // silently fall back to the resolved path.
   const config: ServerConfig =
     options.dbPath !== undefined ? { ...resolved, dbPath: options.dbPath } : resolved;
+  // First thing built, because everything below may want to report — including
+  // the auth validation that can refuse to boot and the migration runner.
+  const observability =
+    options.observability ?? createObservability({ minSeverity: config.logLevel });
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono();
-  const authMode = resolveAuthMode(auth);
+  const authLog = observability.logger("auth");
+  const authMode = resolveAuthMode(auth, authLog);
   // Validate inside the factory, not the bin entry: every consumer of the app
   // (a deployment bin, tests, another embedder) gets the same refuse-to-boot
   // guarantee on an unsafe auth configuration.
-  assertAuthConfig(authMode, auth);
+  assertAuthConfig(authMode, auth, authLog);
   assertPasskeyConfig(config.webauthn);
   // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
   // first turn — otherwise /api/health reports healthy while every turn is
@@ -154,9 +168,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  const db = createUiDb(config.dbPath);
+  const db = createUiDb(config.dbPath, { log: observability.logger("db") });
   const brain = createBrainClient({ brainPath: config.brainPath });
-  const cron = createCronScheduler({ db, brain });
+  const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -166,10 +180,12 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     });
   const host = new WsHost({
     registry,
+    observability,
     catalog: createSessionCatalog(() => db),
     ...(options.appName ? { appName: options.appName } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
+    wsRate: config.wsRate,
   });
   const wsUpgrade = createWsUpgrade(host);
   const passkeyCtx: PasskeyContext = {
@@ -177,6 +193,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
+    log: observability.logger("passkeys"),
+    failures: observability.meter("auth").createCounter("auth.failures", {
+      description: "Failed authentication ceremonies, by reason",
+    }),
   };
   const keyterms: KeytermSettings = {
     brainPath: config.brainPath,
@@ -234,6 +254,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       sourceCommit: config.sourceCommit,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
+      // Undefined when the injected consumer cannot be read back (a real OTel
+      // SDK exports elsewhere), in which case the field is simply absent.
+      getMetrics: () => observability.metrics?.snapshot(),
     })
   );
   app.route(
@@ -269,8 +292,24 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   if (options.staticRoot) {
     const staticRoot = options.staticRoot;
     app.use("/*", serveStatic({ root: staticRoot }));
-    // SPA fallback
-    app.get("*", serveStatic({ path: join(staticRoot, "index.html") }));
+
+    // SPA fallback, served directly rather than through serveStatic({ path }).
+    //
+    // That helper resolves its path the same way it resolves `root` — against
+    // the process working directory — so `join(staticRoot, "index.html")`
+    // only lands correctly when `staticRoot` is itself cwd-relative. It is in
+    // the shipped layout, which is why this went unnoticed; an embedder
+    // passing an absolute directory, or a process that changed cwd, got a
+    // fallback that silently 404ed every deep link. Reading the file
+    // ourselves removes the ambiguity for both cases.
+    const indexPath = join(staticRoot, "index.html");
+    app.get("*", async (c) => {
+      const file = Bun.file(indexPath);
+      if (!(await file.exists())) return c.notFound();
+      return new Response(file, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    });
   }
 
   return {
@@ -280,6 +319,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     authMode,
     db,
     wsHost: host,
+    observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {

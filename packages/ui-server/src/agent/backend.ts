@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { createRequire } from "module";
 import type { AgentConfig } from "../config/env.js";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
@@ -499,7 +500,8 @@ export function createStaticBackendRegistry(
 function makeRegistry(
   getRegistry: () => Promise<RegistrySnapshot>,
   getHidden: () => string[],
-  getModelSource: () => Promise<ModelDiscoverySource | null>
+  getModelSource: () => Promise<ModelDiscoverySource | null>,
+  log?: Logger
 ): BackendRegistry {
   let profileSnapshot: ProfileSnapshot | null = null;
 
@@ -536,11 +538,11 @@ function makeRegistry(
     try {
       return new Set(getHidden());
     } catch (err) {
-      console.warn(
-        `[models] Could not read hidden models: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      log?.emit({
+        severityText: "WARN",
+        body: "could not read hidden models; treating none as hidden",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
       return new Set();
     }
   }

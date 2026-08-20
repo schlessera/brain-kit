@@ -15,6 +15,8 @@
 
 import { join } from "path";
 
+import { SEVERITIES, type Severity } from "../observability/types.js";
+
 // --- descriptor -------------------------------------------------------------
 
 export interface EnvVarDescriptor {
@@ -61,6 +63,31 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe.",
     default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WS_RATE",
+    description:
+      "Sustained inbound WebSocket frames per second per connection. 0 " +
+      "disables metering entirely.",
+    default: "20",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WS_BURST",
+    description:
+      "Inbound WebSocket frames absorbable in one burst before the sustained " +
+      "rate applies. Opening the app legitimately fires several at once.",
+    default: "60",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_LOG_LEVEL",
+    description:
+      "Minimum severity the console log consumer emits: TRACE, DEBUG, INFO, " +
+      "WARN, ERROR or FATAL. Case-insensitive; an unrecognised value falls " +
+      "back to the default rather than silencing the server.",
+    default: "INFO",
     required: false,
   },
   {
@@ -305,6 +332,10 @@ export interface ServerConfig {
   sourceCommit: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
+  /** Threshold for the console log consumer (BRAIN_UI_LOG_LEVEL). */
+  logLevel: Severity;
+  /** Inbound WebSocket frame metering, per connection. */
+  wsRate: { ratePerSecond: number; burst: number };
   auth: AuthConfig;
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
@@ -324,6 +355,27 @@ function list(raw: string | undefined): string[] {
 
 function flag(raw: string | undefined): boolean {
   return raw === "1";
+}
+
+/**
+ * A log threshold, defaulting to INFO.
+ *
+ * An unrecognised value falls back rather than throwing: a typo in a log level
+ * must never be the reason a server refuses to boot, and silently emitting
+ * nothing would be worse than emitting too much.
+ */
+/** A non-negative number, falling back rather than throwing on nonsense. */
+function positiveNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function parseSeverity(raw: string | undefined): Severity {
+  const upper = raw?.trim().toUpperCase();
+  return (SEVERITIES as readonly string[]).includes(upper ?? "")
+    ? (upper as Severity)
+    : "INFO";
 }
 
 const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "none"];
@@ -379,6 +431,11 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
+    },
+    logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
+    wsRate: {
+      ratePerSecond: positiveNumber(env.BRAIN_UI_WS_RATE, 20),
+      burst: positiveNumber(env.BRAIN_UI_WS_BURST, 60),
     },
     voice: {
       provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,

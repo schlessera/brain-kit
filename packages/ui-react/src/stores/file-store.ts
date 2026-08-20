@@ -211,6 +211,11 @@ export const useFileStore = create<FileState>((set, get) => ({
 
     try {
       const content = await fetchContent(normalized);
+      // Drop a response the user has already navigated away from. Two rapid
+      // clicks race, and without this the SLOWER fetch wins: the viewer showed
+      // the newer file's path with the older file's content, which reads as
+      // corruption rather than as a stale load.
+      if (get().currentPath !== normalized) return;
       set({ currentContent: content, contentLoading: false });
       // Default mode: prefer preview when available; persist otherwise
       const { viewMode } = get();
@@ -226,6 +231,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       if (e.status === 413 && e.size) msg = `File too large (${(e.size / 1024 / 1024).toFixed(2)} MB; cap ${(FILE_SIZE_CAP_BYTES / 1024 / 1024).toFixed(0)} MB).`;
       else if (e.status === 404) msg = "File not found.";
       else if (e.message === "invalid_path") msg = "Invalid path.";
+      // Same guard: a failure for a file the user already left must not
+      // replace the file they are now looking at with an error.
+      if (get().currentPath !== normalized) return;
       set({ contentError: msg, contentLoading: false });
     } finally {
       await ancestorsPromise;

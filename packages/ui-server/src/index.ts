@@ -58,8 +58,12 @@ export {
 
 // WebSocket internals for embedders and tests.
 export { WsHost, type WsHostOptions } from "./ws/host.js";
-export { createWsUpgrade, websocket } from "./ws/connection.js";
-export { handleClientMessage } from "./ws/dispatch.js";
+export { createWsUpgrade, createWsHandlers, websocket } from "./ws/connection.js";
+export {
+  handleClientMessage,
+  turnIdMatches,
+  type ConnectionState,
+} from "./ws/dispatch.js";
 export { resolveTurnTarget } from "./ws/routing.js";
 export {
   createSessionCatalog,
@@ -73,6 +77,37 @@ export { createBrainClient, type BrainClient } from "./brain/client.js";
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.
 export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";
+
+// Observability: the producing side is the OpenTelemetry API, the consuming
+// side is ours. Swap the consumer to change where a deployment reports; a test
+// swaps in the recording one and asserts on what the server actually said.
+export {
+  createObservability,
+  createRecordingObservability,
+  createSilentObservability,
+  createConsoleLoggerProvider,
+  createRecordingLoggerProvider,
+  createSilentLoggerProvider,
+  createInMemoryMeterProvider,
+  SEVERITIES,
+  severityRank,
+  seriesKey,
+} from "./observability/index.js";
+export type {
+  Observability,
+  ObservabilityOptions,
+  RecordingObservability,
+  RecordingLoggerProvider,
+  InMemoryMeterProvider,
+  LogReader,
+  LogWriter,
+  MetricsReader,
+  Severity,
+  CapturedLog,
+  LogQuery,
+  MetricPoint,
+  MetricSnapshot,
+} from "./observability/index.js";
 
 // Voice keyterm cache rebuild (used by deployments after `brain sync`).
 export {

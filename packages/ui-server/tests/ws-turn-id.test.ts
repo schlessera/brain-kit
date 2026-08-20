@@ -5,7 +5,9 @@
  * turn.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { turnIdMatches } from "../src/ws/dispatch";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
 import {
@@ -192,5 +194,40 @@ describe("turnId stamping and correlation", () => {
     expect(decided.value).toBe("deny");
 
     controls[0]!.finish();
+  });
+});
+
+describe("the rev-3 deprecation window", () => {
+  // The real predicate from dispatch.ts, not a copy of it — a mirrored
+  // version would pass long after the rule it mirrors had changed.
+  const rev3 = PROTOCOL_REV_CLIENT_ECHO;
+
+  test("a client that declares nothing is still tolerated without an echo", () => {
+    // Every client older than client_hello. Enforcing on them would break
+    // every tool approval in a UI that predates this release.
+    expect(turnIdMatches({ turnId: "t1" }, undefined, false)).toBe(true);
+  });
+
+  test("a client that declared rev 3 must echo", () => {
+    // It promised to. Silence means the reply cannot be correlated, and
+    // guessing is exactly what the echo exists to stop.
+    expect(turnIdMatches({ turnId: "t1" }, undefined, true)).toBe(false);
+    expect(turnIdMatches({ turnId: "t1" }, "t1", true)).toBe(true);
+  });
+
+  test("a WRONG echo is refused whatever the client declared", () => {
+    // A stale echo from before a reconnect would otherwise resolve a
+    // different turn's pending promise.
+    expect(turnIdMatches({ turnId: "t1" }, "t-other", false)).toBe(false);
+    expect(turnIdMatches({ turnId: "t1" }, "t-other", true)).toBe(false);
+  });
+
+  test("the gate is keyed on the declared revision", () => {
+    const requires = (declared: number | undefined) => (declared ?? 2) >= rev3;
+    expect(requires(undefined)).toBe(false);
+    expect(requires(2)).toBe(false);
+    expect(requires(3)).toBe(true);
+    // A client from the future is held to the rules this host knows.
+    expect(requires(99)).toBe(true);
   });
 });

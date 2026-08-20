@@ -100,6 +100,42 @@ the fixture corpus with the real CLI and then reads it back with the shipped
 exported from `@schlessera/brain` — and that test fails when this document, the
 `brain doctor` check, or a reader floor disagrees with it.
 
+### Revision negotiation
+
+`PROTOCOL_REV` is **3**. A client announces what it speaks with a `client_hello`
+as its first frame; a host that does not understand the frame ignores it, and a
+client that never sends one is treated as rev 2.
+
+That handshake is what makes a field enforceable without a flag day. A host
+applies rev-3 rules only to connections that declared rev 3:
+
+- **rev 2** — parallel sessions, host-minted `turnId`, `server_hello`.
+- **rev 3** — `client_hello`, and `turnId` echoed on every interactive reply.
+  A client declaring 3 MUST echo; a reply without one is refused, because it
+  cannot be correlated to the turn that raised the request. Clients that
+  declare nothing keep the rev-2 tolerance indefinitely.
+
+A host must never REQUIRE `client_hello`, and must not refuse a client
+declaring a revision it does not recognise — it holds it to the newest rules it
+knows.
+
+### Server → client frames
+
+Both directions are now schema-validated at the boundary
+(`@schlessera/brain-ui-sdk/schemas`). The receiving policies differ on purpose:
+
+- A **server** rejecting a client frame answers with an `error` frame and
+  counts the drop. Inbound validation is a trust boundary.
+- A **client** rejecting a server frame DROPS it and reports it, never throws.
+  The protocol is additive, so a client that hard-failed an unrecognised frame
+  would turn every additive server change into a breaking one for older
+  clients. Unknown object keys are preserved in both directions.
+
+A third-party client may rely on that: adding a frame type, or an optional
+field to an existing one, is not a breaking change. `BrainUiClient`
+(`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
+way to speak the protocol without reimplementing it.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

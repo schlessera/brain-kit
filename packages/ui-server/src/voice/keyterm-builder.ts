@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -15,6 +16,8 @@ export interface KeytermSettings {
   cacheDir: string;
   /** Maximum vocabulary size (VOICE_KEYTERM_LIMIT). */
   limit: number;
+  /** Where degradation is reported; absent means silence. */
+  log?: Logger;
 }
 
 // Bump whenever the extractor logic, scoring, or stoplists change so that
@@ -359,7 +362,7 @@ function dedupeAndRank(terms: Keyterm[], limit: number): string[] {
   return sorted.slice(0, limit).map((k) => k.term);
 }
 
-export function loadOverrides(brainPath: string): PronunciationOverride[] {
+export function loadOverrides(brainPath: string, log?: Logger): PronunciationOverride[] {
   const path = overridesPath(brainPath);
   if (!existsSync(path)) return [];
   try {
@@ -375,13 +378,17 @@ export function loadOverrides(brainPath: string): PronunciationOverride[] {
     }
     return out;
   } catch (err) {
-    console.warn("[voice] Failed to load overrides:", err);
+    log?.emit({
+      severityText: "WARN",
+      body: "failed to load pronunciation overrides",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
     return [];
   }
 }
 
 export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
-  const { brainPath, limit } = settings;
+  const { brainPath, limit, log } = settings;
 
   try {
     return withBrainDb(brainPath, {}, (db) => {
@@ -410,11 +417,13 @@ export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
       // Schema too old for this package's SQL: degrade to no custom
       // vocabulary rather than breaking voice entirely. Pronunciation
       // overrides live in markdown, so they survive.
-      console.warn(
-        `[voice] brain.db schema_version=${err.schemaVersion} is older than this ` +
-          "server's keyterm SQL; serving an empty custom vocabulary until the " +
-          "repo is re-indexed."
-      );
+      log?.emit({
+        severityText: "WARN",
+        body:
+          "brain.db schema is older than this server's keyterm SQL; serving an " +
+          "empty custom vocabulary until the repo is re-indexed",
+        attributes: { "schema.version": err.schemaVersion },
+      });
       return {
         version: CACHE_VERSION,
         keyterms: [],

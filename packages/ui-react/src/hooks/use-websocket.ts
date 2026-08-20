@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { WSClient } from "../lib/ws-client.js";
+import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
 import { useProviderStore } from "../stores/provider-store.js";
@@ -96,6 +96,31 @@ export function runStateForFrame(msg: ServerMessage): "streaming" | "queued" | "
   return "streaming";
 }
 
+/**
+ * Does this frame announce the identity of the conversation THIS client just
+ * started?
+ *
+ * The old test was `session_info || result` for any unknown session, which
+ * adopted whichever arrived first — an older background turn finishing, or
+ * another client's new session, would capture the user's draft and bind it to
+ * a transcript they never wrote. `draftId` is minted per draft turn and echoed
+ * on `session_info`, so a match is proof.
+ *
+ * A server too old to echo it sends no `draftId`, and the pre-existing
+ * behaviour applies rather than the draft never binding at all: correctness
+ * where the information exists, compatibility where it does not.
+ */
+function isOurDraftAnnouncement(
+  state: ReturnType<typeof useChatStore.getState>,
+  msg: ServerMessage
+): boolean {
+  if (msg.type !== "session_info" && msg.type !== "result") return false;
+  const pending = state.pendingDraftId;
+  if (msg.type === "session_info" && msg.draftId) return msg.draftId === pending;
+  // No echo to compare against.
+  return true;
+}
+
 export function handleServerMessage(msg: ServerMessage) {
   const state = useChatStore.getState();
 
@@ -119,7 +144,7 @@ export function handleServerMessage(msg: ServerMessage) {
     key = state.activeSessionId; // null = the draft view
   } else if (state.buffers[frameSessionId]) {
     key = frameSessionId;
-  } else if (state.draft && (msg.type === "session_info" || msg.type === "result")) {
+  } else if (state.draft && isOurDraftAnnouncement(state, msg)) {
     // A draft run just got its server identity: adopt the draft buffer.
     state.bindDraftSession(frameSessionId);
     key = frameSessionId;
@@ -268,6 +293,11 @@ export function handleServerMessage(msg: ServerMessage) {
     }
 
     case "error":
+      // ALWAYS recorded. Appending to the transcript only works while a
+      // message is streaming, and this used to be the whole handler — so an
+      // error arriving between turns (a rejected frame, a failed resume) was
+      // dropped as silently on the client as it was on the server.
+      useConnectionStore.getState().reportError(msg.code, msg.message);
       if (buffer()?.isStreaming) {
         state.appendText(key, `\n\n**Error:** ${msg.message}`);
         state.finishAssistantMessage(key);
@@ -382,7 +412,7 @@ function handleStatusChange(status: "connecting" | "connected" | "disconnected")
 }
 
 // Singleton client - survives React re-renders
-let wsClient: WSClient | null = null;
+let wsClient: BrainUiClient | null = null;
 
 /**
  * Send on the live socket from outside a component.
@@ -393,8 +423,8 @@ let wsClient: WSClient | null = null;
  * socket for both. Anything that needs to send but not to own (the share
  * intake) goes through here instead of calling the hook again.
  *
- * Returns false when there is no open socket, since `WSClient.send` drops
- * silently in that case and a caller that just staged an upload needs to know.
+ * Returns false when there is no open socket: `send` drops silently in that
+ * case and a caller that just staged an upload needs to know.
  */
 export function sendClientMessage(msg: ClientMessage): boolean {
   if (!wsClient) return false;
@@ -410,7 +440,26 @@ export function useWebSocket() {
     if (initialized.current) return;
     initialized.current = true;
 
-    wsClient = new WSClient(getWsUrl(), handleServerMessage, handleStatusChange);
+    wsClient = new BrainUiClient({
+      url: getWsUrl(),
+      // One handler with a shared preamble, rather than sixteen copies of the
+      // session-buffer demux — see handleServerMessage.
+      handlers: { onAny: handleServerMessage },
+      onStatusChange: handleStatusChange,
+      // A frame the SDK refused. Surfaced rather than logged into a console
+      // nobody is attached to; the server-side counterpart is the
+      // ws.frames.dropped counter.
+      onProtocolError: (err) => {
+        useConnectionStore
+          .getState()
+          .reportError(
+            "PROTOCOL_ERROR",
+            err.frameType
+              ? `Dropped a ${err.frameType} frame: ${err.detail}`
+              : `Dropped an unreadable frame: ${err.detail}`
+          );
+      },
+    });
     wsClient.connect();
 
     // Skip the exponential backoff when the network demonstrably returns.

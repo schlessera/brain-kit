@@ -103,6 +103,17 @@ interface ChatState {
   buffers: Record<string, SessionChat>;
   /** The unbound new-conversation buffer, if one is in progress. */
   draft: SessionChat | null;
+  /**
+   * Correlation id for the conversation the draft is currently starting.
+   *
+   * A client starting a conversation has no session id, so it used to adopt
+   * the FIRST `session_info` for an unknown session — which could be an older
+   * background turn's, or another client's, silently binding the user's draft
+   * to someone else's transcript. The id is sent on `chat_message` and echoed
+   * on `session_info`; adoption now requires a match. Null when no draft turn
+   * is in flight.
+   */
+  pendingDraftId: string | null;
   /** The session in view; null = the draft / new-chat view. */
   activeSessionId: string | null;
 
@@ -168,6 +179,8 @@ interface ChatState {
    * If the draft view is active, the view follows. No-op draft = empty buffer.
    */
   bindDraftSession: (sessionId: string) => void;
+  /** Mint and remember the correlation id for a draft turn about to be sent. */
+  startDraftTurn: () => string;
   /** Switch the view to a session (creating an empty buffer if none), or to the draft (null). */
   setActiveSession: (sessionId: string | null) => void;
   /** New chat: drop the draft, unbind the view, unpin the provider. */
@@ -302,10 +315,25 @@ export const useChatStore = create<ChatState>((set, get) => {
   ): void {
     mutateBuffer(key, (chat) => {
       const msgs = [...chat.messages];
-      const last = msgs[msgs.length - 1];
+      // The last ASSISTANT message, not the last message.
+      //
+      // A follow-up sent mid-stream appends a user message to the end of the
+      // buffer while the assistant is still streaming into the message before
+      // it. Indexing the end therefore aimed every subsequent delta at the
+      // user's own message, where `role === "assistant"` failed and the write
+      // was silently discarded — the turn kept running and its output stopped
+      // appearing. Scanning backwards costs nothing at these lengths and
+      // leaves single-message behaviour identical.
+      let index = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === "assistant") {
+          index = i;
+          break;
+        }
+      }
       let out: Partial<SessionChat> = {};
-      if (last?.role === "assistant") {
-        msgs[msgs.length - 1] = fn(last);
+      if (index !== -1) {
+        msgs[index] = fn(msgs[index]);
         out = { messages: msgs };
       }
       return extra ? { ...out, ...extra(chat) } : out;
@@ -315,6 +343,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   return {
     buffers: {},
     draft: null,
+    pendingDraftId: null,
     // localStorage (not sessionStorage) so the active session id survives the
     // PWA process being killed on mobile — that durability is what lets a cold
     // relaunch re-request the full transcript instead of showing nothing.
@@ -574,6 +603,15 @@ export const useChatStore = create<ChatState>((set, get) => {
         };
       }),
 
+    startDraftTurn: () => {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      set({ pendingDraftId: id });
+      return id;
+    },
+
     bindDraftSession: (sessionId) =>
       set((state) => {
         const adopted = state.buffers[sessionId] ?? state.draft ?? emptyChat();
@@ -586,6 +624,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         return {
           buffers,
           draft: null,
+          pendingDraftId: null,
           ...(followView ? { activeSessionId: sessionId } : {}),
         };
       }),

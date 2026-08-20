@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import type {
   AgentBackend,
   PermissionDecision,
@@ -54,6 +55,12 @@ export interface RunningTurn {
   timeoutHandle: ReturnType<typeof setTimeout>;
   queue: QueuedFollowUp[];
   cancelled: boolean;
+  /**
+   * Correlation id the client minted for this NEW conversation, echoed back on
+   * `session_info` so the client can tell its own turn's identity from a
+   * background turn's. Null on a resumed session or a client that sent none.
+   */
+  draftId: string | null;
 }
 
 // Pending interactive requests are tagged with their turn so a per-session
@@ -93,6 +100,13 @@ export interface PendingMask {
  * explicit object with a defined lifecycle.
  */
 export class TurnCoordinator {
+  /**
+   * Where collisions are reported. Assigned by the owning WsHost so the
+   * coordinator reports through the same consumer as everything else; absent
+   * (a bare coordinator in a test) means silence.
+   */
+  log?: Logger;
+
   readonly running = new Set<RunningTurn>();
   readonly bySession = new Map<string, RunningTurn>();
   startingSessions = 0;
@@ -173,9 +187,11 @@ export class TurnCoordinator {
   ): boolean {
     const existing = map.get(id);
     if (existing && existing.turn !== turn) {
-      console.error(
-        `[ws] interactive id collision: "${id}" is already pending for another turn`
-      );
+      this.log?.emit({
+        severityText: "ERROR",
+        body: "interactive id collision: already pending for another turn",
+        attributes: { "request.id": id },
+      });
       return true;
     }
     return false;

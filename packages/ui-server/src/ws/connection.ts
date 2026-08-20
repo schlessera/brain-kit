@@ -3,16 +3,32 @@ import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
-import { handleClientMessage } from "./dispatch.js";
+import { handleClientMessage, type ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
+import type { WSContext } from "./clients.js";
 
 export { websocket };
 
-/** Build the Hono WebSocket upgrade handler bound to one host. */
-export function createWsUpgrade(host: WsHost) {
-  return upgradeWebSocket(() => ({
-    async onOpen(_evt, ws) {
-      console.log("[ws] Client connected");
+/**
+ * The socket lifecycle handlers for one host, separate from the Hono upgrade
+ * that wraps them.
+ *
+ * Split out so the real frame path is reachable from a test without standing
+ * up an HTTP server: `createWsHandlers(host).onMessage(...)` runs exactly what
+ * production runs, which is what makes an assertion about a dropped frame an
+ * assertion about the shipped code rather than about a re-implementation.
+ */
+export function createWsHandlers(host: WsHost) {
+  // One bucket per connection, created here so it lives and dies with the
+  // socket rather than in a map keyed by something a peer controls.
+  const limiter = host.newRateLimiter();
+  // Per-connection negotiation state: what revision this client declared.
+  // Lives with the socket, like the limiter.
+  const connection: ConnectionState = {};
+
+  return {
+    async onOpen(_evt: Event, ws: WSContext) {
+      host.log.emit({ severityText: "INFO", body: "client connected" });
       const { coordinator, catalog } = host;
 
       // Handshake first (rev 2, additive): protocol revision + coarse
@@ -53,7 +69,11 @@ export function createWsUpgrade(host: WsHost) {
           const history = await backend.getHistory(sid);
           if (history.length > 0) sendSessionHistory(ws, sid, history);
         } catch (err) {
-          console.error("[ws] snapshot-on-connect failed:", err);
+          host.log.emit({
+            severityText: "ERROR",
+            body: "snapshot-on-connect failed",
+            attributes: { error: err instanceof Error ? err.message : String(err) },
+          });
         } finally {
           host.clients.add(ws);
           host.sendMessage(
@@ -80,7 +100,7 @@ export function createWsUpgrade(host: WsHost) {
       });
     },
 
-    onMessage(evt, ws) {
+    onMessage(evt: MessageEvent, ws: WSContext) {
       // Boundary validation (rev 2): byte cap + JSON decode + schema, in one
       // place. No more casting client JSON to ClientMessage.
       //
@@ -88,8 +108,21 @@ export function createWsUpgrade(host: WsHost) {
       // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
       // binary frame cannot be decoded correctly here. The protocol is JSON
       // text; reject anything else rather than parse a slab.
+      // Metered BEFORE parsing: the point is to bound work an unmetered peer
+      // can make this process do, and parsing is most of that work.
+      if (limiter && !limiter.take().allowed) {
+        host.reportDroppedFrame("rate_limited");
+        host.sendMessage(ws, {
+          type: "error",
+          code: "RATE_LIMITED",
+          message: "Too many frames; slow down.",
+        });
+        return;
+      }
+
       const raw = evt.data;
       if (typeof raw !== "string") {
+        host.reportDroppedFrame("binary_frame");
         host.sendMessage(ws, {
           type: "error",
           code: "PARSE_ERROR",
@@ -99,6 +132,9 @@ export function createWsUpgrade(host: WsHost) {
       }
       const parsed = parseClientMessage(raw);
       if (!parsed.ok) {
+        // The reason is the parser's own bounded message, never the frame:
+        // the payload is caller-supplied and capped at 12 MB.
+        host.reportDroppedFrame("parse_error", parsed.error);
         host.sendMessage(ws, { type: "error", code: "PARSE_ERROR", message: parsed.error });
         return;
       }
@@ -106,7 +142,17 @@ export function createWsUpgrade(host: WsHost) {
       // unhandled rejection with no frame sent.
       void Promise.resolve()
         .then(() => handleClientMessage(host, ws, parsed.message))
-        .catch(() => {
+        .catch((err) => {
+          // This used to swallow the cause entirely: the client got a generic
+          // frame and the server kept no record of what threw.
+          host.log.emit({
+            severityText: "ERROR",
+            body: "client message handler failed",
+            attributes: {
+              "frame.type": parsed.message.type,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           host.sendMessage(ws, {
             type: "error",
             code: "INTERNAL_ERROR",
@@ -115,8 +161,8 @@ export function createWsUpgrade(host: WsHost) {
         });
     },
 
-    onClose(_evt, ws) {
-      console.log("[ws] Client disconnected");
+    onClose(_evt: CloseEvent, ws: WSContext) {
+      host.log.emit({ severityText: "INFO", body: "client disconnected" });
       host.clients.remove(ws);
       // Turns keep running in the background. Only reject pending interactive
       // requests once the LAST client leaves — while another client remains it
@@ -126,5 +172,10 @@ export function createWsUpgrade(host: WsHost) {
         host.coordinator.drainPendingForTurn(turn, "Client disconnected");
       }
     },
-  }));
+  };
+}
+
+/** Build the Hono WebSocket upgrade handler bound to one host. */
+export function createWsUpgrade(host: WsHost) {
+  return upgradeWebSocket(() => createWsHandlers(host));
 }

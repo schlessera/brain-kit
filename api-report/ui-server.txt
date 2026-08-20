@@ -13,15 +13,30 @@ export "." (./src/index.ts)
   type BrainClient
   BrainDbUnavailableError
   type BrainUiApp
+  type CapturedLog
+  type ConnectionState
   type CreateAppOptions
   ENV_VARS
   type EnvVarDescriptor
+  type InMemoryMeterProvider
   type KeytermSettings
+  type LogQuery
+  type LogReader
+  type LogWriter
   MIN_BRAIN_SCHEMA_VERSION
+  type MetricPoint
+  type MetricSnapshot
+  type MetricsReader
   type ModelDiscoverySource
   type ModelDiscoveryState
+  type Observability
+  type ObservabilityOptions
+  type RecordingLoggerProvider
+  type RecordingObservability
+  SEVERITIES
   type ServerConfig
   type SessionCatalog
+  type Severity
   type VoiceConfig
   type WebAuthnConfig
   WsHost
@@ -31,9 +46,17 @@ export "." (./src/index.ts)
   createApp
   createBackendRegistry
   createBrainClient
+  createConsoleLoggerProvider
+  createInMemoryMeterProvider
+  createObservability
+  createRecordingLoggerProvider
+  createRecordingObservability
   createSessionCatalog
+  createSilentLoggerProvider
+  createSilentObservability
   createStaticBackendRegistry
   createUiDb
+  createWsHandlers
   createWsUpgrade
   handleClientMessage
   openBrainDb
@@ -41,7 +64,10 @@ export "." (./src/index.ts)
   resolveAuthMode
   resolveServerConfig
   resolveTurnTarget
+  seriesKey
+  severityRank
   shareStagingRoot
+  turnIdMatches
   websocket
   withBrainDb
   writeCache

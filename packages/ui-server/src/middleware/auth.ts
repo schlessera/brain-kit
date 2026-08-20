@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
@@ -48,12 +49,14 @@ const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // attacker could weaponize to deny the owner access.
 export const GLOBAL_LOGIN_RATE_LIMIT = 20; // attempts per window, all IPs combined
 
-export function resolveAuthMode(auth: AuthRuntime): AuthMode {
+export function resolveAuthMode(auth: AuthRuntime, log?: Logger): AuthMode {
   if (auth.mode) return auth.mode;
   if (auth.invalidMode) {
-    console.warn(
-      `[auth] Unknown AUTH_MODE="${auth.invalidMode}"; auto-detecting instead.`
-    );
+    log?.emit({
+      severityText: "WARN",
+      body: "unknown AUTH_MODE; auto-detecting instead",
+      attributes: { requested: auth.invalidMode },
+    });
   }
   if (auth.passwordHash) return "password";
   return "tailscale";
@@ -63,7 +66,7 @@ export function resolveAuthMode(auth: AuthRuntime): AuthMode {
  * Validate the auth configuration at startup. Throws (refusing to boot) on an
  * unsafe or unusable configuration.
  */
-export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime): void {
+export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime, log?: Logger): void {
   const host = auth.host;
   const loopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
 
@@ -87,11 +90,17 @@ export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime): void {
   // exposed to the network".
   if (mode === "none" && !loopback) {
     if (auth.dangerouslyDisableAuth) {
-      console.warn(
-        "[auth] AUTH_MODE=none on a non-loopback host, allowed by " +
+      // ERROR, not WARN: this is a safety that has been deliberately switched
+      // off, and the severity must survive any sane BRAIN_UI_LOG_LEVEL. A log
+      // threshold must never be the reason nobody saw this.
+      log?.emit({
+        severityText: "ERROR",
+        body:
+          "AUTH_MODE=none on a non-loopback host, allowed by " +
           "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1 — every network peer has full " +
-          "agent access. Do not run this on anything but a trusted network."
-      );
+          "agent access. Do not run this on anything but a trusted network.",
+        attributes: { "auth.mode": "none", host },
+      });
     } else {
       throw new Error(
         "AUTH_MODE=none refuses to start unless HOST is loopback " +
@@ -112,13 +121,20 @@ export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime): void {
           "any client-supplied copy. Set TRUST_PROXY=1 once that holds."
       );
     }
-    console.log(
-      `[auth] mode: proxy (trusting header "${auth.proxyAuthHeader}"; ensure your ` +
-        "upstream proxy sets it and strips any client-supplied copy)"
-    );
+    log?.emit({
+      severityText: "INFO",
+      body:
+        "auth mode resolved: proxy — ensure the upstream proxy sets this header " +
+        "and strips any client-supplied copy",
+      attributes: { "auth.mode": "proxy", header: auth.proxyAuthHeader },
+    });
     return;
   }
-  console.log(`[auth] mode: ${mode}`);
+  log?.emit({
+    severityText: "INFO",
+    body: "auth mode resolved",
+    attributes: { "auth.mode": mode },
+  });
 }
 
 /** Middleware guarding /api/* according to the resolved mode. */

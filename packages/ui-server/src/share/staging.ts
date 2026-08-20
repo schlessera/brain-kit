@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -271,7 +272,8 @@ async function countStaged(root: string): Promise<number> {
  */
 export async function stageShare(
   brainPath: string,
-  input: ShareInput
+  input: ShareInput,
+  log?: Logger
 ): Promise<ShareIntakeResult> {
   const title = cleanTextField(input.title);
   const rawUrl = cleanTextField(input.url);
@@ -341,7 +343,11 @@ export async function stageShare(
         // One unwritable file (ENOSPC, a stricter filesystem) must not throw
         // away the other four. Record it and carry on; the share is only lost
         // if nothing at all survives.
-        console.error(`[share] could not stage ${name}:`, err);
+        log?.emit({
+          severityText: "ERROR",
+          body: "could not stage a shared file",
+          attributes: { name, error: err instanceof Error ? err.message : String(err) },
+        });
         skipped.push(name);
         continue;
       }
@@ -394,7 +400,11 @@ export async function stageShare(
  * deployment can sweep at boot too — scheduling belongs to the container
  * crontab, and this sweep is cheap and bounded.
  */
-export async function pruneShareStaging(brainPath: string, now = Date.now()): Promise<number> {
+export async function pruneShareStaging(
+  brainPath: string,
+  now = Date.now(),
+  log?: Logger
+): Promise<number> {
   const root = shareStagingRoot(brainPath);
   let entries;
   try {
@@ -404,7 +414,11 @@ export async function pruneShareStaging(brainPath: string, now = Date.now()): Pr
     // problem, a file where the directory should be — must not masquerade as
     // "nothing to do", or pruning stops forever and silently.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("[share] cannot read the staging root:", err);
+      log?.emit({
+        severityText: "ERROR",
+        body: "cannot read the share staging root",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
     }
     return 0;
   }

@@ -3,6 +3,8 @@ import { ClientSet, sendTo, type WSContext } from "./clients.js";
 import { TurnCoordinator } from "./turns.js";
 import type { SessionCatalog } from "./session-catalog.js";
 import type { BackendRegistry } from "../agent/backend.js";
+import { createSilentObservability, type Observability } from "../observability/index.js";
+import { FrameRateLimiter } from "./rate-limit.js";
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -50,6 +52,19 @@ export interface WsHostOptions {
    * it dynamic; createApp passes the resolved config value.
    */
   maxConcurrentSessions?: () => number;
+  /**
+   * Where this coordinator reports. Injected rather than reached for, so two
+   * apps in one process report separately and a test can assert on what the
+   * socket layer actually said. Defaults to silence: an embedder that never
+   * passes one gets no output, not a surprise stream on stdout.
+   */
+  observability?: Observability;
+  /**
+   * Inbound frame metering policy, per connection. Omitted (or a rate of 0)
+   * means no metering — which is what a test wants, and what an embedder
+   * fronting the socket with its own limiter wants.
+   */
+  wsRate?: { ratePerSecond: number; burst: number };
 }
 
 /**
@@ -66,6 +81,13 @@ export class WsHost {
   appName: string;
   turnTimeoutMs: number;
   maxConcurrentSessions: () => number;
+  readonly observability: Observability;
+  readonly wsRate: { ratePerSecond: number; burst: number } | null;
+  /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
+  readonly log: ReturnType<Observability["logger"]>;
+  private readonly framesDropped: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
 
   constructor(options: WsHostOptions) {
     this.registry = options.registry;
@@ -74,6 +96,38 @@ export class WsHost {
     this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxConcurrentSessions =
       options.maxConcurrentSessions ?? (() => DEFAULT_MAX_CONCURRENT_SESSIONS);
+    this.observability = options.observability ?? createSilentObservability();
+    this.wsRate =
+      options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
+    this.log = this.observability.logger("ws");
+    this.framesDropped = this.observability
+      .meter("ws")
+      .createCounter("ws.frames.dropped", {
+        description: "Inbound frames refused before reaching a handler",
+      });
+    this.coordinator.log = this.log;
+  }
+
+  /** A metering bucket for one new connection, or null when metering is off. */
+  newRateLimiter(): FrameRateLimiter | null {
+    return this.wsRate ? new FrameRateLimiter(this.wsRate) : null;
+  }
+
+  /**
+   * Record a frame this server refused, and say so.
+   *
+   * Before this existed, every rejection answered the client and vanished:
+   * `parseClientMessage` failures were never logged, so the validation we
+   * already shipped had no observability at all. `reason` is a bounded token,
+   * never the frame body — the payload is caller-supplied and can be 12 MB.
+   */
+  reportDroppedFrame(reason: string, detail?: string): void {
+    this.framesDropped.add(1, { reason, direction: "inbound" });
+    this.log.emit({
+      severityText: "WARN",
+      body: "inbound frame rejected",
+      attributes: detail ? { reason, detail } : { reason },
+    });
   }
 
   /** Fan a frame out to every attached client (size-bounded per frame). */

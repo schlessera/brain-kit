@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import {
   DEFAULT_STALE_DAYS,
@@ -18,7 +19,7 @@ import {
  * subgraph endpoints instead refuse with 503 rather than returning an empty
  * graph that would read as "your repo has no links".
  */
-function errorResponse(err: unknown): {
+function errorResponse(err: unknown, log?: Logger): {
   body: { error: string; reason?: string; param?: string };
   status: 400 | 404 | 503 | 500;
 } {
@@ -28,7 +29,7 @@ function errorResponse(err: unknown): {
   if (err instanceof GraphNotFoundError) {
     return { body: { error: "not_found" }, status: 404 };
   }
-  console.error("[graph]", err);
+  log?.emit({ severityText: "ERROR", body: "graph request failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
   return { body: { error: err instanceof Error ? err.message : "internal_error" }, status: 500 };
 }
 
@@ -49,8 +50,8 @@ function invalid(param: string) {
   return { error: "invalid_param", param } as const;
 }
 
-export function createGraphRoutes(deps: { brainRoot: string }): Hono {
-  const { brainRoot } = deps;
+export function createGraphRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
+  const { brainRoot, log } = deps;
   return new Hono()
   .get("/graph/meta", (c) => c.json(getGraphMeta({ brainPath: brainRoot })))
 
@@ -65,7 +66,7 @@ export function createGraphRoutes(deps: { brainRoot: string }): Hono {
     try {
       return c.json(getClusters({ brainPath: brainRoot, community, includeIsolates: c.req.query("isolates") === "1" }));
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -81,7 +82,7 @@ export function createGraphRoutes(deps: { brainRoot: string }): Hono {
     try {
       return c.json(getNeighborhood({ brainPath: brainRoot, center, depth, direction }));
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -96,7 +97,7 @@ export function createGraphRoutes(deps: { brainRoot: string }): Hono {
     try {
       return c.json(getDiscovery({ brainPath: brainRoot, root, direction, maxDepth }));
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   })
@@ -108,7 +109,7 @@ export function createGraphRoutes(deps: { brainRoot: string }): Hono {
     try {
       return c.json(getMaintenance({ brainPath: brainRoot, staleDays }));
     } catch (err) {
-      const { body, status } = errorResponse(err);
+      const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
   });

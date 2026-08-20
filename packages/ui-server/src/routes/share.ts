@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import {
   SHARE_MAX_CONCURRENT_INTAKE,
@@ -93,10 +94,12 @@ export interface ShareRoutesDeps {
   brainRoot: string;
   /** ALLOWED_ORIGINS — the same-origin check's split-topology allowlist. */
   allowedOrigins: string[];
+  /** Where failures are reported; absent means silence. */
+  log?: Logger;
 }
 
 export function createShareRoutes(deps: ShareRoutesDeps): Hono {
-  const { brainRoot, allowedOrigins } = deps;
+  const { brainRoot, allowedOrigins, log } = deps;
 
   /**
    * In-flight intakes. Each one holds its whole payload in memory while the
@@ -116,7 +119,7 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     // Deliberately not awaited: pruning is housekeeping, and the client is
     // waiting on the staging result, not on it.
     void pruneShareStaging(brainRoot).catch((err) => {
-      console.error("[share] prune failed:", err);
+      log?.emit({ severityText: "ERROR", body: "share staging prune failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
     });
   }
 
@@ -180,7 +183,7 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     if (err instanceof ShareTooLargeError) {
       return c.json({ error: err.reason, limit: err.limit }, 413);
     }
-    console.error("[share]", err);
+    log?.emit({ severityText: "ERROR", body: "share request failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
     return c.json({ error: "share_failed" }, 500);
   } finally {
     inFlight -= 1;

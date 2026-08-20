@@ -87,35 +87,9 @@ Roughly in order. Items move down as they land.
   integration suite additionally needs a populated brain; its spawns now honor a
   `BRAIN_PATH` override, so pointing them at a fixture corpus is the remaining
   work. Until that lands, those suites only run locally.
-- **Hardening follow-ups** carried over from the security review rounds, none
-  currently exploitable:
-  - No end-to-end test drives the auth boot refusal through a real socket.
-  - Renderer browser-crash recovery is verified by inspection only; testing it
-    needs an injection seam in `brain-render-puppeteer`.
-  - No WebSocket rate limiting. Frames are size-, cardinality-, and
-    depth-bounded, so cheap CPU amplification is closed, but a flood of
-    individually valid frames is unmetered behind the auth guard.
-  - `ui-sdk` has schemas for client→server frames only; the client casts
-    inbound server frames, and the transport itself lives in `ui-react` rather
-    than in the package that owns the protocol. `server_hello` and `turnId` are
-    advisory client-side: the server stamps both and verifies an echo when
-    present, but no shipped client reads `protocolRev` or echoes `turnId`. All
-    of it is additive, and planned in
-    [.agents/plans/client-protocol-half.md](.agents/plans/client-protocol-half.md).
 - **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
   questions (turn-taking, TTS provider, how a live conversation maps onto turn
   approval) are tracked in the `brain-ui` roadmap.
-- **Rough edges named by the extraction review**, ported verbatim rather than
-  fixed at the time, and not re-verified since:
-  - A follow-up message sent mid-stream can drop deltas once the user message
-    is appended to the buffer.
-  - The file store has a stale-response race between overlapping fetches.
-  - `whatsup` streams stderr through a pipe nothing drains — a chatty run can
-    deadlock.
-  - The SPA fallback builds its index path with `join()` against a configured
-    static root; correct for the shipped layout, fragile for others.
-  - Draft adoption can bind to a stale session's result — `chat_message` frames
-    carry no correlation id.
 
 ## Later
 

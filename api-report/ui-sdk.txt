@@ -20,6 +20,7 @@ export "." (./src/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -54,6 +55,7 @@ export "." (./src/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
   type ProviderInfo
@@ -115,6 +117,8 @@ export "./client" (./src/client/index.ts)
   type AsrPartial
   type BrainSearchResult
   type BrainStats
+  BrainUiClient
+  type BrainUiClientOptions
   type ChatImageAttachment
   type ChatSession
   type ClientAskUserCancel
@@ -122,6 +126,7 @@ export "./client" (./src/client/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -130,6 +135,7 @@ export "./client" (./src/client/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ConnectionStatus
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
@@ -156,8 +162,10 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
+  type ProtocolError
   type ProviderInfo
   type RenderContentType
   type RenderFormat
@@ -175,6 +183,7 @@ export "./client" (./src/client/index.ts)
   SHARE_STASH_TTL_MS
   type ServerAskUserRequest
   type ServerError
+  type ServerFrameHandlers
   type ServerHello
   type ServerLocationRequest
   type ServerMaskRequest
@@ -207,6 +216,7 @@ export "./client" (./src/client/index.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   createAsrClient
+  createBrainUiClient
   registerAsrClient
   registerToolRenderers
   resetAsrClients
@@ -231,6 +241,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -265,6 +276,7 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PronunciationOverride
   type ProviderInfo
@@ -316,12 +328,14 @@ export "./protocol" (./src/protocol.ts)
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
   MAX_PROMPT_CHARS
+  MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
   clientAskUserCancelSchema
   clientAskUserResponseSchema
   clientCancelSchema
   clientChatMessageSchema
   clientEnvironmentSchema
+  clientHelloSchema
   clientLocationErrorSchema
   clientLocationResponseSchema
   clientMaskErrorSchema
@@ -331,6 +345,24 @@ export "./schemas" (./src/schemas.ts)
   clientToolApprovalSchema
   clientToolDenialSchema
   parseClientMessage
+  parseServerMessage
+  serverAskUserRequestSchema
+  serverErrorSchema
+  serverHelloSchema
+  serverLocationRequestSchema
+  serverMaskRequestSchema
+  serverMessageSchema
+  serverResultSchema
+  serverSessionHistorySchema
+  serverSessionInfoSchema
+  serverStatusSchema
+  serverTextDeltaSchema
+  serverThinkingDeltaSchema
+  serverToolApprovalRequestSchema
+  serverToolInputDeltaSchema
+  serverToolResultSchema
+  serverToolUseCompleteSchema
+  serverToolUseStartSchema
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
@@ -356,6 +388,7 @@ export "./server" (./src/server/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHello
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -392,6 +425,7 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   PROTOCOL_REV
+  PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PermissionDecision
   type PermissionRequest

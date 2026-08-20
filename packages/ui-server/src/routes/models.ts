@@ -5,6 +5,7 @@
 // with its visibility, plus discovery freshness so the UI can say when the list
 // was last refreshed and why it might be stale.
 
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import type {
@@ -17,6 +18,8 @@ import { getHiddenModelIds, setHiddenModelIds } from "../db/settings.js";
 export function createModelRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  /** Where refresh failures are reported. */
+  log?: Logger;
 }): Hono {
   const { registry, db } = deps;
 
@@ -77,11 +80,11 @@ export function createModelRoutes(deps: {
     } catch (err) {
       // The previous roster is still served; report the failure in the payload
       // rather than 500ing, so the settings screen can show it inline.
-      console.warn(
-        `[models] Refresh failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      deps.log?.emit({
+        severityText: "WARN",
+        body: "model roster refresh failed; serving the previous roster",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
     }
     registry.invalidateProfiles();
     return c.json(await buildCatalog());

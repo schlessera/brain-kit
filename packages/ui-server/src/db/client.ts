@@ -2,6 +2,8 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
+import type { Logger } from "@opentelemetry/api-logs";
+
 /**
  * The UI's OWN SQLite database (sessions, passkeys, settings, cron runs) —
  * distinct from the brain database, which is opened read-only via
@@ -11,15 +13,24 @@ import { join } from "path";
  * it to every consumer, so two apps with different configuration can coexist
  * in one process and a test gets an isolated database by construction.
  */
-export function createUiDb(dbPath: string): Database {
+export interface CreateUiDbOptions {
+  /**
+   * Where migration progress is reported. Optional so a test can open a
+   * database without wiring observability; absent means silence, never
+   * console output.
+   */
+  log?: Logger;
+}
+
+export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Database {
   const db = new Database(dbPath, { create: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
-  runMigrations(db);
+  runMigrations(db, options.log);
   return db;
 }
 
-function runMigrations(database: Database) {
+function runMigrations(database: Database, log?: Logger) {
   // Ensure _migrations table exists
   database.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
@@ -39,7 +50,7 @@ function runMigrations(database: Database) {
       .filter((f) => f.endsWith(".sql"))
       .sort();
   } catch {
-    console.warn("[db] No migrations directory found, skipping migrations");
+    log?.emit({ severityText: "WARN", body: "no migrations directory; skipping migrations" });
     return;
   }
 
@@ -53,7 +64,7 @@ function runMigrations(database: Database) {
   for (const file of files) {
     if (applied.has(file)) continue;
 
-    console.log(`[db] Applying migration: ${file}`);
+    log?.emit({ severityText: "INFO", body: "applying migration", attributes: { file } });
     const sql = readFileSync(join(migrationsDir, file), "utf-8");
 
     database.transaction(() => {

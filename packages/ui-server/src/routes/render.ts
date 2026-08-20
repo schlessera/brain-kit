@@ -1,3 +1,4 @@
+import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
@@ -30,7 +31,7 @@ const bodySchema = z.object({
   title: z.string().max(200).optional(),
 }) satisfies z.ZodType<RenderRequest>;
 
-export function createRenderRoutes(renderer?: AppRenderer) {
+export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
   return new Hono().post("/render", async (c) => {
     if (!renderer) {
       return c.json(
@@ -65,7 +66,7 @@ export function createRenderRoutes(renderer?: AppRenderer) {
         },
       });
     } catch (err) {
-      console.error("[render]", err);
+      log?.emit({ severityText: "ERROR", body: "render failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
       return c.json(
         { error: "render_failed", detail: err instanceof Error ? err.message : String(err) },
         500

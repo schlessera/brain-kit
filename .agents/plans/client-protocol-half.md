@@ -5,8 +5,11 @@ give inbound server frames the same runtime validation outbound client frames
 already get, and implement the two rev-2 features (`server_hello`, `turnId`
 echo) that the server stamps and no client reads.
 
-Status: not started. Written from the architecture review that produced F1–F6;
-this is F3. Nothing here is a bug today — the server is the trusted peer and
+Status: **W0–W4 landed** on branch `observability-w0`; W5 (docs) landed with
+them. What remains is D5's deliberate non-goal — making `turnId` mandatory —
+which is a protocol-rev change, not part of this plan.
+
+Written from the architecture review that produced F1–F6; this is F3. Nothing here is a bug today — the server is the trusted peer and
 the shipped client is the only client. It is the residue of the chat UI having
 been extracted from `brain-ui` server-first: `ui-sdk` got the protocol types
 and the server's validation, and the client's half stayed where it happened to
@@ -101,7 +104,7 @@ These bound the work. Each rules out an approach that looks reasonable.
 
 Ordered. Each lands on its own and leaves the tree green.
 
-### W1 — Server→client schemas (`ui-sdk`)
+### W1 — Server→client schemas (`ui-sdk`) — DONE
 
 Mirror `schemas.ts`'s existing shape for the other direction: one zod schema
 per `ServerMessage` member, each bound to its interface with
@@ -123,7 +126,7 @@ Done when: every `ServerMessage` member has a schema, the union round-trips
 each of them, and a fixture of "next version's frame with an extra optional
 field" survives with the extra field intact.
 
-### W2 — `BrainUiClient` (`ui-sdk/client`)
+### W2 — `BrainUiClient` (`ui-sdk/client`) — DONE
 
 Move `ws-client.ts` in, and grow it into the client the SDK should have had.
 
@@ -155,7 +158,7 @@ one cast:
 
 `socketFactory` is what makes W4 possible and is worth the parameter.
 
-### W3 — `ui-react` becomes a handler set
+### W3 — `ui-react` becomes a handler set — DONE
 
 `use-websocket.ts` keeps every store write and loses everything else. Its
 module-scope functions become the `ServerFrameHandlers` object; the hook
@@ -169,7 +172,7 @@ their exported signatures per D6.
 
 Expect this file to end up under 250 lines.
 
-### W4 — The test the repo does not have
+### W4 — The test the repo does not have — DONE
 
 ROADMAP names it: "No end-to-end test drives the auth boot refusal through a
 real socket." Once `BrainUiClient` runs on any platform `WebSocket` and takes a
@@ -181,7 +184,7 @@ protocol drift.
 Two cases to cover first, both currently untested end to end: the auth boot
 refusal, and a `turnId` echo being verified by the host.
 
-### W5 — Documentation
+### W5 — Documentation — DONE
 
 - `docs/integration-contract.md`: server→client frames are now validated, and
   the drop-don't-throw policy is part of the contract a third-party client may
@@ -199,6 +202,26 @@ refusal, and a `turnId` echo being verified by the host.
 - Does not add a `brain-ui-client` package (D4).
 - Does not touch the tool-renderer or ASR registries already in
   `ui-sdk/client`. They are unrelated to transport and are fine where they are.
+
+## What actually happened
+
+Three things the plan did not predict:
+
+- **`onAny` had to count as handling.** The plan assumed `ui-react` would
+  become sixteen typed handlers. It could not: `handleServerMessage` has a
+  substantial shared preamble — the parallel-session demux that decides which
+  buffer a frame lands in — and copying that into every handler would have been
+  worse than the switch it replaced. `ServerFrameHandlers` gained `onAny`, and
+  the client treats it as handling so an `onAny`-only consumer is never told
+  its frames went nowhere.
+- **W0 came first and was not in the plan at all.** Writing R1's mitigation
+  made it obvious that "dropped with a console warning" is not observability,
+  so the consumers, the counters and the `/api/status` surface landed ahead of
+  W1. F6 — client `error` frames vanishing outside a turn — was fixed as part
+  of it, because the same gap produced both.
+- **`ui-react/tests/ws-client.test.ts` was deleted, not ported.** Its five
+  cases are covered more thoroughly by `ui-sdk/tests/ws-client.test.ts`, which
+  lives next to the implementation and drives it through an injected socket.
 
 ## Risks
 

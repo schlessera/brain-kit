@@ -6,11 +6,12 @@
 // corrupt row degrades to the caller's fallback rather than throwing, because
 // a bad preference must never take a route down.
 
+import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
 
-export function getSetting<T>(db: Database, key: string, fallback: T): T {
+export function getSetting<T>(db: Database, key: string, fallback: T, log?: Logger): T {
   const row = db
     .query("SELECT value FROM settings WHERE key = ?")
     .get(key) as { value: string } | null;
@@ -18,7 +19,11 @@ export function getSetting<T>(db: Database, key: string, fallback: T): T {
   try {
     return JSON.parse(row.value) as T;
   } catch {
-    console.warn(`[settings] Corrupt JSON for "${key}"; using fallback`);
+    log?.emit({
+      severityText: "WARN",
+      body: "corrupt JSON in settings; using fallback",
+      attributes: { key },
+    });
     return fallback;
   }
 }
