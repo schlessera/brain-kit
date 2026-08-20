@@ -204,7 +204,20 @@ function sceneRequest(state: GraphState): { endpoint: string; query: string } | 
 }
 
 export const useGraphStore = create<GraphState>((set, get) => ({
-  mode: "local",
+  /**
+   * Clusters, not Local.
+   *
+   * Local is centred on ONE node and has no center until the user picks one,
+   * so opening the graph landed on an empty canvas with a picker — which reads
+   * as "the graph is broken", not as "choose a starting point". Clusters is
+   * the only mode that answers the question someone opening a graph view is
+   * actually asking: what is in here, and what clumps together.
+   *
+   * Local stays one click away, and clicking any node still switches to it
+   * (node-popover.tsx) — that is the natural way in, rather than the landing
+   * state.
+   */
+  mode: "clusters",
   meta: null,
   metaState: "idle",
 

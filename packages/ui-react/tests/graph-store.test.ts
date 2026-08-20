@@ -97,6 +97,14 @@ describe("graph-store", () => {
     expect(s.error?.kind).toBe("unsupported");
   });
 
+  test("the graph opens in Clusters, not Local", async () => {
+    // Local is centred on one node and has none until the user picks one, so
+    // defaulting to it landed on an empty canvas that reads as a broken graph.
+    // Read from the store's INITIAL state, not the current one — resetStore()
+    // below deliberately starts most cases in local mode.
+    expect(useGraphStore.getInitialState().mode).toBe("clusters");
+  });
+
   test("local mode without a center fetches nothing", async () => {
     const calls = mockFetch({ "/graph/neighborhood": { body: SUBGRAPH } });
     await useGraphStore.getState().fetchScene();
