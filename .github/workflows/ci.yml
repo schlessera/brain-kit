@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# A superseded PR push keeps its obsolete run burning runners to the end
+# without this. Main is never cancelled: every push to main must keep its
+# complete record, and a cancelled main run looks like a failure.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -22,15 +29,18 @@ jobs:
         # (indexer.ts, chunkContextKey). Escapes, not raw bytes.
         run: bun run lint
       - name: Unit + integration tests (keyless, deterministic)
-        # 30s, not bun's default 5s: the CLI contract and onboarding suites
-        # spawn a `brain` subprocess per assertion, and under full-suite
-        # parallelism those tip over a 5s budget on machine load alone. Seen as
-        # an intermittent single failure that passes on its own every time.
-        run: bun test packages tests --timeout 30000
+        # The root script, not a copy of its command: the script carries
+        # `--timeout 30000` (the CLI contract and onboarding suites spawn a
+        # `brain` subprocess per assertion, which tips over bun's 5s default
+        # under full-suite parallelism), and a duplicated command here would
+        # drift from what developers actually run.
+        run: bun run test
         env:
           # Belt and braces: tests must never reach for real providers.
           GEMINI_API_KEY: ""
           ANTHROPIC_API_KEY: ""
+      - name: Env docs are in sync with the chokepoint descriptors
+        run: bun scripts/env-docs.ts --check
 
   pack:
     runs-on: ubuntu-latest
@@ -47,6 +57,13 @@ jobs:
           node-version: "24"
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Workspace pins match the packed manifests
+        # The release-time probe, run on every PR: packs each package and
+        # asserts every internal dep pin equals the current workspace version.
+        # Must run BEFORE the smoke-test consumer below — its file: overrides
+        # resolve every internal dep to a local tarball, which would mask a
+        # wrong pin completely. Needs no registry access.
+        run: bun scripts/check-publish-pins.ts
       - name: Pack all workspaces
         run: |
           set -euo pipefail
@@ -196,8 +213,8 @@ jobs:
     # A user-visible change without a changeset publishes with no version entry
     # and no changelog line. CONTRIBUTING.md has said so since the repo opened;
     # prose does not fail a build, and a review caught exactly this omission on
-    # the commit that made ui-server's exports breaking.
-    if: github.event_name == 'pull_request'
+    # the commit that made ui-server's exports breaking. Runs on push to main
+    # too: a direct push used to bypass the gate entirely.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -210,36 +227,34 @@ jobs:
         # What "shipped" means is derived from each package's own `files` field
         # rather than hardcoded here, so skills/, migrations/, templates/ and
         # docs/ count the moment a manifest says they ship.
-        run: bun scripts/check-changeset.ts "origin/${{ github.base_ref }}"
+        #
+        # On a PR the base is the target branch; on a push to main it is the
+        # previous tip (`github.event.before`), so the gate judges exactly the
+        # commits that push landed — a merged PR brings its changeset along and
+        # passes, a release commit is recognized by the gate's release
+        # detection, and a direct push touching packages/ without a changeset
+        # fails. After a force-push `before` may be unreachable, in which case
+        # the gate exits loudly rather than reporting a diff it cannot see.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            bun scripts/check-changeset.ts "origin/${{ github.base_ref }}"
+          else
+            bun scripts/check-changeset.ts "${{ github.event.before }}"
+          fi
 
   leakage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       - name: Personal-string leakage gate
         # Covers the WHOLE tree. The only exemption is LICENSE, which must name
         # the copyright holder. Do not add directory exemptions: the ones that
         # used to exist (plan/, research/, PROGRESS.md) were dropped at the
         # public cut precisely so this gate has nowhere to look away.
-        run: |
-          set -e
-          # Pattern is assembled from pieces so this workflow file does not
-          # itself trip the gate. The second alternative allows the public
-          # account name "schlessera" (ends in "a") — it IS the brand now —
-          # while still catching the bare personal surname and the domain.
-          P1='al''ain'; P2='schles''ser([^a]|$)'; P3='car''ole'; P4='buf''fy'; P5='wyv''ern'
-          # Personal infrastructure: deploy host and VPS address.
-          P6='coo''lify-1'; P7='91\.99\.200\.114'
-          PATTERN="$P1|$P2|$P3|$P4|$P5|$P6|$P7"
-          MATCHES=$(grep -riE "$PATTERN" \
-            --exclude-dir=node_modules \
-            --exclude-dir=.git \
-            --exclude-dir=dist \
-            --exclude=LICENSE \
-            . || true)
-          if [ -n "$MATCHES" ]; then
-            echo "Personal strings found outside allowed locations:"
-            echo "$MATCHES"
-            exit 1
-          fi
-          echo "Leakage gate clean."
+        # The patterns and policy live in the script (paired with
+        # tests/leakage-gate.test.ts, run locally by `bun run lint`); it needs
+        # no `bun install` — the gate must not depend on dependencies to fire.
+        run: bun scripts/check-leakage.ts

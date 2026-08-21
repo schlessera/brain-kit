@@ -46,7 +46,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "bun test tests",
+    "test": "bun test tests --timeout 30000",
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {

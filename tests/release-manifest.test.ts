@@ -13,10 +13,13 @@ import { join, resolve } from "path";
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
 
+import { ALLOWED_EDGES } from "./allowed-edges";
+
 interface Manifest {
   name: string;
   version: string;
   private?: boolean;
+  scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
 }
@@ -91,7 +94,52 @@ describe("release manifests", () => {
       const dirs = new Set(packages.map((p) => p.dir));
       expect(listed.filter((d) => !dirs.has(d))).toEqual([]);
     });
+
+    // The two membership tests above compare sorted, so they are order-blind —
+    // yet the ORDER is the point of these lists: a dependent published before
+    // its dependency is uninstallable in the window between the two `bun
+    // publish` calls, and build.ts promises dependency-first as a tripwire for
+    // resolution changes. Until now that ordering lived only in comments.
+    // Consistency is asserted against the ALLOWED_EDGES table
+    // (tests/allowed-edges.ts) — a superset of the actual manifest edges, which
+    // dependency-edges.test.ts pins — over hard dependencies only: internal
+    // peers are ranged `*`, so no publish order can break them.
+    test(`scripts/${script} lists every package after its internal hard dependencies`, () => {
+      const nameOfDir = new Map(packages.map((p) => [p.dir, p.manifest.name]));
+      const position = new Map<string, number>();
+      scriptPackageList(script).forEach((dir, index) => {
+        const name = nameOfDir.get(dir);
+        if (name) position.set(name, index);
+      });
+      const violations: string[] = [];
+      for (const [name, edges] of Object.entries(ALLOWED_EDGES)) {
+        for (const dep of edges.dependencies) {
+          const nameAt = position.get(name);
+          const depAt = position.get(dep);
+          // Absence from the list is the membership tests' finding, not ours.
+          if (nameAt === undefined || depAt === undefined) continue;
+          if (depAt > nameAt) violations.push(`${name} is listed before its dependency ${dep}`);
+        }
+      }
+      expect(violations).toEqual([]);
+    });
   }
+
+  // The command a developer types INSIDE a package must not flake either: bun's
+  // default per-test timeout is 5s, and the CLI-spawning suites tip over it on
+  // machine load alone — an intermittent single failure that passes on its own
+  // every time. The root script carries `--timeout 30000` (and CI runs that
+  // script rather than a copy of its command); every per-package script must
+  // carry it too, or a new package ships a `bun run test` that lies.
+  test("every test script carries the 30s timeout, and CI runs the root script", () => {
+    const offenders = packages
+      .filter((p) => !p.manifest.scripts?.test?.includes("--timeout 30000"))
+      .map((p) => p.manifest.name);
+    expect(offenders).toEqual([]);
+    const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Manifest;
+    expect(root.scripts?.test).toContain("--timeout 30000");
+    expect(CI_YML).toContain("run: bun run test\n");
+  });
 
   // Changesets majors any package that peer-depends on something being
   // released once the new version falls outside the declared range. With a

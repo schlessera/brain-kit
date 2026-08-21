@@ -15,6 +15,7 @@ const LINTS = [
   "check-invisibles.ts", // raw control/invisible characters in tracked source
   "check-env-access.ts", // ambient process.env outside per-package chokepoints
   "check-module-casts.ts", // `as` casts papering over the module config contract
+  "check-leakage.ts", // personal strings anywhere in the tree (CI's leakage gate, runnable locally)
 ];
 
 let failed = false;

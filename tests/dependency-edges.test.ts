@@ -4,9 +4,10 @@
  * Which package may depend on which is an architecture decision, but until now
  * it lived nowhere a test could read — so `backend-claude` became a hard
  * dependency of `ui-server` simply by being written first, and every install
- * pulled the Anthropic Agent SDK even with AGENT_BACKEND=pi. This table is the
- * explicit statement: every allowed internal edge, and of what kind. An edge
- * outside it is not a lint nit — it is an undecided architecture change.
+ * pulled the Anthropic Agent SDK even with AGENT_BACKEND=pi. The table
+ * (tests/allowed-edges.ts) is the explicit statement: every allowed internal
+ * edge, and of what kind. An edge outside it is not a lint nit — it is an
+ * undecided architecture change.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -26,64 +27,11 @@ interface Manifest {
   optionalDependencies?: Record<string, string>;
 }
 
-interface Edges {
-  /** Internal packages this one may list in `dependencies` (hard, always installed). */
-  dependencies: string[];
-  /** Internal packages this one may list only as OPTIONAL `peerDependencies`. */
-  optionalPeers: string[];
-}
-
-// The table. Keyed by npm name; values are the edges the architecture allows.
-// Widening it is a deliberate decision with a review trail, not a fix-the-test
-// reflex — see the failure messages below.
-const ALLOWED_EDGES: Record<string, Edges> = {
-  // core owns the render template (the CLI's `brain render` uses it); the
-  // Puppeteer renderer is heavyweight and optional, so it may never be hard.
-  "@schlessera/brain": {
-    dependencies: ["@schlessera/brain-render-template"],
-    optionalPeers: ["@schlessera/brain-render-puppeteer"],
-  },
-  // Content modules extend core and nothing else.
-  "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  // jobs is the one module that fetches from the web, so it is the one module
-  // allowed the scraping base. `puppeteer-core` stays optional underneath it.
-  "@schlessera/brain-module-jobs": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"],
-    optionalPeers: [],
-  },
-  "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  // Leaves: no internal edges at all.
-  "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
-  "@schlessera/brain-render-puppeteer": { dependencies: [], optionalPeers: [] },
-  "@schlessera/brain-ui-sdk": { dependencies: [], optionalPeers: [] },
-  // The scraping base is infrastructure, not a content domain: it knows
-  // nothing about documents, taxonomy or the index, so it must NEVER depend on
-  // core. An edge here would mean scraping logic had started reasoning about
-  // what it was scraping, which is the consuming module's job.
-  "@schlessera/brain-scrape": { dependencies: [], optionalPeers: [] },
-  // Agent backends implement the SDK seam; pi additionally embeds core.
-  "@schlessera/brain-backend-claude": {
-    dependencies: ["@schlessera/brain-ui-sdk"],
-    optionalPeers: [],
-  },
-  "@schlessera/brain-backend-pi": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-ui-sdk"],
-    optionalPeers: [],
-  },
-  "@schlessera/brain-ui-react": {
-    dependencies: ["@schlessera/brain-ui-sdk"],
-    optionalPeers: [],
-  },
-  // ui-server drives whichever backend the deployment picks, so BOTH backends
-  // are optional peers — a hard dependency on either would ship that agent SDK
-  // to every install regardless of AGENT_BACKEND. The consumer (brain-ui)
-  // declares the backend it actually deploys.
-  "@schlessera/brain-ui-server": {
-    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk"],
-    optionalPeers: ["@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
-  },
-};
+// The table itself lives in tests/allowed-edges.ts so the release-order guard
+// in tests/release-manifest.test.ts can consume the same edges. Widening it is
+// a deliberate decision with a review trail, not a fix-the-test reflex — see
+// the failure messages below.
+import { ALLOWED_EDGES } from "./allowed-edges";
 
 function publishablePackages(): { dir: string; manifest: Manifest }[] {
   return readdirSync(PACKAGES_DIR, { withFileTypes: true })
@@ -101,7 +49,7 @@ const packages = publishablePackages();
 const internalNames = new Set(packages.map((p) => p.manifest.name));
 
 const DECIDE =
-  "This edge is not in the ALLOWED_EDGES table in tests/dependency-edges.test.ts. " +
+  "This edge is not in the ALLOWED_EDGES table in tests/allowed-edges.ts. " +
   "Do not widen the table to make the test pass — decide whether the edge should " +
   "exist at all, and if so whether it must be a hard dependency or an optional " +
   "peer, then record the decision in the table with a comment saying why.";
