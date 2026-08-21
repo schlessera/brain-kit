@@ -1,12 +1,11 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Database } from "bun:sqlite";
-import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { join } from "path";
 import { resolveServerConfig, type ServerConfig } from "./config/env.js";
-import { healthRoutes, createStatusRoutes } from "./routes/health.js";
+import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createVoiceRoutes } from "./routes/voice.js";
@@ -168,7 +167,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  const db = createUiDb(config.dbPath, { log: observability.logger("db") });
+  const dbLog = observability.logger("db");
+  const db = createUiDb(config.dbPath, { log: dbLog });
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
   const registry =
@@ -176,36 +176,60 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     createBackendRegistry({
       brainPath: config.brainPath,
       agent: config.agent,
-      getHiddenModelIds: () => getHiddenModelIds(db),
+      getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
+      log: observability.logger("agent"),
     });
   const host = new WsHost({
     registry,
     observability,
-    catalog: createSessionCatalog(() => db),
+    catalog: createSessionCatalog(() => db, dbLog),
     ...(options.appName ? { appName: options.appName } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
   });
   const wsUpgrade = createWsUpgrade(host);
+  // One instrument for every way a login can fail — passkey ceremonies and
+  // password logins land in the same series, split by attributes.
+  const authFailures = observability.meter("auth").createCounter("auth.failures", {
+    description: "Failed authentication ceremonies, by reason",
+  });
   const passkeyCtx: PasskeyContext = {
     db,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
     log: observability.logger("passkeys"),
-    failures: observability.meter("auth").createCounter("auth.failures", {
-      description: "Failed authentication ceremonies, by reason",
-    }),
+    failures: authFailures,
   };
   const keyterms: KeytermSettings = {
     brainPath: config.brainPath,
     cacheDir: config.voice.cacheDir,
     limit: config.voice.keytermLimit,
+    log: observability.logger("voice"),
   };
 
-  // Middleware
-  app.use("*", logger());
+  // Request logging through the observability layer, so BRAIN_UI_LOG_LEVEL
+  // governs it like every other emission (hono's logger() wrote raw console
+  // lines no threshold or consumer swap could touch). Path only — never the
+  // query string or body. /api/health is skipped: the Docker healthcheck
+  // polls it and would drown everything else out.
+  const httpLog = observability.logger("http");
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/api/health") return next();
+    const startedAt = Date.now();
+    await next();
+    httpLog.emit({
+      severityText: "INFO",
+      body: "request",
+      attributes: {
+        method: c.req.method,
+        path: c.req.path,
+        status: c.res.status,
+        "duration.ms": Date.now() - startedAt,
+      },
+    });
+  });
 
   // CORS is only needed for a SPLIT topology where the client is served from a
   // different origin than the API. ALLOWED_ORIGINS is a comma-separated
@@ -228,7 +252,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // probe and the login/logout routes are reachable without a session.
   // /api/status is intentionally NOT here — it leaks the git SHA, cron errors,
   // and a session oracle, so it lives behind the guard below.
-  app.route("/api", healthRoutes);
+  app.route("/api", createHealthRoutes({ db }));
   // Not under /api, and not behind the guard: this is where a system share
   // lands when no service worker was around to intercept it. See the route.
   app.route("/", shareTargetFallbackRoutes);
@@ -236,6 +260,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     "/api",
     authRoutes(authMode, auth, {
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
+      log: authLog,
+      failures: authFailures,
     })
   );
   app.route("/api", passkeyPublicRoutes(authMode, passkeyCtx));
@@ -265,15 +291,28 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   );
   app.route("/api", createSessionRoutes({ registry, db }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
-  app.route("/api", createFilesRoutes({ brainRoot: config.brainPath }));
   app.route(
     "/api",
-    createShareRoutes({ brainRoot: config.brainPath, allowedOrigins })
+    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
   );
-  app.route("/api", createRenderRoutes(options.renderer));
+  app.route(
+    "/api",
+    createShareRoutes({
+      brainRoot: config.brainPath,
+      allowedOrigins,
+      log: observability.logger("share"),
+    })
+  );
+  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render")));
   app.route("/api", createProviderRoutes({ registry }));
-  app.route("/api", createModelRoutes({ registry, db }));
-  app.route("/api", createGraphRoutes({ brainRoot: config.brainPath }));
+  app.route(
+    "/api",
+    createModelRoutes({ registry, db, log: observability.logger("models") })
+  );
+  app.route(
+    "/api",
+    createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })
+  );
 
   // WebSocket endpoint. Browsers can't set headers on the WS handshake, so the
   // upgrade authenticates via the session cookie (or IP/proxy header) INSIDE

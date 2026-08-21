@@ -67,6 +67,25 @@ export interface WsHostOptions {
   wsRate?: { ratePerSecond: number; burst: number };
 }
 
+/** Identity of one turn, as it appears on a log record. */
+export interface TurnLogContext {
+  sessionId?: string | null;
+  turnId?: string | null;
+  providerId?: string | null;
+}
+
+/**
+ * Log attributes for one turn. Null fields are omitted rather than stringified
+ * — a new session has no sessionId until `session_info` names it.
+ */
+export function turnLogAttributes(turn: TurnLogContext): Record<string, string> {
+  return {
+    ...(turn.sessionId ? { "session.id": turn.sessionId } : {}),
+    ...(turn.turnId ? { "turn.id": turn.turnId } : {}),
+    ...(turn.providerId ? { profile: turn.providerId } : {}),
+  };
+}
+
 /**
  * Everything one WebSocket coordinator instance owns: turn state, the session
  * catalog, the backend registry, the attached client sockets, branding copy,
@@ -88,6 +107,18 @@ export class WsHost {
   private readonly framesDropped: ReturnType<
     ReturnType<Observability["meter"]>["createCounter"]
   >;
+  private readonly turnsStarted: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
+  private readonly turnsCompleted: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
+  private readonly turnsFailed: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
+  private readonly wsErrors: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
 
   constructor(options: WsHostOptions) {
     this.registry = options.registry;
@@ -100,11 +131,22 @@ export class WsHost {
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.log = this.observability.logger("ws");
-    this.framesDropped = this.observability
-      .meter("ws")
-      .createCounter("ws.frames.dropped", {
-        description: "Inbound frames refused before reaching a handler",
-      });
+    const meter = this.observability.meter("ws");
+    this.framesDropped = meter.createCounter("ws.frames.dropped", {
+      description: "Inbound frames refused before reaching a handler",
+    });
+    this.turnsStarted = meter.createCounter("turns.started", {
+      description: "Turns handed to a backend",
+    });
+    this.turnsCompleted = meter.createCounter("turns.completed", {
+      description: "Turns whose backend call resolved without throwing",
+    });
+    this.turnsFailed = meter.createCounter("turns.failed", {
+      description: "Turn failures surfaced to the client, by error code",
+    });
+    this.wsErrors = meter.createCounter("ws.errors", {
+      description: "Transport errors reported by the socket layer",
+    });
     this.coordinator.log = this.log;
   }
 
@@ -130,9 +172,76 @@ export class WsHost {
     });
   }
 
+  /** A turn began executing: counted, and logged with its correlation ids. */
+  reportTurnStarted(turn: TurnLogContext): void {
+    this.turnsStarted.add(1);
+    this.log.emit({
+      severityText: "INFO",
+      body: "turn started",
+      attributes: turnLogAttributes(turn),
+    });
+  }
+
+  /** A turn's backend call resolved: counted, and logged with its duration. */
+  reportTurnCompleted(turn: TurnLogContext, durationMs: number): void {
+    this.turnsCompleted.add(1);
+    this.log.emit({
+      severityText: "INFO",
+      body: "turn completed",
+      attributes: { ...turnLogAttributes(turn), "duration.ms": durationMs },
+    });
+  }
+
+  /**
+   * Record a turn failure the client is being told about. Before this existed
+   * every such failure was an error FRAME only — visible on one phone screen,
+   * absent from the server's own record.
+   *
+   * `code` is the bounded error-frame code (it feeds a counter attribute);
+   * `error` is the thrown message and rides only on the log record — never a
+   * caller-supplied frame body, per the reportDroppedFrame model.
+   */
+  reportTurnFailed(code: string, turn: TurnLogContext, error?: string): void {
+    this.turnsFailed.add(1, { code });
+    this.log.emit({
+      // A busy session is the client racing itself; everything else is a
+      // failure the operator should see.
+      severityText: code === "SESSION_BUSY" ? "WARN" : "ERROR",
+      body: "turn failed",
+      attributes: {
+        code,
+        ...turnLogAttributes(turn),
+        ...(error ? { error } : {}),
+      },
+    });
+  }
+
+  /**
+   * Record a socket that closed abnormally. This is the transport-error signal
+   * available on Bun: hono's Bun adapter dispatches only open/message/close
+   * (never WSEvents.onError, and Bun's ServerWebSocket has no error callback),
+   * so a transport failure surfaces as a close with an abnormal code.
+   */
+  reportAbnormalClose(code: number): void {
+    this.wsErrors.add(1, { "close.code": code });
+    this.log.emit({
+      severityText: "WARN",
+      body: "websocket closed abnormally",
+      attributes: { "close.code": code },
+    });
+  }
+
   /** Fan a frame out to every attached client (size-bounded per frame). */
   sendToClients(msg: ServerMessage): void {
-    this.clients.broadcast(msg);
+    this.clients.broadcast(msg, () => {
+      // Outbound counterpart of reportDroppedFrame: the peer never saw this
+      // frame. Counted only — a dead socket would otherwise WARN per frame
+      // until its onClose prunes it.
+      this.framesDropped.add(1, {
+        reason: "broadcast_send_failed",
+        direction: "outbound",
+      });
+    });
   }
 
   /** Send a frame to one specific socket (size-bounded). */

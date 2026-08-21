@@ -5,7 +5,7 @@
  * brain-kit chat-UI wire protocol.
  */
 export { createClaudeBackend, DEFAULT_CONFIRM_BASH_PATTERNS } from "./backend.js";
-export type { ClaudeBackendOptions } from "./backend.js";
+export type { ClaudeBackendOptions, BackendLogFn } from "./backend.js";
 export { defineProfiles, DEFAULT_PROFILES } from "./profiles.js";
 export type { InferenceProfile, InferenceProfileInput } from "./profiles.js";
 export {

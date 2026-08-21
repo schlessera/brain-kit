@@ -5,7 +5,13 @@ import { makeBridge, emitTurnError } from "./bridge.js";
 import { resolveTurnTarget } from "./routing.js";
 import type { QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
-import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES, type WsHost } from "./host.js";
+import {
+  MAX_SESSION_QUEUE,
+  QUEUE_MAX_BYTES,
+  QUEUE_WARN_BYTES,
+  turnLogAttributes,
+  type WsHost,
+} from "./host.js";
 
 /**
  * Run one session slot: the initial turn, then any queued follow-up turns in
@@ -30,10 +36,14 @@ export async function runSession(
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // No turn exists yet — routing failed before one was minted — so the
+    // report carries only the session identity the client asked for.
+    host.reportTurnFailed("BACKEND_ERROR", { sessionId: initial.sessionId }, message);
     host.sendToClients({
       type: "error",
       code: "BACKEND_ERROR",
-      message: err instanceof Error ? err.message : String(err),
+      message,
       ...(initial.sessionId ? { sessionId: initial.sessionId } : {}),
     });
     return;
@@ -66,6 +76,7 @@ export async function runSession(
     timeoutHandle: setTimeout(() => {}, 0),
     queue: [],
     cancelled: false,
+    lastResult: null,
   };
   clearTimeout(turn.timeoutHandle);
   coordinator.running.add(turn);
@@ -90,7 +101,9 @@ export async function runSession(
         host.log.emit({
           severityText: "WARN",
           body: "turn timed out",
-          attributes: { "timeout.ms": host.turnTimeoutMs },
+          // Read from the live turn: session_info may have named the session
+          // after this timer was armed.
+          attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
         });
         abortController.abort();
         // Reject any pending interactive request for this turn too. A bridge
@@ -102,6 +115,8 @@ export async function runSession(
       turn.timeoutHandle = timeoutHandle;
 
       const bridge = makeBridge(host, turn, text, backend.id);
+      const startedAt = Date.now();
+      host.reportTurnStarted(turn);
       try {
         await backend.startTurn({
           prompt: text,
@@ -112,6 +127,14 @@ export async function runSession(
           bridge,
           ...(client ? { client } : {}),
         });
+        // A resolved startTurn is not a successful turn: backends resolve for
+        // runtime failures and report them on the terminal result frame, which
+        // the bridge recorded on the turn.
+        if (turn.lastResult === "error") {
+          host.reportTurnFailed("BACKEND_RESULT_ERROR", turn);
+        } else {
+          host.reportTurnCompleted(turn, Date.now() - startedAt);
+        }
       } catch (err) {
         emitTurnError(host, turn, err);
       } finally {
@@ -127,8 +150,10 @@ export async function runSession(
 
       if (!turn.cancelled && turn.queue.length > 0) {
         next = turn.queue.shift()!;
-        // A queued follow-up is its own turn — give it a fresh identity.
+        // A queued follow-up is its own turn — give it a fresh identity, and
+        // its own terminal disposition.
         turn.turnId = crypto.randomUUID();
+        turn.lastResult = null;
       }
     }
   } finally {
@@ -168,11 +193,10 @@ export async function handleChatMessage(
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
       backend.followUp({ sessionId, prompt: text, attachments }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
         host.sendToClients(
-          withTurnScope(
-            { type: "error", code: "FOLLOWUP_FAILED", message: err instanceof Error ? err.message : String(err) },
-            runningTurn
-          )
+          withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
         );
       });
     } else {

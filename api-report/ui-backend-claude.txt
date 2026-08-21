@@ -5,6 +5,7 @@
 
 export "." (./src/index.ts)
   type AliasChecks
+  type BackendLogFn
   type ClaudeBackendEnv
   type ClaudeBackendOptions
   DEFAULT_CONFIRM_BASH_PATTERNS

@@ -48,6 +48,33 @@ import type {
  * incompatible drift slide.
  */
 
+/**
+ * Mirror of the backends' `BackendLogFn` — the minimal log seam a backend
+ * accepts. A callback rather than a Logger so the backend packages carry no
+ * telemetry dependency; {@link toBackendLog} adapts the registry's Logger.
+ */
+export type BackendLogFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  attrs?: Record<string, string | number | boolean>
+) => void;
+
+const LEVEL_SEVERITY = {
+  debug: "DEBUG",
+  info: "INFO",
+  warn: "WARN",
+  error: "ERROR",
+} as const;
+
+function toBackendLog(log: Logger): BackendLogFn {
+  return (level, message, attrs) =>
+    log.emit({
+      severityText: LEVEL_SEVERITY[level],
+      body: message,
+      ...(attrs ? { attributes: attrs } : {}),
+    });
+}
+
 /** Mirror of the Claude package's `InferenceProfileInput` (declarative shape). */
 export interface ClaudeProfileInput {
   id: string;
@@ -96,6 +123,7 @@ export interface ClaudeBackendModule {
     claudeCodePath?: string;
     profiles?: ClaudeProfile[] | (() => ClaudeProfile[]);
     confirmBashPatterns?: readonly string[];
+    log?: BackendLogFn;
   }) => AgentBackend;
   createModelSource: (options: {
     brainPath: string;
@@ -147,6 +175,12 @@ export interface BackendRegistryOptions {
    * sessions pinned to it. Defaults to "nothing hidden".
    */
   getHiddenModelIds?: () => string[];
+  /**
+   * Where the registry and its backends report. Adapted to the backends'
+   * minimal callback ({@link BackendLogFn}) before crossing the package
+   * boundary. Absent means silence.
+   */
+  log?: Logger;
 }
 
 export interface BackendRegistry {
@@ -280,6 +314,7 @@ export function createBackendRegistry(
 ): BackendRegistry {
   const { brainPath, agent } = options;
   const getHidden = options.getHiddenModelIds ?? (() => []);
+  const backendLog = options.log ? toBackendLog(options.log) : undefined;
 
   let cachedRegistry: Promise<RegistrySnapshot> | null = null;
   let modelSource: ClaudeModelSource | null = null;
@@ -424,6 +459,7 @@ export function createBackendRegistry(
     return claude.createClaudeBackend({
       brainPath,
       claudeCodePath: agent.claudeCodePath,
+      ...(backendLog ? { log: backendLog } : {}),
       // Omitted entirely when unconfigured, so the backend's own defaults
       // apply; an explicit [] passes through and disables confirmation.
       ...(agent.confirmBashPatterns !== null
@@ -438,7 +474,9 @@ export function createBackendRegistry(
 
   function buildPiBackend(): AgentBackend {
     const require = createRequire(import.meta.url);
-    let mod: { createPiBackend?: (opts: { brainPath: string }) => AgentBackend };
+    let mod: {
+      createPiBackend?: (opts: { brainPath: string; log?: BackendLogFn }) => AgentBackend;
+    };
     try {
       mod = require("@schlessera/brain-backend-pi");
     } catch {
@@ -449,7 +487,10 @@ export function createBackendRegistry(
         '"@schlessera/brain-backend-pi" does not export createPiBackend.'
       );
     }
-    return mod.createPiBackend({ brainPath });
+    return mod.createPiBackend({
+      brainPath,
+      ...(backendLog ? { log: backendLog } : {}),
+    });
   }
 
   async function buildRegistry(): Promise<RegistrySnapshot> {
@@ -477,10 +518,15 @@ export function createBackendRegistry(
     return cachedRegistry;
   }
 
-  return makeRegistry(getRegistry, getHidden, async () => {
-    await getRegistry();
-    return modelSource;
-  });
+  return makeRegistry(
+    getRegistry,
+    getHidden,
+    async () => {
+      await getRegistry();
+      return modelSource;
+    },
+    options.log
+  );
 }
 
 /**
@@ -492,13 +538,14 @@ export function createBackendRegistry(
 export function createStaticBackendRegistry(
   backends: AgentBackend[],
   defaultBackendId = backends[0]?.id ?? "",
-  options: { getHiddenModelIds?: () => string[] } = {}
+  options: { getHiddenModelIds?: () => string[]; log?: Logger } = {}
 ): BackendRegistry {
   const snapshot = buildSnapshot(backends, defaultBackendId);
   return makeRegistry(
     async () => snapshot,
     options.getHiddenModelIds ?? (() => []),
-    async () => null
+    async () => null,
+    options.log
   );
 }
 

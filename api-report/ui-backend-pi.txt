@@ -4,6 +4,7 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  type BackendLogFn
   type BrainAccess
   type BrainToolDeps
   type CreatePiBackendOptions

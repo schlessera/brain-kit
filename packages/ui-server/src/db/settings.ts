@@ -36,8 +36,8 @@ export function setSetting(db: Database, key: string, value: unknown): void {
 }
 
 /** Profile ids the user keeps out of the model picker. */
-export function getHiddenModelIds(db: Database): string[] {
-  const value = getSetting<unknown>(db, HIDDEN_MODELS_KEY, []);
+export function getHiddenModelIds(db: Database, log?: Logger): string[] {
+  const value = getSetting<unknown>(db, HIDDEN_MODELS_KEY, [], log);
   if (!Array.isArray(value)) return [];
   return value.filter((id): id is string => typeof id === "string");
 }

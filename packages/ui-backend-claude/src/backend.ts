@@ -177,6 +177,17 @@ function bashCommand(input: unknown): string | null {
   return typeof command === "string" && command.trim() ? command : null;
 }
 
+/**
+ * Minimal host-injected log seam. A callback rather than a logger object so
+ * this package carries no telemetry dependency — the ui-server registry adapts
+ * its own structured logger to this shape and passes it through.
+ */
+export type BackendLogFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  attrs?: Record<string, string | number | boolean>
+) => void;
+
 export interface ClaudeBackendOptions {
   /** Working directory for the agent — the brain repo the model operates on. */
   brainPath: string;
@@ -215,6 +226,11 @@ export interface ClaudeBackendOptions {
    * the ones worth stopping on.
    */
   confirmBashPatterns?: readonly string[];
+  /**
+   * Where this backend reports degradations. Absent, it falls back to
+   * `console.warn` so a standalone consumer still sees them.
+   */
+  log?: BackendLogFn;
   /**
    * Text appended to the Claude Code system prompt, describing the chat
    * surface the answer renders on. Defaults to `buildSystemPromptAppend(...)`,
@@ -298,9 +314,14 @@ export function createClaudeBackend(
   const confirmPatterns = compileConfirmPatterns(
     options.confirmBashPatterns ?? DEFAULT_CONFIRM_BASH_PATTERNS,
     (source, message) =>
-      console.warn(
-        `[claude-backend] ignoring unparseable confirmBashPatterns entry ${JSON.stringify(source)}: ${message}`
-      )
+      options.log
+        ? options.log("warn", "ignoring unparseable confirmBashPatterns entry", {
+            source,
+            error: message,
+          })
+        : console.warn(
+            `[claude-backend] ignoring unparseable confirmBashPatterns entry ${JSON.stringify(source)}: ${message}`
+          )
   );
   const history = createHistory({
     brainPath: options.brainPath,

@@ -202,10 +202,12 @@ export async function handleClientMessage(
           ...(runningTurn ? { turnId: runningTurn.turnId } : {}),
         });
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load session";
+        host.reportTurnFailed("SESSION_LOAD_ERROR", { sessionId: msg.sessionId }, message);
         host.sendMessage(ws, {
           type: "error",
           code: "SESSION_LOAD_ERROR",
-          message: err instanceof Error ? err.message : "Failed to load session",
+          message,
           sessionId: msg.sessionId,
         });
       }

@@ -8,6 +8,7 @@
 
 export { createPiBackend, PI_BACKEND_ID, mapPiEvent } from "./backend.js";
 export type {
+  BackendLogFn,
   CreatePiBackendOptions,
   PiProfile,
   PiSessionLike,

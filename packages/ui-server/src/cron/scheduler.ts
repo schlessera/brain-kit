@@ -5,7 +5,8 @@ import type { BrainClient } from "../brain/client.js";
 // Scheduling is owned by the container crontab (config/crontab) — sync at
 // 02:00, validate at 03:00, job scrape at 04:00. This module only provides
 // manual triggers (triggerJob) and run history for the /api/status endpoint.
-// Runs started by the crontab do not appear here; they log to syslog.
+// Runs started by the crontab report themselves via recordCronRun below;
+// their stdout/stderr still goes to syslog.
 
 export interface CronScheduler {
   getCronStatus(): Array<{
@@ -21,6 +22,46 @@ export interface CronScheduler {
 interface CronJob {
   name: string;
   handler: () => Promise<void>;
+}
+
+/** One in-flight job run being recorded into `cron_runs`. */
+export interface CronRunRecord {
+  /** Mark the run finished: success without an argument, error with one. */
+  finish(error?: string): void;
+}
+
+/**
+ * Record a job run in the `cron_runs` history that `/api/status` serves
+ * (`cronJobs`, via {@link CronScheduler.getCronStatus}).
+ *
+ * The scheduler in this module only writes the table for its own manual
+ * triggers; in the shipped deployment the jobs are executed by the container
+ * crontab, whose runs were invisible to `/api/status`. An external scheduler's
+ * wrapper calls this before the job and `finish()` after, writing exactly the
+ * rows the in-process runner writes. A run whose process died before
+ * `finish()` stays in status "running" — itself a signal.
+ */
+export function recordCronRun(db: Database, jobName: string): CronRunRecord {
+  const startedAt = Date.now();
+  db.prepare(
+    "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'running')"
+  ).run(jobName, startedAt);
+
+  return {
+    finish(error?: string) {
+      const finishedAt = Date.now();
+      const durationMs = finishedAt - startedAt;
+      if (error === undefined) {
+        db.prepare(
+          "UPDATE cron_runs SET status = 'success', finished_at = ?, duration_ms = ? WHERE job_name = ? AND started_at = ?"
+        ).run(finishedAt, durationMs, jobName, startedAt);
+      } else {
+        db.prepare(
+          "UPDATE cron_runs SET status = 'error', finished_at = ?, duration_ms = ?, error_message = ? WHERE job_name = ? AND started_at = ?"
+        ).run(finishedAt, durationMs, error, jobName, startedAt);
+      }
+    },
+  };
 }
 
 export function createCronScheduler(deps: {
@@ -49,28 +90,21 @@ export function createCronScheduler(deps: {
 
   async function runJob(job: CronJob) {
     const startedAt = Date.now();
-
-    db.prepare(
-      "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'running')"
-    ).run(job.name, startedAt);
+    // Same recorder the external-scheduler path uses, so the two can never
+    // drift in what a cron_runs row looks like.
+    const record = recordCronRun(db, job.name);
 
     try {
       await job.handler();
-      const durationMs = Date.now() - startedAt;
-      db.prepare(
-        "UPDATE cron_runs SET status = 'success', finished_at = ?, duration_ms = ? WHERE job_name = ? AND started_at = ?"
-      ).run(Date.now(), durationMs, job.name, startedAt);
+      record.finish();
       log?.emit({
         severityText: "INFO",
         body: "job completed",
-        attributes: { job: job.name, "duration.ms": durationMs },
+        attributes: { job: job.name, "duration.ms": Date.now() - startedAt },
       });
     } catch (err) {
-      const durationMs = Date.now() - startedAt;
       const message = err instanceof Error ? err.message : String(err);
-      db.prepare(
-        "UPDATE cron_runs SET status = 'error', finished_at = ?, duration_ms = ?, error_message = ? WHERE job_name = ? AND started_at = ?"
-      ).run(Date.now(), durationMs, message, job.name, startedAt);
+      record.finish(message);
       log?.emit({
         severityText: "ERROR",
         body: "job failed",

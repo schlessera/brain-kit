@@ -1,3 +1,4 @@
+import type { Counter } from "@opentelemetry/api";
 import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
@@ -289,9 +290,14 @@ export function authRoutes(
      * of WebAuthn concerns.
      */
     passwordDisabled?: (c: Context) => boolean;
+    /** Where login outcomes are reported; absent means silence. */
+    log?: Logger;
+    /** Failed-login counter — the same `auth.failures` instrument passkeys use. */
+    failures?: Counter;
   } = {}
 ): Hono {
   const app = new Hono();
+  const { log, failures } = deps;
 
   app.post("/auth/login", async (c) => {
     if (mode !== "password") {
@@ -302,6 +308,12 @@ export function authRoutes(
     const perIpOk = consumeLoginToken(`ip:${key}`, LOGIN_RATE_LIMIT);
     const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
     if (!perIpOk || !globalOk) {
+      failures?.add(1, { reason: "rate_limited", method: "password" });
+      log?.emit({
+        severityText: "WARN",
+        body: "login rate limited",
+        attributes: { ip: key, limit: perIpOk ? "global" : "ip" },
+      });
       return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
 
@@ -322,15 +334,52 @@ export function authRoutes(
     }
     const password = typeof body.password === "string" ? body.password : "";
     if (!password || !hash || !secret) {
+      failures?.add(1, { reason: "invalid_password", method: "password" });
+      log?.emit({
+        severityText: "WARN",
+        body: "login failed",
+        attributes: { ip: key },
+      });
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    const ok = await Bun.password.verify(password, hash).catch(() => false);
+    // A verify that THROWS is not a wrong password — it is a hash Bun cannot
+    // parse (a corrupt BRAIN_UI_PASSWORD_HASH locks the owner out of every
+    // login), and collapsing it into "invalid credentials" hid exactly that.
+    let ok = false;
+    let verifyError: unknown = null;
+    try {
+      ok = await Bun.password.verify(password, hash);
+    } catch (err) {
+      verifyError = err;
+    }
+    if (verifyError) {
+      failures?.add(1, { reason: "verify_error", method: "password" });
+      log?.emit({
+        severityText: "ERROR",
+        body: "password verification errored — check BRAIN_UI_PASSWORD_HASH",
+        attributes: {
+          error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        },
+      });
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
     if (!ok) {
+      failures?.add(1, { reason: "invalid_password", method: "password" });
+      log?.emit({
+        severityText: "WARN",
+        body: "login failed",
+        attributes: { ip: key },
+      });
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
     await issueSessionCookie(c, auth);
+    log?.emit({
+      severityText: "INFO",
+      body: "login succeeded",
+      attributes: { ip: key },
+    });
     return c.json({ ok: true });
   });
 

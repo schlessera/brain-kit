@@ -405,7 +405,7 @@ export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
         keyterms,
         generatedAt: Date.now(),
         count: keyterms.length,
-        overrides: loadOverrides(brainPath),
+        overrides: loadOverrides(brainPath, log),
       };
     });
   } catch (err) {
@@ -429,7 +429,7 @@ export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
         keyterms: [],
         generatedAt: Date.now(),
         count: 0,
-        overrides: loadOverrides(brainPath),
+        overrides: loadOverrides(brainPath, log),
         degraded: true,
       };
     }

@@ -3,6 +3,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
 import { createApp } from "../src/app";
+import { createRecordingObservability } from "../src/observability/index";
 
 // Hermetic wiring test: boots the real app in a deployed-like config and asserts
 // the wiring that the three prod lockouts (auth-guard ordering, CORS, WS origin)
@@ -295,5 +296,48 @@ describe("createApp refuses unsafe configuration", () => {
     } finally {
       reset();
     }
+  });
+});
+
+describe("app wiring — request logging", () => {
+  test("requests are logged through the observability layer, /api/health excepted", async () => {
+    const observability = createRecordingObservability();
+    const wired = createApp({ observability });
+    const send = (path: string) =>
+      wired.fetch(new Request(`http://localhost${path}`));
+
+    await send("/api/health");
+    await send("/api/status?secret=value");
+
+    // The healthcheck poll leaves no record; the real request does — with the
+    // path only, never the query string.
+    expect(observability.logs.count({ scope: "http" })).toBe(1);
+    const [record] = observability.logs.find({ scope: "http" });
+    expect(record.severity).toBe("INFO");
+    expect(record.attributes.method).toBe("GET");
+    expect(record.attributes.path).toBe("/api/status");
+    expect(record.attributes.status).toBe(401);
+    expect(record.attributes["duration.ms"]).toBeNumber();
+    expect(JSON.stringify(record.attributes)).not.toContain("secret");
+
+    wired.close();
+  });
+});
+
+describe("app wiring — health probes the database", () => {
+  test("a dead SQLite handle turns /api/health into 503 unhealthy", async () => {
+    const wired = createApp();
+    const send = () => wired.fetch(new Request("http://localhost/api/health"));
+
+    expect((await send()).status).toBe(200);
+
+    // close() releases the handle — the same state a wedged database presents.
+    wired.close();
+    const res = await send();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    // Fails minimal: the route is public, so the body says unhealthy and
+    // nothing else.
+    expect(body).toEqual({ status: "unhealthy" });
   });
 });

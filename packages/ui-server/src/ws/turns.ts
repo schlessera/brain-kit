@@ -56,6 +56,14 @@ export interface RunningTurn {
   queue: QueuedFollowUp[];
   cancelled: boolean;
   /**
+   * Terminal disposition of the CURRENT turn's `result` frame, when one has
+   * streamed. Backends RESOLVE startTurn for runtime failures (the failure
+   * rides the result frame as outcome "error"), so completion accounting must
+   * read this — a resolved startTurn alone does not mean the turn succeeded.
+   * Reset when a queued follow-up becomes the next turn.
+   */
+  lastResult: "success" | "error" | "cancelled" | null;
+  /**
    * Correlation id the client minted for this NEW conversation, echoed back on
    * `session_info` so the client can tell its own turn's identity from a
    * background turn's. Null on a resumed session or a client that sent none.

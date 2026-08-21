@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { Logger } from "@opentelemetry/api-logs";
 import type { ServerResultMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 /**
@@ -42,7 +43,20 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
      backend_id = COALESCE(excluded.backend_id, backend_id)`;
 
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
-export function createSessionCatalog(db: () => Database): SessionCatalog {
+export function createSessionCatalog(db: () => Database, log?: Logger): SessionCatalog {
+  // Persistence stays non-throwing — losing one accounting row must not kill
+  // the turn — but never silent: a full disk or locked database would
+  // otherwise drop every session record with nothing anywhere.
+  const reportWriteFailure = (sessionId: string, err: unknown): void => {
+    log?.emit({
+      severityText: "WARN",
+      body: "session persistence failed",
+      attributes: {
+        "session.id": sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
+  };
   return {
     getStoredProviderId(sessionId) {
       const row = db()
@@ -72,7 +86,9 @@ export function createSessionCatalog(db: () => Database): SessionCatalog {
             providerId,
             backendId
           );
-      } catch {}
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+      }
     },
 
     persistSession(msg, promptText, providerId, backendId) {
@@ -90,7 +106,9 @@ export function createSessionCatalog(db: () => Database): SessionCatalog {
             providerId,
             backendId
           );
-      } catch {}
+      } catch (err) {
+        reportWriteFailure(msg.sessionId, err);
+      }
     },
   };
 }

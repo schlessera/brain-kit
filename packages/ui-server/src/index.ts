@@ -34,6 +34,7 @@ export {
   assertBackendResolvable,
   createBackendRegistry,
   createStaticBackendRegistry,
+  type BackendLogFn,
   type BackendRegistry,
   type ModelDiscoverySource,
   type ModelDiscoveryState,
@@ -73,6 +74,11 @@ export {
 // Brain repo access (spawned CLI wrapper) — useful for embedders that add
 // their own routes on top.
 export { createBrainClient, type BrainClient } from "./brain/client.js";
+
+// Cron run history. Scheduling belongs to the deployment (container crontab);
+// an external scheduler's wrapper records each run here so /api/status's
+// `cronJobs` reflects what actually ran.
+export { recordCronRun, type CronRunRecord } from "./cron/scheduler.js";
 
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.

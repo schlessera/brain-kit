@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Database } from "bun:sqlite";
 
 import type { MetricSnapshot } from "../observability/index.js";
 
@@ -7,13 +8,28 @@ const startTime = Date.now();
 // Public liveness probe. Deliberately minimal: no version/commit, no cron
 // detail, no session oracle — this route sits in front of the auth guard and
 // is reachable by anyone on the origin.
-export const healthRoutes = new Hono().get("/health", (c) => {
-  return c.json({
-    status: "healthy",
-    uptime: Date.now() - startTime,
-    timestamp: new Date().toISOString(),
+//
+// "Healthy" means the app's own SQLite handle answers a real read, not merely
+// that the process accepts connections: the Docker healthcheck gates on this
+// route, and a wedged database previously kept reporting healthy while every
+// stateful route failed. The probe reads sqlite_master rather than a bare
+// SELECT 1 — a constant expression touches no page of the database file, so it
+// cannot notice a locked or corrupted one. The unhealthy body carries no
+// detail — the route is public.
+export function createHealthRoutes(deps: { db: Database }): Hono {
+  return new Hono().get("/health", (c) => {
+    try {
+      deps.db.query("SELECT name FROM sqlite_master LIMIT 1").get();
+    } catch {
+      return c.json({ status: "unhealthy" }, 503);
+    }
+    return c.json({
+      status: "healthy",
+      uptime: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    });
   });
-});
+}
 
 export interface StatusDeps {
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */

@@ -2,8 +2,9 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, unlinkSync } from "fs";
 
-// We test the cron logic directly against a test database
-// rather than importing the scheduler (which has side effects)
+// The raw-SQL tests below predate the factory and assert the row shapes
+// directly; recordCronRun is the exported writer of those same rows.
+import { recordCronRun } from "../src/cron/scheduler";
 
 const TEST_DB = `/tmp/brain-ui-cron-test-${process.pid}.db`;
 
@@ -128,5 +129,72 @@ describe("cron scheduler logic", () => {
       .get();
 
     expect(row).toBeNull();
+  });
+});
+
+describe("recordCronRun (external scheduler seam)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE cron_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_name TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'error')),
+        error_message TEXT,
+        duration_ms INTEGER
+      )
+    `);
+  });
+
+  afterEach(() => db.close());
+
+  const lastRun = (job: string) =>
+    db
+      .query("SELECT * FROM cron_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1")
+      .get(job) as any;
+
+  test("a run is visible as 'running' between start and finish", () => {
+    const record = recordCronRun(db, "sync");
+
+    const row = lastRun("sync");
+    expect(row.status).toBe("running");
+    expect(row.finished_at).toBeNull();
+
+    record.finish();
+    expect(lastRun("sync").status).toBe("success");
+  });
+
+  test("finishing without an error writes the success shape runJob writes", () => {
+    recordCronRun(db, "sync").finish();
+
+    const row = lastRun("sync");
+    expect(row.status).toBe("success");
+    expect(row.finished_at).toBeGreaterThanOrEqual(row.started_at);
+    expect(row.duration_ms).toBe(row.finished_at - row.started_at);
+    expect(row.error_message).toBeNull();
+  });
+
+  test("finishing with an error writes the error shape", () => {
+    recordCronRun(db, "validate").finish("brain validate exited 1");
+
+    const row = lastRun("validate");
+    expect(row.status).toBe("error");
+    expect(row.error_message).toBe("brain validate exited 1");
+    expect(row.duration_ms).toBeNumber();
+  });
+
+  test("concurrent runs of different jobs do not cross-write", () => {
+    const sync = recordCronRun(db, "sync");
+    const validate = recordCronRun(db, "validate");
+
+    validate.finish("boom");
+    sync.finish();
+
+    expect(lastRun("sync").status).toBe("success");
+    expect(lastRun("validate").error_message).toBe("boom");
   });
 });

@@ -93,6 +93,17 @@ export interface PiSessionFactory {
   openSession(sessionId: string, toolkit?: SessionToolkit): Promise<PiSessionLike>;
 }
 
+/**
+ * Minimal host-injected log seam. A callback rather than a logger object so
+ * this package carries no telemetry dependency — the ui-server registry adapts
+ * its own structured logger to this shape and passes it through.
+ */
+export type BackendLogFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  attrs?: Record<string, string | number | boolean>
+) => void;
+
 export interface PiProfile {
   /** Opaque profile id surfaced to the client (travels the wire as providerId). */
   id: string;
@@ -132,6 +143,8 @@ export interface CreatePiBackendOptions {
    * another writer in the same process.
    */
   writeLock?: WriteLock;
+  /** Where this backend reports degradations. Absent means silence. */
+  log?: BackendLogFn;
   /** @internal Test seam — inject session acquisition (contract tests). */
   sessionFactory?: PiSessionFactory;
 }
@@ -222,9 +235,16 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       });
       await loader.reload();
       sharedResources = { loader, settingsManager };
-    } catch {
+    } catch (err) {
       // Fall back to pi's internal DefaultResourceLoader (still discovers
-      // skills + context files from cwd); we lose only the extension opt-out.
+      // skills + context files from cwd). The fallback loses the extension
+      // opt-out AND the chat-surface system-prompt append — degraded output
+      // for every session this backend runs, so it must not happen silently.
+      options.log?.(
+        "warn",
+        "falling back to pi's internal resource loader; the chat-surface system-prompt append is lost",
+        { error: err instanceof Error ? err.message : String(err) }
+      );
       sharedResources = null;
     }
     return sharedResources;

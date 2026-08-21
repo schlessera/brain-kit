@@ -38,6 +38,16 @@ export function makeBridge(
       }
       host.sendToClients(withTurnScope(msg, turn, turnId));
       if (msg.type === "result") {
+        // Only the live turn's own result may set its disposition — a late
+        // frame through a previous turn's bridge must not relabel this one.
+        if (turn.turnId === turnId) {
+          turn.lastResult =
+            msg.isError || msg.outcome === "error"
+              ? "error"
+              : msg.outcome === "cancelled"
+                ? "cancelled"
+                : "success";
+        }
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
       }
     },
@@ -144,8 +154,10 @@ export function makeBridge(
 
 export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): void {
   // startTurn resolves for runtime failures (it emits its own error frame); it
-  // only rejects for caller errors.
+  // only rejects for caller errors. Each rejection is reported server-side
+  // too — the frame alone leaves no trace once the browser tab is gone.
   if (err instanceof BackendBusyError) {
+    host.reportTurnFailed("SESSION_BUSY", turn);
     host.sendToClients(
       withTurnScope(
         { type: "error", code: "SESSION_BUSY", message: "That session already has a running turn." },
@@ -153,15 +165,15 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
       )
     );
   } else if (err instanceof BackendRequestError) {
+    host.reportTurnFailed("BACKEND_REQUEST_ERROR", turn, err.message);
     host.sendToClients(
       withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message }, turn)
     );
   } else {
+    const message = err instanceof Error ? err.message : String(err);
+    host.reportTurnFailed("BACKEND_ERROR", turn, message);
     host.sendToClients(
-      withTurnScope(
-        { type: "error", code: "BACKEND_ERROR", message: err instanceof Error ? err.message : String(err) },
-        turn
-      )
+      withTurnScope({ type: "error", code: "BACKEND_ERROR", message }, turn)
     );
   }
 }

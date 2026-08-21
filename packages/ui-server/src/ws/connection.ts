@@ -161,8 +161,17 @@ export function createWsHandlers(host: WsHost) {
         });
     },
 
-    onClose(_evt: CloseEvent, ws: WSContext) {
+    onClose(evt: CloseEvent, ws: WSContext) {
       host.log.emit({ severityText: "INFO", body: "client disconnected" });
+      // No onError here on purpose: hono's Bun adapter never dispatches it
+      // (only open/message/close reach these handlers), so a transport failure
+      // is only visible as an abnormal close code. 1000/1001 are the two
+      // clean endings (normal closure, going away); anything else — before it
+      // was recorded — looked exactly like a clean disconnect.
+      const code = (evt as { code?: unknown }).code;
+      if (typeof code === "number" && code !== 1000 && code !== 1001) {
+        host.reportAbnormalClose(code);
+      }
       host.clients.remove(ws);
       // Turns keep running in the background. Only reject pending interactive
       // requests once the LAST client leaves — while another client remains it

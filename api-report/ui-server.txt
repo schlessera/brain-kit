@@ -9,6 +9,7 @@ export "." (./src/index.ts)
   type AuthConfig
   type AuthMode
   type AuthRuntime
+  type BackendLogFn
   type BackendRegistry
   type BrainClient
   BrainDbUnavailableError
@@ -16,6 +17,7 @@ export "." (./src/index.ts)
   type CapturedLog
   type ConnectionState
   type CreateAppOptions
+  type CronRunRecord
   ENV_VARS
   type EnvVarDescriptor
   type InMemoryMeterProvider
@@ -61,6 +63,7 @@ export "." (./src/index.ts)
   handleClientMessage
   openBrainDb
   pruneShareStaging
+  recordCronRun
   resolveAuthMode
   resolveServerConfig
   resolveTurnTarget

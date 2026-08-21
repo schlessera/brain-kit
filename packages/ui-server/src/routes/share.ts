@@ -118,7 +118,7 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     lastPrune = now;
     // Deliberately not awaited: pruning is housekeeping, and the client is
     // waiting on the staging result, not on it.
-    void pruneShareStaging(brainRoot).catch((err) => {
+    void pruneShareStaging(brainRoot, Date.now(), log).catch((err) => {
       log?.emit({ severityText: "ERROR", body: "share staging prune failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
     });
   }
@@ -167,12 +167,16 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
 
   inFlight += 1;
   try {
-    const result = await stageShare(brainRoot, {
-      title: firstString(form, "title"),
-      text: firstString(form, "text"),
-      url: firstString(form, "url"),
-      files,
-    });
+    const result = await stageShare(
+      brainRoot,
+      {
+        title: firstString(form, "title"),
+        text: firstString(form, "text"),
+        url: firstString(form, "url"),
+        files,
+      },
+      log
+    );
 
     maybePrune();
     return c.json(result, 201);

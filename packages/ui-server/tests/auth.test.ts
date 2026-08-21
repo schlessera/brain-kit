@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, test, expect, beforeAll, beforeEach } from "bun:test";
 import { Hono } from "hono";
 import {
   resolveAuthMode,
@@ -6,10 +6,15 @@ import {
   authGuard,
   authRoutes,
   isWsAuthorized,
+  resetLoginRateLimiter,
   type AuthMode,
   type AuthRuntime,
 } from "../src/middleware/auth";
 import { resolveServerConfig } from "../src/config/env";
+import {
+  createRecordingObservability,
+  type RecordingObservability,
+} from "../src/observability/index";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -216,5 +221,108 @@ describe("isWsAuthorized", () => {
         auth({ PROXY_AUTH_HEADER: "x-forwarded-user" })
       )
     ).toBe(false);
+  });
+});
+
+/**
+ * The login route observed the way createApp wires it: the auth logger plus
+ * the shared auth.failures counter, read back through the recording consumer.
+ */
+function observedPasswordApp(runtime: AuthRuntime = passwordAuth()): {
+  app: Hono;
+  observability: RecordingObservability;
+} {
+  const observability = createRecordingObservability();
+  const app = new Hono();
+  app.route(
+    "/api",
+    authRoutes("password", runtime, {
+      log: observability.logger("auth"),
+      failures: observability.meter("auth").createCounter("auth.failures"),
+    })
+  );
+  return { app, observability };
+}
+
+const login = (app: Hono, password: string, ip: string) =>
+  app.request("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    body: JSON.stringify({ password }),
+  });
+
+describe("login outcomes are observable", () => {
+  // The rate-limit buckets (per-IP and global) are module state shared with
+  // the earlier login tests; start each test from a full global bucket.
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a wrong password is a WARN and an auth.failures count — without the password", async () => {
+    const { app, observability } = observedPasswordApp();
+
+    const res = await login(app, "swordfish-wrong", "10.1.0.1");
+    expect(res.status).toBe(401);
+
+    expect(
+      observability.metrics.value("auth.failures", {
+        reason: "invalid_password",
+        method: "password",
+      })
+    ).toBe(1);
+    const [record] = observability.logs.find({ scope: "auth", severity: "WARN" });
+    expect(record.body).toBe("login failed");
+    expect(record.attributes.ip).toBe("10.1.0.1");
+    expect(JSON.stringify(observability.logs.records())).not.toContain("swordfish");
+  });
+
+  test("hitting the rate limit is its own reason", async () => {
+    const { app, observability } = observedPasswordApp();
+
+    let last = 0;
+    for (let i = 0; i < 7; i++) last = (await login(app, "wrong", "10.1.0.2")).status;
+    expect(last).toBe(429);
+
+    expect(
+      observability.metrics.value("auth.failures", {
+        reason: "rate_limited",
+        method: "password",
+      })
+    ).toBeGreaterThan(0);
+    expect(observability.logs.count({ body: "login rate limited" })).toBeGreaterThan(0);
+  });
+
+  test("a successful login is an INFO record and no failure count", async () => {
+    const { app, observability } = observedPasswordApp();
+
+    const res = await login(app, PASSWORD, "10.1.0.3");
+    expect(res.status).toBe(200);
+
+    expect(observability.metrics.total("auth.failures")).toBe(0);
+    const [record] = observability.logs.find({ body: "login succeeded" });
+    expect(record.severity).toBe("INFO");
+    expect(record.attributes.ip).toBe("10.1.0.3");
+  });
+
+  test("a hash Bun cannot parse is an ERROR, not another wrong password", async () => {
+    // The regression: `.catch(() => false)` made a corrupt
+    // BRAIN_UI_PASSWORD_HASH indistinguishable from a typo — the owner is
+    // locked out and the log blames them for it.
+    const runtime = {
+      ...passwordAuth(),
+      passwordHash: "$corrupt$not-a-real-argon2-hash",
+    };
+    const { app, observability } = observedPasswordApp(runtime);
+
+    const res = await login(app, PASSWORD, "10.1.0.4");
+    expect(res.status).toBe(401);
+
+    expect(
+      observability.metrics.value("auth.failures", {
+        reason: "verify_error",
+        method: "password",
+      })
+    ).toBe(1);
+    const [record] = observability.logs.find({ scope: "auth", severity: "ERROR" });
+    expect(record.body).toContain("BRAIN_UI_PASSWORD_HASH");
+    expect(observability.logs.count({ body: "login failed" })).toBe(0);
   });
 });

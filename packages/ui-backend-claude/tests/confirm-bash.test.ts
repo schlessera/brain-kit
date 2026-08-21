@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_CONFIRM_BASH_PATTERNS } from "../src/backend.js";
+import { createClaudeBackend, DEFAULT_CONFIRM_BASH_PATTERNS } from "../src/backend.js";
 
 const patterns = DEFAULT_CONFIRM_BASH_PATTERNS.map((p) => new RegExp(p, "i"));
 const confirms = (command: string) => patterns.some((re) => re.test(command));
@@ -96,5 +96,26 @@ describe("configurability", () => {
   test("matching is case-insensitive", () => {
     expect(confirms("BRAIN ARCHIVE a.md")).toBe(true);
     expect(confirms("RM -RF /")).toBe(true);
+  });
+});
+
+describe("unparseable patterns", () => {
+  test("are reported through the injected log callback, with the source", () => {
+    const calls: Array<{ level: string; message: string; attrs?: Record<string, unknown> }> = [];
+
+    createClaudeBackend({
+      brainPath: "/tmp",
+      confirmBashPatterns: ["(unclosed", String.raw`\brm\s`],
+      log: (level, message, attrs) => calls.push({ level, message, attrs }),
+    });
+
+    // The valid pattern compiles silently; only the broken one is reported —
+    // and through the callback, so a host's structured log receives it
+    // instead of a bare console line.
+    expect(calls.length).toBe(1);
+    expect(calls[0].level).toBe("warn");
+    expect(calls[0].message).toContain("confirmBashPatterns");
+    expect(calls[0].attrs?.source).toBe("(unclosed");
+    expect(calls[0].attrs?.error).toBeString();
   });
 });

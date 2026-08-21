@@ -13,6 +13,8 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
+
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
@@ -161,5 +163,323 @@ describe("the snapshot /api/status serves", () => {
         kind: "counter",
       },
     ]);
+  });
+});
+
+/** Poll until `cond` holds — runSession is fired without an awaitable handle. */
+async function until(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !cond(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  expect(cond()).toBe(true);
+}
+
+const chat = (text: string, sessionId?: string) =>
+  ({ data: JSON.stringify({ type: "chat_message", text, ...(sessionId ? { sessionId } : {}) }) }) as MessageEvent;
+
+describe("turn lifecycle is observable", () => {
+  test("a successful turn is counted and logged with its correlation ids", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({
+      id: "fake",
+      startTurn: async (req) => {
+        req.bridge.emit({ type: "session_info", sessionId: "s1", isNew: true });
+        req.bridge.emit({
+          type: "result",
+          sessionId: "s1",
+          durationMs: 1,
+          numTurns: 1,
+          isError: false,
+        });
+      },
+    });
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    const handlers = createWsHandlers(host);
+
+    handlers.onMessage(chat("hi"), fakeSocket());
+    await until(() => observability.metrics.total("turns.completed") === 1);
+
+    expect(observability.metrics.total("turns.started")).toBe(1);
+    expect(observability.metrics.total("turns.failed")).toBe(0);
+
+    const [started] = observability.logs.find({ body: "turn started" });
+    expect(started.severity).toBe("INFO");
+    expect(started.attributes["turn.id"]).toBeString();
+
+    // session_info resolved the session before the turn finished, so the
+    // completion record can carry it.
+    const [completed] = observability.logs.find({ body: "turn completed" });
+    expect(completed.attributes["session.id"]).toBe("s1");
+    expect(completed.attributes["turn.id"]).toBe(started.attributes["turn.id"]);
+    expect(completed.attributes["duration.ms"]).toBeNumber();
+  });
+
+  test("a resolved turn whose terminal result is an error counts as failed", async () => {
+    // Both bundled backends RESOLVE startTurn on runtime failure and report it
+    // on the result frame — accounting must read the frame, not the resolve.
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({
+      id: "fake",
+      startTurn: async (req) => {
+        req.bridge.emit({ type: "session_info", sessionId: "s1", isNew: true });
+        req.bridge.emit({ type: "error", code: "agent_error", message: "no credentials" });
+        req.bridge.emit({
+          type: "result",
+          sessionId: "s1",
+          outcome: "error",
+          durationMs: 1,
+          numTurns: 1,
+          isError: true,
+        });
+      },
+    });
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    createWsHandlers(host).onMessage(chat("hi"), fakeSocket());
+
+    await until(
+      () => observability.metrics.value("turns.failed", { code: "BACKEND_RESULT_ERROR" }) === 1
+    );
+    expect(observability.metrics.total("turns.completed")).toBe(0);
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    expect(failed.severity).toBe("ERROR");
+    expect(failed.attributes["session.id"]).toBe("s1");
+  });
+
+  test("a backend crash is an ERROR record and a turns.failed count by code", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({
+      id: "fake",
+      startTurn: async () => {
+        throw new Error("model exploded");
+      },
+    });
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    createWsHandlers(host).onMessage(chat("hi"), fakeSocket());
+
+    await until(() => observability.metrics.value("turns.failed", { code: "BACKEND_ERROR" }) === 1);
+    expect(observability.metrics.total("turns.completed")).toBe(0);
+
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    expect(failed.severity).toBe("ERROR");
+    expect(failed.attributes.code).toBe("BACKEND_ERROR");
+    expect(failed.attributes.error).toBe("model exploded");
+  });
+
+  test("a busy session is WARN, not ERROR", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({
+      id: "fake",
+      startTurn: async () => {
+        throw new BackendBusyError("fake", "s1");
+      },
+    });
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    createWsHandlers(host).onMessage(chat("hi"), fakeSocket());
+
+    await until(() => observability.metrics.value("turns.failed", { code: "SESSION_BUSY" }) === 1);
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    expect(failed.severity).toBe("WARN");
+  });
+
+  test("a routing failure before any turn is minted still lands in the record", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({ id: "fake" });
+    backend.listProfiles = () => {
+      throw new Error("roster unavailable");
+    };
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    createWsHandlers(host).onMessage(chat("hi", "s7"), fakeSocket());
+
+    await until(() => observability.metrics.value("turns.failed", { code: "BACKEND_ERROR" }) === 1);
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    // No turn.id: routing threw before one existed. The session identity the
+    // client asked for is still on the record.
+    expect(failed.attributes["session.id"]).toBe("s7");
+    expect(failed.attributes["turn.id"]).toBeUndefined();
+  });
+
+  test("a rejected follow-up is recorded against the running turn", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    let finishTurn!: () => void;
+    const backend = makeFakeBackend({
+      id: "fake",
+      capabilities: { followUp: true },
+      startTurn: async (req) => {
+        req.bridge.emit({ type: "session_info", sessionId: "s1", isNew: true });
+        await new Promise<void>((resolve) => {
+          finishTurn = resolve;
+        });
+      },
+      followUp: async () => {
+        throw new Error("injection refused");
+      },
+    });
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    const handlers = createWsHandlers(host);
+
+    handlers.onMessage(chat("hi"), fakeSocket());
+    await until(() => host.coordinator.bySession.has("s1"));
+    handlers.onMessage(chat("and another thing", "s1"), fakeSocket());
+
+    await until(
+      () => observability.metrics.value("turns.failed", { code: "FOLLOWUP_FAILED" }) === 1
+    );
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    expect(failed.attributes["session.id"]).toBe("s1");
+    expect(failed.attributes.error).toBe("injection refused");
+
+    finishTurn();
+    await until(() => observability.metrics.total("turns.completed") === 1);
+  });
+
+  test("a failed session load is recorded under its own code", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({ id: "fake" });
+    backend.getHistory = async () => {
+      throw new Error("transcript unreadable");
+    };
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    createWsHandlers(host).onMessage(
+      { data: JSON.stringify({ type: "session_resume", sessionId: "gone" }) } as MessageEvent,
+      fakeSocket()
+    );
+
+    await until(
+      () => observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }) === 1
+    );
+    const [failed] = observability.logs.find({ body: "turn failed" });
+    expect(failed.attributes["session.id"]).toBe("gone");
+    expect(failed.attributes.error).toBe("transcript unreadable");
+  });
+});
+
+describe("socket-level failures are observable", () => {
+  test("an abnormal close code is counted and logged", () => {
+    // hono's Bun adapter never dispatches onError — a transport failure is
+    // only visible as a close with an abnormal code, so that is what reports.
+    const { db, observability, handlers } = setup();
+    close = () => db.close();
+
+    handlers.onClose({ code: 1006 } as CloseEvent, fakeSocket());
+
+    expect(observability.metrics.value("ws.errors", { "close.code": 1006 })).toBe(1);
+    const [record] = observability.logs.find({ body: "websocket closed abnormally" });
+    expect(record.severity).toBe("WARN");
+    expect(record.attributes["close.code"]).toBe(1006);
+  });
+
+  test("the two clean close codes report nothing", () => {
+    const { db, observability, handlers } = setup();
+    close = () => db.close();
+
+    handlers.onClose({ code: 1000 } as CloseEvent, fakeSocket());
+    handlers.onClose({ code: 1001 } as CloseEvent, fakeSocket());
+
+    expect(observability.metrics.total("ws.errors")).toBe(0);
+    expect(observability.logs.count({ minSeverity: "WARN" })).toBe(0);
+  });
+
+  test("a dropped raw send (Bun status 0) is counted; backpressure is not", () => {
+    // Bun's ServerWebSocket.send RETURNS its status instead of throwing —
+    // 0 means the connection is closed and the frame was dropped, -1 means
+    // backpressure queued it. Only the drop is a lost frame.
+    const { db, host, observability } = setup();
+    close = () => db.close();
+    const dead = fakeSocket();
+    dead.raw = { send: () => 0 };
+    const congested = fakeSocket();
+    congested.raw = { send: () => -1 };
+    host.clients.add(dead);
+    host.clients.add(congested);
+
+    host.sendToClients({ type: "status", status: "idle" });
+
+    expect(
+      observability.metrics.value("ws.frames.dropped", {
+        reason: "broadcast_send_failed",
+        direction: "outbound",
+      })
+    ).toBe(1);
+  });
+
+  test("a broadcast send failure lands on the dropped-frame counter, outbound", () => {
+    const { db, host, observability } = setup();
+    close = () => db.close();
+    const dead = fakeSocket();
+    dead.send = () => {
+      throw new Error("socket is gone");
+    };
+    const live = fakeSocket();
+    host.clients.add(dead);
+    host.clients.add(live);
+
+    host.sendToClients({ type: "status", status: "idle" });
+
+    // The live peer still got the frame; the dead one became a count.
+    expect(live.sent.length).toBe(1);
+    expect(
+      observability.metrics.value("ws.frames.dropped", {
+        reason: "broadcast_send_failed",
+        direction: "outbound",
+      })
+    ).toBe(1);
+  });
+});
+
+describe("session persistence failures are observable", () => {
+  test("a failed catalog write warns with the session id instead of vanishing", () => {
+    const observability = createRecordingObservability();
+    const db = createUiDb(":memory:");
+    db.close();
+    const catalog = createSessionCatalog(() => db, observability.logger("db"));
+
+    // Still non-throwing — the turn must survive — but no longer silent.
+    expect(() => catalog.persistSessionStub("s9", "prompt", null, "fake")).not.toThrow();
+
+    const [record] = observability.logs.find({ scope: "db", severity: "WARN" });
+    expect(record.body).toBe("session persistence failed");
+    expect(record.attributes["session.id"]).toBe("s9");
   });
 });
