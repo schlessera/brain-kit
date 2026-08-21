@@ -5,8 +5,6 @@
  * and no filesystem. That is what lets `validate` and the OKF exporter reuse
  * them to resolve links without running an index.
  */
-import { resolve } from "path";
-
 import { DEFAULT_DIR_ANCHORS } from "../config.js";
 
 /**

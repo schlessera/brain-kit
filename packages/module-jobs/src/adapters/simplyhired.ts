@@ -3,7 +3,6 @@ import type { RawJob, ScrapeOptions } from "../types.js";
 
 // SimplyHired uses Chakra UI with consistent class patterns
 const BASE_URL = "https://www.simplyhired.com/search";
-const RESULTS_PER_PAGE = 20;
 
 // Neutral default search terms — override via the module `queries` config to
 // target the roles you actually care about.
@@ -66,7 +65,7 @@ export class SimplyHiredAdapter extends BaseAdapter {
     const jobLinks: Array<{ id: string; href: string; title: string; context: string }> = [];
 
     while ((match = linkRegex.exec(html)) !== null) {
-      const [fullMatch, href, id, titleHtml] = match;
+      const [, href, id, titleHtml] = match;
       const title = this.stripHtml(titleHtml).trim();
 
       // Skip navigation/filter links, only want actual job titles

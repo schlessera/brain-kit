@@ -21,6 +21,7 @@ function makeQueryFn(gen: Gen): typeof query {
 }
 
 /** Blocks until the SDK abortController fires, then throws like the real SDK. */
+// oxlint-disable-next-line require-yield -- mock generator: only blocks/throws, never yields
 async function* abortableGen(options: Options): AsyncGenerator<unknown> {
   await new Promise<void>((_resolve, reject) => {
     const sig = options.abortController?.signal;
@@ -350,7 +351,8 @@ describe("startTurn", () => {
   test("runtime failure surfaces a CLAUDE_ERROR frame and resolves", async () => {
     async function* boomGen(): AsyncGenerator<unknown> {
       throw new Error("provider unreachable");
-      yield undefined; // unreachable; makes this a generator
+      // oxlint-disable-next-line no-unreachable -- the dead yield is what makes this a generator
+      yield undefined;
     }
     const backend = createClaudeBackend({
       brainPath: "/brain",

@@ -20,7 +20,6 @@ import {
   SessionManager,
   SettingsManager,
   getAgentDir,
-  type AgentSession,
   type AgentSessionEvent,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";

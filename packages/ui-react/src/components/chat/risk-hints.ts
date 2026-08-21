@@ -19,7 +19,7 @@ import type { ToolCall } from "../../stores/chat-store.js";
  * (`~/brain`).
  */
 export function isInsideBrainRepo(path: string): boolean {
-  if (/^\/data\/brain\//.test(path) || /^\/home\/[^/]+\/brain\//.test(path)) {
+  if (path.startsWith("/data/brain/") || /^\/home\/[^/]+\/brain\//.test(path)) {
     return true;
   }
   // Repo-relative: not absolute and not escaping upward.

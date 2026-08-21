@@ -8,6 +8,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { turnIdMatches } from "../src/ws/dispatch";
+import { createWsHandlers } from "../src/ws/connection";
+import { testHost } from "./helpers/test-host";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
 import {
@@ -229,5 +231,55 @@ describe("the rev-3 deprecation window", () => {
     expect(requires(3)).toBe(true);
     // A client from the future is held to the rules this host knows.
     expect(requires(99)).toBe(true);
+  });
+});
+
+describe("per-connection state through the socket handlers", () => {
+  beforeEach(() => {
+    resetForTests();
+    closeDb();
+  });
+  afterEach(() => {
+    resetForTests();
+    closeDb();
+  });
+
+  // Regression: createWsHandlers used to build its ConnectionState and then
+  // NOT pass it to handleClientMessage, so client_hello wrote the declared
+  // revision into a throwaway object and every later frame was dispatched at
+  // the rev-2 default — the rev-3 echo requirement was never enforced on a
+  // real socket. Only this path exercises connection.ts; the tests above call
+  // the dispatcher directly and could never see it.
+  test("a rev-3 hello on the socket makes a later echo-less approval refusable", async () => {
+    const { backend, controls } = approvalBackend();
+    setBackendForTests(backend);
+    const { ws, sent } = fakeClient();
+    addClient(ws);
+    const handlers = createWsHandlers(testHost());
+    const send = (msg: unknown) =>
+      handlers.onMessage({ data: JSON.stringify(msg) } as MessageEvent, ws);
+
+    send({ type: "client_hello", protocolRev: PROTOCOL_REV_CLIENT_ECHO, capabilities: {} });
+    send({ type: "chat_message", text: "A" });
+    await waitFor(() => controls.length === 1);
+
+    const decided = { value: null as string | null };
+    void controls[0]!.approve().then((d) => {
+      decided.value = d.behavior;
+    });
+    await waitFor(() => sent.some((f) => f.type === "tool_approval_request"));
+    const realTurnId = turnIdOf(sent.find((f) => f.type === "tool_approval_request")!)!;
+
+    // No echo from a client that declared rev 3: must NOT resolve.
+    send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(decided.value).toBeNull();
+
+    // The genuine echo resolves it.
+    send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId, turnId: realTurnId });
+    await waitFor(() => decided.value !== null);
+    expect(decided.value).toBe("allow");
+
+    controls[0]!.finish();
   });
 });

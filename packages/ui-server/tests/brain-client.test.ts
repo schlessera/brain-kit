@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { createBrainClient } from "../src/brain/client";
 
 // These tests require the brain repo at ~/brain

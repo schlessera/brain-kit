@@ -59,7 +59,7 @@ export class RemoteInEuropeAdapter extends BaseAdapter {
     const seen = new Set<string>();
 
     while ((match = linkRegex.exec(html)) !== null) {
-      const [fullMatch, href, slug, content] = match;
+      const [, href, slug, content] = match;
       if (seen.has(slug)) continue;
       seen.add(slug);
 

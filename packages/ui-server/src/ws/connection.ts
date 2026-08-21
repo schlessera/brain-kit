@@ -141,7 +141,7 @@ export function createWsHandlers(host: WsHost) {
       // handleClientMessage is async — a rejection must not escape as an
       // unhandled rejection with no frame sent.
       void Promise.resolve()
-        .then(() => handleClientMessage(host, ws, parsed.message))
+        .then(() => handleClientMessage(host, ws, parsed.message, connection))
         .catch((err) => {
           // This used to swallow the cause entirely: the client got a generic
           // frame and the server kept no record of what threw.

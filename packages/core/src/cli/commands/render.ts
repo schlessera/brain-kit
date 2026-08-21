@@ -3,7 +3,7 @@ import { dirname, extname, relative } from "path";
 import matter from "gray-matter";
 import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
 
-import { resolveWritable, safeResolve } from "../../lib/safe-path.js";
+import { resolveWritable } from "../../lib/safe-path.js";
 import {
   noSandboxFromEnv,
   RendererUnavailableError,

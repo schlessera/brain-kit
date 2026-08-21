@@ -456,7 +456,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         ),
       })),
 
-    requestToolApproval: (key, toolUseId, toolName, input, description) =>
+    requestToolApproval: (key, toolUseId, toolName, input, _description) =>
       mutateLastAssistant(key, (last) => {
         // Check if tool call already exists (from streaming)
         const existingIdx = last.toolCalls.findIndex(

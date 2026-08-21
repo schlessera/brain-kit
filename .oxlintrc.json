@@ -1,0 +1,49 @@
+{
+  // Curated check-only ruleset for `bun run lint` (scripts/check-oxlint.ts):
+  // the correctness category over oxlint's default plugins, plus the react
+  // plugin scoped to ui-react. Style/pedantic/perf categories stay off — the
+  // bespoke AST gates in scripts/ cover repo-specific concerns; this gate is
+  // only about code that is outright wrong. oxlint parses this file as JSONC,
+  // so each disabled rule carries its reason inline.
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    // Escaped brackets inside character classes ([^\[\]]) are deliberate —
+    // symmetric with \] in the shared wikilink regexes.
+    "eslint/no-useless-escape": "off",
+    // The repo intentionally matches control characters (sanitizers, the
+    // invisible-character domain); they are already written as escapes.
+    "eslint/no-control-regex": "off",
+    // `...(x ?? {})` is the repo's deliberate defensive-spread idiom.
+    "unicorn/no-useless-fallback-in-spread": "off",
+    // `[...set]` snapshots collections that the loop body mutates
+    // (turn cancellation in ui-server); the spread is load-bearing.
+    "unicorn/no-useless-spread": "off",
+    // `new Array(n).fill(x)` is unambiguous with .fill attached.
+    "unicorn/no-new-array": "off"
+  },
+  "overrides": [
+    {
+      // React rules only where React actually runs; ui-server test helpers
+      // named use* are not hooks.
+      "files": ["packages/ui-react/**"],
+      "plugins": ["react"],
+      "rules": {
+        "react-hooks/rules-of-hooks": "error",
+        // Surfaced but non-failing: the one current hit is a known ref-in-
+        // cleanup pattern in use-dictation.
+        "react-hooks/exhaustive-deps": "warn",
+        // React-compiler-alignment rules whose fixes are refactors, not
+        // check-only adoption; revisit deliberately, not via a lint gate.
+        "react/set-state-in-effect": "off",
+        "react/refs": "off",
+        "react/purity": "off",
+        "react/static-components": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/fixtures/**"]
+}
