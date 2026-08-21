@@ -16,20 +16,30 @@
 import { join } from "path";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
+import { envFlag } from "./env-core.js";
 
 // --- descriptor -------------------------------------------------------------
 
+/**
+ * The shared descriptor contract (sync-enforced copy in ./env-core.ts),
+ * under the name this package has always exported. This package's entries
+ * use the `string` arm of `required` for conditionally-required variables
+ * (e.g. "AUTH_MODE=password") and `null` for "no default".
+ */
+/**
+ * One environment variable the server reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
 export interface EnvVarDescriptor {
-  /** The environment variable, exactly as read. */
+  /** Variable name as it appears in the environment. */
   name: string;
   /** What it controls. */
   description: string;
   /** Human-readable default applied when unset, or null when there is none. */
   default: string | null;
-  /**
-   * `false` when optional; otherwise a human-readable statement of the
-   * condition under which boot fails without it.
-   */
   required: false | string;
 }
 
@@ -371,10 +381,6 @@ function list(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function flag(raw: string | undefined): boolean {
-  return raw === "1";
-}
-
 /**
  * A log threshold, defaulting to INFO.
  *
@@ -430,10 +436,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
   const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
 
-  const rawDiscovery = env.BRAIN_UI_MODEL_DISCOVERY?.trim().toLowerCase();
-  const modelDiscovery = rawDiscovery
-    ? !(rawDiscovery === "0" || rawDiscovery === "off" || rawDiscovery === "false")
-    : env.NODE_ENV !== "test";
+  const modelDiscovery = envFlag(env.BRAIN_UI_MODEL_DISCOVERY, env.NODE_ENV !== "test");
 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
@@ -450,11 +453,11 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       invalidMode: validMode ? null : rawAuthMode,
       passwordHash: env.BRAIN_UI_PASSWORD_HASH || null,
       cookieSecret: env.COOKIE_SECRET || null,
-      trustProxy: flag(env.TRUST_PROXY),
+      trustProxy: envFlag(env.TRUST_PROXY, false),
       trustProxyHops: Math.max(1, Number(env.TRUST_PROXY_HOPS) || 1),
       proxyAuthHeader: (env.PROXY_AUTH_HEADER || "x-forwarded-user").toLowerCase(),
-      dangerouslyDisableAuth: flag(env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH),
-      allowPassword: flag(env.BRAIN_UI_ALLOW_PASSWORD),
+      dangerouslyDisableAuth: envFlag(env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH, false),
+      allowPassword: envFlag(env.BRAIN_UI_ALLOW_PASSWORD, false),
     },
     webauthn: {
       rpName: env.WEBAUTHN_RP_NAME || "Brain UI",
@@ -462,7 +465,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       userId: env.WEBAUTHN_USER_ID || "brain-ui-owner",
       rpId: env.WEBAUTHN_RP_ID || null,
       origins: list(env.WEBAUTHN_ORIGINS),
-      allowLoopbackOrigin: flag(env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN),
+      allowLoopbackOrigin: envFlag(env.BRAIN_UI_ALLOW_LOOPBACK_ORIGIN, false),
     },
     agent: {
       backend: env.AGENT_BACKEND?.trim().toLowerCase() || null,

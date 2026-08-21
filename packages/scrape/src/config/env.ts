@@ -7,17 +7,10 @@
  * contract the env parity gate diffs against this package's README.
  */
 
-/** One environment variable this package reads. */
-export interface EnvVarSpec {
-  /** Variable name as it appears in the environment. */
-  name: string;
-  /** What it controls. */
-  description: string;
-  /** Behaviour when the variable is unset, when there is a default. */
-  default?: string;
-  /** True when the package cannot do its job at all without it. */
-  required: boolean;
-}
+import { envFlag } from "./env-core.js";
+
+// The descriptor contract and the boolean helpers are shared across every
+// chokepoint via the sync-enforced copy in ./env-core.ts.
 
 /**
  * The default User-Agent, and the reason it is not a browser string.
@@ -35,6 +28,23 @@ export interface EnvVarSpec {
  */
 export const DEFAULT_USER_AGENT =
   "brain-scrape (+https://github.com/schlessera/brain-kit)";
+
+/**
+ * One environment variable this package reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
+export interface EnvVarSpec {
+  /** Variable name as it appears in the environment. */
+  name: string;
+  /** What it controls. */
+  description: string;
+  /** Behaviour when the variable is unset, when there is a default. */
+  default?: string;
+  required: boolean;
+}
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
   {
@@ -92,19 +102,13 @@ export interface ScrapeEnv {
   respectRobots: boolean;
 }
 
-function isOff(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  const v = value.trim().toLowerCase();
-  return v === "0" || v === "off" || v === "false" || v === "no";
-}
-
 /** Resolve the statically-named variables. Reads happen here and only here. */
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ScrapeEnv {
   return {
     userAgent: env.SCRAPE_USER_AGENT?.trim() || DEFAULT_USER_AGENT,
     chromeUrl: env.SCRAPE_CHROME_URL?.trim() || undefined,
     chromePath: env.SCRAPE_CHROME_PATH?.trim() || undefined,
-    noSandbox: env.SCRAPE_CHROME_NO_SANDBOX === "1",
-    respectRobots: !isOff(env.SCRAPE_RESPECT_ROBOTS),
+    noSandbox: envFlag(env.SCRAPE_CHROME_NO_SANDBOX, false),
+    respectRobots: envFlag(env.SCRAPE_RESPECT_ROBOTS, true),
   };
 }

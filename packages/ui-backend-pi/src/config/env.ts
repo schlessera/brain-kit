@@ -11,7 +11,19 @@
  * env documentation.
  */
 
-/** One environment variable this package reads. */
+// The descriptor contract and readEnvVar are shared across every chokepoint
+// via the sync-enforced copy in ./env-core.ts.
+import type { DynamicEnvReadSpec } from "./env-core.js";
+export type { DynamicEnvReadSpec } from "./env-core.js";
+export { readEnvVar } from "./env-core.js";
+
+/**
+ * One environment variable this package reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
 export interface EnvVarSpec {
   /** Variable name as it appears in the environment. */
   name: string;
@@ -19,16 +31,7 @@ export interface EnvVarSpec {
   description: string;
   /** Behaviour when the variable is unset, when there is a default. */
   default?: string;
-  /** True when the package cannot do its job at all without it. */
   required: boolean;
-}
-
-/** A family of reads whose variable NAME is data, not code. */
-export interface DynamicEnvReadSpec {
-  /** Where the variable name comes from. */
-  source: string;
-  /** What the value is used for. */
-  description: string;
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
@@ -50,14 +53,3 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "call time under whatever name the config declares (default: GEMINI_API_KEY).",
   },
 ];
-
-/**
- * Call-time read of a single variable whose name is data (see
- * `DYNAMIC_ENV_READS`). Never cache the result at module scope.
- */
-export function readEnvVar(
-  name: string,
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
-  return env[name];
-}

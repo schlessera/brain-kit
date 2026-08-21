@@ -18,32 +18,20 @@
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
+// The descriptor contract, shared with every package's chokepoint through the
+// sync-enforced `env-core.ts` copies (tests/env-core-sync.test.ts). This is a
+// root script, not published code, so it may import the canonical copy
+// directly instead of carrying its own redeclaration.
+import type {
+  DynamicEnvReadSpec,
+  EnvVarSpec,
+} from "../packages/core/src/config/env-core.ts";
+
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
 
 export const BEGIN = "<!-- env:begin -->";
 export const END = "<!-- env:end -->";
-
-/**
- * The descriptor contract, declared independently by each package (no
- * dependency edge exists between them, and one is not worth adding for four
- * fields). `required` is a union on purpose: `true` states a variable the
- * package cannot work without at all, while a string states the CONDITION
- * under which it becomes required — `ui-server` needs a password hash only in
- * password auth mode, and flattening that to a boolean would lose the only
- * part a reader needs.
- */
-interface EnvVarSpec {
-  name: string;
-  description: string;
-  default?: string | null;
-  required: boolean | string;
-}
-
-interface DynamicEnvReadSpec {
-  source: string;
-  description: string;
-}
 
 export interface PackageEnv {
   dir: string;

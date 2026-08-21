@@ -29,11 +29,15 @@ describe("config/env resolveEnv", () => {
     expect(resolveEnv({ NO_COLOR: "" }).noColor).toBe(false);
   });
 
-  test('chromeNoSandbox: either spelling, "1" only', () => {
+  test("chromeNoSandbox: either spelling, shared truthy token set", () => {
     expect(resolveEnv({ BRAIN_CHROME_NO_SANDBOX: "1" }).chromeNoSandbox).toBe(true);
     expect(resolveEnv({ BRAIN_UI_CHROME_NO_SANDBOX: "1" }).chromeNoSandbox).toBe(true);
-    expect(resolveEnv({ BRAIN_CHROME_NO_SANDBOX: "true" }).chromeNoSandbox).toBe(false);
+    // envFlag widened the accepted tokens beyond the old `=== "1"`.
+    expect(resolveEnv({ BRAIN_CHROME_NO_SANDBOX: "true" }).chromeNoSandbox).toBe(true);
+    expect(resolveEnv({ BRAIN_UI_CHROME_NO_SANDBOX: "ON" }).chromeNoSandbox).toBe(true);
     expect(resolveEnv({ BRAIN_UI_CHROME_NO_SANDBOX: "0" }).chromeNoSandbox).toBe(false);
+    // Unrecognised tokens fall back to the default (sandbox stays on).
+    expect(resolveEnv({ BRAIN_CHROME_NO_SANDBOX: "banana" }).chromeNoSandbox).toBe(false);
   });
 });
 

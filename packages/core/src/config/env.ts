@@ -18,7 +18,22 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** One environment variable this package reads. */
+import { envFlag, envPresent } from "./env-core.js";
+
+// The descriptor contract, readEnvVar and the boolean helpers are shared
+// across every chokepoint via the sync-enforced copy in ./env-core.ts.
+export type { DynamicEnvReadSpec } from "./env-core.js";
+export { readEnvVar } from "./env-core.js";
+
+import type { DynamicEnvReadSpec } from "./env-core.js";
+
+/**
+ * One environment variable this package reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
 export interface EnvVarSpec {
   /** Variable name as it appears in the environment. */
   name: string;
@@ -26,16 +41,7 @@ export interface EnvVarSpec {
   description: string;
   /** Behaviour when the variable is unset, when there is a default. */
   default?: string;
-  /** True when the package cannot do its job at all without it. */
   required: boolean;
-}
-
-/** A family of reads whose variable NAME is data, not code. */
-export interface DynamicEnvReadSpec {
-  /** Where the variable name comes from. */
-  source: string;
-  /** What the value is used for. */
-  description: string;
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
@@ -112,7 +118,7 @@ export interface CoreEnv {
   binDir: string;
   /** NO_COLOR is set (to anything non-empty). */
   noColor: boolean;
-  /** Either no-sandbox spelling is "1". */
+  /** Either no-sandbox spelling is truthy (1/true/on/yes). */
   chromeNoSandbox: boolean;
 }
 
@@ -122,20 +128,9 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     brainRoot: env.BRAIN_ROOT || undefined,
     rerankMode: env.BRAIN_RERANK_MODE,
     binDir: env.XDG_BIN_HOME || join(homedir(), ".local", "bin"),
-    noColor: !!env.NO_COLOR,
+    noColor: envPresent(env.NO_COLOR),
     chromeNoSandbox:
-      env.BRAIN_CHROME_NO_SANDBOX === "1" || env.BRAIN_UI_CHROME_NO_SANDBOX === "1",
+      envFlag(env.BRAIN_CHROME_NO_SANDBOX, false) ||
+      envFlag(env.BRAIN_UI_CHROME_NO_SANDBOX, false),
   };
-}
-
-/**
- * Call-time read of a single variable whose name is data (see
- * `DYNAMIC_ENV_READS`) or whose presence gates a feature. Never cache the
- * result at module scope.
- */
-export function readEnvVar(
-  name: string,
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
-  return env[name];
 }

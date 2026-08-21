@@ -182,8 +182,17 @@ describe("environment documentation", () => {
       // `env.X` — so a text scan for `process.env` sees almost nothing and
       // passes while the descriptor omits a real variable. Found by an
       // adversarial review of exactly this test.
+      //
+      // The shared `env-core.ts` copy is scanned too: it is inside the
+      // chokepoint allowlist of check-env-access.ts, so a literal read added
+      // there would otherwise be invisible to this gate. (Today it has none —
+      // only the dynamic `readEnvVar(name)` escape hatch.)
       const pkg = await loadPackageEnv(dir);
-      const literals = envReadsIn(pkg.envModule);
+      const envCore = join(PACKAGES_DIR, dir, "src", "config", "env-core.ts");
+      const literals = new Set([
+        ...envReadsIn(pkg.envModule),
+        ...envReadsIn(envCore),
+      ]);
       const declared = new Set(pkg.vars.map((spec) => spec.name));
       expect([...literals].filter((name) => !declared.has(name)).sort()).toEqual([]);
     });

@@ -12,11 +12,13 @@ describe("config/env resolveEnv", () => {
     expect(env.nominatimUserAgent).toBe("brain-kit-ui/1.0");
   });
 
-  test('reverse geocoding disables on "0"/"off"/"false", case-insensitively', () => {
-    for (const v of ["0", "off", "false", "OFF", "False"]) {
+  test("reverse geocoding disables on the shared falsy token set, case-insensitively", () => {
+    // envFlag's falsy set — "no" and surrounding whitespace now count too.
+    for (const v of ["0", "off", "false", "no", "OFF", "False", " off "]) {
       expect(resolveEnv({ BRAIN_UI_REVERSE_GEOCODE: v }).reverseGeocodeEnabled).toBe(false);
     }
-    for (const v of ["1", "on", "yes", ""]) {
+    // Truthy tokens, empty, and unrecognised values keep the on-by-default.
+    for (const v of ["1", "on", "yes", "", "banana"]) {
       expect(resolveEnv({ BRAIN_UI_REVERSE_GEOCODE: v }).reverseGeocodeEnabled).toBe(true);
     }
   });

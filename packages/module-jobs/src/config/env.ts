@@ -7,7 +7,16 @@
  * contract the env parity gate diffs against the package's env documentation.
  */
 
-/** One environment variable this package reads. */
+// The descriptor contract is shared across every chokepoint via the
+// sync-enforced copy in ./env-core.ts.
+
+/**
+ * One environment variable this package reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
 export interface EnvVarSpec {
   /** Variable name as it appears in the environment. */
   name: string;
@@ -15,7 +24,6 @@ export interface EnvVarSpec {
   description: string;
   /** Behaviour when the variable is unset, when there is a default. */
   default?: string;
-  /** True when the package cannot do its job at all without it. */
   required: boolean;
 }
 

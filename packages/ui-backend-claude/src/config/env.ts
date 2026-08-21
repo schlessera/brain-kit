@@ -14,7 +14,21 @@
  * diffs against the package's env documentation.
  */
 
-/** One environment variable this package reads. */
+import { envFlag } from "./env-core.js";
+import type { DynamicEnvReadSpec } from "./env-core.js";
+
+// The descriptor contract, readEnvVar and the boolean helpers are shared
+// across every chokepoint via the sync-enforced copy in ./env-core.ts.
+export type { DynamicEnvReadSpec } from "./env-core.js";
+export { readEnvVar } from "./env-core.js";
+
+/**
+ * One environment variable this package reads.
+ *
+ * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * package's published descriptor shape, and widening it to the shared
+ * union would be a breaking change for typed consumers of ENV_VARS.
+ */
 export interface EnvVarSpec {
   /** Variable name as it appears in the environment. */
   name: string;
@@ -22,16 +36,7 @@ export interface EnvVarSpec {
   description: string;
   /** Behaviour when the variable is unset, when there is a default. */
   default?: string;
-  /** True when the package cannot do its job at all without it. */
   required: boolean;
-}
-
-/** A family of reads whose variable NAME is data, not code. */
-export interface DynamicEnvReadSpec {
-  /** Where the variable name comes from. */
-  source: string;
-  /** What the value is used for. */
-  description: string;
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
@@ -92,7 +97,7 @@ export interface ClaudeBackendEnv {
   anthropicApiKey: string | undefined;
   /** CLAUDE_CODE_OAUTH_TOKEN, untrimmed. */
   claudeCodeOauthToken: string | undefined;
-  /** BRAIN_UI_REVERSE_GEOCODE is not "0"/"off"/"false" (case-insensitive). */
+  /** BRAIN_UI_REVERSE_GEOCODE is not falsy (0/false/off/no, case-insensitive). */
   reverseGeocodeEnabled: boolean;
   /** NOMINATIM_URL with the public-OSM default applied. */
   nominatimUrl: string;
@@ -102,25 +107,13 @@ export interface ClaudeBackendEnv {
 
 /** Resolve the statically-named variables. Reads happen here and only here. */
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ClaudeBackendEnv {
-  const geocode = env.BRAIN_UI_REVERSE_GEOCODE?.toLowerCase();
   return {
     anthropicApiKey: env.ANTHROPIC_API_KEY,
     claudeCodeOauthToken: env.CLAUDE_CODE_OAUTH_TOKEN,
-    reverseGeocodeEnabled: geocode !== "0" && geocode !== "off" && geocode !== "false",
+    reverseGeocodeEnabled: envFlag(env.BRAIN_UI_REVERSE_GEOCODE, true),
     nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",
   };
-}
-
-/**
- * Call-time read of a single variable whose name is data (see
- * `DYNAMIC_ENV_READS`). Never cache the result at module scope.
- */
-export function readEnvVar(
-  name: string,
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
-  return env[name];
 }
 
 /**
