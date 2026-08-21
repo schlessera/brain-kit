@@ -11,3 +11,4 @@ coverage/
 tmp/
 okf-dist/
 .DS_Store
+.claude/worktrees/

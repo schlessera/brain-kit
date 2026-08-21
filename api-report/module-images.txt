@@ -33,3 +33,5 @@ export "./module" (./src/module.ts)
   type ImagesConfig
   configSchema
   default
+
+export "./package.json" (./package.json) [asset]

@@ -14,7 +14,7 @@ import type {
  * tests install fakes by constructing a registry, not by mutating a module.
  *
  * BOTH backend packages are optional peers loaded lazily (the same
- * `createRequire` path): a deployment installs the one its AGENT_BACKEND
+ * dynamic-import path): a deployment installs the one its AGENT_BACKEND
  * names, and the other never has to be present — at runtime AND at
  * type-check time (see the structural mirrors below).
  *
@@ -293,6 +293,59 @@ function missingBackendError(primary: "claude" | "pi"): Error {
  * The `resolve` parameter exists for tests (simulating an absent package);
  * production callers pass nothing.
  */
+/** The specifier an ERR_MODULE_NOT_FOUND failed on, or null for any other error. */
+function moduleNotFoundSpecifier(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const { code, specifier, message } = error as {
+    code?: unknown;
+    specifier?: unknown;
+    message?: unknown;
+  };
+  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return null;
+  // Bun's ResolveMessage (not an Error instance) carries the failing
+  // specifier as a property; Node quotes it in the message instead.
+  if (typeof specifier === "string") return specifier;
+  if (typeof message === "string") {
+    const quoted = /Cannot find (?:package|module) '([^']+)'/.exec(message);
+    if (quoted) return quoted[1];
+  }
+  return null;
+}
+
+/**
+ * Load an optional backend package, mapping ONLY "the backend package itself
+ * is not installed" to the actionable install hint. Everything else — the
+ * backend missing one of its OWN transitive deps, a syntax error, a throwing
+ * top-level — is a different failure whose original error IS the diagnostic,
+ * so it is rethrown untouched. The distinction rides on ERR_MODULE_NOT_FOUND
+ * naming the specifier it failed on: a transitive miss names the transitive
+ * dep, not the backend, and must not read as "backend not installed".
+ *
+ * `await import()` rather than `createRequire()(...)`: the backend packages
+ * are ESM, and a CJS require of them under plain Node dies with
+ * ERR_REQUIRE_ESM — which the old blanket catch then reported as "not
+ * installed" on a machine where the package was sitting right there.
+ *
+ * The `importer` parameter exists for tests (simulating absent or broken
+ * packages); production callers pass nothing.
+ */
+export async function loadBackendModule(
+  // "claude" | "pi" spelled out, NOT keyof typeof BACKEND_SPECIFIERS: the
+  // keyof form drags the table's literal string types — the backend
+  // specifiers — into the emitted .d.ts, which the declaration-surface gate
+  // rightly refuses.
+  key: "claude" | "pi",
+  importer: (specifier: string) => Promise<unknown> = (specifier) => import(specifier)
+): Promise<unknown> {
+  const specifier = BACKEND_SPECIFIERS[key];
+  try {
+    return await importer(specifier);
+  } catch (error) {
+    if (moduleNotFoundSpecifier(error) === specifier) throw missingBackendError(key);
+    throw error;
+  }
+}
+
 export function assertBackendResolvable(
   agent: AgentConfig,
   resolve: (specifier: string) => void = (specifier) => {
@@ -428,18 +481,12 @@ export function createBackendRegistry(
   /**
    * NEITHER backend package is a hard dependency — a deployment installs the
    * one its AGENT_BACKEND names (both, if it switches). Loaded lazily through
-   * the same `createRequire` path so the server still boots without the unused
-   * one; when the configured backend's package is absent, fail with an
-   * actionable message.
+   * {@link loadBackendModule} so the server still boots without the unused
+   * one; only "the package is absent" maps to the actionable install hint,
+   * any other load failure surfaces as itself.
    */
-  function buildClaudeBackend(): AgentBackend {
-    const require = createRequire(import.meta.url);
-    let claude: ClaudeBackendModule;
-    try {
-      claude = require("@schlessera/brain-backend-claude");
-    } catch {
-      throw missingBackendError("claude");
-    }
+  async function buildClaudeBackend(): Promise<AgentBackend> {
+    const claude = (await loadBackendModule("claude")) as ClaudeBackendModule;
     if (typeof claude.createClaudeBackend !== "function") {
       throw new Error(
         '"@schlessera/brain-backend-claude" does not export createClaudeBackend.'
@@ -472,16 +519,10 @@ export function createBackendRegistry(
     });
   }
 
-  function buildPiBackend(): AgentBackend {
-    const require = createRequire(import.meta.url);
-    let mod: {
+  async function buildPiBackend(): Promise<AgentBackend> {
+    const mod = (await loadBackendModule("pi")) as {
       createPiBackend?: (opts: { brainPath: string; log?: BackendLogFn }) => AgentBackend;
     };
-    try {
-      mod = require("@schlessera/brain-backend-pi");
-    } catch {
-      throw missingBackendError("pi");
-    }
     if (typeof mod.createPiBackend !== "function") {
       throw new Error(
         '"@schlessera/brain-backend-pi" does not export createPiBackend.'
@@ -497,11 +538,11 @@ export function createBackendRegistry(
     const primary = agent.backend || "claude";
 
     if (primary === "pi") {
-      const pi = buildPiBackend();
+      const pi = await buildPiBackend();
       return buildSnapshot([pi], pi.id);
     }
 
-    const backends = [buildClaudeBackend()];
+    const backends = [await buildClaudeBackend()];
 
     // AGENT_BACKEND must name a configured backend. The in-process options are
     // "claude" (default) and "pi" (handled above). An unrecognized value is a

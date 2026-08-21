@@ -56,6 +56,12 @@
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
     },
     "packages/module-images": {
       "name": "@schlessera/brain-module-images",
@@ -68,6 +74,12 @@
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
     },
     "packages/module-jobs": {
       "name": "@schlessera/brain-module-jobs",
@@ -100,6 +112,12 @@
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
     },
     "packages/render-template": {
       "name": "@schlessera/brain-render-template",
@@ -150,6 +168,7 @@
       "name": "@schlessera/brain-backend-pi",
       "version": "0.16.0",
       "dependencies": {
+        "@earendil-works/pi-agent-core": "0.80.10",
         "@earendil-works/pi-ai": "0.80.6",
         "@earendil-works/pi-coding-agent": "0.80.6",
         "@schlessera/brain": "workspace:*",

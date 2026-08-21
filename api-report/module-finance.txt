@@ -29,3 +29,5 @@ export "./module" (./src/module.ts)
   type FinanceConfig
   configSchema
   default
+
+export "./package.json" (./package.json) [asset]

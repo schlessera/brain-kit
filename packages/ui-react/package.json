@@ -22,7 +22,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "**/*.css"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -31,7 +33,8 @@
       "default": "./dist/index.js"
     },
     "./styles.css": "./dist/styles.css",
-    "./theme.css": "./src/theme.css"
+    "./theme.css": "./dist/theme.css",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",

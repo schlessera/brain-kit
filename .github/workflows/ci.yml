@@ -177,6 +177,20 @@ jobs:
           }
           NODE
           ./node_modules/.bin/brain --version
+      - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
+        # The repo's own typecheck resolves cross-package imports to src via
+        # customConditions ["bun"], so the emitted .d.ts consumers get is
+        # otherwise never typechecked — and the workspace's hoisted
+        # node_modules would let an UNDECLARED dependency of a .d.ts resolve
+        # anyway. Running the probes against the tarball-consumer install
+        # (which holds only declared dependencies) closes both holes. The
+        # @types packages are the consumer-side typing setup our optional
+        # peers and React peer deps document. See scripts/check-dist-types.ts.
+        run: |
+          set -euo pipefail
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
+          (cd "$CONSUMER_DIR" && bun add -d @types/bun @types/react @types/react-dom)
+          bun scripts/check-dist-types.ts --root "$CONSUMER_DIR"
 
   changeset:
     # A user-visible change without a changeset publishes with no version entry

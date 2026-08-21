@@ -11,6 +11,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "fs";
+import { builtinModules } from "node:module";
 import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -22,6 +23,7 @@ interface Manifest {
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  optionalDependencies?: Record<string, string>;
 }
 
 interface Edges {
@@ -150,28 +152,33 @@ describe("internal dependency edges", () => {
 // not declared works in the monorepo (hoisting) and breaks for the npm
 // consumer; a declared internal dep that nothing imports is a stale edge that
 // keeps installing (and keeps looking load-bearing) for no reason.
-describe("internal specifiers match declared edges", () => {
-  const SPECIFIER =
-    /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["'](@schlessera\/[^"']+)["']/gm;
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(d);
+    } catch {
+      return; // package without src/
+    }
+    for (const entry of entries) {
+      const full = join(d, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
+    }
+  };
+  walk(join(PACKAGES_DIR, dir, "src"));
+  return out;
+}
 
-  function sourceFiles(dir: string): string[] {
-    const out: string[] = [];
-    const walk = (d: string) => {
-      let entries: string[];
-      try {
-        entries = readdirSync(d);
-      } catch {
-        return; // package without src/
-      }
-      for (const entry of entries) {
-        const full = join(d, entry);
-        if (statSync(full).isDirectory()) walk(full);
-        else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
-      }
-    };
-    walk(join(PACKAGES_DIR, dir, "src"));
-    return out;
-  }
+describe("internal specifiers match declared edges", () => {
+  // Import syntax, plus any whole string literal that IS an internal
+  // specifier: ui-server's lazy backend loading keeps its optional-peer
+  // specifiers in a plain object literal and feeds them to a non-literal
+  // `import()` (see the declaration-surface guard for why), and those
+  // references must still count as "imported somewhere".
+  const SPECIFIER =
+    /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["'](@schlessera\/[^"']+)["']|["'](@schlessera\/[\w./-]*[a-z0-9])["']/gm;
 
   for (const { dir, manifest } of packages) {
     const declared = new Set(
@@ -185,7 +192,7 @@ describe("internal specifiers match declared edges", () => {
     for (const file of sourceFiles(dir)) {
       const text = readFileSync(file, "utf8");
       for (const match of text.matchAll(SPECIFIER)) {
-        used.add(match[1].split("/").slice(0, 2).join("/"));
+        used.add((match[1] ?? match[2]).split("/").slice(0, 2).join("/"));
       }
     }
 
@@ -197,6 +204,74 @@ describe("internal specifiers match declared edges", () => {
     test(`${manifest.name}: every declared internal dep is imported somewhere`, () => {
       const unused = [...declared].filter((d) => !used.has(d));
       expect(unused).toEqual([]);
+    });
+  }
+});
+
+// Companion, widened to EVERY external package: a bare specifier used in src/
+// but declared nowhere resolves in the monorepo through hoisting and breaks —
+// or silently floats to whatever version happens to be hoisted — for the npm
+// consumer. Exactly how @earendil-works/pi-agent-core rode into
+// ui-backend-pi's public .d.ts undeclared: the internal check above only
+// matched @schlessera/*. Tests may lean on devDependencies; src may not.
+describe("external specifiers are declared dependencies", () => {
+  // Static string specifiers only — template-literal dynamic imports carry no
+  // resolvable name, and the lazy-backend specifiers live in a plain object
+  // literal (declared as optional peers, asserted by the edge table above).
+  const SPECIFIER =
+    /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm;
+
+  // The import-syntax regex also fires on lookalikes inside ordinary strings
+  // ('..., "from", "they", ...' in a stopword list). A real specifier is a
+  // path or a package name; anything with whitespace, interpolation or quotes
+  // in it is prose.
+  const PLAUSIBLE_SPECIFIER = /^[@a-zA-Z_./][\w@./:-]*$/;
+
+  const BUILTINS = new Set(builtinModules);
+
+  /** `@scope/name/sub` → `@scope/name`; `name/sub` → `name`. */
+  function packageNameOf(specifier: string): string {
+    const segments = specifier.split("/");
+    return segments.slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+  }
+
+  function isRuntimeProvided(specifier: string): boolean {
+    return (
+      specifier.startsWith("node:") ||
+      specifier.startsWith("bun:") ||
+      specifier === "bun" ||
+      BUILTINS.has(packageNameOf(specifier))
+    );
+  }
+
+  for (const { dir, manifest } of packages) {
+    const declared = new Set([
+      ...Object.keys(manifest.dependencies ?? {}),
+      ...Object.keys(manifest.peerDependencies ?? {}),
+      ...Object.keys(manifest.optionalDependencies ?? {}),
+    ]);
+
+    test(`${manifest.name}: every bare specifier in src/ is a declared dependency`, () => {
+      const undeclared = new Set<string>();
+      for (const file of sourceFiles(dir)) {
+        const text = readFileSync(file, "utf8");
+        for (const match of text.matchAll(SPECIFIER)) {
+          const specifier = match[1];
+          if (!PLAUSIBLE_SPECIFIER.test(specifier)) continue;
+          if (specifier.startsWith(".") || isRuntimeProvided(specifier)) continue;
+          const name = packageNameOf(specifier);
+          if (name === manifest.name || declared.has(name)) continue;
+          undeclared.add(name);
+        }
+      }
+      expect(
+        [...undeclared].sort(),
+        `${manifest.name} imports these in src/ without declaring them in ` +
+          "dependencies/peerDependencies/optionalDependencies. In the monorepo they " +
+          "resolve through hoisting; for the npm consumer they are missing or an " +
+          "unpinned lottery. Declare each one (and decide hard vs peer) — do not " +
+          "widen this test."
+      ).toEqual([]);
     });
   }
 });

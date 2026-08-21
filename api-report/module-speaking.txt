@@ -12,3 +12,5 @@ export "./module" (./src/module.ts)
   type SpeakingConfig
   configSchema
   default
+
+export "./package.json" (./package.json) [asset]

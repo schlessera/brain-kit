@@ -74,3 +74,5 @@ export "." (./src/index.ts)
   websocket
   withBrainDb
   writeCache
+
+export "./package.json" (./package.json) [asset]

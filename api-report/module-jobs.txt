@@ -46,3 +46,5 @@ export "./module" (./src/module.ts)
   type JobsConfig
   configSchema
   default
+
+export "./package.json" (./package.json) [asset]

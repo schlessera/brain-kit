@@ -128,3 +128,5 @@ export "." (./src/index.ts)
   stringifyDocument
   syncSkills
   validate
+
+export "./package.json" (./package.json) [asset]

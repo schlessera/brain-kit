@@ -9,8 +9,15 @@
  * lazily), and `createApp()` calls it next to the auth assertions.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, rmSync } from "fs";
-import { assertBackendResolvable, createStaticBackendRegistry } from "../src/agent/backend";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  assertBackendResolvable,
+  createStaticBackendRegistry,
+  loadBackendModule,
+} from "../src/agent/backend";
 import { createApp } from "../src/app";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -50,6 +57,86 @@ describe("assertBackendResolvable", () => {
       })
     ).toThrow('AGENT_BACKEND="gemini" does not match any configured backend');
     expect(touched).toEqual([]);
+  });
+});
+
+describe("loadBackendModule", () => {
+  test("the installed workspace backend loads through the real importer", async () => {
+    const claude = (await loadBackendModule("claude")) as Record<string, unknown>;
+    expect(typeof claude.createClaudeBackend).toBe("function");
+  });
+
+  test("an absent package maps to the install hint (Bun-shaped resolve error)", async () => {
+    // Bun's ResolveMessage is NOT an Error instance; it carries the failing
+    // specifier as a property.
+    const bunResolveError = {
+      name: "ResolveMessage",
+      code: "ERR_MODULE_NOT_FOUND",
+      specifier: "@schlessera/brain-backend-pi",
+      message: "Cannot find module '@schlessera/brain-backend-pi' from '/srv/app/index.js'",
+    };
+    await expect(
+      loadBackendModule("pi", () => Promise.reject(bunResolveError))
+    ).rejects.toThrow(
+      'AGENT_BACKEND=pi but "@schlessera/brain-backend-pi" is not installed'
+    );
+  });
+
+  test("an absent package maps to the install hint (Node-shaped resolve error)", async () => {
+    // Node puts the failing specifier in the message, not on a property.
+    const nodeResolveError = Object.assign(
+      new Error(
+        "Cannot find package '@schlessera/brain-backend-claude' imported from " +
+          "/srv/app/node_modules/@schlessera/brain-ui-server/dist/agent/backend.js"
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" }
+    );
+    await expect(
+      loadBackendModule("claude", () => Promise.reject(nodeResolveError))
+    ).rejects.toThrow(
+      'AGENT_BACKEND=claude but "@schlessera/brain-backend-claude" is not installed'
+    );
+  });
+
+  test("a backend missing its own transitive dep does NOT read as 'not installed'", async () => {
+    // Same error code, different failing specifier: the backend IS installed,
+    // its install is broken. "Not installed" would send the operator to
+    // reinstall the wrong package; the real error is the diagnostic.
+    const transitiveMiss = Object.assign(
+      new Error(
+        "Cannot find package '@anthropic-ai/claude-agent-sdk' imported from " +
+          "/srv/app/node_modules/@schlessera/brain-backend-claude/dist/index.js"
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" }
+    );
+    await expect(
+      loadBackendModule("claude", () => Promise.reject(transitiveMiss))
+    ).rejects.toThrow("Cannot find package '@anthropic-ai/claude-agent-sdk'");
+  });
+
+  test("an installed-but-throwing module surfaces its real error", async () => {
+    // A real import of a real (broken) module, not a simulated rejection: the
+    // whole point of dropping the blanket catch is that this class of failure
+    // stops masquerading as "not installed".
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-broken-backend-"));
+    const file = join(dir, "index.mjs");
+    writeFileSync(file, 'throw new Error("backend exploded at import time");\n');
+    try {
+      const rejection = loadBackendModule("pi", () => import(pathToFileURL(file).href));
+      await expect(rejection).rejects.toThrow("backend exploded at import time");
+      await expect(rejection).rejects.not.toThrow("is not installed");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-resolution failure (e.g. ERR_REQUIRE_ESM) is rethrown untouched", async () => {
+    const requireEsm = Object.assign(new Error("require() of ES Module not supported"), {
+      code: "ERR_REQUIRE_ESM",
+    });
+    await expect(
+      loadBackendModule("pi", () => Promise.reject(requireEsm))
+    ).rejects.toThrow("require() of ES Module not supported");
   });
 });
 

@@ -54,7 +54,8 @@
       "bun": "./src/client/share-target.ts",
       "types": "./dist/client/share-target.d.ts",
       "default": "./dist/client/share-target.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "src",

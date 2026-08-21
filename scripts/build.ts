@@ -1,15 +1,19 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 
+// Build order is not load-bearing: each package's tsconfig.build.json extends
+// the root tsconfig, whose customConditions ["bun"] resolve cross-package
+// imports to the sibling's src/, never to emitted .d.ts. What consumers get
+// from dist is checked separately, after this script, by
+// scripts/check-dist-types.ts. Dependencies are listed before dependents
+// anyway, so a future resolution change fails loudly instead of subtly.
 const packages = [
-  // Must precede core and ui-server: both typecheck against its .d.ts.
   "render-template",
   "core",
   "ui-sdk",
   "ui-backend-claude",
   "ui-backend-pi",
   "ui-render-puppeteer",
-  // Ahead of module-jobs, which depends on it.
   "scrape",
   "ui-server",
   "ui-react",
@@ -62,6 +66,13 @@ for (const packageName of packages) {
     );
     const cssExit = await css.exited;
     if (cssExit !== 0) process.exit(cssExit);
+
+    // The Tailwind-consumer theme entry ships from dist like every other
+    // export target, so a dist-only tarball keeps both CSS exports working.
+    // It is copied verbatim: consumers' Tailwind builds process it themselves.
+    cpSync(resolve(packageDir, "src", "theme.css"), resolve(distDir, "theme.css"), {
+      preserveTimestamps: true,
+    });
   }
 
   if (packageName === "core") {

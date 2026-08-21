@@ -224,6 +224,8 @@ export "./client" (./src/client/index.ts)
   resolveToolRenderer
   speechUiHints
 
+export "./package.json" (./package.json) [asset]
+
 export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
   type AskUserAnnotation

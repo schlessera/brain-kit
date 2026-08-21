@@ -74,10 +74,12 @@ describe("emitted declaration graph", () => {
   });
 
   test("no file under src/ names an optional backend specifier in any position", () => {
-    // Runtime `require("...")` in agent/backend.ts is the single exception:
-    // it is what "lazy optional peer" means, and it is a string the compiler
-    // never resolves. Everything else — import, import type, typeof import —
-    // would force the peer onto the bun-condition consumer's typecheck.
+    // The runtime specifier strings in agent/backend.ts (BACKEND_SPECIFIERS,
+    // fed to `await import(variable)`) are the single exception: they are what
+    // "lazy optional peer" means, and a non-literal dynamic import is a string
+    // the compiler never resolves. Everything else — import, import type,
+    // typeof import, and a LITERAL dynamic import — would force the peer onto
+    // the bun-condition consumer's typecheck.
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -99,7 +101,10 @@ describe("emitted declaration graph", () => {
               ? node.moduleSpecifier
               : ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
                 ? node.argument.literal
-                : undefined;
+                : ts.isCallExpression(node) &&
+                    node.expression.kind === ts.SyntaxKind.ImportKeyword
+                  ? node.arguments[0]
+                  : undefined;
           if (
             specifier &&
             ts.isStringLiteralLike(specifier) &&

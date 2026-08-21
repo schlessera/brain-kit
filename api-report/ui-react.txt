@@ -50,6 +50,8 @@ export "." (./src/index.ts)
   useVpnStatus
   useWebSocket
 
+export "./package.json" (./package.json) [asset]
+
 export "./styles.css" (./dist/styles.css) [asset]
 
-export "./theme.css" (./src/theme.css) [asset]
+export "./theme.css" (./dist/theme.css) [asset]

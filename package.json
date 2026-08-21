@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "build": "bun scripts/build.ts",
+    "check-dist-types": "bun scripts/check-dist-types.ts",
     "clean": "bun scripts/clean.ts",
     "env-docs": "bun scripts/env-docs.ts",
     "lint": "bun scripts/lint.ts",

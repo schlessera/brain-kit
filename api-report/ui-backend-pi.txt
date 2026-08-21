@@ -29,3 +29,5 @@ export "." (./src/index.ts)
   mapPiEvent
   normalizeMessages
   readEnvVar
+
+export "./package.json" (./package.json) [asset]
