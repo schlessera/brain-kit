@@ -85,6 +85,40 @@ export function judge(
   };
 }
 
+/**
+ * Changesets contributed by the range. The endpoint diff alone is blind to a
+ * changeset that was ADDED and then CONSUMED by `changeset version` inside
+ * the same range — a feature-plus-release push nets to zero .md files and
+ * failed the gate on the 0.17.0 cut. So also walk the commits: a file ever
+ * added under .changeset/ counts as contributed, whatever happened to it
+ * afterwards.
+ */
+export function contributedChangesets(
+  runGit: (args: string[]) => string[],
+  base: string
+): string[] {
+  const endpointAdds = runGit([
+    "diff",
+    "--name-only",
+    "--diff-filter=A",
+    `${base}...HEAD`,
+    "--",
+    ".changeset",
+  ]);
+  const everAdded = runGit([
+    "log",
+    "--diff-filter=A",
+    "--format=",
+    "--name-only",
+    `${base}..HEAD`,
+    "--",
+    ".changeset",
+  ]);
+  return [...new Set([...endpointAdds, ...everAdded])].filter(
+    (file) => file.endsWith(".md") && !file.endsWith("README.md")
+  );
+}
+
 if (import.meta.main) {
   const base = process.argv[2];
   if (!base) {
@@ -110,14 +144,7 @@ if (import.meta.main) {
   };
 
   const changed = git(["diff", "--name-only", `${base}...HEAD`]);
-  const addedChangesets = git([
-    "diff",
-    "--name-only",
-    "--diff-filter=A",
-    `${base}...HEAD`,
-    "--",
-    ".changeset",
-  ]).filter((file) => file.endsWith(".md") && !file.endsWith("README.md"));
+  const addedChangesets = contributedChangesets(git, base);
 
   const verdict = judge(changed, addedChangesets, shippedRootsByPackage(ROOT));
 

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { judge, shippedRoots } from "../scripts/check-changeset.ts";
+import { contributedChangesets, judge, shippedRoots } from "../scripts/check-changeset.ts";
 import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -100,5 +100,28 @@ describe("changeset gate", () => {
     );
     expect(verdict.release).toBe(true);
     expect(verdict.ok).toBe(true);
+  });
+});
+
+describe("contributedChangesets", () => {
+  test("a changeset added and consumed within the range still counts", () => {
+    // Endpoint diff shows nothing under .changeset (added, then consumed by
+    // the release commit); only the commit walk sees the addition. This is
+    // the 0.17.0 feature-plus-release push that failed the gate.
+    const stub = (args: string[]): string[] =>
+      args[0] === "log" ? [".changeset/my-feature.md"] : [];
+    expect(contributedChangesets(stub, "base")).toEqual([
+      ".changeset/my-feature.md",
+    ]);
+  });
+
+  test("endpoint-only adds still count, and README never does", () => {
+    const stub = (args: string[]): string[] =>
+      args[0] === "diff"
+        ? [".changeset/pending.md", ".changeset/README.md"]
+        : [];
+    expect(contributedChangesets(stub, "base")).toEqual([
+      ".changeset/pending.md",
+    ]);
   });
 });
