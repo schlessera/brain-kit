@@ -4,14 +4,27 @@ brain-kit is maintained by one person. Contributions are welcome; expectations
 are calibrated accordingly — reviews may take days, and scope is guarded
 deliberately.
 
+## Prerequisites
+
+- [Bun](https://bun.sh) ≥ 1.3.5 — `brain doctor` warns below 1.3.5, citing
+  CVE-2026-24910.
+- A local Chrome or Chromium for the puppeteer runtime tests
+  (`packages/ui-render-puppeteer/tests/runtime.test.ts`). Without one those
+  tests **silently skip** (`describe.skipIf`), so a green run on a
+  Chrome-less machine has not exercised the renderer.
+
 ## Running the code
 
 ```sh
 bun install
-bun test            # all packages
+bun run test        # all packages — NOT bare `bun test`
 bun run typecheck   # strict tsc, no emit
 bun run lint        # refuses raw control/invisible characters in source
 ```
+
+Use `bun run test`, not bare `bun test`: the script supplies `--timeout 30000`,
+and the CLI onboarding tests spawn a real `brain` process per assertion, which
+does not fit the 5s default — bare `bun test` fakes timeout failures.
 
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run
@@ -35,7 +48,9 @@ needs an API key or the network.
 3. **Contributing a provider** (the intended extension path, ≤3 steps):
    implement the typed interface (`defineConfig` accepts your value directly),
    prove it against the interface's contract test, and optionally publish as
-   `brain-kit-<kind>-<vendor>`. Community providers are only promoted to
+   `brain-<kind>-<vendor>` under your own npm scope (matching the in-tree
+   `brain-backend-claude` / `brain-render-puppeteer` / `brain-module-jobs`
+   precedent). Community providers are only promoted to
    built-ins once they have real users.
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.

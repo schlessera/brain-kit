@@ -22,8 +22,9 @@ discovery. Concretely:
    interface, import it into `brain.config.ts`, and pass it in:
    `{ provider: myEmbeddings }`. It is used as-is.
 3. **Sharing is an ordinary package.** Publish your implementation as
-   `brain-kit-<kind>-<vendor>` (e.g. `brain-embeddings-ollama`) and other
-   people `import` and pass it the same way. Third parties never touch the
+   `brain-<kind>-<vendor>` under your own npm scope (e.g.
+   `brain-embeddings-ollama`) and other people `import` and pass it the same
+   way. Third parties never touch the
    registry; graduating a community implementation to a built-in is one PR.
 
 ```ts
@@ -42,7 +43,8 @@ export default defineConfig({
    `@schlessera/brain` (identity functions that give you inference and
    excess-property checking) — or as a plain object typed as the interface.
 2. **Reference it in config** by value — it works immediately, no registration.
-3. **(Optional) publish** it as `brain-kit-<kind>-<vendor>` so others can import it.
+3. **(Optional) publish** it as `brain-<kind>-<vendor>` (your own npm scope) so
+   others can import it.
 
 ### Capability discovery and degradation
 
@@ -72,9 +74,27 @@ Four seams live in `@schlessera/brain`:
 | [Agent runners](agent-runners.md)          | `AgentRunner`        | The coding-agent CLI skills shell out to |
 | [Skill emitters](skill-emitters.md)        | `SkillEmitter`       | The agent format skills are emitted for |
 
-The self-hosted chat UI adds four more in `@schlessera/brain-ui-sdk` (ships with the
-brain-ui repo, v0.1): `AgentBackend` and `SpeechProvider` (server), `ToolRenderer`
-and `AsrClient` (client). Those are documented with brain-ui.
+The self-hosted chat UI adds four more in `@schlessera/brain-ui-sdk`
+(`packages/ui-sdk` in this monorepo): `AgentBackend` and `SpeechProvider`
+(server), `ToolRenderer` and `AsrClient` (client).
+
+- **[Agent backends](agent-backends.md)** — `AgentBackend`, the agent runtime
+  that drives a chat conversation. Has its own authoring guide.
+- **`SpeechProvider`** (server) — mints per-session STT connection material
+  (endpoint URL, short-lived token, params) for the client's matching
+  `AsrClient`; audio never transits the brain-ui server unless the provider
+  itself proxies. Carries `SpeechCapabilities` the UI degrades against.
+  Contract and `defineSpeechProvider` helper:
+  `packages/ui-sdk/src/server/speech.ts`.
+- **`AsrClient`** (client) — the browser half of the same seam:
+  `start` / `stop` / `drainAndStop` over the session the provider minted,
+  registered per provider id via `registerAsrClient`. Contract:
+  `packages/ui-sdk/src/client/asr.ts`.
+- **`ToolRenderer`** (client) — per-tool rendering for the chat timeline
+  (icon, summary, input/output React components), registered at build time in
+  `RendererPack`s; resolution is backend-scoped name → global name → scored
+  predicate → generic fallback. Contract:
+  `packages/ui-sdk/src/client/renderers.ts`.
 
 `@schlessera/brain-scrape` adds one more, `SiteAdapter`, for modules that fetch
 from the web. It clears the second-implementation bar by a distance — eleven
@@ -82,7 +102,8 @@ sites already implement it — and it exists because the alternative was
 observed: without a seam that is actually load-bearing, `module-jobs` grew a
 SECOND scraper with its own site registry and its own browser client, and
 implemented one site through both. `needsBrowser` on the adapter is the only
-thing that decides how it is served.
+thing that decides how it is served. Contract:
+`packages/scrape/src/adapter/types.ts`.
 
 Note the split: **modules** contribute content-domain things (types, skills, CLI
 words — see [modules.md](../modules.md)); **provider seams** are infrastructure.

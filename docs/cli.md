@@ -59,6 +59,19 @@ hosts; `data:` URIs always render.
 | `maintain` | Routine maintenance sequence | exit 2 if any step failed |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top |
 
+## Graph
+
+| Command | Does | Notes |
+|---|---|---|
+| `graph compute` ⚖ | Rebuild the derived wiki-link graph tables (metrics, communities, root distances, layout) from the index | `--root <path>` overrides the precomputed root; an override that resolves to nothing is a usage error, not an empty graph |
+| `graph export --mode <mode>` ⚖ | Dump one graph view as `{nodes, edges, truncated}` | modes: `clusters` (`--community <n>`, `--no-isolates`), `local` (`--center <path>` required, `--depth 1-3`, `--direction in\|out\|both`), `discovery` (`--root`, `--depth 1-8`, `--direction`), `maintenance` (`--stale-days <n>`; returns orphans/unreachable/broken-links/stale instead of nodes+edges) |
+| `graph stats` ⚖ | Node/edge/component counts, communities, root, computed-at | reports "not computed yet" until the first rebuild |
+
+The graph tables are a derived cache, rebuilt wholesale by every index run —
+they stay empty until the first index run on schema v8, and `graph compute`
+exists to rebuild them without reindexing. The `--json` payloads are listed in
+the [integration contract](integration-contract.md).
+
 ## OKF interchange
 
 | Command | Does | Notes |

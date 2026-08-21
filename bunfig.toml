@@ -1,6 +1,6 @@
 # Hoisted linker: Bun 1.3 defaults new workspace lockfiles to the isolated
 # linker, which (a) breaks root-level resolution of workspace packages that
 # the root package.json doesn't depend on, and (b) has known catalog bugs
-# (oven-sh/bun#23615). See research/tooling-versions.md.
+# (oven-sh/bun#23615).
 [install]
 linker = "hoisted"

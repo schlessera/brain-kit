@@ -1,3 +1,5 @@
+> Historical internal audit snapshot (2026-08-17, baselined on 0.11.0) — kept for reference, not maintained as documentation.
+
 # Skills & tooling catalog
 
 A full inventory of the skills, CLI commands, and agent tooling that make up

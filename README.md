@@ -61,13 +61,22 @@ shell (Dockerfile, bin entry, branding) over `brain-ui-server` and `brain-ui-rea
 
 ## Development
 
-Requires [Bun](https://bun.sh) ≥ 1.3.
+Requires [Bun](https://bun.sh) ≥ 1.3.5.
 
 ```sh
 bun install
-bun test
+bun run test       # not `bun test` — the script supplies the timeout the CLI tests need
 bun run typecheck
 ```
+
+## Where to go
+
+- [docs/quickstart.md](docs/quickstart.md) — clone the template to a working brain.
+- [docs/README.md](docs/README.md) — the full documentation index.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — prerequisites, running the code, what gets merged.
+- [SECURITY.md](SECURITY.md) — threat model and how to report.
+- [ROADMAP.md](ROADMAP.md) — current state, binding decisions, what is planned.
+- [schlessera/brain-ui](https://github.com/schlessera/brain-ui) — the deployment shell for the chat UI.
 
 ## License
 

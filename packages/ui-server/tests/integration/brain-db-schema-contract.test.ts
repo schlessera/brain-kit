@@ -20,7 +20,7 @@
  * direct-read contract, not an import.
  *
  * The corpus is indexed ONCE (in beforeAll) and shared by every assertion —
- * this is the one gate in the enforcement-gates plan with real runtime cost,
+ * this is the one enforcement gate with real runtime cost,
  * so it stays a single database, read many times.
  */
 

@@ -199,7 +199,7 @@ if (import.meta.main) {
   console.error(
     `\n${findings.length} finding(s) (${byRule.join(", ")}). Each package reads its ` +
       "environment in exactly one file, src/config/env.ts, which exports a typed " +
-      "descriptor of every variable — see the enforcement-gates plan (G3)."
+      "descriptor of every variable."
   );
   process.exit(1);
 }

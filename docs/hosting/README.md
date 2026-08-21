@@ -8,13 +8,15 @@ overview; the detailed runbooks ship with brain-ui.
 
 ## What brain-ui is
 
-**brain-ui** is a separate, open-source repo (ships with v0.1): a Progressive
-Web App chat interface that drives a coding agent over your brain. It is *not*
-part of this monorepo — it versions independently against the
-[integration contract](../integration-contract.md). Today it still spawns a
-vendored CLI copy and reads `brain.db`; migration to the packaged `brain` CLI is
-planned for phase 3. Its own README and docs cover deployment specifics; find
-it under the `schlessera` GitHub account alongside this project.
+**brain-ui** ([github.com/schlessera/brain-ui](https://github.com/schlessera/brain-ui))
+is a separate, open-source repo: a Progressive Web App chat interface that
+drives a coding agent over your brain. It is a **thin deployment shell** —
+Dockerfile, bin entry, branding — over the `@schlessera/brain-ui-server` and
+`@schlessera/brain-ui-react` packages published from this monorepo; every line
+of app behavior lives here, and brain-ui consumes the published npm packages
+like any other dependency (no vendored copies). It versions independently
+against the [integration contract](../integration-contract.md). Its own README
+and docs cover deployment specifics.
 
 Running brain-ui means running an agent that can execute Bash in a container that
 holds your data and your API tokens. That is powerful and it is a real attack

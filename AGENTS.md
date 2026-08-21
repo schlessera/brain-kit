@@ -39,7 +39,8 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 ## Conventions
 
 - Runtime: Bun (`bun:sqlite`, `Bun.spawn`, `Bun.Glob`). TypeScript throughout.
-  Tests: `bun test`. Typecheck: `tsc --noEmit`.
+  Tests: `bun run test` (the script supplies `--timeout 30000`; bare `bun test`
+  fakes timeout failures). Typecheck: `tsc --noEmit`.
 - Monorepo: Bun workspaces under `packages/`; all `@schlessera/brain-*`
   packages version in lockstep.
 - Packages ship both `src/` and a built `dist/` behind conditional exports —
