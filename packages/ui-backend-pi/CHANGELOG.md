@@ -1,5 +1,106 @@
 # @schlessera/brain-backend-pi
 
+## 0.17.0
+
+### Patch Changes
+
+- Pin the whole @earendil-works family at one exact version (0.80.10): with
+  the pins split across versions, a fresh install nested an incompatible
+  pi-ai copy under pi-coding-agent and the backend failed at import time. A
+  release guard now enforces pin coherence.
+
+- 210446f: Unify boolean environment parsing across all packages: every boolean variable
+  now accepts 1/true/on/yes and 0/false/off/no (case-insensitive, trimmed), and
+  an unset, empty, or unrecognised value falls back to the variable's documented
+  default instead of being misread. Defaults and directions are unchanged;
+  previously `"1"`-only flags (the Chrome sandbox switches, `TRUST_PROXY`,
+  `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH`, `BRAIN_UI_ALLOW_PASSWORD`,
+  `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN`) accept the full truthy set, and the disable
+  set for `BRAIN_UI_REVERSE_GEOCODE` / `BRAIN_UI_MODEL_DISCOVERY` gains `no`.
+  `NO_COLOR` keeps its presence-based contract. Published descriptor types
+  (`ENV_VARS` shapes) are unchanged.
+- b84e70f: Finish wiring the observability layer through the server: report what already failed silently.
+
+  The layer itself was sound — OpenTelemetry API on the producing side, our own
+  console/recording/in-memory consumers on the other — but adoption stopped at
+  two instruments, so most failures still answered the browser and left no
+  server-side trace.
+
+  - Turn lifecycle: every turn now emits "turn started" / "turn completed"
+    (INFO, with `session.id` / `turn.id` / `profile` and duration), and every
+    turn-failure path that previously only sent an error frame — SESSION_BUSY,
+    BACKEND_REQUEST_ERROR, BACKEND_ERROR, FOLLOWUP_FAILED, SESSION_LOAD_ERROR —
+    also logs (WARN for busy, ERROR otherwise) and feeds a `turns.failed`
+    counter keyed by the bounded error code. `turns.started` / `turns.completed`
+    counters and the turn-timeout WARN's correlation ids come with it.
+  - Auth: password logins are observable — WARN on a failed password and on the
+    rate limit, INFO on success, and a distinct ERROR when `Bun.password.verify`
+    throws (a corrupt BRAIN_UI_PASSWORD_HASH is no longer reported as a wrong
+    password). Failures land on the same `auth.failures` counter passkeys use.
+  - Request logging now runs through the observability layer (method, path,
+    status, duration; no query strings or bodies) instead of hono's raw-console
+    `logger()`, so BRAIN_UI_LOG_LEVEL governs it; `/api/health` is skipped.
+  - `/api/health` performs a SELECT 1 liveness probe of the app database and
+    answers 503 `{"status":"unhealthy"}` when it fails — the Docker healthcheck
+    no longer reports healthy over a wedged SQLite handle.
+  - The dead `log?` seams (graph/files/share/render/models routes, settings,
+    keyterm builder, share staging, the backend registry) actually receive a
+    logger from `createApp`, and session-catalog write failures WARN with the
+    session id instead of being swallowed.
+  - New `recordCronRun(db, jobName)` export lets an external scheduler (the
+    container crontab in the shipped deployment) record runs into `cron_runs`,
+    so `/api/status`'s `cronJobs` reflects what actually ran.
+  - WebSocket: the upgrade handlers gained `onError` (WARN + `ws.errors`
+    counter), and broadcast send failures count on `ws.frames.dropped` with
+    reason `broadcast_send_failed`, direction `outbound`.
+  - Backends take an optional minimal `log` callback (no OTel dependency):
+    the Claude backend routes its unparseable-confirmBashPatterns warning
+    through it (console.warn only when standalone), and the pi backend's
+    resource-loader fallback — which silently dropped the chat-surface
+    system-prompt append — now says so.
+
+- 6e1fd43: Fix per-connection protocol state never reaching the WS dispatcher (declared
+  protocolRev was dropped, so the rev-3 turnId-echo requirement was never
+  enforced), extract the tool-view diff engine into `lib/diff.ts`, and clean up
+  dead imports/variables surfaced by the new oxlint gate.
+- a714ee1: Per-package `test` scripts now pass `--timeout 30000`, so `bun run test` inside a package no longer flakes on bun's 5s default when suites spawn the CLI.
+- ef519d1: Harden the publish surface: what a consumer installs now matches what the
+  declarations, bundler and runtime actually reach for.
+
+  - `@schlessera/brain-backend-pi` declares `@earendil-works/pi-agent-core`
+    (exact-pinned, like its sibling pi pins) instead of borrowing it from
+    hoisting — its public `history.d.ts` types reference the package, so a
+    strict installer (pnpm, npm with isolated modes) could not typecheck it.
+  - `@schlessera/brain-ui-react` sets `sideEffects` to `["**/*.css"]` — the
+    blanket `false` licensed bundlers to tree-shake a direct
+    `import "@schlessera/brain-ui-react/styles.css"` away entirely.
+  - `./theme.css` now resolves from `dist/` (copied verbatim at build) like
+    `./styles.css` already did, so both stylesheets survive a dist-only tarball
+    and the export map is uniform. The import specifier is unchanged.
+  - `@schlessera/brain-module-finance`, `-images` and `-speaking` declare the
+    same optional `@types/bun` peer that `-jobs` already carried: their module
+    declaration graphs reach `bun:sqlite` types through `@schlessera/brain`.
+  - Every package exports `"./package.json"` — tooling like Vite, Tailwind and
+    Jest stats it, and the export map previously made that unreachable.
+  - `engines.bun` is aligned with reality: bun-runtime packages require
+    `>=1.3.5` (the CVE-2026-24910 floor `brain doctor` warns below), and
+    packages that import cleanly under plain Node carry no bun engines field.
+    Scrape keeps its (bumped) engines despite importing node-clean: its proxy
+    fetch path shells out through `Bun.spawn`, so the runtime constraint is
+    real even though the import is not.
+  - Backend loading in `@schlessera/brain-ui-server` uses `await import()`
+    instead of CJS `require()`, and only "the backend package itself is not
+    installed" maps to the install-hint error. An installed-but-broken backend
+    (missing transitive dep, syntax error, `ERR_REQUIRE_ESM`) now surfaces its
+    real error instead of a misleading "not installed".
+
+- Updated dependencies [210446f]
+- Updated dependencies [6e1fd43]
+- Updated dependencies [a714ee1]
+- Updated dependencies [ef519d1]
+  - @schlessera/brain@0.17.0
+  - @schlessera/brain-ui-sdk@0.17.0
+
 ## 0.16.0
 
 ### Patch Changes

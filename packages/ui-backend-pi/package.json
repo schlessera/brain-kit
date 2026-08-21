@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-backend-pi",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "OSS-default brain-kit agent backend, purpose-built on the upstream pi coding-agent SDK",
   "license": "MIT",
   "keywords": [
@@ -46,9 +46,9 @@
   "dependencies": {
     "@schlessera/brain": "workspace:*",
     "@schlessera/brain-ui-sdk": "workspace:*",
-    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.10",
     "@earendil-works/pi-agent-core": "0.80.10",
-    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.10",
     "typebox": "1.1.38"
   },
   "peerDependencies": {

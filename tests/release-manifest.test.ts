@@ -291,3 +291,28 @@ describe("workspace enumerations", () => {
     for (const count of counts) expect(count).toBe(packages.length);
   });
 });
+
+// A fresh `bun install` (which `bun run version` forces) resolves each
+// dependent's ranges independently: with our pi pins at 0.80.6 while
+// pi-coding-agent ranged `^0.80.6`, the resolver nested a NEWER pi-ai copy
+// under pi-coding-agent whose exports no longer matched, and the pi backend
+// failed at import time — in this workspace and for any npm consumer. Caught
+// during the 0.17.0 release. The guard: our exact pins on the pi family must
+// agree with each other, so a single hoisted copy satisfies every dependent.
+describe("pi dependency pins are coherent", () => {
+  test("ui-backend-pi pins one version for the whole @earendil-works family", async () => {
+    const manifest = (await Bun.file(
+      new URL("../packages/ui-backend-pi/package.json", import.meta.url).pathname
+    ).json()) as { dependencies: Record<string, string> };
+    const pins = Object.entries(manifest.dependencies).filter(([name]) =>
+      name.startsWith("@earendil-works/")
+    );
+    expect(pins.length).toBeGreaterThanOrEqual(3);
+    const versions = new Set(pins.map(([, v]) => v));
+    expect([...versions]).toHaveLength(1);
+    for (const [, version] of pins) {
+      // Exact pins only: a range here re-opens the nested-copy hazard.
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+  });
+});

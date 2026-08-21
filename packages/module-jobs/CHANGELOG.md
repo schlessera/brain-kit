@@ -1,5 +1,61 @@
 # @schlessera/brain-module-jobs
 
+## 0.17.0
+
+### Patch Changes
+
+- 210446f: Unify boolean environment parsing across all packages: every boolean variable
+  now accepts 1/true/on/yes and 0/false/off/no (case-insensitive, trimmed), and
+  an unset, empty, or unrecognised value falls back to the variable's documented
+  default instead of being misread. Defaults and directions are unchanged;
+  previously `"1"`-only flags (the Chrome sandbox switches, `TRUST_PROXY`,
+  `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH`, `BRAIN_UI_ALLOW_PASSWORD`,
+  `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN`) accept the full truthy set, and the disable
+  set for `BRAIN_UI_REVERSE_GEOCODE` / `BRAIN_UI_MODEL_DISCOVERY` gains `no`.
+  `NO_COLOR` keeps its presence-based contract. Published descriptor types
+  (`ENV_VARS` shapes) are unchanged.
+- 6e1fd43: Fix per-connection protocol state never reaching the WS dispatcher (declared
+  protocolRev was dropped, so the rev-3 turnId-echo requirement was never
+  enforced), extract the tool-view diff engine into `lib/diff.ts`, and clean up
+  dead imports/variables surfaced by the new oxlint gate.
+- a714ee1: Per-package `test` scripts now pass `--timeout 30000`, so `bun run test` inside a package no longer flakes on bun's 5s default when suites spawn the CLI.
+- ef519d1: Harden the publish surface: what a consumer installs now matches what the
+  declarations, bundler and runtime actually reach for.
+
+  - `@schlessera/brain-backend-pi` declares `@earendil-works/pi-agent-core`
+    (exact-pinned, like its sibling pi pins) instead of borrowing it from
+    hoisting — its public `history.d.ts` types reference the package, so a
+    strict installer (pnpm, npm with isolated modes) could not typecheck it.
+  - `@schlessera/brain-ui-react` sets `sideEffects` to `["**/*.css"]` — the
+    blanket `false` licensed bundlers to tree-shake a direct
+    `import "@schlessera/brain-ui-react/styles.css"` away entirely.
+  - `./theme.css` now resolves from `dist/` (copied verbatim at build) like
+    `./styles.css` already did, so both stylesheets survive a dist-only tarball
+    and the export map is uniform. The import specifier is unchanged.
+  - `@schlessera/brain-module-finance`, `-images` and `-speaking` declare the
+    same optional `@types/bun` peer that `-jobs` already carried: their module
+    declaration graphs reach `bun:sqlite` types through `@schlessera/brain`.
+  - Every package exports `"./package.json"` — tooling like Vite, Tailwind and
+    Jest stats it, and the export map previously made that unreachable.
+  - `engines.bun` is aligned with reality: bun-runtime packages require
+    `>=1.3.5` (the CVE-2026-24910 floor `brain doctor` warns below), and
+    packages that import cleanly under plain Node carry no bun engines field.
+    Scrape keeps its (bumped) engines despite importing node-clean: its proxy
+    fetch path shells out through `Bun.spawn`, so the runtime constraint is
+    real even though the import is not.
+  - Backend loading in `@schlessera/brain-ui-server` uses `await import()`
+    instead of CJS `require()`, and only "the backend package itself is not
+    installed" maps to the install-hint error. An installed-but-broken backend
+    (missing transitive dep, syntax error, `ERR_REQUIRE_ESM`) now surfaces its
+    real error instead of a misleading "not installed".
+
+- Updated dependencies [210446f]
+- Updated dependencies [6e1fd43]
+- Updated dependencies [a714ee1]
+- Updated dependencies [ef519d1]
+  - @schlessera/brain@0.17.0
+  - @schlessera/brain-scrape@0.17.0
+
 ## 0.16.0
 
 ### Patch Changes
