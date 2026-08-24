@@ -4,6 +4,9 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  type ActivityChange
+  type ActivityStore
+  type ActivityStream
   type AgentConfig
   type AppRenderer
   type AuthConfig
@@ -36,15 +39,22 @@ export "." (./src/index.ts)
   type RecordingLoggerProvider
   type RecordingObservability
   SEVERITIES
+  SPAN_OUTCOMES
   type ServerConfig
   type SessionCatalog
   type Severity
+  type SpanEventRow
+  type SpanOutcome
+  type SpanRow
+  type SpanUsage
   type VoiceConfig
   type WebAuthnConfig
   WsHost
   type WsHostOptions
   assertBackendResolvable
   buildKeyterms
+  createActivityStore
+  createActivityStream
   createApp
   createBackendRegistry
   createBrainClient
@@ -61,6 +71,7 @@ export "." (./src/index.ts)
   createWsHandlers
   createWsUpgrade
   handleClientMessage
+  ingestSpanSink
   openBrainDb
   pruneShareStaging
   recordCronRun

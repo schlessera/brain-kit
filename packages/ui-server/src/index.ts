@@ -80,6 +80,22 @@ export { createBrainClient, type BrainClient } from "./brain/client.js";
 // `cronJobs` reflects what actually ran.
 export { recordCronRun, type CronRunRecord } from "./cron/scheduler.js";
 
+// The activity record. The cron wrapper is a second PROCESS writing spans
+// into the same store (root span + heartbeat + span-sink ingest); everything
+// else consumes it through the app.
+export {
+  createActivityStore,
+  SPAN_OUTCOMES,
+  type ActivityStore,
+  type SpanRow,
+  type SpanEventRow,
+  type SpanOutcome,
+  type SpanUsage,
+  type ActivityChange,
+} from "./activity/store.js";
+export { createActivityStream, type ActivityStream } from "./activity/stream.js";
+export { ingestSpanSink } from "./activity/span-sink.js";
+
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.
 export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";

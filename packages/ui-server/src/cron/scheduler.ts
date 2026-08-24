@@ -115,15 +115,26 @@ export function createCronScheduler(deps: {
 
   return {
     getCronStatus() {
-      return jobs.map((job) => {
+      // Every job name that ever recorded a run, not just the two in-process
+      // triggers: module jobs and the maintain/digest crontab entries land in
+      // cron_runs through the same recorder and were previously invisible
+      // here (the "cron-status name gap"). The in-process names are unioned
+      // in so a fresh deployment still lists them before their first run.
+      const recorded = db
+        .query("SELECT DISTINCT job_name FROM cron_runs ORDER BY job_name")
+        .all() as Array<{ job_name: string }>;
+      const names = [
+        ...new Set([...jobs.map((j) => j.name), ...recorded.map((r) => r.job_name)]),
+      ];
+      return names.map((name) => {
         const lastRun = db
           .query(
             "SELECT * FROM cron_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1"
           )
-          .get(job.name) as any;
+          .get(name) as any;
 
         return {
-          name: job.name,
+          name,
           lastRunAt: lastRun?.started_at ?? null,
           lastStatus: lastRun?.status ?? null,
           lastDurationMs: lastRun?.duration_ms ?? null,
