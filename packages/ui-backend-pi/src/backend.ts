@@ -40,6 +40,8 @@ import {
   type ChatImageAttachment,
   type SessionHistoryMessage,
   type WriteLock,
+  type ModelUsage,
+  type TurnUsage,
   buildSystemPromptAppend,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -490,6 +492,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         void session.abort();
       };
       const costBefore = snapshotCost(session);
+      const turnUsage = createUsageAccumulator();
       let failed = false;
 
       try {
@@ -497,7 +500,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
           req.signal.addEventListener("abort", onAbort, { once: true });
         }
 
-        unsubscribe = session.subscribe(makeEventHandler(emit));
+        unsubscribe = session.subscribe(makeEventHandler(emit, turnUsage));
 
         // session_info must precede any content frames for a new session.
         emit({
@@ -536,6 +539,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       }
 
       const costUsd = turnCost(costBefore, snapshotCost(session));
+      const usage = turnUsage.toWire();
 
       if (cancelled) {
         emit({ type: "status", status: "cancelled" });
@@ -544,6 +548,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
           sessionId,
           outcome: "cancelled",
           ...(costUsd !== undefined ? { costUsd } : {}),
+          ...(usage ? { usage } : {}),
           durationMs: Date.now() - startedAt,
           numTurns: 1,
           isError: false,
@@ -559,6 +564,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         sessionId,
         outcome: failed ? "error" : "success",
         ...(costUsd !== undefined ? { costUsd } : {}),
+        ...(usage ? { usage } : {}),
         durationMs: Date.now() - startedAt,
         numTurns: 1,
         isError: failed,
@@ -605,9 +611,90 @@ function scopeFrame(msg: ServerMessage, sessionId: string): ServerMessage {
 }
 
 /** Translate pi AgentSession events into wire-protocol frames. */
-function makeEventHandler(emit: (msg: ServerMessage) => void) {
+function makeEventHandler(emit: (msg: ServerMessage) => void, usage?: TurnUsageAccumulator) {
   return (ev: AgentSessionEvent): void => {
+    usage?.observe(ev);
     for (const frame of mapPiEvent(ev)) emit(frame);
+  };
+}
+
+/**
+ * Sums per-message token usage across one turn. pi delivers a full `Usage`
+ * (tokens + cost breakdown) on every assistant message; message_end is the
+ * settled value for that message, so summing message_end events yields the
+ * turn's tokens. Cost stays with the session-stats diff (`turnCost`) — the
+ * authoritative number — while per-model cost sums ride the breakdown.
+ */
+export interface TurnUsageAccumulator {
+  observe(ev: AgentSessionEvent): void;
+  /** The wire usage block, or undefined when nothing was observed. */
+  toWire(): TurnUsage | undefined;
+}
+
+export function createUsageAccumulator(): TurnUsageAccumulator {
+  const perModel = new Map<string, ModelUsage & { seen: true }>();
+  let observed = false;
+
+  return {
+    observe(ev: AgentSessionEvent) {
+      if (ev.type !== "message_end" && ev.type !== "turn_end") return;
+      const message = (ev as { message?: unknown }).message as
+        | {
+            role?: string;
+            model?: string;
+            usage?: {
+              input?: number;
+              output?: number;
+              cacheRead?: number;
+              cacheWrite?: number;
+              cost?: { total?: number };
+            };
+          }
+        | undefined;
+      // turn_end re-delivers the LAST assistant message, which message_end
+      // already counted — only message_end accumulates; turn_end is accepted
+      // above so future shapes can hook in but contributes nothing today.
+      if (ev.type !== "message_end") return;
+      if (!message || message.role !== "assistant" || !message.usage) return;
+      const u = message.usage;
+      const key = message.model ?? "unknown";
+      const entry = perModel.get(key) ?? {
+        seen: true as const,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      };
+      entry.inputTokens = (entry.inputTokens ?? 0) + (u.input ?? 0);
+      entry.outputTokens = (entry.outputTokens ?? 0) + (u.output ?? 0);
+      entry.cacheReadTokens = (entry.cacheReadTokens ?? 0) + (u.cacheRead ?? 0);
+      entry.cacheCreationTokens = (entry.cacheCreationTokens ?? 0) + (u.cacheWrite ?? 0);
+      if (typeof u.cost?.total === "number") {
+        entry.costUsd = (entry.costUsd ?? 0) + u.cost.total;
+      }
+      perModel.set(key, entry);
+      observed = true;
+    },
+
+    toWire() {
+      if (!observed) return undefined;
+      const breakdown: Record<string, ModelUsage> = {};
+      const totals = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      };
+      for (const [model, u] of perModel) {
+        const { seen: _seen, ...wire } = u;
+        breakdown[model] = wire;
+        totals.inputTokens += u.inputTokens ?? 0;
+        totals.outputTokens += u.outputTokens ?? 0;
+        totals.cacheReadTokens += u.cacheReadTokens ?? 0;
+        totals.cacheCreationTokens += u.cacheCreationTokens ?? 0;
+      }
+      return { ...totals, perModel: breakdown };
+    },
   };
 }
 
