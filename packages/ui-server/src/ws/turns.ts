@@ -2,10 +2,15 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type {
   AgentBackend,
   PermissionDecision,
+  PermissionRequest,
   AskUserResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
-import type { ChatImageAttachment, ClientEnvironment } from "@schlessera/brain-ui-sdk/protocol";
+import type {
+  AskUserQuestion,
+  ChatImageAttachment,
+  ClientEnvironment,
+} from "@schlessera/brain-ui-sdk/protocol";
 
 export interface QueuedFollowUp {
   text: string;
@@ -77,12 +82,21 @@ export interface RunningTurn {
 export interface PendingApproval {
   turn: RunningTurn;
   turnId: string;
+  /**
+   * The original request, kept so the card can be RE-DELIVERED to a client
+   * that connects later. On a phone the socket drops every time the screen
+   * locks; an approval must survive that and reappear, not silently die.
+   */
+  request: PermissionRequest;
   resolve: (decision: PermissionDecision) => void;
 }
 
 export interface PendingAskUser {
   turn: RunningTurn;
   turnId: string;
+  /** Kept for re-delivery on reconnect, like PendingApproval.request. */
+  requestId: string;
+  questions: AskUserQuestion[];
   resolve: (result: AskUserResult) => void;
   reject: (err: Error) => void;
 }
@@ -168,6 +182,20 @@ export class TurnCoordinator {
       p.reject(new Error(reason));
       this.pendingAskUser.delete(id);
     }
+    this.drainClientBoundForTurn(turn, reason);
+  }
+
+  /**
+   * Reject only the requests that NEED a live client at this instant —
+   * location and mask, whose sibling handlers already fail fast with no
+   * client attached. Approvals and ask-user cards deliberately survive a
+   * disconnect: on a phone the socket drops at every screen lock, and before
+   * this split a pending approval was silently denied the moment the screen
+   * went dark ("Client disconnected") while one raised DURING the dark parked
+   * until the turn timeout. Both now hold, bounded by the turn timeout, and
+   * re-deliver on reconnect.
+   */
+  drainClientBoundForTurn(turn: RunningTurn, reason: string): void {
     for (const [id, p] of this.pendingLocation) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));

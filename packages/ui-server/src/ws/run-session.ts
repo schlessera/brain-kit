@@ -124,6 +124,10 @@ export async function runSession(
           sessionId: resumeId,
           profileId,
           signal: abortController.signal,
+          // The budget this very timer enforces, so the backend can put the
+          // real number in front of the model instead of it finding the cap
+          // mid-flight.
+          turnBudgetMs: host.turnTimeoutMs,
           bridge,
           ...(client ? { client } : {}),
         });

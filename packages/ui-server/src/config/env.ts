@@ -132,6 +132,13 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "3",
     required: false,
   },
+  {
+    name: "BRAIN_UI_TURN_TIMEOUT_MS",
+    description:
+      "Hard per-turn timeout in ms; the host aborts a turn that runs past it. Raise for agent-heavy research work (e.g. 1800000 for 30 minutes).",
+    default: "600000 (10 minutes)",
+    required: false,
+  },
   // auth
   {
     name: "AUTH_MODE",
@@ -360,6 +367,11 @@ export interface ServerConfig {
   sourceCommit: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
+  /**
+   * Per-turn timeout in ms (BRAIN_UI_TURN_TIMEOUT_MS), or null to use the
+   * WsHost default (10 minutes). An explicit createApp option still wins.
+   */
+  turnTimeoutMs: number | null;
   /** Threshold for the console log consumer (BRAIN_UI_LOG_LEVEL). */
   logLevel: Severity;
   /** Inbound WebSocket frame metering, per connection. */
@@ -448,6 +460,13 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions: Math.max(1, Number(env.MAX_CONCURRENT_SESSIONS) || 3),
+    // Positive integer or null — 0, negatives, and garbage all mean "unset",
+    // so a typo degrades to the safe default instead of an instant timeout.
+    turnTimeoutMs:
+      Number.isFinite(Number(env.BRAIN_UI_TURN_TIMEOUT_MS)) &&
+      Number(env.BRAIN_UI_TURN_TIMEOUT_MS) > 0
+        ? Math.floor(Number(env.BRAIN_UI_TURN_TIMEOUT_MS))
+        : null,
     auth: {
       mode: validMode,
       invalidMode: validMode ? null : rawAuthMode,

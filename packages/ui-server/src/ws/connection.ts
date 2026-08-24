@@ -2,6 +2,45 @@ import { upgradeWebSocket, websocket } from "hono/bun";
 import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
+import type { WSContext as WSContextType } from "./clients.js";
+
+/**
+ * Re-send every pending approval and ask-user card to a client that just
+ * connected. These survive disconnects (see drainClientBoundForTurn) precisely
+ * so this re-delivery can happen: a phone that dropped its socket at screen
+ * lock reconnects and finds the card waiting instead of a dead turn. The
+ * frames carry their original turn scope, so answering them resolves the
+ * correct turn's promise through the normal dispatch path.
+ */
+function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
+  const { coordinator } = host;
+  for (const p of coordinator.pendingApprovals.values()) {
+    host.sendMessage(
+      ws,
+      withTurnScope(
+        {
+          type: "tool_approval_request",
+          toolUseId: p.request.toolUseId,
+          toolName: p.request.toolName,
+          input: p.request.input,
+          description: p.request.description,
+        },
+        p.turn,
+        p.turnId
+      )
+    );
+  }
+  for (const p of coordinator.pendingAskUser.values()) {
+    host.sendMessage(
+      ws,
+      withTurnScope(
+        { type: "ask_user_request", requestId: p.requestId, questions: p.questions },
+        p.turn,
+        p.turnId
+      )
+    );
+  }
+}
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
@@ -88,6 +127,7 @@ export function createWsHandlers(host: WsHost) {
               turn
             )
           );
+          resendPendingInteractive(host, ws);
         }
         return;
       }
@@ -98,6 +138,7 @@ export function createWsHandlers(host: WsHost) {
         status: "idle",
         detail: `Connected to ${host.appName}`,
       });
+      resendPendingInteractive(host, ws);
     },
 
     onMessage(evt: MessageEvent, ws: WSContext) {
@@ -173,12 +214,15 @@ export function createWsHandlers(host: WsHost) {
         host.reportAbnormalClose(code);
       }
       host.clients.remove(ws);
-      // Turns keep running in the background. Only reject pending interactive
-      // requests once the LAST client leaves — while another client remains it
-      // can still answer them.
+      // Turns keep running in the background. Once the LAST client leaves,
+      // reject only the requests that need a live client RIGHT NOW (location,
+      // mask). Approvals and ask-user cards survive the disconnect and are
+      // re-delivered on reconnect — a phone drops its socket at every screen
+      // lock, and denying pending approvals on that signal killed real work.
+      // The turn timeout remains their upper bound.
       if (host.clients.hasClients()) return;
       for (const turn of host.coordinator.running) {
-        host.coordinator.drainPendingForTurn(turn, "Client disconnected");
+        host.coordinator.drainClientBoundForTurn(turn, "Client disconnected");
       }
     },
   };

@@ -184,7 +184,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
     ...(options.appName ? { appName: options.appName } : {}),
-    ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
+    // Explicit option wins; then the env-resolved config; then the host default.
+    ...(options.turnTimeoutMs ?? config.turnTimeoutMs
+      ? { turnTimeoutMs: (options.turnTimeoutMs ?? config.turnTimeoutMs)! }
+      : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
   });

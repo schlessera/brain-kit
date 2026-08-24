@@ -14,6 +14,9 @@ export { BackendBusyError, BackendRequestError } from "./backend.js";
 export type { WriteLock } from "./write-lock.js";
 export { createWriteLock } from "./write-lock.js";
 
+export type { KeyedLock } from "./keyed-lock.js";
+export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
+
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
 
