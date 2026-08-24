@@ -4,6 +4,7 @@ import { api } from "../../lib/api-client.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
+import { formatRelativeTime } from "./tool-views.js";
 
 interface SessionInfo {
   id: string;
@@ -214,16 +215,4 @@ function groupSessionsByDate(sessions: SessionInfo[]): GroupedSessions[] {
   return Object.entries(groups)
     .filter(([, sessions]) => sessions.length > 0)
     .map(([label, sessions]) => ({ label, sessions }));
-}
-
-function formatRelativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(ms).toLocaleDateString();
 }

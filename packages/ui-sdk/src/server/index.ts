@@ -1,6 +1,9 @@
 export type {
   AgentBackend,
   BackendBridge,
+  BackendActivityEvent,
+  ActivityQuery,
+  ActivityQueryResult,
   BackendCapabilities,
   StartTurnRequest,
   FollowUpRequest,

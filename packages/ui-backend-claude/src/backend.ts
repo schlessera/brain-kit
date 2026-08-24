@@ -32,6 +32,7 @@ import { isAbsolute, join, normalize } from "node:path";
 import { envSnapshot } from "./config/env.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
+import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import {
@@ -443,7 +444,7 @@ export function createClaudeBackend(
   // it can describe the device the CURRENT message came from.
   const buildAppend = (
     client: ClientEnvironment | undefined,
-    tools: { askUser: boolean; location: boolean; mask: boolean },
+    tools: { askUser: boolean; location: boolean; mask: boolean; activity: boolean },
     turnBudgetMs: number | undefined
   ): string =>
     options.systemPromptAppend ??
@@ -456,6 +457,7 @@ export function createClaudeBackend(
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
+        activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,
       },
     });
 
@@ -561,11 +563,12 @@ export function createClaudeBackend(
     if (req.signal.aborted) abortController.abort();
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
-    const adapter = new StreamAdapter();
+    const adapter = new StreamAdapter(req.bridge.activity);
     // Only wire ask-user / location tools when the host bridge offers them.
     const askUser = req.bridge.askUser;
     const getLocation = req.bridge.getLocation;
     const requestMask = req.bridge.requestMask;
+    const queryActivity = req.bridge.queryActivity;
 
     // Scope every frame to its session once the identity is known. For a
     // resume that is up front (the requested id); for a new session it is null
@@ -629,10 +632,18 @@ export function createClaudeBackend(
       // Auto-allowed like the other bridge tools: the approval is the editor
       // itself — nothing happens unless the user paints and confirms.
       if (requestMask) allowed.push(MASK_TOOL_NAME);
+      // Read-only over the host's own record — strictly narrower than the
+      // file/tool access the model already has.
+      if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
 
       const sdkOptions: Options = {
         cwd: options.brainPath,
         includePartialMessages: true,
+        // Forward subagent text/thinking tagged with parent_tool_use_id so
+        // drill-in views get full transcripts. The adapter keeps this OFF the
+        // chat surface (activity side channel only) — a regression here
+        // degrades gracefully to activity-only subagent visibility.
+        forwardSubagentText: true,
         abortController,
         // Load CLAUDE.md and project skills from the brain repo.
         settingSources: ["project"],
@@ -646,6 +657,7 @@ export function createClaudeBackend(
               askUser: Boolean(askUser),
               location: Boolean(getLocation),
               mask: Boolean(requestMask),
+              activity: Boolean(queryActivity),
             },
             req.turnBudgetMs
           );
@@ -832,12 +844,13 @@ export function createClaudeBackend(
         sdkOptions.pathToClaudeCodeExecutable = options.claudeCodePath;
       }
       if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
-      if (askUser || getLocation || requestMask) {
+      if (askUser || getLocation || requestMask || queryActivity) {
         sdkOptions.mcpServers = {
           "brain-ui": createBrainUiMcpServer({
             askUser,
             getLocation,
             requestMask,
+            queryActivity,
             brainPath: options.brainPath,
           }),
         };

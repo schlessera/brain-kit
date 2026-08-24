@@ -75,7 +75,14 @@ export function createWsHandlers(host: WsHost) {
       host.sendMessage(ws, {
         type: "server_hello",
         protocolRev: PROTOCOL_REV,
-        capabilities: { multiSession: true, askUser: true, location: true },
+        capabilities: {
+          multiSession: true,
+          askUser: true,
+          location: true,
+          // Advertised only when this host records activity — a client on an
+          // activity-less host knows subscribing would be pointless.
+          ...(host.activity ? { activity: true } : {}),
+        },
       });
 
       // Snapshot-on-connect only for the single-running-session case (backward
@@ -214,6 +221,7 @@ export function createWsHandlers(host: WsHost) {
         host.reportAbnormalClose(code);
       }
       host.clients.remove(ws);
+      host.activity?.stream.dropConnection(ws);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
       // mask). Approvals and ask-user cards survive the disconnect and are

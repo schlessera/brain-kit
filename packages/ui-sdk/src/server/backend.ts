@@ -111,7 +111,63 @@ export interface BackendBridge {
    * cancels or no client is connected.
    */
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
+  /**
+   * Side channel for activity enrichment the wire protocol deliberately does
+   * not carry to chat clients (subagent lifecycle/usage, transcript
+   * excerpts). Present only when the host records activity; backends treat
+   * it as fire-and-forget and MUST NOT let a throwing reporter fail a turn.
+   */
+  activity?(event: BackendActivityEvent): void;
+  /**
+   * Read the host's activity record — the same data the UI reads — so the
+   * agent can answer "what ran / what is running?" from the record instead
+   * of log forensics. Present only when the host records activity; backends
+   * expose it as a read-only tool.
+   */
+  queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
 }
+
+/** A read over the activity record, shaped for model consumption. */
+export interface ActivityQuery {
+  scope: "running" | "recent" | "run" | "rollups" | "inbox";
+  /** Required for scope "run". */
+  runId?: string;
+  /** Window for "recent"/"rollups", in hours back from now (default 24). */
+  hoursBack?: number;
+  limit?: number;
+}
+
+/** JSON-serializable result; the exact shape is the host's and may grow. */
+export type ActivityQueryResult = Record<string, unknown>;
+
+/**
+ * Backend-reported activity enrichment. The host derives baseline spans from
+ * the frames it already relays; these events add what only the backend sees.
+ */
+export type BackendActivityEvent =
+  | {
+      kind: "subagent_started";
+      /** The Agent tool call that spawned this subagent. */
+      toolUseId: string;
+      taskId?: string;
+      subagentType?: string;
+      description?: string;
+      /** 1 for a top-level subagent, N+1 nested. */
+      depth?: number;
+    }
+  | {
+      kind: "subagent_status";
+      toolUseId: string;
+      status: "running" | "completed" | "failed" | "killed" | "paused";
+      usage?: { totalTokens?: number; toolUses?: number; durationMs?: number };
+      summary?: string;
+    }
+  | {
+      kind: "subagent_transcript";
+      toolUseId: string;
+      role: "assistant" | "user";
+      text: string;
+    };
 
 export interface StartTurnRequest {
   prompt: string;

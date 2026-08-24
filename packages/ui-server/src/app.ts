@@ -8,6 +8,7 @@ import { resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
+import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
@@ -33,6 +34,8 @@ import {
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
 import { getHiddenModelIds } from "./db/settings.js";
+import { createActivityRuntime } from "./activity/runtime.js";
+import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
   createBackendRegistry,
@@ -171,6 +174,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   const db = createUiDb(config.dbPath, { log: dbLog });
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
+
+  // Activity record: span store + live stream + notifications + lifecycle
+  // sweeps, owned by the runtime (see activity/runtime.ts).
+  const activity = createActivityRuntime(db, { log: observability.logger("activity") });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -190,6 +197,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
+    activity: {
+      store: activity.store,
+      stream: activity.stream,
+      query: activity.query,
+    },
   });
   const wsUpgrade = createWsUpgrade(host);
   // One instrument for every way a login can fail — passkey ceremonies and
@@ -293,6 +305,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     createBrainRoutes({ brain, brainPath: config.brainPath, keyterms })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
+  // Behind the guard by mount position, like /api/status: the activity
+  // record leaks strictly more (session activity, errors, spend).
+  app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier }));
+  app.route("/api", createPushRoutes({ sender: activity.pushSender }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
   app.route(
     "/api",
@@ -365,6 +381,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {
+      activity.close();
       db.close();
     },
   };

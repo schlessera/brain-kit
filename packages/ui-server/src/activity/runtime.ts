@@ -1,0 +1,141 @@
+/**
+ * The activity runtime: everything the activity record needs to live inside
+ * one app instance — store, live stream, notifier, push sender, the boot
+ * orphan sweep, and the always-on lifecycle tick (stale sweep, notification
+ * detection, push delivery, hourly prune). `createApp` constructs one and
+ * wires its pieces into the host, routes, and bridge; `close()` releases the
+ * interval and subscriptions.
+ *
+ * Nothing here may block boot or fail the observed work: the sweep and every
+ * tick pass log and continue on failure.
+ */
+import type { Database } from "bun:sqlite";
+import type { Logger } from "@opentelemetry/api-logs";
+import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
+
+import { createActivityStore, type ActivityStore } from "./store.js";
+import { createActivityStream, type ActivityStream } from "./stream.js";
+import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
+import { createPushSender, type PushSender } from "./push-sender.js";
+import { digestRetentionFloor } from "./digest.js";
+import { runActivityQuery } from "./query.js";
+
+// Activity lifecycle cadence. The stale threshold must comfortably exceed
+// the cron wrapper's heartbeat interval (~30s) so a live writer is never
+// swept; the tick doubles as the always-on low-frequency sweep the
+// notification layer extends.
+const ACTIVITY_TICK_MS = 20_000;
+const ACTIVITY_STALE_AFTER_MS = 2 * 60 * 1000;
+const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const ACTIVITY_HARD_CEILING_MS = 90 * 24 * 60 * 60 * 1000;
+/** Acknowledged notification intents are kept this long, then deleted. */
+const INTENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface ActivityRuntime {
+  store: ActivityStore;
+  stream: ActivityStream;
+  notifier: ActivityNotifier;
+  pushSender: PushSender;
+  /** The agent-facing read seam (bridge.queryActivity). */
+  query(query: ActivityQuery): ActivityQueryResult;
+  close(): void;
+}
+
+export function createActivityRuntime(
+  db: Database,
+  deps: { log: Logger }
+): ActivityRuntime {
+  const { log } = deps;
+  const store = createActivityStore(db);
+  const stream = createActivityStream(store, log);
+
+  // Boot sweep: close this server's orphans from a previous life (interrupted).
+  try {
+    const orphans = store.sweepOwnOrphans();
+    if (orphans > 0) {
+      log.emit({
+        severityText: "WARN",
+        body: "closed orphaned activity spans from a previous process",
+        attributes: { count: orphans },
+      });
+    }
+  } catch (err) {
+    log.emit({
+      severityText: "WARN",
+      body: "boot activity sweep failed",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+
+  const notifier = createActivityNotifier({
+    db,
+    store,
+    isWatched: (scope) => stream.isWatched(scope),
+    log,
+  });
+  const pushSender = createPushSender(db, { log });
+
+  let delivering = false;
+  let lastPrune = 0;
+  const tick = setInterval(() => {
+    try {
+      const stale = store.sweepStale(ACTIVITY_STALE_AFTER_MS);
+      if (stale > 0) {
+        log.emit({
+          severityText: "WARN",
+          body: "closed stale activity spans (writer went silent)",
+          attributes: { count: stale },
+        });
+        stream.pump();
+      }
+      notifier.tick();
+      // Async delivery, reentrancy-guarded: a slow push service must not
+      // stack passes; the next tick simply retries what stayed pending.
+      if (!delivering) {
+        delivering = true;
+        void pushSender
+          .deliverPending(notifier)
+          .catch((err) =>
+            log.emit({
+              severityText: "WARN",
+              body: "push delivery pass failed",
+              attributes: { error: err instanceof Error ? err.message : String(err) },
+            })
+          )
+          .finally(() => {
+            delivering = false;
+          });
+      }
+      if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
+        lastPrune = Date.now();
+        store.prune({
+          // Full detail survives until the digest has covered it; the hard
+          // ceiling bounds growth even if the digest job silently dies.
+          digestFloorAt: digestRetentionFloor(db),
+          hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
+        });
+        notifier.pruneAcknowledged(INTENT_RETENTION_MS);
+      }
+    } catch (err) {
+      log.emit({
+        severityText: "WARN",
+        body: "activity tick failed",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }, ACTIVITY_TICK_MS);
+  // A Bun interval would otherwise keep a closed test app's process alive.
+  if (typeof tick === "object" && "unref" in tick) tick.unref();
+
+  return {
+    store,
+    stream,
+    notifier,
+    pushSender,
+    query: (query) => runActivityQuery(db, store, query, notifier),
+    close() {
+      clearInterval(tick);
+      stream.close();
+    },
+  };
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
   Brain,
   RefreshCw,
   History,
@@ -11,7 +12,9 @@ import {
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
+import { useActivityStore } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
+import { CountBadge } from "../activity/span-bits.js";
 
 export function MobileTabBar() {
   const activeView = useUIStore((s) => s.activeView);
@@ -21,6 +24,7 @@ export function MobileTabBar() {
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const inboxCount = useActivityStore((s) => s.inbox.length);
 
   /** Chat-scoped panels live in the chat page — surface it before opening them. */
   function inChat(toggle: () => void) {
@@ -66,11 +70,15 @@ export function MobileTabBar() {
           clearMessages();
         }}
       />
+      {/* Activity holds the tab-bar slot; Graph moved into the More menu —
+          the phone glance-check ("is real work happening?") is the headline
+          flow and must stay one tap away (planning decision). */}
       <TabIcon
-        icon={Waypoints}
-        label="Graph"
-        active={activeView === "graph"}
-        onClick={() => setActiveView("graph")}
+        icon={Activity}
+        label="Activity"
+        active={activeView === "activity"}
+        badge={inboxCount}
+        onClick={() => setActiveView("activity")}
       />
       <TabIcon icon={FolderTree} label="Files" onClick={toggleFilePanel} />
       <div ref={moreRef} className="relative">
@@ -85,6 +93,14 @@ export function MobileTabBar() {
             role="menu"
             className="absolute bottom-full right-0 z-50 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
           >
+            <MoreItem
+              icon={Waypoints}
+              label="Graph"
+              onClick={() => {
+                setMoreOpen(false);
+                setActiveView("graph");
+              }}
+            />
             <MoreItem
               icon={RefreshCw}
               label="Sync"
@@ -121,21 +137,25 @@ function TabIcon({
   label,
   active,
   onClick,
+  badge,
 }: {
   icon: typeof Brain;
   label: string;
   active?: boolean;
   onClick?: () => void;
+  /** Unread-count dot (the inbox badge). Hidden at 0. */
+  badge?: number;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]",
+        "relative flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]",
         active ? "text-primary" : "text-muted-foreground"
       )}
     >
       <Icon className="h-5 w-5" />
+      {badge !== undefined && <CountBadge count={badge} className="right-0 top-0" />}
       {label}
     </button>
   );

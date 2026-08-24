@@ -53,6 +53,14 @@ import type {
   ClientSessionResume,
   ClientToolApproval,
   ClientToolDenial,
+  ClientActivitySubscribe,
+  ClientActivityUnsubscribe,
+  ActivitySpan,
+  ActivitySpanEvent,
+  ServerActivitySnapshot,
+  ServerActivityDelta,
+  ModelUsage,
+  TurnUsage,
 } from "./protocol.js";
 import {
   ALLOWED_IMAGE_MEDIA_TYPES,
@@ -355,6 +363,22 @@ export const clientMaskErrorSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientMaskError>;
 
+const activityView = z.enum(["index", "session", "run"]);
+
+export const clientActivitySubscribeSchema = z.looseObject({
+  type: z.literal("activity_subscribe"),
+  view: activityView,
+  sessionId: id.optional(),
+  runId: id.optional(),
+}) satisfies z.ZodType<ClientActivitySubscribe>;
+
+export const clientActivityUnsubscribeSchema = z.looseObject({
+  type: z.literal("activity_unsubscribe"),
+  view: activityView,
+  sessionId: id.optional(),
+  runId: id.optional(),
+}) satisfies z.ZodType<ClientActivityUnsubscribe>;
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHelloSchema,
   clientChatMessageSchema,
@@ -368,6 +392,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientLocationErrorSchema,
   clientMaskResponseSchema,
   clientMaskErrorSchema,
+  clientActivitySubscribeSchema,
+  clientActivityUnsubscribeSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
 // --- Boundary helper ---
@@ -520,6 +546,7 @@ export const serverToolUseStartSchema = z.looseObject({
   type: z.literal("tool_use_start"),
   toolUseId: z.string().max(MAX_ID_CHARS),
   toolName: z.string(),
+  parentToolUseId: z.string().max(MAX_ID_CHARS).optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolUseStart>;
 
@@ -534,6 +561,7 @@ export const serverToolUseCompleteSchema = z.looseObject({
   type: z.literal("tool_use_complete"),
   toolUseId: z.string().max(MAX_ID_CHARS),
   toolName: z.string(),
+  parentToolUseId: z.string().max(MAX_ID_CHARS).optional(),
   input: z.record(z.string(), z.unknown()),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolUseComplete>;
@@ -555,6 +583,18 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
+const modelUsageSchema = z.looseObject({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+}) satisfies z.ZodType<ModelUsage>;
+
+const turnUsageSchema = modelUsageSchema.extend({
+  perModel: z.record(z.string(), modelUsageSchema).optional(),
+}) satisfies z.ZodType<TurnUsage>;
+
 export const serverResultSchema = z.looseObject({
   type: z.literal("result"),
   sessionId: z.string().max(MAX_ID_CHARS),
@@ -565,6 +605,8 @@ export const serverResultSchema = z.looseObject({
   durationMs: z.number(),
   numTurns: z.number(),
   isError: z.boolean(),
+  usage: turnUsageSchema.optional(),
+  outcomeDetail: z.string().max(200).optional(),
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
@@ -626,6 +668,61 @@ export const serverMaskRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
 
+const activitySpanSchema = z.looseObject({
+  spanId: id,
+  runId: id,
+  parentSpanId: id.optional(),
+  name: z.string(),
+  toolName: z.string().optional(),
+  kind: z.enum(["turn", "tool", "subagent", "cron"]),
+  origin: z.enum(["session", "cron"]),
+  sessionId: id.optional(),
+  jobName: z.string().optional(),
+  startedAt: z.number(),
+  waitUntil: z.number().optional(),
+  endedAt: z.number().optional(),
+  outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).optional(),
+  outcomeReason: z.string().optional(),
+  usage: modelUsageSchema.extend({ model: z.string().optional() }).optional(),
+  subagent: z
+    .looseObject({
+      type: z.string().optional(),
+      description: z.string().optional(),
+      summary: z.string().optional(),
+      totalTokens: z.number().optional(),
+    })
+    .optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+}) satisfies z.ZodType<ActivitySpan>;
+
+const activitySpanEventSchema = z.looseObject({
+  spanId: id,
+  eventIndex: z.number(),
+  ts: z.number(),
+  eventType: z.string(),
+  payload: z.unknown().optional(),
+  truncated: z.boolean().optional(),
+}) satisfies z.ZodType<ActivitySpanEvent>;
+
+export const serverActivitySnapshotSchema = z.looseObject({
+  type: z.literal("activity_snapshot"),
+  view: activityView,
+  sessionId: id.optional(),
+  runId: id.optional(),
+  spans: z.array(activitySpanSchema),
+  events: z.array(activitySpanEventSchema),
+  highWaterSeq: z.record(z.string(), z.number()),
+  append: z.boolean().optional(),
+}) satisfies z.ZodType<ServerActivitySnapshot>;
+
+export const serverActivityDeltaSchema = z.looseObject({
+  type: z.literal("activity_delta"),
+  runId: id,
+  seq: z.number(),
+  span: activitySpanSchema.optional(),
+  event: activitySpanEventSchema.optional(),
+}) satisfies z.ZodType<ServerActivityDelta>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverHelloSchema,
   serverTextDeltaSchema,
@@ -643,6 +740,8 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverAskUserRequestSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
+  serverActivitySnapshotSchema,
+  serverActivityDeltaSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

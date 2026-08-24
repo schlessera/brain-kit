@@ -322,6 +322,27 @@ Two notes that have cost people time:
   `brain doctor` and `brain config check` all report what is actually reachable,
   which is a faster way to answer "did my key land?" than reading a shell.
 
+## Activity (chat-UI observability)
+
+The chat-UI server records agent activity (turns, tool calls, subagent runs,
+cron runs) into its own SQLite database and streams it to the Activity
+surface. Behavior is tuned through the server's `settings` KV table (edited
+via SQL or a future settings screen; every key has a safe default):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `activity.timezone` | `UTC` | IANA zone for the per-day cost/token rollups' day boundary |
+| `activity.watchdog.thresholdMs` | 45 min | A live run older than this is flagged *stuck* (a signal, not a termination) |
+| `activity.watchdog.perJobMs` | `{}` | Per-job overrides, e.g. `{"sync": 7200000}` |
+| `activity.notify.completions` | `[]` | Job names whose successful completion also notifies |
+
+Retention: full-detail spans are pruned once the daily digest has covered
+them (and unconditionally after ~90 days, so a broken digest job cannot
+freeze pruning); per-run rollups are kept forever, so any run id that ever
+existed still resolves. VAPID keys for web push are generated at first boot
+and live in their own table — there is nothing to configure and no key to
+provision.
+
 ## Root resolution and `BRAIN_ROOT`
 
 The `brain` CLI resolves the brain root (the directory it operates on) in this

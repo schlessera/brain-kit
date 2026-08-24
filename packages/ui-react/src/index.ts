@@ -16,6 +16,7 @@ export { ConnectionGate } from "./components/connectivity/connection-gate.js";
 export { AppShell } from "./components/layout/app-shell.js";
 export { ChatPage } from "./components/chat/chat-page.js";
 export { GraphPage } from "./components/graph/graph-page.js";
+export { ActivityPage } from "./components/activity/activity-page.js";
 
 // Markdown renderer (also useful standalone, e.g. for a dev kitchen sink).
 export { BrainMarkdown } from "./components/chat/brain-markdown.js";

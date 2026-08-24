@@ -120,6 +120,8 @@ export interface SurfaceTools {
   location?: string | false;
   /** Name of the mask-painting tool, or false when absent. */
   mask?: string | false;
+  /** Name of the activity-record query tool, or false when absent. */
+  activity?: string | false;
 }
 
 function toolSection(tools: SurfaceTools): string {
@@ -147,6 +149,14 @@ function toolSection(tools: SurfaceTools): string {
   area and you get a mask back. Guessing coordinates from a description is
   worse than asking, and describing the whole change in words is the fallback
   when they decline.`
+    );
+  }
+  if (tools.activity) {
+    lines.push(
+      `- **Answer "what ran?" from the record.** \`${tools.activity}\` reads this
+  deployment's own activity record — running work, recent runs, one run's
+  steps, cost rollups. Use it for "what happened while I was away", "is the
+  sync still running", "what did that cost" instead of guessing from logs.`
     );
   }
   return lines.length ? `\n${lines.join("\n")}` : "";

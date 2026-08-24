@@ -55,6 +55,11 @@
       "types": "./dist/client/share-target.d.ts",
       "default": "./dist/client/share-target.js"
     },
+    "./push-handlers": {
+      "bun": "./src/client/push-handlers.ts",
+      "types": "./dist/client/push-handlers.d.ts",
+      "default": "./dist/client/push-handlers.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

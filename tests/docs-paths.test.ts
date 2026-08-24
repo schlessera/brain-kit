@@ -55,11 +55,20 @@ const DOC_FILES = [
   "SECURITY.md",
 ];
 
+/**
+ * Planning artifacts are exempt for the same reason `.agents/plans/` is: a
+ * plan names files it intends to CREATE and quotes paths from other repos,
+ * and a brainstorm predates the layout entirely. Demanding those resolve
+ * would fail every plan before its first implementation commit.
+ */
+const EXEMPT_DIRS = new Set(["plans", "brainstorms"]);
+
 function markdownFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) markdownFiles(path, found);
-    else if (entry.name.endsWith(".md")) found.push(path);
+    if (entry.isDirectory()) {
+      if (!EXEMPT_DIRS.has(entry.name)) markdownFiles(path, found);
+    } else if (entry.name.endsWith(".md")) found.push(path);
   }
   return found;
 }

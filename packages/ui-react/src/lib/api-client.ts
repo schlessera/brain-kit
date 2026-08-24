@@ -7,6 +7,23 @@ import type {
   ProviderInfo,
   PasskeySummary,
   ModelCatalogResponse,
+  ActivityRunSummary,
+  ActivityRunDetail,
+  ActivityRollups,
+  ActivityDigest,
+  ActivityIntent,
+} from "@schlessera/brain-ui-sdk/protocol";
+
+// Activity REST types live in the SDK protocol (shared with the server);
+// re-exported here so existing importers keep working.
+export type {
+  ActivityRunSummary,
+  ActivityRunDetail,
+  ActivityRunRollup,
+  ActivityAggregate,
+  ActivityRollups,
+  ActivityDigest,
+  ActivityIntent,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AuthenticationResponseJSON,
@@ -218,5 +235,63 @@ export const api = {
   passkeyDelete: (id: string) =>
     fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+
+  // --- Activity record (read side; live updates ride the WebSocket) ---
+
+  activityRuns: (opts?: {
+    origin?: "session" | "cron";
+    job?: string;
+    session?: string;
+    status?: string;
+    limit?: number;
+    before?: number;
+  }) =>
+    fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
+      "/activity/runs?" +
+        [
+          opts?.origin && `origin=${opts.origin}`,
+          opts?.job && `job=${encodeURIComponent(opts.job)}`,
+          opts?.session && `session=${encodeURIComponent(opts.session)}`,
+          opts?.status && `status=${encodeURIComponent(opts.status)}`,
+          opts?.limit && `limit=${opts.limit}`,
+          opts?.before && `before=${opts.before}`,
+        ]
+          .filter(Boolean)
+          .join("&")
+    ),
+
+  activityRun: (runId: string) =>
+    fetchJson<ActivityRunDetail>(`/activity/runs/${encodeURIComponent(runId)}`),
+
+  activityRollups: (days?: number) =>
+    fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
+
+  activityInbox: () => fetchJson<{ intents: ActivityIntent[] }>("/activity/inbox"),
+
+  activityInboxAck: (id: number) =>
+    fetchJson<{ ok: true }>(`/activity/inbox/${id}/ack`, { method: "POST" }),
+
+  activityInboxAckAll: () =>
+    fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
+
+  activityDigest: () =>
+    fetchJson<{ digest: ActivityDigest | null; dismissedAt: number }>("/activity/digest"),
+
+  activityDigestDismiss: () =>
+    fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
+
+  pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
+
+  pushSubscribe: (subscription: unknown, label?: string) =>
+    fetchJson<{ ok: true }>("/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ subscription, label }),
+    }),
+
+  pushUnsubscribe: (endpoint: string) =>
+    fetchJson<{ removed: boolean }>("/push/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
     }),
 };

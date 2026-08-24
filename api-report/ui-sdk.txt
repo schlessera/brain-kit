@@ -5,6 +5,19 @@
 
 export "." (./src/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
+  type ActivitySpan
+  type ActivitySpanEvent
+  type ActivitySpanKind
+  type ActivitySpanOrigin
+  type ActivitySpanOutcome
+  type ActivityView
   type AskUserAnnotation
   type AskUserOption
   type AskUserQuestion
@@ -15,6 +28,8 @@ export "." (./src/index.ts)
   type BrainStats
   type ChatImageAttachment
   type ChatSession
+  type ClientActivitySubscribe
+  type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserResponse
   type ClientCancelRequest
@@ -54,6 +69,7 @@ export "." (./src/index.ts)
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
+  type ModelUsage
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
@@ -72,6 +88,8 @@ export "." (./src/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  type ServerActivityDelta
+  type ServerActivitySnapshot
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -98,14 +116,30 @@ export "." (./src/index.ts)
   type SharedFileMeta
   type SpeechCapabilities
   type SystemStatus
+  type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  isFailureOutcome
+  sumModelUsage
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
+  type ActivitySpan
+  type ActivitySpanEvent
+  type ActivitySpanKind
+  type ActivitySpanOrigin
+  type ActivitySpanOutcome
+  type ActivityView
   type AskUserAnnotation
   type AskUserOption
   type AskUserQuestion
@@ -121,6 +155,8 @@ export "./client" (./src/client/index.ts)
   type BrainUiClientOptions
   type ChatImageAttachment
   type ChatSession
+  type ClientActivitySubscribe
+  type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserResponse
   type ClientCancelRequest
@@ -161,6 +197,7 @@ export "./client" (./src/client/index.ts)
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
+  type ModelUsage
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
@@ -181,6 +218,8 @@ export "./client" (./src/client/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  type ServerActivityDelta
+  type ServerActivitySnapshot
   type ServerAskUserRequest
   type ServerError
   type ServerFrameHandlers
@@ -210,6 +249,7 @@ export "./client" (./src/client/index.ts)
   type SystemStatus
   type ToolCallView
   type ToolRenderer
+  type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -217,17 +257,32 @@ export "./client" (./src/client/index.ts)
   type WikilinkMapResponse
   createAsrClient
   createBrainUiClient
+  isFailureOutcome
   registerAsrClient
   registerToolRenderers
   resetAsrClients
   resetToolRenderers
   resolveToolRenderer
   speechUiHints
+  sumModelUsage
 
 export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
+  type ActivitySpan
+  type ActivitySpanEvent
+  type ActivitySpanKind
+  type ActivitySpanOrigin
+  type ActivitySpanOutcome
+  type ActivityView
   type AskUserAnnotation
   type AskUserOption
   type AskUserQuestion
@@ -238,6 +293,8 @@ export "./protocol" (./src/protocol.ts)
   type BrainStats
   type ChatImageAttachment
   type ChatSession
+  type ClientActivitySubscribe
+  type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserResponse
   type ClientCancelRequest
@@ -277,6 +334,7 @@ export "./protocol" (./src/protocol.ts)
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
+  type ModelUsage
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
@@ -295,6 +353,8 @@ export "./protocol" (./src/protocol.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  type ServerActivityDelta
+  type ServerActivitySnapshot
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -321,17 +381,27 @@ export "./protocol" (./src/protocol.ts)
   type SharedFileMeta
   type SpeechCapabilities
   type SystemStatus
+  type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  isFailureOutcome
+  sumModelUsage
+
+export "./push-handlers" (./src/client/push-handlers.ts)
+  type PushCapableScope
+  type PushHandlerOptions
+  registerPushHandlers
 
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  clientActivitySubscribeSchema
+  clientActivityUnsubscribeSchema
   clientAskUserCancelSchema
   clientAskUserResponseSchema
   clientCancelSchema
@@ -348,6 +418,8 @@ export "./schemas" (./src/schemas.ts)
   clientToolDenialSchema
   parseClientMessage
   parseServerMessage
+  serverActivityDeltaSchema
+  serverActivitySnapshotSchema
   serverAskUserRequestSchema
   serverErrorSchema
   serverHelloSchema
@@ -368,6 +440,21 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityQuery
+  type ActivityQueryResult
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
+  type ActivitySpan
+  type ActivitySpanEvent
+  type ActivitySpanKind
+  type ActivitySpanOrigin
+  type ActivitySpanOutcome
+  type ActivityView
   type AgentBackend
   type AskUserAnnotation
   type AskUserOption
@@ -377,6 +464,7 @@ export "./server" (./src/server/index.ts)
   type AsrFinal
   type AsrPartial
   BRAIN_UI_SYSTEM_PROMPT_APPEND
+  type BackendActivityEvent
   type BackendBridge
   BackendBusyError
   type BackendCapabilities
@@ -385,6 +473,8 @@ export "./server" (./src/server/index.ts)
   type BrainStats
   type ChatImageAttachment
   type ChatSession
+  type ClientActivitySubscribe
+  type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserResponse
   type ClientCancelRequest
@@ -428,6 +518,7 @@ export "./server" (./src/server/index.ts)
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
+  type ModelUsage
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
@@ -448,6 +539,8 @@ export "./server" (./src/server/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  type ServerActivityDelta
+  type ServerActivitySnapshot
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -478,6 +571,7 @@ export "./server" (./src/server/index.ts)
   type StartTurnRequest
   type SystemStatus
   type TranscriptStore
+  type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -489,6 +583,8 @@ export "./server" (./src/server/index.ts)
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
+  isFailureOutcome
+  sumModelUsage
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH

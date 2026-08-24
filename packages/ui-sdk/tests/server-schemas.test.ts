@@ -52,6 +52,30 @@ const SAMPLES: ServerMessage[] = [
   },
   { type: "location_request", requestId: "r1", sessionId: "s1" },
   { type: "mask_request", requestId: "r1", imagePath: "a.png", sessionId: "s1" },
+  {
+    type: "activity_snapshot",
+    view: "run",
+    runId: "r1",
+    spans: [
+      {
+        spanId: "sp1",
+        runId: "r1",
+        name: "invoke_agent",
+        kind: "turn",
+        origin: "session",
+        sessionId: "s1",
+        startedAt: 1,
+      },
+    ],
+    events: [{ spanId: "sp1", eventIndex: 0, ts: 2, eventType: "text", payload: "hi" }],
+    highWaterSeq: { r1: 1 },
+  },
+  {
+    type: "activity_delta",
+    runId: "r1",
+    seq: 2,
+    event: { spanId: "sp1", eventIndex: 1, ts: 3, eventType: "text", payload: "more" },
+  },
 ];
 
 describe("coverage", () => {

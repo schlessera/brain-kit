@@ -61,6 +61,15 @@ Tool names and input schemas are stable:
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
 
+### Chat-UI in-process tools (`mcp__brain-ui__*`)
+
+The chat-UI backends register an in-process MCP server under the `brain-ui`
+key; its tool names are equally stable. `ask_user`, `get_current_location`
+and `request_image_mask` bridge to the connected browser. `query_activity`
+(read-only) reads the host's activity record — scopes `running` | `recent` |
+`run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
+(nonce-suffixed per call) because they can contain free text from past runs.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:
@@ -135,6 +144,21 @@ A third-party client may rely on that: adding a frame type, or an optional
 field to an existing one, is not a breaking change. `BrainUiClient`
 (`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
 way to speak the protocol without reimplementing it.
+
+### Activity stream (rev 3, additive)
+
+Hosts that record agent activity advertise `capabilities.activity` on
+`server_hello`. A client opts in per view with `activity_subscribe`
+(`index` | `session` | `run`) and receives `activity_snapshot` then
+`activity_delta` frames; a server never sends activity frames to a connection
+without a matching subscription. Ordering: a snapshot carries per-run
+high-water `seq`, every delta carries its `seq`, and the client discards
+deltas at or below the snapshot's high-water for that run. Deltas are
+append-only increments (a small span row, or exactly one event) — they never
+grow with run length. The `result` frame additionally carries an optional
+`usage` block (token totals + per-model breakdown; absent cost means unknown,
+never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+calls that ran inside a subagent.
 
 ## File-layer contracts
 
