@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { AskUserQuestion } from "@schlessera/brain-ui-sdk";
 import type { AskUserResult } from "@schlessera/brain-ui-sdk/server";
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
+import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
 
 /**
@@ -129,6 +130,7 @@ export function createBrainUiMcpServer(handlers: {
   askUser?: AskUserHandler;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
+  queryActivity?: ActivityQueryHandler;
   /** Required alongside requestMask: the mask is written into this repo. */
   brainPath?: string;
 }) {
@@ -137,6 +139,9 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath));
+  }
+  if (handlers.queryActivity) {
+    tools.push(createActivityQueryTool(handlers.queryActivity));
   }
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,

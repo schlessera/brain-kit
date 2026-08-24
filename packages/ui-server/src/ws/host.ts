@@ -12,6 +12,8 @@ import type { ActivityStream } from "../activity/stream.js";
 export interface ActivityRuntime {
   store: ActivityStore;
   stream: ActivityStream;
+  /** Read seam for the agent-facing query tool (bridge.queryActivity). */
+  query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

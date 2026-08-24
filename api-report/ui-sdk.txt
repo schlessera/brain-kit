@@ -413,6 +413,8 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityQuery
+  type ActivityQueryResult
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind

@@ -118,7 +118,27 @@ export interface BackendBridge {
    * it as fire-and-forget and MUST NOT let a throwing reporter fail a turn.
    */
   activity?(event: BackendActivityEvent): void;
+  /**
+   * Read the host's activity record — the same data the UI reads — so the
+   * agent can answer "what ran / what is running?" from the record instead
+   * of log forensics. Present only when the host records activity; backends
+   * expose it as a read-only tool.
+   */
+  queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
 }
+
+/** A read over the activity record, shaped for model consumption. */
+export interface ActivityQuery {
+  scope: "running" | "recent" | "run" | "rollups";
+  /** Required for scope "run". */
+  runId?: string;
+  /** Window for "recent"/"rollups", in hours back from now (default 24). */
+  hoursBack?: number;
+  limit?: number;
+}
+
+/** JSON-serializable result; the exact shape is the host's and may grow. */
+export type ActivityQueryResult = Record<string, unknown>;
 
 /**
  * Backend-reported activity enrichment. The host derives baseline spans from

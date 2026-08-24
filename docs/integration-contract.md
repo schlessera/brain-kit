@@ -61,6 +61,15 @@ Tool names and input schemas are stable:
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
 
+### Chat-UI in-process tools (`mcp__brain-ui__*`)
+
+The chat-UI backends register an in-process MCP server under the `brain-ui`
+key; its tool names are equally stable. `ask_user`, `get_current_location`
+and `request_image_mask` bridge to the connected browser. `query_activity`
+(read-only) reads the host's activity record — scopes `running` | `recent` |
+`run` | `rollups`; results are wrapped in a data-only delimiter because they
+can contain free text from past runs.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:

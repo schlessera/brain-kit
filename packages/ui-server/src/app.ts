@@ -39,6 +39,7 @@ import { createActivityStream } from "./activity/stream.js";
 import { createActivityNotifier } from "./activity/notify.js";
 import { createPushSender } from "./activity/push-sender.js";
 import { digestRetentionFloor } from "./activity/digest.js";
+import { runActivityQuery } from "./activity/query.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
@@ -288,7 +289,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
-    activity: { store: activityStore, stream: activityStream },
+    activity: {
+      store: activityStore,
+      stream: activityStream,
+      query: (q) => runActivityQuery(db, activityStore, q),
+    },
   });
   const wsUpgrade = createWsUpgrade(host);
   // One instrument for every way a login can fail — passkey ceremonies and

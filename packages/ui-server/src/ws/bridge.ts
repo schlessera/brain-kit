@@ -112,6 +112,13 @@ export function makeBridge(
     ...(recorder
       ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => recorder.observeActivity(event) }
       : {}),
+    ...(host.activity?.query
+      ? {
+          queryActivity: async (
+            query: Parameters<NonNullable<BackendBridge["queryActivity"]>>[0]
+          ) => host.activity!.query!(query),
+        }
+      : {}),
     askUser: (requestId, questions) => {
       host.sendToClients(
         withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
