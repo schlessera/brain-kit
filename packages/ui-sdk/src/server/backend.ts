@@ -111,7 +111,43 @@ export interface BackendBridge {
    * cancels or no client is connected.
    */
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
+  /**
+   * Side channel for activity enrichment the wire protocol deliberately does
+   * not carry to chat clients (subagent lifecycle/usage, transcript
+   * excerpts). Present only when the host records activity; backends treat
+   * it as fire-and-forget and MUST NOT let a throwing reporter fail a turn.
+   */
+  activity?(event: BackendActivityEvent): void;
 }
+
+/**
+ * Backend-reported activity enrichment. The host derives baseline spans from
+ * the frames it already relays; these events add what only the backend sees.
+ */
+export type BackendActivityEvent =
+  | {
+      kind: "subagent_started";
+      /** The Agent tool call that spawned this subagent. */
+      toolUseId: string;
+      taskId?: string;
+      subagentType?: string;
+      description?: string;
+      /** 1 for a top-level subagent, N+1 nested. */
+      depth?: number;
+    }
+  | {
+      kind: "subagent_status";
+      toolUseId: string;
+      status: "running" | "completed" | "failed" | "killed" | "paused";
+      usage?: { totalTokens?: number; toolUses?: number; durationMs?: number };
+      summary?: string;
+    }
+  | {
+      kind: "subagent_transcript";
+      toolUseId: string;
+      role: "assistant" | "user";
+      text: string;
+    };
 
 export interface StartTurnRequest {
   prompt: string;

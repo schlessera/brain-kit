@@ -423,6 +423,7 @@ export "./server" (./src/server/index.ts)
   type AsrFinal
   type AsrPartial
   BRAIN_UI_SYSTEM_PROMPT_APPEND
+  type BackendActivityEvent
   type BackendBridge
   BackendBusyError
   type BackendCapabilities

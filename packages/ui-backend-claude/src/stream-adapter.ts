@@ -1,25 +1,54 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk";
+import type {
+  BackendActivityEvent,
+  ModelUsage,
+  ServerMessage,
+  TurnUsage,
+} from "@schlessera/brain-ui-sdk/server";
 
 /**
- * Stateful adapter that converts Claude SDK streaming messages
- * to our WebSocket protocol messages.
+ * Stateful adapter that converts Claude SDK streaming messages to our
+ * WebSocket protocol messages, and reports activity enrichment (subagent
+ * lifecycle, usage, transcript excerpts) through the optional side channel.
  *
- * Must be instantiated per-session because it tracks state across
- * streaming events (e.g., which tool_use block is currently streaming).
+ * Must be instantiated per-session because it tracks state across streaming
+ * events (e.g., which tool_use block is currently streaming).
+ *
+ * Subagent handling: messages produced inside a subagent carry
+ * `parent_tool_use_id` (the Agent call that spawned it). Their TOOL activity
+ * becomes normal tool frames tagged with `parentToolUseId` so clients nest
+ * them; their TEXT (forwarded when `forwardSubagentText` is on) never becomes
+ * chat `text_delta` frames — it goes to the activity side channel only, so a
+ * chatty fan-out cannot flood the main transcript. Subagent partial stream
+ * events are suppressed entirely.
  */
 export class StreamAdapter {
-  /** ID of the tool_use block currently being streamed */
+  /** ID of the top-level tool_use block currently being streamed */
   private currentToolUseId: string = "";
+
+  constructor(private readonly onActivity?: (event: BackendActivityEvent) => void) {}
+
+  private report(event: BackendActivityEvent) {
+    try {
+      this.onActivity?.(event);
+    } catch {
+      // Observability must not break the observed turn.
+    }
+  }
 
   /**
    * Process an SDK message and return zero or more ServerMessages.
    */
   adapt(msg: SDKMessage): ServerMessage[] {
     const messages: ServerMessage[] = [];
+    const parentToolUseId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? undefined;
 
     switch (msg.type) {
       case "stream_event": {
+        // Partial streaming for subagent output is suppressed: the chat
+        // surface streams the MAIN transcript only; subagent content arrives
+        // at block granularity via the activity channel.
+        if (parentToolUseId) break;
         const event = msg.event;
 
         if (event.type === "content_block_start") {
@@ -59,15 +88,35 @@ export class StreamAdapter {
       case "assistant": {
         for (const block of msg.message.content) {
           if (block.type === "tool_use") {
+            if (parentToolUseId) {
+              // Subagent tool call: no partial streaming happened, so the
+              // start frame (with linkage) and the complete frame land
+              // together. Clients nest by parentToolUseId.
+              messages.push({
+                type: "tool_use_start",
+                toolUseId: block.id,
+                toolName: block.name,
+                parentToolUseId,
+              });
+            }
             messages.push({
               type: "tool_use_complete",
               toolUseId: block.id,
               toolName: block.name,
               input: block.input as Record<string, unknown>,
             });
+          } else if (block.type === "text" && parentToolUseId && block.text) {
+            this.report({
+              kind: "subagent_transcript",
+              toolUseId: parentToolUseId,
+              role: "assistant",
+              text: block.text,
+            });
           }
         }
-        messages.push({ type: "status", status: "thinking" });
+        if (!parentToolUseId) {
+          messages.push({ type: "status", status: "thinking" });
+        }
         break;
       }
 
@@ -94,6 +143,13 @@ export class StreamAdapter {
                 output,
                 isError: block.is_error === true,
               });
+            } else if (block.type === "text" && parentToolUseId && block.text) {
+              this.report({
+                kind: "subagent_transcript",
+                toolUseId: parentToolUseId,
+                role: "user",
+                text: block.text,
+              });
             }
           }
         }
@@ -104,6 +160,12 @@ export class StreamAdapter {
         // Status BEFORE result: `result` is the turn's terminal frame and
         // must be the last thing a consumer sees for the turn.
         messages.push({ type: "status", status: "idle" });
+        // This backend runs one query() per turn (each turn is its own SDK
+        // subprocess), so result-level accounting IS per-turn — the SDK's
+        // cumulative-across-turns caveat for streaming-input sessions does
+        // not apply here. `modelUsage` is preferred per SDK guidance: it
+        // covers subagents and sidechains, which `usage` excludes.
+        const usage = usageFromResult(msg);
         if (msg.subtype === "success") {
           messages.push({
             type: "result",
@@ -113,35 +175,82 @@ export class StreamAdapter {
             durationMs: msg.duration_ms,
             numTurns: msg.num_turns,
             isError: false,
+            ...(usage ? { usage } : {}),
           });
         } else {
-          // costUsd deliberately ABSENT: the cost of a failed turn is
-          // unknown, and 0 would claim "free".
           messages.push({
             type: "result",
             sessionId: msg.session_id,
             outcome: "error",
-            durationMs: 0,
-            numTurns: 0,
+            durationMs: msg.duration_ms ?? 0,
+            numTurns: msg.num_turns ?? 0,
             isError: true,
+            outcomeDetail: errorDetail(msg.subtype),
+            // Real accounting is available on error results too — a failed
+            // turn still spent tokens, and hiding that would under-report.
+            // Absent stays absent: 0 would claim "free".
+            ...(typeof msg.total_cost_usd === "number" ? { costUsd: msg.total_cost_usd } : {}),
+            ...(usage ? { usage } : {}),
           });
         }
         break;
       }
 
       case "system": {
-        if (msg.subtype === "init") {
+        const sys = msg as any;
+        if (sys.subtype === "init") {
           messages.push({
             type: "status",
             status: "thinking",
             detail: "Session initialized",
           });
+        } else if (sys.subtype === "task_started" && sys.tool_use_id) {
+          this.report({
+            kind: "subagent_started",
+            toolUseId: sys.tool_use_id,
+            taskId: sys.task_id,
+            subagentType: sys.subagent_type,
+            description: sys.description,
+            depth: sys.spawn_depth,
+          });
+        } else if (sys.subtype === "task_updated" && sys.task_id) {
+          const status = sys.patch?.status;
+          const toolUseId = this.taskTools.get(sys.task_id);
+          if (toolUseId && isSubagentStatus(status)) {
+            this.report({ kind: "subagent_status", toolUseId, status });
+          }
+        } else if (
+          (sys.subtype === "task_progress" || sys.subtype === "task_notification") &&
+          (sys.tool_use_id || sys.task_id)
+        ) {
+          const toolUseId = sys.tool_use_id ?? this.taskTools.get(sys.task_id);
+          if (toolUseId) {
+            this.report({
+              kind: "subagent_status",
+              toolUseId,
+              status: sys.status === "completed" ? "completed" : "running",
+              usage: sys.usage
+                ? {
+                    totalTokens: sys.usage.total_tokens,
+                    toolUses: sys.usage.tool_uses,
+                    durationMs: sys.usage.duration_ms,
+                  }
+                : undefined,
+              summary: sys.summary,
+            });
+          }
+        }
+        // Remember task->tool linkage for updates that only carry task_id.
+        if (sys.subtype === "task_started" && sys.task_id && sys.tool_use_id) {
+          this.taskTools.set(sys.task_id, sys.tool_use_id);
         }
         break;
       }
 
       case "tool_progress" as any: {
         const tp = msg as any;
+        // Subagent tool progress stays off the main status line.
+        if (parentToolUseId) break;
         messages.push({
           type: "status",
           status: "tool_executing",
@@ -156,6 +265,70 @@ export class StreamAdapter {
 
     return messages;
   }
+
+  /** task_id -> spawning Agent tool_use_id, learned from task_started. */
+  private taskTools = new Map<string, string>();
+}
+
+function isSubagentStatus(
+  status: unknown
+): status is "running" | "completed" | "failed" | "killed" | "paused" {
+  return (
+    status === "running" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "killed" ||
+    status === "paused"
+  );
+}
+
+/** Map an SDK error subtype to the advisory `outcomeDetail` wire field. */
+function errorDetail(subtype: string): string {
+  switch (subtype) {
+    case "error_max_turns":
+      return "max_turns";
+    case "error_max_budget_usd":
+      return "max_budget";
+    case "error_max_structured_output_retries":
+      return "structured_output_retries";
+    default:
+      return "execution";
+  }
+}
+
+/** Build the wire usage block from a result message's accounting. */
+function usageFromResult(msg: {
+  usage?: unknown;
+  modelUsage?: Record<
+    string,
+    {
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+      costUSD?: number;
+    }
+  >;
+}): TurnUsage | undefined {
+  const models = msg.modelUsage;
+  if (!models || Object.keys(models).length === 0) return undefined;
+  const perModel: Record<string, ModelUsage> = {};
+  const totals: Required<Pick<ModelUsage, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheCreationTokens">> =
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+  for (const [model, u] of Object.entries(models)) {
+    perModel[model] = {
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadInputTokens,
+      cacheCreationTokens: u.cacheCreationInputTokens,
+      costUsd: u.costUSD,
+    };
+    totals.inputTokens += u.inputTokens ?? 0;
+    totals.outputTokens += u.outputTokens ?? 0;
+    totals.cacheReadTokens += u.cacheReadInputTokens ?? 0;
+    totals.cacheCreationTokens += u.cacheCreationInputTokens ?? 0;
+  }
+  return { ...totals, perModel };
 }
 
 /**

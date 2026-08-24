@@ -561,7 +561,7 @@ export function createClaudeBackend(
     if (req.signal.aborted) abortController.abort();
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
-    const adapter = new StreamAdapter();
+    const adapter = new StreamAdapter(req.bridge.activity);
     // Only wire ask-user / location tools when the host bridge offers them.
     const askUser = req.bridge.askUser;
     const getLocation = req.bridge.getLocation;
@@ -633,6 +633,11 @@ export function createClaudeBackend(
       const sdkOptions: Options = {
         cwd: options.brainPath,
         includePartialMessages: true,
+        // Forward subagent text/thinking tagged with parent_tool_use_id so
+        // drill-in views get full transcripts. The adapter keeps this OFF the
+        // chat surface (activity side channel only) — a regression here
+        // degrades gracefully to activity-only subagent visibility.
+        forwardSubagentText: true,
         abortController,
         // Load CLAUDE.md and project skills from the brain repo.
         settingSources: ["project"],
