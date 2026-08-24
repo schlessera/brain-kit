@@ -105,6 +105,33 @@ describe("push sender", () => {
     await sender.deliverPending(notifier);
     expect(notifier.inbox()[0]!.status).toBe("send_failed");
     expect(notifier.pending()).toHaveLength(0);
+    // A transient failure is not a dead device: the subscription row stays.
+    expect(sender.subscriptions()).toHaveLength(1);
+  });
+
+  test("a device pruned during one intent's pass is not attempted for the next intent", async () => {
+    const attempted: Array<{ endpoint: string; tag: string }> = [];
+    const { store, notifier, sender } = setup(async (sub, payload: any) => {
+      attempted.push({ endpoint: sub.endpoint, tag: JSON.parse(payload).tag });
+      if (sub.endpoint.endsWith("device-1")) {
+        const err = new Error("gone") as Error & { statusCode: number };
+        err.statusCode = 410;
+        throw err;
+      }
+    });
+    sender.subscribe(SUB(1));
+    sender.subscribe(SUB(2));
+    failRun(store, "run-1", "job-a");
+    failRun(store, "run-2", "job-b");
+    notifier.tick();
+    await sender.deliverPending(notifier);
+
+    // Device 1 is pruned by intent 1's 410; the per-intent re-read means
+    // intent 2 goes only to the surviving device.
+    expect(sender.subscriptions().map((s) => s.endpoint)).toEqual([SUB(2).endpoint]);
+    const secondPass = attempted.filter((a) => a.tag === "brain-activity:run-2");
+    expect(secondPass.map((a) => a.endpoint)).toEqual([SUB(2).endpoint]);
+    expect(notifier.pending()).toHaveLength(0);
   });
 
   test("no devices: the intent stays pending (inbox covers it; a later device can still get it)", async () => {

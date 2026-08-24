@@ -117,7 +117,7 @@ export function createActivityRoutes(deps: {
     })
     .get("/activity/runs", (c) => {
       try {
-        const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 200);
+        const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 50) || 50, 1), 200);
         const before = Number(c.req.query("before")) || Date.now() + 1;
         const origin = c.req.query("origin");
         const job = c.req.query("job");

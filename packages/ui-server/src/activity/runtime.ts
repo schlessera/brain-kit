@@ -28,6 +28,8 @@ const ACTIVITY_TICK_MS = 20_000;
 const ACTIVITY_STALE_AFTER_MS = 2 * 60 * 1000;
 const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const ACTIVITY_HARD_CEILING_MS = 90 * 24 * 60 * 60 * 1000;
+/** Acknowledged notification intents are kept this long, then deleted. */
+const INTENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface ActivityRuntime {
   store: ActivityStore;
@@ -109,9 +111,10 @@ export function createActivityRuntime(
         store.prune({
           // Full detail survives until the digest has covered it; the hard
           // ceiling bounds growth even if the digest job silently dies.
-          digestFloorMs: digestRetentionFloor(db),
+          digestFloorAt: digestRetentionFloor(db),
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         });
+        notifier.pruneAcknowledged(INTENT_RETENTION_MS);
       }
     } catch (err) {
       log.emit({
@@ -129,7 +132,7 @@ export function createActivityRuntime(
     stream,
     notifier,
     pushSender,
-    query: (query) => runActivityQuery(db, store, query),
+    query: (query) => runActivityQuery(db, store, query, notifier),
     close() {
       clearInterval(tick);
       stream.close();

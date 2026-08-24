@@ -12,10 +12,12 @@
  * notable list, or every digest would feature itself.
  */
 import type { Database } from "bun:sqlite";
-import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
+import { isFailureOutcome, type ActivityDigest } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting, setSetting } from "../db/settings.js";
 import { rowToRunRollup } from "./store.js";
+
+export type { ActivityDigest } from "@schlessera/brain-ui-sdk/protocol";
 
 export const DIGEST_LATEST_KEY = "activity.digest.latest";
 export const DIGEST_COVERED_KEY = "activity.digest.coveredUntil";
@@ -25,37 +27,19 @@ export const DIGEST_JOB_NAME = "digest";
 /** First run ever: no covered-until marker — cap the window at 24h. */
 const FIRST_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export interface ActivityDigest {
-  generatedAt: number;
-  windowStart: number;
-  windowEnd: number;
-  runs: number;
-  failures: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  /** Failed/interrupted runs worth a look, newest first (capped). */
-  notable: Array<{
-    runId: string;
-    name: string;
-    jobName: string | null;
-    sessionId: string | null;
-    outcome: string | null;
-    failureReason: string | null;
-    startedAt: number;
-  }>;
-}
-
 /** Generate and persist the digest for [coveredUntil, now]. */
 export function generateActivityDigest(db: Database, now = Date.now()): ActivityDigest {
   const covered = getSetting<number | null>(db, DIGEST_COVERED_KEY, null);
   const windowStart = covered ?? now - FIRST_WINDOW_MS;
 
+  // Windowed on ended_at, not started_at: every FINISHED run gets
+  // exactly-once coverage — a run still open at generation is picked up by
+  // the NEXT digest once it ends, instead of falling between windows.
   const rows = (
     db
       .query(
         `SELECT * FROM activity_run_rollups
-         WHERE started_at >= ? AND started_at < ?
+         WHERE ended_at IS NOT NULL AND ended_at >= ? AND ended_at < ?
          ORDER BY started_at DESC`
       )
       .all(windowStart, now) as any[]

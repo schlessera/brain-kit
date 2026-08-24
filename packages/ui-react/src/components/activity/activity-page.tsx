@@ -14,6 +14,7 @@ import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import {
   api,
+  type ActivityIntent,
   type ActivityRollups,
   type ActivityRunSummary,
 } from "../../lib/api-client.js";
@@ -42,6 +43,7 @@ import { PushToggle } from "./push-toggle.js";
  */
 export function ActivityPage() {
   const supported = useActivityStore((s) => s.supported);
+  const connectionEpoch = useActivityStore((s) => s.connectionEpoch);
   const liveSpans = useActivityStore((s) => s.spans);
   const setActiveView = useUIStore((s) => s.setActiveView);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
@@ -64,6 +66,9 @@ export function ActivityPage() {
     void loadInbox();
   };
 
+  // Re-runs on every reconnect (connectionEpoch): the new socket has no
+  // server-side subscriptions, and the REST refresh heals whatever finished
+  // while disconnected.
   useEffect(() => {
     refresh();
     if (supported) {
@@ -73,7 +78,30 @@ export function ActivityPage() {
       };
     }
     return undefined;
-  }, [supported]);
+  }, [supported, connectionEpoch]);
+
+  // Deep-link consumer: `#/activity/<runId>` (the push notification landing
+  // spot — the shell routes it here but leaves the hash intact) opens that
+  // run's detail. Opening/closing detail writes the hash back via
+  // history.replaceState so the link stays shareable without history spam.
+  useEffect(() => {
+    const applyHash = () => {
+      const match = /^#\/activity\/(.+)$/.exec(window.location.hash);
+      if (match) setDetailRunId(decodeURIComponent(match[1]!));
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  function showDetail(runId: string | null) {
+    setDetailRunId(runId);
+    const target = runId ? `#/activity/${encodeURIComponent(runId)}` : "#/activity";
+    if (window.location.hash !== target) {
+      // window-qualified: `history` is the run list in this scope.
+      window.history.replaceState(null, "", target);
+    }
+  }
 
   // Live open roots from the stream override/extend the REST snapshot.
   const liveRoots = useMemo(() => {
@@ -102,11 +130,28 @@ export function ActivityPage() {
       setActiveView("chat");
       return;
     }
-    setDetailRunId(row.runId);
+    showDetail(row.runId);
+  }
+
+  /** An inbox tap routes like any run row: chat for session runs, detail otherwise. */
+  function openIntent(intent: ActivityIntent) {
+    const liveRoot = liveRoots.find((r) => r.runId === intent.runId);
+    if (liveRoot) {
+      openRun({ runId: liveRoot.runId, origin: liveRoot.origin, sessionId: liveRoot.sessionId });
+      return;
+    }
+    const known = [...(runs?.live ?? []), ...(runs?.history ?? [])].find(
+      (r) => r.runId === intent.runId
+    );
+    if (known) {
+      openRun(known);
+    } else {
+      showDetail(intent.runId);
+    }
   }
 
   if (detailRunId) {
-    return <RunDetail runId={detailRunId} onBack={() => setDetailRunId(null)} />;
+    return <RunDetail runId={detailRunId} onBack={() => showDetail(null)} />;
   }
 
   return (
@@ -169,7 +214,7 @@ export function ActivityPage() {
                     className="min-w-0 flex-1 truncate text-left hover:underline"
                     onClick={() => {
                       void acknowledgeIntent(intent.id);
-                      setDetailRunId(intent.runId);
+                      openIntent(intent);
                     }}
                   >
                     {intent.title}
@@ -230,8 +275,21 @@ export function ActivityPage() {
   );
 }
 
+/** Today's key in the server's configured zone (mirrors its day formatter). */
+function todayKey(timeZone: string): string {
+  let fmt: Intl.DateTimeFormat;
+  try {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone, dateStyle: "short" });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", dateStyle: "short" });
+  }
+  return fmt.format(new Date());
+}
+
 function RollupCards({ rollups }: { rollups: ActivityRollups }) {
-  const today = rollups.days[0];
+  // days[0] is merely the newest day WITH runs — on a quiet day that is
+  // yesterday, so look today up by its actual key (0 when absent).
+  const today = rollups.days.find((d) => d.day === todayKey(rollups.timeZone));
   const week = rollups.days.reduce(
     (acc, d) => ({
       runs: acc.runs + d.runs,

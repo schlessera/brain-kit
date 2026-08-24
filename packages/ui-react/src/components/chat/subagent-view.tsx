@@ -37,11 +37,13 @@ export function SubagentView({
   const span = useActivityStore((s) => spanForTool(s, spanId));
   const children = useActivityStore(useShallow((s) => childSpans(s, spanId)));
   const events = useActivityStore((s) => eventsFor(s, spanId));
-  const pendingApprovals = useChatStore((s) => {
-    const chat = activeChat(s);
-    const last = chat.messages.at(-1);
-    return (last?.toolCalls ?? []).filter((t) => t.status === "pending_approval");
-  });
+  const pendingApprovals = useChatStore(
+    useShallow((s) => {
+      const chat = activeChat(s);
+      const last = chat.messages.at(-1);
+      return (last?.toolCalls ?? []).filter((t) => t.status === "pending_approval");
+    })
+  );
 
   const timelineItems = useMemo(
     () => interleave(children, events),

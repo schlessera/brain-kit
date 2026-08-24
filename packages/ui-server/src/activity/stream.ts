@@ -33,6 +33,8 @@ import type { ActivityChange, ActivityStore, SpanEventRow, SpanRow } from "./sto
 
 /** Events per snapshot frame — keeps each frame far below the WS size cap. */
 const SNAPSHOT_EVENT_CHUNK = 100;
+/** Spans per snapshot frame, same rationale. */
+const SNAPSHOT_SPAN_CHUNK = 100;
 /** Fast-poll cadence while subscriptions exist (foreign-writer liveness). */
 const POLL_INTERVAL_MS = 1500;
 
@@ -251,8 +253,22 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
       highWaterSeq: highWater,
     };
 
-    // Chunk: spans + first event batch, then append frames for the rest.
-    sendTo(ws, { ...base, spans: spans.map(toWireSpan), events: events.slice(0, SNAPSHOT_EVENT_CHUNK).map(toWireEvent) });
+    // Chunk: first span/event batch in the base frame, then append frames
+    // for the rest (the client's applySnapshot merges append frames).
+    const wireSpans = spans.map(toWireSpan);
+    sendTo(ws, {
+      ...base,
+      spans: wireSpans.slice(0, SNAPSHOT_SPAN_CHUNK),
+      events: events.slice(0, SNAPSHOT_EVENT_CHUNK).map(toWireEvent),
+    });
+    for (let i = SNAPSHOT_SPAN_CHUNK; i < wireSpans.length; i += SNAPSHOT_SPAN_CHUNK) {
+      sendTo(ws, {
+        ...base,
+        spans: wireSpans.slice(i, i + SNAPSHOT_SPAN_CHUNK),
+        events: [],
+        append: true,
+      });
+    }
     for (let i = SNAPSHOT_EVENT_CHUNK; i < events.length; i += SNAPSHOT_EVENT_CHUNK) {
       sendTo(ws, {
         ...base,
@@ -265,6 +281,11 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
 
   return {
     handleSubscribe(ws, msg) {
+      // A scoped view without its scope id can never match anything and
+      // would only leak an all-runs snapshot shape — ignore it up front.
+      if ((msg.view === "session" && !msg.sessionId) || (msg.view === "run" && !msg.runId)) {
+        return;
+      }
       const sub: Subscription = {
         view: msg.view,
         ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),

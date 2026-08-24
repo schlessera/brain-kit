@@ -5,6 +5,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { createActivityNotifier } from "../src/activity/notify";
+import { runActivityQuery } from "../src/activity/query";
 import { createActivityStore, type ActivityStore } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import { createActivityRoutes } from "../src/routes/activity";
@@ -28,6 +30,7 @@ function seeded(): { db: ReturnType<typeof createUiDb>; store: ActivityStore } {
   });
   store.endSpan("turn-1:turn", {
     outcome: "success",
+    endedAt: Date.now() - 45_000,
     usage: { inputTokens: 1000, outputTokens: 200, costUsd: 0.5 },
   });
   store.rollupRun("turn-1");
@@ -41,7 +44,7 @@ function seeded(): { db: ReturnType<typeof createUiDb>; store: ActivityStore } {
     jobName: "sync",
     startedAt: Date.now() - 30_000,
   });
-  store.endSpan("cron-1:root", { outcome: "error", reason: "boom" });
+  store.endSpan("cron-1:root", { outcome: "error", reason: "boom", endedAt: Date.now() - 15_000 });
   store.rollupRun("cron-1");
   // A live run.
   store.startSpan({
@@ -93,7 +96,7 @@ describe("activity routes", () => {
 
   test("a pruned run resolves to its rollup; an unknown id 404s (R26)", async () => {
     const { db, store } = seeded();
-    store.prune({ digestFloorMs: Date.now() + 1000, hardCeilingMs: 0 });
+    store.prune({ digestFloorAt: Date.now() + 1000, hardCeilingMs: 0 });
     const app = createActivityRoutes({ db, store });
 
     const pruned = await request(app, "/activity/runs/turn-1");
@@ -123,12 +126,98 @@ describe("activity routes", () => {
     db.close();
   });
 
+  test("a negative or zero limit is clamped, never a throw or an unbounded read", async () => {
+    const { db, store } = seeded();
+    const app = createActivityRoutes({ db, store });
+    for (const q of ["-1", "0", "junk"]) {
+      const res = await request(app, `/activity/runs?limit=${q}`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.history.length).toBeLessThanOrEqual(200);
+    }
+    db.close();
+  });
+
+  test("digest lifecycle over the routes: absent, generated, dismissed, idempotent", async () => {
+    const { db, store } = seeded();
+    const app = createActivityRoutes({ db, store });
+
+    // Before the first generation there is no digest.
+    let body = await (await request(app, "/activity/digest")).json();
+    expect(body.digest).toBeNull();
+
+    const gen = await app.request("/activity/digest/generate", { method: "POST" });
+    expect(gen.status).toBe(200);
+    expect((await gen.json()).digest.runs).toBe(2);
+
+    body = await (await request(app, "/activity/digest")).json();
+    expect(body.digest.runs).toBe(2);
+    expect(body.dismissedAt).toBe(0);
+
+    const dismiss = await app.request("/activity/digest/dismiss", { method: "POST" });
+    expect((await dismiss.json()).ok).toBe(true);
+    body = await (await request(app, "/activity/digest")).json();
+    expect(body.dismissedAt).toBeGreaterThan(0);
+
+    // Dismiss is idempotent — a second call is a fresh ok, not an error.
+    const again = await app.request("/activity/digest/dismiss", { method: "POST" });
+    expect((await again.json()).ok).toBe(true);
+    db.close();
+  });
+
   test("an invalid configured zone degrades to UTC instead of failing the route", async () => {
     const { db, store } = seeded();
     setSetting(db, "activity.timezone", "Not/AZone");
     const app = createActivityRoutes({ db, store });
     const res = await request(app, "/activity/rollups");
     expect(res.status).toBe(200);
+    db.close();
+  });
+});
+
+describe("activity query inbox scope", () => {
+  test("returns the unacknowledged intents through the notifier", () => {
+    const { db, store } = seeded();
+    // The notifier's change cursor starts at the log head, so it must exist
+    // BEFORE the failure it is expected to notice.
+    const notifier = createActivityNotifier({ db, store, isWatched: () => false });
+    store.startSpan({
+      spanId: "cron-2:root",
+      runId: "cron-2",
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+    });
+    store.endSpan("cron-2:root", { outcome: "error", reason: "boom" });
+    notifier.tick();
+
+    const result = runActivityQuery(db, store, { scope: "inbox" }, notifier) as {
+      intents: Array<Record<string, unknown>>;
+    };
+    expect(result.intents).toHaveLength(1);
+    expect(result.intents[0]).toMatchObject({
+      kind: "failure",
+      status: "pending",
+      runId: "cron-2",
+    });
+    expect(result.intents[0]!.title).toContain("sync");
+    expect(typeof result.intents[0]!.createdAt).toBe("string");
+
+    // Acknowledged intents leave the inbox view.
+    notifier.acknowledgeAll();
+    const after = runActivityQuery(db, store, { scope: "inbox" }, notifier) as {
+      intents: unknown[];
+    };
+    expect(after.intents).toHaveLength(0);
+    db.close();
+  });
+
+  test("without a notifier the scope degrades to an explicit error", () => {
+    const { db, store } = seeded();
+    expect(runActivityQuery(db, store, { scope: "inbox" })).toEqual({
+      error: "inbox unavailable",
+    });
     db.close();
   });
 });

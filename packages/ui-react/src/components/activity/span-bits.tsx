@@ -43,17 +43,16 @@ export function SpanStatusDot({
 }
 
 /**
- * Display label for a tool/subagent span. Prefers the server-lifted
- * `toolName`; falls back to un-parsing the span-naming convention for spans
- * recorded before the field existed.
+ * Display label for a span. Prefers the server-lifted `toolName`; root spans
+ * label by kind (a turn or cron root is not a tool call); the last resort
+ * un-parses the `execute_tool` naming convention for spans recorded before
+ * the field existed.
  */
 export function spanToolLabel(span: ActivitySpan): string {
-  const name =
-    span.toolName ??
-    (span.name.startsWith("invoke_agent")
-      ? "Agent"
-      : span.name.replace(/^execute_tool /, ""));
-  return getToolLabel(name);
+  if (span.toolName) return getToolLabel(span.toolName);
+  if (span.kind === "turn") return "Turn";
+  if (span.kind === "cron") return span.jobName ?? span.name;
+  return getToolLabel(span.name.replace(/^execute_tool /, ""));
 }
 
 /** The "9+" unread-count bubble shared by the rail and the tab bar. Hidden at 0. */

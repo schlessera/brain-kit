@@ -13,15 +13,17 @@ import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sd
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { latestActivityDigest } from "./digest.js";
+import type { ActivityNotifier } from "./notify.js";
 import { rowToRunRollup, type ActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
   store: ActivityStore,
-  query: ActivityQuery
+  query: ActivityQuery,
+  notifier?: ActivityNotifier
 ): ActivityQueryResult {
-  const limit = Math.min(query.limit ?? 20, 100);
-  const hoursBack = Math.min(query.hoursBack ?? 24, 24 * 90);
+  const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+  const hoursBack = Math.min(Math.max(query.hoursBack ?? 24, 1), 24 * 90);
   const since = Date.now() - hoursBack * 60 * 60 * 1000;
 
   switch (query.scope) {
@@ -115,6 +117,20 @@ export function runActivityQuery(
         inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
         outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),
+      };
+    }
+
+    case "inbox": {
+      // The unacknowledged notification inbox — the same list the UI shows.
+      if (!notifier) return { error: "inbox unavailable" };
+      return {
+        intents: notifier.inbox(limit).map((i) => ({
+          kind: i.kind,
+          title: i.title,
+          status: i.status,
+          createdAt: iso(i.createdAt),
+          runId: i.runId,
+        })),
       };
     }
 

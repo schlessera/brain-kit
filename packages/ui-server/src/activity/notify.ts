@@ -59,6 +59,8 @@ export interface ActivityNotifier {
   markDelivered(id: number, status: "sent" | "send_failed"): void;
   acknowledge(id: number): boolean;
   acknowledgeAll(): number;
+  /** Retention: delete acknowledged intents untouched for longer than this. */
+  pruneAcknowledged(olderThanMs: number): number;
 }
 
 /** Global cap on intents CREATED per hour — failure-storm circuit. */
@@ -226,10 +228,11 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     },
 
     pending(limit = 20) {
+      // Acknowledged means dismissed in the inbox — never push it later.
       return (
         db
           .query(
-            "SELECT * FROM notification_intents WHERE status = 'pending' ORDER BY created_at LIMIT ?"
+            "SELECT * FROM notification_intents WHERE status = 'pending' AND acknowledged = 0 ORDER BY created_at LIMIT ?"
           )
           .all(limit) as any[]
       ).map(rowToIntent);
@@ -254,6 +257,13 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
       const res = db
         .query("UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE acknowledged = 0")
         .run(Date.now());
+      return res.changes;
+    },
+
+    pruneAcknowledged(olderThanMs) {
+      const res = db
+        .query("DELETE FROM notification_intents WHERE acknowledged = 1 AND updated_at < ?")
+        .run(Date.now() - olderThanMs);
       return res.changes;
     },
   };

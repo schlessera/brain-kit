@@ -90,10 +90,35 @@ describe("activity notifier", () => {
     notifier.tick();
     const all = notifier.inbox();
     expect(all.length).toBe(30);
+    // The cap is exact: the first 20 creations pass, the rest suppress.
     const pending = all.filter((i) => i.status === "pending");
     const suppressed = all.filter((i) => i.status === "suppressed");
-    expect(pending.length).toBeLessThanOrEqual(20);
-    expect(suppressed.length).toBeGreaterThan(0);
+    expect(pending.length).toBe(20);
+    expect(suppressed.length).toBe(10);
+  });
+
+  test("an acknowledged (dismissed) intent is never pushed later", () => {
+    const { store, notifier } = setup();
+    failCron(store, "run-1");
+    notifier.tick();
+    expect(notifier.pending()).toHaveLength(1);
+    notifier.acknowledge(notifier.inbox()[0]!.id);
+    expect(notifier.pending()).toHaveLength(0);
+  });
+
+  test("pruneAcknowledged deletes only old acknowledged intents", () => {
+    const { db, store, notifier } = setup();
+    failCron(store, "run-1");
+    failCron(store, "run-2", "other");
+    notifier.tick();
+    notifier.acknowledge(notifier.inbox().find((i) => i.title.includes("sync"))!.id);
+    // Age the acknowledged row past the cutoff.
+    db.query(
+      "UPDATE notification_intents SET updated_at = ? WHERE acknowledged = 1"
+    ).run(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    expect(notifier.pruneAcknowledged(30 * 24 * 60 * 60 * 1000)).toBe(1);
+    // The unacknowledged intent survives regardless of age.
+    expect(notifier.inbox()).toHaveLength(1);
   });
 
   test("interrupted runs notify too; successes do not by default", () => {

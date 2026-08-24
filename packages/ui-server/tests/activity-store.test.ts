@@ -208,7 +208,7 @@ describe("activity store: rollups and retention", () => {
     expect(rollup.span_count).toBe(2);
     expect(rollup.detail_pruned).toBe(0);
 
-    const res = store.prune({ digestFloorMs: Date.now() + 1000, hardCeilingMs: 0 });
+    const res = store.prune({ digestFloorAt: Date.now() + 1000, hardCeilingMs: 0 });
     expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("run-1")).toBeNull();
     const after = db
@@ -237,7 +237,7 @@ describe("activity store: rollups and retention", () => {
     startTurn(store, "live-run"); // stays open
 
     // Digest floor far in the past (digest broken) — only the ceiling prunes.
-    const res = store.prune({ digestFloorMs: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    const res = store.prune({ digestFloorAt: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("live-run")).not.toBeNull();
     const rollup = db

@@ -11,6 +11,9 @@ import { registerDevHandle } from "../config.js";
 /** How many finished runs' details are fetched when a session opens. */
 const HISTORY_RUN_LIMIT = 10;
 
+/** Bound on the mirror: how many TERMINAL runs stay held. Live runs never count. */
+const MAX_TERMINAL_RUNS = 50;
+
 /**
  * Client mirror of the server's activity record, fed by the snapshot-then-
  * delta stream. The server computes; this store only holds and indexes what
@@ -21,19 +24,37 @@ const HISTORY_RUN_LIMIT = 10;
  * delta at or below it is DISCARDED (its content is already in the
  * snapshot). Applying a delta is idempotent — span deltas upsert by spanId,
  * event deltas insert-if-absent by (spanId, eventIndex) — so a duplicate
- * delivery can never corrupt state.
+ * delivery can never corrupt state. The guard is symmetric: a snapshot
+ * whose per-run high-water is STRICTLY LOWER than what is held (a stale
+ * frame racing a reconnect) is skipped for that run; an equal value still
+ * applies, so chunked append frames keep working.
+ *
+ * Bounded mirror: at most MAX_TERMINAL_RUNS finished runs are held — once a
+ * run past the cap, the oldest terminal runs (by root start time) are
+ * evicted wholesale (spans, events, high-water, reverse index). Live runs
+ * are never evicted; evicted history remains fetchable over REST.
  */
 interface ActivityState {
   /** server_hello said this host records activity. */
   supported: boolean;
   /** Session ids this connection has an activity subscription for. */
   subscribed: Record<string, true>;
+  /** Bumped on every new connection so subscribe effects re-send. */
+  connectionEpoch: number;
   /** Live span state per run, keyed runId -> spanId. */
   spans: Record<string, Record<string, ActivitySpan>>;
   /** Ordered events per span (already sorted by eventIndex). */
   events: Record<string, ActivitySpanEvent[]>;
   /** Per-run high-water seq from the snapshot; deltas at or below drop. */
   highWater: Record<string, number>;
+  /**
+   * Newest APPLIED delta seq per run. Kept apart from `highWater` on
+   * purpose: the snapshot staleness guard compares against the max of both
+   * (a snapshot older than an applied delta must not roll it back), while
+   * the delta gate keeps comparing against the snapshot floor alone so
+   * out-of-order delta delivery stays tolerated (insert-if-absent absorbs it).
+   */
+  deltaSeq: Record<string, number>;
   /** spanId -> runId reverse index, for timing lookups by toolUseId. */
   spanRun: Record<string, string>;
 
@@ -45,6 +66,7 @@ interface ActivityState {
   setSupported: (supported: boolean) => void;
   /** New connection: server-side subscriptions are gone; re-subscribe lazily. */
   resetSubscriptions: () => void;
+  bumpConnectionEpoch: () => void;
   markSubscribed: (sessionId: string) => void;
   applySnapshot: (msg: ServerActivitySnapshot) => void;
   applyDelta: (msg: ServerActivityDelta) => void;
@@ -54,9 +76,11 @@ interface ActivityState {
 export const useActivityStore = create<ActivityState>((set, get) => ({
   supported: false,
   subscribed: {},
+  connectionEpoch: 0,
   spans: {},
   events: {},
   highWater: {},
+  deltaSeq: {},
   spanRun: {},
 
   inbox: [],
@@ -95,27 +119,55 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
 
   resetSubscriptions: () => set({ subscribed: {} }),
 
+  bumpConnectionEpoch: () => set((s) => ({ connectionEpoch: s.connectionEpoch + 1 })),
+
   markSubscribed: (sessionId) =>
     set((s) => ({ subscribed: { ...s.subscribed, [sessionId]: true } })),
 
   applySnapshot: (msg) => {
     set((s) => {
-      const spans = { ...s.spans };
-      const events = { ...s.events };
-      const spanRun = { ...s.spanRun };
+      const maps: MirrorMaps = {
+        spans: { ...s.spans },
+        events: { ...s.events },
+        highWater: { ...s.highWater },
+        deltaSeq: { ...s.deltaSeq },
+        spanRun: { ...s.spanRun },
+      };
+      // Staleness guard: a run whose incoming high-water is strictly below
+      // what is held (snapshot floor or an applied delta) carries older
+      // state than what already applied — skip its spans/events. Equal
+      // still applies (chunked append frames).
+      const stale = new Set<string>();
+      for (const [runId, seq] of Object.entries(msg.highWaterSeq)) {
+        const held = Math.max(maps.highWater[runId] ?? 0, maps.deltaSeq[runId] ?? 0);
+        if (seq < held) stale.add(runId);
+        else maps.highWater[runId] = seq;
+      }
       for (const span of msg.spans) {
-        spans[span.runId] = { ...(spans[span.runId] ?? {}), [span.spanId]: span };
-        spanRun[span.spanId] = span.runId;
+        if (stale.has(span.runId)) continue;
+        maps.spans[span.runId] = { ...(maps.spans[span.runId] ?? {}), [span.spanId]: span };
+        maps.spanRun[span.spanId] = span.runId;
       }
       for (const event of msg.events) {
-        events[event.spanId] = insertEvent(events[event.spanId], event);
+        const runId = maps.spanRun[event.spanId];
+        if (runId !== undefined && stale.has(runId)) continue;
+        maps.events[event.spanId] = insertEvent(maps.events[event.spanId], event);
       }
-      // Append frames repeat the same map; max-merge keeps it monotonic.
-      const highWater = { ...s.highWater };
-      for (const [runId, seq] of Object.entries(msg.highWaterSeq)) {
-        highWater[runId] = Math.max(highWater[runId] ?? 0, seq);
+      // Scope eviction: a fresh session/index snapshot is authoritative for
+      // its scope. A held run that still looks live but is absent from the
+      // frame's high-water map is a ghost — the server says it is not
+      // running any more (its REST history remains fetchable).
+      if (!msg.append && (msg.view === "session" || msg.view === "index")) {
+        for (const [runId, byId] of Object.entries(maps.spans)) {
+          if (runId in msg.highWaterSeq) continue;
+          const root = rootSpanOf(byId);
+          if (!root || root.outcome !== undefined) continue;
+          const inScope = msg.view === "index" || root.sessionId === msg.sessionId;
+          if (inScope) evictRun(maps, runId);
+        }
       }
-      return { spans, events, highWater, spanRun };
+      pruneTerminalRuns(maps);
+      return maps;
     });
   },
 
@@ -129,16 +181,38 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
           ...prev.spans,
           [msg.runId]: { ...(prev.spans[msg.runId] ?? {}), [span.spanId]: span },
         },
+        // Recording the applied seq keeps the snapshot staleness guard
+        // honest: a snapshot frame older than this delta must not roll it back.
+        deltaSeq: {
+          ...prev.deltaSeq,
+          [msg.runId]: Math.max(prev.deltaSeq[msg.runId] ?? 0, msg.seq),
+        },
         // The mapping is almost always already present — re-spreading it on
         // every delta would churn a large object for nothing.
         ...(prev.spanRun[span.spanId] === msg.runId
           ? {}
           : { spanRun: { ...prev.spanRun, [span.spanId]: msg.runId } }),
       }));
+      // A root span closing may push the mirror past the terminal-run cap.
+      if (span.parentSpanId === undefined && span.outcome !== undefined) {
+        const prev = get();
+        const maps: MirrorMaps = {
+          spans: { ...prev.spans },
+          events: { ...prev.events },
+          highWater: { ...prev.highWater },
+          deltaSeq: { ...prev.deltaSeq },
+          spanRun: { ...prev.spanRun },
+        };
+        if (pruneTerminalRuns(maps)) set(maps);
+      }
     } else if (msg.event) {
       const event = msg.event;
       set((prev) => ({
         events: { ...prev.events, [event.spanId]: insertEvent(prev.events[event.spanId], event) },
+        deltaSeq: {
+          ...prev.deltaSeq,
+          [msg.runId]: Math.max(prev.deltaSeq[msg.runId] ?? 0, msg.seq),
+        },
         ...(prev.spanRun[event.spanId] !== undefined
           ? {}
           : { spanRun: { ...prev.spanRun, [event.spanId]: msg.runId } }),
@@ -146,7 +220,7 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
     }
   },
 
-  clear: () => set({ spans: {}, events: {}, highWater: {}, spanRun: {} }),
+  clear: () => set({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} }),
 }));
 
 /** One badge poller per page lifetime — the inbox is cheap and the badge
@@ -197,6 +271,50 @@ export async function loadSessionActivityHistory(sessionId: string): Promise<voi
     // History timing is an enhancement; the transcript renders without it.
     loadedHistorySessions.delete(sessionId);
   }
+}
+
+/** The four indexes that make up the mirror, mutated together during merges. */
+interface MirrorMaps {
+  spans: Record<string, Record<string, ActivitySpan>>;
+  events: Record<string, ActivitySpanEvent[]>;
+  highWater: Record<string, number>;
+  deltaSeq: Record<string, number>;
+  spanRun: Record<string, string>;
+}
+
+function rootSpanOf(byId: Record<string, ActivitySpan>): ActivitySpan | undefined {
+  return Object.values(byId).find((span) => span.parentSpanId === undefined);
+}
+
+/** Drop a whole run from the mirror — spans, events, high-water, reverse index. */
+function evictRun(maps: MirrorMaps, runId: string): void {
+  for (const spanId of Object.keys(maps.spans[runId] ?? {})) {
+    delete maps.events[spanId];
+    delete maps.spanRun[spanId];
+  }
+  delete maps.spans[runId];
+  delete maps.highWater[runId];
+  delete maps.deltaSeq[runId];
+}
+
+/**
+ * Enforce the terminal-run bound in place. Returns whether anything was
+ * evicted. Runs whose root span is still open (or unknown) are never touched.
+ */
+function pruneTerminalRuns(maps: MirrorMaps): boolean {
+  const terminal: Array<{ runId: string; startedAt: number }> = [];
+  for (const [runId, byId] of Object.entries(maps.spans)) {
+    const root = rootSpanOf(byId);
+    if (root && root.outcome !== undefined) {
+      terminal.push({ runId, startedAt: root.startedAt });
+    }
+  }
+  if (terminal.length <= MAX_TERMINAL_RUNS) return false;
+  terminal.sort((a, b) => a.startedAt - b.startedAt);
+  for (const { runId } of terminal.slice(0, terminal.length - MAX_TERMINAL_RUNS)) {
+    evictRun(maps, runId);
+  }
+  return true;
 }
 
 function insertEvent(

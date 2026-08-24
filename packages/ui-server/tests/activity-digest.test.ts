@@ -54,11 +54,39 @@ describe("activity digest", () => {
     // The floor is what pruning respects (spans newer than it survive).
     expect(digestRetentionFloor(db)).toBe(now);
 
-    // The next window starts where this one ended.
+    // The next window starts where this one ended — windows key on ended_at,
+    // so run "c" (ends now+31s) falls in [now, now+60s) exactly once.
     seedRun(store, "c", { startedAt: now + 1000 });
     const second = generateActivityDigest(db, now + 60_000);
     expect(second.windowStart).toBe(now);
     expect(second.runs).toBe(1);
+  });
+
+  test("a run still open at generation is covered by the NEXT digest once it ends", () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test" });
+    store.startSpan({
+      spanId: "open:root",
+      runId: "open",
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+      startedAt: Date.now() - 60_000,
+    });
+    store.rollupRun("open");
+
+    const now = Date.now();
+    const first = generateActivityDigest(db, now);
+    expect(first.runs).toBe(0);
+
+    // The run ends AFTER the first window closed; ended_at windowing puts it
+    // in the next digest instead of losing it between windows.
+    store.endSpan("open:root", { outcome: "error", reason: "boom", endedAt: now + 1000 });
+    store.rollupRun("open");
+    const second = generateActivityDigest(db, now + 60_000);
+    expect(second.runs).toBe(1);
+    expect(second.failures).toBe(1);
   });
 
   test("the digest job's own runs are excluded from the summary", () => {
@@ -83,11 +111,11 @@ describe("activity digest", () => {
     const old = Date.now() - 10 * 24 * 60 * 60 * 1000;
     seedRun(store, "old", { startedAt: old });
     // Digest never ran (floor 0): the floor protects everything...
-    let res = store.prune({ digestFloorMs: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    let res = store.prune({ digestFloorAt: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(0);
     // ...until the digest covers it.
     generateActivityDigest(db);
-    res = store.prune({ digestFloorMs: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    res = store.prune({ digestFloorAt: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(1);
   });
 });

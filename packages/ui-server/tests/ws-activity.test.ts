@@ -273,6 +273,47 @@ describe("activity stream over the ws path", () => {
     expect(ws.frames().length).toBe(before);
   });
 
+  test("a socket close drops its subscriptions; the pump then reaches nobody", async () => {
+    const s = setup(scriptedTurn());
+    cleanup = () => {
+      s.stream.close();
+      s.db.close();
+    };
+    const ws = openAndSubscribe(s, { type: "activity_subscribe", view: "index" });
+    await until(() => ws.frames().some((f) => f.type === "activity_snapshot"));
+    expect(s.stream.subscriptionCount()).toBe(1);
+
+    s.handlers.onClose({ code: 1000, reason: "" } as CloseEvent, ws);
+    expect(s.stream.subscriptionCount()).toBe(0);
+
+    const before = ws.frames().length;
+    const cron = createActivityStore(s.db, { writer: "cron-test" });
+    cron.startSpan({
+      spanId: "cron-root-2",
+      runId: "cron-run-2",
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+    });
+    s.stream.pump();
+    expect(ws.frames().length).toBe(before);
+  });
+
+  test("a scoped subscribe without its scope id is ignored — no snapshot, no subscription", async () => {
+    const s = setup(scriptedTurn());
+    cleanup = () => {
+      s.stream.close();
+      s.db.close();
+    };
+    const ws = openAndSubscribe(s, { type: "activity_subscribe", view: "session" });
+    openAndSubscribe(s, { type: "activity_subscribe", view: "run" });
+    // Give the async handler path a beat, then confirm nothing registered.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(s.stream.subscriptionCount()).toBe(0);
+    expect(ws.frames().filter((f) => f.type === "activity_snapshot")).toHaveLength(0);
+  });
+
   test("a turn abort cascades open spans to cancelled and the deltas reach subscribers", async () => {
     const s = setup(async ({ bridge, signal }) => {
       bridge.emit({ type: "session_info", sessionId: "sess-1", isNew: true });

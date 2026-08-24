@@ -166,8 +166,9 @@ export interface RunSnapshot {
 }
 
 export interface PruneOptions {
-  /** Spans of runs that ended before this are prunable (digest floor). */
-  digestFloorMs: number;
+  /** Spans of runs that ended before this are prunable (digest floor).
+   *  Absolute epoch ms, not an offset. */
+  digestFloorAt: number;
   /** Runs older than this are pruned REGARDLESS of the digest floor. */
   hardCeilingMs: number;
   now?: number;
@@ -371,8 +372,9 @@ export function createActivityStore(
     // tree would double-count every fan-out. Verified empirically (plan U3
     // smoke test).
     const failure =
-      spans.find((s) => s.outcome === "error" || s.outcome === "timeout")?.outcomeReason ??
-      (root.outcome === "interrupted" ? "interrupted" : null);
+      spans.find(
+        (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
+      )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
     db.query(
       `INSERT INTO activity_run_rollups
          (run_id, origin, name, session_id, job_name, started_at, ended_at, outcome,
@@ -699,7 +701,7 @@ export function createActivityStore(
       // The digest floor gates pruning, but a dead digest job must not freeze
       // it forever: the hard ceiling prunes regardless (marking the rollup so
       // the coverage gap is visible).
-      const floor = Math.max(options.digestFloorMs, 0);
+      const floor = Math.max(options.digestFloorAt, 0);
       const ceiling = now - options.hardCeilingMs;
       return inWrite(() => {
         // Candidates come from the rollups (they exist for every finished

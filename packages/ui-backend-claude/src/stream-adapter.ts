@@ -201,48 +201,50 @@ export class StreamAdapter {
       }
 
       case "system": {
-        const sys = msg as any;
-        if (sys.subtype === "init") {
+        if (msg.subtype === "init") {
           messages.push({
             type: "status",
             status: "thinking",
             detail: "Session initialized",
           });
-        } else if (sys.subtype === "task_started" && sys.tool_use_id) {
+        } else if (msg.subtype === "task_started" && msg.tool_use_id) {
           // Remember task->tool linkage for updates that only carry task_id.
-          if (sys.task_id) this.taskTools.set(sys.task_id, sys.tool_use_id);
+          if (msg.task_id) this.taskTools.set(msg.task_id, msg.tool_use_id);
           this.report({
             kind: "subagent_started",
-            toolUseId: sys.tool_use_id,
-            taskId: sys.task_id,
-            subagentType: sys.subagent_type,
-            description: sys.description,
-            depth: sys.spawn_depth,
+            toolUseId: msg.tool_use_id,
+            taskId: msg.task_id,
+            subagentType: msg.subagent_type,
+            description: msg.description,
+            depth: msg.spawn_depth,
           });
-        } else if (sys.subtype === "task_updated" && sys.task_id) {
-          const status = sys.patch?.status;
-          const toolUseId = this.taskTools.get(sys.task_id);
+        } else if (msg.subtype === "task_updated" && msg.task_id) {
+          const status = msg.patch?.status;
+          const toolUseId = this.taskTools.get(msg.task_id);
           if (toolUseId && isSubagentStatus(status)) {
             this.report({ kind: "subagent_status", toolUseId, status });
           }
         } else if (
-          (sys.subtype === "task_progress" || sys.subtype === "task_notification") &&
-          (sys.tool_use_id || sys.task_id)
+          (msg.subtype === "task_progress" || msg.subtype === "task_notification") &&
+          (msg.tool_use_id || msg.task_id)
         ) {
-          const toolUseId = sys.tool_use_id ?? this.taskTools.get(sys.task_id);
+          const toolUseId = msg.tool_use_id ?? this.taskTools.get(msg.task_id);
           if (toolUseId) {
             this.report({
               kind: "subagent_status",
               toolUseId,
-              status: sys.status === "completed" ? "completed" : "running",
-              usage: sys.usage
+              status:
+                msg.subtype === "task_notification" && msg.status === "completed"
+                  ? "completed"
+                  : "running",
+              usage: msg.usage
                 ? {
-                    totalTokens: sys.usage.total_tokens,
-                    toolUses: sys.usage.tool_uses,
-                    durationMs: sys.usage.duration_ms,
+                    totalTokens: msg.usage.total_tokens,
+                    toolUses: msg.usage.tool_uses,
+                    durationMs: msg.usage.duration_ms,
                   }
                 : undefined,
-              summary: sys.summary,
+              summary: msg.summary,
             });
           }
         }

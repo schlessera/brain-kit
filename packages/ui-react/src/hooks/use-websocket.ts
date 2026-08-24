@@ -146,6 +146,8 @@ export function handleServerMessage(msg: ServerMessage) {
     useActivityStore.getState().setSupported(msg.capabilities?.activity === true);
     // A new hello means a new connection: server-side subscriptions are gone.
     useActivityStore.getState().resetSubscriptions();
+    // …and view-owned subscriptions (the Activity index) must re-send too.
+    useActivityStore.getState().bumpConnectionEpoch();
     ensureActivitySubscription(state.activeSessionId);
     return;
   }

@@ -165,7 +165,9 @@ export async function runSession(
         );
       } catch (err) {
         emitTurnError(host, turn, err);
-        recorder?.finish(turn.cancelled ? "cancelled" : "error");
+        recorder?.finish(
+          turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : "error"
+        );
       } finally {
         clearTimeout(timeoutHandle);
       }

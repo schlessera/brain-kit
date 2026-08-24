@@ -129,7 +129,7 @@ export interface BackendBridge {
 
 /** A read over the activity record, shaped for model consumption. */
 export interface ActivityQuery {
-  scope: "running" | "recent" | "run" | "rollups";
+  scope: "running" | "recent" | "run" | "rollups" | "inbox";
   /** Required for scope "run". */
   runId?: string;
   /** Window for "recent"/"rollups", in hours back from now (default 24). */

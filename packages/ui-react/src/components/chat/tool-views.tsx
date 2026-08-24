@@ -68,6 +68,8 @@ function fileLabel(path: string): ReactNode {
 }
 
 export function formatDuration(ms: number): string {
+  // Server and browser clocks can skew; a negative duration is just 0.
+  ms = Math.max(0, ms);
   if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   const m = Math.floor(ms / 60_000);

@@ -30,6 +30,7 @@ beforeEach(() => {
     spans: {},
     events: {},
     highWater: {},
+    deltaSeq: {},
     spanRun: {},
   });
 });
@@ -87,6 +88,131 @@ describe("snapshot-then-delta (AE6 client half)", () => {
     expect(events.map((e) => e.eventIndex)).toEqual([0, 1]);
   });
 
+  test("a stale snapshot (lower high-water) does not regress a newer span", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId: "r1",
+      spans: [span({ spanId: "a", runId: "r1", outcome: "success" })],
+      events: [],
+      highWaterSeq: { r1: 10 },
+    });
+    // A frame from before the reconnect races in with older state.
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId: "r1",
+      spans: [span({ spanId: "a", runId: "r1" })],
+      events: [{ spanId: "a", eventIndex: 0, ts: 50, eventType: "transcript_assistant" }],
+      highWaterSeq: { r1: 5 },
+    });
+    const state = useActivityStore.getState();
+    expect(state.spans.r1!.a!.outcome).toBe("success");
+    expect(state.highWater.r1).toBe(10);
+    expect(state.events.a).toBeUndefined();
+  });
+
+  test("an index snapshot evicts a ghost-running run it omits", () => {
+    const s = useActivityStore.getState();
+    // A run the store believes is live…
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [span({ spanId: "ghost-root", runId: "rg", sessionId: "sess" })],
+      events: [],
+      highWaterSeq: { rg: 3 },
+    });
+    // …and one that finished properly (terminal state is history, not a ghost).
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId: "rt",
+      spans: [span({ spanId: "done-root", runId: "rt", outcome: "success" })],
+      events: [],
+      highWaterSeq: { rt: 2 },
+    });
+    // The index snapshot omits rg: the server says it is not live any more.
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "index",
+      spans: [],
+      events: [],
+      highWaterSeq: {},
+    });
+    const state = useActivityStore.getState();
+    expect(state.spans.rg).toBeUndefined();
+    expect(state.highWater.rg).toBeUndefined();
+    expect(state.spanRun["ghost-root"]).toBeUndefined();
+    expect(state.spans.rt!["done-root"]).toBeDefined();
+  });
+
+  test("newer-delta state survives a subsequent equal-high-water append frame", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [span({ spanId: "a", runId: "r1", sessionId: "sess" })],
+      events: [],
+      highWaterSeq: { r1: 5 },
+    });
+    s.applyDelta({
+      type: "activity_delta",
+      runId: "r1",
+      seq: 6,
+      span: span({ spanId: "a", runId: "r1", sessionId: "sess", outcome: "success" }),
+    });
+    // A chunked continuation of the ORIGINAL snapshot repeats its map and
+    // stale span state; it must not roll the delta back.
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [span({ spanId: "a", runId: "r1", sessionId: "sess" })],
+      events: [],
+      highWaterSeq: { r1: 5 },
+      append: true,
+    });
+    expect(useActivityStore.getState().spans.r1!.a!.outcome).toBe("success");
+  });
+
+  test("the terminal-run cap evicts the oldest finished runs, never live ones", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId: "live",
+      spans: [span({ spanId: "live-root", runId: "live", startedAt: 1 })],
+      events: [],
+      highWaterSeq: { live: 1 },
+    });
+    for (let i = 0; i < 52; i++) {
+      s.applySnapshot({
+        type: "activity_snapshot",
+        view: "run",
+        runId: `term-${i}`,
+        spans: [
+          span({
+            spanId: `term-${i}-root`,
+            runId: `term-${i}`,
+            startedAt: 100 + i,
+            outcome: "success",
+          }),
+        ],
+        events: [],
+        highWaterSeq: { [`term-${i}`]: 1 },
+      });
+    }
+    const state = useActivityStore.getState();
+    expect(state.spans["term-0"]).toBeUndefined();
+    expect(state.spans["term-1"]).toBeUndefined();
+    expect(state.spans["term-51"]).toBeDefined();
+    expect(state.spans.live).toBeDefined();
+    expect(Object.keys(state.spans)).toHaveLength(51);
+  });
+
   test("append snapshot frames max-merge the high-water map", () => {
     const s = useActivityStore.getState();
     s.applySnapshot({
@@ -137,6 +263,80 @@ describe("selectors", () => {
     expect(childSpans(state, "agent-1").map((x) => x.spanId)).toEqual(["sub-b", "sub-a"]);
     expect(subagentSpans(state, "sess").map((x) => x.spanId)).toEqual(["agent-1"]);
     expect(spanForTool(state, "sub-a")!.runId).toBe("t");
+  });
+
+  test("childSpans resolves each level of a nested subagent tree", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [
+        span({ spanId: "t:turn", runId: "t", kind: "turn", sessionId: "sess" }),
+        span({
+          spanId: "agent-1",
+          runId: "t",
+          kind: "subagent",
+          parentSpanId: "t:turn",
+          sessionId: "sess",
+          startedAt: 110,
+        }),
+        span({
+          spanId: "sub-a",
+          runId: "t",
+          kind: "subagent",
+          parentSpanId: "agent-1",
+          sessionId: "sess",
+          startedAt: 120,
+        }),
+        span({ spanId: "sub-a-1", runId: "t", parentSpanId: "sub-a", startedAt: 130 }),
+      ],
+      events: [],
+      highWaterSeq: { t: 4 },
+    });
+    const state = useActivityStore.getState();
+    expect(childSpans(state, "agent-1").map((x) => x.spanId)).toEqual(["sub-a"]);
+    expect(childSpans(state, "sub-a").map((x) => x.spanId)).toEqual(["sub-a-1"]);
+  });
+
+  test("a delta cancelling a live subagent lands in spanForTool", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [
+        span({ spanId: "t:turn", runId: "t", kind: "turn", sessionId: "sess" }),
+        span({
+          spanId: "agent-1",
+          runId: "t",
+          kind: "subagent",
+          parentSpanId: "t:turn",
+          sessionId: "sess",
+        }),
+      ],
+      events: [],
+      highWaterSeq: { t: 2 },
+    });
+    // The drill-in's `running` flag reads span.outcome via spanForTool.
+    expect(spanForTool(useActivityStore.getState(), "agent-1")!.outcome).toBeUndefined();
+    s.applyDelta({
+      type: "activity_delta",
+      runId: "t",
+      seq: 3,
+      span: span({
+        spanId: "agent-1",
+        runId: "t",
+        kind: "subagent",
+        parentSpanId: "t:turn",
+        sessionId: "sess",
+        outcome: "cancelled",
+        endedAt: 500,
+      }),
+    });
+    const after = spanForTool(useActivityStore.getState(), "agent-1")!;
+    expect(after.outcome).toBe("cancelled");
+    expect(after.endedAt).toBe(500);
   });
 
   test("timingFor uses the wait/execution boundary and server clock", () => {

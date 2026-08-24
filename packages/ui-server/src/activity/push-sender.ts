@@ -43,12 +43,19 @@ export interface CreatePushSenderOptions {
   send?: (
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
     payload: string,
-    options: { vapidDetails: { subject: string; publicKey: string; privateKey: string } }
+    options: {
+      vapidDetails: { subject: string; publicKey: string; privateKey: string };
+      timeout?: number;
+    }
   ) => Promise<unknown>;
   /** `mailto:` or https contact required by the VAPID spec. */
   subject?: string;
   log?: Logger;
 }
+
+/** Per-send cap: a hung push service rejects instead of wedging the
+ *  delivering guard (the tick's reentrancy flag) forever. */
+const SEND_TIMEOUT_MS = 10_000;
 
 export function createPushSender(
   db: Database,
@@ -62,7 +69,7 @@ export function createPushSender(
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
-        { vapidDetails: opts.vapidDetails }
+        { vapidDetails: opts.vapidDetails, timeout: opts.timeout }
       ));
 
   // Generate-once VAPID keys. Concurrent first boots are safe: the INSERT is
@@ -115,8 +122,7 @@ export function createPushSender(
     async deliverPending(notifier) {
       const pending = notifier.pending();
       if (pending.length === 0) return 0;
-      const subs = rows();
-      if (subs.length === 0) {
+      if (rows().length === 0) {
         // No devices: the inbox already has it; nothing to deliver. Leave
         // the intents pending so a device subscribing later still gets them
         // if they are fresh, and the boot sweep can retry.
@@ -126,6 +132,10 @@ export function createPushSender(
       let attempts = 0;
 
       for (const intent of pending) {
+        // Re-read per intent: an endpoint pruned as dead during the previous
+        // intent's pass must not be attempted again in this one.
+        const subs = rows();
+        if (subs.length === 0) break;
         // Minimized payload; the tag coalesces repeats per run across devices.
         const payload = JSON.stringify({
           title: intent.title,
@@ -139,7 +149,10 @@ export function createPushSender(
             send(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
               payload,
-              { vapidDetails: { subject, publicKey: keys.publicKey, privateKey: keys.privateKey } }
+              {
+                vapidDetails: { subject, publicKey: keys.publicKey, privateKey: keys.privateKey },
+                timeout: SEND_TIMEOUT_MS,
+              }
             )
           )
         );
