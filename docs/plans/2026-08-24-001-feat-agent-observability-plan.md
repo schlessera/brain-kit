@@ -1,7 +1,7 @@
 ---
 title: "feat: Agent observability layer"
 type: feat
-status: active
+status: completed
 date: 2026-08-24
 origin: docs/brainstorms/2026-08-24-agent-observability-requirements.md
 ---
