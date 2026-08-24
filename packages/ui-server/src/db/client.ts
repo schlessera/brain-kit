@@ -26,6 +26,12 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
   const db = new Database(dbPath, { create: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
+  // Two processes write this database (the server and the cron wrapper). A
+  // deferred write transaction that loses the snapshot-upgrade race throws
+  // SQLITE_BUSY immediately; the timeout makes the second writer wait its
+  // turn instead. Activity writes additionally use immediate transactions —
+  // see src/activity/store.ts.
+  db.exec("PRAGMA busy_timeout = 5000");
   runMigrations(db, options.log);
   return db;
 }
