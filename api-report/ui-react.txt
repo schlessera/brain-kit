@@ -5,6 +5,7 @@
 
 export "." (./src/index.ts)
   type ActiveView
+  ActivityPage
   AppShell
   type AskUserExchange
   BrainMarkdown

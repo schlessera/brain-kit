@@ -1,4 +1,5 @@
 import {
+  Activity,
   Brain,
   RefreshCw,
   Newspaper,
@@ -77,6 +78,14 @@ export function SideRail() {
         active={activeView === "graph"}
         onClick={() =>
           setActiveView(activeView === "graph" ? "chat" : "graph")
+        }
+      />
+      <RailButton
+        icon={Activity}
+        label="Activity"
+        active={activeView === "activity"}
+        onClick={() =>
+          setActiveView(activeView === "activity" ? "chat" : "activity")
         }
       />
 

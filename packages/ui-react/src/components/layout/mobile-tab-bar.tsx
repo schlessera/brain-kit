@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
   Brain,
   RefreshCw,
   History,
@@ -66,11 +67,14 @@ export function MobileTabBar() {
           clearMessages();
         }}
       />
+      {/* Activity holds the tab-bar slot; Graph moved into the More menu —
+          the phone glance-check ("is real work happening?") is the headline
+          flow and must stay one tap away (planning decision). */}
       <TabIcon
-        icon={Waypoints}
-        label="Graph"
-        active={activeView === "graph"}
-        onClick={() => setActiveView("graph")}
+        icon={Activity}
+        label="Activity"
+        active={activeView === "activity"}
+        onClick={() => setActiveView("activity")}
       />
       <TabIcon icon={FolderTree} label="Files" onClick={toggleFilePanel} />
       <div ref={moreRef} className="relative">
@@ -85,6 +89,14 @@ export function MobileTabBar() {
             role="menu"
             className="absolute bottom-full right-0 z-50 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
           >
+            <MoreItem
+              icon={Waypoints}
+              label="Graph"
+              onClick={() => {
+                setMoreOpen(false);
+                setActiveView("graph");
+              }}
+            />
             <MoreItem
               icon={RefreshCw}
               label="Sync"
