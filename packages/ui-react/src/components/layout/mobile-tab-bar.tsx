@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
+import { useActivityStore } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
 
 export function MobileTabBar() {
@@ -22,6 +23,7 @@ export function MobileTabBar() {
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const inboxCount = useActivityStore((s) => s.inbox.length);
 
   /** Chat-scoped panels live in the chat page — surface it before opening them. */
   function inChat(toggle: () => void) {
@@ -74,6 +76,7 @@ export function MobileTabBar() {
         icon={Activity}
         label="Activity"
         active={activeView === "activity"}
+        badge={inboxCount}
         onClick={() => setActiveView("activity")}
       />
       <TabIcon icon={FolderTree} label="Files" onClick={toggleFilePanel} />
@@ -133,21 +136,29 @@ function TabIcon({
   label,
   active,
   onClick,
+  badge,
 }: {
   icon: typeof Brain;
   label: string;
   active?: boolean;
   onClick?: () => void;
+  /** Unread-count dot (the inbox badge). Hidden at 0. */
+  badge?: number;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]",
+        "relative flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]",
         active ? "text-primary" : "text-muted-foreground"
       )}
     >
       <Icon className="h-5 w-5" />
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
       {label}
     </button>
   );

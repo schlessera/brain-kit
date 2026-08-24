@@ -249,7 +249,28 @@ export const api = {
 
   activityRollups: (days?: number) =>
     fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
+
+  activityInbox: () => fetchJson<{ intents: ActivityIntent[] }>("/activity/inbox"),
+
+  activityInboxAck: (id: number) =>
+    fetchJson<{ ok: true }>(`/activity/inbox/${id}/ack`, { method: "POST" }),
+
+  activityInboxAckAll: () =>
+    fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
 };
+
+export interface ActivityIntent {
+  id: number;
+  runId: string;
+  spanId: string | null;
+  kind: "failure" | "completion" | "stuck";
+  tag: string;
+  title: string;
+  body: string;
+  status: string;
+  acknowledged: boolean;
+  createdAt: number;
+}
 
 export interface ActivityRunSummary {
   runId: string;

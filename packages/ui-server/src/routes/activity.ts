@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { ActivityStore } from "../activity/store.js";
+import type { ActivityNotifier } from "../activity/notify.js";
 import { getSetting } from "../db/settings.js";
 
 /**
@@ -14,10 +15,49 @@ import { getSetting } from "../db/settings.js";
  * pruned") afterwards; only never-existed ids 404. Cost/token aggregates
  * read per-run rollups, which carry ROOT-span accounting only.
  */
-export function createActivityRoutes(deps: { db: Database; store: ActivityStore }): Hono {
-  const { db, store } = deps;
+export function createActivityRoutes(deps: {
+  db: Database;
+  store: ActivityStore;
+  notifier?: ActivityNotifier;
+}): Hono {
+  const { db, store, notifier } = deps;
 
   return new Hono()
+    .get("/activity/inbox", (c) => {
+      try {
+        return c.json({ intents: notifier?.inbox() ?? [] });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to list inbox" },
+          500
+        );
+      }
+    })
+
+    .post("/activity/inbox/ack-all", (c) => {
+      try {
+        return c.json({ acknowledged: notifier?.acknowledgeAll() ?? 0 });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to acknowledge" },
+          500
+        );
+      }
+    })
+
+    .post("/activity/inbox/:id/ack", (c) => {
+      const id = Number(c.req.param("id"));
+      if (!Number.isInteger(id) || id < 1) return c.json({ error: "Bad intent id" }, 400);
+      try {
+        const ok = notifier?.acknowledge(id) ?? false;
+        return ok ? c.json({ ok: true }) : c.json({ error: "Unknown intent" }, 404);
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to acknowledge" },
+          500
+        );
+      }
+    })
     .get("/activity/runs", (c) => {
       try {
         const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 200);

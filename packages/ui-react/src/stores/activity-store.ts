@@ -5,7 +5,7 @@ import type {
   ServerActivityDelta,
   ServerActivitySnapshot,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { api } from "../lib/api-client.js";
+import { api, type ActivityIntent } from "../lib/api-client.js";
 import { registerDevHandle } from "../config.js";
 
 /** How many finished runs' details are fetched when a session opens. */
@@ -37,6 +37,11 @@ interface ActivityState {
   /** spanId -> runId reverse index, for timing lookups by toolUseId. */
   spanRun: Record<string, string>;
 
+  /** Unacknowledged notification intents — the guaranteed-tier inbox. */
+  inbox: ActivityIntent[];
+  loadInbox: () => Promise<void>;
+  acknowledgeIntent: (id: number) => Promise<void>;
+  acknowledgeAllIntents: () => Promise<void>;
   setSupported: (supported: boolean) => void;
   /** New connection: server-side subscriptions are gone; re-subscribe lazily. */
   resetSubscriptions: () => void;
@@ -54,7 +59,39 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
   highWater: {},
   spanRun: {},
 
-  setSupported: (supported) => set({ supported }),
+  inbox: [],
+
+  loadInbox: async () => {
+    try {
+      const { intents } = await api.activityInbox();
+      set({ inbox: intents });
+    } catch {
+      // Badge absence over a crash — the inbox is reachable from Activity.
+    }
+  },
+
+  acknowledgeIntent: async (id) => {
+    set((s) => ({ inbox: s.inbox.filter((i) => i.id !== id) }));
+    try {
+      await api.activityInboxAck(id);
+    } catch {
+      // Optimistic removal stands; the next load re-syncs.
+    }
+  },
+
+  acknowledgeAllIntents: async () => {
+    set({ inbox: [] });
+    try {
+      await api.activityInboxAckAll();
+    } catch {
+      // Same optimistic policy.
+    }
+  },
+
+  setSupported: (supported) => {
+    set({ supported });
+    if (supported) startInboxPolling();
+  },
 
   resetSubscriptions: () => set({ subscribed: {} }),
 
@@ -105,6 +142,17 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
 
   clear: () => set({ spans: {}, events: {}, highWater: {}, spanRun: {} }),
 }));
+
+/** One badge poller per page lifetime — the inbox is cheap and the badge
+ *  must be honest even when the Activity surface never opens. */
+let inboxPoller: ReturnType<typeof setInterval> | null = null;
+function startInboxPolling() {
+  if (inboxPoller) return;
+  void useActivityStore.getState().loadInbox();
+  inboxPoller = setInterval(() => {
+    void useActivityStore.getState().loadInbox();
+  }, 60_000);
+}
 
 /** Runs whose history has been fetched already (per page lifetime). */
 const loadedHistorySessions = new Set<string>();

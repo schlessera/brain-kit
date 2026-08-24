@@ -36,6 +36,7 @@ import { createUiDb } from "./db/client.js";
 import { getHiddenModelIds } from "./db/settings.js";
 import { createActivityStore } from "./activity/store.js";
 import { createActivityStream } from "./activity/stream.js";
+import { createActivityNotifier } from "./activity/notify.js";
 import {
   assertBackendResolvable,
   createBackendRegistry,
@@ -208,6 +209,12 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       attributes: { error: err instanceof Error ? err.message : String(err) },
     });
   }
+  const activityNotifier = createActivityNotifier({
+    db,
+    store: activityStore,
+    isWatched: (scope) => activityStream.isWatched(scope),
+    log: activityLog,
+  });
   let lastPrune = 0;
   const activityTick = setInterval(() => {
     try {
@@ -220,6 +227,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
         });
         activityStream.pump();
       }
+      activityNotifier.tick();
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
         activityStore.prune({
@@ -364,7 +372,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route("/api", createSessionRoutes({ registry, db }));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
-  app.route("/api", createActivityRoutes({ db, store: activityStore }));
+  app.route("/api", createActivityRoutes({ db, store: activityStore, notifier: activityNotifier }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
   app.route(
     "/api",

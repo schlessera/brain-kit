@@ -10,6 +10,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connection-store.js";
+import { useActivityStore } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
@@ -26,6 +27,7 @@ export function SideRail() {
   const clearMessages = useChatStore((s) => s.clearMessages);
   const hasMessages = useChatStore((s) => activeChat(s).messages.length > 0);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
+  const inboxCount = useActivityStore((s) => s.inbox.length);
 
   /** Chat-scoped panels live in the chat page — surface it before opening them. */
   function inChat(toggle: () => void) {
@@ -84,6 +86,7 @@ export function SideRail() {
         icon={Activity}
         label="Activity"
         active={activeView === "activity"}
+        badge={inboxCount}
         onClick={() =>
           setActiveView(activeView === "activity" ? "chat" : "activity")
         }
@@ -134,12 +137,15 @@ function RailButton({
   onClick,
   disabled,
   active,
+  badge,
 }: {
   icon: typeof Brain;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
+  /** Unread-count dot (the inbox badge). Hidden at 0. */
+  badge?: number;
 }) {
   return (
     <button
@@ -152,6 +158,11 @@ function RailButton({
       )}
     >
       <Icon className="h-4.5 w-4.5" />
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
       {/* Tooltip */}
       <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md bg-surface-overlay px-2.5 py-1 text-xs font-medium text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 border border-border">
         {label}

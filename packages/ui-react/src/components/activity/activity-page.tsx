@@ -41,12 +41,18 @@ export function ActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
 
+  const inbox = useActivityStore((s) => s.inbox);
+  const loadInbox = useActivityStore((s) => s.loadInbox);
+  const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
+  const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
+
   const refresh = () => {
     api
       .activityRuns({ limit: 100 })
       .then(setRuns)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     api.activityRollups(7).then(setRollups).catch(() => {});
+    void loadInbox();
   };
 
   useEffect(() => {
@@ -112,6 +118,65 @@ export function ActivityPage() {
       <div className="mx-auto w-full max-w-3xl space-y-6 p-4">
         {error && (
           <p className="text-xs text-destructive">Could not load activity: {error}</p>
+        )}
+
+        {inbox.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Needs attention
+              </h2>
+              <button
+                type="button"
+                onClick={() => void acknowledgeAllIntents()}
+                className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Dismiss all
+              </button>
+            </div>
+            <div className="space-y-1">
+              {inbox.map((intent) => (
+                <div
+                  key={intent.id}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+                    intent.kind === "failure"
+                      ? "border-destructive/30 bg-destructive/5"
+                      : "border-border-subtle bg-surface"
+                  )}
+                >
+                  {intent.kind === "failure" ? (
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  ) : intent.kind === "stuck" ? (
+                    <Timer className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  ) : (
+                    <ActivityIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left hover:underline"
+                    onClick={() => {
+                      void acknowledgeIntent(intent.id);
+                      setDetailRunId(intent.runId);
+                    }}
+                  >
+                    {intent.title}
+                  </button>
+                  <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                    {relativeTime(intent.createdAt)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void acknowledgeIntent(intent.id)}
+                    className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {rollups && <RollupCards rollups={rollups} />}
