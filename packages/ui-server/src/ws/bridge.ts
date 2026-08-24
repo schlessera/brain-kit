@@ -8,13 +8,15 @@ import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/
 import { withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
+import type { TurnRecorder } from "../activity/recorder.js";
 
 /** Build the per-turn bridge the backend drives. */
 export function makeBridge(
   host: WsHost,
   turn: RunningTurn,
   promptText: string,
-  backendId: string
+  backendId: string,
+  recorder?: TurnRecorder
 ): BackendBridge {
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -36,6 +38,11 @@ export function makeBridge(
         // later fails or is cancelled must not leave an unowned transcript.
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
       }
+      // Persist-then-emit: the span write commits before the frame goes out,
+      // so a subscriber's snapshot can never be behind what it just saw live.
+      // Late frames through a previous turn's bridge stay un-recorded — the
+      // recorder belongs to ONE turn identity.
+      if (turn.turnId === turnId) recorder?.observeFrame(msg);
       host.sendToClients(withTurnScope(msg, turn, turnId));
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
@@ -87,9 +94,24 @@ export function makeBridge(
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;
         }
-        coordinator.pendingApprovals.set(req.toolUseId, { turn, turnId, request: req, resolve });
+        // The decision stamps the wait/execution boundary on the tool span
+        // (grant) or lands the denied outcome (deny) before the backend's
+        // own error tool_result can mislabel it — write-once protects it.
+        const recorded = (decision: PermissionDecision) => {
+          recorder?.onApprovalDecision(req.toolUseId, decision.behavior === "allow");
+          resolve(decision);
+        };
+        coordinator.pendingApprovals.set(req.toolUseId, {
+          turn,
+          turnId,
+          request: req,
+          resolve: recorded,
+        });
       });
     },
+    ...(recorder
+      ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => recorder.observeActivity(event) }
+      : {}),
     askUser: (requestId, questions) => {
       host.sendToClients(
         withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)

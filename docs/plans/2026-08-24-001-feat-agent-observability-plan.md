@@ -646,5 +646,5 @@ Inbox, push, digest, MCP tool, docs/gates. Shippable value: away-from-app covera
 ## Sources & References
 
 - **Origin document:** [docs/brainstorms/2026-08-24-agent-observability-requirements.md](../brainstorms/2026-08-24-agent-observability-requirements.md)
-- Key code: `packages/ui-server/src/observability/`, `packages/ui-backend-claude/src/stream-adapter.ts`, `packages/ui-sdk/src/protocol.ts`, `packages/ui-react/src/chat/tool-call-timeline.tsx`, `[brain-ui]` `server/scripts/cron-run.ts`
+- Key code: `packages/ui-server/src/observability/`, `packages/ui-backend-claude/src/stream-adapter.ts`, `packages/ui-sdk/src/protocol.ts`, `packages/ui-react/src/components/chat/tool-call-timeline.tsx`, `[brain-ui]` `server/scripts/cron-run.ts`
 - External: OTel GenAI semantic conventions; Claude Agent SDK 0.3.241 typings (`sdk.d.ts`); Web Push/VAPID

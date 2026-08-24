@@ -5,6 +5,14 @@ import type { SessionCatalog } from "./session-catalog.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import { createSilentObservability, type Observability } from "../observability/index.js";
 import { FrameRateLimiter } from "./rate-limit.js";
+import type { ActivityStore } from "../activity/store.js";
+import type { ActivityStream } from "../activity/stream.js";
+
+/** The activity record and its live stream, when the host records activity. */
+export interface ActivityRuntime {
+  store: ActivityStore;
+  stream: ActivityStream;
+}
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -65,6 +73,12 @@ export interface WsHostOptions {
    * fronting the socket with its own limiter wants.
    */
   wsRate?: { ratePerSecond: number; burst: number };
+  /**
+   * Activity recording (span store + live stream). Optional: a host without
+   * one records nothing and never sends activity frames — which is also what
+   * most existing tests want.
+   */
+  activity?: ActivityRuntime;
 }
 
 /** Identity of one turn, as it appears on a log record. */
@@ -102,6 +116,7 @@ export class WsHost {
   maxConcurrentSessions: () => number;
   readonly observability: Observability;
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
+  readonly activity: ActivityRuntime | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
   private readonly framesDropped: ReturnType<
@@ -130,6 +145,7 @@ export class WsHost {
     this.observability = options.observability ?? createSilentObservability();
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
+    this.activity = options.activity ?? null;
     this.log = this.observability.logger("ws");
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {

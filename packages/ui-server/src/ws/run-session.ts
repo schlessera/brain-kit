@@ -2,6 +2,7 @@ import type { ChatImageAttachment, ClientEnvironment } from "@schlessera/brain-u
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
+import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
 import type { QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
@@ -114,7 +115,19 @@ export async function runSession(
       }, host.turnTimeoutMs);
       turn.timeoutHandle = timeoutHandle;
 
-      const bridge = makeBridge(host, turn, text, backend.id);
+      // One recorder per turn identity: a queued follow-up re-mints turnId
+      // and gets its own run in the activity record.
+      const recorder: TurnRecorder | undefined = host.activity
+        ? createTurnRecorder(
+            {
+              store: host.activity.store,
+              onWrite: () => host.activity!.stream.pump(),
+              log: host.log,
+            },
+            { turnId: turn.turnId, sessionId: turn.sessionId }
+          )
+        : undefined;
+      const bridge = makeBridge(host, turn, text, backend.id, recorder);
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
       try {
@@ -139,8 +152,20 @@ export async function runSession(
         } else {
           host.reportTurnCompleted(turn, Date.now() - startedAt);
         }
+        // Terminal precedence: cancellation and timeout are host-owned facts;
+        // otherwise the recorder refines from the buffered result frame.
+        recorder?.finish(
+          turn.cancelled
+            ? "cancelled"
+            : abortController.signal.aborted
+              ? "timeout"
+              : turn.lastResult === "error"
+                ? "error"
+                : "success"
+        );
       } catch (err) {
         emitTurnError(host, turn, err);
+        recorder?.finish(turn.cancelled ? "cancelled" : "error");
       } finally {
         clearTimeout(timeoutHandle);
       }

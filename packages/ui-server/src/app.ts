@@ -33,6 +33,8 @@ import {
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
 import { getHiddenModelIds } from "./db/settings.js";
+import { createActivityStore } from "./activity/store.js";
+import { createActivityStream } from "./activity/stream.js";
 import {
   assertBackendResolvable,
   createBackendRegistry,
@@ -171,6 +173,71 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   const db = createUiDb(config.dbPath, { log: dbLog });
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
+
+  // Activity lifecycle cadence. The stale threshold must comfortably exceed
+  // the cron wrapper's heartbeat interval (~30s) so a live writer is never
+  // swept; the tick doubles as the always-on low-frequency sweep the
+  // notification layer extends.
+  const ACTIVITY_TICK_MS = 20_000;
+  const ACTIVITY_STALE_AFTER_MS = 2 * 60 * 1000;
+  const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+  const ACTIVITY_HARD_CEILING_MS = 90 * 24 * 60 * 60 * 1000;
+
+  // Activity record: span store + live stream + lifecycle sweeps. The boot
+  // sweep closes this server's orphans from a previous life (interrupted);
+  // the always-on tick closes stale foreign writers (heartbeat age) and,
+  // hourly, prunes per retention. Nothing here may block boot: sweeps log
+  // and continue on failure.
+  const activityLog = observability.logger("activity");
+  const activityStore = createActivityStore(db);
+  const activityStream = createActivityStream(activityStore, activityLog);
+  try {
+    const orphans = activityStore.sweepOwnOrphans();
+    if (orphans > 0) {
+      activityLog.emit({
+        severityText: "WARN",
+        body: "closed orphaned activity spans from a previous process",
+        attributes: { count: orphans },
+      });
+    }
+  } catch (err) {
+    activityLog.emit({
+      severityText: "WARN",
+      body: "boot activity sweep failed",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+  let lastPrune = 0;
+  const activityTick = setInterval(() => {
+    try {
+      const stale = activityStore.sweepStale(ACTIVITY_STALE_AFTER_MS);
+      if (stale > 0) {
+        activityLog.emit({
+          severityText: "WARN",
+          body: "closed stale activity spans (writer went silent)",
+          attributes: { count: stale },
+        });
+        activityStream.pump();
+      }
+      if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
+        lastPrune = Date.now();
+        activityStore.prune({
+          // Digest floor arrives with the digest job (plan U12); until it
+          // exists, the hard ceiling alone bounds growth.
+          digestFloorMs: 0,
+          hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
+        });
+      }
+    } catch (err) {
+      activityLog.emit({
+        severityText: "WARN",
+        body: "activity tick failed",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }, ACTIVITY_TICK_MS);
+  // A Bun interval would otherwise keep a closed test app's process alive.
+  if (typeof activityTick === "object" && "unref" in activityTick) activityTick.unref();
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -190,6 +257,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
+    activity: { store: activityStore, stream: activityStream },
   });
   const wsUpgrade = createWsUpgrade(host);
   // One instrument for every way a login can fail — passkey ceremonies and
@@ -365,6 +433,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {
+      clearInterval(activityTick);
+      activityStream.close();
       db.close();
     },
   };

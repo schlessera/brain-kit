@@ -177,6 +177,19 @@ export async function handleClientMessage(
       break;
     }
 
+    case "activity_subscribe": {
+      // View-scoped opt-in: without a subscription this connection never
+      // receives an activity frame. No turn correlation — subscriptions are
+      // connection state, not turn state.
+      host.activity?.stream.handleSubscribe(ws, msg);
+      break;
+    }
+
+    case "activity_unsubscribe": {
+      host.activity?.stream.handleUnsubscribe(ws, msg);
+      break;
+    }
+
     case "session_resume": {
       host.sendMessage(ws, {
         type: "session_info",
