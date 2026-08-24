@@ -8,6 +8,7 @@ import { resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
+import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
@@ -361,6 +362,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     createBrainRoutes({ brain, brainPath: config.brainPath, keyterms })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
+  // Behind the guard by mount position, like /api/status: the activity
+  // record leaks strictly more (session activity, errors, spend).
+  app.route("/api", createActivityRoutes({ db, store: activityStore }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
   app.route(
     "/api",

@@ -68,6 +68,15 @@ describe("app wiring — auth guard ordering", () => {
     expect(res.status).toBe(401);
   });
 
+  test("the activity routes are behind the auth guard", async () => {
+    // The activity record leaks strictly more than /api/status (session
+    // activity, errors, spend) — same boundary, same reason.
+    for (const path of ["/api/activity/runs", "/api/activity/runs/x", "/api/activity/rollups"]) {
+      const res = await get(path);
+      expect(res.status).toBe(401);
+    }
+  });
+
   test("the model catalog routes are behind the auth guard", async () => {
     const send = (path: string, init?: RequestInit) =>
       app().fetch(new Request(`http://localhost${path}`, init));
