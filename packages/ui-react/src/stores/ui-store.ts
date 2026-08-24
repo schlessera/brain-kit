@@ -16,7 +16,6 @@ interface UIState {
   subagentStack: string[];
   pushSubagentView: (spanId: string) => void;
   popSubagentView: () => void;
-  closeSubagentViews: () => void;
   sessionPanelOpen: boolean;
   syncPanelOpen: boolean;
   whatsupPanelOpen: boolean;
@@ -65,7 +64,6 @@ export const useUIStore = create<UIState>((set) => ({
   pushSubagentView: (spanId) =>
     set((s) => ({ subagentStack: [...s.subagentStack, spanId] })),
   popSubagentView: () => set((s) => ({ subagentStack: s.subagentStack.slice(0, -1) })),
-  closeSubagentViews: () => set({ subagentStack: [] }),
   setActiveView: (view) => set({ ...CLOSED, activeView: view }),
   toggleSessionPanel: () =>
     set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen })),

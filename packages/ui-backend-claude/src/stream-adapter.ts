@@ -5,6 +5,7 @@ import type {
   ServerMessage,
   TurnUsage,
 } from "@schlessera/brain-ui-sdk/server";
+import { sumModelUsage } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Stateful adapter that converts Claude SDK streaming messages to our
@@ -208,6 +209,8 @@ export class StreamAdapter {
             detail: "Session initialized",
           });
         } else if (sys.subtype === "task_started" && sys.tool_use_id) {
+          // Remember task->tool linkage for updates that only carry task_id.
+          if (sys.task_id) this.taskTools.set(sys.task_id, sys.tool_use_id);
           this.report({
             kind: "subagent_started",
             toolUseId: sys.tool_use_id,
@@ -242,10 +245,6 @@ export class StreamAdapter {
               summary: sys.summary,
             });
           }
-        }
-        // Remember task->tool linkage for updates that only carry task_id.
-        if (sys.subtype === "task_started" && sys.task_id && sys.tool_use_id) {
-          this.taskTools.set(sys.task_id, sys.tool_use_id);
         }
         break;
       }
@@ -316,8 +315,6 @@ function usageFromResult(msg: {
   const models = msg.modelUsage;
   if (!models || Object.keys(models).length === 0) return undefined;
   const perModel: Record<string, ModelUsage> = {};
-  const totals: Required<Pick<ModelUsage, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheCreationTokens">> =
-    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
   for (const [model, u] of Object.entries(models)) {
     perModel[model] = {
       inputTokens: u.inputTokens,
@@ -326,12 +323,8 @@ function usageFromResult(msg: {
       cacheCreationTokens: u.cacheCreationInputTokens,
       costUsd: u.costUSD,
     };
-    totals.inputTokens += u.inputTokens ?? 0;
-    totals.outputTokens += u.outputTokens ?? 0;
-    totals.cacheReadTokens += u.cacheReadInputTokens ?? 0;
-    totals.cacheCreationTokens += u.cacheCreationInputTokens ?? 0;
   }
-  return { ...totals, perModel };
+  return sumModelUsage(perModel);
 }
 
 /**

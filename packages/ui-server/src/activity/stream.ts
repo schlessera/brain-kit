@@ -36,10 +36,71 @@ const SNAPSHOT_EVENT_CHUNK = 100;
 /** Fast-poll cadence while subscriptions exist (foreign-writer liveness). */
 const POLL_INTERVAL_MS = 1500;
 
+const TOOL_NAME_PREFIX = "execute_tool ";
+
 interface Subscription {
   view: "index" | "session" | "run";
   sessionId?: string;
   runId?: string;
+}
+
+/** Store row → wire span. Lifts the typed fields the protocol promotes
+ *  (toolName, subagent enrichment) out of the naming/attr conventions. */
+export function toWireSpan(span: SpanRow): ActivitySpan {
+  const isToolLike = span.kind === "tool" || span.kind === "subagent";
+  const toolName =
+    span.kind === "subagent" && span.name.startsWith(`${TOOL_NAME_PREFIX}Agent`)
+      ? "Agent"
+      : isToolLike && span.name.startsWith(TOOL_NAME_PREFIX)
+        ? span.name.slice(TOOL_NAME_PREFIX.length)
+        : isToolLike
+          ? span.name
+          : undefined;
+  const subagent = span.kind === "subagent" ? subagentOf(span.attrs) : undefined;
+  return {
+    spanId: span.spanId,
+    runId: span.runId,
+    parentSpanId: span.parentSpanId ?? undefined,
+    name: span.name,
+    ...(toolName !== undefined ? { toolName } : {}),
+    kind: span.kind,
+    origin: span.origin,
+    sessionId: span.sessionId ?? undefined,
+    jobName: span.jobName ?? undefined,
+    startedAt: span.startedAt,
+    waitUntil: span.waitUntil ?? undefined,
+    endedAt: span.endedAt ?? undefined,
+    outcome: span.outcome ?? undefined,
+    outcomeReason: span.outcomeReason ?? undefined,
+    usage: hasUsage(span) ? { ...span.usage } : undefined,
+    ...(subagent ? { subagent } : {}),
+    attrs: Object.keys(span.attrs).length > 0 ? span.attrs : undefined,
+  };
+}
+
+function subagentOf(attrs: Record<string, unknown>): ActivitySpan["subagent"] {
+  const type = attrs["subagent.type"];
+  const description = attrs["subagent.description"];
+  const summary = attrs["subagent.summary"];
+  const totalTokens = attrs["subagent.total_tokens"];
+  const subagent = {
+    ...(typeof type === "string" ? { type } : {}),
+    ...(typeof description === "string" ? { description } : {}),
+    ...(typeof summary === "string" ? { summary } : {}),
+    ...(typeof totalTokens === "number" ? { totalTokens } : {}),
+  };
+  return Object.keys(subagent).length > 0 ? subagent : undefined;
+}
+
+export function toWireEvent(event: SpanEventRow): ActivitySpanEvent {
+  return {
+    spanId: event.spanId,
+    eventIndex: event.eventIndex,
+    ts: event.ts,
+    eventType: event.eventType,
+    payload: event.payload,
+    ...(event.truncated ? { truncated: true } : {}),
+  };
 }
 
 export interface ActivityStream {
@@ -61,6 +122,16 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
   let cursor = store.latestChangeCursor();
   let pumping = false;
   let pollHandle: ReturnType<typeof setInterval> | null = null;
+  /** runId → sessionId, learned from any span seen; a run's session never
+   *  changes, so entries are immutable. Replaces per-event store lookups
+   *  when matching event deltas against session-view subscriptions. */
+  const runSessions = new Map<string, string>();
+
+  function noteSpan(span: SpanRow): void {
+    if (span.sessionId && !runSessions.has(span.runId)) {
+      runSessions.set(span.runId, span.sessionId);
+    }
+  }
 
   function subKey(s: Subscription): string {
     return `${s.view}:${s.sessionId ?? ""}:${s.runId ?? ""}`;
@@ -70,10 +141,9 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     if (sub.view === "index") return true;
     if (sub.view === "run") return sub.runId === runId;
     // Session view: match by the span's session when we have it; event-only
-    // deltas resolve their span's run root lazily below.
+    // deltas resolve through the memoized run→session map.
     if (span?.sessionId) return span.sessionId === sub.sessionId;
-    const snapshot = store.getSpan(`${runId}:turn`);
-    return snapshot?.sessionId === sub.sessionId;
+    return runSessions.get(runId) === sub.sessionId;
   }
 
   function ensurePolling() {
@@ -86,37 +156,6 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
       clearInterval(pollHandle);
       pollHandle = null;
     }
-  }
-
-  function toWireSpan(span: SpanRow): ActivitySpan {
-    return {
-      spanId: span.spanId,
-      runId: span.runId,
-      parentSpanId: span.parentSpanId ?? undefined,
-      name: span.name,
-      kind: span.kind,
-      origin: span.origin,
-      sessionId: span.sessionId ?? undefined,
-      jobName: span.jobName ?? undefined,
-      startedAt: span.startedAt,
-      waitUntil: span.waitUntil ?? undefined,
-      endedAt: span.endedAt ?? undefined,
-      outcome: span.outcome ?? undefined,
-      outcomeReason: span.outcomeReason ?? undefined,
-      usage: hasUsage(span) ? { ...span.usage } : undefined,
-      attrs: Object.keys(span.attrs).length > 0 ? span.attrs : undefined,
-    };
-  }
-
-  function toWireEvent(event: SpanEventRow): ActivitySpanEvent {
-    return {
-      spanId: event.spanId,
-      eventIndex: event.eventIndex,
-      ts: event.ts,
-      eventType: event.eventType,
-      payload: event.payload,
-      ...(event.truncated ? { truncated: true } : {}),
-    };
   }
 
   function deltaFrame(change: ActivityChange): ServerActivityDelta {
@@ -148,10 +187,12 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
         if (changes.length === 0) break;
         for (const change of changes) {
           cursor = change.changeId;
-          const span = change.kind === "span" ? changeSpanRow(change) : undefined;
+          const span = change.kind === "span" ? change.span : undefined;
+          if (span) noteSpan(span);
+          const frame = deltaFrame(change);
           for (const [ws, subs] of subscriptions) {
             if (subs.some((s) => matches(s, change.runId, span))) {
-              sendTo(ws, deltaFrame(change));
+              sendTo(ws, frame);
             }
           }
         }
@@ -166,10 +207,6 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     } finally {
       pumping = false;
     }
-  }
-
-  function changeSpanRow(change: ActivityChange): SpanRow | undefined {
-    return change.kind === "span" ? change.span : undefined;
   }
 
   function sendSnapshot(ws: WSContext, sub: Subscription): void {
@@ -199,14 +236,12 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
       }
     } else {
       // Index view: open roots only — history is the REST activity API's job.
-      const roots = store.openRootSpans();
-      for (const root of roots) {
-        const hi = store.snapshotRun(root.runId);
-        if (!hi) continue;
+      for (const root of store.openRootSpans()) {
         spans.push(root);
-        highWater[root.runId] = hi.highWaterSeq;
+        highWater[root.runId] = store.runHighWaterSeq(root.runId);
       }
     }
+    for (const span of spans) noteSpan(span);
 
     const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
       type: "activity_snapshot",

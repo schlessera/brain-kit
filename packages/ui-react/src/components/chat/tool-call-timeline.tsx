@@ -13,11 +13,14 @@ import { resolveToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import type { ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { getToolLabel, getTouchedFile, formatDuration } from "./tool-views.js";
+import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
-import { useActivityStore, timingFor, spanForTool, childSpans } from "../../stores/activity-store.js";
+import { useShallow } from "zustand/react/shallow";
+import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
+import { useNow } from "../../hooks/use-now.js";
+import { SpanStatusDot } from "../activity/span-bits.js";
 
 // Register the built-in renderer packs once. Registration is build-time; this
 // runs on module load.
@@ -131,13 +134,15 @@ function ToolCallEntry({
   const prevStatus = useRef(toolCall.status);
   // One clock for live and reloaded views: when the activity stream carries
   // this call's span, its server-stamped timing wins over the client stamps
-  // (which don't exist at all for history-loaded messages).
-  const serverTiming = useActivityStore((s) => timingFor(s, toolCall.id));
-  const timed: ToolCall = serverTiming
+  // (which don't exist at all for history-loaded messages). Selecting the
+  // span itself (a stable reference) rather than a derived timing object
+  // keeps every other entry from re-rendering on every activity delta.
+  const span = useActivityStore((s) => spanForTool(s, toolCall.id));
+  const timed: ToolCall = span
     ? {
         ...toolCall,
-        startedAt: serverTiming.startedAt,
-        ...(serverTiming.endedAt !== undefined ? { endedAt: serverTiming.endedAt } : {}),
+        startedAt: span.waitUntil ?? span.startedAt,
+        ...(span.endedAt !== undefined ? { endedAt: span.endedAt } : {}),
       }
     : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
@@ -299,21 +304,16 @@ function ToolCallEntry({
  */
 function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
   const span = useActivityStore((s) => spanForTool(s, agentToolUseId));
-  const children = useActivityStore((s) => childSpans(s, agentToolUseId));
+  const stepCount = useActivityStore(
+    useShallow((s) => childSpans(s, agentToolUseId).length)
+  );
   const pushSubagentView = useUIStore((s) => s.pushSubagentView);
+  const now = useNow();
   if (!span || span.kind !== "subagent") return null;
 
-  const attrs = span.attrs ?? {};
-  const description =
-    typeof attrs["subagent.description"] === "string"
-      ? (attrs["subagent.description"] as string)
-      : "subagent";
-  const running = span.outcome === undefined;
-  const tokens =
-    typeof attrs["subagent.total_tokens"] === "number"
-      ? (attrs["subagent.total_tokens"] as number)
-      : null;
-  const elapsed = formatDuration((span.endedAt ?? Date.now()) - span.startedAt);
+  const description = span.subagent?.description ?? "subagent";
+  const tokens = span.subagent?.totalTokens ?? null;
+  const elapsed = formatDuration((span.endedAt ?? now) - span.startedAt);
 
   return (
     <button
@@ -321,16 +321,11 @@ function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
       onClick={() => pushSubagentView(agentToolUseId)}
       className="ml-6 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
     >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full",
-          running ? "animate-pulse bg-primary" : span.outcome === "success" ? "bg-accent" : "bg-destructive"
-        )}
-      />
+      <SpanStatusDot span={span} />
       <span className="truncate">{description}</span>
       <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
-        {children.length > 0 && `${children.length} step${children.length === 1 ? "" : "s"} · `}
-        {tokens !== null && `${Math.round(tokens / 1000)}k tok · `}
+        {stepCount > 0 && `${stepCount} step${stepCount === 1 ? "" : "s"} · `}
+        {tokens !== null && `${formatTokenCount(tokens)} tok · `}
         {elapsed}
       </span>
       <ChevronRight className="h-3 w-3 shrink-0" />

@@ -1,7 +1,16 @@
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
+import {
+  isFailureOutcome,
+  type ActivityAggregate,
+  type ActivityRollups,
+  type ActivityRunDetail,
+  type ActivityRunRollup,
+  type ActivityRunSummary,
+} from "@schlessera/brain-ui-sdk/protocol";
 
-import type { ActivityStore } from "../activity/store.js";
+import { rowToRunRollup, type ActivityStore } from "../activity/store.js";
+import { toWireEvent, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
 import {
   dismissActivityDigest,
@@ -118,7 +127,7 @@ export function createActivityRoutes(deps: {
         // Live first (open roots), then history from rollups. Rollups exist
         // for every finished run (terminal writes upsert them), so one table
         // serves the history list regardless of pruning state.
-        const live = store
+        const live: ActivityRunSummary[] = store
           .openRootSpans()
           .filter((s) => !origin || s.origin === origin)
           .filter((s) => !job || s.jobName === job)
@@ -157,8 +166,11 @@ export function createActivityRoutes(deps: {
           filters.push("outcome = ?");
           params.push(status);
         }
-        const liveRuns = new Set(live.map((r) => r.runId));
-        const history = (
+        if (live.length > 0) {
+          filters.push(`run_id NOT IN (${live.map(() => "?").join(", ")})`);
+          params.push(...live.map((r) => r.runId));
+        }
+        const history: ActivityRunSummary[] = (
           db
             .query(
               `SELECT * FROM activity_run_rollups WHERE ${filters.join(" AND ")}
@@ -166,21 +178,21 @@ export function createActivityRoutes(deps: {
             )
             .all(...(params as never[]), limit) as any[]
         )
-          .filter((r) => !liveRuns.has(r.run_id))
+          .map(rowToRunRollup)
           .map((r) => ({
-            runId: r.run_id,
+            runId: r.runId,
             origin: r.origin,
             name: r.name,
-            sessionId: r.session_id,
-            jobName: r.job_name,
-            startedAt: r.started_at,
-            endedAt: r.ended_at,
+            sessionId: r.sessionId,
+            jobName: r.jobName,
+            startedAt: r.startedAt,
+            endedAt: r.endedAt,
             outcome: r.outcome,
             running: false,
-            durationMs: r.duration_ms,
-            costUsd: r.cost_usd,
-            failureReason: r.failure_reason,
-            detailPruned: r.detail_pruned === 1,
+            durationMs: r.durationMs,
+            costUsd: r.costUsd,
+            failureReason: r.failureReason,
+            detailPruned: r.detailPruned,
           }));
 
         return c.json({ live, history });
@@ -197,35 +209,39 @@ export function createActivityRoutes(deps: {
       try {
         const snapshot = store.snapshotRun(runId);
         if (snapshot) {
-          return c.json({
+          // Through the SAME wire mappers the live stream uses: a raw
+          // SpanRow serializes null fields where the wire contract omits
+          // them, which broke the client's `outcome === undefined`
+          // liveness test on REST-loaded runs.
+          const detail: ActivityRunDetail = {
             runId,
             detailPruned: false,
-            spans: snapshot.spans,
-            events: snapshot.events,
+            spans: snapshot.spans.map(toWireSpan),
+            events: snapshot.events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,
-          });
+          };
+          return c.json(detail);
         }
-        const rollup = db
+        const row = db
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
-        if (!rollup) return c.json({ error: "Unknown run" }, 404);
-        return c.json({
-          runId,
-          detailPruned: true,
-          rollup: {
-            origin: rollup.origin,
-            name: rollup.name,
-            sessionId: rollup.session_id,
-            jobName: rollup.job_name,
-            startedAt: rollup.started_at,
-            endedAt: rollup.ended_at,
-            outcome: rollup.outcome,
-            durationMs: rollup.duration_ms,
-            spanCount: rollup.span_count,
-            costUsd: rollup.cost_usd,
-            failureReason: rollup.failure_reason,
-          },
-        });
+        if (!row) return c.json({ error: "Unknown run" }, 404);
+        const r = rowToRunRollup(row);
+        const rollup: ActivityRunRollup = {
+          origin: r.origin,
+          name: r.name,
+          sessionId: r.sessionId,
+          jobName: r.jobName,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+          outcome: r.outcome,
+          durationMs: r.durationMs,
+          spanCount: r.spanCount,
+          costUsd: r.costUsd,
+          failureReason: r.failureReason,
+        };
+        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup };
+        return c.json(detail);
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to load run" },
@@ -243,32 +259,35 @@ export function createActivityRoutes(deps: {
         const timeZone = getSetting<string>(db, "activity.timezone", "UTC");
         const dayOf = makeDayFormatter(timeZone);
 
+        // Job/session aggregates group SQL-side; the per-day fold stays in
+        // JS because only Intl knows the configured timezone's day boundary.
         const rows = db
           .query(
-            `SELECT run_id, origin, session_id, job_name, started_at, outcome,
-                    duration_ms, cost_usd, input_tokens, output_tokens,
-                    cache_read_tokens, cache_creation_tokens
+            `SELECT started_at, outcome, duration_ms, cost_usd, input_tokens,
+                    output_tokens, cache_read_tokens, cache_creation_tokens
              FROM activity_run_rollups WHERE started_at >= ?`
           )
           .all(since) as any[];
-
-        const byDay = new Map<string, Aggregate>();
-        const byJob = new Map<string, Aggregate>();
-        const bySession = new Map<string, Aggregate>();
+        const byDay = new Map<string, ActivityAggregate>();
         for (const r of rows) {
           add(byDay, dayOf(r.started_at), r);
-          if (r.job_name) add(byJob, r.job_name, r);
-          if (r.session_id) add(bySession, r.session_id, r);
         }
 
-        return c.json({
+        const rollups: ActivityRollups = {
           timeZone,
           days: [...byDay.entries()]
             .map(([key, a]) => ({ day: key, ...a }))
             .sort((a, b) => (a.day < b.day ? 1 : -1)),
-          jobs: [...byJob.entries()].map(([key, a]) => ({ jobName: key, ...a })),
-          sessions: [...bySession.entries()].map(([key, a]) => ({ sessionId: key, ...a })),
-        });
+          jobs: groupedAggregates(db, since, "job_name").map(({ key, ...a }) => ({
+            jobName: key,
+            ...a,
+          })),
+          sessions: groupedAggregates(db, since, "session_id").map(({ key, ...a }) => ({
+            sessionId: key,
+            ...a,
+          })),
+        };
+        return c.json(rollups);
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to aggregate" },
@@ -278,18 +297,35 @@ export function createActivityRoutes(deps: {
     });
 }
 
-interface Aggregate {
-  runs: number;
-  failures: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  durationMs: number;
+/**
+ * SQL-side aggregation per group key. The failure predicate mirrors the
+ * SDK's `isFailureOutcome` — it cannot be shared into SQL, so keep the two
+ * in sync.
+ */
+function groupedAggregates(
+  db: Database,
+  since: number,
+  column: "job_name" | "session_id"
+): Array<ActivityAggregate & { key: string }> {
+  return db
+    .query(
+      `SELECT ${column} AS key,
+              COUNT(*) AS runs,
+              SUM(CASE WHEN outcome IN ('error', 'timeout', 'interrupted') THEN 1 ELSE 0 END) AS failures,
+              SUM(COALESCE(cost_usd, 0)) AS costUsd,
+              SUM(COALESCE(input_tokens, 0)) AS inputTokens,
+              SUM(COALESCE(output_tokens, 0)) AS outputTokens,
+              SUM(COALESCE(cache_read_tokens, 0)) AS cacheReadTokens,
+              SUM(COALESCE(cache_creation_tokens, 0)) AS cacheCreationTokens,
+              SUM(COALESCE(duration_ms, 0)) AS durationMs
+       FROM activity_run_rollups
+       WHERE started_at >= ? AND ${column} IS NOT NULL
+       GROUP BY ${column}`
+    )
+    .all(since) as Array<ActivityAggregate & { key: string }>;
 }
 
-function add(map: Map<string, Aggregate>, key: string, r: any): void {
+function add(map: Map<string, ActivityAggregate>, key: string, r: any): void {
   const a =
     map.get(key) ??
     ({
@@ -301,9 +337,9 @@ function add(map: Map<string, Aggregate>, key: string, r: any): void {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       durationMs: 0,
-    } satisfies Aggregate);
+    } satisfies ActivityAggregate);
   a.runs += 1;
-  if (r.outcome === "error" || r.outcome === "timeout" || r.outcome === "interrupted") {
+  if (isFailureOutcome(r.outcome)) {
     a.failures += 1;
   }
   a.costUsd += r.cost_usd ?? 0;

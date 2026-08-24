@@ -12,8 +12,10 @@
  * notable list, or every digest would feature itself.
  */
 import type { Database } from "bun:sqlite";
+import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting, setSetting } from "../db/settings.js";
+import { rowToRunRollup } from "./store.js";
 
 export const DIGEST_LATEST_KEY = "activity.digest.latest";
 export const DIGEST_COVERED_KEY = "activity.digest.coveredUntil";
@@ -49,18 +51,18 @@ export function generateActivityDigest(db: Database, now = Date.now()): Activity
   const covered = getSetting<number | null>(db, DIGEST_COVERED_KEY, null);
   const windowStart = covered ?? now - FIRST_WINDOW_MS;
 
-  const rows = db
-    .query(
-      `SELECT * FROM activity_run_rollups
-       WHERE started_at >= ? AND started_at < ?
-       ORDER BY started_at DESC`
-    )
-    .all(windowStart, now) as any[];
+  const rows = (
+    db
+      .query(
+        `SELECT * FROM activity_run_rollups
+         WHERE started_at >= ? AND started_at < ?
+         ORDER BY started_at DESC`
+      )
+      .all(windowStart, now) as any[]
+  ).map(rowToRunRollup);
 
-  const relevant = rows.filter((r) => r.job_name !== DIGEST_JOB_NAME);
-  const failures = relevant.filter(
-    (r) => r.outcome === "error" || r.outcome === "timeout" || r.outcome === "interrupted"
-  );
+  const relevant = rows.filter((r) => r.jobName !== DIGEST_JOB_NAME);
+  const failures = relevant.filter((r) => isFailureOutcome(r.outcome));
 
   const digest: ActivityDigest = {
     generatedAt: now,
@@ -68,17 +70,17 @@ export function generateActivityDigest(db: Database, now = Date.now()): Activity
     windowEnd: now,
     runs: relevant.length,
     failures: failures.length,
-    costUsd: relevant.reduce((a, r) => a + (r.cost_usd ?? 0), 0),
-    inputTokens: relevant.reduce((a, r) => a + (r.input_tokens ?? 0), 0),
-    outputTokens: relevant.reduce((a, r) => a + (r.output_tokens ?? 0), 0),
+    costUsd: relevant.reduce((a, r) => a + (r.costUsd ?? 0), 0),
+    inputTokens: relevant.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
+    outputTokens: relevant.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
     notable: failures.slice(0, 10).map((r) => ({
-      runId: r.run_id,
+      runId: r.runId,
       name: r.name,
-      jobName: r.job_name,
-      sessionId: r.session_id,
+      jobName: r.jobName,
+      sessionId: r.sessionId,
       outcome: r.outcome,
-      failureReason: r.failure_reason,
-      startedAt: r.started_at,
+      failureReason: r.failureReason,
+      startedAt: r.startedAt,
     })),
   };
 

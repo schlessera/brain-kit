@@ -673,6 +673,7 @@ const activitySpanSchema = z.looseObject({
   runId: id,
   parentSpanId: id.optional(),
   name: z.string(),
+  toolName: z.string().optional(),
   kind: z.enum(["turn", "tool", "subagent", "cron"]),
   origin: z.enum(["session", "cron"]),
   sessionId: id.optional(),
@@ -683,6 +684,14 @@ const activitySpanSchema = z.looseObject({
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).optional(),
   outcomeReason: z.string().optional(),
   usage: modelUsageSchema.extend({ model: z.string().optional() }).optional(),
+  subagent: z
+    .looseObject({
+      type: z.string().optional(),
+      description: z.string().optional(),
+      summary: z.string().optional(),
+      totalTokens: z.number().optional(),
+    })
+    .optional(),
   attrs: z.record(z.string(), z.unknown()).optional(),
 }) satisfies z.ZodType<ActivitySpan>;
 

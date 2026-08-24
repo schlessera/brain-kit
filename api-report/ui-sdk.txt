@@ -5,6 +5,13 @@
 
 export "." (./src/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -115,9 +122,18 @@ export "." (./src/index.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  isFailureOutcome
+  sumModelUsage
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -241,17 +257,26 @@ export "./client" (./src/client/index.ts)
   type WikilinkMapResponse
   createAsrClient
   createBrainUiClient
+  isFailureOutcome
   registerAsrClient
   registerToolRenderers
   resetAsrClients
   resetToolRenderers
   resolveToolRenderer
   speechUiHints
+  sumModelUsage
 
 export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -362,6 +387,8 @@ export "./protocol" (./src/protocol.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  isFailureOutcome
+  sumModelUsage
 
 export "./push-handlers" (./src/client/push-handlers.ts)
   type PushCapableScope
@@ -413,8 +440,15 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActivityAggregate
+  type ActivityDigest
+  type ActivityIntent
   type ActivityQuery
   type ActivityQueryResult
+  type ActivityRollups
+  type ActivityRunDetail
+  type ActivityRunRollup
+  type ActivityRunSummary
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -549,6 +583,8 @@ export "./server" (./src/server/index.ts)
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
+  isFailureOutcome
+  sumModelUsage
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH

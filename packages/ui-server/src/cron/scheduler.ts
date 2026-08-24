@@ -120,19 +120,28 @@ export function createCronScheduler(deps: {
       // cron_runs through the same recorder and were previously invisible
       // here (the "cron-status name gap"). The in-process names are unioned
       // in so a fresh deployment still lists them before their first run.
-      const recorded = db
-        .query("SELECT DISTINCT job_name FROM cron_runs ORDER BY job_name")
-        .all() as Array<{ job_name: string }>;
+      // One window query yields each job's latest run.
+      const lastRuns = db
+        .query(
+          `SELECT job_name, started_at, status, duration_ms, error_message FROM (
+             SELECT *, ROW_NUMBER() OVER (
+               PARTITION BY job_name ORDER BY started_at DESC
+             ) AS rn FROM cron_runs
+           ) WHERE rn = 1 ORDER BY job_name`
+        )
+        .all() as Array<{
+        job_name: string;
+        started_at: number;
+        status: string;
+        duration_ms: number | null;
+        error_message: string | null;
+      }>;
+      const byName = new Map(lastRuns.map((r) => [r.job_name, r]));
       const names = [
-        ...new Set([...jobs.map((j) => j.name), ...recorded.map((r) => r.job_name)]),
+        ...new Set([...jobs.map((j) => j.name), ...lastRuns.map((r) => r.job_name)]),
       ];
       return names.map((name) => {
-        const lastRun = db
-          .query(
-            "SELECT * FROM cron_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1"
-          )
-          .get(name) as any;
-
+        const lastRun = byName.get(name);
         return {
           name,
           lastRunAt: lastRun?.started_at ?? null,

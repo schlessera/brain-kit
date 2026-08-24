@@ -408,6 +408,29 @@ export interface TurnUsage extends ModelUsage {
   perModel?: Record<string, ModelUsage>;
 }
 
+/**
+ * Fold a per-model breakdown into the turn-level totals. Which fields roll
+ * up is part of the wire contract, so the arithmetic lives here beside the
+ * types rather than once per backend. Cost is deliberately not summed into
+ * the top level — `costUsd` stays whatever the backend's authoritative
+ * accounting says (a per-model sum can disagree with it).
+ */
+export function sumModelUsage(perModel: Record<string, ModelUsage>): TurnUsage {
+  const totals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  };
+  for (const usage of Object.values(perModel)) {
+    totals.inputTokens += usage.inputTokens ?? 0;
+    totals.outputTokens += usage.outputTokens ?? 0;
+    totals.cacheReadTokens += usage.cacheReadTokens ?? 0;
+    totals.cacheCreationTokens += usage.cacheCreationTokens ?? 0;
+  }
+  return { ...totals, perModel };
+}
+
 export interface ServerError extends SessionScoped {
   type: "error";
   code: string;
@@ -1117,12 +1140,29 @@ export type ActivitySpanOutcome =
   | "denied"
   | "interrupted";
 
+/**
+ * THE failure predicate for the outcome taxonomy — one definition, imported
+ * by server aggregation and client rendering alike (it was independently
+ * re-decided at seven call sites during development, with three different
+ * answers). `cancelled` and `denied` are user decisions, not failures;
+ * `interrupted` is a failure — the work did not finish and nobody chose that.
+ */
+export function isFailureOutcome(outcome: ActivitySpanOutcome | string | null | undefined): boolean {
+  return outcome === "error" || outcome === "timeout" || outcome === "interrupted";
+}
+
 /** One span as it crosses the wire. Field names track the OTel GenAI shape. */
 export interface ActivitySpan {
   spanId: string;
   runId: string;
   parentSpanId?: string;
   name: string;
+  /**
+   * The bare tool name for tool/subagent spans ("Read", "Agent"), lifted
+   * out of `name` server-side so clients never parse the span-naming
+   * convention.
+   */
+  toolName?: string;
   kind: ActivitySpanKind;
   origin: ActivitySpanOrigin;
   sessionId?: string;
@@ -1134,6 +1174,16 @@ export interface ActivitySpan {
   outcome?: ActivitySpanOutcome;
   outcomeReason?: string;
   usage?: ModelUsage & { model?: string };
+  /**
+   * Typed subagent enrichment for kind "subagent" spans. Promoted onto the
+   * wire so clients depend on a contract, not on server-minted attr keys.
+   */
+  subagent?: {
+    type?: string;
+    description?: string;
+    summary?: string;
+    totalTokens?: number;
+  };
   attrs?: Record<string, unknown>;
 }
 
@@ -1173,4 +1223,103 @@ export interface ServerActivityDelta {
   seq: number;
   span?: ActivitySpan;
   event?: ActivitySpanEvent;
+}
+
+// ============================================================
+// Activity REST contract (GET/POST /api/activity/*, /api/push/*)
+// ============================================================
+//
+// The HTTP half of the activity contract, beside its WS half above — shared
+// types live here per repo convention, never re-declared in a client.
+
+export interface ActivityRunSummary {
+  runId: string;
+  origin: ActivitySpanOrigin;
+  name: string;
+  sessionId: string | null;
+  jobName: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  outcome: ActivitySpanOutcome | null;
+  running: boolean;
+  durationMs: number | null;
+  costUsd: number | null;
+  failureReason: string | null;
+  detailPruned: boolean;
+}
+
+export interface ActivityRunRollup {
+  origin: string;
+  name: string;
+  sessionId: string | null;
+  jobName: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  outcome: ActivitySpanOutcome | null;
+  durationMs: number | null;
+  spanCount: number;
+  costUsd: number | null;
+  failureReason: string | null;
+}
+
+export interface ActivityRunDetail {
+  runId: string;
+  detailPruned: boolean;
+  spans?: ActivitySpan[];
+  events?: ActivitySpanEvent[];
+  highWaterSeq?: number;
+  rollup?: ActivityRunRollup;
+}
+
+export interface ActivityAggregate {
+  runs: number;
+  failures: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  durationMs: number;
+}
+
+export interface ActivityRollups {
+  timeZone: string;
+  days: Array<ActivityAggregate & { day: string }>;
+  jobs: Array<ActivityAggregate & { jobName: string }>;
+  sessions: Array<ActivityAggregate & { sessionId: string }>;
+}
+
+/** The while-you-were-away digest (see the ui-server digest job). */
+export interface ActivityDigest {
+  generatedAt: number;
+  windowStart: number;
+  windowEnd: number;
+  runs: number;
+  failures: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  notable: Array<{
+    runId: string;
+    name: string;
+    jobName: string | null;
+    sessionId: string | null;
+    outcome: ActivitySpanOutcome | null;
+    failureReason: string | null;
+    startedAt: number;
+  }>;
+}
+
+/** One notification intent, as the inbox lists it. */
+export interface ActivityIntent {
+  id: number;
+  runId: string;
+  spanId: string | null;
+  kind: "failure" | "completion" | "stuck";
+  tag: string;
+  title: string;
+  body: string;
+  status: "pending" | "sent" | "send_failed" | "suppressed";
+  acknowledged: boolean;
+  createdAt: number;
 }

@@ -1,13 +1,16 @@
 import { useMemo } from "react";
 import { ArrowLeft, Bot, Check, X } from "lucide-react";
 import { motion } from "framer-motion";
+import { useShallow } from "zustand/react/shallow";
+import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivitySpan, ActivitySpanEvent } from "@schlessera/brain-ui-sdk/protocol";
 
-import { useActivityStore, childSpans, spanForTool } from "../../stores/activity-store.js";
+import { useActivityStore, childSpans, eventsFor, spanForTool } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel, formatDuration } from "./tool-views.js";
+import { SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
 
 /**
  * Drill-in view of one subagent: the span tree under its Agent tool call,
@@ -32,8 +35,8 @@ export function SubagentView({
   const popSubagentView = useUIStore((s) => s.popSubagentView);
   const pushSubagentView = useUIStore((s) => s.pushSubagentView);
   const span = useActivityStore((s) => spanForTool(s, spanId));
-  const children = useActivityStore((s) => childSpans(s, spanId));
-  const events = useActivityStore((s) => s.events[spanId] ?? []);
+  const children = useActivityStore(useShallow((s) => childSpans(s, spanId)));
+  const events = useActivityStore((s) => eventsFor(s, spanId));
   const pendingApprovals = useChatStore((s) => {
     const chat = activeChat(s);
     const last = chat.messages.at(-1);
@@ -56,15 +59,9 @@ export function SubagentView({
     );
   }
 
-  const attrs = span.attrs ?? {};
-  const description =
-    typeof attrs["subagent.description"] === "string"
-      ? (attrs["subagent.description"] as string)
-      : null;
-  const subagentType =
-    typeof attrs["subagent.type"] === "string" ? (attrs["subagent.type"] as string) : null;
-  const summary =
-    typeof attrs["subagent.summary"] === "string" ? (attrs["subagent.summary"] as string) : null;
+  const description = span.subagent?.description ?? null;
+  const subagentType = span.subagent?.type ?? null;
+  const summary = span.subagent?.summary ?? null;
   const running = span.outcome === undefined;
   const duration =
     span.endedAt !== undefined ? formatDuration(span.endedAt - span.startedAt) : null;
@@ -173,12 +170,11 @@ function BackButton({ onClick }: { onClick: () => void }) {
 
 function SpanRow({ span, onOpen }: { span: ActivitySpan; onOpen?: () => void }) {
   const running = span.outcome === undefined;
-  const failed = span.outcome === "error" || span.outcome === "timeout";
+  const failed = isFailureOutcome(span.outcome);
   const duration =
     span.endedAt !== undefined
       ? formatDuration(span.endedAt - (span.waitUntil ?? span.startedAt))
       : null;
-  const toolName = span.name.replace(/^execute_tool /, "").replace(/^invoke_agent ?/, "Agent");
   return (
     <motion.div
       initial={{ opacity: 0, y: 2 }}
@@ -190,19 +186,9 @@ function SpanRow({ span, onOpen }: { span: ActivitySpan; onOpen?: () => void }) 
       )}
       onClick={onOpen}
     >
-      <span
-        className={cn(
-          "h-2 w-2 shrink-0 rounded-full",
-          running && "animate-pulse bg-primary",
-          span.outcome === "success" && "bg-accent",
-          failed && "bg-destructive",
-          span.outcome === "denied" && "bg-destructive",
-          (span.outcome === "cancelled" || span.outcome === "interrupted") &&
-            "bg-muted-foreground"
-        )}
-      />
+      <SpanStatusDot span={span} className="h-2 w-2" />
       <span className="font-[family-name:var(--font-mono)] font-medium">
-        {getToolLabel(toolName)}
+        {spanToolLabel(span)}
       </span>
       {span.outcome && span.outcome !== "success" && (
         <span className="text-[10px] uppercase">{span.outcome}</span>

@@ -10,9 +10,10 @@
  */
 import type { Database } from "bun:sqlite";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
+import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { latestActivityDigest } from "./digest.js";
-import type { ActivityStore, SpanRow } from "./store.js";
+import { rowToRunRollup, type ActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
@@ -31,25 +32,27 @@ export function runActivityQuery(
     }
 
     case "recent": {
-      const rows = db
-        .query(
-          "SELECT * FROM activity_run_rollups WHERE started_at >= ? ORDER BY started_at DESC LIMIT ?"
-        )
-        .all(since, limit) as any[];
+      const rows = (
+        db
+          .query(
+            "SELECT * FROM activity_run_rollups WHERE started_at >= ? ORDER BY started_at DESC LIMIT ?"
+          )
+          .all(since, limit) as any[]
+      ).map(rowToRunRollup);
       return {
         windowHours: hoursBack,
         running: store.openRootSpans().map(liveSummary),
         finished: rows.map((r) => ({
-          runId: r.run_id,
+          runId: r.runId,
           origin: r.origin,
           name: r.name,
-          jobName: r.job_name,
-          sessionId: r.session_id,
-          startedAt: iso(r.started_at),
+          jobName: r.jobName,
+          sessionId: r.sessionId,
+          startedAt: iso(r.startedAt),
           outcome: r.outcome,
-          durationMs: r.duration_ms,
-          costUsd: r.cost_usd,
-          failureReason: r.failure_reason,
+          durationMs: r.durationMs,
+          costUsd: r.costUsd,
+          failureReason: r.failureReason,
         })),
       };
     }
@@ -77,39 +80,40 @@ export function runActivityQuery(
           })),
         };
       }
-      const rollup = db
+      const row = db
         .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
         .get(query.runId) as any;
-      if (!rollup) return { error: `unknown run ${query.runId}` };
+      if (!row) return { error: `unknown run ${query.runId}` };
+      const rollup = rowToRunRollup(row);
       return {
         runId: query.runId,
         detailPruned: true,
         rollup: {
           name: rollup.name,
-          jobName: rollup.job_name,
+          jobName: rollup.jobName,
           outcome: rollup.outcome,
-          startedAt: iso(rollup.started_at),
-          durationMs: rollup.duration_ms,
-          costUsd: rollup.cost_usd,
-          failureReason: rollup.failure_reason,
+          startedAt: iso(rollup.startedAt),
+          durationMs: rollup.durationMs,
+          costUsd: rollup.costUsd,
+          failureReason: rollup.failureReason,
         },
       };
     }
 
     case "rollups": {
-      const rows = db
-        .query("SELECT * FROM activity_run_rollups WHERE started_at >= ?")
-        .all(since) as any[];
+      const rows = (
+        db
+          .query("SELECT * FROM activity_run_rollups WHERE started_at >= ?")
+          .all(since) as any[]
+      ).map(rowToRunRollup);
       const digest = latestActivityDigest(db);
       return {
         windowHours: hoursBack,
         runs: rows.length,
-        failures: rows.filter(
-          (r) => r.outcome === "error" || r.outcome === "timeout" || r.outcome === "interrupted"
-        ).length,
-        costUsd: round(rows.reduce((a, r) => a + (r.cost_usd ?? 0), 0)),
-        inputTokens: rows.reduce((a, r) => a + (r.input_tokens ?? 0), 0),
-        outputTokens: rows.reduce((a, r) => a + (r.output_tokens ?? 0), 0),
+        failures: rows.filter((r) => isFailureOutcome(r.outcome)).length,
+        costUsd: round(rows.reduce((a, r) => a + (r.costUsd ?? 0), 0)),
+        inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
+        outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),
       };
     }

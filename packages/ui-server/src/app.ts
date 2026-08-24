@@ -34,12 +34,7 @@ import {
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
 import { getHiddenModelIds } from "./db/settings.js";
-import { createActivityStore } from "./activity/store.js";
-import { createActivityStream } from "./activity/stream.js";
-import { createActivityNotifier } from "./activity/notify.js";
-import { createPushSender } from "./activity/push-sender.js";
-import { digestRetentionFloor } from "./activity/digest.js";
-import { runActivityQuery } from "./activity/query.js";
+import { createActivityRuntime } from "./activity/runtime.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
@@ -180,96 +175,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
 
-  // Activity lifecycle cadence. The stale threshold must comfortably exceed
-  // the cron wrapper's heartbeat interval (~30s) so a live writer is never
-  // swept; the tick doubles as the always-on low-frequency sweep the
-  // notification layer extends.
-  const ACTIVITY_TICK_MS = 20_000;
-  const ACTIVITY_STALE_AFTER_MS = 2 * 60 * 1000;
-  const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
-  const ACTIVITY_HARD_CEILING_MS = 90 * 24 * 60 * 60 * 1000;
-
-  // Activity record: span store + live stream + lifecycle sweeps. The boot
-  // sweep closes this server's orphans from a previous life (interrupted);
-  // the always-on tick closes stale foreign writers (heartbeat age) and,
-  // hourly, prunes per retention. Nothing here may block boot: sweeps log
-  // and continue on failure.
-  const activityLog = observability.logger("activity");
-  const activityStore = createActivityStore(db);
-  const activityStream = createActivityStream(activityStore, activityLog);
-  try {
-    const orphans = activityStore.sweepOwnOrphans();
-    if (orphans > 0) {
-      activityLog.emit({
-        severityText: "WARN",
-        body: "closed orphaned activity spans from a previous process",
-        attributes: { count: orphans },
-      });
-    }
-  } catch (err) {
-    activityLog.emit({
-      severityText: "WARN",
-      body: "boot activity sweep failed",
-      attributes: { error: err instanceof Error ? err.message : String(err) },
-    });
-  }
-  const activityNotifier = createActivityNotifier({
-    db,
-    store: activityStore,
-    isWatched: (scope) => activityStream.isWatched(scope),
-    log: activityLog,
-  });
-  const pushSender = createPushSender(db, { log: activityLog });
-  let delivering = false;
-  let lastPrune = 0;
-  const activityTick = setInterval(() => {
-    try {
-      const stale = activityStore.sweepStale(ACTIVITY_STALE_AFTER_MS);
-      if (stale > 0) {
-        activityLog.emit({
-          severityText: "WARN",
-          body: "closed stale activity spans (writer went silent)",
-          attributes: { count: stale },
-        });
-        activityStream.pump();
-      }
-      activityNotifier.tick();
-      // Async delivery, reentrancy-guarded: a slow push service must not
-      // stack passes; the next tick simply retries what stayed pending.
-      if (!delivering) {
-        delivering = true;
-        void pushSender
-          .deliverPending(activityNotifier)
-          .catch((err) =>
-            activityLog.emit({
-              severityText: "WARN",
-              body: "push delivery pass failed",
-              attributes: { error: err instanceof Error ? err.message : String(err) },
-            })
-          )
-          .finally(() => {
-            delivering = false;
-          });
-      }
-      if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
-        lastPrune = Date.now();
-        activityStore.prune({
-          // Full detail survives until the digest has covered it; the hard
-          // ceiling bounds growth even if the digest job silently dies.
-          digestFloorMs: digestRetentionFloor(db),
-          hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
-        });
-      }
-    } catch (err) {
-      activityLog.emit({
-        severityText: "WARN",
-        body: "activity tick failed",
-        attributes: { error: err instanceof Error ? err.message : String(err) },
-      });
-    }
-  }, ACTIVITY_TICK_MS);
-  // A Bun interval would otherwise keep a closed test app's process alive.
-  if (typeof activityTick === "object" && "unref" in activityTick) activityTick.unref();
+  // Activity record: span store + live stream + notifications + lifecycle
+  // sweeps, owned by the runtime (see activity/runtime.ts).
+  const activity = createActivityRuntime(db, { log: observability.logger("activity") });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -290,9 +198,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
     activity: {
-      store: activityStore,
-      stream: activityStream,
-      query: (q) => runActivityQuery(db, activityStore, q),
+      store: activity.store,
+      stream: activity.stream,
+      query: activity.query,
     },
   });
   const wsUpgrade = createWsUpgrade(host);
@@ -399,8 +307,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route("/api", createSessionRoutes({ registry, db }));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
-  app.route("/api", createActivityRoutes({ db, store: activityStore, notifier: activityNotifier }));
-  app.route("/api", createPushRoutes({ sender: pushSender }));
+  app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier }));
+  app.route("/api", createPushRoutes({ sender: activity.pushSender }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
   app.route(
     "/api",
@@ -473,8 +381,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {
-      clearInterval(activityTick);
-      activityStream.close();
+      activity.close();
       db.close();
     },
   };

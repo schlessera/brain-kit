@@ -14,6 +14,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
+import { CountBadge } from "../activity/span-bits.js";
 
 export function MobileTabBar() {
   const activeView = useUIStore((s) => s.activeView);
@@ -154,11 +155,7 @@ function TabIcon({
       )}
     >
       <Icon className="h-5 w-5" />
-      {badge !== undefined && badge > 0 && (
-        <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">
-          {badge > 9 ? "9+" : badge}
-        </span>
-      )}
+      {badge !== undefined && <CountBadge count={badge} className="right-0 top-0" />}
       {label}
     </button>
   );

@@ -21,6 +21,7 @@
  */
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
+import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting } from "../db/settings.js";
 import type { ActivityStore, SpanRow } from "./store.js";
@@ -62,7 +63,7 @@ export interface ActivityNotifier {
 
 /** Global cap on intents CREATED per hour — failure-storm circuit. */
 const MAX_INTENTS_PER_HOUR = 20;
-/** Per-tag debounce: a new intent for a tag with an unacknowledged one is skipped. */
+/** Watchdog default: a live root run older than this is flagged as stuck. */
 const DEFAULT_STUCK_THRESHOLD_MS = 45 * 60 * 1000;
 
 export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNotifier {
@@ -101,7 +102,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
       .get(now - 60 * 60 * 1000) as { n: number };
     const status =
       input.suppressed || recent.n >= MAX_INTENTS_PER_HOUR ? "suppressed" : "pending";
-    db.prepare(
+    db.query(
       `INSERT INTO notification_intents
          (run_id, span_id, kind, tag, title, body, status, acknowledged, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
@@ -124,11 +125,8 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
   }
 
   function intentForSpan(span: SpanRow): void {
-    const failed =
-      span.outcome === "error" ||
-      span.outcome === "timeout" ||
-      span.outcome === "interrupted";
-    if (!span.parentSpanId && failed) {
+    if (span.parentSpanId) return;
+    if (isFailureOutcome(span.outcome)) {
       const label = span.jobName ?? span.name;
       // "Unwatched" is evaluated when the failure is NOTICED — a live
       // subscription to the run or its session means the user saw it happen,
@@ -150,7 +148,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
       });
       return;
     }
-    if (!span.parentSpanId && span.outcome === "success" && span.jobName) {
+    if (span.outcome === "success" && span.jobName) {
       // Completion notifications are opt-in per job.
       const optIn = getSetting<string[]>(db, "activity.notify.completions", [], log);
       if (optIn.includes(span.jobName)) {
@@ -170,19 +168,15 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     tick(now) {
       try {
         // New committed changes since our own cursor: terminal root spans
-        // among them become intents.
-        const rows = db
-          .query(
-            `SELECT c.change_id, c.span_id FROM activity_changes c
-             WHERE c.change_id > ? AND c.event_index IS NULL
-             ORDER BY c.change_id LIMIT 500`
-          )
-          .all(cursor) as Array<{ change_id: number; span_id: string }>;
-        for (const row of rows) {
-          cursor = row.change_id;
-          const span = store.getSpan(row.span_id);
-          if (span?.outcome) intentForSpan(span);
-        }
+        // among them become intents (SQL-side filter + join in the store).
+        // The head is read BEFORE the detection query so advancing past
+        // non-terminal changes can never skip a terminal write committed
+        // in between; a change seen twice is absorbed by the tag dedupe.
+        const head = latestCursor(db);
+        const rows = store.terminalRootChangesSince(cursor, 500);
+        for (const { span } of rows) intentForSpan(span);
+        const lastSeen = rows.length > 0 ? rows[rows.length - 1]!.changeId : cursor;
+        cursor = rows.length === 500 ? lastSeen : Math.max(head, lastSeen);
 
         // Watchdog: an over-threshold LIVE root run is stuck — a signal, not
         // an outcome. Threshold from settings, per-job override supported.
@@ -192,14 +186,14 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
           DEFAULT_STUCK_THRESHOLD_MS,
           log
         );
+        const overrides = getSetting<Record<string, number>>(
+          db,
+          "activity.watchdog.perJobMs",
+          {},
+          log
+        );
         for (const span of store.findStuck(defaultThreshold, now)) {
           if (stuckFlagged.has(span.runId)) continue;
-          const overrides = getSetting<Record<string, number>>(
-            db,
-            "activity.watchdog.perJobMs",
-            {},
-            log
-          );
           const threshold = span.jobName ? (overrides[span.jobName] ?? defaultThreshold) : defaultThreshold;
           if ((now ?? Date.now()) - span.startedAt < threshold) continue;
           stuckFlagged.add(span.runId);
@@ -242,7 +236,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     },
 
     markDelivered(id, status) {
-      db.prepare("UPDATE notification_intents SET status = ?, updated_at = ? WHERE id = ?").run(
+      db.query("UPDATE notification_intents SET status = ?, updated_at = ? WHERE id = ?").run(
         status,
         Date.now(),
         id
@@ -251,14 +245,14 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
 
     acknowledge(id) {
       const res = db
-        .prepare("UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE id = ?")
+        .query("UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE id = ?")
         .run(Date.now(), id);
       return res.changes > 0;
     },
 
     acknowledgeAll() {
       const res = db
-        .prepare("UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE acknowledged = 0")
+        .query("UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE acknowledged = 0")
         .run(Date.now());
       return res.changes;
     },

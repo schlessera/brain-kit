@@ -7,6 +7,23 @@ import type {
   ProviderInfo,
   PasskeySummary,
   ModelCatalogResponse,
+  ActivityRunSummary,
+  ActivityRunDetail,
+  ActivityRollups,
+  ActivityDigest,
+  ActivityIntent,
+} from "@schlessera/brain-ui-sdk/protocol";
+
+// Activity REST types live in the SDK protocol (shared with the server);
+// re-exported here so existing importers keep working.
+export type {
+  ActivityRunSummary,
+  ActivityRunDetail,
+  ActivityRunRollup,
+  ActivityAggregate,
+  ActivityRollups,
+  ActivityDigest,
+  ActivityIntent,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AuthenticationResponseJSON,
@@ -278,91 +295,3 @@ export const api = {
       body: JSON.stringify({ endpoint }),
     }),
 };
-
-export interface ActivityDigest {
-  generatedAt: number;
-  windowStart: number;
-  windowEnd: number;
-  runs: number;
-  failures: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  notable: Array<{
-    runId: string;
-    name: string;
-    jobName: string | null;
-    sessionId: string | null;
-    outcome: string | null;
-    failureReason: string | null;
-    startedAt: number;
-  }>;
-}
-
-export interface ActivityIntent {
-  id: number;
-  runId: string;
-  spanId: string | null;
-  kind: "failure" | "completion" | "stuck";
-  tag: string;
-  title: string;
-  body: string;
-  status: string;
-  acknowledged: boolean;
-  createdAt: number;
-}
-
-export interface ActivityRunSummary {
-  runId: string;
-  origin: "session" | "cron";
-  name: string;
-  sessionId: string | null;
-  jobName: string | null;
-  startedAt: number;
-  endedAt: number | null;
-  outcome: string | null;
-  running: boolean;
-  durationMs: number | null;
-  costUsd: number | null;
-  failureReason: string | null;
-  detailPruned: boolean;
-}
-
-export interface ActivityRunDetail {
-  runId: string;
-  detailPruned: boolean;
-  spans?: import("@schlessera/brain-ui-sdk/protocol").ActivitySpan[];
-  events?: import("@schlessera/brain-ui-sdk/protocol").ActivitySpanEvent[];
-  highWaterSeq?: number;
-  rollup?: {
-    origin: string;
-    name: string;
-    sessionId: string | null;
-    jobName: string | null;
-    startedAt: number;
-    endedAt: number | null;
-    outcome: string | null;
-    durationMs: number | null;
-    spanCount: number;
-    costUsd: number | null;
-    failureReason: string | null;
-  };
-}
-
-export interface ActivityAggregate {
-  runs: number;
-  failures: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  durationMs: number;
-}
-
-export interface ActivityRollups {
-  timeZone: string;
-  days: Array<ActivityAggregate & { day: string }>;
-  jobs: Array<ActivityAggregate & { jobName: string }>;
-  sessions: Array<ActivityAggregate & { sessionId: string }>;
-}

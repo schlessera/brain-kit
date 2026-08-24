@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS activity_spans (
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_spans_run ON activity_spans(run_id, started_at);
-CREATE INDEX IF NOT EXISTS idx_activity_spans_open ON activity_spans(outcome) WHERE outcome IS NULL;
+CREATE INDEX IF NOT EXISTS idx_activity_spans_open ON activity_spans(started_at DESC) WHERE outcome IS NULL AND parent_span_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_spans_session ON activity_spans(session_id, started_at DESC) WHERE session_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_spans_job ON activity_spans(job_name, started_at DESC) WHERE job_name IS NOT NULL;
 

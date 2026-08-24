@@ -1,4 +1,5 @@
 import type {
+  ActivityQuery,
   BackendBridge,
   PermissionDecision,
   AskUserResult,
@@ -24,6 +25,7 @@ export function makeBridge(
   // through this bridge after its startTurn resolved. Stamping from the live
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
+  const queryActivity = host.activity?.query;
   return {
     emit: (message) => {
       let msg = message;
@@ -112,12 +114,8 @@ export function makeBridge(
     ...(recorder
       ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => recorder.observeActivity(event) }
       : {}),
-    ...(host.activity?.query
-      ? {
-          queryActivity: async (
-            query: Parameters<NonNullable<BackendBridge["queryActivity"]>>[0]
-          ) => host.activity!.query!(query),
-        }
+    ...(queryActivity
+      ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
       : {}),
     askUser: (requestId, questions) => {
       host.sendToClients(

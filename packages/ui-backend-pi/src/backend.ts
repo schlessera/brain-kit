@@ -43,6 +43,7 @@ import {
   type ModelUsage,
   type TurnUsage,
   buildSystemPromptAppend,
+  sumModelUsage,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "./brain-access.js";
@@ -632,12 +633,13 @@ export interface TurnUsageAccumulator {
 }
 
 export function createUsageAccumulator(): TurnUsageAccumulator {
-  const perModel = new Map<string, ModelUsage & { seen: true }>();
-  let observed = false;
+  const perModel = new Map<string, ModelUsage>();
 
   return {
     observe(ev: AgentSessionEvent) {
-      if (ev.type !== "message_end" && ev.type !== "turn_end") return;
+      // turn_end re-delivers the LAST assistant message, which message_end
+      // already counted — only message_end accumulates.
+      if (ev.type !== "message_end") return;
       const message = (ev as { message?: unknown }).message as
         | {
             role?: string;
@@ -651,15 +653,10 @@ export function createUsageAccumulator(): TurnUsageAccumulator {
             };
           }
         | undefined;
-      // turn_end re-delivers the LAST assistant message, which message_end
-      // already counted — only message_end accumulates; turn_end is accepted
-      // above so future shapes can hook in but contributes nothing today.
-      if (ev.type !== "message_end") return;
       if (!message || message.role !== "assistant" || !message.usage) return;
       const u = message.usage;
       const key = message.model ?? "unknown";
       const entry = perModel.get(key) ?? {
-        seen: true as const,
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
@@ -673,27 +670,15 @@ export function createUsageAccumulator(): TurnUsageAccumulator {
         entry.costUsd = (entry.costUsd ?? 0) + u.cost.total;
       }
       perModel.set(key, entry);
-      observed = true;
     },
 
     toWire() {
-      if (!observed) return undefined;
+      if (perModel.size === 0) return undefined;
       const breakdown: Record<string, ModelUsage> = {};
-      const totals = {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheCreationTokens: 0,
-      };
-      for (const [model, u] of perModel) {
-        const { seen: _seen, ...wire } = u;
-        breakdown[model] = wire;
-        totals.inputTokens += u.inputTokens ?? 0;
-        totals.outputTokens += u.outputTokens ?? 0;
-        totals.cacheReadTokens += u.cacheReadTokens ?? 0;
-        totals.cacheCreationTokens += u.cacheCreationTokens ?? 0;
-      }
-      return { ...totals, perModel: breakdown };
+      for (const [model, u] of perModel) breakdown[model] = u;
+      // Per-model costUsd sums ride the breakdown untouched; sumModelUsage
+      // rolls up tokens only, leaving top-level cost to the session-stats diff.
+      return sumModelUsage(breakdown);
     },
   };
 }

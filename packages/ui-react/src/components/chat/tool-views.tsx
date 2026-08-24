@@ -75,6 +75,26 @@ export function formatDuration(ms: number): string {
   return `${m}m ${s}s`;
 }
 
+/** Compact token count: 1234 → "1k", 2_345_678 → "2.3M". */
+export function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+/** Relative timestamp for list rows ("3m ago"); dates beyond a week. */
+export function formatRelativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ms).toLocaleDateString();
+}
+
 export function countLines(text: string): number {
   let n = 1;
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") n++;

@@ -8,6 +8,8 @@ import {
   RefreshCw,
   Timer,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import {
@@ -16,11 +18,17 @@ import {
   type ActivityRunSummary,
 } from "../../lib/api-client.js";
 import { sendClientMessage } from "../../hooks/use-websocket.js";
+import { useNow } from "../../hooks/use-now.js";
 import { useActivityStore, runSpans } from "../../stores/activity-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { cn } from "../../lib/utils.js";
-import { formatDuration, getToolLabel } from "../chat/tool-views.js";
+import {
+  formatDuration,
+  formatRelativeTime,
+  formatTokenCount,
+} from "../chat/tool-views.js";
+import { SpanStatusDot, spanToolLabel } from "./span-bits.js";
 import { PushToggle } from "./push-toggle.js";
 
 /**
@@ -167,7 +175,7 @@ export function ActivityPage() {
                     {intent.title}
                   </button>
                   <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                    {relativeTime(intent.createdAt)}
+                    {formatRelativeTime(intent.createdAt)}
                   </span>
                   <button
                     type="button"
@@ -242,7 +250,7 @@ function RollupCards({ rollups }: { rollups: ActivityRollups }) {
         alert={week.failures > 0}
       />
       <StatCard label="Spend (7d)" value={`$${week.costUsd.toFixed(2)}`} />
-      <StatCard label="Tokens (7d)" value={compactTokens(week.tokens)} />
+      <StatCard label="Tokens (7d)" value={formatTokenCount(week.tokens)} />
     </div>
   );
 }
@@ -263,13 +271,12 @@ function LiveRow({
   span: ActivitySpan;
   onOpen: (row: { runId: string; origin: string; sessionId?: string | null }) => void;
 }) {
-  const children = useActivityStore((s) =>
-    Object.values(s.spans[span.runId] ?? {}).filter((x) => x.parentSpanId)
+  const children = useActivityStore(
+    useShallow((s) => Object.values(s.spans[span.runId] ?? {}).filter((x) => x.parentSpanId))
   );
+  const now = useNow();
   const current = children.filter((c) => c.outcome === undefined).at(-1);
-  const currentLabel = current
-    ? getToolLabel(current.name.replace(/^execute_tool /, ""))
-    : null;
+  const currentLabel = current ? spanToolLabel(current) : null;
   return (
     <button
       type="button"
@@ -291,7 +298,7 @@ function LiveRow({
         <span className="truncate text-muted-foreground">· {currentLabel}</span>
       )}
       <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
-        {formatDuration(Date.now() - span.startedAt)}
+        {formatDuration(now - span.startedAt)}
       </span>
     </button>
   );
@@ -304,8 +311,7 @@ function RunRow({
   run: ActivityRunSummary;
   onOpen: (row: ActivityRunSummary) => void;
 }) {
-  const failed =
-    run.outcome === "error" || run.outcome === "timeout" || run.outcome === "interrupted";
+  const failed = isFailureOutcome(run.outcome);
   return (
     <button
       type="button"
@@ -335,7 +341,7 @@ function RunRow({
             {formatDuration(run.durationMs)}
           </span>
         )}
-        <span>{relativeTime(run.startedAt)}</span>
+        <span>{formatRelativeTime(run.startedAt)}</span>
       </span>
     </button>
   );
@@ -343,9 +349,9 @@ function RunRow({
 
 /** Chat-less run detail (cron runs; pruned runs show their rollup). */
 function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
-  const streamed = useActivityStore((s) => runSpans(s, runId));
+  const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
-  const [pruned, setPruned] = useState<null | Record<string, unknown>>(null);
+  const [pruned, setPruned] = useState<object | null>(null);
   const [missing, setMissing] = useState(false);
 
   useEffect(() => {
@@ -395,20 +401,9 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
             className="flex items-center gap-2 text-xs text-muted-foreground"
             style={{ paddingLeft: `${depthOf(span, streamed) * 16}px` }}
           >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 shrink-0 rounded-full",
-                span.outcome === undefined && "animate-pulse bg-primary",
-                span.outcome === "success" && "bg-accent",
-                (span.outcome === "error" || span.outcome === "timeout") && "bg-destructive",
-                (span.outcome === "cancelled" ||
-                  span.outcome === "interrupted" ||
-                  span.outcome === "denied") &&
-                  "bg-muted-foreground"
-              )}
-            />
+            <SpanStatusDot span={span} />
             <span className="truncate font-[family-name:var(--font-mono)]">
-              {getToolLabel(span.name.replace(/^execute_tool /, ""))}
+              {spanToolLabel(span)}
             </span>
             {span.outcome && span.outcome !== "success" && (
               <span className="text-[10px] uppercase">{span.outcome}</span>
@@ -439,18 +434,4 @@ function depthOf(span: ActivitySpan, all: ActivitySpan[]): number {
     if (depth > 6) break;
   }
   return depth;
-}
-
-function compactTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
-
-function relativeTime(ms: number): string {
-  const delta = Date.now() - ms;
-  if (delta < 60_000) return "now";
-  if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m ago`;
-  if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)}h ago`;
-  return `${Math.round(delta / 86_400_000)}d ago`;
 }

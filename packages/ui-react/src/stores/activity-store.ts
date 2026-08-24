@@ -129,13 +129,19 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
           ...prev.spans,
           [msg.runId]: { ...(prev.spans[msg.runId] ?? {}), [span.spanId]: span },
         },
-        spanRun: { ...prev.spanRun, [span.spanId]: msg.runId },
+        // The mapping is almost always already present — re-spreading it on
+        // every delta would churn a large object for nothing.
+        ...(prev.spanRun[span.spanId] === msg.runId
+          ? {}
+          : { spanRun: { ...prev.spanRun, [span.spanId]: msg.runId } }),
       }));
     } else if (msg.event) {
       const event = msg.event;
       set((prev) => ({
         events: { ...prev.events, [event.spanId]: insertEvent(prev.events[event.spanId], event) },
-        spanRun: { ...prev.spanRun, [event.spanId]: prev.spanRun[event.spanId] ?? msg.runId },
+        ...(prev.spanRun[event.spanId] !== undefined
+          ? {}
+          : { spanRun: { ...prev.spanRun, [event.spanId]: msg.runId } }),
       }));
     }
   },
@@ -170,17 +176,21 @@ export async function loadSessionActivityHistory(sessionId: string): Promise<voi
   try {
     const { history } = await api.activityRuns({ session: sessionId, limit: HISTORY_RUN_LIMIT });
     const store = useActivityStore.getState();
-    for (const run of history.slice(0, HISTORY_RUN_LIMIT)) {
-      if (run.detailPruned) continue;
-      const detail = await api.activityRun(run.runId);
+    const details = await Promise.all(
+      history
+        .slice(0, HISTORY_RUN_LIMIT)
+        .filter((run) => !run.detailPruned)
+        .map((run) => api.activityRun(run.runId))
+    );
+    for (const detail of details) {
       if (detail.detailPruned || !detail.spans) continue;
       store.applySnapshot({
         type: "activity_snapshot",
         view: "run",
-        runId: run.runId,
+        runId: detail.runId,
         spans: detail.spans,
         events: detail.events ?? [],
-        highWaterSeq: { [run.runId]: detail.highWaterSeq ?? 0 },
+        highWaterSeq: { [detail.runId]: detail.highWaterSeq ?? 0 },
       });
     }
   } catch {
@@ -206,10 +216,9 @@ function insertEvent(
 export function runSpans(state: ActivityState, runId: string): ActivitySpan[] {
   const byId = state.spans[runId];
   if (!byId) return [];
-  return Object.values(byId).sort((a, b) =>
-    a.parentSpanId === b.parentSpanId
-      ? a.startedAt - b.startedAt
-      : (a.parentSpanId ? 1 : 0) - (b.parentSpanId ? 1 : 0) || a.startedAt - b.startedAt
+  return Object.values(byId).sort(
+    (a, b) =>
+      (a.parentSpanId ? 1 : 0) - (b.parentSpanId ? 1 : 0) || a.startedAt - b.startedAt
   );
 }
 
@@ -231,6 +240,17 @@ export function subagentSpans(state: ActivityState, sessionId: string): Activity
     }
   }
   return out.sort((a, b) => a.startedAt - b.startedAt);
+}
+
+/** Stable empty result for `eventsFor` — a fresh `[]` per call would defeat
+ *  reference-equality checks in zustand selectors. */
+export const EMPTY_EVENTS: ActivitySpanEvent[] = Object.freeze(
+  [] as ActivitySpanEvent[]
+) as ActivitySpanEvent[];
+
+/** Ordered events of a span; the shared frozen empty array when none. */
+export function eventsFor(state: ActivityState, spanId: string): ActivitySpanEvent[] {
+  return state.events[spanId] ?? EMPTY_EVENTS;
 }
 
 /** The span behind one tool call (span ids ARE toolUseIds), if streamed. */

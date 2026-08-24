@@ -73,7 +73,7 @@ export function createPushSender(
       .get() as { publicKey: string; privateKey: string } | null;
     if (row) return row;
     const generated = webpush.generateVAPIDKeys();
-    db.prepare(
+    db.query(
       "INSERT OR IGNORE INTO vapid_keys (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)"
     ).run(generated.publicKey, generated.privateKey, Date.now());
     return vapid();
@@ -98,7 +98,7 @@ export function createPushSender(
     },
 
     subscribe(sub, label) {
-      db.prepare(
+      db.query(
         `INSERT INTO push_subscriptions (endpoint, p256dh, auth, label, created_at)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`
@@ -106,7 +106,7 @@ export function createPushSender(
     },
 
     unsubscribe(endpoint) {
-      return db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint)
+      return db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint)
         .changes > 0;
     },
 
@@ -116,16 +116,16 @@ export function createPushSender(
       const pending = notifier.pending();
       if (pending.length === 0) return 0;
       const subs = rows();
+      if (subs.length === 0) {
+        // No devices: the inbox already has it; nothing to deliver. Leave
+        // the intents pending so a device subscribing later still gets them
+        // if they are fresh, and the boot sweep can retry.
+        return 0;
+      }
       const keys = vapid();
       let attempts = 0;
 
       for (const intent of pending) {
-        if (subs.length === 0) {
-          // No devices: the inbox already has it; nothing to deliver. Leave
-          // the intent pending so a device subscribing later still gets it
-          // if it is fresh, and the boot sweep can retry.
-          continue;
-        }
         // Minimized payload; the tag coalesces repeats per run across devices.
         const payload = JSON.stringify({
           title: intent.title,
@@ -133,43 +133,60 @@ export function createPushSender(
           tag: `brain-activity:${intent.runId}`,
           url: `/#/activity/${encodeURIComponent(intent.runId)}`,
         });
-        let delivered = 0;
-        for (const sub of subs) {
-          attempts++;
-          try {
-            await send(
+        attempts += subs.length;
+        const results = await Promise.allSettled(
+          subs.map((sub) =>
+            send(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
               payload,
               { vapidDetails: { subject, publicKey: keys.publicKey, privateKey: keys.privateKey } }
-            );
+            )
+          )
+        );
+        // DB writes only after the whole settled pass — never concurrent
+        // with in-flight sends against the same handle.
+        let delivered = 0;
+        const touched: string[] = [];
+        const dead: string[] = [];
+        results.forEach((result, i) => {
+          const sub = subs[i]!;
+          if (result.status === "fulfilled") {
             delivered++;
-            db.prepare(
-              "UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?"
-            ).run(Date.now(), sub.endpoint);
-          } catch (err) {
-            const status = (err as { statusCode?: number }).statusCode;
-            if (status === 404 || status === 410) {
-              // The push service says this device is gone.
-              db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(sub.endpoint);
-              log?.emit({
-                severityText: "INFO",
-                body: "pruned dead push subscription",
-                attributes: { status: status },
-              });
-            } else {
-              log?.emit({
-                severityText: "WARN",
-                body: "push send failed",
-                attributes: {
-                  error: err instanceof Error ? err.message : String(err),
-                  ...(status ? { status } : {}),
-                },
-              });
-            }
+            touched.push(sub.endpoint);
+            return;
           }
+          const err = result.reason;
+          const status = (err as { statusCode?: number }).statusCode;
+          if (status === 404 || status === 410) {
+            // The push service says this device is gone.
+            dead.push(sub.endpoint);
+            log?.emit({
+              severityText: "INFO",
+              body: "pruned dead push subscription",
+              attributes: { status: status },
+            });
+          } else {
+            log?.emit({
+              severityText: "WARN",
+              body: "push send failed",
+              attributes: {
+                error: err instanceof Error ? err.message : String(err),
+                ...(status ? { status } : {}),
+              },
+            });
+          }
+        });
+        for (const endpoint of touched) {
+          db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?").run(
+            Date.now(),
+            endpoint
+          );
+        }
+        for (const endpoint of dead) {
+          db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
         }
         notifier.markDelivered(intent.id, delivered > 0 ? "sent" : "send_failed");
-        if (delivered === 0 && subs.length > 0) {
+        if (delivered === 0) {
           // Every device failed — the all-devices signal (invalid VAPID after
           // a restore, typically). Loud, because it is silent on every phone.
           log?.emit({

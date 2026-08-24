@@ -56,9 +56,6 @@ export function createTurnRecorder(
   const { store, onWrite, log } = deps;
   const runId = turn.turnId;
   const rootSpanId = `${runId}:turn`;
-  /** Spans opened for tool calls, keyed by toolUseId (span id === toolUseId). */
-  const openTools = new Set<string>();
-  const denied = new Set<string>();
   let sessionId = turn.sessionId ?? undefined;
   let rootStarted = false;
   let finished = false;
@@ -136,7 +133,6 @@ export function createTurnRecorder(
                 "gen_ai.tool.name": msg.toolName,
               },
             });
-            openTools.add(msg.toolUseId);
             onWrite?.();
             break;
           }
@@ -147,13 +143,10 @@ export function createTurnRecorder(
             break;
           }
           case "tool_result": {
-            if (!openTools.has(msg.toolUseId)) break;
-            openTools.delete(msg.toolUseId);
-            const outcome: SpanOutcome = denied.has(msg.toolUseId)
-              ? "denied"
-              : msg.isError
-                ? "error"
-                : "success";
+            // endSpan is write-once: a span already closed (a denial landed
+            // the outcome first) rejects this as a no-op, and an unknown
+            // span id is equally a no-op — no bookkeeping set needed.
+            const outcome: SpanOutcome = msg.isError ? "error" : "success";
             store.endSpan(msg.toolUseId, {
               outcome,
               reason: outcome === "error" ? clip(msg.output, 500) : undefined,
@@ -198,28 +191,20 @@ export function createTurnRecorder(
               attrs: {
                 "subagent.type": event.subagentType,
                 "subagent.description": event.description,
-                "subagent.task_id": event.taskId,
-                "subagent.depth": event.depth,
               },
             });
             onWrite?.();
             break;
           }
           case "subagent_status": {
-            if (event.usage) {
-              store.patchSpan(event.toolUseId, {
-                attrs: {
-                  "subagent.total_tokens": event.usage.totalTokens,
-                  "subagent.tool_uses": event.usage.toolUses,
-                  ...(event.summary ? { "subagent.summary": event.summary } : {}),
-                },
-              });
-            } else if (event.summary) {
-              store.patchSpan(event.toolUseId, {
-                attrs: { "subagent.summary": event.summary },
-              });
+            const attrs = {
+              ...(event.usage ? { "subagent.total_tokens": event.usage.totalTokens } : {}),
+              ...(event.summary ? { "subagent.summary": event.summary } : {}),
+            };
+            if (Object.keys(attrs).length > 0) {
+              store.patchSpan(event.toolUseId, { attrs });
+              onWrite?.();
             }
-            onWrite?.();
             break;
           }
           case "subagent_transcript": {
@@ -237,10 +222,8 @@ export function createTurnRecorder(
           // Everything before this moment was approval wait, not execution.
           store.patchSpan(toolUseId, { waitUntil: Date.now() });
         } else {
-          denied.add(toolUseId);
           // The denied outcome lands now — write-once makes the backend's
           // later error tool_result a no-op on this span.
-          openTools.delete(toolUseId);
           store.endSpan(toolUseId, { outcome: "denied", reason: "user declined" });
         }
         onWrite?.();

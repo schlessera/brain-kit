@@ -84,6 +84,50 @@ export interface SpanEventRow {
   truncated: boolean;
 }
 
+/** One `activity_run_rollups` row, snake→camel. */
+export interface RunRollupRow {
+  runId: string;
+  origin: SpanOrigin;
+  name: string;
+  sessionId: string | null;
+  jobName: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  outcome: SpanOutcome | null;
+  durationMs: number | null;
+  spanCount: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  costUsd: number | null;
+  failureReason: string | null;
+  detailPruned: boolean;
+}
+
+/** The one snake→camel mapper for rollup rows — every reader shares it. */
+export function rowToRunRollup(r: any): RunRollupRow {
+  return {
+    runId: r.run_id,
+    origin: r.origin,
+    name: r.name,
+    sessionId: r.session_id,
+    jobName: r.job_name,
+    startedAt: r.started_at,
+    endedAt: r.ended_at,
+    outcome: r.outcome,
+    durationMs: r.duration_ms,
+    spanCount: r.span_count,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
+    cacheReadTokens: r.cache_read_tokens,
+    cacheCreationTokens: r.cache_creation_tokens,
+    costUsd: r.cost_usd,
+    failureReason: r.failure_reason,
+    detailPruned: r.detail_pruned === 1,
+  };
+}
+
 /** One committed write, as the delta stream sees it. */
 export type ActivityChange =
   | { changeId: number; runId: string; seq: number; kind: "span"; span: SpanRow }
@@ -162,8 +206,19 @@ export interface ActivityStore {
   /** Open root spans running longer than the threshold — the watchdog signal. */
   findStuck(thresholdMs: number, now?: number): SpanRow[];
   changesSince(changeCursor: number, limit?: number): ActivityChange[];
+  /**
+   * Changes past the cursor whose span is a TERMINAL ROOT — the notifier's
+   * detection query, filtered and joined SQL-side. One row per span (the
+   * highest change_id it appears under).
+   */
+  terminalRootChangesSince(
+    changeCursor: number,
+    limit?: number
+  ): Array<{ changeId: number; span: SpanRow }>;
   latestChangeCursor(): number;
   snapshotRun(runId: string): RunSnapshot | null;
+  /** The run's high-water seq — what a full snapshot carries, without the reads. */
+  runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
   openRootSpans(): SpanRow[];
   /** Upsert the run's rollup row from current span state (call on terminal). */
@@ -194,7 +249,7 @@ export function createActivityStore(
   }
 
   function logChange(runId: string, seq: number, spanId: string, eventIndex?: number) {
-    db.prepare(
+    db.query(
       "INSERT INTO activity_changes (run_id, seq, span_id, event_index) VALUES (?, ?, ?, ?)"
     ).run(runId, seq, spanId, eventIndex ?? null);
   }
@@ -245,6 +300,13 @@ export function createActivityStore(
     return r ? rowToSpan(r) : null;
   }
 
+  function runHighWaterSeqRaw(runId: string): number {
+    const row = db
+      .query("SELECT COALESCE(MAX(seq), 0) AS hi FROM activity_changes WHERE run_id = ?")
+      .get(runId) as { hi: number };
+    return row.hi;
+  }
+
   function endSpanInTx(spanId: string, input: EndSpanInput): boolean {
     const existing = db
       .query("SELECT run_id, outcome, attrs FROM activity_spans WHERE span_id = ?")
@@ -256,7 +318,7 @@ export function createActivityStore(
       ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...input.attrs })
       : existing.attrs;
     const u = input.usage ?? {};
-    db.prepare(
+    db.query(
       `UPDATE activity_spans SET outcome = ?, outcome_reason = ?, ended_at = ?, attrs = ?,
          input_tokens = COALESCE(?, input_tokens),
          output_tokens = COALESCE(?, output_tokens),
@@ -282,6 +344,21 @@ export function createActivityStore(
     return true;
   }
 
+  /** Close every open span of the run (children first) and roll it up. */
+  function closeRunInTx(runId: string, outcome: SpanOutcome, reason: string): number {
+    const open = db
+      .query(
+        "SELECT span_id FROM activity_spans WHERE run_id = ? AND outcome IS NULL ORDER BY started_at DESC"
+      )
+      .all(runId) as Array<{ span_id: string }>;
+    let closed = 0;
+    for (const { span_id } of open) {
+      if (endSpanInTx(span_id, { outcome, reason })) closed++;
+    }
+    if (closed > 0) rollupRunInTx(runId);
+    return closed;
+  }
+
   function rollupRunInTx(runId: string) {
     const spans = db
       .query("SELECT * FROM activity_spans WHERE run_id = ? ORDER BY started_at")
@@ -296,7 +373,7 @@ export function createActivityStore(
     const failure =
       spans.find((s) => s.outcome === "error" || s.outcome === "timeout")?.outcomeReason ??
       (root.outcome === "interrupted" ? "interrupted" : null);
-    db.prepare(
+    db.query(
       `INSERT INTO activity_run_rollups
          (run_id, origin, name, session_id, job_name, started_at, ended_at, outcome,
           duration_ms, span_count, input_tokens, output_tokens, cache_read_tokens,
@@ -335,7 +412,7 @@ export function createActivityStore(
     startSpan(input) {
       return inWrite(() => {
         const startedAt = input.startedAt ?? Date.now();
-        db.prepare(
+        db.query(
           `INSERT INTO activity_spans
              (span_id, run_id, parent_span_id, name, kind, origin, session_id, job_name,
               attrs, started_at, writer, last_heartbeat_at)
@@ -373,7 +450,7 @@ export function createActivityStore(
           ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...patch.attrs })
           : existing.attrs;
         const u = patch.usage ?? {};
-        db.prepare(
+        db.query(
           `UPDATE activity_spans SET attrs = ?, wait_until = COALESCE(?, wait_until),
              input_tokens = COALESCE(?, input_tokens),
              output_tokens = COALESCE(?, output_tokens),
@@ -410,7 +487,7 @@ export function createActivityStore(
           )
           .get(spanId) as { idx: number };
         const stored = capPayload(payload);
-        db.prepare(
+        db.query(
           "INSERT INTO activity_events (span_id, event_index, ts, event_type, payload) VALUES (?, ?, ?, ?, ?)"
         ).run(spanId, next.idx, ts ?? Date.now(), eventType, JSON.stringify(stored));
         logChange(span.run_id, nextSeq(span.run_id), spanId, next.idx);
@@ -425,83 +502,61 @@ export function createActivityStore(
       inWrite(() => {
         // Deliberately NOT change-logged: a heartbeat is liveness metadata,
         // not activity the client needs a delta for.
-        db.prepare(
+        db.query(
           "UPDATE activity_spans SET last_heartbeat_at = ? WHERE span_id = ? AND outcome IS NULL"
         ).run(at ?? Date.now(), spanId);
       });
     },
 
     cascadeClose(runId, outcome, reason) {
-      return inWrite(() => {
-        const open = db
-          .query(
-            "SELECT span_id FROM activity_spans WHERE run_id = ? AND outcome IS NULL ORDER BY started_at DESC"
-          )
-          .all(runId) as Array<{ span_id: string }>;
-        let closed = 0;
-        for (const { span_id } of open) {
-          if (endSpanInTx(span_id, { outcome, reason })) closed++;
-        }
-        if (closed > 0) rollupRunInTx(runId);
-        return closed;
-      });
+      return inWrite(() => closeRunInTx(runId, outcome, reason));
     },
 
     sweepOwnOrphans() {
+      // "Own" means this PROCESS IDENTITY's rows from a previous life. The
+      // writer stamp includes the start time, so rows written by the
+      // current instance never match a fresh store's sweep... but a boot
+      // sweep runs before any spans are written, so sweeping by pid-prefix
+      // alone would be wrong across pid reuse. Sweep every session-origin
+      // open span instead: only THIS server writes session spans, and at
+      // boot none of ours can legitimately be open.
+      //
+      // Candidates are read OUTSIDE the write transaction — the common case
+      // finds nothing and must not take the exclusive lock for it. The close
+      // loop re-checks open-ness inside the transaction (endSpanInTx is
+      // write-once), so a race just skips.
+      const open = db
+        .query(
+          "SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL AND origin = 'session'"
+        )
+        .all() as Array<{ run_id: string }>;
+      if (open.length === 0) return 0;
       return inWrite(() => {
-        // "Own" means this PROCESS IDENTITY's rows from a previous life. The
-        // writer stamp includes the start time, so rows written by the
-        // current instance never match a fresh store's sweep... but a boot
-        // sweep runs before any spans are written, so sweeping by pid-prefix
-        // alone would be wrong across pid reuse. Sweep every session-origin
-        // open span instead: only THIS server writes session spans, and at
-        // boot none of ours can legitimately be open.
-        const open = db
-          .query(
-            "SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL AND origin = 'session'"
-          )
-          .all() as Array<{ run_id: string }>;
         let closed = 0;
         for (const { run_id } of open) {
-          const rows = db
-            .query(
-              "SELECT span_id FROM activity_spans WHERE run_id = ? AND outcome IS NULL ORDER BY started_at DESC"
-            )
-            .all(run_id) as Array<{ span_id: string }>;
-          for (const { span_id } of rows) {
-            if (endSpanInTx(span_id, { outcome: "interrupted", reason: "server restarted" }))
-              closed++;
-          }
-          rollupRunInTx(run_id);
+          closed += closeRunInTx(run_id, "interrupted", "server restarted");
         }
         return closed;
       });
     },
 
     sweepStale(staleAfterMs, now) {
+      const cutoff = (now ?? Date.now()) - staleAfterMs;
+      // Staleness is judged on ROOT heartbeat age — never span age — so a
+      // legitimately long, quiet run with a live writer is never killed.
+      // Candidate read outside the write transaction, same as sweepOwnOrphans.
+      const staleRoots = db
+        .query(
+          `SELECT span_id, run_id FROM activity_spans
+           WHERE outcome IS NULL AND parent_span_id IS NULL
+             AND writer != ? AND COALESCE(last_heartbeat_at, started_at) < ?`
+        )
+        .all(writer, cutoff) as Array<{ span_id: string; run_id: string }>;
+      if (staleRoots.length === 0) return 0;
       return inWrite(() => {
-        const cutoff = (now ?? Date.now()) - staleAfterMs;
-        // Staleness is judged on ROOT heartbeat age — never span age — so a
-        // legitimately long, quiet run with a live writer is never killed.
-        const staleRoots = db
-          .query(
-            `SELECT span_id, run_id FROM activity_spans
-             WHERE outcome IS NULL AND parent_span_id IS NULL
-               AND writer != ? AND COALESCE(last_heartbeat_at, started_at) < ?`
-          )
-          .all(writer, cutoff) as Array<{ span_id: string; run_id: string }>;
         let closed = 0;
         for (const { run_id } of staleRoots) {
-          const rows = db
-            .query(
-              "SELECT span_id FROM activity_spans WHERE run_id = ? AND outcome IS NULL ORDER BY started_at DESC"
-            )
-            .all(run_id) as Array<{ span_id: string }>;
-          for (const { span_id } of rows) {
-            if (endSpanInTx(span_id, { outcome: "interrupted", reason: "writer went silent" }))
-              closed++;
-          }
-          rollupRunInTx(run_id);
+          closed += closeRunInTx(run_id, "interrupted", "writer went silent");
         }
         return closed;
       });
@@ -519,38 +574,65 @@ export function createActivityStore(
     },
 
     changesSince(changeCursor, limit = 500) {
+      // Set-based: one join per change kind instead of a lookup per row. A
+      // change whose span/event row was pruned drops out via the join, same
+      // as the old per-row miss.
+      const spanRows = db
+        .query(
+          `SELECT c.change_id, c.run_id, c.seq, s.*
+           FROM activity_changes c
+           JOIN activity_spans s ON s.span_id = c.span_id
+           WHERE c.change_id > ? AND c.event_index IS NULL
+           ORDER BY c.change_id LIMIT ?`
+        )
+        .all(changeCursor, limit) as any[];
+      const eventRows = db
+        .query(
+          `SELECT c.change_id, c.run_id, c.seq, e.*
+           FROM activity_changes c
+           JOIN activity_events e
+             ON e.span_id = c.span_id AND e.event_index = c.event_index
+           WHERE c.change_id > ? AND c.event_index IS NOT NULL
+           ORDER BY c.change_id LIMIT ?`
+        )
+        .all(changeCursor, limit) as any[];
+      const changes: ActivityChange[] = [
+        ...spanRows.map(
+          (r): ActivityChange => ({
+            changeId: r.change_id,
+            runId: r.run_id,
+            seq: r.seq,
+            kind: "span",
+            span: rowToSpan(r),
+          })
+        ),
+        ...eventRows.map(
+          (r): ActivityChange => ({
+            changeId: r.change_id,
+            runId: r.run_id,
+            seq: r.seq,
+            kind: "event",
+            event: rowToEvent(r),
+          })
+        ),
+      ];
+      changes.sort((a, b) => a.changeId - b.changeId);
+      return changes.length > limit ? changes.slice(0, limit) : changes;
+    },
+
+    terminalRootChangesSince(changeCursor, limit = 500) {
       const rows = db
         .query(
-          "SELECT * FROM activity_changes WHERE change_id > ? ORDER BY change_id LIMIT ?"
+          `SELECT MAX(c.change_id) AS change_id, s.*
+           FROM activity_changes c
+           JOIN activity_spans s ON s.span_id = c.span_id
+           WHERE c.change_id > ? AND c.event_index IS NULL
+             AND s.parent_span_id IS NULL AND s.outcome IS NOT NULL
+           GROUP BY s.span_id
+           ORDER BY change_id LIMIT ?`
         )
-        .all(changeCursor, limit) as Array<{
-        change_id: number;
-        run_id: string;
-        seq: number;
-        span_id: string;
-        event_index: number | null;
-      }>;
-      const changes: ActivityChange[] = [];
-      for (const r of rows) {
-        if (r.event_index === null) {
-          const span = getSpanRaw(r.span_id);
-          if (span)
-            changes.push({ changeId: r.change_id, runId: r.run_id, seq: r.seq, kind: "span", span });
-        } else {
-          const ev = db
-            .query("SELECT * FROM activity_events WHERE span_id = ? AND event_index = ?")
-            .get(r.span_id, r.event_index);
-          if (ev)
-            changes.push({
-              changeId: r.change_id,
-              runId: r.run_id,
-              seq: r.seq,
-              kind: "event",
-              event: rowToEvent(ev),
-            });
-        }
-      }
-      return changes;
+        .all(changeCursor, limit) as any[];
+      return rows.map((r) => ({ changeId: r.change_id, span: rowToSpan(r) }));
     },
 
     latestChangeCursor() {
@@ -580,15 +662,20 @@ export function createActivityStore(
             )
             .all(runId) as any[]
         ).map(rowToEvent);
-        const hi = db
-          .query("SELECT COALESCE(MAX(seq), 0) AS hi FROM activity_changes WHERE run_id = ?")
-          .get(runId) as { hi: number };
         const cursor = db
           .query("SELECT COALESCE(MAX(change_id), 0) AS hi FROM activity_changes")
           .get() as { hi: number };
-        return { runId, spans, events, highWaterSeq: hi.hi, changeCursor: cursor.hi };
+        return {
+          runId,
+          spans,
+          events,
+          highWaterSeq: runHighWaterSeqRaw(runId),
+          changeCursor: cursor.hi,
+        };
       })();
     },
+
+    runHighWaterSeq: runHighWaterSeqRaw,
 
     getSpan: getSpanRaw,
 
@@ -615,40 +702,44 @@ export function createActivityStore(
       const floor = Math.max(options.digestFloorMs, 0);
       const ceiling = now - options.hardCeilingMs;
       return inWrite(() => {
+        // Candidates come from the rollups (they exist for every finished
+        // run — that terminal write is what made the run prunable), guarded
+        // against any run that still has an open span.
         const candidates = db
           .query(
-            `SELECT DISTINCT run_id, MAX(COALESCE(ended_at, 0)) AS ended
-             FROM activity_spans
-             GROUP BY run_id
-             HAVING SUM(CASE WHEN outcome IS NULL THEN 1 ELSE 0 END) = 0
-                AND (ended < ? OR ended < ?)
+            `SELECT run_id, ended_at AS ended FROM activity_run_rollups r
+             WHERE detail_pruned = 0 AND ended_at IS NOT NULL
+               AND (ended_at < ? OR ended_at < ?)
+               AND NOT EXISTS (
+                 SELECT 1 FROM activity_spans s
+                 WHERE s.run_id = r.run_id AND s.outcome IS NULL
+               )
              LIMIT ?`
           )
           .all(floor, ceiling, batch) as Array<{ run_id: string; ended: number }>;
         let spansDeleted = 0;
         for (const { run_id, ended } of candidates) {
-          rollupRunInTx(run_id);
-          db.prepare(
+          db.query(
             "UPDATE activity_run_rollups SET detail_pruned = 1 WHERE run_id = ?"
           ).run(run_id);
           if (ended >= floor) {
             // Pruned by the hard ceiling alone — the digest never covered
             // this run; make the coverage gap visible on the rollup.
-            db.prepare(
+            db.query(
               "UPDATE activity_run_rollups SET failure_reason = COALESCE(failure_reason, 'digest coverage gap') WHERE run_id = ?"
             ).run(run_id);
           }
-          db.prepare(
+          db.query(
             `DELETE FROM activity_events WHERE span_id IN
                (SELECT span_id FROM activity_spans WHERE run_id = ?)`
           ).run(run_id);
-          const res = db.prepare("DELETE FROM activity_spans WHERE run_id = ?").run(run_id);
+          const res = db.query("DELETE FROM activity_spans WHERE run_id = ?").run(run_id);
           spansDeleted += res.changes;
-          db.prepare("DELETE FROM activity_changes WHERE run_id = ?").run(run_id);
+          db.query("DELETE FROM activity_changes WHERE run_id = ?").run(run_id);
         }
         // The change log only serves live polling; rows this deep in the past
         // are unreachable by any live cursor. Keep runs with open spans.
-        db.prepare(
+        db.query(
           `DELETE FROM activity_changes WHERE change_id < (
              SELECT COALESCE(MAX(change_id), 0) FROM activity_changes
            ) - 100000 AND run_id NOT IN (

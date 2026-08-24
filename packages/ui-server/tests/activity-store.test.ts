@@ -231,6 +231,9 @@ describe("activity store: rollups and retention", () => {
       startedAt: old,
     });
     store.endSpan("old-root", { outcome: "success", endedAt: old + 60_000 });
+    // Prune candidates come from the rollups (every production terminal
+    // path writes one); a bare endSpan in a test must roll up itself.
+    store.rollupRun("old-run");
     startTurn(store, "live-run"); // stays open
 
     // Digest floor far in the past (digest broken) — only the ceiling prunes.
