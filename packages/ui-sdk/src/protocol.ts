@@ -76,7 +76,9 @@ export type ClientMessage =
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
-  | ClientMaskError;
+  | ClientMaskError
+  | ClientActivitySubscribe
+  | ClientActivityUnsubscribe;
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -243,7 +245,9 @@ export type ServerMessage =
   | ServerSessionHistory
   | ServerAskUserRequest
   | ServerLocationRequest
-  | ServerMaskRequest;
+  | ServerMaskRequest
+  | ServerActivitySnapshot
+  | ServerActivityDelta;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -315,6 +319,12 @@ export interface ServerToolUseStart extends SessionScoped {
   type: "tool_use_start";
   toolUseId: string;
   toolName: string;
+  /**
+   * Set when this tool call runs INSIDE a subagent (rev 3, additive): the
+   * `toolUseId` of the Agent call that spawned the subagent. Clients render
+   * such calls nested under that Agent entry rather than at the top level.
+   */
+  parentToolUseId?: string;
 }
 
 export interface ServerToolInputDelta extends SessionScoped {
@@ -365,6 +375,35 @@ export interface ServerResultMessage {
   durationMs: number;
   numTurns: number;
   isError: boolean;
+  /**
+   * Token usage for the turn (rev 3, additive). Absent on backends that
+   * cannot report it; absent cost inside means "unknown", never zero.
+   */
+  usage?: TurnUsage;
+  /**
+   * Finer disposition under `outcome: "error"` (rev 3, additive) — e.g.
+   * "timeout" for a max-turns/max-budget stop. A new VALUE here never breaks
+   * an old client because the field is free-form and advisory; the precise
+   * taxonomy lives in the server's activity record.
+   */
+  outcomeDetail?: string;
+}
+
+/**
+ * Per-model token/cost breakdown, mirroring provider accounting. Cumulative
+ * for the TURN (not the session); cost only where the backend can price it.
+ */
+export interface ModelUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  costUsd?: number;
+}
+
+/** Turn-level usage: totals plus an optional per-model breakdown (rev 3, additive). */
+export interface TurnUsage extends ModelUsage {
+  perModel?: Record<string, ModelUsage>;
 }
 
 export interface ServerError extends SessionScoped {
@@ -1024,4 +1063,112 @@ export interface RenderRequest {
   format: RenderFormat;
   /** Optional title — shown in PDF metadata, used for accessibility. */
   title?: string;
+}
+
+// ============================================================
+// Activity stream (rev 3, additive)
+// ============================================================
+//
+// The live face of the server's activity record: spans (turn / tool /
+// subagent / cron) forming a tree per run, streamed snapshot-then-delta.
+// View-scoped by subscription — a server never sends activity frames to a
+// connection that has not subscribed, and `server_hello` advertises
+// `capabilities.activity` so clients know whether subscribing is worthwhile.
+//
+// Ordering contract (AE6): a snapshot carries the run's high-water `seq`;
+// every delta carries its `seq`; the client DISCARDS any delta at or below
+// the snapshot's high-water for that run. Deltas are append-only increments —
+// a span-state delta carries the span's current (small) row, an event delta
+// carries exactly one new event — so no delta grows with run length.
+
+/** What a subscription watches. `index` = all runs; others narrow. */
+export type ActivityView = "index" | "session" | "run";
+
+export interface ClientActivitySubscribe {
+  type: "activity_subscribe";
+  view: ActivityView;
+  /** Required when `view` is "session". */
+  sessionId?: string;
+  /** Required when `view` is "run". */
+  runId?: string;
+}
+
+export interface ClientActivityUnsubscribe {
+  type: "activity_unsubscribe";
+  view: ActivityView;
+  sessionId?: string;
+  runId?: string;
+}
+
+export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
+export type ActivitySpanOrigin = "session" | "cron";
+/**
+ * Terminal dispositions. `denied` is an approval declined by the user —
+ * distinct from `error` by design. `interrupted` means a process died with
+ * the span open (assigned only by server-side sweepers).
+ */
+export type ActivitySpanOutcome =
+  | "success"
+  | "error"
+  | "timeout"
+  | "cancelled"
+  | "denied"
+  | "interrupted";
+
+/** One span as it crosses the wire. Field names track the OTel GenAI shape. */
+export interface ActivitySpan {
+  spanId: string;
+  runId: string;
+  parentSpanId?: string;
+  name: string;
+  kind: ActivitySpanKind;
+  origin: ActivitySpanOrigin;
+  sessionId?: string;
+  jobName?: string;
+  startedAt: number;
+  /** Approval-wait boundary: time before this was waiting, not executing. */
+  waitUntil?: number;
+  endedAt?: number;
+  outcome?: ActivitySpanOutcome;
+  outcomeReason?: string;
+  usage?: ModelUsage & { model?: string };
+  attrs?: Record<string, unknown>;
+}
+
+/** One append-only span event (transcript excerpt, progress note). */
+export interface ActivitySpanEvent {
+  spanId: string;
+  eventIndex: number;
+  ts: number;
+  eventType: string;
+  payload?: unknown;
+  /** The stored payload was capped at persist time. */
+  truncated?: boolean;
+}
+
+/**
+ * Snapshot answering a subscribe. Run/session views carry the full span tree
+ * and events (chunked via `append` like `session_history`); the index view
+ * carries open root spans only — history comes from the REST activity API.
+ */
+export interface ServerActivitySnapshot {
+  type: "activity_snapshot";
+  view: ActivityView;
+  sessionId?: string;
+  runId?: string;
+  spans: ActivitySpan[];
+  events: ActivitySpanEvent[];
+  /** Per-run high-water seq at snapshot time, keyed by runId. */
+  highWaterSeq: Record<string, number>;
+  /** True when this frame continues the previous snapshot frame. */
+  append?: boolean;
+}
+
+/** One committed change. Exactly one of `span` / `event` is present. */
+export interface ServerActivityDelta {
+  type: "activity_delta";
+  runId: string;
+  seq: number;
+  span?: ActivitySpan;
+  event?: ActivitySpanEvent;
 }

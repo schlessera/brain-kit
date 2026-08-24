@@ -136,6 +136,21 @@ field to an existing one, is not a breaking change. `BrainUiClient`
 (`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
 way to speak the protocol without reimplementing it.
 
+### Activity stream (rev 3, additive)
+
+Hosts that record agent activity advertise `capabilities.activity` on
+`server_hello`. A client opts in per view with `activity_subscribe`
+(`index` | `session` | `run`) and receives `activity_snapshot` then
+`activity_delta` frames; a server never sends activity frames to a connection
+without a matching subscription. Ordering: a snapshot carries per-run
+high-water `seq`, every delta carries its `seq`, and the client discards
+deltas at or below the snapshot's high-water for that run. Deltas are
+append-only increments (a small span row, or exactly one event) — they never
+grow with run length. The `result` frame additionally carries an optional
+`usage` block (token totals + per-model breakdown; absent cost means unknown,
+never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+calls that ran inside a subagent.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);
