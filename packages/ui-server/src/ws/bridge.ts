@@ -52,6 +52,16 @@ export function makeBridge(
       }
     },
     requestPermission: (req) => {
+      if (!host.clients.hasClients()) {
+        // Not a failure — the card is parked and re-delivered on reconnect
+        // (see resendPendingInteractive) — but the wait was invisible before
+        // this line existed, and it is bounded only by the turn timeout.
+        host.log.emit({
+          severityText: "WARN",
+          body: "approval requested with no client connected; holding for reconnect",
+          attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
+        });
+      }
       host.sendToClients(
         withTurnScope(
           {
@@ -77,7 +87,7 @@ export function makeBridge(
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;
         }
-        coordinator.pendingApprovals.set(req.toolUseId, { turn, turnId, resolve });
+        coordinator.pendingApprovals.set(req.toolUseId, { turn, turnId, request: req, resolve });
       });
     },
     askUser: (requestId, questions) => {
@@ -96,7 +106,14 @@ export function makeBridge(
           reject(new Error("Duplicate ask-user request id"));
           return;
         }
-        coordinator.pendingAskUser.set(requestId, { turn, turnId, resolve, reject });
+        coordinator.pendingAskUser.set(requestId, {
+          turn,
+          turnId,
+          requestId,
+          questions,
+          resolve,
+          reject,
+        });
       });
     },
     getLocation: (options) => {

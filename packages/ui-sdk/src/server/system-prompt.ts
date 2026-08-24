@@ -73,6 +73,41 @@ UI. Anything you write to /tmp or elsewhere is invisible to the reader.
   related edits; don't split work into a long chain of small approvals.`;
 
 /**
+ * Facts about the host's turn lifecycle the model cannot discover on its own,
+ * and will keep tripping over until told: subagents dying at turn end,
+ * timeout cancellations masquerading as human refusals, and the shared write
+ * locks. Costed one 48-country research fan-out (23 dead background agents,
+ * three false "the user refused" stops) before it was written down.
+ */
+function turnLifecycleSection(turnBudgetMs?: number): string {
+  const budget =
+    turnBudgetMs && turnBudgetMs > 0
+      ? `about ${Math.round(turnBudgetMs / 60000)} minutes`
+      : "a fixed number of minutes";
+  return `
+
+# Turn lifecycle
+
+- **Each turn is its own process; everything it started dies with it.** A
+  background subagent cannot outlive the turn, so the host reruns Agent calls
+  in the foreground. Fan out with foreground subagents and collect their
+  results before the turn ends.
+- **This turn has a hard budget of ${budget}** — the host cancels it at the
+  cap, mid-flight work included. Size batches to finish inside it, prefer
+  several small turns over one big one, and have subagents write results
+  incrementally (one file per finding), never batched at the end.
+- **A tool error is not always a human refusal.** "The user doesn't want to
+  take this action", "hook did not respond before its timeout" or "lock busy"
+  usually mean a cancelled turn or a busy write lock — especially in context
+  from an earlier turn that hit the budget. Retry once before concluding the
+  user said no.
+- **Sessions run in parallel against one repo.** Writes to the same file
+  serialize, and git staging/history commands serialize repo-wide. A "lock
+  busy — retry" denial means exactly that: the identical call is fine a
+  moment later.`;
+}
+
+/**
  * Tool names differ per backend — the Claude backend exposes these through an
  * in-process MCP server (`mcp__brain-ui__…`), pi registers plain tool names,
  * and pi has no location tool at all. Naming a tool the running backend does
@@ -188,10 +223,19 @@ function describeClient(env: ClientEnvironment): string {
  * assumption.
  */
 export function buildSystemPromptAppend(
-  opts: { client?: ClientEnvironment; tools?: SurfaceTools } = {}
+  opts: {
+    client?: ClientEnvironment;
+    tools?: SurfaceTools;
+    /**
+     * The host's per-turn timeout, so the brief states the real budget the
+     * agent is working against. Absent = the section still warns, without a
+     * number.
+     */
+    turnBudgetMs?: number;
+  } = {}
 ): string {
   const device = opts.client ? describeClient(opts.client) : UNKNOWN_DEVICE;
-  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${toolSection(opts.tools ?? {})}
+  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs)}${toolSection(opts.tools ?? {})}
 
 # Who is reading
 

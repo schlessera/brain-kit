@@ -17,16 +17,18 @@ import type {
 import type {
   AgentBackend,
   BackendCapabilities,
+  KeyedLock,
   PermissionDecision,
   StartTurnRequest,
-  WriteLock,
 } from "@schlessera/brain-ui-sdk/server";
 import {
   BackendBusyError,
   BackendRequestError,
   buildSystemPromptAppend,
-  createWriteLock,
+  createKeyedLock,
+  LockBusyError,
 } from "@schlessera/brain-ui-sdk/server";
+import { isAbsolute, join, normalize } from "node:path";
 import { envSnapshot } from "./config/env.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
@@ -85,18 +87,11 @@ const DEFAULT_ALLOWED_TOOLS = [
 ];
 
 /**
- * Tools whose execution mutates the shared working tree (file writes, git
- * operations). These are serialized across all sessions through the backend's
- * WriteLock; every other tool (Read/Glob/Grep/WebFetch/WebSearch and the
- * in-process brain-kit MCP tools, which only bridge to the browser) runs fully
- * parallel. Bash is mutating conservatively — it can write or run git. A
- * subagent's own Bash/Edit/Write calls surface here under their own names and
- * are gated individually. Add write-capable MCP tools here as they appear.
- *
- * The brain document tools write the repo AND reindex, so all three belong
- * here — including `brain_archive`, which is not auto-allowed above but still
- * mutates once approved. Membership here is about serialization, not
- * permission; the two lists are independent.
+ * Tools whose execution MAY mutate the shared working tree, and therefore may
+ * take a lock. Which lock — if any — is decided per call by
+ * {@link lockKeyForTool} from the tool's actual input. A subagent's own
+ * Bash/Edit/Write calls surface here under their own names and are gated
+ * individually.
  *
  * The lock is acquired in a PreToolUse hook, NOT in canUseTool: the SDK
  * auto-allows tools listed in `allowedTools` without ever consulting
@@ -114,6 +109,101 @@ const MUTATING_TOOLS = new Set([
 ]);
 
 const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
+
+/**
+ * Lock keys partition contention instead of the old single global mutex,
+ * which serialized every mutating tool across every session — under agent
+ * fan-outs that collapsed a multi-session host into a single-session one
+ * (waiters stalled in the PreToolUse hook past the CLI's hook timeout, which
+ * then REFUSED their tool calls with a message the model reads as a denial).
+ *
+ * Three domains:
+ *
+ * - **Per-path** for tools that declare their target file. Two agents writing
+ *   different files never contend; two writing the same file serialize, which
+ *   is exactly when they should.
+ * - **{@link GIT_LOCK_KEY}** for Bash commands that touch git's staging area
+ *   or history. This is the one genuine repo-wide hazard: `git add` from one
+ *   session landing inside another session's `git add && git commit` commits
+ *   the wrong files — silently. Single git commands failing on index.lock are
+ *   retryable errors; interleaved staging is corruption.
+ * - **{@link BRAIN_LOCK_KEY}** for the brain document tools (and their CLI
+ *   spellings), which write a file AND reindex `brain.db`. Their bursts are
+ *   short, so one shared key is cheap and spares SQLite the busy-retries.
+ *
+ * Everything else — curl, builds, tests, greps, plain file reads — takes NO
+ * lock. That is the load-bearing change: a two-minute `bun run build` in one
+ * session no longer freezes every writer in every other session.
+ *
+ * A Bash command the classifier misses (a script that runs git internally)
+ * falls back to git's own index.lock, which fails cleanly and visibly — the
+ * same residual exposure this backend always accepted for cross-process
+ * writers in the same repo. A false positive merely over-serializes one
+ * command.
+ */
+export const GIT_LOCK_KEY = "repo-git";
+export const BRAIN_LOCK_KEY = "brain-docs";
+
+/**
+ * Git verbs that mutate the staging area, the working tree, or history.
+ * Deliberately absent: status/log/diff/show/blame/branch/fetch and every
+ * other read, so ordinary inspection never serializes. `[^\n|;&]{0,120}?`
+ * keeps the match inside one pipeline segment (a `git` before a pipe cannot
+ * claim a verb after it) while tolerating `-C <dir>` / `--no-pager` style
+ * options between the word `git` and its verb.
+ */
+const GIT_BASH_PATTERN =
+  /\bgit\b[^\n|;&]{0,120}?\b(add|commit|rm|mv|restore|rebase|merge|cherry-pick|revert|reset|checkout|switch|stash|apply|am|pull|push|clean|worktree)\b/;
+
+/** brain CLI commands that drive git under the hood (sync commits/pushes). */
+const GIT_BRAIN_CLI_PATTERN = /\bbrain\s+(sync|import)\b/;
+
+/** brain CLI commands that write a document and reindex, like the MCP tools. */
+const BRAIN_CLI_PATTERN = /\bbrain\s+(add|update|archive)\b/;
+
+const BRAIN_DOC_TOOLS = new Set([
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  `${BRAIN_MCP_PREFIX}brain_update`,
+  `${BRAIN_MCP_PREFIX}brain_archive`,
+]);
+
+/** The declared target path of a path-scoped tool call, if it has one. */
+function declaredPath(toolName: string, input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const raw =
+    toolName === "NotebookEdit" ? record.notebook_path : record.file_path;
+  return typeof raw === "string" && raw.trim() ? raw : null;
+}
+
+/**
+ * The lock key one tool call must hold while it executes, or null for no
+ * lock. Exported for tests: this classification IS the serialization policy.
+ */
+export function lockKeyForTool(
+  toolName: string,
+  input: unknown,
+  brainPath: string
+): string | null {
+  if (toolName === "Bash") {
+    const command = bashCommand(input);
+    if (!command) return null;
+    if (GIT_BASH_PATTERN.test(command) || GIT_BRAIN_CLI_PATTERN.test(command)) {
+      return GIT_LOCK_KEY;
+    }
+    if (BRAIN_CLI_PATTERN.test(command)) return BRAIN_LOCK_KEY;
+    return null;
+  }
+  if (BRAIN_DOC_TOOLS.has(toolName)) return BRAIN_LOCK_KEY;
+  if (toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit") {
+    const path = declaredPath(toolName, input);
+    // A call without a usable path fails the tool's own validation anyway;
+    // locking nothing beats locking a bogus key.
+    if (!path) return null;
+    return `path:${normalize(isAbsolute(path) ? path : join(brainPath, path))}`;
+  }
+  return null;
+}
 
 /**
  * Bash commands that raise a confirmation card before they run.
@@ -241,12 +331,23 @@ export interface ClaudeBackendOptions {
    */
   systemPromptAppend?: string;
   /**
-   * Serializes MUTATING tool executions across every session this backend
-   * runs, so two parallel turns never interleave writes/git ops in the shared
-   * working tree. Defaults to a fresh per-instance lock; inject a shared one to
-   * coordinate with other writers of the same repo (or to observe it in tests).
+   * Serializes contending tool executions across every session this backend
+   * runs — per target file for path-declaring tools, repo-wide for git
+   * staging/history commands, one shared key for the brain document tools
+   * (see {@link lockKeyForTool}). Defaults to a fresh per-instance lock;
+   * inject a shared one to coordinate with other writers of the same repo (or
+   * to observe it in tests).
    */
-  writeLock?: WriteLock;
+  writeLock?: KeyedLock;
+  /**
+   * How long a tool call may WAIT for its lock before it is denied with a
+   * retryable reason, in ms. Must stay comfortably under the CLI's hook
+   * timeout (60s): a waiter that stalls past that is refused by the CLI
+   * itself with "PreToolUse hook did not respond before its timeout" — a
+   * message the model misreads as something being wrong with the call.
+   * Default 30s. Zero or negative disables the bound (never advisable).
+   */
+  lockWaitMs?: number;
   /** @internal Test seam — inject the SDK `query` function. Defaults to the real one. */
   queryFn?: typeof query;
   /** @internal Test seam — inject the SDK `listSessions` reader. */
@@ -329,16 +430,26 @@ export function createClaudeBackend(
     getSessionMessagesFn: options.getSessionMessagesFn,
   });
 
-  const writeLock = options.writeLock ?? createWriteLock();
+  const writeLock = options.writeLock ?? createKeyedLock();
+  const lockWaitMs = options.lockWaitMs ?? 30_000;
+  const logFn: BackendLogFn =
+    options.log ??
+    ((level, message, attrs) =>
+      console[level === "debug" ? "log" : level](
+        `[claude-backend] ${message}`,
+        attrs ?? ""
+      ));
   // An explicit override is used verbatim; the default is rebuilt per turn so
   // it can describe the device the CURRENT message came from.
   const buildAppend = (
     client: ClientEnvironment | undefined,
-    tools: { askUser: boolean; location: boolean; mask: boolean }
+    tools: { askUser: boolean; location: boolean; mask: boolean },
+    turnBudgetMs: number | undefined
   ): string =>
     options.systemPromptAppend ??
     buildSystemPromptAppend({
       ...(client ? { client } : {}),
+      ...(turnBudgetMs ? { turnBudgetMs } : {}),
       // Named only when the bridge actually provides the handler — the MCP
       // server (and the allowlist entry) is registered on the same condition.
       tools: {
@@ -383,15 +494,53 @@ export function createClaudeBackend(
     // Write-lock bookkeeping, keyed by toolUseId and idempotent per key: the
     // PreToolUse hook and the canUseTool re-acquire can both run for one tool
     // use, and a release must be safe when nothing is held.
-    const acquireForTool = async (toolUseId: string): Promise<void> => {
-      if (turn.pendingReleases.has(toolUseId)) return;
-      const release = await writeLock.acquire();
+    //
+    // Resolves `ok: false` — never throws — when the bounded wait expires, so
+    // both callers turn it into a DENY with a reason the model can act on.
+    // Stalling here instead would run into the CLI's own hook timeout, whose
+    // refusal message ("hook did not respond") reads like a broken call.
+    const acquireForTool = async (
+      toolUseId: string,
+      lockKey: string | null
+    ): Promise<{ ok: true } | { ok: false; reason: string }> => {
+      if (lockKey === null || turn.pendingReleases.has(toolUseId)) return { ok: true };
+      const waitStarted = Date.now();
+      let release: () => void;
+      try {
+        release = await writeLock.acquire(
+          lockKey,
+          lockWaitMs > 0 ? { timeoutMs: lockWaitMs } : undefined
+        );
+      } catch (err) {
+        if (err instanceof LockBusyError) {
+          logFn("warn", "lock wait exceeded the bound; denying with retry", {
+            key: lockKey,
+            toolUseId,
+            waitedMs: err.waitedMs,
+          });
+          return {
+            ok: false,
+            reason:
+              `The shared "${lockKey}" write lock is busy (another agent is mid-write). ` +
+              `Nothing is wrong with this call and it was NOT executed — retry the identical call in a moment.`,
+          };
+        }
+        throw err;
+      }
+      const waitedMs = Date.now() - waitStarted;
+      if (waitedMs > 5_000) {
+        // The watchdog: contention is expected to be rare and brief, so a
+        // multi-second wait is a signal worth having in the log even when it
+        // eventually succeeded.
+        logFn("warn", "lock wait was unusually long", { key: lockKey, toolUseId, waitedMs });
+      }
       if (turn.ended || turn.pendingReleases.has(toolUseId)) {
         // Turn drained while queued, or a concurrent acquire won: never runs.
         release();
-        return;
+        return { ok: true };
       }
       turn.pendingReleases.set(toolUseId, release);
+      return { ok: true };
     };
     const releaseForTool = (toolUseId: string): void => {
       const release = turn.pendingReleases.get(toolUseId);
@@ -491,11 +640,15 @@ export function createClaudeBackend(
         // says what it is rendering INTO. Appended to the preset rather than
         // replacing it, so tool discipline and safety text stay intact.
         systemPrompt: (() => {
-          const append = buildAppend(req.client, {
-            askUser: Boolean(askUser),
-            location: Boolean(getLocation),
-            mask: Boolean(requestMask),
-          });
+          const append = buildAppend(
+            req.client,
+            {
+              askUser: Boolean(askUser),
+              location: Boolean(getLocation),
+              mask: Boolean(requestMask),
+            },
+            req.turnBudgetMs
+          );
           return {
             type: "preset" as const,
             preset: "claude_code" as const,
@@ -519,11 +672,19 @@ export function createClaudeBackend(
             description: opts.description,
           });
           // A mutating tool runs inside this subprocess the moment we return
-          // "allow", so take the shared write lock BEFORE allowing and hold it
-          // until the tool's result frame is observed (see the stream loop) or
-          // the turn ends. Denials and read-only tools take nothing.
+          // "allow", so take its lock BEFORE allowing and hold it until the
+          // tool's result frame is observed (see the stream loop) or the turn
+          // ends. Denials and lock-free tools take nothing. The approved input
+          // is what will execute, so the key is computed from it.
           if (decision.behavior === "allow" && MUTATING_TOOLS.has(toolName)) {
-            await acquireForTool(opts.toolUseID);
+            const effectiveInput = decision.updatedInput ?? input;
+            const acquired = await acquireForTool(
+              opts.toolUseID,
+              lockKeyForTool(toolName, effectiveInput, options.brainPath)
+            );
+            if (!acquired.ok) {
+              return { behavior: "deny", message: acquired.reason };
+            }
           }
           return toPermissionResult(decision);
         },
@@ -579,8 +740,73 @@ export function createClaudeBackend(
                     }
                   }
 
-                  await acquireForTool(hookInput.tool_use_id);
+                  const acquired = await acquireForTool(
+                    hookInput.tool_use_id,
+                    lockKeyForTool(
+                      hookInput.tool_name,
+                      hookInput.tool_input,
+                      options.brainPath
+                    )
+                  );
+                  if (!acquired.ok) {
+                    return {
+                      continue: true,
+                      hookSpecificOutput: {
+                        hookEventName: "PreToolUse",
+                        permissionDecision: "deny",
+                        permissionDecisionReason: acquired.reason,
+                      },
+                    };
+                  }
                   return { continue: true };
+                },
+              ],
+            },
+            {
+              // Background subagents cannot outlive the turn: each turn is its
+              // own `query()` subprocess, and the SDK's Agent tool BACKGROUNDS
+              // agents by default — so left alone, a fan-out dies at turn end
+              // with nothing written (observed: two waves, 23 dead agents).
+              // Rewriting the input to foreground is the only fix that also
+              // covers the default case; a deny would break every Agent call.
+              matcher: "^Agent$",
+              hooks: [
+                async (hookInput) => {
+                  if (
+                    hookInput.hook_event_name !== "PreToolUse" ||
+                    hookInput.tool_name !== "Agent"
+                  ) {
+                    return { continue: true };
+                  }
+                  const input = hookInput.tool_input as Record<string, unknown>;
+                  if (input.isolation === "remote") {
+                    // A remote agent survives the subprocess but its results
+                    // land in a cloud session this host never reads.
+                    return {
+                      continue: true,
+                      hookSpecificOutput: {
+                        hookEventName: "PreToolUse",
+                        permissionDecision: "deny",
+                        permissionDecisionReason:
+                          "Remote agents are not collectable in this host: their results outlive the turn but nothing reads them back. Re-run this Agent call without isolation: \"remote\".",
+                      },
+                    };
+                  }
+                  if (input.run_in_background === false) return { continue: true };
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: "PreToolUse",
+                      // "allow" is required for updatedInput to take effect.
+                      // Agent is auto-allowed by the default allowlist anyway;
+                      // a deployment that removes it from allowedTools should
+                      // know this rewrite re-admits it.
+                      permissionDecision: "allow",
+                      updatedInput: { ...input, run_in_background: false },
+                      additionalContext:
+                        "This Agent call was rewritten to run_in_background: false. Each turn is its own process, so a background agent would be killed at turn end before its results could be read. Fan out with foreground agents and collect results within the turn.",
+                    },
+                  };
                 },
               ],
             },

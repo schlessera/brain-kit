@@ -126,6 +126,13 @@ export interface StartTurnRequest {
   profileId?: string;
   /** Host-owned cancellation (user cancel + host timeout). */
   signal: AbortSignal;
+  /**
+   * The host's per-turn timeout for THIS turn, in ms — the budget after which
+   * `signal` fires. Advisory: backends that build a per-turn system prompt
+   * should surface it (`buildSystemPromptAppend({ turnBudgetMs })`) so the
+   * model can size its work to the cap instead of discovering it mid-flight.
+   */
+  turnBudgetMs?: number;
   bridge: BackendBridge;
   /**
    * What the reader is on, as the browser measured it at send time. Absent

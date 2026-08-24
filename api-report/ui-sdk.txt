@@ -417,8 +417,10 @@ export "./server" (./src/server/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  type KeyedLock
   type Keyterm
   type LocationFix
+  LockBusyError
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
@@ -483,6 +485,7 @@ export "./server" (./src/server/index.ts)
   type WikilinkMapResponse
   type WriteLock
   buildSystemPromptAppend
+  createKeyedLock
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
