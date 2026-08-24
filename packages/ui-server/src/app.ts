@@ -37,6 +37,8 @@ import { getHiddenModelIds } from "./db/settings.js";
 import { createActivityStore } from "./activity/store.js";
 import { createActivityStream } from "./activity/stream.js";
 import { createActivityNotifier } from "./activity/notify.js";
+import { createPushSender } from "./activity/push-sender.js";
+import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
   createBackendRegistry,
@@ -215,6 +217,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     isWatched: (scope) => activityStream.isWatched(scope),
     log: activityLog,
   });
+  const pushSender = createPushSender(db, { log: activityLog });
+  let delivering = false;
   let lastPrune = 0;
   const activityTick = setInterval(() => {
     try {
@@ -228,6 +232,23 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
         activityStream.pump();
       }
       activityNotifier.tick();
+      // Async delivery, reentrancy-guarded: a slow push service must not
+      // stack passes; the next tick simply retries what stayed pending.
+      if (!delivering) {
+        delivering = true;
+        void pushSender
+          .deliverPending(activityNotifier)
+          .catch((err) =>
+            activityLog.emit({
+              severityText: "WARN",
+              body: "push delivery pass failed",
+              attributes: { error: err instanceof Error ? err.message : String(err) },
+            })
+          )
+          .finally(() => {
+            delivering = false;
+          });
+      }
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
         activityStore.prune({
@@ -373,6 +394,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, store: activityStore, notifier: activityNotifier }));
+  app.route("/api", createPushRoutes({ sender: pushSender }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
   app.route(
     "/api",

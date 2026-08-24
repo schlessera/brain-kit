@@ -71,7 +71,16 @@ describe("app wiring — auth guard ordering", () => {
   test("the activity routes are behind the auth guard", async () => {
     // The activity record leaks strictly more than /api/status (session
     // activity, errors, spend) — same boundary, same reason.
-    for (const path of ["/api/activity/runs", "/api/activity/runs/x", "/api/activity/rollups"]) {
+    for (const path of ["/api/activity/runs", "/api/activity/runs/x", "/api/activity/rollups", "/api/activity/inbox"]) {
+      const res = await get(path);
+      expect(res.status).toBe(401);
+    }
+  });
+
+  test("the push routes are behind the auth guard", async () => {
+    // Subscribing is a write into the notification fan-out; the public key
+    // is per-deployment. Only the authenticated user gets either.
+    for (const path of ["/api/push/public-key", "/api/push/subscriptions"]) {
       const res = await get(path);
       expect(res.status).toBe(401);
     }

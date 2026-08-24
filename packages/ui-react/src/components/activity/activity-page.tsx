@@ -21,6 +21,7 @@ import { useChatStore } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { cn } from "../../lib/utils.js";
 import { formatDuration, getToolLabel } from "../chat/tool-views.js";
+import { PushToggle } from "./push-toggle.js";
 
 /**
  * The Activity surface: an INDEX of all agent activity — live runs first,
@@ -105,10 +106,13 @@ export function ActivityPage() {
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
         <ActivityIcon className="h-4 w-4 text-muted-foreground" />
         <h1 className="text-sm font-medium">Activity</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <PushToggle />
+        </div>
         <button
           type="button"
           onClick={refresh}
-          className="ml-auto rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
           aria-label="Refresh"
         >
           <RefreshCw className="h-3.5 w-3.5" />

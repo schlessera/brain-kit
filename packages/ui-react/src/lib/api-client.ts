@@ -257,6 +257,20 @@ export const api = {
 
   activityInboxAckAll: () =>
     fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
+
+  pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
+
+  pushSubscribe: (subscription: unknown, label?: string) =>
+    fetchJson<{ ok: true }>("/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ subscription, label }),
+    }),
+
+  pushUnsubscribe: (endpoint: string) =>
+    fetchJson<{ removed: boolean }>("/push/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
 };
 
 export interface ActivityIntent {

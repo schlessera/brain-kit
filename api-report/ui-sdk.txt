@@ -363,6 +363,11 @@ export "./protocol" (./src/protocol.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
 
+export "./push-handlers" (./src/client/push-handlers.ts)
+  type PushCapableScope
+  type PushHandlerOptions
+  registerPushHandlers
+
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
   MAX_PROMPT_CHARS
