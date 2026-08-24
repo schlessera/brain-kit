@@ -95,6 +95,12 @@ export {
 } from "./activity/store.js";
 export { createActivityStream, type ActivityStream } from "./activity/stream.js";
 export { ingestSpanSink } from "./activity/span-sink.js";
+export {
+  generateActivityDigest,
+  latestActivityDigest,
+  DIGEST_JOB_NAME,
+  type ActivityDigest,
+} from "./activity/digest.js";
 
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.

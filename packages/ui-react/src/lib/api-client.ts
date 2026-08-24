@@ -258,6 +258,12 @@ export const api = {
   activityInboxAckAll: () =>
     fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
 
+  activityDigest: () =>
+    fetchJson<{ digest: ActivityDigest | null; dismissedAt: number }>("/activity/digest"),
+
+  activityDigestDismiss: () =>
+    fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
+
   pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
 
   pushSubscribe: (subscription: unknown, label?: string) =>
@@ -272,6 +278,26 @@ export const api = {
       body: JSON.stringify({ endpoint }),
     }),
 };
+
+export interface ActivityDigest {
+  generatedAt: number;
+  windowStart: number;
+  windowEnd: number;
+  runs: number;
+  failures: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  notable: Array<{
+    runId: string;
+    name: string;
+    jobName: string | null;
+    sessionId: string | null;
+    outcome: string | null;
+    failureReason: string | null;
+    startedAt: number;
+  }>;
+}
 
 export interface ActivityIntent {
   id: number;

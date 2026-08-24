@@ -34,6 +34,7 @@ import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
 import { SessionDrawer } from "./session-drawer.js";
 import { SubagentView } from "./subagent-view.js";
+import { DigestCard } from "../activity/digest-card.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 import { StreamingPanel } from "../quick-actions/streaming-modal.js";
 import { WhatsupPanel } from "../quick-actions/whatsup-modal.js";
@@ -571,6 +572,9 @@ export function ChatPage() {
       <div className="relative flex-1 overflow-hidden">
         {messages.length === 0 ? (
           <div className="h-full overflow-y-auto">
+            <div className="px-4 pt-3 md:px-6">
+              <DigestCard />
+            </div>
             <WelcomeState onAction={handleWelcomeAction} />
           </div>
         ) : (

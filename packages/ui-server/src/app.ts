@@ -38,6 +38,7 @@ import { createActivityStore } from "./activity/store.js";
 import { createActivityStream } from "./activity/stream.js";
 import { createActivityNotifier } from "./activity/notify.js";
 import { createPushSender } from "./activity/push-sender.js";
+import { digestRetentionFloor } from "./activity/digest.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
@@ -252,9 +253,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
         activityStore.prune({
-          // Digest floor arrives with the digest job (plan U12); until it
-          // exists, the hard ceiling alone bounds growth.
-          digestFloorMs: 0,
+          // Full detail survives until the digest has covered it; the hard
+          // ceiling bounds growth even if the digest job silently dies.
+          digestFloorMs: digestRetentionFloor(db),
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         });
       }

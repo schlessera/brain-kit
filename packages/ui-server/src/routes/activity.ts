@@ -3,7 +3,13 @@ import type { Database } from "bun:sqlite";
 
 import type { ActivityStore } from "../activity/store.js";
 import type { ActivityNotifier } from "../activity/notify.js";
-import { getSetting } from "../db/settings.js";
+import {
+  dismissActivityDigest,
+  digestDismissedAt,
+  generateActivityDigest,
+  latestActivityDigest,
+} from "../activity/digest.js";
+import { getSetting, setSetting } from "../db/settings.js";
 
 /**
  * The activity record's read API. Auth-guarded like every /api route (the
@@ -23,6 +29,48 @@ export function createActivityRoutes(deps: {
   const { db, store, notifier } = deps;
 
   return new Hono()
+    .get("/activity/digest", (c) => {
+      try {
+        // An authenticated fetch IS the app opening — the marker the next
+        // digest window's framing leans on.
+        setSetting(db, "activity.lastVisitAt", Date.now());
+        return c.json({
+          digest: latestActivityDigest(db),
+          dismissedAt: digestDismissedAt(db),
+        });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to load digest" },
+          500
+        );
+      }
+    })
+
+    .post("/activity/digest/dismiss", (c) => {
+      try {
+        dismissActivityDigest(db);
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to dismiss" },
+          500
+        );
+      }
+    })
+
+    .post("/activity/digest/generate", (c) => {
+      // Manual trigger (the cron job calls generateActivityDigest directly
+      // through the script; this exists for dev and for a pull-to-refresh).
+      try {
+        return c.json({ digest: generateActivityDigest(db) });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to generate" },
+          500
+        );
+      }
+    })
+
     .get("/activity/inbox", (c) => {
       try {
         return c.json({ intents: notifier?.inbox() ?? [] });
