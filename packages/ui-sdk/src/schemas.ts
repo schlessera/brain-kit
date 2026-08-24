@@ -561,6 +561,7 @@ export const serverToolUseCompleteSchema = z.looseObject({
   type: z.literal("tool_use_complete"),
   toolUseId: z.string().max(MAX_ID_CHARS),
   toolName: z.string(),
+  parentToolUseId: z.string().max(MAX_ID_CHARS).optional(),
   input: z.record(z.string(), z.unknown()),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolUseComplete>;

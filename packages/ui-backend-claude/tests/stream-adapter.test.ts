@@ -234,7 +234,13 @@ describe("StreamAdapter: subagent handling", () => {
         toolName: "Read",
         parentToolUseId: "agent-call-1",
       },
-      { type: "tool_use_complete", toolUseId: "sub-tool-1", toolName: "Read", input: { file: "x" } },
+      {
+        type: "tool_use_complete",
+        toolUseId: "sub-tool-1",
+        toolName: "Read",
+        input: { file: "x" },
+        parentToolUseId: "agent-call-1",
+      },
     ]);
   });
 

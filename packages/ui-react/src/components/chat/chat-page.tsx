@@ -33,6 +33,7 @@ import { WelcomeState } from "./welcome-state.js";
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
 import { SessionDrawer } from "./session-drawer.js";
+import { SubagentView } from "./subagent-view.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 import { StreamingPanel } from "../quick-actions/streaming-modal.js";
 import { WhatsupPanel } from "../quick-actions/whatsup-modal.js";
@@ -125,6 +126,7 @@ export function ChatPage() {
 
   const sessionPanelOpen = useUIStore((s) => s.sessionPanelOpen);
   const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
+  const subagentStack = useUIStore((s) => s.subagentStack);
   const syncPanelOpen = useUIStore((s) => s.syncPanelOpen);
   const setSyncPanelOpen = useUIStore((s) => s.setSyncPanelOpen);
   const whatsupPanelOpen = useUIStore((s) => s.whatsupPanelOpen);
@@ -520,6 +522,17 @@ export function ChatPage() {
           send({ type: "mask_error", requestId, code: "cancelled", message })
         }
       />
+
+      {/* Subagent drill-in: an overlay stack — chat is the residence, the
+          drill-in opens over it and backs out level by level. */}
+      {subagentStack.length > 0 && (
+        <div className="fixed inset-0 z-40 bg-background">
+          <SubagentView
+            spanId={subagentStack[subagentStack.length - 1]!}
+            onApproval={handleToolApproval}
+          />
+        </div>
+      )}
 
       {/* Panels */}
       <SessionDrawer

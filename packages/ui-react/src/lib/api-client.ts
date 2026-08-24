@@ -219,4 +219,89 @@ export const api = {
     fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+
+  // --- Activity record (read side; live updates ride the WebSocket) ---
+
+  activityRuns: (opts?: {
+    origin?: "session" | "cron";
+    job?: string;
+    session?: string;
+    status?: string;
+    limit?: number;
+    before?: number;
+  }) =>
+    fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
+      "/activity/runs?" +
+        [
+          opts?.origin && `origin=${opts.origin}`,
+          opts?.job && `job=${encodeURIComponent(opts.job)}`,
+          opts?.session && `session=${encodeURIComponent(opts.session)}`,
+          opts?.status && `status=${encodeURIComponent(opts.status)}`,
+          opts?.limit && `limit=${opts.limit}`,
+          opts?.before && `before=${opts.before}`,
+        ]
+          .filter(Boolean)
+          .join("&")
+    ),
+
+  activityRun: (runId: string) =>
+    fetchJson<ActivityRunDetail>(`/activity/runs/${encodeURIComponent(runId)}`),
+
+  activityRollups: (days?: number) =>
+    fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
 };
+
+export interface ActivityRunSummary {
+  runId: string;
+  origin: "session" | "cron";
+  name: string;
+  sessionId: string | null;
+  jobName: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  outcome: string | null;
+  running: boolean;
+  durationMs: number | null;
+  costUsd: number | null;
+  failureReason: string | null;
+  detailPruned: boolean;
+}
+
+export interface ActivityRunDetail {
+  runId: string;
+  detailPruned: boolean;
+  spans?: import("@schlessera/brain-ui-sdk/protocol").ActivitySpan[];
+  events?: import("@schlessera/brain-ui-sdk/protocol").ActivitySpanEvent[];
+  highWaterSeq?: number;
+  rollup?: {
+    origin: string;
+    name: string;
+    sessionId: string | null;
+    jobName: string | null;
+    startedAt: number;
+    endedAt: number | null;
+    outcome: string | null;
+    durationMs: number | null;
+    spanCount: number;
+    costUsd: number | null;
+    failureReason: string | null;
+  };
+}
+
+export interface ActivityAggregate {
+  runs: number;
+  failures: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  durationMs: number;
+}
+
+export interface ActivityRollups {
+  timeZone: string;
+  days: Array<ActivityAggregate & { day: string }>;
+  jobs: Array<ActivityAggregate & { jobName: string }>;
+  sessions: Array<ActivityAggregate & { sessionId: string }>;
+}

@@ -338,6 +338,8 @@ export interface ServerToolUseComplete extends SessionScoped {
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** See ServerToolUseStart.parentToolUseId (rev 3, additive). */
+  parentToolUseId?: string;
 }
 
 export interface ServerToolResult extends SessionScoped {

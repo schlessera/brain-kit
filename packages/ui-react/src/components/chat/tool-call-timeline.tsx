@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { getToolLabel, getTouchedFile, formatDuration } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
+import { useActivityStore, timingFor, spanForTool, childSpans } from "../../stores/activity-store.js";
+import { useUIStore } from "../../stores/ui-store.js";
 
 // Register the built-in renderer packs once. Registration is build-time; this
 // runs on module load.
@@ -127,13 +129,24 @@ function ToolCallEntry({
     toolCall.status === "pending_approval"
   );
   const prevStatus = useRef(toolCall.status);
+  // One clock for live and reloaded views: when the activity stream carries
+  // this call's span, its server-stamped timing wins over the client stamps
+  // (which don't exist at all for history-loaded messages).
+  const serverTiming = useActivityStore((s) => timingFor(s, toolCall.id));
+  const timed: ToolCall = serverTiming
+    ? {
+        ...toolCall,
+        startedAt: serverTiming.startedAt,
+        ...(serverTiming.endedAt !== undefined ? { endedAt: serverTiming.endedAt } : {}),
+      }
+    : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
   // shape-sniffing predicate). Falls back to the generic renderer.
   const renderer = resolveToolRenderer(toolCall, BACKEND_ID) ?? GENERIC_RENDERER;
   const Icon = renderer.icon ?? FileText;
   const isPending = toolCall.status === "pending_approval";
-  const summary = renderer.summary?.(toolCall) ?? null;
-  const meta = renderer.meta?.(toolCall) ?? null;
+  const summary = renderer.summary?.(timed) ?? null;
+  const meta = renderer.meta?.(timed) ?? null;
   const Input = renderer.Input;
   const Output = renderer.Output;
 
@@ -208,6 +221,9 @@ function ToolCallEntry({
         </span>
       </button>
 
+      {/* Live subagent state for Agent fan-outs, fed by the activity stream. */}
+      {toolCall.name === "Agent" && <SubagentEntryRows agentToolUseId={toolCall.id} />}
+
       {/* Expandable detail */}
       <AnimatePresence>
         {expanded && (
@@ -272,6 +288,53 @@ function ToolCallEntry({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * Compact live status of one Agent fan-out: what the subagent is, its state,
+ * elapsed time and step count — with a tap opening the drill-in view. Data
+ * comes from the activity stream (session subscription); on a host without
+ * activity recording this renders nothing and the entry stays as before.
+ */
+function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
+  const span = useActivityStore((s) => spanForTool(s, agentToolUseId));
+  const children = useActivityStore((s) => childSpans(s, agentToolUseId));
+  const pushSubagentView = useUIStore((s) => s.pushSubagentView);
+  if (!span || span.kind !== "subagent") return null;
+
+  const attrs = span.attrs ?? {};
+  const description =
+    typeof attrs["subagent.description"] === "string"
+      ? (attrs["subagent.description"] as string)
+      : "subagent";
+  const running = span.outcome === undefined;
+  const tokens =
+    typeof attrs["subagent.total_tokens"] === "number"
+      ? (attrs["subagent.total_tokens"] as number)
+      : null;
+  const elapsed = formatDuration((span.endedAt ?? Date.now()) - span.startedAt);
+
+  return (
+    <button
+      type="button"
+      onClick={() => pushSubagentView(agentToolUseId)}
+      className="ml-6 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 shrink-0 rounded-full",
+          running ? "animate-pulse bg-primary" : span.outcome === "success" ? "bg-accent" : "bg-destructive"
+        )}
+      />
+      <span className="truncate">{description}</span>
+      <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
+        {children.length > 0 && `${children.length} step${children.length === 1 ? "" : "s"} · `}
+        {tokens !== null && `${Math.round(tokens / 1000)}k tok · `}
+        {elapsed}
+      </span>
+      <ChevronRight className="h-3 w-3 shrink-0" />
+    </button>
   );
 }
 

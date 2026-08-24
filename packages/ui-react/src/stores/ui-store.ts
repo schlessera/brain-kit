@@ -4,10 +4,19 @@ import { create } from "zustand";
 export type SettingsTab = "models" | "security";
 
 /** Full-screen surface currently shown inside the AppShell. */
-export type ActiveView = "chat" | "graph";
+export type ActiveView = "chat" | "graph" | "activity";
 
 interface UIState {
   activeView: ActiveView;
+  /**
+   * Drill-in stack of open subagent views (Agent tool-call span ids). A
+   * nested subagent pushes; back pops. Kept here rather than component state
+   * so the Activity surface and the chat timeline share one drill-in.
+   */
+  subagentStack: string[];
+  pushSubagentView: (spanId: string) => void;
+  popSubagentView: () => void;
+  closeSubagentViews: () => void;
   sessionPanelOpen: boolean;
   syncPanelOpen: boolean;
   whatsupPanelOpen: boolean;
@@ -52,6 +61,11 @@ export const useUIStore = create<UIState>((set) => ({
   ...CLOSED,
   activeView: "chat",
   settingsTab: "models",
+  subagentStack: [],
+  pushSubagentView: (spanId) =>
+    set((s) => ({ subagentStack: [...s.subagentStack, spanId] })),
+  popSubagentView: () => set((s) => ({ subagentStack: s.subagentStack.slice(0, -1) })),
+  closeSubagentViews: () => set({ subagentStack: [] }),
   setActiveView: (view) => set({ ...CLOSED, activeView: view }),
   toggleSessionPanel: () =>
     set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen })),

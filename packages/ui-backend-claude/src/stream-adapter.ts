@@ -91,7 +91,9 @@ export class StreamAdapter {
             if (parentToolUseId) {
               // Subagent tool call: no partial streaming happened, so the
               // start frame (with linkage) and the complete frame land
-              // together. Clients nest by parentToolUseId.
+              // together. Clients nest by parentToolUseId — the complete
+              // carries it too, so an untagged same-name match can never
+              // hijack a main-turn streaming tool entry.
               messages.push({
                 type: "tool_use_start",
                 toolUseId: block.id,
@@ -104,6 +106,7 @@ export class StreamAdapter {
               toolUseId: block.id,
               toolName: block.name,
               input: block.input as Record<string, unknown>,
+              ...(parentToolUseId ? { parentToolUseId } : {}),
             });
           } else if (block.type === "text" && parentToolUseId && block.text) {
             this.report({

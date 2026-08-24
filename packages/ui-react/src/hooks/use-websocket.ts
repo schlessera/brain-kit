@@ -4,6 +4,7 @@ import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
 import { useProviderStore } from "../stores/provider-store.js";
 import { useMaskStore } from "../stores/mask-store.js";
+import { useActivityStore, loadSessionActivityHistory } from "../stores/activity-store.js";
 import { getWsUrl } from "../lib/backend.js";
 import type {
   ServerMessage,
@@ -121,8 +122,41 @@ function isOurDraftAnnouncement(
   return true;
 }
 
+/**
+ * Lazily open a session-scoped activity subscription (live subagent rows,
+ * server-stamped tool timing). Idempotent per connection; the subscribed set
+ * resets when a new socket's server_hello arrives.
+ */
+function ensureActivitySubscription(sessionId: string | null | undefined): void {
+  if (!sessionId) return;
+  const activity = useActivityStore.getState();
+  if (!activity.supported || activity.subscribed[sessionId]) return;
+  activity.markSubscribed(sessionId);
+  wsClient?.send({ type: "activity_subscribe", view: "session", sessionId });
+  // The subscription snapshot carries OPEN runs; finished runs (history
+  // timing, past fan-outs) come from the REST side.
+  void loadSessionActivityHistory(sessionId);
+}
+
 export function handleServerMessage(msg: ServerMessage) {
   const state = useChatStore.getState();
+
+  // Activity stream frames feed their own store and never touch chat state.
+  if (msg.type === "server_hello") {
+    useActivityStore.getState().setSupported(msg.capabilities?.activity === true);
+    // A new hello means a new connection: server-side subscriptions are gone.
+    useActivityStore.getState().resetSubscriptions();
+    ensureActivitySubscription(state.activeSessionId);
+    return;
+  }
+  if (msg.type === "activity_snapshot") {
+    useActivityStore.getState().applySnapshot(msg);
+    return;
+  }
+  if (msg.type === "activity_delta") {
+    useActivityStore.getState().applyDelta(msg);
+    return;
+  }
 
   // Parallel-session demux (per-session buffers). Every frame is scoped by
   // sessionId; a scoped frame lands in ITS session's buffer, so a background
@@ -186,6 +220,10 @@ export function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "tool_use_start":
+      // A tool call INSIDE a subagent nests under its Agent entry, rendered
+      // from the activity stream — putting it in the flat transcript would
+      // interleave fan-out work with the main turn's steps.
+      if (msg.parentToolUseId) break;
       state.startToolCall(key, msg.toolUseId, msg.toolName);
       break;
 
@@ -194,6 +232,9 @@ export function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "tool_use_complete":
+      // Subagent tool calls render nested (activity stream), and the flat
+      // store's name-based fallback match must never see them.
+      if (msg.parentToolUseId) break;
       state.completeToolCall(key, msg.toolUseId, msg.toolName, msg.input);
       break;
 
@@ -237,6 +278,7 @@ export function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "session_info": {
+      ensureActivitySubscription(msg.sessionId);
       // bindDraftSession above handled draft adoption; an info frame may still
       // re-pin the provider picker when it concerns the session in view.
       const current = useChatStore.getState();
