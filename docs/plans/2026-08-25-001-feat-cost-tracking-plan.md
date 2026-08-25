@@ -1,7 +1,7 @@
 ---
 title: "feat: Dynamic pricing and effective cost tracking"
 type: feat
-status: active
+status: completed
 date: 2026-08-25
 origin: docs/brainstorms/2026-08-25-cost-tracking-requirements.md
 ---
