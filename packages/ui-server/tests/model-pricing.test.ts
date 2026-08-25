@@ -2,11 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import {
-  canonicalModelId,
-  createModelPricing,
-  pricingCachePath,
-} from "../src/pricing/model-pricing";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+import { createModelPricing, pricingCachePath } from "../src/pricing/model-pricing";
 import { resolveServerConfig } from "../src/config/env";
 
 let brainPath: string;
@@ -159,6 +156,21 @@ describe("createModelPricing resolution", () => {
     expect(pricing.resolve("mystery-model-9000")).toBeNull();
   });
 
+  test("a :nitro/:floor routing variant prices at the base id, flagged estimate (AE2)", async () => {
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
+    await pricing.refresh();
+
+    // The variant has no catalog price of its own — the base id's rates
+    // serve, flagged estimate (the routed premium is in no catalog).
+    const nitro = pricing.resolve("z-ai/glm-4.7:nitro");
+    expect(nitro).toEqual({ ...pricing.resolve("z-ai/glm-4.7")!, estimate: true });
+    expect(pricing.resolve("z-ai/glm-4.7:floor")?.estimate).toBe(true);
+    // The exact catalog id itself stays non-estimate.
+    expect(pricing.resolve("z-ai/glm-4.7")!.estimate).toBe(false);
+    // A variant of an unknown base still resolves to null.
+    expect(pricing.resolve("mystery-model-9000:nitro")).toBeNull();
+  });
+
   test("missing cache rates come back null, not zero", async () => {
     const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
     await pricing.refresh();
@@ -207,6 +219,8 @@ describe("createModelPricing snapshot fallback", () => {
     expect(rates!.source).toBe("snapshot");
     // OpenRouter-section snapshot entries resolve the same way.
     expect(pricing.resolve("z-ai/glm-4.7")?.source).toBe("snapshot");
+    // A routing variant of a snapshot-priced base stays an estimate.
+    expect(pricing.resolve("z-ai/glm-4.7:nitro")?.estimate).toBe(true);
 
     const state = pricing.state();
     expect(state.source).toBe("snapshot");

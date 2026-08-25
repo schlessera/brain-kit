@@ -14,7 +14,7 @@ import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { latestActivityDigest } from "./digest.js";
 import type { ActivityNotifier } from "./notify.js";
-import { rowToRunRollup, type ActivityStore, type SpanRow } from "./store.js";
+import { rowToRunRollup, sumEffectiveCost, type ActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
@@ -117,6 +117,7 @@ export function runActivityQuery(
           .all(since) as any[]
       ).map(rowToRunRollup);
       const digest = latestActivityDigest(db);
+      const effective = sumEffectiveCost(rows);
       return {
         windowHours: hoursBack,
         runs: rows.length,
@@ -124,8 +125,8 @@ export function runActivityQuery(
         // Both sums are sum-of-KNOWNS; the runs excluded from the effective
         // sum ride along as unpricedRuns so unknown never reads as $0 (AE3).
         costUsd: round(rows.reduce((a, r) => a + (r.costUsd ?? 0), 0)),
-        effectiveCostUsd: round(rows.reduce((a, r) => a + (r.effectiveCostUsd ?? 0), 0)),
-        unpricedRuns: rows.filter((r) => r.effectiveCostUsd === null).length,
+        effectiveCostUsd: round(effective.effectiveCostUsd),
+        unpricedRuns: effective.unpricedRuns,
         inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
         outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),

@@ -127,6 +127,8 @@ export "." (./src/index.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  canonicalModelId
+  isBillingMode
   isFailureOutcome
   sumModelUsage
 
@@ -265,8 +267,10 @@ export "./client" (./src/client/index.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  canonicalModelId
   createAsrClient
   createBrainUiClient
+  isBillingMode
   isFailureOutcome
   registerAsrClient
   registerToolRenderers
@@ -402,6 +406,8 @@ export "./protocol" (./src/protocol.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
+  canonicalModelId
+  isBillingMode
   isFailureOutcome
   sumModelUsage
 
@@ -599,10 +605,12 @@ export "./server" (./src/server/index.ts)
   type WikilinkMapResponse
   type WriteLock
   buildSystemPromptAppend
+  canonicalModelId
   createKeyedLock
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
+  isBillingMode
   isFailureOutcome
   sumModelUsage
 

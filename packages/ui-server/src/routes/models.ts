@@ -8,10 +8,11 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
-import type {
-  BillingMode,
-  ModelCatalogEntry,
-  ModelCatalogResponse,
+import {
+  isBillingMode,
+  type BillingMode,
+  type ModelCatalogEntry,
+  type ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { ModelPricingState } from "../pricing/model-pricing.js";
@@ -102,9 +103,7 @@ export function createModelRoutes(deps: {
       typeof billing !== "object" ||
       billing === null ||
       Array.isArray(billing) ||
-      Object.values(billing).some(
-        (mode) => mode !== "subscription" && mode !== "api"
-      )
+      Object.values(billing).some((mode) => !isBillingMode(mode))
     ) {
       return c.json(
         { error: 'billing must map profile ids to "subscription" or "api"' },

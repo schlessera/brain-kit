@@ -8,7 +8,7 @@
 
 import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
-import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
 const BILLING_OVERRIDES_KEY = "models.billing";
@@ -50,10 +50,6 @@ export function getHiddenModelIds(db: Database, log?: Logger): string[] {
 export function setHiddenModelIds(db: Database, ids: string[]): void {
   const unique = [...new Set(ids.filter((id) => typeof id === "string" && id))];
   setSetting(db, HIDDEN_MODELS_KEY, unique);
-}
-
-function isBillingMode(value: unknown): value is BillingMode {
-  return value === "subscription" || value === "api";
 }
 
 /**

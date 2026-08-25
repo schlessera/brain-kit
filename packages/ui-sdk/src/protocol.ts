@@ -534,6 +534,17 @@ export interface SetBillingOverridesRequest {
   billing: Record<string, BillingMode>;
 }
 
+/**
+ * Strip a dated snapshot suffix from a model id:
+ * `claude-haiku-4-5-20251001` → `claude-haiku-4-5`. The API lists some models
+ * only under a dated id; the undated alias is the public name (and the API
+ * resolves it back). Shared here so model discovery and pricing canonicalize
+ * identically.
+ */
+export function canonicalModelId(id: string): string {
+  return id.replace(/-\d{8}$/, "");
+}
+
 // --- Shared Types ---
 
 export interface ChatSession {
@@ -1269,6 +1280,13 @@ export interface ServerActivityDelta {
  * at run start from the run's inference profile; absent means unknown.
  */
 export type BillingMode = "subscription" | "api";
+
+/** THE membership check for {@link BillingMode} — one definition for every
+ *  boundary that validates an untrusted value (settings rows, request bodies,
+ *  span attrs). */
+export function isBillingMode(v: unknown): v is BillingMode {
+  return v === "subscription" || v === "api";
+}
 
 export interface ActivityRunSummary {
   runId: string;

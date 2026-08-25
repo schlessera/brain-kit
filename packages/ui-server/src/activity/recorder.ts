@@ -166,7 +166,13 @@ export function createTurnRecorder(
             // The complete input object in one frame — tool_input_delta
             // frames stay ignored, no accumulation needed. Recorded as a
             // span event so the Activity drill-in can expand the call (R14).
-            store.appendEvent(msg.toolUseId, "tool_input", clipPayload(safeStringify(msg.input)));
+            store.appendEvent(
+              msg.toolUseId,
+              "tool_input",
+              safeStringify(msg.input),
+              undefined,
+              PAYLOAD_EVENT_CAP
+            );
             onWrite?.();
             break;
           }
@@ -181,7 +187,7 @@ export function createTurnRecorder(
             });
             // Error output rides along too — a failed call's output is what
             // the drill-in needs most. appendEvent no-ops on unknown spans.
-            store.appendEvent(msg.toolUseId, "tool_output", clipPayload(msg.output));
+            store.appendEvent(msg.toolUseId, "tool_output", msg.output, undefined, PAYLOAD_EVENT_CAP);
             onWrite?.();
             break;
           }
@@ -292,15 +298,9 @@ function clip(text: string, max: number): string {
 }
 
 /** Cap for recorded tool input/output payload events — roomier than the
- *  500-char outcome-reason clip, still far under the store's 16 KB event cap. */
+ *  500-char outcome-reason clip, still far under the store's 16 KB event cap.
+ *  Passed to appendEvent, whose clipping sets the wire `truncated` flag. */
 const PAYLOAD_EVENT_CAP = 4096;
-const PAYLOAD_TRUNCATION_SUFFIX = "\n… [truncated]";
-
-function clipPayload(text: string): string {
-  return text.length > PAYLOAD_EVENT_CAP
-    ? text.slice(0, PAYLOAD_EVENT_CAP) + PAYLOAD_TRUNCATION_SUFFIX
-    : text;
-}
 
 /** Tool inputs are arbitrary values: serialization must never take the turn
  *  down with it (BigInt members throw; a toJSON can return undefined). */

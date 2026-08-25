@@ -114,7 +114,7 @@ describe("tool payload capture (AE7)", () => {
     expect(events[0]!.payload).toBe("ENOENT: no such file");
   });
 
-  test("a payload over the cap is clipped with the truncation marker", () => {
+  test("a payload over the cap is clipped and flagged truncated", () => {
     const { store, recorder } = setup("turn-clip");
     startTool(recorder, "tool-1");
     recorder.observeFrame({
@@ -126,9 +126,8 @@ describe("tool payload capture (AE7)", () => {
     });
 
     const [event] = eventsOf(store, "turn-clip", "tool-1");
-    const payload = event!.payload as string;
-    expect(payload.endsWith("\n… [truncated]")).toBe(true);
-    expect(payload.length).toBe(4096 + "\n… [truncated]".length);
+    expect(event!.truncated).toBe(true);
+    expect((event!.payload as string).length).toBe(4096);
   });
 
   test("a denied tool records its input but no output", () => {

@@ -46,29 +46,22 @@ export function ModelsTab({ active }: { active: boolean }) {
     };
   }, [active]);
 
-  async function toggleHidden(entry: ModelCatalogEntry) {
-    if (!catalog) return;
+  /**
+   * Optimistic-update skeleton shared by the hidden toggle and the billing
+   * select: the change is the user's own click, so reflect it immediately,
+   * commit, then reload the composer picker's own roster copy (fetched once
+   * on mount, it would otherwise lag until a page reload). A failed write
+   * rolls back and surfaces the error.
+   */
+  async function commitCatalog(
+    optimistic: ModelCatalogResponse,
+    commit: () => Promise<ModelCatalogResponse>
+  ) {
     const previous = catalog;
-    const hidden = catalog.models
-      .filter((model) =>
-        model.id === entry.id ? !entry.hidden : model.hidden
-      )
-      .map((model) => model.id);
-
-    // Optimistic: the list is the user's own click, so reflect it immediately
-    // and roll back if the write fails.
-    setCatalog({
-      ...catalog,
-      models: catalog.models.map((model) =>
-        model.id === entry.id ? { ...model, hidden: !model.hidden } : model
-      ),
-    });
+    setCatalog(optimistic);
     setError(null);
     try {
-      setCatalog(await api.setHiddenModels(hidden));
-      // The composer's picker holds its own copy of the roster, fetched once on
-      // mount — without this it keeps offering a model the user just hid until
-      // the page is reloaded.
+      setCatalog(await commit());
       void loadProviders();
     } catch (err) {
       setCatalog(previous);
@@ -76,31 +69,42 @@ export function ModelsTab({ active }: { active: boolean }) {
     }
   }
 
+  async function toggleHidden(entry: ModelCatalogEntry) {
+    if (!catalog) return;
+    const hidden = catalog.models
+      .filter((model) =>
+        model.id === entry.id ? !entry.hidden : model.hidden
+      )
+      .map((model) => model.id);
+
+    await commitCatalog(
+      {
+        ...catalog,
+        models: catalog.models.map((model) =>
+          model.id === entry.id ? { ...model, hidden: !model.hidden } : model
+        ),
+      },
+      () => api.setHiddenModels(hidden)
+    );
+  }
+
   async function changeBilling(entry: ModelCatalogEntry, next: BillingMode | "auto") {
     if (!catalog) return;
-    const previous = catalog;
 
-    // Optimistic, mirroring the hidden toggle. What "auto" resolves to is
-    // only known server-side, so switching back to auto keeps the current
-    // resolved mode until the confirmed catalog corrects it a beat later.
-    setCatalog({
-      ...catalog,
-      models: catalog.models.map((model) => {
-        if (model.id !== entry.id) return model;
-        const { billingOverride: _cleared, ...base } = model;
-        return next === "auto" ? base : { ...base, billingOverride: next, billingMode: next };
-      }),
-    });
-    setError(null);
-    try {
-      setCatalog(await api.setBillingOverrides(nextBillingOverrides(catalog.models, entry.id, next)));
-      // Billing mode rides the provider roster too — keep the picker's copy
-      // in step, same as the hidden toggle.
-      void loadProviders();
-    } catch (err) {
-      setCatalog(previous);
-      setError(err instanceof Error ? err.message : "Could not save");
-    }
+    // What "auto" resolves to is only known server-side, so switching back to
+    // auto keeps the current resolved mode until the confirmed catalog
+    // corrects it a beat later.
+    await commitCatalog(
+      {
+        ...catalog,
+        models: catalog.models.map((model) => {
+          if (model.id !== entry.id) return model;
+          const { billingOverride: _cleared, ...base } = model;
+          return next === "auto" ? base : { ...base, billingOverride: next, billingMode: next };
+        }),
+      },
+      () => api.setBillingOverrides(nextBillingOverrides(catalog.models, entry.id, next))
+    );
   }
 
   async function onRefresh() {

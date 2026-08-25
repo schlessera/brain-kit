@@ -5,12 +5,11 @@ import {
   type ActivityAggregate,
   type ActivityRollups,
   type ActivityRunDetail,
-  type ActivityRunRollup,
   type ActivityRunSummary,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import { rowToRunRollup, type ActivityStore } from "../activity/store.js";
-import { toWireEvent, toWireSpan } from "../activity/stream.js";
+import { toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
 import {
   dismissActivityDigest,
@@ -181,22 +180,13 @@ export function createActivityRoutes(deps: {
             .all(...(params as never[]), limit) as any[]
         )
           .map(rowToRunRollup)
+          // The wire mapping (explicit-null vs omit) lives in toWireRollup;
+          // a summary adds only its identity and liveness fields on top.
           .map((r) => ({
-            runId: r.runId,
+            ...toWireRollup(r),
             origin: r.origin,
-            name: r.name,
-            sessionId: r.sessionId,
-            jobName: r.jobName,
-            startedAt: r.startedAt,
-            endedAt: r.endedAt,
-            outcome: r.outcome,
+            runId: r.runId,
             running: false,
-            durationMs: r.durationMs,
-            costUsd: r.costUsd,
-            effectiveCostUsd: r.effectiveCostUsd,
-            billingMode: r.billingMode ?? undefined,
-            pricingEstimate: r.pricingEstimate ?? undefined,
-            failureReason: r.failureReason,
             detailPruned: r.detailPruned,
           }));
 
@@ -229,13 +219,13 @@ export function createActivityRoutes(deps: {
             spans: snapshot.spans.map(toWireSpan),
             events: snapshot.events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,
-            ...(row ? { rollup: wireRollup(rowToRunRollup(row)) } : {}),
+            ...(row ? { rollup: toWireRollup(rowToRunRollup(row)) } : {}),
           };
           return c.json(detail);
         }
         if (!row) return c.json({ error: "Unknown run" }, 404);
         const r = rowToRunRollup(row);
-        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup: wireRollup(r) };
+        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup: toWireRollup(r) };
         return c.json(detail);
       } catch (err) {
         return c.json(
@@ -297,28 +287,6 @@ export function createActivityRoutes(deps: {
  * SDK's `isFailureOutcome` — it cannot be shared into SQL, so keep the two
  * in sync.
  */
-/** Store rollup → wire rollup: nullable columns become omitted-when-null per
- *  the optional wire contract (effectiveCostUsd stays explicit — null means
- *  unknown, and omitting it would let a client mistake unknown for absent). */
-function wireRollup(r: ReturnType<typeof rowToRunRollup>): ActivityRunRollup {
-  return {
-    origin: r.origin,
-    name: r.name,
-    sessionId: r.sessionId,
-    jobName: r.jobName,
-    startedAt: r.startedAt,
-    endedAt: r.endedAt,
-    outcome: r.outcome,
-    durationMs: r.durationMs,
-    spanCount: r.spanCount,
-    costUsd: r.costUsd,
-    effectiveCostUsd: r.effectiveCostUsd,
-    billingMode: r.billingMode ?? undefined,
-    pricingEstimate: r.pricingEstimate ?? undefined,
-    failureReason: r.failureReason,
-  };
-}
-
 function groupedAggregates(
   db: Database,
   since: number,

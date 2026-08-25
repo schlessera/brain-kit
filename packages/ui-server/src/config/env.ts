@@ -498,22 +498,25 @@ export function resolveAmbientBillingMode(env: EnvRecord = process.env): Billing
 }
 
 /**
- * Env-derived config for a STANDALONE pricing instance — the cron wrapper's
- * bare `createActivityStore(db)` path, where no ServerConfig exists. Mirrors
- * resolveServerConfig's pricing group exactly (same kill switch, TTL, and
- * brain-path defaults); kept here so process.env reads stay in the one
- * chokepoint the env-access gate allows.
+ * THE derivation of the pricing config (kill switch, TTL, brain path) —
+ * consumed by resolveServerConfig and used directly by the cron wrapper's
+ * bare `createActivityStore(db)` path, where no ServerConfig exists. Kept
+ * here so process.env reads stay in the one chokepoint the env-access gate
+ * allows.
  */
 export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
   brainPath: string;
   enabled: boolean;
-  ttlMs?: number;
+  ttlMs: number;
 } {
   const ttlHours = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
   return {
     brainPath: env.BRAIN_PATH || join(env.HOME || "/root", "brain"),
     enabled: envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test"),
-    ...(Number.isFinite(ttlHours) && ttlHours > 0 ? { ttlMs: ttlHours * 60 * 60 * 1000 } : {}),
+    ttlMs:
+      Number.isFinite(ttlHours) && ttlHours > 0
+        ? ttlHours * 60 * 60 * 1000
+        : 24 * 60 * 60 * 1000,
   };
 }
 
@@ -522,7 +525,8 @@ export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
  * process environment; tests pass their own record instead of mutating it.
  */
 export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig {
-  const brainPath = env.BRAIN_PATH || join(env.HOME || "/root", "brain");
+  const { brainPath, enabled: pricingEnabled, ttlMs: pricingTtlMs } =
+    resolveStandalonePricingConfig(env);
 
   const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
   const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
@@ -531,11 +535,6 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
-
-  const pricingDiscovery = envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test");
-
-  const rawPricingTtl = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
-  const pricingTtlHours = Number.isFinite(rawPricingTtl) && rawPricingTtl > 0 ? rawPricingTtl : 24;
 
   return {
     brainPath,
@@ -592,8 +591,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
     },
     pricing: {
-      enabled: pricingDiscovery,
-      ttlMs: pricingTtlHours * 60 * 60 * 1000,
+      enabled: pricingEnabled,
+      ttlMs: pricingTtlMs,
     },
   };
 }

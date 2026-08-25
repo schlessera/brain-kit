@@ -27,6 +27,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+
 const LITELLM_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
@@ -77,15 +79,6 @@ interface PricingCacheFile {
   litellm: SourceTable;
   openrouter: SourceTable;
   snapshot?: boolean;
-}
-
-/**
- * Strip a dated snapshot suffix: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`.
- * Ported from ui-backend-claude's model-discovery — that package is an
- * optional peer of this one, so the one-liner is duplicated, not imported.
- */
-export function canonicalModelId(id: string): string {
-  return id.replace(/-\d{8}$/, "");
 }
 
 // --- ingest validation -------------------------------------------------------
@@ -158,11 +151,12 @@ function parseOpenRouter(body: unknown): Record<string, RawRate> {
 
 // --- fetch -------------------------------------------------------------------
 
-/** One GET with a hard timeout and a single retry on 5xx / network failure. */
-async function getJson(
+/** One GET-and-parse with a hard timeout and a single retry on 5xx / network failure. */
+async function fetchSource(
   url: string,
+  parse: (body: unknown) => Record<string, RawRate>,
   fetchImpl: typeof fetch
-): Promise<{ status: number; body: unknown }> {
+): Promise<Record<string, RawRate>> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -170,25 +164,15 @@ async function getJson(
         headers: { accept: "application/json" },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      // 4xx is terminal (moved or removed endpoint) — don't burn a retry.
-      if (!res.ok && res.status < 500) return { status: res.status, body: null };
-      if (res.ok) return { status: res.status, body: await res.json() };
+      if (res.ok) return parse(await res.json());
       lastError = new Error(`HTTP ${res.status}`);
+      // 4xx is terminal (moved or removed endpoint) — don't burn a retry.
+      if (res.status < 500) break;
     } catch (err) {
       lastError = err;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
-async function fetchSource(
-  url: string,
-  parse: (body: unknown) => Record<string, RawRate>,
-  fetchImpl: typeof fetch
-): Promise<Record<string, RawRate>> {
-  const { status, body } = await getJson(url, fetchImpl);
-  if (status !== 200) throw new Error(`HTTP ${status}`);
-  return parse(body);
 }
 
 // --- cache -------------------------------------------------------------------
@@ -394,10 +378,23 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
     return snap ? { ...snap, estimate: true, source: "snapshot" } : null;
   }
 
+  const resolveId = (id: string) => lookup(id) ?? lookup(canonicalModelId(id));
+
   return {
     resolve(modelId: string): PricingRates | null {
       if (!enabled) return null;
-      return lookup(modelId) ?? lookup(canonicalModelId(modelId));
+      const direct = resolveId(modelId);
+      if (direct) return direct;
+      // An OpenRouter routing suffix (`:nitro` / `:floor`) is a request-time
+      // shortcut with no catalog price of its own — price at the base id's
+      // rate, flagged ESTIMATE regardless of source: the routed premium is in
+      // no catalog (AE2).
+      const variant = modelId.match(/^(.+):(nitro|floor)$/);
+      if (variant) {
+        const base = resolveId(variant[1]!);
+        if (base) return { ...base, estimate: true };
+      }
+      return null;
     },
     state: () => ({
       enabled,

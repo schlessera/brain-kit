@@ -116,7 +116,7 @@ describe("activity store: spans and ordering", () => {
     }
   });
 
-  test("events are append-only, indexed, and capped with a truncation marker", () => {
+  test("events are append-only, indexed, and capped with the truncated flag", () => {
     const { store } = freshStore();
     startTurn(store);
     store.appendEvent("run-1-root", "text", "hello");
@@ -490,12 +490,15 @@ describe("activity store: effective cost (migration 010)", () => {
     expect(r.cost_usd).toBeCloseTo(500 * 3e-6 + 2_000_000 * 3e-7, 10);
   });
 
-  test("api-billed run prices per-model usage; a routing variant is an estimate (AE2)", () => {
+  test("api-billed run prices per-model usage; the resolver's estimate flag propagates (AE2)", () => {
+    // The variant fallback itself lives in ModelPricing.resolve()
+    // (model-pricing.test.ts); the fake models that contract — a variant id
+    // resolves to base rates flagged estimate — and the store must propagate
+    // the flag into the rollup.
     const { db, store } = pricedStore({
       "z-ai/glm-4.7": { input: 1e-6, output: 2e-6, source: "openrouter" },
+      "z-ai/glm-4.7:nitro": { input: 1e-6, output: 2e-6, estimate: true, source: "openrouter" },
     });
-    // The :nitro id has no catalog price of its own — priced at the base
-    // rate and flagged estimate.
     sessionRun(store, "run-nitro", {
       billing: "api",
       perModel: { "z-ai/glm-4.7:nitro": { inputTokens: 100_000, outputTokens: 5_000 } },

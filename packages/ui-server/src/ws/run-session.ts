@@ -136,12 +136,7 @@ export async function runSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },
-            {
-              turnId: turn.turnId,
-              sessionId: turn.sessionId,
-              ...(billing?.profileId ? { profileId: billing.profileId } : {}),
-              ...(billing?.billingMode ? { billingMode: billing.billingMode } : {}),
-            }
+            { turnId: turn.turnId, sessionId: turn.sessionId, ...billing }
           )
         : undefined;
       const bridge = makeBridge(host, turn, text, backend.id, recorder);
@@ -225,7 +220,7 @@ async function resolveRunBilling(
   registry: BackendRegistry,
   backendId: string,
   profileId: string | undefined
-): Promise<{ profileId?: string; billingMode?: BillingMode } | undefined> {
+): Promise<{ profileId: string; billingMode?: BillingMode } | undefined> {
   try {
     const providers = await registry.listAllProviders({ includeHidden: true });
     const resolved = profileId

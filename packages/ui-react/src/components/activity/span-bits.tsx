@@ -66,8 +66,8 @@ export function spanToolLabel(span: ActivitySpan): string {
  * ONE payload renderer shared by the subagent drill-in and the run detail.
  * Mounted only while expanded (collapsed rows never subscribe). A span with
  * no payload events (recorded before capture shipped) states so instead of
- * offering an empty block (AE7); the truncation marker is part of the stored
- * payload text, so clipped content shows it inline.
+ * offering an empty block (AE7); a payload clipped at persist time carries
+ * the wire `truncated` flag, rendered as a hint line under the block.
  */
 export function SpanPayload({ spanId }: { spanId: string }) {
   const events = useActivityStore(useShallow((s) => payloadEventsFor(s, spanId)));
@@ -88,6 +88,9 @@ export function SpanPayload({ spanId }: { spanId: string }) {
           <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
             {typeof event.payload === "string" ? event.payload : JSON.stringify(event.payload)}
           </pre>
+          {event.truncated && (
+            <p className="mt-0.5 text-[10px] italic text-muted-foreground/60">… truncated</p>
+          )}
         </div>
       ))}
     </div>

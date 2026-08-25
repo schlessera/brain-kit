@@ -31,7 +31,7 @@
  * loud one.
  */
 import type { Database } from "bun:sqlite";
-import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 import {
   resolveAmbientBillingMode,
@@ -148,6 +148,24 @@ export function rowToRunRollup(r: any): RunRollupRow {
   };
 }
 
+/**
+ * Sum-of-KNOWNS over effective costs: unknown (NULL) rows contribute nothing
+ * to the sum and are counted instead, so no aggregate can pass an unknown off
+ * as $0 (AE3). One definition for every reader that folds rollup rows.
+ */
+export function sumEffectiveCost(rows: Array<{ effectiveCostUsd: number | null }>): {
+  effectiveCostUsd: number;
+  unpricedRuns: number;
+} {
+  let effectiveCostUsd = 0;
+  let unpricedRuns = 0;
+  for (const row of rows) {
+    if (row.effectiveCostUsd === null) unpricedRuns += 1;
+    else effectiveCostUsd += row.effectiveCostUsd;
+  }
+  return { effectiveCostUsd, unpricedRuns };
+}
+
 /** One committed write, as the delta stream sees it. */
 export type ActivityChange =
   | { changeId: number; runId: string; seq: number; kind: "span"; span: SpanRow }
@@ -202,7 +220,6 @@ export interface PruneOptions {
 
 /** A single event payload is capped so no delta can approach the WS frame cap. */
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
-export const TRUNCATION_MARKER = "…[truncated]";
 
 export interface ActivityStore {
   readonly writer: string;
@@ -219,7 +236,19 @@ export interface ActivityStore {
     spanId: string,
     patch: { attrs?: Record<string, unknown>; usage?: SpanUsage; waitUntil?: number }
   ): boolean;
-  appendEvent(spanId: string, eventType: string, payload: unknown, ts?: number): SpanEventRow | null;
+  /**
+   * Append one event; null (nothing written) for an unknown span. `cap`
+   * lowers the payload size cap for this call — the store's 16 KB invariant
+   * is the ceiling regardless. A capped payload is clipped and flagged
+   * `truncated`.
+   */
+  appendEvent(
+    spanId: string,
+    eventType: string,
+    payload: unknown,
+    ts?: number,
+    cap?: number
+  ): SpanEventRow | null;
   /** External writers touch their root span so staleness is heartbeat-age based. */
   heartbeat(spanId: string, at?: number): void;
   /** Close every open span of a run as `outcome` (children first), reason on all. */
@@ -281,10 +310,14 @@ export function createActivityStore(
   const writer = options.writer ?? `pid:${process.pid}:${Date.now()}`;
 
   // Lazy so a store that never rolls up (span-only paths, most tests)
-  // touches neither the env nor the disk; construction itself is cheap
-  // (two synchronous JSON reads), so first-rollup latency is negligible.
+  // touches neither the env nor the disk. The env reads live in
+  // config/env.ts — the one chokepoint the env-access gate allows. Every
+  // wrapper whose transaction can reach rollupRunInTx calls this BEFORE
+  // entering `inWrite`, so the SQLite write lock never covers the two
+  // synchronous JSON reads construction costs.
   let pricing: RollupPricing | undefined = options.pricing;
-  const getPricing = (): RollupPricing => (pricing ??= defaultRollupPricing());
+  const getPricing = (): RollupPricing =>
+    (pricing ??= createModelPricing(resolveStandalonePricingConfig()));
 
   // bun:sqlite transactions: `.immediate` takes the write lock up front, so a
   // concurrent writer waits (busy_timeout) instead of failing mid-upgrade.
@@ -431,10 +464,9 @@ export function createActivityStore(
     // job's agent authenticated under, so classification and reality move
     // together.
     const attrBilling = root.attrs["brain.billing_mode"];
-    const billingMode: BillingMode =
-      attrBilling === "subscription" || attrBilling === "api"
-        ? attrBilling
-        : ambientBillingMode();
+    const billingMode: BillingMode = isBillingMode(attrBilling)
+      ? attrBilling
+      : resolveAmbientBillingMode();
 
     // List-price math runs regardless of billing mode: it gap-fills a
     // missing backend cost_usd (pi without snapshots, cron) AND provides the
@@ -574,7 +606,7 @@ export function createActivityStore(
       });
     },
 
-    appendEvent(spanId, eventType, payload, ts) {
+    appendEvent(spanId, eventType, payload, ts, cap) {
       return inWrite(() => {
         const span = db
           .query("SELECT run_id FROM activity_spans WHERE span_id = ?")
@@ -585,15 +617,21 @@ export function createActivityStore(
             "SELECT COALESCE(MAX(event_index), -1) + 1 AS idx FROM activity_events WHERE span_id = ?"
           )
           .get(spanId) as { idx: number };
-        const stored = capPayload(payload);
+        const stored = capPayload(payload, cap);
+        const at = ts ?? Date.now();
         db.query(
           "INSERT INTO activity_events (span_id, event_index, ts, event_type, payload) VALUES (?, ?, ?, ?, ?)"
-        ).run(spanId, next.idx, ts ?? Date.now(), eventType, JSON.stringify(stored));
+        ).run(spanId, next.idx, at, eventType, JSON.stringify(stored));
         logChange(span.run_id, nextSeq(span.run_id), spanId, next.idx);
-        const r = db
-          .query("SELECT * FROM activity_events WHERE span_id = ? AND event_index = ?")
-          .get(spanId, next.idx);
-        return rowToEvent(r);
+        // Built from the values just written — no read-back needed.
+        return {
+          spanId,
+          eventIndex: next.idx,
+          ts: at,
+          eventType,
+          payload: stored.v,
+          truncated: stored.truncated === true,
+        };
       });
     },
 
@@ -608,6 +646,7 @@ export function createActivityStore(
     },
 
     cascadeClose(runId, outcome, reason) {
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => closeRunInTx(runId, outcome, reason));
     },
 
@@ -630,6 +669,7 @@ export function createActivityStore(
         )
         .all() as Array<{ run_id: string }>;
       if (open.length === 0) return 0;
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;
         for (const { run_id } of open) {
@@ -652,6 +692,7 @@ export function createActivityStore(
         )
         .all(writer, cutoff) as Array<{ span_id: string; run_id: string }>;
       if (staleRoots.length === 0) return 0;
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;
         for (const { run_id } of staleRoots) {
@@ -789,6 +830,7 @@ export function createActivityStore(
     },
 
     rollupRun(runId) {
+      getPricing(); // construct outside the write lock; rollup reuses it
       inWrite(() => rollupRunInTx(runId));
     },
 
@@ -856,26 +898,6 @@ export function createActivityStore(
       });
     },
   };
-}
-
-/**
- * Env-derived default pricing for the standalone path (the cron wrapper's
- * bare `createActivityStore(db)`). The env reads live in config/env.ts —
- * the one chokepoint the env-access gate allows — via
- * resolveStandalonePricingConfig, which mirrors the server config exactly.
- */
-function defaultRollupPricing(): RollupPricing {
-  return createModelPricing(resolveStandalonePricingConfig());
-}
-
-/**
- * Ambient billing classification from the EXECUTING process env — the same
- * presence-only precedence resolveServerConfig() applies (the Agent SDK's
- * own: an API key wins over the OAuth token, and no usable credential means
- * nothing subscription-billed could have run).
- */
-function ambientBillingMode(): BillingMode {
-  return resolveAmbientBillingMode();
 }
 
 /** Per-model token counts, as priced; absent fields count as zero consumed. */
@@ -951,34 +973,13 @@ function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
 }
 
 /**
- * Resolve rates for a model id, falling back past an OpenRouter routing
- * suffix (`:nitro` / `:floor` — request-time routing shortcuts with no
- * catalog price of their own). A variant priced at its base rate is an
- * ESTIMATE regardless of source: the routed premium is in no catalog (AE2;
- * "nitro prices flagged estimate in v1"). Snapshot-sourced rates already
- * carry `estimate: true` themselves.
- */
-function resolveRates(
-  pricing: RollupPricing,
-  model: string
-): { rates: PricingRates; variantPriced: boolean } | null {
-  const direct = pricing.resolve(model);
-  if (direct) return { rates: direct, variantPriced: false };
-  const variant = model.match(/^(.+):(nitro|floor)$/);
-  if (variant) {
-    const base = pricing.resolve(variant[1]!);
-    if (base) return { rates: base, variantPriced: true };
-  }
-  return null;
-}
-
-/**
  * Price one run's per-model usage at list rates. Null = unknown: an
  * unresolvable model with consumed tokens, or a consumed token class with no
  * rate, poisons the WHOLE run — cache reads dominate Claude usage, so
  * partial pricing would systematically understate (the binding
  * missing-cache-rate decision). A model with zero consumption contributes
- * nothing and needs no rate.
+ * nothing and needs no rate. Variant/snapshot fallbacks are the pricing
+ * service's job (`resolve()`); the store only propagates the estimate flag.
  */
 function priceUsage(
   byModel: Record<string, PricedTokens>,
@@ -996,15 +997,15 @@ function priceUsage(
       [tokens.cacheCreationTokens ?? 0, (r) => r.cacheWrite],
     ];
     if (!classes.some(([count]) => count > 0)) continue;
-    const resolved = resolveRates(pricing, model);
-    if (!resolved) return null;
+    const rates = pricing.resolve(model);
+    if (!rates) return null;
     for (const [count, rateOf] of classes) {
       if (count <= 0) continue;
-      const perToken = rateOf(resolved.rates);
+      const perToken = rateOf(rates);
       if (perToken === null) return null;
       costUsd += count * perToken;
     }
-    if (resolved.rates.estimate || resolved.variantPriced) estimate = true;
+    if (rates.estimate) estimate = true;
   }
   return { costUsd, estimate };
 }
@@ -1018,12 +1019,14 @@ function safeParse(text: string | null): Record<string, unknown> | undefined {
   }
 }
 
-/** Cap a payload's serialized size, storing an explicit truncation marker. */
-function capPayload(payload: unknown): { v: unknown; truncated?: boolean } {
+/** Cap a payload's serialized size; a clipped payload carries the `truncated`
+ *  flag (which rides the wire), so no in-text marker is stored. */
+function capPayload(payload: unknown, cap?: number): { v: unknown; truncated?: boolean } {
+  const limit = Math.min(cap ?? MAX_EVENT_PAYLOAD_BYTES, MAX_EVENT_PAYLOAD_BYTES);
   const json = JSON.stringify(payload ?? null);
-  if (json.length <= MAX_EVENT_PAYLOAD_BYTES) return { v: payload ?? null };
+  if (json.length <= limit) return { v: payload ?? null };
   if (typeof payload === "string") {
-    return { v: payload.slice(0, MAX_EVENT_PAYLOAD_BYTES) + TRUNCATION_MARKER, truncated: true };
+    return { v: payload.slice(0, limit), truncated: true };
   }
-  return { v: json.slice(0, MAX_EVENT_PAYLOAD_BYTES) + TRUNCATION_MARKER, truncated: true };
+  return { v: json.slice(0, limit), truncated: true };
 }
