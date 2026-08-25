@@ -114,6 +114,7 @@ export "." (./src/index.ts)
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
+  type SetBillingOverridesRequest
   type SetHiddenModelsRequest
   type ShareIntakeResult
   type ShareStagingManifest
@@ -249,6 +250,7 @@ export "./client" (./src/client/index.ts)
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
+  type SetBillingOverridesRequest
   type SetHiddenModelsRequest
   type ShareIntakeResult
   type ShareStagingManifest
@@ -387,6 +389,7 @@ export "./protocol" (./src/protocol.ts)
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
+  type SetBillingOverridesRequest
   type SetHiddenModelsRequest
   type ShareIntakeResult
   type ShareStagingManifest
@@ -577,6 +580,7 @@ export "./server" (./src/server/index.ts)
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
+  type SetBillingOverridesRequest
   type SetHiddenModelsRequest
   type ShareIntakeResult
   type ShareStagingManifest

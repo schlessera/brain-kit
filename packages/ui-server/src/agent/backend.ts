@@ -1,7 +1,7 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { createRequire } from "module";
 import type { AgentConfig } from "../config/env.js";
-import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
+import type { BillingMode, ProviderInfo } from "@schlessera/brain-ui-sdk";
 import type {
   AgentBackend,
   BackendCapabilities,
@@ -176,6 +176,12 @@ export interface BackendRegistryOptions {
    */
   getHiddenModelIds?: () => string[];
   /**
+   * Per-profile billing-mode overrides (from the app's settings table).
+   * Consulted LAST: an override wins over both the declared-credential rule
+   * and the ambient predicate. Defaults to "no overrides".
+   */
+  getBillingOverrides?: () => Record<string, BillingMode>;
+  /**
    * Where the registry and its backends report. Adapted to the backends'
    * minimal callback ({@link BackendLogFn}) before crossing the package
    * boundary. Absent means silence.
@@ -197,9 +203,11 @@ export interface BackendRegistry {
   /** Resolve a persisted backend id, falling back for legacy/unknown sessions. */
   getBackendForSession(backendId: string | null | undefined): Promise<AgentBackend>;
   /**
-   * Every available profile, tagged with its owning backend id. Hidden
-   * profiles are omitted by default (this feeds the picker); the settings
-   * screen passes `includeHidden` to render the full catalog.
+   * Every available profile, tagged with its owning backend id and (when the
+   * registry can classify it) its resolved `billingMode` — settings override
+   * applied last. Hidden profiles are omitted by default (this feeds the
+   * picker); the settings screen passes `includeHidden` to render the full
+   * catalog.
    */
   listAllProviders(options?: { includeHidden?: boolean }): Promise<ProviderInfo[]>;
   /** Per-backend capability metadata exposed by the providers route. */
@@ -373,6 +381,32 @@ export function createBackendRegistry(
   let modelSource: ClaudeModelSource | null = null;
 
   /**
+   * Declared profiles carrying their OWN credential env vars
+   * (authTokenEnv/apiKeyEnv) — api-billed regardless of the ambient
+   * credential. Populated when the Claude roster resolves, which happens
+   * before any profile can be listed or run.
+   */
+  const declaredApiProfileIds = new Set<string>();
+  /** The Claude backend's id, once built — profiles on any OTHER backend (pi) have no subscription path. */
+  let claudeBackendId: string | null = null;
+
+  /**
+   * Base billing classification for one roster entry, BEFORE the settings
+   * override (applied last by the shared accessor surface):
+   *   - a non-Claude backend (pi) → "api";
+   *   - a declared profile with explicit credentials → "api";
+   *   - everything ambient (built-in default, discovered models, declared
+   *     entries without their own credentials) → the env-resolved ambient
+   *     mode (subscription iff the OAuth token is present and no
+   *     ANTHROPIC_API_KEY — the Agent SDK's own precedence).
+   */
+  function classifyBilling(profile: ProviderInfo & { backendId: string }): BillingMode {
+    if (claudeBackendId === null || profile.backendId !== claudeBackendId) return "api";
+    if (declaredApiProfileIds.has(profile.id)) return "api";
+    return agent.ambientBilling;
+  }
+
+  /**
    * Declared profiles (built-in default + BRAIN_UI_CLAUDE_PROFILES) plus every
    * discovered model whose id isn't already declared. Declared wins: the env
    * stays an override mechanism, and a hand-pinned entry keeps its label and
@@ -469,6 +503,9 @@ export function createBackendRegistry(
         );
       }
       seen.add(input.id);
+      // The same non-empty test defineProfiles applies to requiredEnvKeys: a
+      // profile bringing its own credential env var is api-billed.
+      if (input.authTokenEnv || input.apiKeyEnv) declaredApiProfileIds.add(input.id);
     }
 
     const declared = (inputs as ClaudeProfileInput[]).map((input) => ({
@@ -503,7 +540,7 @@ export function createBackendRegistry(
       ttlMs: agent.modelTtlMs,
     });
 
-    return claude.createClaudeBackend({
+    const backend = claude.createClaudeBackend({
       brainPath,
       claudeCodePath: agent.claudeCodePath,
       ...(backendLog ? { log: backendLog } : {}),
@@ -517,6 +554,8 @@ export function createBackendRegistry(
       profiles: () =>
         mergeDiscovered(claude, declared, modelSource?.list() ?? []),
     });
+    claudeBackendId = backend.id;
+    return backend;
   }
 
   async function buildPiBackend(): Promise<AgentBackend> {
@@ -566,7 +605,13 @@ export function createBackendRegistry(
       await getRegistry();
       return modelSource;
     },
-    options.log
+    options.log,
+    {
+      classify: classifyBilling,
+      ...(options.getBillingOverrides
+        ? { getOverrides: options.getBillingOverrides }
+        : {}),
+    }
   );
 }
 
@@ -579,14 +624,23 @@ export function createBackendRegistry(
 export function createStaticBackendRegistry(
   backends: AgentBackend[],
   defaultBackendId = backends[0]?.id ?? "",
-  options: { getHiddenModelIds?: () => string[]; log?: Logger } = {}
+  options: {
+    getHiddenModelIds?: () => string[];
+    getBillingOverrides?: () => Record<string, BillingMode>;
+    log?: Logger;
+  } = {}
 ): BackendRegistry {
   const snapshot = buildSnapshot(backends, defaultBackendId);
   return makeRegistry(
     async () => snapshot,
     options.getHiddenModelIds ?? (() => []),
     async () => null,
-    options.log
+    options.log,
+    // No classifier: an embedder's backends carry no credential topology this
+    // registry could reason about, so only an explicit override sets a mode.
+    options.getBillingOverrides
+      ? { getOverrides: options.getBillingOverrides }
+      : {}
   );
 }
 
@@ -595,7 +649,13 @@ function makeRegistry(
   getRegistry: () => Promise<RegistrySnapshot>,
   getHidden: () => string[],
   getModelSource: () => Promise<ModelDiscoverySource | null>,
-  log?: Logger
+  log?: Logger,
+  billing: {
+    /** Base classification per roster entry; absent = the registry cannot classify. */
+    classify?: (profile: ProviderInfo & { backendId: string }) => BillingMode;
+    /** Settings overrides, consulted LAST — an override wins over `classify`. */
+    getOverrides?: () => Record<string, BillingMode>;
+  } = {}
 ): BackendRegistry {
   let profileSnapshot: ProfileSnapshot | null = null;
 
@@ -641,6 +701,20 @@ function makeRegistry(
     }
   }
 
+  /** Same degradation discipline: a failed override read means derived modes apply. */
+  function billingOverrides(): Record<string, BillingMode> {
+    try {
+      return billing.getOverrides?.() ?? {};
+    } catch (err) {
+      log?.emit({
+        severityText: "WARN",
+        body: "could not read billing overrides; using derived billing modes",
+        attributes: { error: err instanceof Error ? err.message : String(err) },
+      });
+      return {};
+    }
+  }
+
   return {
     async getBackends() {
       return (await getRegistry()).backends;
@@ -681,11 +755,18 @@ function makeRegistry(
       const registry = await getRegistry();
       const snapshot = await getProfileSnapshot();
       const hidden = options.includeHidden ? new Set<string>() : hiddenIds();
+      // Read fresh on every listing (not memoized with the snapshot), so a
+      // saved override is live for the very next run without invalidation.
+      const overrides = billingOverrides();
 
       return registry.backends.flatMap((backend) =>
         (snapshot.byBackend.get(backend.id) ?? [])
           .filter((profile) => !hidden.has(profile.id))
-          .map((profile) => ({ ...profile, backendId: backend.id }))
+          .map((profile) => {
+            const entry = { ...profile, backendId: backend.id };
+            const billingMode = overrides[profile.id] ?? billing.classify?.(entry);
+            return billingMode ? { ...entry, billingMode } : entry;
+          })
       );
     },
 

@@ -15,6 +15,8 @@
 
 import { join } from "path";
 
+import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
 
@@ -258,6 +260,25 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "CLAUDE_CODE_OAUTH_TOKEN",
+    description:
+      "Consulted for PRESENCE only, to classify billing: with it set and no " +
+      "ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in " +
+      "default and discovered models) count as subscription-billed. The token " +
+      "itself is consumed by the Claude backend / Agent SDK, not this package.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    description:
+      "Consulted for PRESENCE only, to classify billing: when set it wins " +
+      "over CLAUDE_CODE_OAUTH_TOKEN (mirroring the Agent SDK's credential " +
+      "precedence), so ambient-credential profiles count as api-billed.",
+    default: null,
+    required: false,
+  },
+  {
     name: "BRAIN_UI_MODEL_DISCOVERY",
     description:
       'Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF.',
@@ -360,6 +381,15 @@ export interface AgentConfig {
   profilesJson: string | null;
   modelDiscovery: boolean;
   modelTtlMs: number;
+  /**
+   * Billing classification for profiles running on AMBIENT credentials (the
+   * built-in default and discovered models): "subscription" iff the
+   * environment holds a CLAUDE_CODE_OAUTH_TOKEN and no ANTHROPIC_API_KEY —
+   * the same precedence the Agent SDK applies — else "api". Declared profiles
+   * carrying their own credential env vars are classified "api" by the
+   * registry regardless of this value.
+   */
+  ambientBilling: BillingMode;
 }
 
 export interface VoiceConfig {
@@ -514,6 +544,13 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
+      // Presence-only reads; the API key wins over the OAuth token, and no
+      // usable credential at all classifies "api" (nothing subscription-billed
+      // can run without the token).
+      ambientBilling:
+        !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
+          ? "subscription"
+          : "api",
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
     wsRate: {

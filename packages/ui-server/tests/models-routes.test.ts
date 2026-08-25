@@ -6,7 +6,12 @@ import {
   type BackendRegistry,
 } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
-import { getHiddenModelIds as readHiddenModelIds } from "../src/db/settings";
+import {
+  getBillingOverrides as readBillingOverrides,
+  getHiddenModelIds as readHiddenModelIds,
+  setBillingOverrides,
+  setSetting,
+} from "../src/db/settings";
 import { createModelRoutes } from "../src/routes/models";
 import { createProviderRoutes } from "../src/routes/providers";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -17,6 +22,7 @@ let modelRoutes: Hono;
 let providerRoutes: Hono;
 
 const getHiddenModelIds = () => readHiddenModelIds(db);
+const getBillingOverrides = () => readBillingOverrides(db);
 
 beforeEach(() => {
   db = createUiDb(":memory:");
@@ -32,7 +38,7 @@ beforeEach(() => {
       }),
     ],
     "claude",
-    { getHiddenModelIds }
+    { getHiddenModelIds, getBillingOverrides }
   );
   modelRoutes = createModelRoutes({ registry, db });
   providerRoutes = createProviderRoutes({ registry });
@@ -132,5 +138,80 @@ describe("model catalog routes", () => {
       method: "POST",
     });
     expect(response.status).toBe(409);
+  });
+});
+
+describe("billing overrides", () => {
+  test("the accessors round-trip and drop garbage values", () => {
+    setBillingOverrides(db, { "claude-opus-5": "subscription", "claude-haiku-4-5": "api" });
+    expect(getBillingOverrides()).toEqual({
+      "claude-opus-5": "subscription",
+      "claude-haiku-4-5": "api",
+    });
+
+    // Garbage written around the typed setter degrades to auto per entry —
+    // never to a wrong mode, never to a throw.
+    setSetting(db, "models.billing", { a: "free", b: "api", c: 3, d: null });
+    expect(getBillingOverrides()).toEqual({ b: "api" });
+    setSetting(db, "models.billing", ["api"]);
+    expect(getBillingOverrides()).toEqual({});
+    setSetting(db, "models.billing", "api");
+    expect(getBillingOverrides()).toEqual({});
+  });
+
+  test("PUT /models/billing persists the record and the catalog reflects it", async () => {
+    const response = await modelRoutes.request("/models/billing", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ billing: { "claude-opus-5": "subscription" } }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5");
+    expect(opus.billingMode).toBe("subscription");
+    expect(opus.billingOverride).toBe("subscription");
+    // The un-overridden row stays auto — the static registry has no
+    // classifier, so auto renders as "no mode", never a guessed one.
+    const haiku = body.models.find((m: { id: string }) => m.id === "claude-haiku-4-5");
+    expect(haiku.billingMode).toBeUndefined();
+    expect(haiku.billingOverride).toBeUndefined();
+    expect(getBillingOverrides()).toEqual({ "claude-opus-5": "subscription" });
+  });
+
+  test("clearing the record returns every profile to auto", async () => {
+    await modelRoutes.request("/models/billing", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ billing: { "claude-opus-5": "api" } }),
+    });
+    const response = await modelRoutes.request("/models/billing", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ billing: {} }),
+    });
+    const body = await response.json();
+
+    expect(getBillingOverrides()).toEqual({});
+    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5");
+    expect(opus.billingMode).toBeUndefined();
+    expect(opus.billingOverride).toBeUndefined();
+  });
+
+  test("PUT /models/billing rejects a malformed body", async () => {
+    for (const body of [
+      '{"billing":"api"}',
+      '{"billing":["api"]}',
+      '{"billing":{"claude-opus-5":"free"}}',
+      "{}",
+    ]) {
+      const response = await modelRoutes.request("/models/billing", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(getBillingOverrides()).toEqual({});
   });
 });

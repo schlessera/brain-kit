@@ -9,11 +9,17 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import type {
+  BillingMode,
   ModelCatalogEntry,
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
-import { getHiddenModelIds, setHiddenModelIds } from "../db/settings.js";
+import {
+  getBillingOverrides,
+  getHiddenModelIds,
+  setBillingOverrides,
+  setHiddenModelIds,
+} from "../db/settings.js";
 
 export function createModelRoutes(deps: {
   registry: BackendRegistry;
@@ -26,9 +32,17 @@ export function createModelRoutes(deps: {
   async function buildCatalog(): Promise<ModelCatalogResponse> {
   const source = await registry.getModelSource();
   const hidden = new Set(getHiddenModelIds(db));
+  const overrides = getBillingOverrides(db);
+  // `billingMode` already rides each provider entry (the registry applies the
+  // override last); the catalog additionally tags WHICH rows carry an explicit
+  // override, so the settings screen can render auto vs forced.
   const models: ModelCatalogEntry[] = (
     await registry.listAllProviders({ includeHidden: true })
-  ).map((profile) => ({ ...profile, hidden: hidden.has(profile.id) }));
+  ).map((profile) => ({
+    ...profile,
+    hidden: hidden.has(profile.id),
+    ...(overrides[profile.id] ? { billingOverride: overrides[profile.id] } : {}),
+  }));
 
   const state = source?.state();
   return {
@@ -63,6 +77,30 @@ export function createModelRoutes(deps: {
 
     setHiddenModelIds(db, hidden as string[]);
     // The picker reads through a memo — drop it so the change is immediate.
+    registry.invalidateProfiles();
+    return c.json(await buildCatalog());
+  })
+
+  .put("/models/billing", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const billing = (body as { billing?: unknown } | null)?.billing;
+    if (
+      typeof billing !== "object" ||
+      billing === null ||
+      Array.isArray(billing) ||
+      Object.values(billing).some(
+        (mode) => mode !== "subscription" && mode !== "api"
+      )
+    ) {
+      return c.json(
+        { error: 'billing must map profile ids to "subscription" or "api"' },
+        400
+      );
+    }
+
+    setBillingOverrides(db, billing as Record<string, BillingMode>);
+    // Same memo discipline as the hidden set: the next roster read (and the
+    // next run's classification) must see the override immediately.
     registry.invalidateProfiles();
     return c.json(await buildCatalog());
   })

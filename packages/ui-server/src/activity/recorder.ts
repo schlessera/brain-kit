@@ -28,6 +28,7 @@ import {
   SPAN_OP_EXECUTE_TOOL,
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
+  type BillingMode,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -56,7 +57,14 @@ export interface TurnRecorder {
 
 export function createTurnRecorder(
   deps: TurnRecorderDeps,
-  turn: { turnId: string; sessionId: string | null }
+  turn: {
+    turnId: string;
+    sessionId: string | null;
+    /** The RESOLVED inference profile this turn runs on (post pin-drop fallback). */
+    profileId?: string;
+    /** Billing classification of that profile, resolved at run start (U3). */
+    billingMode?: BillingMode;
+  }
 ): TurnRecorder {
   const { store, onWrite, log } = deps;
   const runId = turn.turnId;
@@ -91,7 +99,14 @@ export function createTurnRecorder(
       kind: "turn",
       origin: "session",
       sessionId,
-      attrs: { "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT },
+      // Profile + billing ride the ROOT span so the rollup can price the run
+      // without any registry or env lookup of its own (a root missing the
+      // billing attr falls back to env classification at rollup time).
+      attrs: {
+        "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT,
+        ...(turn.profileId ? { "brain.profile_id": turn.profileId } : {}),
+        ...(turn.billingMode ? { "brain.billing_mode": turn.billingMode } : {}),
+      },
     });
     onWrite?.();
   }

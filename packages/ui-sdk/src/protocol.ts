@@ -484,6 +484,12 @@ export interface ProviderInfo {
    * only — the client must not switch behavior on it.
    */
   source?: "builtin" | "declared" | "discovered";
+  /**
+   * Resolved billing classification for runs on this profile (additive) —
+   * declared-credential and settings-override rules already applied. Absent
+   * when the host cannot classify the profile.
+   */
+  billingMode?: BillingMode;
 }
 
 // --- Model catalog (HTTP: /api/models) ---
@@ -492,6 +498,12 @@ export interface ProviderInfo {
 export interface ModelCatalogEntry extends ProviderInfo {
   /** Hidden profiles are omitted from the picker but still resolve for pinned sessions. */
   hidden: boolean;
+  /**
+   * Explicit billing override stored for this profile (additive), when one is
+   * set. Absent = auto — `billingMode` then reflects the derived
+   * classification rather than a user choice.
+   */
+  billingOverride?: BillingMode;
 }
 
 /** Response of GET /api/models, PUT /api/models/hidden, POST /api/models/refresh. */
@@ -512,6 +524,14 @@ export interface ModelCatalogResponse {
 /** Body of PUT /api/models/hidden — the complete hidden set, not a delta. */
 export interface SetHiddenModelsRequest {
   hidden: string[];
+}
+
+/**
+ * Body of PUT /api/models/billing — the complete override record, not a
+ * delta. A profile absent from the record is "auto" (derived classification).
+ */
+export interface SetBillingOverridesRequest {
+  billing: Record<string, BillingMode>;
 }
 
 // --- Shared Types ---
