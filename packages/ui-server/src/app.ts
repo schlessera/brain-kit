@@ -35,6 +35,7 @@ import {
 import { createUiDb } from "./db/client.js";
 import { getBillingOverrides, getHiddenModelIds } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
+import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
@@ -175,9 +176,23 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
 
+  // Model pricing for rollup-time effective cost: constructed here because
+  // the config owns enabled/TTL/brainPath, shared through the activity
+  // runtime. The first refresh warms in the background — ensureFresh never
+  // rejects and no rollup ever waits on the network (resolve() is sync).
+  const pricing = createModelPricing({
+    brainPath: config.brainPath,
+    enabled: config.pricing.enabled,
+    ttlMs: config.pricing.ttlMs,
+  });
+  void pricing.ensureFresh();
+
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
-  const activity = createActivityRuntime(db, { log: observability.logger("activity") });
+  const activity = createActivityRuntime(db, {
+    log: observability.logger("activity"),
+    pricing,
+  });
   const registry =
     options.registry ??
     createBackendRegistry({

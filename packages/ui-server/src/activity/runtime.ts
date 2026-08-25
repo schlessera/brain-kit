@@ -13,7 +13,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
 
-import { createActivityStore, type ActivityStore } from "./store.js";
+import { createActivityStore, type ActivityStore, type RollupPricing } from "./store.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
@@ -44,10 +44,18 @@ export interface ActivityRuntime {
 
 export function createActivityRuntime(
   db: Database,
-  deps: { log: Logger }
+  deps: {
+    log: Logger;
+    /**
+     * The app's shared model-pricing instance, for rollup-time effective
+     * cost. Optional so embedders without one fall back to the store's own
+     * env-derived default (the same instance shape, just not shared).
+     */
+    pricing?: RollupPricing;
+  }
 ): ActivityRuntime {
   const { log } = deps;
-  const store = createActivityStore(db);
+  const store = createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
 
   // The notifier is created BEFORE the boot sweep: its change cursor starts

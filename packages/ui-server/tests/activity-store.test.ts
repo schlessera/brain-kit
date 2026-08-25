@@ -4,8 +4,11 @@ import { createUiDb } from "../src/db/client.js";
 import {
   createActivityStore,
   MAX_EVENT_PAYLOAD_BYTES,
+  rowToRunRollup,
   type ActivityStore,
+  type RollupPricing,
 } from "../src/activity/store.js";
+import type { PricingRates } from "../src/pricing/model-pricing.js";
 import {
   getDetailRetentionDays,
   setDetailRetentionDays,
@@ -369,5 +372,373 @@ describe("activity store: detail retention window", () => {
       "UPDATE settings SET value = 'not json' WHERE key = 'activity.retention.detailDays'"
     ).run();
     expect(getDetailRetentionDays(db)).toBe(7);
+  });
+});
+
+describe("activity store: effective cost (migration 010)", () => {
+  /** Fake pricing table — never the real service; resolve stays sync + local. */
+  function fakePricing(rates: Record<string, Partial<PricingRates>>): RollupPricing {
+    return {
+      resolve(modelId) {
+        const r = rates[modelId];
+        if (!r) return null;
+        return {
+          input: r.input ?? 0,
+          output: r.output ?? 0,
+          cacheRead: r.cacheRead !== undefined ? r.cacheRead : null,
+          cacheWrite: r.cacheWrite !== undefined ? r.cacheWrite : null,
+          estimate: r.estimate ?? false,
+          source: r.source ?? "litellm",
+        };
+      },
+    };
+  }
+
+  function pricedStore(rates: Record<string, Partial<PricingRates>>) {
+    const db = createUiDb(":memory:");
+    return { db, store: createActivityStore(db, { pricing: fakePricing(rates) }) };
+  }
+
+  /** Set/unset env vars for the duration of `fn`, restoring exactly. */
+  function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
+    const saved: Record<string, string | undefined> = {};
+    for (const key of Object.keys(vars)) {
+      saved[key] = process.env[key];
+      const value = vars[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      fn();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  type PerModel = Record<
+    string,
+    {
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+    }
+  >;
+
+  /** Seed one finished session run and roll it up. */
+  function sessionRun(
+    store: ActivityStore,
+    runId: string,
+    opts: { billing?: "subscription" | "api"; perModel?: PerModel; costUsd?: number } = {}
+  ) {
+    store.startSpan({
+      spanId: `${runId}-root`,
+      runId,
+      name: "invoke_agent",
+      kind: "turn",
+      origin: "session",
+      sessionId: "sess-1",
+      attrs: opts.billing
+        ? { "brain.billing_mode": opts.billing, "brain.profile_id": "default" }
+        : {},
+    });
+    store.endSpan(`${runId}-root`, {
+      outcome: "success",
+      ...(opts.costUsd !== undefined ? { usage: { costUsd: opts.costUsd } } : {}),
+      ...(opts.perModel ? { attrs: { "gen_ai.usage.per_model": opts.perModel } } : {}),
+    });
+    store.rollupRun(runId);
+  }
+
+  function rollupOf(db: ReturnType<typeof createUiDb>, runId: string) {
+    return db.query("SELECT * FROM activity_run_rollups WHERE run_id = ?").get(runId) as any;
+  }
+
+  test("the rollup table carries the three nullable columns (migration applies)", () => {
+    const { db } = freshStore();
+    const columns = (
+      db.query("PRAGMA table_info(activity_run_rollups)").all() as Array<{
+        name: string;
+        notnull: number;
+      }>
+    ).filter((c) => ["effective_cost_usd", "billing_mode", "pricing_estimate"].includes(c.name));
+    expect(columns.map((c) => c.name).sort()).toEqual([
+      "billing_mode",
+      "effective_cost_usd",
+      "pricing_estimate",
+    ]);
+    expect(columns.every((c) => c.notnull === 0)).toBe(true);
+  });
+
+  test("subscription-billed cache-heavy run rolls up effective $0, list gap-filled (AE1)", () => {
+    const { db, store } = pricedStore({
+      "claude-sonnet-4-6": { input: 3e-6, output: 15e-6, cacheRead: 3e-7, cacheWrite: 3.75e-6 },
+    });
+    sessionRun(store, "run-1", {
+      billing: "subscription",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 500, cacheReadTokens: 2_000_000 } },
+    });
+    const r = rollupOf(db, "run-1");
+    // Effective is $0 — not NULL, not the cache-read price.
+    expect(r.effective_cost_usd).toBe(0);
+    expect(r.billing_mode).toBe("subscription");
+    expect(r.pricing_estimate).toBe(0); // a subscription $0 is exact
+    // The backend reported no cost, so list gap-fills from the same token math.
+    expect(r.cost_usd).toBeCloseTo(500 * 3e-6 + 2_000_000 * 3e-7, 10);
+  });
+
+  test("api-billed run prices per-model usage; a routing variant is an estimate (AE2)", () => {
+    const { db, store } = pricedStore({
+      "z-ai/glm-4.7": { input: 1e-6, output: 2e-6, source: "openrouter" },
+    });
+    // The :nitro id has no catalog price of its own — priced at the base
+    // rate and flagged estimate.
+    sessionRun(store, "run-nitro", {
+      billing: "api",
+      perModel: { "z-ai/glm-4.7:nitro": { inputTokens: 100_000, outputTokens: 5_000 } },
+    });
+    const nitro = rollupOf(db, "run-nitro");
+    expect(nitro.effective_cost_usd).toBeCloseTo(0.11, 10);
+    expect(nitro.billing_mode).toBe("api");
+    expect(nitro.pricing_estimate).toBe(1);
+    expect(nitro.cost_usd).toBeCloseTo(0.11, 10); // gap-filled list
+
+    // The exact catalog id is NOT an estimate...
+    sessionRun(store, "run-exact", {
+      billing: "api",
+      perModel: { "z-ai/glm-4.7": { inputTokens: 1_000 } },
+    });
+    expect(rollupOf(db, "run-exact").pricing_estimate).toBe(0);
+
+    // ...but snapshot-sourced rates are.
+    const snap = pricedStore({
+      "claude-sonnet-4-6": { input: 3e-6, output: 15e-6, estimate: true, source: "snapshot" },
+    });
+    sessionRun(snap.store, "run-snap", {
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 1_000 } },
+    });
+    expect(rollupOf(snap.db, "run-snap").pricing_estimate).toBe(1);
+  });
+
+  test("a model unknown to pricing rolls up NULL, never $0 (AE3)", () => {
+    const { db, store } = pricedStore({});
+    sessionRun(store, "run-1", {
+      billing: "api",
+      perModel: { "mystery-model": { inputTokens: 10_000 } },
+    });
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+    expect(r.billing_mode).toBe("api");
+    expect(r.cost_usd).toBeNull();
+    // The rollup row is otherwise complete.
+    expect(r.outcome).toBe("success");
+    expect(r.span_count).toBe(1);
+    // rowToRunRollup maps the triple, NULLs staying null (not false/0).
+    const mapped = rowToRunRollup(r);
+    expect(mapped.effectiveCostUsd).toBeNull();
+    expect(mapped.billingMode).toBe("api");
+    expect(mapped.pricingEstimate).toBeNull();
+  });
+
+  test("a consumed token class with no rate poisons the whole run", () => {
+    const rates = { "claude-sonnet-4-6": { input: 3e-6, output: 15e-6 } }; // no cache rates
+    const { db, store } = pricedStore(rates);
+    sessionRun(store, "run-cached", {
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 100, cacheReadTokens: 50 } },
+    });
+    // Cache tokens consumed, cache rate unknown: pricing the gap at zero
+    // would systematically understate — whole run unknown instead.
+    expect(rollupOf(db, "run-cached").effective_cost_usd).toBeNull();
+
+    // The same rate prices a run that consumed no cache.
+    sessionRun(store, "run-plain", {
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 100 } },
+    });
+    expect(rollupOf(db, "run-plain").effective_cost_usd).toBeCloseTo(100 * 3e-6, 12);
+  });
+
+  test("backend-reported cost stays authoritative; effective is the priced number", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6, output: 1e-6 } });
+    sessionRun(store, "run-1", {
+      billing: "api",
+      costUsd: 1.23,
+      perModel: { m: { inputTokens: 1_000 } },
+    });
+    const r = rollupOf(db, "run-1");
+    expect(r.cost_usd).toBe(1.23); // never overwritten by the computed list price
+    expect(r.effective_cost_usd).toBeCloseTo(0.001, 10);
+  });
+
+  test("no usage rolls up NULL (denied before inference); zero tokens roll up $0 free", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6, output: 1e-6 } });
+    sessionRun(store, "run-denied", { billing: "api" }); // no per-model attr at all
+    const denied = rollupOf(db, "run-denied");
+    expect(denied.effective_cost_usd).toBeNull();
+    expect(denied.pricing_estimate).toBeNull();
+
+    sessionRun(store, "run-zero", {
+      billing: "api",
+      perModel: { m: { inputTokens: 0, outputTokens: 0 } },
+    });
+    const zero = rollupOf(db, "run-zero");
+    expect(zero.effective_cost_usd).toBe(0);
+    expect(zero.pricing_estimate).toBe(0);
+  });
+
+  test("the effective triple is frozen across re-rollups (AE5)", () => {
+    const db = createUiDb(":memory:");
+    const first = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
+    sessionRun(first, "run-1", { billing: "api", perModel: { m: { inputTokens: 1_000 } } });
+    expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.001, 10);
+
+    // A sweep-style re-rollup after a price change (2x) must not reprice.
+    const second = createActivityStore(db, { pricing: fakePricing({ m: { input: 2e-6 } }) });
+    second.rollupRun("run-1");
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeCloseTo(0.001, 10);
+    expect(r.billing_mode).toBe("api");
+    expect(r.pricing_estimate).toBe(0);
+  });
+
+  test("re-rollup with broken pricing never erases previously computed values", () => {
+    const db = createUiDb(":memory:");
+    const first = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
+    sessionRun(first, "run-1", { billing: "api", perModel: { m: { inputTokens: 1_000 } } });
+    expect(rollupOf(db, "run-1").cost_usd).toBeCloseTo(0.001, 10); // gap-filled
+
+    // Pricing gone (disabled/cold): NULL must not clobber the stored values.
+    const broken = createActivityStore(db, { pricing: fakePricing({}) });
+    broken.rollupRun("run-1");
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeCloseTo(0.001, 10);
+    expect(r.cost_usd).toBeCloseTo(0.001, 10);
+    expect(r.pricing_estimate).toBe(0);
+  });
+
+  test("a NULL effective cost may be filled by a later rollup (freeze guards non-NULL only)", () => {
+    const db = createUiDb(":memory:");
+    const cold = createActivityStore(db, { pricing: fakePricing({}) });
+    sessionRun(cold, "run-1", { billing: "api", perModel: { m: { inputTokens: 1_000 } } });
+    expect(rollupOf(db, "run-1").effective_cost_usd).toBeNull();
+
+    const warm = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
+    warm.rollupRun("run-1");
+    expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.001, 10);
+  });
+
+  /** Seed one finished cron run with per-child usage and roll it up. */
+  function cronRun(
+    store: ActivityStore,
+    runId: string,
+    children: Array<{ model?: string; inputTokens?: number; outputTokens?: number }>
+  ) {
+    store.startSpan({
+      spanId: `${runId}-root`,
+      runId,
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+    });
+    children.forEach((child, i) => {
+      const spanId = `${runId}-child-${i}`;
+      store.startSpan({
+        spanId,
+        runId,
+        parentSpanId: `${runId}-root`,
+        name: "invoke_agent",
+        kind: "turn",
+        origin: "cron",
+        jobName: "sync",
+      });
+      const { model, ...tokens } = child;
+      store.endSpan(spanId, {
+        outcome: "success",
+        ...(Object.keys(child).length > 0
+          ? { usage: { ...tokens, ...(model ? { model } : {}) } }
+          : {}),
+      });
+    });
+    store.endSpan(`${runId}-root`, { outcome: "success" });
+    store.rollupRun(runId);
+  }
+
+  test("cron runs classify from the executing process env and price summed children", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6, output: 2e-6 } });
+
+    // Subscription credentials in THIS process (the wrapper's own env for
+    // real cron rollups): free regardless of tokens.
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: undefined }, () => {
+      cronRun(store, "cron-sub", [{ model: "m", inputTokens: 1_000 }]);
+    });
+    const sub = rollupOf(db, "cron-sub");
+    expect(sub.billing_mode).toBe("subscription");
+    expect(sub.effective_cost_usd).toBe(0);
+
+    // API key wins over the OAuth token (the Agent SDK's own precedence):
+    // children priced, grouped by model and summed.
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: "key" }, () => {
+      cronRun(store, "cron-api", [
+        { model: "m", inputTokens: 1_000, outputTokens: 100 },
+        { model: "m", inputTokens: 2_000 },
+      ]);
+    });
+    const api = rollupOf(db, "cron-api");
+    expect(api.billing_mode).toBe("api");
+    expect(api.effective_cost_usd).toBeCloseTo(3_000 * 1e-6 + 100 * 2e-6, 12);
+    expect(api.cost_usd).toBeCloseTo(3_000 * 1e-6 + 100 * 2e-6, 12); // gap-filled
+  });
+
+  test("a cron run with an unpriceable child rolls up NULL (whole-run unknown)", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6, output: 2e-6 } });
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: "key" }, () => {
+      // One priceable child, one on a model the table lacks.
+      cronRun(store, "cron-mixed", [
+        { model: "m", inputTokens: 1_000 },
+        { model: "mystery", inputTokens: 500 },
+      ]);
+      // Tokens with no model at all are equally unpriceable.
+      cronRun(store, "cron-modelless", [{ inputTokens: 500 }]);
+      // No child usage anywhere: unknown, not free.
+      cronRun(store, "cron-silent", [{}]);
+    });
+    for (const runId of ["cron-mixed", "cron-modelless", "cron-silent"]) {
+      const r = rollupOf(db, runId);
+      expect(r.effective_cost_usd).toBeNull();
+      expect(r.pricing_estimate).toBeNull();
+      expect(r.billing_mode).toBe("api");
+    }
+  });
+
+  test("a root billing attr beats the process env", () => {
+    const { db, store } = pricedStore({});
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: undefined }, () => {
+      // Env says subscription; the recorder said api at run start — attr wins.
+      sessionRun(store, "run-1", { billing: "api" });
+    });
+    expect(rollupOf(db, "run-1").billing_mode).toBe("api");
+  });
+
+  test("pre-feature-shaped runs (no billing attrs, no pricing hit) stay unknown", () => {
+    // The default (non-injected) pricing seam is disabled under NODE_ENV=test,
+    // so this also exercises the bare createActivityStore(db) path the cron
+    // wrapper uses — without touching disk or network.
+    const { db, store } = freshStore();
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: "key" }, () => {
+      sessionRun(store, "run-1", {
+        perModel: { "claude-sonnet-4-6": { inputTokens: 1_000 } },
+      });
+    });
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+    expect(r.cost_usd).toBeNull();
   });
 });
