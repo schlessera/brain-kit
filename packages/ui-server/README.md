@@ -83,6 +83,8 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_MODEL_DISCOVERY` | Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
 | `BRAIN_UI_MODEL_TTL_HOURS` | How long a model-discovery result stays fresh, in hours. | 24 |
 | `BRAIN_UI_PASSWORD_HASH` | Bun.password argon2id hash of the shared password. | **required** — AUTH_MODE=password |
+| `BRAIN_UI_PRICING_DISCOVERY` | Remote model-pricing refresh (LiteLLM + OpenRouter catalogs); "0"/"off"/"false" disables, and runs then roll up with unknown effective cost. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
+| `BRAIN_UI_PRICING_TTL_HOURS` | How long a fetched model-pricing table stays fresh, in hours. | 24 |
 | `BRAIN_UI_TURN_TIMEOUT_MS` | Hard per-turn timeout in ms; the host aborts a turn that runs past it. Raise for agent-heavy research work (e.g. 1800000 for 30 minutes). | 600000 (10 minutes) |
 | `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
@@ -93,7 +95,7 @@ Every variable this package reads, and what happens when it is unset.
 | `HOME` | Fallback anchor for the BRAIN_PATH default only. | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
-| `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery default to off under bun test. Never gates any security behavior. | (unset) |
+| `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior. | (unset) |
 | `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
 | `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |

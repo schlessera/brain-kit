@@ -271,9 +271,22 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PRICING_DISCOVERY",
+    description:
+      'Remote model-pricing refresh (LiteLLM + OpenRouter catalogs); "0"/"off"/"false" disables, and runs then roll up with unknown effective cost. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF.',
+    default: "on (off under NODE_ENV=test)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_PRICING_TTL_HOURS",
+    description: "How long a fetched model-pricing table stays fresh, in hours.",
+    default: "24",
+    required: false,
+  },
+  {
     name: "NODE_ENV",
     description:
-      "Only consulted for test-runner detection: flips the model-discovery default to off under bun test. Never gates any security behavior.",
+      "Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior.",
     default: "(unset)",
     required: false,
   },
@@ -380,6 +393,8 @@ export interface ServerConfig {
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
   voice: VoiceConfig;
+  /** Model-pricing service (BRAIN_UI_PRICING_*); inline like wsRate. */
+  pricing: { enabled: boolean; ttlMs: number };
 }
 
 // --- resolver ----------------------------------------------------------------
@@ -453,6 +468,11 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
+  const pricingDiscovery = envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test");
+
+  const rawPricingTtl = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
+  const pricingTtlHours = Number.isFinite(rawPricingTtl) && rawPricingTtl > 0 ? rawPricingTtl : 24;
+
   return {
     brainPath,
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
@@ -505,6 +525,10 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
       keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
+    },
+    pricing: {
+      enabled: pricingDiscovery,
+      ttlMs: pricingTtlHours * 60 * 60 * 1000,
     },
   };
 }
