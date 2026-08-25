@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "fetchedAt": 0,
+  "snapshot": true,
+  "litellm": {
+    "fetchedAt": null,
+    "rates": {
+      "claude-opus-4-6": {
+        "input": 1.5e-5,
+        "output": 7.5e-5,
+        "cacheRead": 1.5e-6,
+        "cacheWrite": 1.875e-5
+      },
+      "claude-sonnet-4-5": {
+        "input": 3e-6,
+        "output": 1.5e-5,
+        "cacheRead": 3e-7,
+        "cacheWrite": 3.75e-6
+      },
+      "claude-haiku-4-5": {
+        "input": 1e-6,
+        "output": 5e-6,
+        "cacheRead": 1e-7,
+        "cacheWrite": 1.25e-6
+      },
+      "gemini/gemini-2.5-pro": {
+        "input": 1.25e-6,
+        "output": 1e-5,
+        "cacheRead": 3.125e-7,
+        "cacheWrite": null
+      },
+      "gemini/gemini-2.5-flash": {
+        "input": 3e-7,
+        "output": 2.5e-6,
+        "cacheRead": 7.5e-8,
+        "cacheWrite": null
+      }
+    }
+  },
+  "openrouter": {
+    "fetchedAt": null,
+    "rates": {
+      "z-ai/glm-4.7": {
+        "input": 6e-7,
+        "output": 2.2e-6,
+        "cacheRead": 1.1e-7,
+        "cacheWrite": null
+      },
+      "openai/gpt-oss-120b": {
+        "input": 1e-7,
+        "output": 5e-7,
+        "cacheRead": null,
+        "cacheWrite": null
+      },
+      "google/gemma-4-31b-it": {
+        "input": 1e-7,
+        "output": 3e-7,
+        "cacheRead": null,
+        "cacheWrite": null
+      }
+    }
+  }
+}

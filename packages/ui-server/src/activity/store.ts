@@ -31,6 +31,13 @@
  * loud one.
  */
 import type { Database } from "bun:sqlite";
+import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+
+import {
+  resolveAmbientBillingMode,
+  resolveStandalonePricingConfig,
+} from "../config/env.js";
+import { createModelPricing, type PricingRates } from "../pricing/model-pricing.js";
 
 export const SPAN_OUTCOMES = [
   "success",
@@ -101,6 +108,16 @@ export interface RunRollupRow {
   cacheReadTokens: number | null;
   cacheCreationTokens: number | null;
   costUsd: number | null;
+  /**
+   * What the run actually cost, frozen at first computation (migration 010):
+   * 0 for subscription-billed work regardless of tokens, priced usage for
+   * api-billed. NULL = unknown, 0 = genuinely free.
+   */
+  effectiveCostUsd: number | null;
+  /** Billing classification behind `effectiveCostUsd`; NULL = unknown. */
+  billingMode: BillingMode | null;
+  /** True when the effective cost was computed from estimated rates. */
+  pricingEstimate: boolean | null;
   failureReason: string | null;
   detailPruned: boolean;
 }
@@ -123,9 +140,32 @@ export function rowToRunRollup(r: any): RunRollupRow {
     cacheReadTokens: r.cache_read_tokens,
     cacheCreationTokens: r.cache_creation_tokens,
     costUsd: r.cost_usd,
+    effectiveCostUsd: r.effective_cost_usd ?? null,
+    // Migration 010 CHECKs this column, but a row written around them (older
+    // binary, manual edit) must degrade to unknown, never to a wrong mode.
+    billingMode: isBillingMode(r.billing_mode) ? r.billing_mode : null,
+    pricingEstimate: r.pricing_estimate == null ? null : r.pricing_estimate === 1,
     failureReason: r.failure_reason,
     detailPruned: r.detail_pruned === 1,
   };
+}
+
+/**
+ * Sum-of-KNOWNS over effective costs: unknown (NULL) rows contribute nothing
+ * to the sum and are counted instead, so no aggregate can pass an unknown off
+ * as $0 (AE3). One definition for every reader that folds rollup rows.
+ */
+export function sumEffectiveCost(rows: Array<{ effectiveCostUsd: number | null }>): {
+  effectiveCostUsd: number;
+  unpricedRuns: number;
+} {
+  let effectiveCostUsd = 0;
+  let unpricedRuns = 0;
+  for (const row of rows) {
+    if (row.effectiveCostUsd === null) unpricedRuns += 1;
+    else effectiveCostUsd += row.effectiveCostUsd;
+  }
+  return { effectiveCostUsd, unpricedRuns };
 }
 
 /** One committed write, as the delta stream sees it. */
@@ -169,6 +209,10 @@ export interface PruneOptions {
   /** Spans of runs that ended before this are prunable (digest floor).
    *  Absolute epoch ms, not an offset. */
   digestFloorAt: number;
+  /** Minimum age (ms since ended) a run must reach before the digest floor
+   *  may prune its detail. 0 reproduces floor-only pruning. The hard
+   *  ceiling ignores it. */
+  detailRetentionMs: number;
   /** Runs older than this are pruned REGARDLESS of the digest floor. */
   hardCeilingMs: number;
   now?: number;
@@ -178,7 +222,6 @@ export interface PruneOptions {
 
 /** A single event payload is capped so no delta can approach the WS frame cap. */
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
-export const TRUNCATION_MARKER = "…[truncated]";
 
 export interface ActivityStore {
   readonly writer: string;
@@ -195,7 +238,19 @@ export interface ActivityStore {
     spanId: string,
     patch: { attrs?: Record<string, unknown>; usage?: SpanUsage; waitUntil?: number }
   ): boolean;
-  appendEvent(spanId: string, eventType: string, payload: unknown, ts?: number): SpanEventRow | null;
+  /**
+   * Append one event; null (nothing written) for an unknown span. `cap`
+   * lowers the payload size cap for this call — the store's 16 KB invariant
+   * is the ceiling regardless. A capped payload is clipped and flagged
+   * `truncated`.
+   */
+  appendEvent(
+    spanId: string,
+    eventType: string,
+    payload: unknown,
+    ts?: number,
+    cap?: number
+  ): SpanEventRow | null;
   /** External writers touch their root span so staleness is heartbeat-age based. */
   heartbeat(spanId: string, at?: number): void;
   /** Close every open span of a run as `outcome` (children first), reason on all. */
@@ -227,9 +282,27 @@ export interface ActivityStore {
   prune(options: PruneOptions): { runsPruned: number; spansDeleted: number };
 }
 
+/**
+ * The pricing dependency rollups price through. `resolve` MUST be synchronous
+ * — it is called inside the rollup write transaction, which never awaits.
+ */
+export interface RollupPricing {
+  resolve(modelId: string): PricingRates | null;
+}
+
 export interface CreateActivityStoreOptions {
   /** Process identity stamped on every span this store writes. */
   writer?: string;
+  /**
+   * Pricing seam for rollup-time effective cost. Defaults to an env-derived
+   * `createModelPricing` instance (the `$BRAIN_PATH` cache and the bundled
+   * snapshot are both synchronous reads), constructed on first rollup — so
+   * the cron wrapper's bare `createActivityStore(db)` prices identically to
+   * the server with no wiring of its own. Tests inject a fake to stay
+   * network- and disk-free (the default is also disabled under NODE_ENV=test,
+   * mirroring the discovery flag's default).
+   */
+  pricing?: RollupPricing;
 }
 
 export function createActivityStore(
@@ -237,6 +310,16 @@ export function createActivityStore(
   options: CreateActivityStoreOptions = {}
 ): ActivityStore {
   const writer = options.writer ?? `pid:${process.pid}:${Date.now()}`;
+
+  // Lazy so a store that never rolls up (span-only paths, most tests)
+  // touches neither the env nor the disk. The env reads live in
+  // config/env.ts — the one chokepoint the env-access gate allows. Every
+  // wrapper whose transaction can reach rollupRunInTx calls this BEFORE
+  // entering `inWrite`, so the SQLite write lock never covers the two
+  // synchronous JSON reads construction costs.
+  let pricing: RollupPricing | undefined = options.pricing;
+  const getPricing = (): RollupPricing =>
+    (pricing ??= createModelPricing(resolveStandalonePricingConfig()));
 
   // bun:sqlite transactions: `.immediate` takes the write lock up front, so a
   // concurrent writer waits (busy_timeout) instead of failing mid-upgrade.
@@ -375,19 +458,95 @@ export function createActivityStore(
       spans.find(
         (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
+
+    // Billing rides the root span when the recorder knew it at run start
+    // (session runs, U3). A root without the attr classifies from THIS
+    // process's env ONLY for non-session origins: for cron rollups the
+    // executing process is the wrapper itself — exactly the credential set
+    // the job's agent authenticated under — so classification and reality
+    // move together. A SESSION root without the attr (a custom backend the
+    // registry could not classify, or a failed profile resolution) stays
+    // unknown instead: this process's ambient credentials say nothing about
+    // whichever backend ran the turn, and a wrong subscription-$0 would
+    // freeze forever where unknown stays honestly unpriced.
+    const attrBilling = root.attrs["brain.billing_mode"];
+    const billingMode: BillingMode | null = isBillingMode(attrBilling)
+      ? attrBilling
+      : root.origin === "session"
+        ? null
+        : resolveAmbientBillingMode();
+
+    // List-price math runs regardless of billing mode: it gap-fills a
+    // missing backend cost_usd (pi without snapshots, cron) AND provides the
+    // api-billed effective number. resolve() is synchronous by contract —
+    // nothing here may await inside the write transaction.
+    const usage = usageForPricing(root, spans);
+    const priced =
+      usage.kind === "usage" ? priceUsage(usage.byModel, getPricing()) : null;
+
+    // Effective-cost semantics (NULL = unknown, 0 = genuinely free):
+    // subscription → 0 regardless of tokens (AE1); api → the priced sum —
+    // 0 when the run verifiably consumed nothing, NULL when usage was never
+    // recorded (denied before inference) or any contributing model/rate is
+    // missing. The estimate flag qualifies the effective number, so it is
+    // NULL exactly when that is, and 0 for a subscription $0 (exact, not
+    // estimated).
+    // An unclassified run (billingMode null — session root without the
+    // attr) prices as unknown: no subscription-zero, no api pricing.
+    const effectiveCostUsd =
+      billingMode === null ? null : billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
+    const pricingEstimate =
+      billingMode === null
+        ? null
+        : billingMode === "subscription"
+          ? 0
+          : priced
+            ? (priced.estimate ? 1 : 0)
+            : null;
+    const costUsd = root.usage.costUsd ?? priced?.costUsd ?? null;
+
     db.query(
       `INSERT INTO activity_run_rollups
          (run_id, origin, name, session_id, job_name, started_at, ended_at, outcome,
           duration_ms, span_count, input_tokens, output_tokens, cache_read_tokens,
-          cache_creation_tokens, cost_usd, failure_reason, detail_pruned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+          cache_creation_tokens, cost_usd, effective_cost_usd, billing_mode,
+          pricing_estimate, failure_reason, detail_pruned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(run_id) DO UPDATE SET
          ended_at = excluded.ended_at, outcome = excluded.outcome,
          duration_ms = excluded.duration_ms, span_count = excluded.span_count,
          input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
          cache_read_tokens = excluded.cache_read_tokens,
          cache_creation_tokens = excluded.cache_creation_tokens,
-         cost_usd = excluded.cost_usd, failure_reason = excluded.failure_reason`
+         cost_usd = COALESCE(activity_run_rollups.cost_usd, excluded.cost_usd),
+         effective_cost_usd = CASE
+           WHEN activity_run_rollups.effective_cost_usd IS NOT NULL
+             THEN activity_run_rollups.effective_cost_usd
+           WHEN activity_run_rollups.billing_mode IS NULL
+             OR activity_run_rollups.billing_mode = excluded.billing_mode
+             THEN excluded.effective_cost_usd
+           ELSE NULL
+         END,
+         billing_mode = COALESCE(activity_run_rollups.billing_mode, excluded.billing_mode),
+         pricing_estimate = CASE
+           WHEN activity_run_rollups.pricing_estimate IS NOT NULL
+             THEN activity_run_rollups.pricing_estimate
+           WHEN activity_run_rollups.billing_mode IS NULL
+             OR activity_run_rollups.billing_mode = excluded.billing_mode
+             THEN excluded.pricing_estimate
+           ELSE NULL
+         END,
+         failure_reason = excluded.failure_reason`
+      // Every cost column is FROZEN at first non-NULL write (AE5): a re-rollup
+      // after a pricing refresh must not silently reprice history — only a
+      // still-NULL slot may be filled by a later computation. cost_usd gets
+      // the plain first-write-wins COALESCE (the terminal endSpan already
+      // merged the backend's authoritative number before the first rollup).
+      // The effective/estimate pair additionally requires the LATER fill to
+      // agree with the frozen classification: billing_mode is first-write-wins,
+      // and a slot left NULL under one classification must never be filled by
+      // a number computed under a different one (a subscription $0 landing on
+      // an api-classified row would fabricate a cross-classified price).
     ).run(
       runId,
       root.origin,
@@ -403,7 +562,10 @@ export function createActivityStore(
       root.usage.outputTokens ?? null,
       root.usage.cacheReadTokens ?? null,
       root.usage.cacheCreationTokens ?? null,
-      root.usage.costUsd ?? null,
+      costUsd,
+      effectiveCostUsd,
+      billingMode,
+      pricingEstimate,
       failure
     );
   }
@@ -477,7 +639,7 @@ export function createActivityStore(
       });
     },
 
-    appendEvent(spanId, eventType, payload, ts) {
+    appendEvent(spanId, eventType, payload, ts, cap) {
       return inWrite(() => {
         const span = db
           .query("SELECT run_id FROM activity_spans WHERE span_id = ?")
@@ -488,15 +650,21 @@ export function createActivityStore(
             "SELECT COALESCE(MAX(event_index), -1) + 1 AS idx FROM activity_events WHERE span_id = ?"
           )
           .get(spanId) as { idx: number };
-        const stored = capPayload(payload);
+        const stored = capPayload(payload, cap);
+        const at = ts ?? Date.now();
         db.query(
           "INSERT INTO activity_events (span_id, event_index, ts, event_type, payload) VALUES (?, ?, ?, ?, ?)"
-        ).run(spanId, next.idx, ts ?? Date.now(), eventType, JSON.stringify(stored));
+        ).run(spanId, next.idx, at, eventType, JSON.stringify(stored));
         logChange(span.run_id, nextSeq(span.run_id), spanId, next.idx);
-        const r = db
-          .query("SELECT * FROM activity_events WHERE span_id = ? AND event_index = ?")
-          .get(spanId, next.idx);
-        return rowToEvent(r);
+        // Built from the values just written — no read-back needed.
+        return {
+          spanId,
+          eventIndex: next.idx,
+          ts: at,
+          eventType,
+          payload: stored.v,
+          truncated: stored.truncated === true,
+        };
       });
     },
 
@@ -511,6 +679,7 @@ export function createActivityStore(
     },
 
     cascadeClose(runId, outcome, reason) {
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => closeRunInTx(runId, outcome, reason));
     },
 
@@ -533,6 +702,7 @@ export function createActivityStore(
         )
         .all() as Array<{ run_id: string }>;
       if (open.length === 0) return 0;
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;
         for (const { run_id } of open) {
@@ -555,6 +725,7 @@ export function createActivityStore(
         )
         .all(writer, cutoff) as Array<{ span_id: string; run_id: string }>;
       if (staleRoots.length === 0) return 0;
+      getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;
         for (const { run_id } of staleRoots) {
@@ -692,6 +863,7 @@ export function createActivityStore(
     },
 
     rollupRun(runId) {
+      getPricing(); // construct outside the write lock; rollup reuses it
       inWrite(() => rollupRunInTx(runId));
     },
 
@@ -700,8 +872,15 @@ export function createActivityStore(
       const batch = options.batch ?? 50;
       // The digest floor gates pruning, but a dead digest job must not freeze
       // it forever: the hard ceiling prunes regardless (marking the rollup so
-      // the coverage gap is visible).
+      // the coverage gap is visible). The floor alone is NOT enough: it meant
+      // "safe to prune once summarized", but drill-in debugging is a second
+      // reader of detail with a different clock — nightly cron runs end
+      // before the morning digest, day sessions after, so floor-only pruning
+      // took cron span trees within the hour while sessions kept theirs (it
+      // looked cron-specific; it was clock skew). The retention cutoff ANDs
+      // with the floor so covered runs still keep detail for a minimum window.
       const floor = Math.max(options.digestFloorAt, 0);
+      const retentionCutoff = now - options.detailRetentionMs;
       const ceiling = now - options.hardCeilingMs;
       return inWrite(() => {
         // Candidates come from the rollups (they exist for every finished
@@ -711,14 +890,14 @@ export function createActivityStore(
           .query(
             `SELECT run_id, ended_at AS ended FROM activity_run_rollups r
              WHERE detail_pruned = 0 AND ended_at IS NOT NULL
-               AND (ended_at < ? OR ended_at < ?)
+               AND ((ended_at < ? AND ended_at < ?) OR ended_at < ?)
                AND NOT EXISTS (
                  SELECT 1 FROM activity_spans s
                  WHERE s.run_id = r.run_id AND s.outcome IS NULL
                )
              LIMIT ?`
           )
-          .all(floor, ceiling, batch) as Array<{ run_id: string; ended: number }>;
+          .all(floor, retentionCutoff, ceiling, batch) as Array<{ run_id: string; ended: number }>;
         let spansDeleted = 0;
         for (const { run_id, ended } of candidates) {
           db.query(
@@ -754,6 +933,120 @@ export function createActivityStore(
   };
 }
 
+/** Per-model token counts, as priced; absent fields count as zero consumed. */
+interface PricedTokens {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}
+
+type PricingUsage =
+  /** Nothing recorded at all (denied before inference, pre-feature spans) → unknown. */
+  | { kind: "none" }
+  /** Usage exists but cannot be attributed to a model → whole run unknown. */
+  | { kind: "unpriceable" }
+  | { kind: "usage"; byModel: Record<string, PricedTokens> };
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The usage a run is priced from. Session runs carry the SDK's per-model
+ * breakdown as a root attr (result-level accounting, subagents included —
+ * the same root-only scope the token rollup uses). Cron runs have no root
+ * aggregate: the wrapper's children carry the usage, summed per model here
+ * — the sanctioned origin-scoped exception to root-only aggregation, safe
+ * because sink children are not double-counted in their root.
+ */
+function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
+  if (root.origin === "cron") {
+    // Null-prototype: model ids are foreign strings — an id like "__proto__"
+    // must be an ordinary key, never a prototype write.
+    const byModel: Record<string, PricedTokens> = Object.create(null);
+    let sawUsage = false;
+    for (const span of spans) {
+      if (span.spanId === root.spanId) continue;
+      const u = span.usage;
+      if (
+        u.inputTokens == null &&
+        u.outputTokens == null &&
+        u.cacheReadTokens == null &&
+        u.cacheCreationTokens == null
+      ) {
+        continue; // no inference on this span (tool spans etc.) — not "unknown"
+      }
+      sawUsage = true;
+      // Tokens without a model cannot be priced at any rate — guessing one
+      // would silently misprice, so the whole run goes unknown.
+      if (!u.model) return { kind: "unpriceable" };
+      const agg = (byModel[u.model] ??= {});
+      agg.inputTokens = (agg.inputTokens ?? 0) + (u.inputTokens ?? 0);
+      agg.outputTokens = (agg.outputTokens ?? 0) + (u.outputTokens ?? 0);
+      agg.cacheReadTokens = (agg.cacheReadTokens ?? 0) + (u.cacheReadTokens ?? 0);
+      agg.cacheCreationTokens = (agg.cacheCreationTokens ?? 0) + (u.cacheCreationTokens ?? 0);
+    }
+    return sawUsage ? { kind: "usage", byModel } : { kind: "none" };
+  }
+  const perModel = root.attrs["gen_ai.usage.per_model"];
+  if (typeof perModel !== "object" || perModel === null || Array.isArray(perModel)) {
+    return { kind: "none" };
+  }
+  const byModel: Record<string, PricedTokens> = Object.create(null);
+  for (const [model, value] of Object.entries(perModel as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const v = value as Record<string, unknown>;
+    byModel[model] = {
+      inputTokens: tokenCount(v.inputTokens) ?? 0,
+      outputTokens: tokenCount(v.outputTokens) ?? 0,
+      cacheReadTokens: tokenCount(v.cacheReadTokens) ?? 0,
+      cacheCreationTokens: tokenCount(v.cacheCreationTokens) ?? 0,
+    };
+  }
+  return Object.keys(byModel).length > 0 ? { kind: "usage", byModel } : { kind: "none" };
+}
+
+/**
+ * Price one run's per-model usage at list rates. Null = unknown: an
+ * unresolvable model with consumed tokens, or a consumed token class with no
+ * rate, poisons the WHOLE run — cache reads dominate Claude usage, so
+ * partial pricing would systematically understate (the binding
+ * missing-cache-rate decision). A model with zero consumption contributes
+ * nothing and needs no rate. Variant/snapshot fallbacks are the pricing
+ * service's job (`resolve()`); the store only propagates the estimate flag.
+ */
+function priceUsage(
+  byModel: Record<string, PricedTokens>,
+  pricing: RollupPricing
+): { costUsd: number; estimate: boolean } | null {
+  let costUsd = 0;
+  let estimate = false;
+  for (const [model, tokens] of Object.entries(byModel)) {
+    const classes: Array<
+      [count: number, rate: (r: PricingRates) => number | null]
+    > = [
+      [tokens.inputTokens ?? 0, (r) => r.input],
+      [tokens.outputTokens ?? 0, (r) => r.output],
+      [tokens.cacheReadTokens ?? 0, (r) => r.cacheRead],
+      [tokens.cacheCreationTokens ?? 0, (r) => r.cacheWrite],
+    ];
+    if (!classes.some(([count]) => count > 0)) continue;
+    const rates = pricing.resolve(model);
+    if (!rates) return null;
+    for (const [count, rateOf] of classes) {
+      if (count <= 0) continue;
+      const perToken = rateOf(rates);
+      if (perToken === null) return null;
+      costUsd += count * perToken;
+    }
+    if (rates.estimate) estimate = true;
+  }
+  // A non-finite sum (overflowed or poisoned rates) must surface as unknown —
+  // once frozen into the rollup it would render as an exact number forever.
+  return Number.isFinite(costUsd) ? { costUsd, estimate } : null;
+}
+
 function safeParse(text: string | null): Record<string, unknown> | undefined {
   if (!text) return undefined;
   try {
@@ -763,12 +1056,14 @@ function safeParse(text: string | null): Record<string, unknown> | undefined {
   }
 }
 
-/** Cap a payload's serialized size, storing an explicit truncation marker. */
-function capPayload(payload: unknown): { v: unknown; truncated?: boolean } {
+/** Cap a payload's serialized size; a clipped payload carries the `truncated`
+ *  flag (which rides the wire), so no in-text marker is stored. */
+function capPayload(payload: unknown, cap?: number): { v: unknown; truncated?: boolean } {
+  const limit = Math.min(cap ?? MAX_EVENT_PAYLOAD_BYTES, MAX_EVENT_PAYLOAD_BYTES);
   const json = JSON.stringify(payload ?? null);
-  if (json.length <= MAX_EVENT_PAYLOAD_BYTES) return { v: payload ?? null };
+  if (json.length <= limit) return { v: payload ?? null };
   if (typeof payload === "string") {
-    return { v: payload.slice(0, MAX_EVENT_PAYLOAD_BYTES) + TRUNCATION_MARKER, truncated: true };
+    return { v: payload.slice(0, limit), truncated: true };
   }
-  return { v: json.slice(0, MAX_EVENT_PAYLOAD_BYTES) + TRUNCATION_MARKER, truncated: true };
+  return { v: json.slice(0, limit), truncated: true };
 }

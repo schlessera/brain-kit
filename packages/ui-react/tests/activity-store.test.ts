@@ -8,6 +8,7 @@ import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import {
   useActivityStore,
   childSpans,
+  payloadEventsFor,
   spanForTool,
   subagentSpans,
   timingFor,
@@ -337,6 +338,57 @@ describe("selectors", () => {
     const after = spanForTool(useActivityStore.getState(), "agent-1")!;
     expect(after.outcome).toBe("cancelled");
     expect(after.endedAt).toBe(500);
+  });
+
+  test("payloadEventsFor returns a child tool span's recorded input/output (AE7)", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "session",
+      sessionId: "sess",
+      spans: [
+        span({ spanId: "t:turn", runId: "t", kind: "turn", sessionId: "sess" }),
+        span({
+          spanId: "agent-1",
+          runId: "t",
+          kind: "subagent",
+          parentSpanId: "t:turn",
+          sessionId: "sess",
+        }),
+        span({ spanId: "tool-1", runId: "t", parentSpanId: "agent-1", startedAt: 120 }),
+      ],
+      events: [
+        { spanId: "tool-1", eventIndex: 0, ts: 121, eventType: "tool_input", payload: '{"a":1}' },
+      ],
+      highWaterSeq: { t: 4 },
+    });
+    // The output lands later as a delta, like the live stream delivers it.
+    s.applyDelta({
+      type: "activity_delta",
+      runId: "t",
+      seq: 5,
+      event: { spanId: "tool-1", eventIndex: 1, ts: 130, eventType: "tool_output", payload: "ok" },
+    });
+    // A transcript event on the same span must not leak into the payload view.
+    s.applyDelta({
+      type: "activity_delta",
+      runId: "t",
+      seq: 6,
+      event: {
+        spanId: "tool-1",
+        eventIndex: 2,
+        ts: 140,
+        eventType: "transcript_assistant",
+        payload: "thinking",
+      },
+    });
+    const state = useActivityStore.getState();
+    expect(payloadEventsFor(state, "tool-1").map((e) => [e.eventType, e.payload])).toEqual([
+      ["tool_input", '{"a":1}'],
+      ["tool_output", "ok"],
+    ]);
+    // A span with no payload events (pre-feature run) yields the empty result.
+    expect(payloadEventsFor(state, "agent-1")).toHaveLength(0);
   });
 
   test("timingFor uses the wait/execution boundary and server clock", () => {

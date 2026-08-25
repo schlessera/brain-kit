@@ -14,7 +14,7 @@ import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { latestActivityDigest } from "./digest.js";
 import type { ActivityNotifier } from "./notify.js";
-import { rowToRunRollup, type ActivityStore, type SpanRow } from "./store.js";
+import { rowToRunRollup, sumEffectiveCost, type ActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
@@ -54,6 +54,11 @@ export function runActivityQuery(
           outcome: r.outcome,
           durationMs: r.durationMs,
           costUsd: r.costUsd,
+          // Explicit nulls, never omitted: the model must be able to tell
+          // "unknown" (null) from "genuinely free" ($0) — AE3.
+          effectiveCostUsd: r.effectiveCostUsd,
+          billingMode: r.billingMode,
+          pricingEstimate: r.pricingEstimate,
           failureReason: r.failureReason,
         })),
       };
@@ -63,8 +68,22 @@ export function runActivityQuery(
       if (!query.runId) return { error: "scope 'run' needs runId" };
       const snapshot = store.snapshotRun(query.runId);
       if (snapshot) {
+        // The cost facts live on the rollup, not the spans — attach them here
+        // the same way the REST detail route does, so the agent sees the
+        // frozen triple for a finished run without waiting for detail
+        // pruning. Explicit nulls (AE3): a still-running run has no rollup
+        // yet, and unknown must never read as $0.
+        const rollupRow = db
+          .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
+          .get(query.runId) as any;
+        const liveRollup = rollupRow ? rowToRunRollup(rollupRow) : null;
         return {
           runId: query.runId,
+          costUsd: liveRollup?.costUsd ?? null,
+          effectiveCostUsd: liveRollup?.effectiveCostUsd ?? null,
+          billingMode: liveRollup?.billingMode ?? null,
+          pricingEstimate: liveRollup?.pricingEstimate ?? null,
+          failureReason: liveRollup?.failureReason ?? null,
           spans: snapshot.spans.map((s) => ({
             spanId: s.spanId,
             parent: s.parentSpanId,
@@ -97,6 +116,9 @@ export function runActivityQuery(
           startedAt: iso(rollup.startedAt),
           durationMs: rollup.durationMs,
           costUsd: rollup.costUsd,
+          effectiveCostUsd: rollup.effectiveCostUsd,
+          billingMode: rollup.billingMode,
+          pricingEstimate: rollup.pricingEstimate,
           failureReason: rollup.failureReason,
         },
       };
@@ -109,11 +131,16 @@ export function runActivityQuery(
           .all(since) as any[]
       ).map(rowToRunRollup);
       const digest = latestActivityDigest(db);
+      const effective = sumEffectiveCost(rows);
       return {
         windowHours: hoursBack,
         runs: rows.length,
         failures: rows.filter((r) => isFailureOutcome(r.outcome)).length,
+        // Both sums are sum-of-KNOWNS; the runs excluded from the effective
+        // sum ride along as unpricedRuns so unknown never reads as $0 (AE3).
         costUsd: round(rows.reduce((a, r) => a + (r.costUsd ?? 0), 0)),
+        effectiveCostUsd: round(effective.effectiveCostUsd),
+        unpricedRuns: effective.unpricedRuns,
         inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
         outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),

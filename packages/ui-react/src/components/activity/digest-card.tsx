@@ -4,6 +4,7 @@ import { AlertTriangle, Newspaper, X } from "lucide-react";
 import { api, type ActivityDigest } from "../../lib/api-client.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { cn } from "../../lib/utils.js";
+import { digestCostClause } from "./span-bits.js";
 
 /**
  * The while-you-were-away card: presented PROACTIVELY on app open when a
@@ -40,6 +41,9 @@ export function DigestCard() {
   }
 
   const windowLabel = `${formatDay(digest.windowStart)} – ${formatDay(digest.windowEnd)}`;
+  // Effective-only spend clause; a digest persisted before pricing shipped
+  // falls back to its old list-cost clause inside the helper.
+  const costClause = digestCostClause(digest);
 
   return (
     <div
@@ -68,7 +72,7 @@ export function DigestCard() {
         {digest.failures > 0 && (
           <span className="text-destructive"> · {digest.failures} failed</span>
         )}
-        {digest.costUsd > 0 && ` · $${digest.costUsd.toFixed(2)} spent`}
+        {costClause && ` · ${costClause}`}
       </div>
       {digest.notable.length > 0 && (
         <div className="mt-1.5 space-y-0.5">

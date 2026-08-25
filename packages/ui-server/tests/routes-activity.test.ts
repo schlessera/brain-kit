@@ -7,7 +7,11 @@ import { describe, expect, test } from "bun:test";
 
 import { createActivityNotifier } from "../src/activity/notify";
 import { runActivityQuery } from "../src/activity/query";
-import { createActivityStore, type ActivityStore } from "../src/activity/store";
+import {
+  createActivityStore,
+  type ActivityStore,
+  type RollupPricing,
+} from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import { createActivityRoutes } from "../src/routes/activity";
 import { createSessionRoutes } from "../src/routes/sessions";
@@ -94,9 +98,46 @@ describe("activity routes", () => {
     db.close();
   });
 
+  test("run detail omits tool payload events unless ?include=payloads asks", async () => {
+    const { db, store } = seeded();
+    store.startSpan({
+      spanId: "tool-x",
+      runId: "turn-2",
+      parentSpanId: "turn-2:turn",
+      name: "execute_tool Read",
+      kind: "tool",
+      origin: "session",
+      sessionId: "sess-2",
+    });
+    store.appendEvent("tool-x", "tool_input", { file_path: "notes/a.md" });
+    store.appendEvent("tool-x", "tool_output", "file contents");
+    store.appendEvent("tool-x", "transcript_assistant", "reading the file");
+    const app = createActivityRoutes({ db, store });
+
+    // Default: the multi-KB payload events stay server-side; everything else
+    // (transcripts included) still rides along.
+    const slim = await (await request(app, "/activity/runs/turn-2")).json();
+    expect(slim.events.map((e: any) => e.eventType)).toEqual(["transcript_assistant"]);
+    expect(slim.spans.map((s: any) => s.spanId)).toContain("tool-x");
+
+    // The drill-in opts in explicitly.
+    const full = await (await request(app, "/activity/runs/turn-2?include=payloads")).json();
+    expect(full.events.map((e: any) => e.eventType)).toEqual([
+      "tool_input",
+      "tool_output",
+      "transcript_assistant",
+    ]);
+    db.close();
+  });
+
   test("a pruned run resolves to its rollup; an unknown id 404s (R26)", async () => {
     const { db, store } = seeded();
-    store.prune({ digestFloorAt: Date.now() + 1000, hardCeilingMs: 0 });
+    store.prune({
+      digestFloorAt: Date.now() + 1000,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1000,
+    });
     const app = createActivityRoutes({ db, store });
 
     const pruned = await request(app, "/activity/runs/turn-1");
@@ -123,6 +164,12 @@ describe("activity routes", () => {
     expect(body.days[0].costUsd).toBeCloseTo(0.5);
     expect(body.jobs.find((j: any) => j.jobName === "sync").failures).toBe(1);
     expect(body.sessions.find((s: any) => s.sessionId === "sess-1").inputTokens).toBe(1000);
+    // The effective pair is ALWAYS present on every aggregate — a client must
+    // never have to treat its absence as $0.
+    for (const agg of [...body.days, ...body.jobs, ...body.sessions]) {
+      expect(typeof agg.effectiveCostUsd).toBe("number");
+      expect(typeof agg.unpricedRuns).toBe("number");
+    }
     db.close();
   });
 
@@ -171,6 +218,208 @@ describe("activity routes", () => {
     const app = createActivityRoutes({ db, store });
     const res = await request(app, "/activity/rollups");
     expect(res.status).toBe(200);
+    db.close();
+  });
+});
+
+describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
+  /** Fake pricing — sync + local, mirroring the store test's seam. */
+  const rates: RollupPricing = {
+    resolve: (modelId) =>
+      modelId === "claude-sonnet-4-6"
+        ? { input: 3e-6, output: 15e-6, cacheRead: 3e-7, cacheWrite: 3.75e-6, estimate: false, source: "litellm" }
+        : null,
+  };
+
+  /**
+   * A mixed window (AE3): one subscription run (effective $0), one priced
+   * api run ($0.30), one api run on a model pricing does not know (NULL),
+   * plus two cron runs on one job — one subscription, one unknowable.
+   */
+  function seededPriced() {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test", pricing: rates });
+    const sessionRun = (
+      runId: string,
+      billing: "subscription" | "api",
+      perModel?: Record<string, { inputTokens: number }>
+    ) => {
+      store.startSpan({
+        spanId: `${runId}:turn`,
+        runId,
+        name: "invoke_agent",
+        kind: "turn",
+        origin: "session",
+        sessionId: "sess-1",
+        attrs: { "brain.billing_mode": billing, "brain.profile_id": "default" },
+        startedAt: Date.now() - 60_000,
+      });
+      store.endSpan(`${runId}:turn`, {
+        outcome: "success",
+        endedAt: Date.now() - 45_000,
+        ...(perModel ? { attrs: { "gen_ai.usage.per_model": perModel } } : {}),
+      });
+      store.rollupRun(runId);
+    };
+    sessionRun("sub-1", "subscription", { "claude-sonnet-4-6": { inputTokens: 1000 } });
+    sessionRun("api-1", "api", { "claude-sonnet-4-6": { inputTokens: 100_000 } });
+    sessionRun("api-null", "api", { "unknown-model": { inputTokens: 500 } });
+    const cronRun = (runId: string, billing: "subscription" | "api") => {
+      store.startSpan({
+        spanId: `${runId}:root`,
+        runId,
+        name: "cron sync",
+        kind: "cron",
+        origin: "cron",
+        jobName: "sync",
+        attrs: { "brain.billing_mode": billing },
+        startedAt: Date.now() - 30_000,
+      });
+      store.endSpan(`${runId}:root`, { outcome: "success", endedAt: Date.now() - 15_000 });
+      store.rollupRun(runId);
+    };
+    cronRun("cron-sub", "subscription");
+    cronRun("cron-null", "api"); // no usage recorded at all → effective NULL
+    return { db, store };
+  }
+
+  test("rollups route sums only priced runs and counts the NULLs at every group (AE3)", async () => {
+    const { db, store } = seededPriced();
+    const app = createActivityRoutes({ db, store });
+    const body = await (await request(app, "/activity/rollups?days=7")).json();
+
+    expect(body.days).toHaveLength(1);
+    expect(body.days[0].runs).toBe(5);
+    // 100k input tokens at $3/M — the sub run's tokens and the two NULL runs
+    // contribute NOTHING (not $0 folded in silently: the count carries them).
+    expect(body.days[0].effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(body.days[0].unpricedRuns).toBe(2);
+
+    const sess = body.sessions.find((s: any) => s.sessionId === "sess-1");
+    expect(sess.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(sess.unpricedRuns).toBe(1);
+
+    const job = body.jobs.find((j: any) => j.jobName === "sync");
+    expect(job.effectiveCostUsd).toBe(0); // subscription $0 is a KNOWN zero
+    expect(job.unpricedRuns).toBe(1);
+    db.close();
+  });
+
+  test("run summaries and the pruned detail rollup carry the effective triple", async () => {
+    const { db, store } = seededPriced();
+    const app = createActivityRoutes({ db, store });
+
+    const runs = await (await request(app, "/activity/runs")).json();
+    const priced = runs.history.find((r: any) => r.runId === "api-1");
+    expect(priced.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(priced.billingMode).toBe("api");
+    expect(priced.pricingEstimate).toBe(false);
+    const unknown = runs.history.find((r: any) => r.runId === "api-null");
+    expect(unknown.effectiveCostUsd).toBeNull();
+    expect(unknown.billingMode).toBe("api");
+    expect("pricingEstimate" in unknown).toBe(false); // unknown, not false
+
+    store.prune({
+      digestFloorAt: Date.now() + 1000,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1000,
+    });
+    const detail = await (await request(app, "/activity/runs/api-1")).json();
+    expect(detail.detailPruned).toBe(true);
+    expect(detail.rollup.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(detail.rollup.billingMode).toBe("api");
+    db.close();
+  });
+
+  test("a window entirely pre-feature (all NULL) sums to 0 with unpricedRuns = run count", async () => {
+    const { db, store } = seededPriced();
+    // Pre-feature rows: migration 010 backfills nothing, so simulate by
+    // clearing the columns the way an upgraded DB presents them.
+    db.query(
+      "UPDATE activity_run_rollups SET effective_cost_usd = NULL, billing_mode = NULL, pricing_estimate = NULL"
+    ).run();
+    const app = createActivityRoutes({ db, store });
+    const body = await (await request(app, "/activity/rollups?days=7")).json();
+    expect(body.days[0].effectiveCostUsd).toBe(0);
+    expect(body.days[0].unpricedRuns).toBe(body.days[0].runs);
+    db.close();
+  });
+
+  test("query_activity scope=run carries the frozen cost triple while detail is retained", () => {
+    const { db, store } = seededPriced();
+
+    // Finished, NOT pruned — the common case, which previously dropped the
+    // triple entirely. Explicit values, mirroring the REST detail route.
+    const priced = runActivityQuery(db, store, { scope: "run", runId: "api-1" }) as Record<
+      string,
+      unknown
+    >;
+    expect(priced.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(priced.billingMode).toBe("api");
+    expect(priced.pricingEstimate).toBe(false);
+    expect(priced.failureReason).toBeNull();
+    expect(Array.isArray(priced.spans)).toBe(true);
+
+    // Unknown effective cost stays an explicit null, never omitted.
+    const unknown = runActivityQuery(db, store, { scope: "run", runId: "api-null" });
+    expect(JSON.stringify(unknown)).toContain('"effectiveCostUsd":null');
+    expect(JSON.stringify(unknown)).toContain('"billingMode":"api"');
+
+    // A still-running run has no rollup yet — everything unknown, spans served.
+    store.startSpan({
+      spanId: "live-1:turn",
+      runId: "live-1",
+      name: "invoke_agent",
+      kind: "turn",
+      origin: "session",
+      sessionId: "sess-1",
+    });
+    const live = runActivityQuery(db, store, { scope: "run", runId: "live-1" }) as Record<
+      string,
+      unknown
+    >;
+    expect(live.effectiveCostUsd).toBeNull();
+    expect(live.billingMode).toBeNull();
+    expect(Array.isArray(live.spans)).toBe(true);
+
+    // The never-existed error path is untouched.
+    expect(runActivityQuery(db, store, { scope: "run", runId: "nope" })).toEqual({
+      error: "unknown run nope",
+    });
+    db.close();
+  });
+
+  test("query_activity scopes emit explicit nulls and the aggregate pair (AE3)", () => {
+    const { db, store } = seededPriced();
+
+    const recent = runActivityQuery(db, store, { scope: "recent" }) as {
+      finished: Array<Record<string, unknown>>;
+    };
+    const priced = recent.finished.find((r) => r.runId === "api-1")!;
+    expect(priced.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(priced.billingMode).toBe("api");
+    expect(priced.pricingEstimate).toBe(false);
+    const unknown = recent.finished.find((r) => r.runId === "api-null")!;
+    // null must SURVIVE serialization — an omitted key would let the model
+    // conflate unknown with zero.
+    expect(JSON.stringify(unknown)).toContain('"effectiveCostUsd":null');
+    expect(JSON.stringify(unknown)).toContain('"pricingEstimate":null');
+
+    const rollups = runActivityQuery(db, store, { scope: "rollups" }) as Record<string, unknown>;
+    expect(rollups.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(rollups.unpricedRuns).toBe(2);
+
+    store.prune({
+      digestFloorAt: Date.now() + 1000,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1000,
+    });
+    const run = runActivityQuery(db, store, { scope: "run", runId: "api-null" }) as {
+      rollup: Record<string, unknown>;
+    };
+    expect(JSON.stringify(run.rollup)).toContain('"effectiveCostUsd":null');
     db.close();
   });
 });

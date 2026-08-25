@@ -92,6 +92,7 @@ export {
   type SpanOutcome,
   type SpanUsage,
   type ActivityChange,
+  type RollupPricing,
 } from "./activity/store.js";
 export { createActivityStream, type ActivityStream } from "./activity/stream.js";
 export { ingestSpanSink } from "./activity/span-sink.js";

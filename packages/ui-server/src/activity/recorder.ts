@@ -28,6 +28,7 @@ import {
   SPAN_OP_EXECUTE_TOOL,
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
+  type BillingMode,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -56,7 +57,14 @@ export interface TurnRecorder {
 
 export function createTurnRecorder(
   deps: TurnRecorderDeps,
-  turn: { turnId: string; sessionId: string | null }
+  turn: {
+    turnId: string;
+    sessionId: string | null;
+    /** The RESOLVED inference profile this turn runs on (post pin-drop fallback). */
+    profileId?: string;
+    /** Billing classification of that profile, resolved at run start (U3). */
+    billingMode?: BillingMode;
+  }
 ): TurnRecorder {
   const { store, onWrite, log } = deps;
   const runId = turn.turnId;
@@ -91,7 +99,14 @@ export function createTurnRecorder(
       kind: "turn",
       origin: "session",
       sessionId,
-      attrs: { "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT },
+      // Profile + billing ride the ROOT span so the rollup can price the run
+      // without any registry or env lookup of its own (a root missing the
+      // billing attr falls back to env classification at rollup time).
+      attrs: {
+        "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT,
+        ...(turn.profileId ? { "brain.profile_id": turn.profileId } : {}),
+        ...(turn.billingMode ? { "brain.billing_mode": turn.billingMode } : {}),
+      },
     });
     onWrite?.();
   }
@@ -147,6 +162,20 @@ export function createTurnRecorder(
             // the wait/execution boundary.
             break;
           }
+          case "tool_use_complete": {
+            // The complete input object in one frame — tool_input_delta
+            // frames stay ignored, no accumulation needed. Recorded as a
+            // span event so the Activity drill-in can expand the call (R14).
+            store.appendEvent(
+              msg.toolUseId,
+              "tool_input",
+              safeStringify(msg.input),
+              undefined,
+              PAYLOAD_EVENT_CAP
+            );
+            onWrite?.();
+            break;
+          }
           case "tool_result": {
             // endSpan is write-once: a span already closed (a denial landed
             // the outcome first) rejects this as a no-op, and an unknown
@@ -156,6 +185,9 @@ export function createTurnRecorder(
               outcome,
               reason: outcome === "error" ? clip(msg.output, 500) : undefined,
             });
+            // Error output rides along too — a failed call's output is what
+            // the drill-in needs most. appendEvent no-ops on unknown spans.
+            store.appendEvent(msg.toolUseId, "tool_output", msg.output, undefined, PAYLOAD_EVENT_CAP);
             onWrite?.();
             break;
           }
@@ -263,4 +295,19 @@ export function createTurnRecorder(
 
 function clip(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
+}
+
+/** Cap for recorded tool input/output payload events — roomier than the
+ *  500-char outcome-reason clip, still far under the store's 16 KB event cap.
+ *  Passed to appendEvent, whose clipping sets the wire `truncated` flag. */
+const PAYLOAD_EVENT_CAP = 4096;
+
+/** Tool inputs are arbitrary values: serialization must never take the turn
+ *  down with it (BigInt members throw; a toJSON can return undefined). */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }

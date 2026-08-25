@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { ArrowLeft, Bot, Check, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, Bot, Check, ChevronRight, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
@@ -10,7 +10,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel, formatDuration } from "./tool-views.js";
-import { SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
+import { SpanPayload, SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
 
 /**
  * Drill-in view of one subagent: the span tree under its Agent tool call,
@@ -171,33 +171,43 @@ function BackButton({ onClick }: { onClick: () => void }) {
 }
 
 function SpanRow({ span, onOpen }: { span: ActivitySpan; onOpen?: () => void }) {
+  // Tool rows expand to their recorded payload (AE7); a pre-feature span
+  // expands to the no-payload notice, so the affordance stays uniform.
+  const [expanded, setExpanded] = useState(false);
   const running = span.outcome === undefined;
   const failed = isFailureOutcome(span.outcome);
+  const expandable = !onOpen && span.kind === "tool";
   const duration =
     span.endedAt !== undefined
       ? formatDuration(span.endedAt - (span.waitUntil ?? span.startedAt))
       : null;
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 2 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
-        failed ? "text-destructive/80" : "text-muted-foreground",
-        onOpen && "cursor-pointer hover:text-foreground"
-      )}
-      onClick={onOpen}
-    >
-      <SpanStatusDot span={span} className="h-2 w-2" />
-      <span className="font-[family-name:var(--font-mono)] font-medium">
-        {spanToolLabel(span)}
-      </span>
-      {span.outcome && span.outcome !== "success" && (
-        <span className="text-[10px] uppercase">{span.outcome}</span>
-      )}
-      <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
-        {duration ?? (running ? "…" : "")}
-      </span>
+    <motion.div initial={{ opacity: 0, y: 2 }} animate={{ opacity: 1, y: 0 }}>
+      <div
+        className={cn(
+          "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+          failed ? "text-destructive/80" : "text-muted-foreground",
+          (onOpen || expandable) && "cursor-pointer hover:text-foreground"
+        )}
+        onClick={onOpen ?? (expandable ? () => setExpanded((v) => !v) : undefined)}
+      >
+        <SpanStatusDot span={span} className="h-2 w-2" />
+        <span className="font-[family-name:var(--font-mono)] font-medium">
+          {spanToolLabel(span)}
+        </span>
+        {span.outcome && span.outcome !== "success" && (
+          <span className="text-[10px] uppercase">{span.outcome}</span>
+        )}
+        <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
+          {duration ?? (running ? "…" : "")}
+        </span>
+        {expandable && (
+          <ChevronRight
+            className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-90")}
+          />
+        )}
+      </div>
+      {expanded && <SpanPayload spanId={span.spanId} />}
     </motion.div>
   );
 }

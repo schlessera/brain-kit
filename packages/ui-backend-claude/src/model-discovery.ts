@@ -26,8 +26,13 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveEnv } from "./config/env.js";
 import type { InferenceProfileInput } from "./profiles.js";
+
+// Long-standing export of this module; the definition now lives in the SDK
+// so pricing (ui-server) canonicalizes identically.
+export { canonicalModelId };
 
 const MODELS_URL = "https://api.anthropic.com/v1/models";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -71,11 +76,6 @@ export interface DiscoverOptions {
 export interface DiscoverResult {
   models: InferenceProfileInput[];
   aliasChecks: AliasChecks;
-}
-
-/** Strip a dated snapshot suffix: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`. */
-export function canonicalModelId(id: string): string {
-  return id.replace(/-\d{8}$/, "");
 }
 
 /**

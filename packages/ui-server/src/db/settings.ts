@@ -8,8 +8,12 @@
 
 import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
+import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
+const BILLING_OVERRIDES_KEY = "models.billing";
+const DETAIL_RETENTION_KEY = "activity.retention.detailDays";
+const DETAIL_RETENTION_DEFAULT_DAYS = 7;
 
 export function getSetting<T>(db: Database, key: string, fallback: T, log?: Logger): T {
   const row = db
@@ -46,4 +50,56 @@ export function getHiddenModelIds(db: Database, log?: Logger): string[] {
 export function setHiddenModelIds(db: Database, ids: string[]): void {
   const unique = [...new Set(ids.filter((id) => typeof id === "string" && id))];
   setSetting(db, HIDDEN_MODELS_KEY, unique);
+}
+
+/**
+ * Per-profile billing-mode overrides: profile id → forced classification. A
+ * profile absent from the record is "auto" (the registry's derived mode
+ * applies). Anything that is not exactly "subscription" or "api" is dropped
+ * on read, so a corrupt row degrades to auto rather than misbilling.
+ */
+export function getBillingOverrides(
+  db: Database,
+  log?: Logger
+): Record<string, BillingMode> {
+  const value = getSetting<unknown>(db, BILLING_OVERRIDES_KEY, {}, log);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return Object.create(null);
+  }
+  // Null-prototype: profile ids are user-supplied strings — an id like
+  // "__proto__" must be an ordinary key, and a "constructor" lookup by a
+  // consumer must not resolve a prototype member.
+  const overrides: Record<string, BillingMode> = Object.create(null);
+  for (const [profileId, mode] of Object.entries(value)) {
+    if (isBillingMode(mode)) overrides[profileId] = mode;
+  }
+  return overrides;
+}
+
+/** Replace the override record (the client always sends the full record, not a delta). */
+export function setBillingOverrides(
+  db: Database,
+  overrides: Record<string, BillingMode>
+): void {
+  const clean = Object.fromEntries(
+    Object.entries(overrides).filter(
+      ([profileId, mode]) => profileId && isBillingMode(mode)
+    )
+  );
+  setSetting(db, BILLING_OVERRIDES_KEY, clean);
+}
+
+/** Minimum days a finished run keeps its detail (spans/events) before the
+ *  digest-covered prune may take it. 0 is valid (prune as soon as covered);
+ *  anything non-numeric or negative degrades to the default. */
+export function getDetailRetentionDays(db: Database, log?: Logger): number {
+  const value = getSetting<unknown>(db, DETAIL_RETENTION_KEY, DETAIL_RETENTION_DEFAULT_DAYS, log);
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return DETAIL_RETENTION_DEFAULT_DAYS;
+  }
+  return value;
+}
+
+export function setDetailRetentionDays(db: Database, days: number): void {
+  setSetting(db, DETAIL_RETENTION_KEY, days);
 }

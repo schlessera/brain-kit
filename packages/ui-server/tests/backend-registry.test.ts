@@ -14,13 +14,19 @@ import { makeFakeBackend } from "./helpers/fake-backend";
  * construction, which is itself the regression the old env-driven registry
  * tests guarded against.
  */
-function registryFor(env: Record<string, string | undefined>): BackendRegistry {
+function registryFor(
+  env: Record<string, string | undefined>,
+  options: {
+    getBillingOverrides?: () => Record<string, "subscription" | "api">;
+  } = {}
+): BackendRegistry {
   // NODE_ENV=test keeps model discovery off by default: a suite that silently
   // depends on network access is flaky by construction.
   const config = resolveServerConfig({ NODE_ENV: "test", ...env });
   return createBackendRegistry({
     brainPath: config.brainPath,
     agent: config.agent,
+    ...options,
   });
 }
 
@@ -39,6 +45,9 @@ describe("backend registry", () => {
         vendor: "anthropic",
         source: "builtin",
         backendId: "claude",
+        // No credential in the resolved env at all → "api" (nothing
+        // subscription-billed can run without the OAuth token).
+        billingMode: "api",
       },
     ]);
 
@@ -83,6 +92,67 @@ describe("backend registry", () => {
         'AGENT_BACKEND=pi but "@schlessera/brain-backend-pi" is not installed'
       );
     }
+  });
+});
+
+describe("billing classification", () => {
+  // Credential PRESENCE resolves from the env record handed to the resolver,
+  // never from the test process's environment — registries are built from
+  // explicit configuration by construction (see registryFor).
+
+  test("ambient profiles are subscription-billed with only the OAuth token", async () => {
+    const registry = registryFor({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" });
+    const providers = await registry.listAllProviders();
+    expect(providers[0]?.billingMode).toBe("subscription");
+  });
+
+  test("ANTHROPIC_API_KEY wins over the OAuth token (the Agent SDK's precedence)", async () => {
+    const registry = registryFor({
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+      ANTHROPIC_API_KEY: "sk-ant-api03-test",
+    });
+    const providers = await registry.listAllProviders();
+    expect(providers[0]?.billingMode).toBe("api");
+  });
+
+  test("a declared profile with its own credential env var is api-billed under the subscription token", async () => {
+    // The declared profile's availability filter reads the REAL process env
+    // for its credential var (that is where the token would live at run
+    // time), so set one for the duration and restore after.
+    const key = "BRAIN_UI_TEST_OPENROUTER_KEY";
+    const saved = process.env[key];
+    process.env[key] = "test-openrouter-token";
+    try {
+      const registry = registryFor({
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          {
+            id: "openrouter-glm",
+            label: "GLM 4.7 (OpenRouter)",
+            baseUrl: "https://openrouter.example/api",
+            authTokenEnv: key,
+          },
+        ]),
+      });
+      const providers = await registry.listAllProviders();
+      const byId = new Map(providers.map((provider) => [provider.id, provider]));
+      // The declared profile brings its own credential → api, while the
+      // built-in default on ambient credentials stays subscription.
+      expect(byId.get("openrouter-glm")?.billingMode).toBe("api");
+      expect(byId.get("claude")?.billingMode).toBe("subscription");
+    } finally {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
+  });
+
+  test("a settings override is consulted last and wins", async () => {
+    const registry = registryFor(
+      { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
+      { getBillingOverrides: () => ({ claude: "api" }) }
+    );
+    const providers = await registry.listAllProviders();
+    expect(providers[0]?.billingMode).toBe("api");
   });
 });
 

@@ -484,6 +484,12 @@ export interface ProviderInfo {
    * only — the client must not switch behavior on it.
    */
   source?: "builtin" | "declared" | "discovered";
+  /**
+   * Resolved billing classification for runs on this profile (additive) —
+   * declared-credential and settings-override rules already applied. Absent
+   * when the host cannot classify the profile.
+   */
+  billingMode?: BillingMode;
 }
 
 // --- Model catalog (HTTP: /api/models) ---
@@ -492,6 +498,12 @@ export interface ProviderInfo {
 export interface ModelCatalogEntry extends ProviderInfo {
   /** Hidden profiles are omitted from the picker but still resolve for pinned sessions. */
   hidden: boolean;
+  /**
+   * Explicit billing override stored for this profile (additive), when one is
+   * set. Absent = auto — `billingMode` then reflects the derived
+   * classification rather than a user choice.
+   */
+  billingOverride?: BillingMode;
 }
 
 /** Response of GET /api/models, PUT /api/models/hidden, POST /api/models/refresh. */
@@ -512,6 +524,25 @@ export interface ModelCatalogResponse {
 /** Body of PUT /api/models/hidden — the complete hidden set, not a delta. */
 export interface SetHiddenModelsRequest {
   hidden: string[];
+}
+
+/**
+ * Body of PUT /api/models/billing — the complete override record, not a
+ * delta. A profile absent from the record is "auto" (derived classification).
+ */
+export interface SetBillingOverridesRequest {
+  billing: Record<string, BillingMode>;
+}
+
+/**
+ * Strip a dated snapshot suffix from a model id:
+ * `claude-haiku-4-5-20251001` → `claude-haiku-4-5`. The API lists some models
+ * only under a dated id; the undated alias is the public name (and the API
+ * resolves it back). Shared here so model discovery and pricing canonicalize
+ * identically.
+ */
+export function canonicalModelId(id: string): string {
+  return id.replace(/-\d{8}$/, "");
 }
 
 // --- Shared Types ---
@@ -1243,6 +1274,20 @@ export interface ServerActivityDelta {
 // The HTTP half of the activity contract, beside its WS half above — shared
 // types live here per repo convention, never re-declared in a client.
 
+/**
+ * How a run's inference was billed: `subscription` (a seat plan — marginal
+ * cost genuinely $0) or `api` (pay-as-you-go at list price). Resolved once
+ * at run start from the run's inference profile; absent means unknown.
+ */
+export type BillingMode = "subscription" | "api";
+
+/** THE membership check for {@link BillingMode} — one definition for every
+ *  boundary that validates an untrusted value (settings rows, request bodies,
+ *  span attrs). */
+export function isBillingMode(v: unknown): v is BillingMode {
+  return v === "subscription" || v === "api";
+}
+
 export interface ActivityRunSummary {
   runId: string;
   origin: ActivitySpanOrigin;
@@ -1254,7 +1299,18 @@ export interface ActivityRunSummary {
   outcome: ActivitySpanOutcome | null;
   running: boolean;
   durationMs: number | null;
+  /** List-price cost as the backend reported it. NULL = unknown, never $0. */
   costUsd: number | null;
+  /**
+   * What the run actually cost (additive) — $0 for subscription-billed work,
+   * list price for API-billed. NULL/absent = unknown, 0 = genuinely free;
+   * frozen at first rollup, so later pricing-table changes never rewrite it.
+   */
+  effectiveCostUsd?: number | null;
+  /** Billing classification behind `effectiveCostUsd`; absent = unknown. */
+  billingMode?: BillingMode;
+  /** True when the effective cost was computed from estimated rates. */
+  pricingEstimate?: boolean;
   failureReason: string | null;
   detailPruned: boolean;
 }
@@ -1269,7 +1325,14 @@ export interface ActivityRunRollup {
   outcome: ActivitySpanOutcome | null;
   durationMs: number | null;
   spanCount: number;
+  /** List-price cost as the backend reported it. NULL = unknown, never $0. */
   costUsd: number | null;
+  /** Effective cost (additive) — same semantics as `ActivityRunSummary`. */
+  effectiveCostUsd?: number | null;
+  /** Billing classification behind `effectiveCostUsd`; absent = unknown. */
+  billingMode?: BillingMode;
+  /** True when the effective cost was computed from estimated rates. */
+  pricingEstimate?: boolean;
   failureReason: string | null;
 }
 
@@ -1285,7 +1348,20 @@ export interface ActivityRunDetail {
 export interface ActivityAggregate {
   runs: number;
   failures: number;
+  /**
+   * Sum of KNOWN list-price costs. Unknown-cost runs simply contribute
+   * nothing — no accompanying unknown count exists for this field (only
+   * `effectiveCostUsd` has `unpricedRuns`), so read it as a floor.
+   */
   costUsd: number;
+  /**
+   * Sum of KNOWN effective costs; the excluded runs are `unpricedRuns`.
+   * Optional on the wire (additive — a pre-pricing server omits it); the
+   * current server always emits both.
+   */
+  effectiveCostUsd?: number;
+  /** Runs with unknown effective cost — render "≥ $X · N unpriced" when nonzero. */
+  unpricedRuns?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -1307,7 +1383,16 @@ export interface ActivityDigest {
   windowEnd: number;
   runs: number;
   failures: number;
+  /**
+   * Sum of KNOWN list-price costs. Unknown-cost runs simply contribute
+   * nothing — no accompanying unknown count exists for this field (only
+   * `effectiveCostUsd` has `unpricedRuns`), so read it as a floor.
+   */
   costUsd: number;
+  /** Sum of KNOWN effective costs (additive — absent on digests persisted before pricing shipped). */
+  effectiveCostUsd?: number;
+  /** Runs with unknown effective cost in the window (additive, same vintage). */
+  unpricedRuns?: number;
   inputTokens: number;
   outputTokens: number;
   notable: Array<{

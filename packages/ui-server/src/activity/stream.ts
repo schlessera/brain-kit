@@ -19,6 +19,7 @@
  */
 import {
   SPAN_TOOL_NAME_PREFIX,
+  type ActivityRunRollup,
   type ActivitySpan,
   type ActivitySpanEvent,
   type ClientActivitySubscribe,
@@ -30,7 +31,13 @@ import type { Logger } from "@opentelemetry/api-logs";
 
 import type { WSContext } from "../ws/clients.js";
 import { sendTo } from "../ws/clients.js";
-import type { ActivityChange, ActivityStore, SpanEventRow, SpanRow } from "./store.js";
+import type {
+  ActivityChange,
+  ActivityStore,
+  RunRollupRow,
+  SpanEventRow,
+  SpanRow,
+} from "./store.js";
 
 /** Events per snapshot frame — keeps each frame far below the WS size cap. */
 const SNAPSHOT_EVENT_CHUNK = 100;
@@ -103,6 +110,28 @@ export function toWireEvent(event: SpanEventRow): ActivitySpanEvent {
     eventType: event.eventType,
     payload: event.payload,
     ...(event.truncated ? { truncated: true } : {}),
+  };
+}
+
+/** Store rollup → wire rollup: nullable columns become omitted-when-null per
+ *  the optional wire contract (effectiveCostUsd stays explicit — null means
+ *  unknown, and omitting it would let a client mistake unknown for absent). */
+export function toWireRollup(r: RunRollupRow): ActivityRunRollup {
+  return {
+    origin: r.origin,
+    name: r.name,
+    sessionId: r.sessionId,
+    jobName: r.jobName,
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+    outcome: r.outcome,
+    durationMs: r.durationMs,
+    spanCount: r.spanCount,
+    costUsd: r.costUsd,
+    effectiveCostUsd: r.effectiveCostUsd,
+    billingMode: r.billingMode ?? undefined,
+    pricingEstimate: r.pricingEstimate ?? undefined,
+    failureReason: r.failureReason,
   };
 }
 

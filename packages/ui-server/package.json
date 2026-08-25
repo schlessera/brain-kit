@@ -39,6 +39,7 @@
     "src",
     "dist",
     "migrations",
+    "data",
     "README.md"
   ],
   "scripts": {

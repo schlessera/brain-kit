@@ -1,4 +1,9 @@
-import type { ChatImageAttachment, ClientEnvironment } from "@schlessera/brain-ui-sdk/protocol";
+import type {
+  BillingMode,
+  ChatImageAttachment,
+  ClientEnvironment,
+} from "@schlessera/brain-ui-sdk/protocol";
+import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
@@ -116,7 +121,14 @@ export async function runSession(
       turn.timeoutHandle = timeoutHandle;
 
       // One recorder per turn identity: a queued follow-up re-mints turnId
-      // and gets its own run in the activity record.
+      // and gets its own run in the activity record. The recorder is handed
+      // the RESOLVED profile — `profileId` here is post pin-drop fallback and
+      // carries any session_info re-pin forward between queued turns — plus
+      // its billing mode, so the run's root span classifies what actually ran,
+      // never what was requested.
+      const billing = host.activity
+        ? await resolveRunBilling(host.registry, backend.id, profileId)
+        : undefined;
       const recorder: TurnRecorder | undefined = host.activity
         ? createTurnRecorder(
             {
@@ -124,7 +136,7 @@ export async function runSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },
-            { turnId: turn.turnId, sessionId: turn.sessionId }
+            { turnId: turn.turnId, sessionId: turn.sessionId, ...billing }
           )
         : undefined;
       const bridge = makeBridge(host, turn, text, backend.id, recorder);
@@ -191,6 +203,36 @@ export async function runSession(
     if (turn.sessionId) coordinator.bySession.delete(turn.sessionId);
     coordinator.running.delete(turn);
     coordinator.drainPendingForTurn(turn, "Session ended");
+  }
+}
+
+/**
+ * Profile identity + billing mode for a turn's root span. When the slot has no
+ * resolved profile id (a resumed session whose pin was dropped), the backend
+ * runs its default profile — the backend's first roster entry — so THAT
+ * profile's identity and billing are recorded, not the dead pin's. Hidden
+ * profiles are included: a session pinned to a profile the user later hid
+ * still runs on it and must classify as it. Never throws: an unreadable
+ * roster records no billing attrs, and the rollup falls back to env
+ * classification.
+ */
+async function resolveRunBilling(
+  registry: BackendRegistry,
+  backendId: string,
+  profileId: string | undefined
+): Promise<{ profileId: string; billingMode?: BillingMode } | undefined> {
+  try {
+    const providers = await registry.listAllProviders({ includeHidden: true });
+    const resolved = profileId
+      ? providers.find((provider) => provider.id === profileId)
+      : providers.find((provider) => provider.backendId === backendId);
+    if (!resolved) return undefined;
+    return {
+      profileId: resolved.id,
+      ...(resolved.billingMode ? { billingMode: resolved.billingMode } : {}),
+    };
+  } catch {
+    return undefined;
   }
 }
 

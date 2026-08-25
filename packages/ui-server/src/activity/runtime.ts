@@ -13,12 +13,13 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
 
-import { createActivityStore, type ActivityStore } from "./store.js";
+import { createActivityStore, type ActivityStore, type RollupPricing } from "./store.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
+import { getDetailRetentionDays } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
 // the cron wrapper's heartbeat interval (~30s) so a live writer is never
@@ -43,10 +44,18 @@ export interface ActivityRuntime {
 
 export function createActivityRuntime(
   db: Database,
-  deps: { log: Logger }
+  deps: {
+    log: Logger;
+    /**
+     * The app's shared model-pricing instance, for rollup-time effective
+     * cost. Optional so embedders without one fall back to the store's own
+     * env-derived default (the same instance shape, just not shared).
+     */
+    pricing?: RollupPricing;
+  }
 ): ActivityRuntime {
   const { log } = deps;
-  const store = createActivityStore(db);
+  const store = createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
 
   // The notifier is created BEFORE the boot sweep: its change cursor starts
@@ -113,10 +122,24 @@ export function createActivityRuntime(
       }
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
+        // Self-heal the pricing table on server traffic: without this, a
+        // long-lived server rolls up from whatever the boot-time refresh
+        // fetched. Single-flight + TTL inside ensureFresh make the hourly
+        // call free when fresh. The rollup path itself stays synchronous —
+        // never refresh from inside the store.
+        const pricing = deps.pricing as
+          | { ensureFresh?: () => Promise<void> }
+          | undefined;
+        if (typeof pricing?.ensureFresh === "function") {
+          void pricing.ensureFresh().catch(() => {});
+        }
         store.prune({
-          // Full detail survives until the digest has covered it; the hard
-          // ceiling bounds growth even if the digest job silently dies.
+          // Full detail survives until the digest has covered it AND the
+          // retention window has passed; the hard ceiling bounds growth even
+          // if the digest job silently dies. The setting is read every pass
+          // so a change applies without a restart.
           digestFloorAt: digestRetentionFloor(db),
+          detailRetentionMs: getDetailRetentionDays(db, log) * 24 * 60 * 60 * 1000,
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         });
         notifier.pruneAcknowledged(INTENT_RETENTION_MS);

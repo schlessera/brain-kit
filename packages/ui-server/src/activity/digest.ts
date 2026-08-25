@@ -15,7 +15,7 @@ import type { Database } from "bun:sqlite";
 import { isFailureOutcome, type ActivityDigest } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting, setSetting } from "../db/settings.js";
-import { rowToRunRollup } from "./store.js";
+import { rowToRunRollup, sumEffectiveCost } from "./store.js";
 
 export type { ActivityDigest } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -67,6 +67,9 @@ function generateInTx(db: Database, now: number): ActivityDigest {
 
   const relevant = rows.filter((r) => r.jobName !== DIGEST_JOB_NAME);
   const failures = relevant.filter((r) => isFailureOutcome(r.outcome));
+  // Both cost sums are sum-of-knowns; sumEffectiveCost counts the excluded
+  // unknown-cost runs so the digest never passes an unknown off as $0 (AE3).
+  const effective = sumEffectiveCost(relevant);
 
   const digest: ActivityDigest = {
     generatedAt: now,
@@ -75,6 +78,8 @@ function generateInTx(db: Database, now: number): ActivityDigest {
     runs: relevant.length,
     failures: failures.length,
     costUsd: relevant.reduce((a, r) => a + (r.costUsd ?? 0), 0),
+    effectiveCostUsd: effective.effectiveCostUsd,
+    unpricedRuns: effective.unpricedRuns,
     inputTokens: relevant.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
     outputTokens: relevant.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
     notable: failures.slice(0, 10).map((r) => ({

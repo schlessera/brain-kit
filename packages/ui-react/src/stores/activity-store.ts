@@ -273,6 +273,42 @@ export async function loadSessionActivityHistory(sessionId: string): Promise<voi
   }
 }
 
+/** Runs whose payload events have been backfilled over REST (per page lifetime). */
+const payloadLoadedRuns = new Set<string>();
+
+/**
+ * Backfill one finished run's tool payload events into the mirror. The
+ * history fetch above and the run-list default deliberately skip payload
+ * bodies — they exist for duration badges, not drill-ins — so the first
+ * expanded payload view of a history span pulls the full detail
+ * (`include=payloads`) and merges it. Live runs never need this: their
+ * payload events ride the delta stream. The merge is safe because a snapshot
+ * at the same high-water still applies and events insert-if-absent.
+ */
+export async function loadSpanPayloads(spanId: string): Promise<void> {
+  const state = useActivityStore.getState();
+  const runId = state.spanRun[spanId];
+  if (!runId || payloadLoadedRuns.has(runId)) return;
+  const root = rootSpanOf(state.spans[runId] ?? {});
+  if (!root || root.outcome === undefined) return;
+  payloadLoadedRuns.add(runId);
+  try {
+    const detail = await api.activityRun(runId, { includePayloads: true });
+    if (detail.detailPruned || !detail.spans) return;
+    useActivityStore.getState().applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId,
+      spans: detail.spans,
+      events: detail.events ?? [],
+      highWaterSeq: { [runId]: detail.highWaterSeq ?? 0 },
+    });
+  } catch {
+    // Payloads are an enhancement; the row keeps its no-payload notice.
+    payloadLoadedRuns.delete(runId);
+  }
+}
+
 /** The four indexes that make up the mirror, mutated together during merges. */
 interface MirrorMaps {
   spans: Record<string, Record<string, ActivitySpan>>;
@@ -369,6 +405,19 @@ export const EMPTY_EVENTS: ActivitySpanEvent[] = Object.freeze(
 /** Ordered events of a span; the shared frozen empty array when none. */
 export function eventsFor(state: ActivityState, spanId: string): ActivitySpanEvent[] {
   return state.events[spanId] ?? EMPTY_EVENTS;
+}
+
+/**
+ * The recorded input/output payload events of a tool span (AE7). Returns a
+ * fresh array per call — subscribe through `useShallow` (like `childSpans`).
+ */
+export function payloadEventsFor(state: ActivityState, spanId: string): ActivitySpanEvent[] {
+  const events = state.events[spanId];
+  if (!events) return EMPTY_EVENTS;
+  const payloads = events.filter(
+    (e) => e.eventType === "tool_input" || e.eventType === "tool_output"
+  );
+  return payloads.length > 0 ? payloads : EMPTY_EVENTS;
 }
 
 /** The span behind one tool call (span ids ARE toolUseIds), if streamed. */

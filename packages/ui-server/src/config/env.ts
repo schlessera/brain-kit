@@ -15,6 +15,8 @@
 
 import { join } from "path";
 
+import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
 
@@ -258,6 +260,25 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "CLAUDE_CODE_OAUTH_TOKEN",
+    description:
+      "Consulted for PRESENCE only, to classify billing: with it set and no " +
+      "ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in " +
+      "default and discovered models) count as subscription-billed. The token " +
+      "itself is consumed by the Claude backend / Agent SDK, not this package.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    description:
+      "Consulted for PRESENCE only, to classify billing: when set it wins " +
+      "over CLAUDE_CODE_OAUTH_TOKEN (mirroring the Agent SDK's credential " +
+      "precedence), so ambient-credential profiles count as api-billed.",
+    default: null,
+    required: false,
+  },
+  {
     name: "BRAIN_UI_MODEL_DISCOVERY",
     description:
       'Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF.',
@@ -271,9 +292,22 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PRICING_DISCOVERY",
+    description:
+      'Remote model-pricing refresh (LiteLLM + OpenRouter catalogs); "0"/"off"/"false" disables, and runs then roll up with unknown effective cost. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF.',
+    default: "on (off under NODE_ENV=test)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_PRICING_TTL_HOURS",
+    description: "How long a fetched model-pricing table stays fresh, in hours.",
+    default: "24",
+    required: false,
+  },
+  {
     name: "NODE_ENV",
     description:
-      "Only consulted for test-runner detection: flips the model-discovery default to off under bun test. Never gates any security behavior.",
+      "Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior.",
     default: "(unset)",
     required: false,
   },
@@ -347,6 +381,15 @@ export interface AgentConfig {
   profilesJson: string | null;
   modelDiscovery: boolean;
   modelTtlMs: number;
+  /**
+   * Billing classification for profiles running on AMBIENT credentials (the
+   * built-in default and discovered models): "subscription" iff the
+   * environment holds a CLAUDE_CODE_OAUTH_TOKEN and no ANTHROPIC_API_KEY —
+   * the same precedence the Agent SDK applies — else "api". Declared profiles
+   * carrying their own credential env vars are classified "api" by the
+   * registry regardless of this value.
+   */
+  ambientBilling: BillingMode;
 }
 
 export interface VoiceConfig {
@@ -380,6 +423,8 @@ export interface ServerConfig {
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
   voice: VoiceConfig;
+  /** Model-pricing service (BRAIN_UI_PRICING_*); inline like wsRate. */
+  pricing: { enabled: boolean; ttlMs: number };
 }
 
 // --- resolver ----------------------------------------------------------------
@@ -439,11 +484,49 @@ function parseSeverity(raw: string | undefined): Severity {
 const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "none"];
 
 /**
+ * Ambient billing classification from an environment (presence-only reads).
+ * The API key wins over the OAuth token — the Agent SDK's own precedence —
+ * and no usable credential at all classifies "api" (nothing
+ * subscription-billed can run without the token). Exported for the activity
+ * store's standalone default, so the cron wrapper classifies from the same
+ * predicate the server config does.
+ */
+export function resolveAmbientBillingMode(env: EnvRecord = process.env): BillingMode {
+  return !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
+    ? "subscription"
+    : "api";
+}
+
+/**
+ * THE derivation of the pricing config (kill switch, TTL, brain path) —
+ * consumed by resolveServerConfig and used directly by the cron wrapper's
+ * bare `createActivityStore(db)` path, where no ServerConfig exists. Kept
+ * here so process.env reads stay in the one chokepoint the env-access gate
+ * allows.
+ */
+export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
+  brainPath: string;
+  enabled: boolean;
+  ttlMs: number;
+} {
+  const ttlHours = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
+  return {
+    brainPath: env.BRAIN_PATH || join(env.HOME || "/root", "brain"),
+    enabled: envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test"),
+    ttlMs:
+      Number.isFinite(ttlHours) && ttlHours > 0
+        ? ttlHours * 60 * 60 * 1000
+        : 24 * 60 * 60 * 1000,
+  };
+}
+
+/**
  * Resolve an environment into a {@link ServerConfig}. Defaults to the real
  * process environment; tests pass their own record instead of mutating it.
  */
 export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig {
-  const brainPath = env.BRAIN_PATH || join(env.HOME || "/root", "brain");
+  const { brainPath, enabled: pricingEnabled, ttlMs: pricingTtlMs } =
+    resolveStandalonePricingConfig(env);
 
   const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
   const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
@@ -494,6 +577,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
+      ambientBilling: resolveAmbientBillingMode(env),
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
     wsRate: {
@@ -505,6 +589,10 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
       keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
+    },
+    pricing: {
+      enabled: pricingEnabled,
+      ttlMs: pricingTtlMs,
     },
   };
 }

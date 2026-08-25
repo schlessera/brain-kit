@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 import type {
+  BillingMode,
   ModelCatalogEntry,
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -21,6 +22,9 @@ export function ModelsTab({ active }: { active: boolean }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadProviders = useProviderStore((s) => s.loadProviders);
+  const commitGate = useRef(createRequestGate());
+  /** Serializes full-record PUTs — see commitCatalog. */
+  const commitQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!active) return;
@@ -45,34 +49,86 @@ export function ModelsTab({ active }: { active: boolean }) {
     };
   }, [active]);
 
+  /**
+   * Optimistic-update skeleton shared by the hidden toggle and the billing
+   * select: the change is the user's own click, so reflect it immediately,
+   * commit, then reload the composer picker's own roster copy (fetched once
+   * on mount, it would otherwise lag until a page reload). A failed write
+   * rolls back and surfaces the error.
+   *
+   * Ordered through `createRequestGate`: two rows edited within one
+   * round-trip interleave, and without the guard the FIRST response (or its
+   * failure rollback) lands last and silently overwrites the newer edit. A
+   * superseded response/rollback is dropped — the newer request's payload
+   * was built on top of this one's optimistic state, so it already carries
+   * this change (and its own catch surfaces any error that still matters).
+   */
+  async function commitCatalog(
+    optimistic: ModelCatalogResponse,
+    commit: () => Promise<ModelCatalogResponse>
+  ) {
+    const isCurrent = commitGate.current.begin();
+    const previous = catalog;
+    setCatalog(optimistic);
+    setError(null);
+    // The gate drops superseded RESPONSES; this queue serializes the WRITES.
+    // Both matter: the server stores full records, so two concurrent PUTs
+    // could land older-last and silently clobber the newer record server-side
+    // even while the client looked right. Each commit waits for the previous
+    // one to settle; payloads are built on optimistic state, so the newest
+    // write already carries every earlier edit.
+    const run = commitQueue.current.then(async () => {
+      try {
+        const confirmed = await commit();
+        if (isCurrent()) setCatalog(confirmed);
+        void loadProviders();
+      } catch (err) {
+        if (isCurrent()) {
+          setCatalog(previous);
+          setError(err instanceof Error ? err.message : "Could not save");
+        }
+      }
+    });
+    commitQueue.current = run;
+    await run;
+  }
+
   async function toggleHidden(entry: ModelCatalogEntry) {
     if (!catalog) return;
-    const previous = catalog;
     const hidden = catalog.models
       .filter((model) =>
         model.id === entry.id ? !entry.hidden : model.hidden
       )
       .map((model) => model.id);
 
-    // Optimistic: the list is the user's own click, so reflect it immediately
-    // and roll back if the write fails.
-    setCatalog({
-      ...catalog,
-      models: catalog.models.map((model) =>
-        model.id === entry.id ? { ...model, hidden: !model.hidden } : model
-      ),
-    });
-    setError(null);
-    try {
-      setCatalog(await api.setHiddenModels(hidden));
-      // The composer's picker holds its own copy of the roster, fetched once on
-      // mount — without this it keeps offering a model the user just hid until
-      // the page is reloaded.
-      void loadProviders();
-    } catch (err) {
-      setCatalog(previous);
-      setError(err instanceof Error ? err.message : "Could not save");
-    }
+    await commitCatalog(
+      {
+        ...catalog,
+        models: catalog.models.map((model) =>
+          model.id === entry.id ? { ...model, hidden: !model.hidden } : model
+        ),
+      },
+      () => api.setHiddenModels(hidden)
+    );
+  }
+
+  async function changeBilling(entry: ModelCatalogEntry, next: BillingMode | "auto") {
+    if (!catalog) return;
+
+    // What "auto" resolves to is only known server-side, so switching back to
+    // auto keeps the current resolved mode until the confirmed catalog
+    // corrects it a beat later.
+    await commitCatalog(
+      {
+        ...catalog,
+        models: catalog.models.map((model) => {
+          if (model.id !== entry.id) return model;
+          const { billingOverride: _cleared, ...base } = model;
+          return next === "auto" ? base : { ...base, billingOverride: next, billingMode: next };
+        }),
+      },
+      () => api.setBillingOverrides(nextBillingOverrides(catalog.models, entry.id, next))
+    );
   }
 
   async function onRefresh() {
@@ -115,6 +171,7 @@ export function ModelsTab({ active }: { active: boolean }) {
                 key={entry.id}
                 entry={entry}
                 onToggle={() => toggleHidden(entry)}
+                onBilling={(next) => changeBilling(entry, next)}
               />
             ))}
             {catalog?.models.length === 0 && (
@@ -162,12 +219,51 @@ export function ModelsTab({ active }: { active: boolean }) {
   );
 }
 
+/**
+ * Request-ordering guard for optimistic commits: `begin()` claims a token
+ * and returns a predicate that holds only while no later request has begun.
+ * An older in-flight request must never write over a newer edit's state.
+ */
+export function createRequestGate(): { begin: () => () => boolean } {
+  let seq = 0;
+  return {
+    begin() {
+      const token = ++seq;
+      return () => seq === token;
+    },
+  };
+}
+
+/**
+ * The billing-override record PUT after changing one profile: every other
+ * profile keeps its stored override, the changed one is set — or, for "auto",
+ * REMOVED, never stored as a redundant explicit value.
+ */
+export function nextBillingOverrides(
+  models: ModelCatalogEntry[],
+  id: string,
+  next: BillingMode | "auto"
+): Record<string, BillingMode> {
+  const billing: Record<string, BillingMode> = {};
+  for (const model of models) {
+    const value = model.id === id ? (next === "auto" ? undefined : next) : model.billingOverride;
+    if (value) billing[model.id] = value;
+  }
+  return billing;
+}
+
+function billingLabel(mode: BillingMode): string {
+  return mode === "api" ? "API" : "Subscription";
+}
+
 function ModelRow({
   entry,
   onToggle,
+  onBilling,
 }: {
   entry: ModelCatalogEntry;
   onToggle: () => void;
+  onBilling: (next: BillingMode | "auto") => void;
 }) {
   const Icon = entry.hidden ? EyeOff : Eye;
   return (
@@ -185,6 +281,24 @@ function ModelRow({
           {entry.source === "declared" ? " · configured" : ""}
         </p>
       </div>
+      {/* Tri-state billing: the collapsed control always reads as the
+          RESOLVED mode — the Auto option carries what auto resolves to, so
+          "Auto (subscription)" and a forced "Subscription" are both legible
+          at a glance. */}
+      <select
+        value={entry.billingOverride ?? "auto"}
+        onChange={(e) => onBilling(e.target.value as BillingMode | "auto")}
+        aria-label={`Billing for ${entry.label}`}
+        className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+      >
+        <option value="auto">
+          {!entry.billingOverride && entry.billingMode
+            ? `Auto (${billingLabel(entry.billingMode).toLowerCase()})`
+            : "Auto"}
+        </option>
+        <option value="subscription">Subscription</option>
+        <option value="api">API</option>
+      </select>
       <button
         onClick={onToggle}
         title={entry.hidden ? "Show in picker" : "Hide from picker"}

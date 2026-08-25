@@ -95,6 +95,46 @@ describe("API client URL building", () => {
   });
 });
 
+describe("billing overrides and pricing state", () => {
+  test("setBillingOverrides PUTs the full record under a billing key", async () => {
+    const cap = captureUrl({ models: [], refreshedAt: null, stale: false, discovery: { enabled: false } });
+    await api.setBillingOverrides({ "openrouter-glm": "api" });
+    expect(cap.urls[0]).toBe("/api/models/billing");
+    expect(cap.inits[0]?.method).toBe("PUT");
+    expect(JSON.parse(String(cap.inits[0]?.body))).toEqual({
+      billing: { "openrouter-glm": "api" },
+    });
+  });
+
+  test("pricingState reads the additive freshness route", async () => {
+    const cap = captureUrl({ enabled: true, fetchedAt: 1, stale: false, source: "remote" });
+    const state = await api.pricingState();
+    expect(cap.urls[0]).toBe("/api/models/pricing");
+    expect(state.stale).toBe(false);
+  });
+
+  test("activityRun defaults to the light detail without payload bodies", async () => {
+    const cap = captureUrl({ runId: "run 1", detailPruned: false });
+    await api.activityRun("run 1");
+    expect(cap.urls[0]).toBe("/api/activity/runs/run%201");
+  });
+
+  test("activityRun opts into payload events for the drill-in views", async () => {
+    const cap = captureUrl({ runId: "r1", detailPruned: false });
+    await api.activityRun("r1", { includePayloads: true });
+    expect(cap.urls[0]).toBe("/api/activity/runs/r1?include=payloads");
+  });
+
+  test("pricingState rejects on an older server (404) so callers hide the indicator", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    expect(api.pricingState()).rejects.toThrow();
+  });
+});
+
 describe("API error response handling", () => {
   test("error body shape is consistent", () => {
     const errorBodies = [
