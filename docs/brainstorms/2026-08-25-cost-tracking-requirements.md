@@ -72,6 +72,7 @@ The triggering question: "Am I paying for this, or is it inside my subscription?
 - R11. Migration adds nullable columns to `activity_run_rollups`; existing rows stay NULL (unknown) — no backfill. New env vars (`BRAIN_UI_PRICING_*` kill switch + TTL) join the env descriptor array.
 - R12. No test touches the network or needs a key; pricing fetches are fixture-injected. `query_activity`'s description documents the dual numbers and NULL semantics; if its schema is part of the compatibility contract, the contract doc rides the same commit.
 - R13. Run detail (spans/events) survives a minimum retention window — `activity.retention.detailDays` in the settings table, default 7 — in addition to the digest floor: a run is detail-pruned only when the digest has covered it **and** it is older than the window (the hard ceiling still prunes regardless). Today the floor alone gates, so nightly cron runs lose detail within an hour of the morning digest while same-day session turns keep theirs — the asymmetry this fixes.
+- R14. Tool-call spans record their input arguments and output payloads as span events (clipped, with an explicit truncation marker), so the Activity drill-in can expand a tool call the way the chat timeline can. Applies to session-origin recording (the recorder observes the frames that carry payloads); the bounded event size rides the existing event chunking, and the detail-retention window (R13) bounds storage. Cron/sink-origin payload capture is a wrapper-side follow-up, not part of this.
 
 ---
 
@@ -83,6 +84,7 @@ The triggering question: "Am I paying for this, or is it inside my subscription?
 - AE4. The server boots with no network: pricing serves from the bundled snapshot, runs price normally but flagged estimate, and the Activity header shows the staleness indicator once TTL has lapsed with refresh failing.
 - AE5. A stale sweep re-rolls a run three days after a pricing refresh changed rates: the run's effective cost is unchanged (frozen at first computation).
 - AE6. A nightly cron run's full span tree is still viewable in the Activity surface five days later (default window), even though the digest covered it the same morning; at day 8 only the rollup remains.
+- AE7. Expanding a tool call in the Activity drill-in (subagent view or run detail) for a session run recorded after this ships shows its input arguments and output payload, clipped at the cap with a visible truncation marker; a pre-feature run's tool calls state that no payload was recorded rather than offering an empty expander.
 
 ---
 

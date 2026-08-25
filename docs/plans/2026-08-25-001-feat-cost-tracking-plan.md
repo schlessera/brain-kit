@@ -27,10 +27,11 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 - R7–R9. Surfaces: additive wire fields, sum-of-knowns aggregation with unpriced counts, three-state UI rendering + staleness indicator (origin R7–R9)
 - R10–R12. Settings override seam, migration without backfill, env descriptors, network-free tests, tool-description/contract updates (origin R10–R12)
 - R13. Detail retention window: spans/events survive `activity.retention.detailDays` (default 7) in addition to the digest floor; hard ceiling unchanged (origin R13)
+- R14. Tool I/O capture: input/output payloads recorded as clipped span events, rendered behind the drill-in expand affordance (origin R14)
 
 **Origin actors:** A1 (operator), A2 (agent backends), A3 (scheduled jobs), A4 (agent as consumer), A5 (remote pricing sources)
 **Origin flows:** F1 (priced run), F2 (spend glance), F3 (pricing lifecycle), F4 (billing override)
-**Origin acceptance examples:** AE1 (subscription cron → free), AE2 (OpenRouter estimate), AE3 (unknown never $0), AE4 (offline snapshot), AE5 (frozen on re-rollup), AE6 (cron detail survives the window)
+**Origin acceptance examples:** AE1 (subscription cron → free), AE2 (OpenRouter estimate), AE3 (unknown never $0), AE4 (offline snapshot), AE5 (frozen on re-rollup), AE6 (cron detail survives the window), AE7 (drill-in tool I/O expands)
 
 ---
 
@@ -376,6 +377,40 @@ Billing mode decision (per run, at start): declared profile with `apiKeyEnv`/`au
 
 **Verification:**
 - A nightly cron run's span tree remains viewable in Activity for the configured window; hard-ceiling pruning unchanged
+
+---
+
+### U8. Tool I/O capture and drill-in rendering (ui-server, ui-react)
+
+**Goal:** Expanding a tool call in the Activity drill-in shows its input and output, the way the chat timeline can — the payloads are recorded as span events instead of being dropped.
+
+**Requirements:** R14 (origin R14); AE7
+
+**Dependencies:** U3 (recorder.ts collision — serialize behind it). UI half collides with U6 on `activity-page.tsx` (RunDetail) — run U8 before U6 or serialize.
+
+**Files:**
+- Modify: `packages/ui-server/src/activity/recorder.ts` (capture events)
+- Modify: `packages/ui-react/src/components/chat/subagent-view.tsx` (expand affordance renders payload events)
+- Modify: `packages/ui-react/src/components/activity/activity-page.tsx` (RunDetail: same rendering)
+- Test: `packages/ui-server/tests/activity-recorder.test.ts`, `packages/ui-react/tests/activity-store.test.ts` (or nearest view-helper home)
+
+**Approach:**
+- Capture in the recorder: on `tool_use_complete`, `appendEvent(toolUseId, "tool_input", clip(JSON.stringify(input), CAP))`; on `tool_result`, `appendEvent(toolUseId, "tool_output", clip(output, CAP))`. CAP ≈ 4 KB per event with an explicit `… [truncated]` marker (extend the existing `clip` helper). No delta accumulation — `tool_use_complete` carries the complete input object; `tool_input_delta` frames stay ignored
+- Events ride the existing wire (span events already stream in snapshots/deltas, chunked at 100/frame) and die with detail pruning (U7 window bounds storage) — no schema or protocol change
+- Rendering: a tool-call row in the drill-in becomes expandable when `tool_input`/`tool_output` events exist for its span; expanded content reuses the clamped mono-block styling of the chat timeline's unknown-tool fallback. Pre-feature spans (no payload events) show "no payload recorded" instead of an empty expander (AE7)
+- Cron/sink-origin payload capture is wrapper-side and out of scope (origin R14)
+
+**Patterns to follow:** `transcript_*` event flow (recorder `observeActivity` → `eventsFor` selector → subagent-view interleave); the chat timeline's clamped output block in `tool-views.tsx`
+
+**Test scenarios:**
+- Covers AE7. Recorder: `tool_use_complete` + `tool_result` produce `tool_input`/`tool_output` events with the payload; a payload over CAP is clipped with the truncation marker
+- Happy path: denied tool (approval declined) records input but no output event
+- Edge: `tool_result` for an unknown span id → no event, no throw (guard discipline)
+- Edge: non-JSON-serializable input values (undefined members) don't break capture
+- Integration: events stream to the client mirror and `eventsFor` returns them interleaved for the span
+
+**Verification:**
+- A fresh session run's drill-in expands tool calls with input/output; a pre-feature run shows the no-payload notice; server suite green
 
 ---
 
