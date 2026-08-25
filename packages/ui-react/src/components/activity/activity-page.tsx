@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity as ActivityIcon,
   AlertTriangle,
@@ -17,6 +17,7 @@ import {
   api,
   type ActivityIntent,
   type ActivityRollups,
+  type ActivityRunRollup,
   type ActivityRunSummary,
 } from "../../lib/api-client.js";
 import { sendClientMessage } from "../../hooks/use-websocket.js";
@@ -30,8 +31,15 @@ import {
   formatRelativeTime,
   formatTokenCount,
 } from "../chat/tool-views.js";
-import { SpanPayload, SpanStatusDot, spanToolLabel } from "./span-bits.js";
+import {
+  SpanPayload,
+  SpanStatusDot,
+  formatAggregateCost,
+  formatEffectiveCost,
+  spanToolLabel,
+} from "./span-bits.js";
 import { PushToggle } from "./push-toggle.js";
+import { SettingsPanel } from "../settings/settings-panel.js";
 
 /**
  * The Activity surface: an INDEX of all agent activity — live runs first,
@@ -47,11 +55,15 @@ export function ActivityPage() {
   const connectionEpoch = useActivityStore((s) => s.connectionEpoch);
   const liveSpans = useActivityStore((s) => s.spans);
   const setActiveView = useUIStore((s) => s.setActiveView);
+  const openSettings = useUIStore((s) => s.openSettings);
+  const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
+  const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
   const [runs, setRuns] = useState<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] } | null>(null);
   const [rollups, setRollups] = useState<ActivityRollups | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
+  const [pricingStale, setPricingStale] = useState(false);
 
   const inbox = useActivityStore((s) => s.inbox);
   const loadInbox = useActivityStore((s) => s.loadInbox);
@@ -64,6 +76,13 @@ export function ActivityPage() {
       .then(setRuns)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     api.activityRollups(7).then(setRollups).catch(() => {});
+    // Surface the pricing warning only when the table is stale AND refreshes
+    // are failing — a merely-aging table heals itself. A rejection (including
+    // 404 from a server that predates the route) means no signal: stay quiet.
+    api
+      .pricingState()
+      .then((s) => setPricingStale(Boolean(s.stale && s.error)))
+      .catch(() => setPricingStale(false));
     void loadInbox();
   };
 
@@ -157,10 +176,29 @@ export function ActivityPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {/* Hosted here like GraphPage does: the chat page (the usual host) is
+          hidden while this view is active, so the staleness deep-link below
+          needs its own panel mount. */}
+      <SettingsPanel
+        open={settingsPanelOpen}
+        onClose={() => setSettingsPanelOpen(false)}
+      />
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
         <ActivityIcon className="h-4 w-4 text-muted-foreground" />
         <h1 className="text-sm font-medium">Activity</h1>
         <div className="ml-auto flex items-center gap-2">
+          {pricingStale && (
+            <button
+              type="button"
+              onClick={() => openSettings("models")}
+              className="flex items-center gap-1 rounded-md p-1.5 text-amber-500 transition-colors hover:bg-surface-raised hover:text-amber-400"
+              aria-label="Pricing refresh is failing — costs may use stale rates. Open Settings"
+              title="Pricing refresh is failing — costs may use stale rates. Open Settings"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="hidden text-[10px] sm:inline">Pricing stale</span>
+            </button>
+          )}
           <PushToggle />
         </div>
         <button
@@ -296,10 +334,16 @@ function RollupCards({ rollups }: { rollups: ActivityRollups }) {
       runs: acc.runs + d.runs,
       failures: acc.failures + d.failures,
       costUsd: acc.costUsd + d.costUsd,
+      effectiveCostUsd: acc.effectiveCostUsd + (d.effectiveCostUsd ?? 0),
+      unpricedRuns: acc.unpricedRuns + (d.unpricedRuns ?? 0),
       tokens: acc.tokens + d.inputTokens + d.outputTokens,
     }),
-    { runs: 0, failures: 0, costUsd: 0, tokens: 0 }
+    { runs: 0, failures: 0, costUsd: 0, effectiveCostUsd: 0, unpricedRuns: 0, tokens: 0 }
   );
+  // A server that predates pricing omits the effective fields entirely; the
+  // card then keeps its single list-price number instead of claiming an
+  // effective $0.00 it never computed.
+  const hasEffective = rollups.days.some((d) => d.effectiveCostUsd !== undefined);
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <StatCard label="Runs today" value={String(today?.runs ?? 0)} />
@@ -308,16 +352,51 @@ function RollupCards({ rollups }: { rollups: ActivityRollups }) {
         value={String(week.failures)}
         alert={week.failures > 0}
       />
-      <StatCard label="Spend (7d)" value={`$${week.costUsd.toFixed(2)}`} />
+      <StatCard
+        label="Spend (7d)"
+        value={
+          hasEffective
+            ? formatAggregateCost(week.effectiveCostUsd, week.unpricedRuns)
+            : `$${week.costUsd.toFixed(2)}`
+        }
+        secondary={
+          hasEffective && (
+            <>
+              list ${week.costUsd.toFixed(2)}
+              {week.unpricedRuns > 0 && (
+                <>
+                  {/* Two cards per row below `sm`: the qualifier compacts. */}
+                  <span className="hidden sm:inline"> · {week.unpricedRuns} unpriced</span>
+                  <span className="sm:hidden"> · {week.unpricedRuns}?</span>
+                </>
+              )}
+            </>
+          )
+        }
+      />
       <StatCard label="Tokens (7d)" value={formatTokenCount(week.tokens)} />
     </div>
   );
 }
 
-function StatCard({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+function StatCard({
+  label,
+  value,
+  secondary,
+  alert,
+}: {
+  label: string;
+  value: string;
+  /** Muted small line between the value and the label (e.g. the list-cost qualifier). */
+  secondary?: ReactNode;
+  alert?: boolean;
+}) {
   return (
     <div className="rounded-lg border border-border-subtle bg-surface p-3">
       <div className={cn("text-lg font-semibold", alert && "text-destructive")}>{value}</div>
+      {secondary && (
+        <div className="truncate text-[10px] text-muted-foreground/70">{secondary}</div>
+      )}
       <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
   );
@@ -393,7 +472,9 @@ function RunRow({
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
-        {run.costUsd !== null && run.costUsd > 0 && <span>${run.costUsd.toFixed(2)}</span>}
+        {/* Effective cost only — list price lives on the Spend card and the
+            detail view. "—" is unknown, never $0.00 (AE3). */}
+        <span>{formatEffectiveCost(run.effectiveCostUsd, run.pricingEstimate)}</span>
         {run.durationMs !== null && (
           <span className="flex items-center gap-0.5">
             <Timer className="h-3 w-3" />
@@ -411,12 +492,14 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
   const [pruned, setPruned] = useState<object | null>(null);
+  const [rollup, setRollup] = useState<ActivityRunRollup | null>(null);
   const [missing, setMissing] = useState(false);
 
   useEffect(() => {
     api
       .activityRun(runId)
       .then((detail) => {
+        if (detail.rollup) setRollup(detail.rollup);
         if (detail.detailPruned) {
           setPruned(detail.rollup ?? {});
         } else if (detail.spans) {
@@ -448,6 +531,26 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
       </div>
       <div className="mx-auto w-full max-w-3xl space-y-1 p-4">
         {missing && <p className="text-xs text-muted-foreground">Unknown run.</p>}
+        {rollup && (
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border border-border-subtle bg-surface px-3 py-2 text-[11px] text-muted-foreground">
+            <span>
+              list{" "}
+              <span className="font-[family-name:var(--font-mono)] text-foreground/80">
+                {formatEffectiveCost(rollup.costUsd)}
+              </span>
+            </span>
+            <span>
+              effective{" "}
+              <span className="font-[family-name:var(--font-mono)] text-foreground/80">
+                {formatEffectiveCost(rollup.effectiveCostUsd, rollup.pricingEstimate)}
+              </span>
+            </span>
+            {rollup.billingMode && (
+              <span>{rollup.billingMode === "api" ? "API billed" : "subscription billed"}</span>
+            )}
+            {rollup.pricingEstimate && <span>~ estimated rates</span>}
+          </div>
+        )}
         {pruned && (
           <div className="rounded-lg border border-border-subtle bg-surface p-3 text-xs text-muted-foreground">
             Detail pruned — only the rollup remains.

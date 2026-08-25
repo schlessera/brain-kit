@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 import type {
+  BillingMode,
   ModelCatalogEntry,
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -75,6 +76,33 @@ export function ModelsTab({ active }: { active: boolean }) {
     }
   }
 
+  async function changeBilling(entry: ModelCatalogEntry, next: BillingMode | "auto") {
+    if (!catalog) return;
+    const previous = catalog;
+
+    // Optimistic, mirroring the hidden toggle. What "auto" resolves to is
+    // only known server-side, so switching back to auto keeps the current
+    // resolved mode until the confirmed catalog corrects it a beat later.
+    setCatalog({
+      ...catalog,
+      models: catalog.models.map((model) => {
+        if (model.id !== entry.id) return model;
+        const { billingOverride: _cleared, ...base } = model;
+        return next === "auto" ? base : { ...base, billingOverride: next, billingMode: next };
+      }),
+    });
+    setError(null);
+    try {
+      setCatalog(await api.setBillingOverrides(nextBillingOverrides(catalog.models, entry.id, next)));
+      // Billing mode rides the provider roster too — keep the picker's copy
+      // in step, same as the hidden toggle.
+      void loadProviders();
+    } catch (err) {
+      setCatalog(previous);
+      setError(err instanceof Error ? err.message : "Could not save");
+    }
+  }
+
   async function onRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -115,6 +143,7 @@ export function ModelsTab({ active }: { active: boolean }) {
                 key={entry.id}
                 entry={entry}
                 onToggle={() => toggleHidden(entry)}
+                onBilling={(next) => changeBilling(entry, next)}
               />
             ))}
             {catalog?.models.length === 0 && (
@@ -162,12 +191,36 @@ export function ModelsTab({ active }: { active: boolean }) {
   );
 }
 
+/**
+ * The billing-override record PUT after changing one profile: every other
+ * profile keeps its stored override, the changed one is set — or, for "auto",
+ * REMOVED, never stored as a redundant explicit value.
+ */
+export function nextBillingOverrides(
+  models: ModelCatalogEntry[],
+  id: string,
+  next: BillingMode | "auto"
+): Record<string, BillingMode> {
+  const billing: Record<string, BillingMode> = {};
+  for (const model of models) {
+    const value = model.id === id ? (next === "auto" ? undefined : next) : model.billingOverride;
+    if (value) billing[model.id] = value;
+  }
+  return billing;
+}
+
+function billingLabel(mode: BillingMode): string {
+  return mode === "api" ? "API" : "Subscription";
+}
+
 function ModelRow({
   entry,
   onToggle,
+  onBilling,
 }: {
   entry: ModelCatalogEntry;
   onToggle: () => void;
+  onBilling: (next: BillingMode | "auto") => void;
 }) {
   const Icon = entry.hidden ? EyeOff : Eye;
   return (
@@ -185,6 +238,24 @@ function ModelRow({
           {entry.source === "declared" ? " · configured" : ""}
         </p>
       </div>
+      {/* Tri-state billing: the collapsed control always reads as the
+          RESOLVED mode — the Auto option carries what auto resolves to, so
+          "Auto (subscription)" and a forced "Subscription" are both legible
+          at a glance. */}
+      <select
+        value={entry.billingOverride ?? "auto"}
+        onChange={(e) => onBilling(e.target.value as BillingMode | "auto")}
+        aria-label={`Billing for ${entry.label}`}
+        className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+      >
+        <option value="auto">
+          {!entry.billingOverride && entry.billingMode
+            ? `Auto (${billingLabel(entry.billingMode).toLowerCase()})`
+            : "Auto"}
+        </option>
+        <option value="subscription">Subscription</option>
+        <option value="api">API</option>
+      </select>
       <button
         onClick={onToggle}
         title={entry.hidden ? "Show in picker" : "Hide from picker"}

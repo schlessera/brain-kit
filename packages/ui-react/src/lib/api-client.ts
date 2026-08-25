@@ -6,6 +6,7 @@ import type {
   PronunciationOverride,
   ProviderInfo,
   PasskeySummary,
+  BillingMode,
   ModelCatalogResponse,
   ActivityRunSummary,
   ActivityRunDetail,
@@ -50,6 +51,23 @@ export interface BrainSearchResponse {
   results: BrainSearchHit[];
   /** Degraded-mode notices, e.g. vector search unavailable so results are FTS-only. */
   warnings: string[];
+}
+
+/**
+ * Pricing-table freshness (GET /api/models/pricing) — mirrors the server
+ * pricing service's state. The route is additive: an older server 404s, and
+ * callers treat the rejection as "no freshness signal, show nothing".
+ */
+export interface PricingState {
+  enabled: boolean;
+  /** When a refresh last succeeded (either source); null when none ever has. */
+  fetchedAt: number | null;
+  /** The current table is older than the TTL (or was never fetched). */
+  stale: boolean;
+  /** What the table is served from: remote data (cache included) or the bundled snapshot. */
+  source: "remote" | "snapshot";
+  /** Last refresh failure, if the current table is served despite one. */
+  error?: string;
 }
 
 /** Backend id + capability flags the client renders behavior from. */
@@ -180,6 +198,16 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ hidden }),
     }),
+
+  /** Replace the billing-override record (full record, not a delta); returns the new catalog. */
+  setBillingOverrides: (billing: Record<string, BillingMode>) =>
+    fetchJson<ModelCatalogResponse>("/models/billing", {
+      method: "PUT",
+      body: JSON.stringify({ billing }),
+    }),
+
+  /** Pricing-table freshness for the Activity staleness indicator (see `PricingState`). */
+  pricingState: () => fetchJson<PricingState>("/models/pricing"),
 
   /** Force a discovery refresh, bypassing the TTL. */
   refreshModels: () =>

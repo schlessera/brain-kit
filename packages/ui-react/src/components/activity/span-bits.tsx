@@ -94,6 +94,55 @@ export function SpanPayload({ spanId }: { spanId: string }) {
   );
 }
 
+/**
+ * THE effective-cost glyph — one three-state rule so no surface ever renders
+ * an unknown cost as $0.00 (AE3): absent/NULL is "—" (we don't know), 0 is
+ * "free" (we know — subscription-billed or genuinely zero), positive is
+ * dollars, "~"-prefixed when computed from estimated rates. Sub-cent costs
+ * floor at "<$0.01" rather than rounding down to a zero look-alike.
+ */
+export function formatEffectiveCost(
+  costUsd: number | null | undefined,
+  estimate?: boolean
+): string {
+  if (costUsd === null || costUsd === undefined) return "—";
+  if (costUsd === 0) return "free";
+  const amount = costUsd < 0.005 ? "<$0.01" : `$${costUsd.toFixed(2)}`;
+  return estimate ? `~${amount}` : amount;
+}
+
+/**
+ * An aggregate's effective-cost sum. Sums exclude unknown-cost runs, so a
+ * nonzero `unpricedRuns` makes the number a floor ("≥ $X"), never a total.
+ */
+export function formatAggregateCost(effectiveUsd: number, unpricedRuns: number): string {
+  const amount = `$${effectiveUsd.toFixed(2)}`;
+  return unpricedRuns > 0 ? `≥ ${amount}` : amount;
+}
+
+/**
+ * The digest card's cost clause (no leading separator), effective-only, or
+ * null for "say nothing". A digest persisted before pricing shipped carries
+ * neither new field and keeps its old list-cost clause.
+ */
+export function digestCostClause(digest: {
+  costUsd: number;
+  effectiveCostUsd?: number;
+  unpricedRuns?: number;
+}): string | null {
+  if (digest.effectiveCostUsd === undefined) {
+    return digest.costUsd > 0 ? `$${digest.costUsd.toFixed(2)} spent` : null;
+  }
+  const unpriced = digest.unpricedRuns ?? 0;
+  const qualifier = unpriced > 0 ? ` (${unpriced} unpriced)` : "";
+  if (digest.effectiveCostUsd > 0) {
+    return `${formatAggregateCost(digest.effectiveCostUsd, unpriced)} spent${qualifier}`;
+  }
+  // Known-zero spend: nothing to add up, but the unknowns still get named.
+  if (unpriced > 0) return `${unpriced} unpriced`;
+  return "free";
+}
+
 /** The "9+" unread-count bubble shared by the rail and the tab bar. Hidden at 0. */
 export function CountBadge({ count, className }: { count: number; className?: string }) {
   if (count <= 0) return null;
