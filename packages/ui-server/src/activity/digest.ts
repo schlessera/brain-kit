@@ -67,6 +67,10 @@ function generateInTx(db: Database, now: number): ActivityDigest {
 
   const relevant = rows.filter((r) => r.jobName !== DIGEST_JOB_NAME);
   const failures = relevant.filter((r) => isFailureOutcome(r.outcome));
+  // Runs whose effective cost is unknown (NULL) — they are EXCLUDED from the
+  // effective sum and surfaced as a count instead, so the digest never passes
+  // an unknown off as $0 (AE3). Both cost sums are sum-of-knowns.
+  const unpriced = relevant.filter((r) => r.effectiveCostUsd === null);
 
   const digest: ActivityDigest = {
     generatedAt: now,
@@ -75,6 +79,8 @@ function generateInTx(db: Database, now: number): ActivityDigest {
     runs: relevant.length,
     failures: failures.length,
     costUsd: relevant.reduce((a, r) => a + (r.costUsd ?? 0), 0),
+    effectiveCostUsd: relevant.reduce((a, r) => a + (r.effectiveCostUsd ?? 0), 0),
+    unpricedRuns: unpriced.length,
     inputTokens: relevant.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
     outputTokens: relevant.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
     notable: failures.slice(0, 10).map((r) => ({

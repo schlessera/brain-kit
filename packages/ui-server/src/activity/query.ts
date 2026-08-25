@@ -54,6 +54,11 @@ export function runActivityQuery(
           outcome: r.outcome,
           durationMs: r.durationMs,
           costUsd: r.costUsd,
+          // Explicit nulls, never omitted: the model must be able to tell
+          // "unknown" (null) from "genuinely free" ($0) — AE3.
+          effectiveCostUsd: r.effectiveCostUsd,
+          billingMode: r.billingMode,
+          pricingEstimate: r.pricingEstimate,
           failureReason: r.failureReason,
         })),
       };
@@ -97,6 +102,9 @@ export function runActivityQuery(
           startedAt: iso(rollup.startedAt),
           durationMs: rollup.durationMs,
           costUsd: rollup.costUsd,
+          effectiveCostUsd: rollup.effectiveCostUsd,
+          billingMode: rollup.billingMode,
+          pricingEstimate: rollup.pricingEstimate,
           failureReason: rollup.failureReason,
         },
       };
@@ -113,7 +121,11 @@ export function runActivityQuery(
         windowHours: hoursBack,
         runs: rows.length,
         failures: rows.filter((r) => isFailureOutcome(r.outcome)).length,
+        // Both sums are sum-of-KNOWNS; the runs excluded from the effective
+        // sum ride along as unpricedRuns so unknown never reads as $0 (AE3).
         costUsd: round(rows.reduce((a, r) => a + (r.costUsd ?? 0), 0)),
+        effectiveCostUsd: round(rows.reduce((a, r) => a + (r.effectiveCostUsd ?? 0), 0)),
+        unpricedRuns: rows.filter((r) => r.effectiveCostUsd === null).length,
         inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
         outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),

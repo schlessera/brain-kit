@@ -144,6 +144,8 @@ export function createActivityRoutes(deps: {
             running: true,
             durationMs: null,
             costUsd: s.usage.costUsd ?? null,
+            // No rollup yet — effective cost is unknown until the run prices.
+            effectiveCostUsd: null,
             failureReason: null,
             detailPruned: false,
           }));
@@ -191,6 +193,9 @@ export function createActivityRoutes(deps: {
             running: false,
             durationMs: r.durationMs,
             costUsd: r.costUsd,
+            effectiveCostUsd: r.effectiveCostUsd,
+            billingMode: r.billingMode ?? undefined,
+            pricingEstimate: r.pricingEstimate ?? undefined,
             failureReason: r.failureReason,
             detailPruned: r.detailPruned,
           }));
@@ -208,39 +213,29 @@ export function createActivityRoutes(deps: {
       const runId = c.req.param("runId");
       try {
         const snapshot = store.snapshotRun(runId);
+        const row = db
+          .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
+          .get(runId) as any;
         if (snapshot) {
           // Through the SAME wire mappers the live stream uses: a raw
           // SpanRow serializes null fields where the wire contract omits
           // them, which broke the client's `outcome === undefined`
-          // liveness test on REST-loaded runs.
+          // liveness test on REST-loaded runs. The rollup rides along when
+          // it exists (finished runs) so the detail view can show cost facts
+          // without waiting for detail pruning to force the rollup-only path.
           const detail: ActivityRunDetail = {
             runId,
             detailPruned: false,
             spans: snapshot.spans.map(toWireSpan),
             events: snapshot.events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,
+            ...(row ? { rollup: wireRollup(rowToRunRollup(row)) } : {}),
           };
           return c.json(detail);
         }
-        const row = db
-          .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
-          .get(runId) as any;
         if (!row) return c.json({ error: "Unknown run" }, 404);
         const r = rowToRunRollup(row);
-        const rollup: ActivityRunRollup = {
-          origin: r.origin,
-          name: r.name,
-          sessionId: r.sessionId,
-          jobName: r.jobName,
-          startedAt: r.startedAt,
-          endedAt: r.endedAt,
-          outcome: r.outcome,
-          durationMs: r.durationMs,
-          spanCount: r.spanCount,
-          costUsd: r.costUsd,
-          failureReason: r.failureReason,
-        };
-        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup };
+        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup: wireRollup(r) };
         return c.json(detail);
       } catch (err) {
         return c.json(
@@ -263,8 +258,8 @@ export function createActivityRoutes(deps: {
         // JS because only Intl knows the configured timezone's day boundary.
         const rows = db
           .query(
-            `SELECT started_at, outcome, duration_ms, cost_usd, input_tokens,
-                    output_tokens, cache_read_tokens, cache_creation_tokens
+            `SELECT started_at, outcome, duration_ms, cost_usd, effective_cost_usd,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
              FROM activity_run_rollups WHERE started_at >= ?`
           )
           .all(since) as any[];
@@ -302,6 +297,28 @@ export function createActivityRoutes(deps: {
  * SDK's `isFailureOutcome` — it cannot be shared into SQL, so keep the two
  * in sync.
  */
+/** Store rollup → wire rollup: nullable columns become omitted-when-null per
+ *  the optional wire contract (effectiveCostUsd stays explicit — null means
+ *  unknown, and omitting it would let a client mistake unknown for absent). */
+function wireRollup(r: ReturnType<typeof rowToRunRollup>): ActivityRunRollup {
+  return {
+    origin: r.origin,
+    name: r.name,
+    sessionId: r.sessionId,
+    jobName: r.jobName,
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+    outcome: r.outcome,
+    durationMs: r.durationMs,
+    spanCount: r.spanCount,
+    costUsd: r.costUsd,
+    effectiveCostUsd: r.effectiveCostUsd,
+    billingMode: r.billingMode ?? undefined,
+    pricingEstimate: r.pricingEstimate ?? undefined,
+    failureReason: r.failureReason,
+  };
+}
+
 function groupedAggregates(
   db: Database,
   since: number,
@@ -313,6 +330,8 @@ function groupedAggregates(
               COUNT(*) AS runs,
               SUM(CASE WHEN outcome IN ('error', 'timeout', 'interrupted') THEN 1 ELSE 0 END) AS failures,
               SUM(COALESCE(cost_usd, 0)) AS costUsd,
+              SUM(COALESCE(effective_cost_usd, 0)) AS effectiveCostUsd,
+              SUM(CASE WHEN effective_cost_usd IS NULL THEN 1 ELSE 0 END) AS unpricedRuns,
               SUM(COALESCE(input_tokens, 0)) AS inputTokens,
               SUM(COALESCE(output_tokens, 0)) AS outputTokens,
               SUM(COALESCE(cache_read_tokens, 0)) AS cacheReadTokens,
@@ -332,6 +351,8 @@ function add(map: Map<string, ActivityAggregate>, key: string, r: any): void {
       runs: 0,
       failures: 0,
       costUsd: 0,
+      effectiveCostUsd: 0,
+      unpricedRuns: 0,
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
@@ -342,7 +363,15 @@ function add(map: Map<string, ActivityAggregate>, key: string, r: any): void {
   if (isFailureOutcome(r.outcome)) {
     a.failures += 1;
   }
+  // Both cost sums are sum-of-KNOWNS (a missing value contributes nothing);
+  // for effective cost the excluded rows are counted so no surface can pass
+  // an unknown off as $0 (AE3).
   a.costUsd += r.cost_usd ?? 0;
+  if (r.effective_cost_usd == null) {
+    a.unpricedRuns = (a.unpricedRuns ?? 0) + 1;
+  } else {
+    a.effectiveCostUsd = (a.effectiveCostUsd ?? 0) + r.effective_cost_usd;
+  }
   a.inputTokens += r.input_tokens ?? 0;
   a.outputTokens += r.output_tokens ?? 0;
   a.cacheReadTokens += r.cache_read_tokens ?? 0;

@@ -34,6 +34,19 @@ function seedRun(
   store.rollupRun(runId);
 }
 
+/** Overwrite a rollup's effective triple, as if the rollup had computed it. */
+function setEffective(
+  db: ReturnType<typeof createUiDb>,
+  runId: string,
+  effectiveCostUsd: number | null,
+  billingMode: "subscription" | "api" | null,
+  pricingEstimate: 0 | 1 | null
+) {
+  db.query(
+    "UPDATE activity_run_rollups SET effective_cost_usd = ?, billing_mode = ?, pricing_estimate = ? WHERE run_id = ?"
+  ).run(effectiveCostUsd, billingMode, pricingEstimate, runId);
+}
+
 describe("activity digest", () => {
   test("summarizes the window, flags failures, persists, and advances the floor", () => {
     const db = createUiDb(":memory:");
@@ -116,6 +129,54 @@ describe("activity digest", () => {
     expect(loser).toEqual(winner);
     expect(digestRetentionFloor(db)).toBe(1_000_000);
     expect(latestActivityDigest(db)!.windowEnd).toBe(1_000_000);
+  });
+
+  test("effective cost sums only priced runs and counts the NULLs (AE3)", () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test" });
+    seedRun(store, "a", { costUsd: 0.5 });
+    seedRun(store, "b", {});
+    seedRun(store, "c", {});
+    // Effective values are the ROLLUP's concern (store tests own how they
+    // are computed); the digest reads whatever the rows carry — write them
+    // directly so the sum semantics are deterministic here.
+    setEffective(db, "a", 0.4, "api", 0);
+    setEffective(db, "b", null, "api", null); // priced never — unknown
+    setEffective(db, "c", 0, "subscription", 0); // a KNOWN zero
+
+    const digest = generateActivityDigest(db);
+    expect(digest.effectiveCostUsd).toBeCloseTo(0.4);
+    expect(digest.unpricedRuns).toBe(1);
+    // The list sum is untouched by the effective fields.
+    expect(digest.costUsd).toBeCloseTo(0.5);
+  });
+
+  test("a window of only subscription runs digests to a KNOWN effective $0", () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test" });
+    seedRun(store, "a", {});
+    seedRun(store, "b", {});
+    setEffective(db, "a", 0, "subscription", 0);
+    setEffective(db, "b", 0, "subscription", 0);
+
+    const digest = generateActivityDigest(db);
+    expect(digest.effectiveCostUsd).toBe(0);
+    expect(digest.unpricedRuns).toBe(0);
+  });
+
+  test("a window entirely pre-feature (all NULL) reports every run as unpriced", () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test" });
+    seedRun(store, "a", {});
+    seedRun(store, "b", {});
+    setEffective(db, "a", null, null, null);
+    setEffective(db, "b", null, null, null);
+
+    const digest = generateActivityDigest(db);
+    // 0 with unpricedRuns = runs — downstream renders "2 unpriced", never $0.
+    expect(digest.effectiveCostUsd).toBe(0);
+    expect(digest.unpricedRuns).toBe(digest.runs);
+    expect(digest.runs).toBe(2);
   });
 
   test("pruning respects the digest floor and the ceiling overrides a frozen one", () => {

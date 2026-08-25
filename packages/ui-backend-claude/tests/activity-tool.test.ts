@@ -76,6 +76,26 @@ describe("query_activity tool", () => {
     expect(result.content[0].text).toBe("record unavailable");
   });
 
+  test("the description documents the dual cost numbers and NULL semantics", () => {
+    const description = (createActivityQueryTool(async () => ({})) as any)
+      .description as string;
+    expect(description).toContain("costUsd");
+    expect(description).toContain("effectiveCostUsd");
+    expect(description).toContain("unpricedRuns");
+    // The load-bearing sentence: null is unknown, never zero.
+    expect(description).toContain("null");
+    expect(description.toLowerCase()).toContain("never");
+  });
+
+  test("explicit null cost fields reach the data block verbatim, not omitted", async () => {
+    const toolDef = createActivityQueryTool(async () => ({
+      finished: [{ runId: "r1", costUsd: null, effectiveCostUsd: null, billingMode: null }],
+    }));
+    const text = (await invoke(toolDef, { scope: "recent" })).content[0].text as string;
+    expect(text).toContain('"effectiveCostUsd": null');
+    expect(text).toContain('"billingMode": null');
+  });
+
   test("the prefixed tool name is the contract-stable string", () => {
     expect(QUERY_ACTIVITY_TOOL_NAME).toBe("mcp__brain-ui__query_activity");
     expect(toolNameOf(createActivityQueryTool(async () => ({})))).toBe("query_activity");
