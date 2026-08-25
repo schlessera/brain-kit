@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "fs";
+import { join } from "path";
 
 import { createUiDb } from "../src/db/client.js";
 import {
@@ -634,6 +637,131 @@ describe("activity store: effective cost (migration 010)", () => {
     const warm = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
     warm.rollupRun("run-1");
     expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.001, 10);
+  });
+
+  test("a gap-filled list cost is frozen across re-rollups, same as the effective triple (AE5)", () => {
+    // pi/cron-shaped run: the backend reported no cost, so cost_usd was
+    // gap-filled from priced usage. A sweep-style re-rollup under a CHANGED
+    // table must not reprice it — first write wins, exactly like the triple.
+    const db = createUiDb(":memory:");
+    const first = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
+    sessionRun(first, "run-1", { billing: "api", perModel: { m: { inputTokens: 1_000 } } });
+    expect(rollupOf(db, "run-1").cost_usd).toBeCloseTo(0.001, 10);
+
+    const second = createActivityStore(db, { pricing: fakePricing({ m: { input: 2e-6 } }) });
+    second.rollupRun("run-1");
+    expect(rollupOf(db, "run-1").cost_usd).toBeCloseTo(0.001, 10);
+  });
+
+  test("the freeze holds through a cascadeClose rollup followed by a re-rollup", () => {
+    // Recorder-style terminal path: an interrupted run's rollup is written by
+    // cascadeClose, not rollupRun — the freeze must hold there identically.
+    const db = createUiDb(":memory:");
+    const first = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
+    first.startSpan({
+      spanId: "run-1-root",
+      runId: "run-1",
+      name: "invoke_agent",
+      kind: "turn",
+      origin: "session",
+      sessionId: "sess-1",
+      attrs: { "brain.billing_mode": "api" },
+    });
+    first.patchSpan("run-1-root", {
+      attrs: { "gen_ai.usage.per_model": { m: { inputTokens: 1_000 } } },
+    });
+    first.cascadeClose("run-1", "interrupted", "server restarted");
+    expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.001, 10);
+
+    const second = createActivityStore(db, { pricing: fakePricing({ m: { input: 2e-6 } }) });
+    second.rollupRun("run-1");
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeCloseTo(0.001, 10);
+    expect(r.cost_usd).toBeCloseTo(0.001, 10);
+    expect(r.billing_mode).toBe("api");
+  });
+
+  test("a NULL effective slot is never filled under a flipped classification", () => {
+    // First rollup: api credentials, unpriceable child → effective NULL
+    // frozen under billing "api".
+    const { db, store } = pricedStore({});
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: "key" }, () => {
+      cronRun(store, "cron-1", [{ model: "mystery", inputTokens: 500 }]);
+    });
+    let r = rollupOf(db, "cron-1");
+    expect(r.billing_mode).toBe("api");
+    expect(r.effective_cost_usd).toBeNull();
+
+    // The credential set flips to subscription before a sweep-style
+    // re-rollup: the $0 computed under "subscription" must NOT land on the
+    // api-classified row (a cross-classified price), and the frozen
+    // classification must not change either.
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: undefined }, () => {
+      store.rollupRun("cron-1");
+    });
+    r = rollupOf(db, "cron-1");
+    expect(r.billing_mode).toBe("api");
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+  });
+
+  test("a non-finite priced sum rolls up NULL — Infinity can never freeze", () => {
+    const { db, store } = pricedStore({ m: { input: Number.MAX_VALUE } });
+    sessionRun(store, "run-1", {
+      billing: "api",
+      perModel: { m: { inputTokens: 1_000_000 } },
+    });
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+    expect(r.cost_usd).toBeNull(); // the gap-fill is equally guarded
+  });
+
+  test("rows that predate migration 010 read back a NULL triple through rowToRunRollup", () => {
+    // Stepwise upgrade against the REAL migration files: apply everything
+    // before 010, insert a rollup row exactly as the pre-feature server
+    // wrote it, then apply 010. Proves the ALTERs (with their CHECKs) accept
+    // a populated table and that the pre-feature row surfaces the unknown
+    // triple, never a guessed classification or $0.
+    const migrationsDir = join(import.meta.dir, "../migrations");
+    const files = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    const db = new Database(":memory:");
+    for (const file of files.filter((f) => f < "010")) {
+      db.exec(readFileSync(join(migrationsDir, file), "utf-8"));
+    }
+    db.query(
+      `INSERT INTO activity_run_rollups
+         (run_id, origin, name, job_name, started_at, ended_at, outcome,
+          duration_ms, span_count, input_tokens, output_tokens, cost_usd, detail_pruned)
+       VALUES ('pre', 'cron', 'cron sync', 'sync', 1, 2, 'success', 1, 1, 10, 5, 0.5, 0)`
+    ).run();
+    const tenAndLater = files.filter((f) => !(f < "010"));
+    expect(tenAndLater[0]).toBe("010_effective_cost.sql");
+    for (const file of tenAndLater) {
+      db.exec(readFileSync(join(migrationsDir, file), "utf-8"));
+    }
+
+    const mapped = rowToRunRollup(
+      db.query("SELECT * FROM activity_run_rollups WHERE run_id = 'pre'").get()
+    );
+    expect(mapped.effectiveCostUsd).toBeNull();
+    expect(mapped.billingMode).toBeNull();
+    expect(mapped.pricingEstimate).toBeNull();
+    expect(mapped.costUsd).toBe(0.5);
+
+    // The CHECKs reject wrong non-NULL values at the door...
+    expect(() =>
+      db.query("UPDATE activity_run_rollups SET billing_mode = 'free' WHERE run_id = 'pre'").run()
+    ).toThrow();
+    expect(() =>
+      db.query("UPDATE activity_run_rollups SET pricing_estimate = 2 WHERE run_id = 'pre'").run()
+    ).toThrow();
+    db.close();
+
+    // ...and a value that got written around them degrades to null on read.
+    expect(rowToRunRollup({ run_id: "x", billing_mode: "free" }).billingMode).toBeNull();
   });
 
   /** Seed one finished cron run with per-child usage and roll it up. */

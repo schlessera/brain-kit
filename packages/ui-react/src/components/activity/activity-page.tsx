@@ -36,6 +36,7 @@ import {
   SpanStatusDot,
   formatAggregateCost,
   formatEffectiveCost,
+  runCostText,
   spanToolLabel,
 } from "./span-bits.js";
 import { PushToggle } from "./push-toggle.js";
@@ -450,6 +451,10 @@ function RunRow({
   onOpen: (row: ActivityRunSummary) => void;
 }) {
   const failed = isFailureOutcome(run.outcome);
+  // Effective cost only — list price lives on the Spend card and the detail
+  // view. "—" is unknown, never $0.00 (AE3); a pre-pricing server that never
+  // sent the field keeps the original list-cost span instead (see runCostText).
+  const cost = runCostText(run);
   return (
     <button
       type="button"
@@ -472,9 +477,7 @@ function RunRow({
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
-        {/* Effective cost only — list price lives on the Spend card and the
-            detail view. "—" is unknown, never $0.00 (AE3). */}
-        <span>{formatEffectiveCost(run.effectiveCostUsd, run.pricingEstimate)}</span>
+        {cost !== null && <span>{cost}</span>}
         {run.durationMs !== null && (
           <span className="flex items-center gap-0.5">
             <Timer className="h-3 w-3" />
@@ -497,7 +500,9 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
 
   useEffect(() => {
     api
-      .activityRun(runId)
+      // Payload bodies are excluded from run detail by default; this view's
+      // rows expand to them, so opt in.
+      .activityRun(runId, { includePayloads: true })
       .then((detail) => {
         if (detail.rollup) setRollup(detail.rollup);
         if (detail.detailPruned) {

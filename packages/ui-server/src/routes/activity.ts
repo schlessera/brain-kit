@@ -207,6 +207,17 @@ export function createActivityRoutes(deps: {
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
         if (snapshot) {
+          // Tool payload events (up to 16 KB each) dominate a run's byte
+          // size, and the history list opens details eagerly — so the REST
+          // detail ships WITHOUT them unless the drill-in asks
+          // (?include=payloads). The WS snapshot path is untouched: a live
+          // subscription already committed to the full stream.
+          const includePayloads = c.req.query("include") === "payloads";
+          const events = includePayloads
+            ? snapshot.events
+            : snapshot.events.filter(
+                (e) => e.eventType !== "tool_input" && e.eventType !== "tool_output"
+              );
           // Through the SAME wire mappers the live stream uses: a raw
           // SpanRow serializes null fields where the wire contract omits
           // them, which broke the client's `outcome === undefined`
@@ -217,7 +228,7 @@ export function createActivityRoutes(deps: {
             runId,
             detailPruned: false,
             spans: snapshot.spans.map(toWireSpan),
-            events: snapshot.events.map(toWireEvent),
+            events: events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,
             ...(row ? { rollup: toWireRollup(rowToRunRollup(row)) } : {}),
           };

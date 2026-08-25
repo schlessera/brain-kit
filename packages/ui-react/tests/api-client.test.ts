@@ -113,6 +113,18 @@ describe("billing overrides and pricing state", () => {
     expect(state.stale).toBe(false);
   });
 
+  test("activityRun defaults to the light detail without payload bodies", async () => {
+    const cap = captureUrl({ runId: "run 1", detailPruned: false });
+    await api.activityRun("run 1");
+    expect(cap.urls[0]).toBe("/api/activity/runs/run%201");
+  });
+
+  test("activityRun opts into payload events for the drill-in views", async () => {
+    const cap = captureUrl({ runId: "r1", detailPruned: false });
+    await api.activityRun("r1", { includePayloads: true });
+    expect(cap.urls[0]).toBe("/api/activity/runs/r1?include=payloads");
+  });
+
   test("pricingState rejects on an older server (404) so callers hide the indicator", async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: "Not found" }), {

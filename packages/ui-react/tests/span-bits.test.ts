@@ -9,6 +9,7 @@ import {
   digestCostClause,
   formatAggregateCost,
   formatEffectiveCost,
+  runCostText,
   spanToolLabel,
 } from "../src/components/activity/span-bits";
 
@@ -90,6 +91,34 @@ describe("formatAggregateCost", () => {
   test("unpriced runs turn the sum into a floor (≥ form)", () => {
     expect(formatAggregateCost(2.5, 3)).toBe("≥ $2.50");
   });
+
+  test("a known sub-cent sum floors at <$0.01, never a $0.00 look-alike (AE3)", () => {
+    expect(formatAggregateCost(0.003, 0)).toBe("<$0.01");
+    expect(formatAggregateCost(0.003, 2)).toBe("≥ <$0.01");
+  });
+
+  test("an exact-zero sum is genuinely nothing to add up", () => {
+    expect(formatAggregateCost(0, 0)).toBe("$0.00");
+  });
+});
+
+describe("runCostText", () => {
+  test("field absent (pre-pricing server) falls back to the list-cost rendering", () => {
+    expect(runCostText({ costUsd: 1.5 })).toBe("$1.50");
+    expect(runCostText({ costUsd: 0 })).toBeNull();
+    expect(runCostText({ costUsd: null })).toBeNull();
+  });
+
+  test("explicit null is THIS server saying unknown — the em dash, not the fallback", () => {
+    expect(runCostText({ costUsd: 1.5, effectiveCostUsd: null })).toBe("—");
+  });
+
+  test("a computed effective cost renders through the shared glyph", () => {
+    expect(runCostText({ costUsd: 1.5, effectiveCostUsd: 0 })).toBe("free");
+    expect(runCostText({ costUsd: 1.5, effectiveCostUsd: 0.5, pricingEstimate: true })).toBe(
+      "~$0.50"
+    );
+  });
 });
 
 describe("digestCostClause", () => {
@@ -102,6 +131,12 @@ describe("digestCostClause", () => {
   test("unpriced runs fold into the clause as a floor", () => {
     expect(digestCostClause({ costUsd: 2, effectiveCostUsd: 1.5, unpricedRuns: 3 })).toBe(
       "≥ $1.50 spent (3 unpriced)"
+    );
+  });
+
+  test("a sub-cent window never prints as $0.00 spent (AE3)", () => {
+    expect(digestCostClause({ costUsd: 2, effectiveCostUsd: 0.003, unpricedRuns: 0 })).toBe(
+      "<$0.01 spent"
     );
   });
 

@@ -1,8 +1,13 @@
+import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, SPAN_TOOL_NAME_PREFIX } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivitySpan, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
-import { useActivityStore, payloadEventsFor } from "../../stores/activity-store.js";
+import {
+  useActivityStore,
+  payloadEventsFor,
+  loadSpanPayloads,
+} from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel } from "../chat/tool-views.js";
 
@@ -71,6 +76,12 @@ export function spanToolLabel(span: ActivitySpan): string {
  */
 export function SpanPayload({ spanId }: { spanId: string }) {
   const events = useActivityStore(useShallow((s) => payloadEventsFor(s, spanId)));
+  // History fetches skip payload bodies (they exist for duration badges);
+  // the first expand of a finished run backfills them over REST. A no-op for
+  // live runs (payloads ride the WS deltas) and once per run thereafter.
+  useEffect(() => {
+    if (events.length === 0) void loadSpanPayloads(spanId);
+  }, [spanId, events.length]);
   if (events.length === 0) {
     return (
       <p className="px-2 py-1 text-[11px] text-muted-foreground/60">
@@ -117,10 +128,31 @@ export function formatEffectiveCost(
 /**
  * An aggregate's effective-cost sum. Sums exclude unknown-cost runs, so a
  * nonzero `unpricedRuns` makes the number a floor ("≥ $X"), never a total.
+ * A known sub-cent sum floors at "<$0.01" like the per-run glyph — only an
+ * exact 0 (genuinely nothing to add up) renders "$0.00" (AE3).
  */
 export function formatAggregateCost(effectiveUsd: number, unpricedRuns: number): string {
-  const amount = `$${effectiveUsd.toFixed(2)}`;
+  const amount =
+    effectiveUsd > 0 && effectiveUsd < 0.005 ? "<$0.01" : `$${effectiveUsd.toFixed(2)}`;
   return unpricedRuns > 0 ? `≥ ${amount}` : amount;
+}
+
+/**
+ * A run row's cost text, three-way on `effectiveCostUsd`: ABSENT means a
+ * pre-pricing server never sent the field — fall back to the original
+ * list-cost rendering (a positive `costUsd`, else nothing) instead of
+ * claiming unknown; explicit null means THIS server computed "unknown" and
+ * renders the em dash; a number goes through `formatEffectiveCost` (AE3).
+ */
+export function runCostText(run: {
+  costUsd: number | null;
+  effectiveCostUsd?: number | null;
+  pricingEstimate?: boolean;
+}): string | null {
+  if (run.effectiveCostUsd === undefined) {
+    return run.costUsd !== null && run.costUsd > 0 ? `$${run.costUsd.toFixed(2)}` : null;
+  }
+  return formatEffectiveCost(run.effectiveCostUsd, run.pricingEstimate);
 }
 
 /**

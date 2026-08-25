@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
@@ -13,6 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  chmodSync(brainPath, 0o755); // undo any read-only test setup before cleanup
   rmSync(brainPath, { recursive: true, force: true });
 });
 
@@ -42,6 +43,10 @@ const LITELLM_FIXTURE = {
   "context-window-only": { max_input_tokens: 200_000 },
   "malformed-input": { input_cost_per_token: "wat", output_cost_per_token: 1e-6 },
   "negative-rate": { input_cost_per_token: -1e-6, output_cost_per_token: 1e-6 },
+  // Past the $0.01/token plausibility ceiling — a wrong or hostile entry that
+  // must be dropped at ingest, never frozen into a rollup.
+  "absurd-rate": { input_cost_per_token: 0.5, output_cost_per_token: 1e-6 },
+  "non-finite-rate": { input_cost_per_token: Infinity, output_cost_per_token: 1e-6 },
 };
 
 const OPENROUTER_FIXTURE = {
@@ -205,6 +210,30 @@ describe("createModelPricing resolution", () => {
     expect(pricing.resolve("negative-rate")).toBeNull();
     expect(pricing.resolve("no-pricing-row")).toBeNull();
     expect(pricing.resolve("malformed-row")).toBeNull();
+    // Implausible and non-finite rates are equally dropped — the model
+    // resolves unknown instead of freezing an absurd cost.
+    expect(pricing.resolve("absurd-rate")).toBeNull();
+    expect(pricing.resolve("non-finite-rate")).toBeNull();
+  });
+
+  test("a __proto__ catalog entry neither pollutes nor resolves phantom rates", async () => {
+    // JSON.parse (like a real fetch body) yields an OWN "__proto__" property,
+    // which is exactly what a hostile catalog would deliver.
+    const litellm = JSON.parse(
+      '{"__proto__": {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6},' +
+        '"honest-model": {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6}}'
+    );
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({ litellm }) });
+    await pricing.refresh();
+
+    expect(pricing.resolve("honest-model")).not.toBeNull();
+    // No prototype pollution anywhere...
+    expect(({} as any).input).toBeUndefined();
+    expect(({} as any).input_cost_per_token).toBeUndefined();
+    // ...and Object.prototype member names never resolve phantom rates.
+    for (const id of ["toString", "constructor", "hasOwnProperty", "valueOf"]) {
+      expect(pricing.resolve(id)).toBeNull();
+    }
   });
 });
 
@@ -336,6 +365,67 @@ describe("createModelPricing refresh behavior", () => {
     expect(pricing.state().stale).toBe(true);
     await pricing.ensureFresh();
     expect(pricing.resolve("claude-sonnet-4-5")).not.toBeNull();
+  });
+
+  test("an oversized catalog body is rejected; the last good table keeps serving", async () => {
+    let oversized = false;
+    const inner = stubFetch({});
+    const huge = "x".repeat(20 * 1024 * 1024 + 1);
+    const fetchImpl = (async (input: string | URL | Request) => {
+      if (!oversized) return inner(input);
+      return new Response(huge, { status: 200 });
+    }) as typeof fetch;
+
+    const pricing = createModelPricing({ brainPath, fetchImpl });
+    await pricing.refresh();
+    oversized = true;
+    await expect(pricing.refresh()).rejects.toThrow("response too large");
+
+    // Stale-but-good data still serves, and the failure is visible.
+    expect(pricing.resolve("claude-sonnet-4-5")?.input).toBe(3e-6);
+    expect(pricing.state().source).toBe("remote");
+    expect(pricing.state().error).toContain("too large");
+  });
+
+  test("a declared Content-Length past the cap is rejected before the body is read", async () => {
+    const fetchImpl = (async () => {
+      // The body itself is tiny — only the declared length is hostile. text()
+      // throwing here would mean the body was read despite the declaration.
+      const res = new Response("{}", { status: 200 });
+      res.headers.set("content-length", String(30 * 1024 * 1024));
+      res.text = () => {
+        throw new Error("body must not be read");
+      };
+      return res;
+    }) as unknown as typeof fetch;
+
+    const pricing = createModelPricing({ brainPath, fetchImpl });
+    await expect(pricing.refresh()).rejects.toThrow("response too large");
+    expect(pricing.state().source).toBe("snapshot"); // degraded, not crashed
+  });
+
+  test("the cache is written atomically — no temp file survives a refresh", async () => {
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
+    await pricing.refresh();
+
+    const dir = dirname(pricingCachePath(brainPath));
+    expect(readdirSync(dir)).toEqual(["model-pricing.json"]);
+    expect(pricing.state().error).toBeUndefined();
+  });
+
+  test("a cache-write failure keeps serving and surfaces in state().error", async () => {
+    chmodSync(brainPath, 0o555); // .brain-ui/ cannot be created
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
+    await pricing.refresh(); // the refresh itself succeeds
+
+    expect(pricing.resolve("claude-sonnet-4-5")?.input).toBe(3e-6);
+    expect(pricing.state().source).toBe("remote");
+    expect(pricing.state().error).toContain("cache write failed");
+
+    // A later successful write clears the error.
+    chmodSync(brainPath, 0o755);
+    await pricing.refresh();
+    expect(pricing.state().error).toBeUndefined();
   });
 
   test("kill switch: resolve() is always null and state says disabled", async () => {

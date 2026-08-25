@@ -122,6 +122,17 @@ export function createActivityRuntime(
       }
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
+        // Self-heal the pricing table on server traffic: without this, a
+        // long-lived server rolls up from whatever the boot-time refresh
+        // fetched. Single-flight + TTL inside ensureFresh make the hourly
+        // call free when fresh. The rollup path itself stays synchronous —
+        // never refresh from inside the store.
+        const pricing = deps.pricing as
+          | { ensureFresh?: () => Promise<void> }
+          | undefined;
+        if (typeof pricing?.ensureFresh === "function") {
+          void pricing.ensureFresh().catch(() => {});
+        }
         store.prune({
           // Full detail survives until the digest has covered it AND the
           // retention window has passed; the hard ceiling bounds growth even

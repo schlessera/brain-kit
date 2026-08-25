@@ -68,8 +68,21 @@ export function runActivityQuery(
       if (!query.runId) return { error: "scope 'run' needs runId" };
       const snapshot = store.snapshotRun(query.runId);
       if (snapshot) {
+        // The cost facts live on the rollup, not the spans — attach them here
+        // the same way the REST detail route does, so the agent sees the
+        // frozen triple for a finished run without waiting for detail
+        // pruning. Explicit nulls (AE3): a still-running run has no rollup
+        // yet, and unknown must never read as $0.
+        const rollupRow = db
+          .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
+          .get(query.runId) as any;
+        const liveRollup = rollupRow ? rowToRunRollup(rollupRow) : null;
         return {
           runId: query.runId,
+          effectiveCostUsd: liveRollup?.effectiveCostUsd ?? null,
+          billingMode: liveRollup?.billingMode ?? null,
+          pricingEstimate: liveRollup?.pricingEstimate ?? null,
+          failureReason: liveRollup?.failureReason ?? null,
           spans: snapshot.spans.map((s) => ({
             spanId: s.spanId,
             parent: s.parentSpanId,

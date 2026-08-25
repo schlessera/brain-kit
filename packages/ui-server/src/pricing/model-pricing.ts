@@ -24,7 +24,7 @@
 // throw. A model the table cannot price resolves to null — the caller renders
 // unknown, never zero (the binding fail-loud decision).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
@@ -35,6 +35,13 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_VERSION = 1;
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+/** Hard cap on a catalog response — both real catalogs are ~2 MB; anything an
+ *  order of magnitude past that is a broken or hostile endpoint, not data. */
+const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+/** Plausibility ceiling on a per-token rate: $0.01/token = $10,000 per million
+ *  tokens, far past any real price. A rate above it is a corrupt or hostile
+ *  entry — once frozen into a rollup it would misreport spend forever. */
+const MAX_RATE_PER_TOKEN = 0.01;
 
 /**
  * Per-token USD rates for one model. `cacheRead`/`cacheWrite` are null when
@@ -83,12 +90,14 @@ interface PricingCacheFile {
 
 // --- ingest validation -------------------------------------------------------
 
-/** A finite, non-negative price from a float or an OpenRouter string; else null. */
+/** A finite, non-negative, plausible price from a float or an OpenRouter
+ *  string; else null. The ceiling drops absurd rates at ingest, before they
+ *  can freeze into any rollup. */
 function asPrice(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
   if (typeof value === "string" && value.trim() === "") return null;
   const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 && n <= MAX_RATE_PER_TOKEN ? n : null;
 }
 
 /**
@@ -113,7 +122,9 @@ function parseLitellm(body: unknown): Record<string, RawRate> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new Error("unexpected LiteLLM payload");
   }
-  const rates: Record<string, RawRate> = {};
+  // Null-prototype: ids are foreign strings — a "__proto__" entry must be an
+  // ordinary key, never a prototype write (same rule for every table below).
+  const rates: Record<string, RawRate> = Object.create(null);
   for (const [id, entry] of Object.entries(body)) {
     // The field-set documentation row, not a model.
     if (id === "sample_spec") continue;
@@ -136,7 +147,7 @@ function parseLitellm(body: unknown): Record<string, RawRate> {
 function parseOpenRouter(body: unknown): Record<string, RawRate> {
   const data = (body as { data?: unknown } | null)?.data;
   if (!Array.isArray(data)) throw new Error("unexpected OpenRouter payload");
-  const rates: Record<string, RawRate> = {};
+  const rates: Record<string, RawRate> = Object.create(null);
   for (const row of data) {
     if (typeof row !== "object" || row === null) continue;
     const { id, pricing } = row as { id?: unknown; pricing?: unknown };
@@ -164,7 +175,24 @@ async function fetchSource(
         headers: { accept: "application/json" },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      if (res.ok) return parse(await res.json());
+      if (res.ok) {
+        // Size-capped read: an unbounded body from a broken or hostile
+        // endpoint must not be streamed into memory (and onward to the brain
+        // volume). The declared length rejects early; the actual length
+        // catches a body without one. Oversize is terminal, not retryable —
+        // the caller serves its last good table.
+        const declared = Number(res.headers.get("content-length"));
+        if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+          lastError = new Error(`response too large (${declared} bytes)`);
+          break;
+        }
+        const text = await res.text();
+        if (text.length > MAX_RESPONSE_BYTES) {
+          lastError = new Error(`response too large (${text.length} chars)`);
+          break;
+        }
+        return parse(JSON.parse(text));
+      }
       lastError = new Error(`HTTP ${res.status}`);
       // 4xx is terminal (moved or removed endpoint) — don't burn a retry.
       if (res.status < 500) break;
@@ -187,7 +215,7 @@ function sanitizeTable(raw: unknown): SourceTable | null {
   if (typeof raw !== "object" || raw === null) return null;
   const { fetchedAt, rates } = raw as { fetchedAt?: unknown; rates?: unknown };
   if (typeof rates !== "object" || rates === null) return null;
-  const clean: Record<string, RawRate> = {};
+  const clean: Record<string, RawRate> = Object.create(null);
   for (const [id, entry] of Object.entries(rates)) {
     const e = (entry ?? {}) as Record<string, unknown>;
     const rate = toRate(e.input, e.output, e.cacheRead, e.cacheWrite);
@@ -219,13 +247,29 @@ function readCache(path: string): RemoteTables | null {
   }
 }
 
-function writeCache(path: string, cache: PricingCacheFile): void {
+/**
+ * Atomic cache write: temp file + rename, so a concurrent writer (server and
+ * cron wrapper share this file) or a crash mid-write can never leave a torn
+ * file behind — the reader sees the old cache or the new one, nothing between.
+ * Returns the failure message instead of throwing: a read-only volume costs
+ * persistence across restarts, nothing else — the in-memory table keeps
+ * serving — but the failure must be observable in state(). (No console here
+ * by package rule.)
+ */
+function writeCache(path: string, cache: PricingCacheFile): string | null {
+  const tmp = `${path}.tmp.${process.pid}`;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(cache, null, 2), "utf-8");
-  } catch {
-    // A read-only volume costs persistence across restarts, nothing else —
-    // the in-memory table keeps serving. (No console here by package rule.)
+    writeFileSync(tmp, JSON.stringify(cache, null, 2), "utf-8");
+    renameSync(tmp, path);
+    return null;
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // Best-effort cleanup; the stray temp file is harmless.
+    }
+    return err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -242,7 +286,11 @@ function readSnapshot(): Record<string, RawRate> {
     if (parsed?.version !== CACHE_VERSION) return {};
     const litellm = sanitizeTable(parsed.litellm);
     const openrouter = sanitizeTable(parsed.openrouter);
-    return { ...(litellm?.rates ?? {}), ...(openrouter?.rates ?? {}) };
+    return Object.assign(
+      Object.create(null),
+      litellm?.rates ?? {},
+      openrouter?.rates ?? {}
+    );
   } catch {
     // A missing snapshot only narrows the fallback to "nothing resolves",
     // which every caller already handles as unknown.
@@ -312,6 +360,7 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
   let remote: RemoteTables | null = enabled ? readCache(cachePath) : null;
   const snapshot: Record<string, RawRate> = enabled ? readSnapshot() : {};
   let lastError: string | undefined;
+  let lastWriteError: string | undefined;
   let inFlight: Promise<void> | null = null;
 
   const isStale = () => remote === null || now() - remote.fetchedAt > ttlMs;
@@ -350,7 +399,8 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
           : (remote?.openrouter ?? { fetchedAt: null, rates: {} }),
     };
     lastError = failures.length > 0 ? failures.join("; ") : undefined;
-    writeCache(cachePath, { version: CACHE_VERSION, ...remote });
+    lastWriteError =
+      writeCache(cachePath, { version: CACHE_VERSION, ...remote }) ?? undefined;
   }
 
   function refresh(): Promise<void> {
@@ -368,13 +418,19 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
     if (remote) {
       // OpenRouter wins for ids its catalog carries — an openrouter-routed
       // run is billed at OpenRouter's rate, not LiteLLM's idea of it.
-      const or = remote.openrouter.rates[id];
+      // Own-property lookups only: an id like "toString" must never resolve
+      // a prototype member as phantom rates.
+      const or = Object.hasOwn(remote.openrouter.rates, id)
+        ? remote.openrouter.rates[id]
+        : undefined;
       if (or) return { ...or, estimate: false, source: "openrouter" };
-      const ll = remote.litellm.rates[id];
+      const ll = Object.hasOwn(remote.litellm.rates, id)
+        ? remote.litellm.rates[id]
+        : undefined;
       if (ll) return { ...ll, estimate: false, source: "litellm" };
       return null;
     }
-    const snap = snapshot[id];
+    const snap = Object.hasOwn(snapshot, id) ? snapshot[id] : undefined;
     return snap ? { ...snap, estimate: true, source: "snapshot" } : null;
   }
 
@@ -396,15 +452,23 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
       }
       return null;
     },
-    state: () => ({
-      enabled,
-      fetchedAt: remote?.fetchedAt ?? null,
-      stale: enabled ? isStale() : false,
-      source: remote ? "remote" : "snapshot",
-      litellmFetchedAt: remote?.litellm.fetchedAt ?? null,
-      openrouterFetchedAt: remote?.openrouter.fetchedAt ?? null,
-      ...(lastError !== undefined ? { error: lastError } : {}),
-    }),
+    state: () => {
+      // Cache-write failures ride the same error field as fetch failures —
+      // both mean "the table you see may not survive a restart / refresh".
+      const errors = [
+        lastError,
+        lastWriteError !== undefined ? `cache write failed: ${lastWriteError}` : undefined,
+      ].filter((e): e is string => e !== undefined);
+      return {
+        enabled,
+        fetchedAt: remote?.fetchedAt ?? null,
+        stale: enabled ? isStale() : false,
+        source: remote ? "remote" : "snapshot",
+        litellmFetchedAt: remote?.litellm.fetchedAt ?? null,
+        openrouterFetchedAt: remote?.openrouter.fetchedAt ?? null,
+        ...(errors.length > 0 ? { error: errors.join("; ") } : {}),
+      };
+    },
     async ensureFresh() {
       if (!enabled || !isStale()) return;
       // Cold start: no remote data yet, so the caller waits (bounded by the

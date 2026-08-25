@@ -1,14 +1,15 @@
 /**
- * The billing-override round-trip's pure half: the record PUT after changing
- * one profile. "Auto" must REMOVE the key — a redundant explicit value would
+ * The billing-override round-trip's pure halves: the record PUT after
+ * changing one profile, and the request-ordering gate the optimistic commits
+ * run through. "Auto" must REMOVE the key — a redundant explicit value would
  * pin the profile to today's derived mode and silently stop tracking the
- * credential env. The optimistic-update/rollback half mirrors the hidden
- * toggle and is exercised manually (see the U6 report).
+ * credential env. The React optimistic-update/rollback wiring itself is
+ * exercised manually (see the U6 report).
  */
 import { describe, expect, test } from "bun:test";
 import type { ModelCatalogEntry } from "@schlessera/brain-ui-sdk/protocol";
 
-import { nextBillingOverrides } from "../src/components/settings/models-tab";
+import { createRequestGate, nextBillingOverrides } from "../src/components/settings/models-tab";
 
 function entry(overrides: Partial<ModelCatalogEntry> & { id: string }): ModelCatalogEntry {
   return { label: overrides.id, hidden: false, ...overrides };
@@ -43,5 +44,34 @@ describe("nextBillingOverrides", () => {
       "openrouter-glm": "api",
       mystery: "subscription",
     });
+  });
+});
+
+describe("createRequestGate", () => {
+  test("a token stays current until a newer request begins", () => {
+    const gate = createRequestGate();
+    const first = gate.begin();
+    expect(first()).toBe(true);
+    const second = gate.begin();
+    expect(first()).toBe(false);
+    expect(second()).toBe(true);
+  });
+
+  test("supersession is permanent — an old token never becomes current again", () => {
+    const gate = createRequestGate();
+    const first = gate.begin();
+    gate.begin();
+    const third = gate.begin();
+    expect(first()).toBe(false);
+    expect(third()).toBe(true);
+    expect(first()).toBe(false);
+  });
+
+  test("independent gates do not interfere", () => {
+    const a = createRequestGate();
+    const b = createRequestGate();
+    const aToken = a.begin();
+    b.begin();
+    expect(aToken()).toBe(true);
   });
 });

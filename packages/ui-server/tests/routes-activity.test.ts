@@ -98,6 +98,38 @@ describe("activity routes", () => {
     db.close();
   });
 
+  test("run detail omits tool payload events unless ?include=payloads asks", async () => {
+    const { db, store } = seeded();
+    store.startSpan({
+      spanId: "tool-x",
+      runId: "turn-2",
+      parentSpanId: "turn-2:turn",
+      name: "execute_tool Read",
+      kind: "tool",
+      origin: "session",
+      sessionId: "sess-2",
+    });
+    store.appendEvent("tool-x", "tool_input", { file_path: "notes/a.md" });
+    store.appendEvent("tool-x", "tool_output", "file contents");
+    store.appendEvent("tool-x", "transcript_assistant", "reading the file");
+    const app = createActivityRoutes({ db, store });
+
+    // Default: the multi-KB payload events stay server-side; everything else
+    // (transcripts included) still rides along.
+    const slim = await (await request(app, "/activity/runs/turn-2")).json();
+    expect(slim.events.map((e: any) => e.eventType)).toEqual(["transcript_assistant"]);
+    expect(slim.spans.map((s: any) => s.spanId)).toContain("tool-x");
+
+    // The drill-in opts in explicitly.
+    const full = await (await request(app, "/activity/runs/turn-2?include=payloads")).json();
+    expect(full.events.map((e: any) => e.eventType)).toEqual([
+      "tool_input",
+      "tool_output",
+      "transcript_assistant",
+    ]);
+    db.close();
+  });
+
   test("a pruned run resolves to its rollup; an unknown id 404s (R26)", async () => {
     const { db, store } = seeded();
     store.prune({
@@ -311,6 +343,50 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
     const body = await (await request(app, "/activity/rollups?days=7")).json();
     expect(body.days[0].effectiveCostUsd).toBe(0);
     expect(body.days[0].unpricedRuns).toBe(body.days[0].runs);
+    db.close();
+  });
+
+  test("query_activity scope=run carries the frozen cost triple while detail is retained", () => {
+    const { db, store } = seededPriced();
+
+    // Finished, NOT pruned — the common case, which previously dropped the
+    // triple entirely. Explicit values, mirroring the REST detail route.
+    const priced = runActivityQuery(db, store, { scope: "run", runId: "api-1" }) as Record<
+      string,
+      unknown
+    >;
+    expect(priced.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(priced.billingMode).toBe("api");
+    expect(priced.pricingEstimate).toBe(false);
+    expect(priced.failureReason).toBeNull();
+    expect(Array.isArray(priced.spans)).toBe(true);
+
+    // Unknown effective cost stays an explicit null, never omitted.
+    const unknown = runActivityQuery(db, store, { scope: "run", runId: "api-null" });
+    expect(JSON.stringify(unknown)).toContain('"effectiveCostUsd":null');
+    expect(JSON.stringify(unknown)).toContain('"billingMode":"api"');
+
+    // A still-running run has no rollup yet — everything unknown, spans served.
+    store.startSpan({
+      spanId: "live-1:turn",
+      runId: "live-1",
+      name: "invoke_agent",
+      kind: "turn",
+      origin: "session",
+      sessionId: "sess-1",
+    });
+    const live = runActivityQuery(db, store, { scope: "run", runId: "live-1" }) as Record<
+      string,
+      unknown
+    >;
+    expect(live.effectiveCostUsd).toBeNull();
+    expect(live.billingMode).toBeNull();
+    expect(Array.isArray(live.spans)).toBe(true);
+
+    // The never-existed error path is untouched.
+    expect(runActivityQuery(db, store, { scope: "run", runId: "nope" })).toEqual({
+      error: "unknown run nope",
+    });
     db.close();
   });
 

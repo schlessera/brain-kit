@@ -289,8 +289,16 @@ export const api = {
           .join("&")
     ),
 
-  activityRun: (runId: string) =>
-    fetchJson<ActivityRunDetail>(`/activity/runs/${encodeURIComponent(runId)}`),
+  /**
+   * One run's detail. Payload bodies (tool_input/tool_output events) are
+   * excluded by default — the session-history fetch only needs span timings —
+   * and opted into by the drill-in views via `includePayloads`.
+   */
+  activityRun: (runId: string, opts?: { includePayloads?: boolean }) =>
+    fetchJson<ActivityRunDetail>(
+      `/activity/runs/${encodeURIComponent(runId)}` +
+        (opts?.includePayloads ? "?include=payloads" : "")
+    ),
 
   activityRollups: (days?: number) =>
     fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),

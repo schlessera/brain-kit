@@ -141,7 +141,9 @@ export function rowToRunRollup(r: any): RunRollupRow {
     cacheCreationTokens: r.cache_creation_tokens,
     costUsd: r.cost_usd,
     effectiveCostUsd: r.effective_cost_usd ?? null,
-    billingMode: r.billing_mode ?? null,
+    // Migration 010 CHECKs this column, but a row written around them (older
+    // binary, manual edit) must degrade to unknown, never to a wrong mode.
+    billingMode: isBillingMode(r.billing_mode) ? r.billing_mode : null,
     pricingEstimate: r.pricing_estimate == null ? null : r.pricing_estimate === 1,
     failureReason: r.failure_reason,
     detailPruned: r.detail_pruned === 1,
@@ -502,18 +504,35 @@ export function createActivityStore(
          input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
          cache_read_tokens = excluded.cache_read_tokens,
          cache_creation_tokens = excluded.cache_creation_tokens,
-         cost_usd = COALESCE(excluded.cost_usd, activity_run_rollups.cost_usd),
-         effective_cost_usd =
-           COALESCE(activity_run_rollups.effective_cost_usd, excluded.effective_cost_usd),
+         cost_usd = COALESCE(activity_run_rollups.cost_usd, excluded.cost_usd),
+         effective_cost_usd = CASE
+           WHEN activity_run_rollups.effective_cost_usd IS NOT NULL
+             THEN activity_run_rollups.effective_cost_usd
+           WHEN activity_run_rollups.billing_mode IS NULL
+             OR activity_run_rollups.billing_mode = excluded.billing_mode
+             THEN excluded.effective_cost_usd
+           ELSE NULL
+         END,
          billing_mode = COALESCE(activity_run_rollups.billing_mode, excluded.billing_mode),
-         pricing_estimate =
-           COALESCE(activity_run_rollups.pricing_estimate, excluded.pricing_estimate),
+         pricing_estimate = CASE
+           WHEN activity_run_rollups.pricing_estimate IS NOT NULL
+             THEN activity_run_rollups.pricing_estimate
+           WHEN activity_run_rollups.billing_mode IS NULL
+             OR activity_run_rollups.billing_mode = excluded.billing_mode
+             THEN excluded.pricing_estimate
+           ELSE NULL
+         END,
          failure_reason = excluded.failure_reason`
-      // cost_usd: a reported/computed value wins (backend stays authoritative),
-      // but NULL never clobbers a previously gap-filled one. The effective
-      // triple is FROZEN at first non-NULL computation (AE5): a re-rollup
+      // Every cost column is FROZEN at first non-NULL write (AE5): a re-rollup
       // after a pricing refresh must not silently reprice history — only a
-      // still-NULL slot may be filled by a later computation.
+      // still-NULL slot may be filled by a later computation. cost_usd gets
+      // the plain first-write-wins COALESCE (the terminal endSpan already
+      // merged the backend's authoritative number before the first rollup).
+      // The effective/estimate pair additionally requires the LATER fill to
+      // agree with the frozen classification: billing_mode is first-write-wins,
+      // and a slot left NULL under one classification must never be filled by
+      // a number computed under a different one (a subscription $0 landing on
+      // an api-classified row would fabricate a cross-classified price).
     ).run(
       runId,
       root.origin,
@@ -929,7 +948,9 @@ function tokenCount(value: unknown): number | undefined {
  */
 function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
   if (root.origin === "cron") {
-    const byModel: Record<string, PricedTokens> = {};
+    // Null-prototype: model ids are foreign strings — an id like "__proto__"
+    // must be an ordinary key, never a prototype write.
+    const byModel: Record<string, PricedTokens> = Object.create(null);
     let sawUsage = false;
     for (const span of spans) {
       if (span.spanId === root.spanId) continue;
@@ -958,7 +979,7 @@ function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
   if (typeof perModel !== "object" || perModel === null || Array.isArray(perModel)) {
     return { kind: "none" };
   }
-  const byModel: Record<string, PricedTokens> = {};
+  const byModel: Record<string, PricedTokens> = Object.create(null);
   for (const [model, value] of Object.entries(perModel as Record<string, unknown>)) {
     if (typeof value !== "object" || value === null) continue;
     const v = value as Record<string, unknown>;
@@ -1007,7 +1028,9 @@ function priceUsage(
     }
     if (rates.estimate) estimate = true;
   }
-  return { costUsd, estimate };
+  // A non-finite sum (overflowed or poisoned rates) must surface as unknown —
+  // once frozen into the rollup it would render as an exact number forever.
+  return Number.isFinite(costUsd) ? { costUsd, estimate } : null;
 }
 
 function safeParse(text: string | null): Record<string, unknown> | undefined {

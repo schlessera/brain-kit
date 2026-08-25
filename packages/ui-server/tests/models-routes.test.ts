@@ -139,6 +139,40 @@ describe("model catalog routes", () => {
     });
     expect(response.status).toBe(409);
   });
+
+  test("GET /models/pricing 404s when the host provided no pricing instance", async () => {
+    // The default modelRoutes above is built without one — old and opted-out
+    // servers degrade alike (the client hides the indicator on rejection).
+    const response = await modelRoutes.request("/models/pricing");
+    expect(response.status).toBe(404);
+  });
+
+  test("GET /models/pricing serves the state and kicks a background refresh", async () => {
+    const calls: string[] = [];
+    const state = {
+      enabled: true,
+      fetchedAt: 1_700_000_000_000,
+      stale: false,
+      source: "remote" as const,
+      litellmFetchedAt: 1_700_000_000_000,
+      openrouterFetchedAt: null,
+    };
+    const routes = createModelRoutes({
+      registry,
+      db,
+      pricing: {
+        state: () => state,
+        ensureFresh: async () => {
+          calls.push("ensureFresh");
+        },
+      },
+    });
+
+    const response = await routes.request("/models/pricing");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(state);
+    expect(calls).toEqual(["ensureFresh"]); // reading the state also heals it
+  });
 });
 
 describe("billing overrides", () => {
@@ -157,6 +191,17 @@ describe("billing overrides", () => {
     expect(getBillingOverrides()).toEqual({});
     setSetting(db, "models.billing", "api");
     expect(getBillingOverrides()).toEqual({});
+  });
+
+  test("the override record is prototype-safe against hostile profile ids", () => {
+    // A stored "__proto__" key (JSON round-trips it as an own property) must
+    // neither pollute nor make prototype member names look like overrides.
+    setSetting(db, "models.billing", JSON.parse('{"__proto__": "api", "real": "api"}'));
+    const overrides = getBillingOverrides();
+    expect(overrides["real"]).toBe("api");
+    expect(({} as any).real).toBeUndefined();
+    expect(overrides["constructor"]).toBeUndefined();
+    expect(overrides["toString"]).toBeUndefined();
   });
 
   test("PUT /models/billing persists the record and the catalog reflects it", async () => {

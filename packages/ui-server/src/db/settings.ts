@@ -63,8 +63,13 @@ export function getBillingOverrides(
   log?: Logger
 ): Record<string, BillingMode> {
   const value = getSetting<unknown>(db, BILLING_OVERRIDES_KEY, {}, log);
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  const overrides: Record<string, BillingMode> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return Object.create(null);
+  }
+  // Null-prototype: profile ids are user-supplied strings — an id like
+  // "__proto__" must be an ordinary key, and a "constructor" lookup by a
+  // consumer must not resolve a prototype member.
+  const overrides: Record<string, BillingMode> = Object.create(null);
   for (const [profileId, mode] of Object.entries(value)) {
     if (isBillingMode(mode)) overrides[profileId] = mode;
   }

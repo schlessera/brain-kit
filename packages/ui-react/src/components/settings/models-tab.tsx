@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 import type {
   BillingMode,
@@ -22,6 +22,7 @@ export function ModelsTab({ active }: { active: boolean }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadProviders = useProviderStore((s) => s.loadProviders);
+  const commitGate = useRef(createRequestGate());
 
   useEffect(() => {
     if (!active) return;
@@ -52,20 +53,31 @@ export function ModelsTab({ active }: { active: boolean }) {
    * commit, then reload the composer picker's own roster copy (fetched once
    * on mount, it would otherwise lag until a page reload). A failed write
    * rolls back and surfaces the error.
+   *
+   * Ordered through `createRequestGate`: two rows edited within one
+   * round-trip interleave, and without the guard the FIRST response (or its
+   * failure rollback) lands last and silently overwrites the newer edit. A
+   * superseded response/rollback is dropped — the newer request's payload
+   * was built on top of this one's optimistic state, so it already carries
+   * this change (and its own catch surfaces any error that still matters).
    */
   async function commitCatalog(
     optimistic: ModelCatalogResponse,
     commit: () => Promise<ModelCatalogResponse>
   ) {
+    const isCurrent = commitGate.current.begin();
     const previous = catalog;
     setCatalog(optimistic);
     setError(null);
     try {
-      setCatalog(await commit());
+      const confirmed = await commit();
+      if (isCurrent()) setCatalog(confirmed);
       void loadProviders();
     } catch (err) {
-      setCatalog(previous);
-      setError(err instanceof Error ? err.message : "Could not save");
+      if (isCurrent()) {
+        setCatalog(previous);
+        setError(err instanceof Error ? err.message : "Could not save");
+      }
     }
   }
 
@@ -193,6 +205,21 @@ export function ModelsTab({ active }: { active: boolean }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Request-ordering guard for optimistic commits: `begin()` claims a token
+ * and returns a predicate that holds only while no later request has begun.
+ * An older in-flight request must never write over a newer edit's state.
+ */
+export function createRequestGate(): { begin: () => () => boolean } {
+  let seq = 0;
+  return {
+    begin() {
+      const token = ++seq;
+      return () => seq === token;
+    },
+  };
 }
 
 /**

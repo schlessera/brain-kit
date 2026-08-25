@@ -1348,7 +1348,11 @@ export interface ActivityRunDetail {
 export interface ActivityAggregate {
   runs: number;
   failures: number;
-  /** Sum of KNOWN list-price costs — unknown-cost runs are excluded, not $0. */
+  /**
+   * Sum of KNOWN list-price costs. Unknown-cost runs simply contribute
+   * nothing — no accompanying unknown count exists for this field (only
+   * `effectiveCostUsd` has `unpricedRuns`), so read it as a floor.
+   */
   costUsd: number;
   /**
    * Sum of KNOWN effective costs; the excluded runs are `unpricedRuns`.
@@ -1379,7 +1383,11 @@ export interface ActivityDigest {
   windowEnd: number;
   runs: number;
   failures: number;
-  /** Sum of KNOWN list-price costs — unknown-cost runs are excluded, not $0. */
+  /**
+   * Sum of KNOWN list-price costs. Unknown-cost runs simply contribute
+   * nothing — no accompanying unknown count exists for this field (only
+   * `effectiveCostUsd` has `unpricedRuns`), so read it as a floor.
+   */
   costUsd: number;
   /** Sum of KNOWN effective costs (additive — absent on digests persisted before pricing shipped). */
   effectiveCostUsd?: number;
