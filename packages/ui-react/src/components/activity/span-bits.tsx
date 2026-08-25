@@ -1,6 +1,8 @@
+import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, SPAN_TOOL_NAME_PREFIX } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivitySpan, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
+import { useActivityStore, payloadEventsFor } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel } from "../chat/tool-views.js";
 
@@ -56,6 +58,39 @@ export function spanToolLabel(span: ActivitySpan): string {
     span.name.startsWith(SPAN_TOOL_NAME_PREFIX)
       ? span.name.slice(SPAN_TOOL_NAME_PREFIX.length)
       : span.name
+  );
+}
+
+/**
+ * The recorded input/output of one tool span, expanded under its row — the
+ * ONE payload renderer shared by the subagent drill-in and the run detail.
+ * Mounted only while expanded (collapsed rows never subscribe). A span with
+ * no payload events (recorded before capture shipped) states so instead of
+ * offering an empty block (AE7); the truncation marker is part of the stored
+ * payload text, so clipped content shows it inline.
+ */
+export function SpanPayload({ spanId }: { spanId: string }) {
+  const events = useActivityStore(useShallow((s) => payloadEventsFor(s, spanId)));
+  if (events.length === 0) {
+    return (
+      <p className="px-2 py-1 text-[11px] text-muted-foreground/60">
+        No payload recorded for this run.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1.5 px-2 py-1">
+      {events.map((event) => (
+        <div key={`${event.spanId}:${event.eventIndex}`}>
+          <div className="mb-0.5 text-[10px] uppercase text-muted-foreground/60">
+            {event.eventType === "tool_input" ? "Input" : "Output"}
+          </div>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
+            {typeof event.payload === "string" ? event.payload : JSON.stringify(event.payload)}
+          </pre>
+        </div>
+      ))}
+    </div>
   );
 }
 

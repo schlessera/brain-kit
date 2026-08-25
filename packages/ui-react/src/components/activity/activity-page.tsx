@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  ChevronRight,
   Clock,
   RefreshCw,
   Timer,
@@ -29,7 +30,7 @@ import {
   formatRelativeTime,
   formatTokenCount,
 } from "../chat/tool-views.js";
-import { SpanStatusDot, spanToolLabel } from "./span-bits.js";
+import { SpanPayload, SpanStatusDot, spanToolLabel } from "./span-bits.js";
 import { PushToggle } from "./push-toggle.js";
 
 /**
@@ -454,31 +455,50 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
           </div>
         )}
         {streamed.map((span) => (
-          <div
-            key={span.spanId}
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-            style={{ paddingLeft: `${depthOf(span, streamed) * 16}px` }}
-          >
-            <SpanStatusDot span={span} />
-            <span className="truncate font-[family-name:var(--font-mono)]">
-              {spanToolLabel(span)}
-            </span>
-            {span.outcome && span.outcome !== "success" && (
-              <span className="text-[10px] uppercase">{span.outcome}</span>
-            )}
-            {span.outcomeReason && (
-              <span className="truncate text-[10px] text-muted-foreground/60">
-                {span.outcomeReason}
-              </span>
-            )}
-            <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
-              {span.endedAt !== undefined
-                ? formatDuration(span.endedAt - span.startedAt)
-                : "…"}
-            </span>
-          </div>
+          <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** One span tree row; tool spans expand to their recorded payload (AE7). */
+function DetailSpanRow({ span, depth }: { span: ActivitySpan; depth: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const expandable = span.kind === "tool";
+  return (
+    <div style={{ paddingLeft: `${depth * 16}px` }}>
+      <div
+        className={cn(
+          "flex items-center gap-2 text-xs text-muted-foreground",
+          expandable && "cursor-pointer hover:text-foreground"
+        )}
+        onClick={expandable ? () => setExpanded((v) => !v) : undefined}
+      >
+        <SpanStatusDot span={span} />
+        <span className="truncate font-[family-name:var(--font-mono)]">
+          {spanToolLabel(span)}
+        </span>
+        {span.outcome && span.outcome !== "success" && (
+          <span className="text-[10px] uppercase">{span.outcome}</span>
+        )}
+        {span.outcomeReason && (
+          <span className="truncate text-[10px] text-muted-foreground/60">
+            {span.outcomeReason}
+          </span>
+        )}
+        <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
+          {span.endedAt !== undefined
+            ? formatDuration(span.endedAt - span.startedAt)
+            : "…"}
+        </span>
+        {expandable && (
+          <ChevronRight
+            className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-90")}
+          />
+        )}
+      </div>
+      {expanded && <SpanPayload spanId={span.spanId} />}
     </div>
   );
 }

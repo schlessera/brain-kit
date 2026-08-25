@@ -162,6 +162,14 @@ export function createTurnRecorder(
             // the wait/execution boundary.
             break;
           }
+          case "tool_use_complete": {
+            // The complete input object in one frame — tool_input_delta
+            // frames stay ignored, no accumulation needed. Recorded as a
+            // span event so the Activity drill-in can expand the call (R14).
+            store.appendEvent(msg.toolUseId, "tool_input", clipPayload(safeStringify(msg.input)));
+            onWrite?.();
+            break;
+          }
           case "tool_result": {
             // endSpan is write-once: a span already closed (a denial landed
             // the outcome first) rejects this as a no-op, and an unknown
@@ -171,6 +179,9 @@ export function createTurnRecorder(
               outcome,
               reason: outcome === "error" ? clip(msg.output, 500) : undefined,
             });
+            // Error output rides along too — a failed call's output is what
+            // the drill-in needs most. appendEvent no-ops on unknown spans.
+            store.appendEvent(msg.toolUseId, "tool_output", clipPayload(msg.output));
             onWrite?.();
             break;
           }
@@ -278,4 +289,25 @@ export function createTurnRecorder(
 
 function clip(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
+}
+
+/** Cap for recorded tool input/output payload events — roomier than the
+ *  500-char outcome-reason clip, still far under the store's 16 KB event cap. */
+const PAYLOAD_EVENT_CAP = 4096;
+const PAYLOAD_TRUNCATION_SUFFIX = "\n… [truncated]";
+
+function clipPayload(text: string): string {
+  return text.length > PAYLOAD_EVENT_CAP
+    ? text.slice(0, PAYLOAD_EVENT_CAP) + PAYLOAD_TRUNCATION_SUFFIX
+    : text;
+}
+
+/** Tool inputs are arbitrary values: serialization must never take the turn
+ *  down with it (BigInt members throw; a toJSON can return undefined). */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }

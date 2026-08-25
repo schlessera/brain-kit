@@ -371,6 +371,19 @@ export function eventsFor(state: ActivityState, spanId: string): ActivitySpanEve
   return state.events[spanId] ?? EMPTY_EVENTS;
 }
 
+/**
+ * The recorded input/output payload events of a tool span (AE7). Returns a
+ * fresh array per call — subscribe through `useShallow` (like `childSpans`).
+ */
+export function payloadEventsFor(state: ActivityState, spanId: string): ActivitySpanEvent[] {
+  const events = state.events[spanId];
+  if (!events) return EMPTY_EVENTS;
+  const payloads = events.filter(
+    (e) => e.eventType === "tool_input" || e.eventType === "tool_output"
+  );
+  return payloads.length > 0 ? payloads : EMPTY_EVENTS;
+}
+
 /** The span behind one tool call (span ids ARE toolUseIds), if streamed. */
 export function spanForTool(state: ActivityState, toolUseId: string): ActivitySpan | null {
   const runId = state.spanRun[toolUseId];
