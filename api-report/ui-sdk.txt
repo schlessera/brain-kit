@@ -88,6 +88,9 @@ export "." (./src/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SPAN_OP_EXECUTE_TOOL
+  SPAN_OP_INVOKE_AGENT
+  SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -218,6 +221,9 @@ export "./client" (./src/client/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SPAN_OP_EXECUTE_TOOL
+  SPAN_OP_INVOKE_AGENT
+  SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -353,6 +359,9 @@ export "./protocol" (./src/protocol.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SPAN_OP_EXECUTE_TOOL
+  SPAN_OP_INVOKE_AGENT
+  SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -539,6 +548,9 @@ export "./server" (./src/server/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SPAN_OP_EXECUTE_TOOL
+  SPAN_OP_INVOKE_AGENT
+  SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest

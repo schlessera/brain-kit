@@ -181,4 +181,74 @@ describe("activity notifier", () => {
     expect(inbox.filter((i) => i.kind === "stuck")).toHaveLength(1);
     expect(store.getSpan("slow:root")!.outcome).toBeNull();
   });
+
+  test("a per-job watchdog override below the default threshold still fires", () => {
+    const { db, store, notifier } = setup();
+    setSetting(db, "activity.watchdog.thresholdMs", 45 * 60 * 1000);
+    setSetting(db, "activity.watchdog.perJobMs", { sync: 5 * 60 * 1000 });
+    const startedAt = Date.now() - 10 * 60 * 1000;
+    // Over the override, under the default. The scan must use the smallest
+    // effective threshold or this candidate is filtered before the per-job
+    // check ever sees it.
+    store.startSpan({
+      spanId: "sync:root",
+      runId: "sync-run",
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+      startedAt,
+    });
+    // Same age, no override: the default threshold still governs it.
+    store.startSpan({
+      spanId: "scrape:root",
+      runId: "scrape-run",
+      name: "cron scrape",
+      kind: "cron",
+      origin: "cron",
+      jobName: "scrape",
+      startedAt,
+    });
+    notifier.tick();
+    const stuck = notifier.inbox().filter((i) => i.kind === "stuck");
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]!.runId).toBe("sync-run");
+  });
+
+  test("a send_failed intent is retried after backoff until the attempt budget is spent", () => {
+    const { db, store, notifier } = setup();
+    failCron(store, "run-1");
+    notifier.tick();
+    const intent = notifier.pending()[0]!;
+
+    const age = () =>
+      db
+        .query("UPDATE notification_intents SET updated_at = ? WHERE id = ?")
+        .run(Date.now() - 6 * 60 * 1000, intent.id);
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      notifier.markDelivered(intent.id, "send_failed");
+      // Inside the backoff window the intent is not re-offered.
+      expect(notifier.pending()).toHaveLength(0);
+      age();
+      // After the backoff it is offered again — until the budget is spent.
+      expect(notifier.pending()).toHaveLength(attempt < 3 ? 1 : 0);
+    }
+
+    // The inbox — the guaranteed tier — still holds it regardless.
+    expect(notifier.inbox()).toHaveLength(1);
+  });
+
+  test("a sent intent never re-enters the delivery queue", () => {
+    const { db, store, notifier } = setup();
+    failCron(store, "run-1");
+    notifier.tick();
+    const intent = notifier.pending()[0]!;
+    notifier.markDelivered(intent.id, "sent");
+    db.query("UPDATE notification_intents SET updated_at = ? WHERE id = ?").run(
+      Date.now() - 6 * 60 * 1000,
+      intent.id
+    );
+    expect(notifier.pending()).toHaveLength(0);
+  });
 });

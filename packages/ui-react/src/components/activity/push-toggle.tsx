@@ -13,6 +13,14 @@ import { cn } from "../../lib/utils.js";
  * nothing. Where the platform has no push at all (iOS Safari in-browser,
  * pre-16.4), the control renders disabled-with-explanation, not hidden.
  */
+/** The subscription's bound applicationServerKey, in the base64url form the
+ *  server hands out — comparable against `pushPublicKey()` directly. */
+function keyToBase64Url(key: ArrayBuffer): string {
+  let bin = "";
+  for (const b of new Uint8Array(key)) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 type PushState =
   | "unsupported"
   | "not-asked"
@@ -40,6 +48,27 @@ export function PushToggle() {
       }
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        // The browser having a subscription doesn't mean the SERVER can
+        // still use it. Two disagreement cases: the server pruned/lost the
+        // row (a dead-endpoint send, a DB restore) — healed by re-asserting,
+        // an idempotent upsert; or the server's VAPID keypair changed, which
+        // makes this subscription permanently unsendable — its
+        // applicationServerKey no longer matches, so drop it and surface the
+        // re-enable button. Offline, trust the browser's own state.
+        try {
+          const { publicKey } = await api.pushPublicKey();
+          const boundKey = subscription.options.applicationServerKey;
+          if (boundKey && keyToBase64Url(boundKey) !== publicKey) {
+            await subscription.unsubscribe().catch(() => {});
+            setState("unsubscribed");
+            return;
+          }
+          await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100));
+        } catch {
+          // Server unreachable — keep the browser's answer.
+        }
+      }
       setState(subscription ? "subscribed" : "unsubscribed");
     })();
   }, []);

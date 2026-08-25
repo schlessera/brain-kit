@@ -17,13 +17,14 @@
  * This is deliberately the only place broadcast is per-connection filtered;
  * every other frame keeps the host's broadcast-to-all semantics.
  */
-import type {
-  ActivitySpan,
-  ActivitySpanEvent,
-  ClientActivitySubscribe,
-  ClientActivityUnsubscribe,
-  ServerActivityDelta,
-  ServerActivitySnapshot,
+import {
+  SPAN_TOOL_NAME_PREFIX,
+  type ActivitySpan,
+  type ActivitySpanEvent,
+  type ClientActivitySubscribe,
+  type ClientActivityUnsubscribe,
+  type ServerActivityDelta,
+  type ServerActivitySnapshot,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -38,7 +39,7 @@ const SNAPSHOT_SPAN_CHUNK = 100;
 /** Fast-poll cadence while subscriptions exist (foreign-writer liveness). */
 const POLL_INTERVAL_MS = 1500;
 
-const TOOL_NAME_PREFIX = "execute_tool ";
+const TOOL_NAME_PREFIX = SPAN_TOOL_NAME_PREFIX;
 
 interface Subscription {
   view: "index" | "session" | "run";

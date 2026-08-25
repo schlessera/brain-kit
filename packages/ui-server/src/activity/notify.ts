@@ -65,6 +65,12 @@ export interface ActivityNotifier {
 
 /** Global cap on intents CREATED per hour — failure-storm circuit. */
 const MAX_INTENTS_PER_HOUR = 20;
+/** A send_failed intent is retried this many times before push is forfeited
+ *  (the inbox — the guaranteed tier — has it regardless). */
+const MAX_SEND_ATTEMPTS = 3;
+/** Backoff between retry attempts, so a transient push-service outage longer
+ *  than one tick still gets fresh attempts spread over ~15 minutes. */
+const SEND_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 /** Watchdog default: a live root run older than this is flagged as stuck. */
 const DEFAULT_STUCK_THRESHOLD_MS = 45 * 60 * 1000;
 
@@ -194,7 +200,15 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
           {},
           log
         );
-        for (const span of store.findStuck(defaultThreshold, now)) {
+        // Scan with the SMALLEST effective threshold: findStuck pre-filters
+        // by age, so a per-job override below the default would otherwise
+        // never see its candidates. The per-span check below still applies
+        // each job's own threshold.
+        const overrideValues = Object.values(overrides).filter(
+          (v): v is number => typeof v === "number" && v > 0
+        );
+        const scanThreshold = Math.min(defaultThreshold, ...overrideValues);
+        for (const span of store.findStuck(scanThreshold, now)) {
           if (stuckFlagged.has(span.runId)) continue;
           const threshold = span.jobName ? (overrides[span.jobName] ?? defaultThreshold) : defaultThreshold;
           if ((now ?? Date.now()) - span.startedAt < threshold) continue;
@@ -229,21 +243,29 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
 
     pending(limit = 20) {
       // Acknowledged means dismissed in the inbox — never push it later.
+      // send_failed is retried with backoff until the attempt budget is
+      // spent: one transient push-service failure must not forfeit push.
       return (
         db
           .query(
-            "SELECT * FROM notification_intents WHERE status = 'pending' AND acknowledged = 0 ORDER BY created_at LIMIT ?"
+            `SELECT * FROM notification_intents
+             WHERE acknowledged = 0
+               AND (status = 'pending'
+                    OR (status = 'send_failed' AND send_attempts < ? AND updated_at < ?))
+             ORDER BY created_at LIMIT ?`
           )
-          .all(limit) as any[]
+          .all(MAX_SEND_ATTEMPTS, Date.now() - SEND_RETRY_BACKOFF_MS, limit) as any[]
       ).map(rowToIntent);
     },
 
     markDelivered(id, status) {
-      db.query("UPDATE notification_intents SET status = ?, updated_at = ? WHERE id = ?").run(
-        status,
-        Date.now(),
-        id
-      );
+      // A failed pass spends one attempt from the retry budget.
+      db.query(
+        `UPDATE notification_intents
+         SET status = ?, updated_at = ?,
+             send_attempts = send_attempts + (CASE WHEN ? = 'send_failed' THEN 1 ELSE 0 END)
+         WHERE id = ?`
+      ).run(status, Date.now(), status, id);
     },
 
     acknowledge(id) {
