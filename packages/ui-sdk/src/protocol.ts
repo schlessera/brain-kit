@@ -1151,6 +1151,17 @@ export function isFailureOutcome(outcome: ActivitySpanOutcome | string | null | 
   return outcome === "error" || outcome === "timeout" || outcome === "interrupted";
 }
 
+/**
+ * The span-naming convention (OTel GenAI operation names), shared by every
+ * producer and un-parser: the recorder and span-sink write these names, the
+ * server stream and the client's span labels parse them back out. One
+ * definition — the convention was independently restated in three files.
+ */
+export const SPAN_OP_EXECUTE_TOOL = "execute_tool";
+export const SPAN_OP_INVOKE_AGENT = "invoke_agent";
+/** A tool span's name is `execute_tool <toolName>`; slice this off to get the tool. */
+export const SPAN_TOOL_NAME_PREFIX = `${SPAN_OP_EXECUTE_TOOL} `;
+
 /** One span as it crosses the wire. Field names track the OTel GenAI shape. */
 export interface ActivitySpan {
   spanId: string;

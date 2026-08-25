@@ -24,6 +24,11 @@ import type {
   ServerMessage,
   TurnUsage,
 } from "@schlessera/brain-ui-sdk/server";
+import {
+  SPAN_OP_EXECUTE_TOOL,
+  SPAN_OP_INVOKE_AGENT,
+  SPAN_TOOL_NAME_PREFIX,
+} from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -82,11 +87,11 @@ export function createTurnRecorder(
     store.startSpan({
       spanId: rootSpanId,
       runId,
-      name: "invoke_agent",
+      name: SPAN_OP_INVOKE_AGENT,
       kind: "turn",
       origin: "session",
       sessionId,
-      attrs: { "gen_ai.operation.name": "invoke_agent" },
+      attrs: { "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT },
     });
     onWrite?.();
   }
@@ -124,12 +129,12 @@ export function createTurnRecorder(
               spanId: msg.toolUseId,
               runId,
               parentSpanId: msg.parentToolUseId ?? rootSpanId,
-              name: `execute_tool ${msg.toolName}`,
+              name: `${SPAN_TOOL_NAME_PREFIX}${msg.toolName}`,
               kind: isSubagent ? "subagent" : "tool",
               origin: "session",
               sessionId,
               attrs: {
-                "gen_ai.operation.name": isSubagent ? "invoke_agent" : "execute_tool",
+                "gen_ai.operation.name": isSubagent ? SPAN_OP_INVOKE_AGENT : SPAN_OP_EXECUTE_TOOL,
                 "gen_ai.tool.name": msg.toolName,
               },
             });

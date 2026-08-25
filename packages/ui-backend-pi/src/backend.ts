@@ -24,7 +24,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import type { ImageContent, Model } from "@earendil-works/pi-ai";
+import type { ImageContent, Model, Usage } from "@earendil-works/pi-ai";
 
 import {
   BackendBusyError,
@@ -640,22 +640,16 @@ export function createUsageAccumulator(): TurnUsageAccumulator {
       // turn_end re-delivers the LAST assistant message, which message_end
       // already counted — only message_end accumulates.
       if (ev.type !== "message_end") return;
-      const message = (ev as { message?: unknown }).message as
-        | {
-            role?: string;
-            model?: string;
-            usage?: {
-              input?: number;
-              output?: number;
-              cacheRead?: number;
-              cacheWrite?: number;
-              cost?: { total?: number };
-            };
-          }
-        | undefined;
-      if (!message || message.role !== "assistant" || !message.usage) return;
-      const u = message.usage;
-      const key = message.model ?? "unknown";
+      // ev is narrowed to the message_end variant ({ message: AgentMessage });
+      // the role check narrows AgentMessage to pi-ai's AssistantMessage, whose
+      // usage (tokens + cost) and model are required fields — no casts needed.
+      const { message } = ev;
+      if (!("role" in message) || message.role !== "assistant") return;
+      // Runtime tolerance beyond the type: a usage-less assistant message
+      // (a custom AgentMessage claiming the role) carries nothing to count.
+      const u: Usage | undefined = message.usage;
+      if (!u) return;
+      const key = message.model;
       const entry = perModel.get(key) ?? {
         inputTokens: 0,
         outputTokens: 0,

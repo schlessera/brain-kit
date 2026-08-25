@@ -29,6 +29,16 @@ const FIRST_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Generate and persist the digest for [coveredUntil, now]. */
 export function generateActivityDigest(db: Database, now = Date.now()): ActivityDigest {
+  // The read-compute-write of coveredUntil runs as ONE immediate transaction:
+  // the cron digest job and a manual generation are separate processes on the
+  // same DB, and unserialized they both window from the same coveredUntil —
+  // double-counting the overlap and letting the retention floor regress when
+  // the earlier `now` lands last. BEGIN IMMEDIATE + busy_timeout serializes
+  // them; the loser re-reads the winner's coveredUntil and windows after it.
+  return db.transaction(() => generateInTx(db, now)).immediate();
+}
+
+function generateInTx(db: Database, now: number): ActivityDigest {
   const covered = getSetting<number | null>(db, DIGEST_COVERED_KEY, null);
   const windowStart = covered ?? now - FIRST_WINDOW_MS;
 
@@ -69,7 +79,10 @@ export function generateActivityDigest(db: Database, now = Date.now()): Activity
   };
 
   setSetting(db, DIGEST_LATEST_KEY, digest);
-  setSetting(db, DIGEST_COVERED_KEY, now);
+  // Monotonic: a generator whose clock trails the previous coveredUntil
+  // (skew, or a back-to-back manual run) must not walk the retention floor
+  // backwards and re-expose already-covered spans to double coverage.
+  setSetting(db, DIGEST_COVERED_KEY, Math.max(now, covered ?? 0));
   return digest;
 }
 

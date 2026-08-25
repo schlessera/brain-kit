@@ -1,4 +1,4 @@
-import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
+import { isFailureOutcome, SPAN_TOOL_NAME_PREFIX } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivitySpan, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { cn } from "../../lib/utils.js";
@@ -52,7 +52,11 @@ export function spanToolLabel(span: ActivitySpan): string {
   if (span.toolName) return getToolLabel(span.toolName);
   if (span.kind === "turn") return "Turn";
   if (span.kind === "cron") return span.jobName ?? span.name;
-  return getToolLabel(span.name.replace(/^execute_tool /, ""));
+  return getToolLabel(
+    span.name.startsWith(SPAN_TOOL_NAME_PREFIX)
+      ? span.name.slice(SPAN_TOOL_NAME_PREFIX.length)
+      : span.name
+  );
 }
 
 /** The "9+" unread-count bubble shared by the rail and the tab bar. Hidden at 0. */

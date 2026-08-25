@@ -49,6 +49,19 @@ export function createActivityRuntime(
   const store = createActivityStore(db);
   const stream = createActivityStream(store, log);
 
+  // The notifier is created BEFORE the boot sweep: its change cursor starts
+  // at the current head, so the terminal changes the sweep writes are above
+  // it and the first tick turns restart-interrupted runs into failure
+  // intents. Created after, the sweep's changes would sit below the cursor
+  // and a turn killed by a restart would never be notified.
+  const notifier = createActivityNotifier({
+    db,
+    store,
+    isWatched: (scope) => stream.isWatched(scope),
+    log,
+  });
+  const pushSender = createPushSender(db, { log });
+
   // Boot sweep: close this server's orphans from a previous life (interrupted).
   try {
     const orphans = store.sweepOwnOrphans();
@@ -66,14 +79,6 @@ export function createActivityRuntime(
       attributes: { error: err instanceof Error ? err.message : String(err) },
     });
   }
-
-  const notifier = createActivityNotifier({
-    db,
-    store,
-    isWatched: (scope) => stream.isWatched(scope),
-    log,
-  });
-  const pushSender = createPushSender(db, { log });
 
   let delivering = false;
   let lastPrune = 0;
