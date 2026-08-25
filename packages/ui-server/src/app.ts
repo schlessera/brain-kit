@@ -342,7 +342,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route("/api", createProviderRoutes({ registry }));
   app.route(
     "/api",
-    createModelRoutes({ registry, db, log: observability.logger("models") })
+    createModelRoutes({ registry, db, pricing, log: observability.logger("models") })
   );
   app.route(
     "/api",

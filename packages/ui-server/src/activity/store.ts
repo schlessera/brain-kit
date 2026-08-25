@@ -30,12 +30,13 @@
  * on programmer error, because a silent half-written record is worse than a
  * loud one.
  */
-import { join } from "path";
-
 import type { Database } from "bun:sqlite";
 import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
-import { envFlag } from "../config/env-core.js";
+import {
+  resolveAmbientBillingMode,
+  resolveStandalonePricingConfig,
+} from "../config/env.js";
 import { createModelPricing, type PricingRates } from "../pricing/model-pricing.js";
 
 export const SPAN_OUTCOMES = [
@@ -858,21 +859,13 @@ export function createActivityStore(
 }
 
 /**
- * Env-derived default pricing, mirroring resolveServerConfig()'s reads —
- * duplicated here rather than imported so the store (which the cron wrapper
- * uses standalone, without an app) does not pull in the whole config
- * chokepoint. Kill switch and TTL behave exactly like the server's.
+ * Env-derived default pricing for the standalone path (the cron wrapper's
+ * bare `createActivityStore(db)`). The env reads live in config/env.ts —
+ * the one chokepoint the env-access gate allows — via
+ * resolveStandalonePricingConfig, which mirrors the server config exactly.
  */
 function defaultRollupPricing(): RollupPricing {
-  const env = process.env;
-  const ttlHours = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
-  return createModelPricing({
-    brainPath: env.BRAIN_PATH || join(env.HOME || "/root", "brain"),
-    enabled: envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test"),
-    ...(Number.isFinite(ttlHours) && ttlHours > 0
-      ? { ttlMs: ttlHours * 60 * 60 * 1000 }
-      : {}),
-  });
+  return createModelPricing(resolveStandalonePricingConfig());
 }
 
 /**
@@ -881,10 +874,8 @@ function defaultRollupPricing(): RollupPricing {
  * own: an API key wins over the OAuth token, and no usable credential means
  * nothing subscription-billed could have run).
  */
-function ambientBillingMode(env: NodeJS.ProcessEnv = process.env): BillingMode {
-  return !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
-    ? "subscription"
-    : "api";
+function ambientBillingMode(): BillingMode {
+  return resolveAmbientBillingMode();
 }
 
 /** Per-model token counts, as priced; absent fields count as zero consumed. */

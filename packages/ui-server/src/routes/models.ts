@@ -14,6 +14,7 @@ import type {
   ModelCatalogResponse,
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
+import type { ModelPricingState } from "../pricing/model-pricing.js";
 import {
   getBillingOverrides,
   getHiddenModelIds,
@@ -24,10 +25,12 @@ import {
 export function createModelRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  /** The shared pricing instance — its state drives the client's staleness indicator. */
+  pricing?: { state(): ModelPricingState; ensureFresh(): Promise<void> };
   /** Where refresh failures are reported. */
   log?: Logger;
 }): Hono {
-  const { registry, db } = deps;
+  const { registry, db, pricing } = deps;
 
   async function buildCatalog(): Promise<ModelCatalogResponse> {
   const source = await registry.getModelSource();
@@ -63,6 +66,17 @@ export function createModelRoutes(deps: {
     const source = await registry.getModelSource();
     await source?.ensureFresh();
     return c.json(await buildCatalog());
+  })
+
+  .get("/models/pricing", async (c) => {
+    // Absent instance (a host that opted out) → 404; the client hides the
+    // indicator on any rejection, so old and opted-out servers degrade alike.
+    if (!pricing) return c.json({ error: "pricing not available" }, 404);
+    // Kick a refresh behind the response when stale — reading the state is
+    // also the natural moment to heal it. Never blocks: ensureFresh awaits
+    // only on a true cold start.
+    void pricing.ensureFresh().catch(() => {});
+    return c.json(pricing.state());
   })
 
   .put("/models/hidden", async (c) => {

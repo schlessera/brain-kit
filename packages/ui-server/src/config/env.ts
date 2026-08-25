@@ -484,6 +484,40 @@ function parseSeverity(raw: string | undefined): Severity {
 const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "none"];
 
 /**
+ * Ambient billing classification from an environment (presence-only reads).
+ * The API key wins over the OAuth token — the Agent SDK's own precedence —
+ * and no usable credential at all classifies "api" (nothing
+ * subscription-billed can run without the token). Exported for the activity
+ * store's standalone default, so the cron wrapper classifies from the same
+ * predicate the server config does.
+ */
+export function resolveAmbientBillingMode(env: EnvRecord = process.env): BillingMode {
+  return !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
+    ? "subscription"
+    : "api";
+}
+
+/**
+ * Env-derived config for a STANDALONE pricing instance — the cron wrapper's
+ * bare `createActivityStore(db)` path, where no ServerConfig exists. Mirrors
+ * resolveServerConfig's pricing group exactly (same kill switch, TTL, and
+ * brain-path defaults); kept here so process.env reads stay in the one
+ * chokepoint the env-access gate allows.
+ */
+export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
+  brainPath: string;
+  enabled: boolean;
+  ttlMs?: number;
+} {
+  const ttlHours = Number(env.BRAIN_UI_PRICING_TTL_HOURS);
+  return {
+    brainPath: env.BRAIN_PATH || join(env.HOME || "/root", "brain"),
+    enabled: envFlag(env.BRAIN_UI_PRICING_DISCOVERY, env.NODE_ENV !== "test"),
+    ...(Number.isFinite(ttlHours) && ttlHours > 0 ? { ttlMs: ttlHours * 60 * 60 * 1000 } : {}),
+  };
+}
+
+/**
  * Resolve an environment into a {@link ServerConfig}. Defaults to the real
  * process environment; tests pass their own record instead of mutating it.
  */
@@ -544,13 +578,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
-      // Presence-only reads; the API key wins over the OAuth token, and no
-      // usable credential at all classifies "api" (nothing subscription-billed
-      // can run without the token).
-      ambientBilling:
-        !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
-          ? "subscription"
-          : "api",
+      ambientBilling: resolveAmbientBillingMode(env),
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
     wsRate: {
