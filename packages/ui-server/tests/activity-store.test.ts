@@ -6,6 +6,11 @@ import {
   MAX_EVENT_PAYLOAD_BYTES,
   type ActivityStore,
 } from "../src/activity/store.js";
+import {
+  getDetailRetentionDays,
+  setDetailRetentionDays,
+  setSetting,
+} from "../src/db/settings.js";
 
 function freshStore(writer?: string): { store: ActivityStore; db: ReturnType<typeof createUiDb> } {
   const db = createUiDb(":memory:");
@@ -208,7 +213,14 @@ describe("activity store: rollups and retention", () => {
     expect(rollup.span_count).toBe(2);
     expect(rollup.detail_pruned).toBe(0);
 
-    const res = store.prune({ digestFloorAt: Date.now() + 1000, hardCeilingMs: 0 });
+    // `now` nudged forward: with a 0 window the cutoff is `now` itself, and
+    // the run ended this same millisecond.
+    const res = store.prune({
+      digestFloorAt: Date.now() + 1000,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1000,
+    });
     expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("run-1")).toBeNull();
     const after = db
@@ -237,7 +249,7 @@ describe("activity store: rollups and retention", () => {
     startTurn(store, "live-run"); // stays open
 
     // Digest floor far in the past (digest broken) — only the ceiling prunes.
-    const res = store.prune({ digestFloorAt: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    const res = store.prune({ digestFloorAt: 0, detailRetentionMs: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("live-run")).not.toBeNull();
     const rollup = db
@@ -245,5 +257,117 @@ describe("activity store: rollups and retention", () => {
       .get() as any;
     expect(rollup.detail_pruned).toBe(1);
     expect(rollup.failure_reason).toBe("digest coverage gap");
+  });
+});
+
+describe("activity store: detail retention window", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = 1_800_000_000_000; // fixed clock — prune() takes `now`
+  const WEEK = 7 * DAY;
+  const CEILING = 90 * DAY;
+
+  function seedEnded(store: ActivityStore, runId: string, endedAt: number) {
+    store.startSpan({
+      spanId: `${runId}-root`,
+      runId,
+      name: "cron sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+      startedAt: endedAt - 60_000,
+    });
+    store.endSpan(`${runId}-root`, { outcome: "success", endedAt });
+    store.rollupRun(runId);
+  }
+
+  test("a digest-covered run keeps its detail for the window, loses it after (AE6)", () => {
+    const { store } = freshStore();
+    seedEnded(store, "nightly", NOW - 5 * DAY);
+
+    // Covered by the morning digest (floor is ahead of the run) — but only
+    // five days old, inside the default window: retained.
+    let res = store.prune({ digestFloorAt: NOW, detailRetentionMs: WEEK, hardCeilingMs: CEILING, now: NOW });
+    expect(res.runsPruned).toBe(0);
+    expect(store.snapshotRun("nightly")).not.toBeNull();
+
+    // Day 8: past the window, still covered — pruned, only the rollup remains.
+    res = store.prune({ digestFloorAt: NOW, detailRetentionMs: WEEK, hardCeilingMs: CEILING, now: NOW + 3 * DAY });
+    expect(res.runsPruned).toBe(1);
+    expect(store.snapshotRun("nightly")).toBeNull();
+  });
+
+  test("covered and older than the window prunes in one pass", () => {
+    const { store, db } = freshStore();
+    seedEnded(store, "stale", NOW - 10 * DAY);
+    const res = store.prune({ digestFloorAt: NOW, detailRetentionMs: WEEK, hardCeilingMs: CEILING, now: NOW });
+    expect(res.runsPruned).toBe(1);
+    const rollup = db
+      .query("SELECT * FROM activity_run_rollups WHERE run_id = 'stale'")
+      .get() as any;
+    expect(rollup.detail_pruned).toBe(1);
+    // The digest covered it — no coverage-gap marking.
+    expect(rollup.failure_reason).toBeNull();
+  });
+
+  test("older than the window but not digest-covered stays retained (floor still gates)", () => {
+    const { store } = freshStore();
+    seedEnded(store, "uncovered", NOW - 10 * DAY);
+    // Digest never reached it: floor sits before the run's end.
+    const res = store.prune({
+      digestFloorAt: NOW - 20 * DAY,
+      detailRetentionMs: WEEK,
+      hardCeilingMs: CEILING,
+      now: NOW,
+    });
+    expect(res.runsPruned).toBe(0);
+    expect(store.snapshotRun("uncovered")).not.toBeNull();
+  });
+
+  test("a window larger than the hard ceiling does not block the ceiling", () => {
+    const { store, db } = freshStore();
+    seedEnded(store, "ancient", NOW - 100 * DAY);
+    const res = store.prune({
+      digestFloorAt: 0,
+      detailRetentionMs: 365 * DAY,
+      hardCeilingMs: CEILING,
+      now: NOW,
+    });
+    expect(res.runsPruned).toBe(1);
+    const rollup = db
+      .query("SELECT * FROM activity_run_rollups WHERE run_id = 'ancient'")
+      .get() as any;
+    expect(rollup.detail_pruned).toBe(1);
+    // Ceiling-pruned without digest coverage — the gap stays visible.
+    expect(rollup.failure_reason).toBe("digest coverage gap");
+  });
+
+  test("window 0 reproduces the old floor-only behavior", () => {
+    const { store } = freshStore();
+    seedEnded(store, "fresh", NOW - 60 * 60 * 1000);
+    const res = store.prune({ digestFloorAt: NOW, detailRetentionMs: 0, hardCeilingMs: CEILING, now: NOW });
+    expect(res.runsPruned).toBe(1);
+    expect(store.snapshotRun("fresh")).toBeNull();
+  });
+
+  test("the retention setting degrades garbage and negatives to the 7-day default", () => {
+    const { db } = freshStore();
+    // No row yet: default.
+    expect(getDetailRetentionDays(db)).toBe(7);
+    setDetailRetentionDays(db, 3);
+    expect(getDetailRetentionDays(db)).toBe(3);
+    // 0 is a valid choice (floor-only pruning), not garbage.
+    setDetailRetentionDays(db, 0);
+    expect(getDetailRetentionDays(db)).toBe(0);
+    // Wrong type, negative, non-finite, corrupt JSON: all degrade to default.
+    setSetting(db, "activity.retention.detailDays", "banana");
+    expect(getDetailRetentionDays(db)).toBe(7);
+    setSetting(db, "activity.retention.detailDays", -3);
+    expect(getDetailRetentionDays(db)).toBe(7);
+    setSetting(db, "activity.retention.detailDays", Number.NaN); // serializes as null
+    expect(getDetailRetentionDays(db)).toBe(7);
+    db.prepare(
+      "UPDATE settings SET value = 'not json' WHERE key = 'activity.retention.detailDays'"
+    ).run();
+    expect(getDetailRetentionDays(db)).toBe(7);
   });
 });

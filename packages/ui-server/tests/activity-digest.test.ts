@@ -124,11 +124,11 @@ describe("activity digest", () => {
     const old = Date.now() - 10 * 24 * 60 * 60 * 1000;
     seedRun(store, "old", { startedAt: old });
     // Digest never ran (floor 0): the floor protects everything...
-    let res = store.prune({ digestFloorAt: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    let res = store.prune({ digestFloorAt: digestRetentionFloor(db), detailRetentionMs: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(0);
-    // ...until the digest covers it.
+    // ...until the digest covers it (window 0: floor-only, the old behavior).
     generateActivityDigest(db);
-    res = store.prune({ digestFloorAt: digestRetentionFloor(db), hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
+    res = store.prune({ digestFloorAt: digestRetentionFloor(db), detailRetentionMs: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
     expect(res.runsPruned).toBe(1);
   });
 });

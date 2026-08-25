@@ -19,6 +19,7 @@ import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
+import { getDetailRetentionDays } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
 // the cron wrapper's heartbeat interval (~30s) so a live writer is never
@@ -114,9 +115,12 @@ export function createActivityRuntime(
       if (Date.now() - lastPrune > ACTIVITY_PRUNE_INTERVAL_MS) {
         lastPrune = Date.now();
         store.prune({
-          // Full detail survives until the digest has covered it; the hard
-          // ceiling bounds growth even if the digest job silently dies.
+          // Full detail survives until the digest has covered it AND the
+          // retention window has passed; the hard ceiling bounds growth even
+          // if the digest job silently dies. The setting is read every pass
+          // so a change applies without a restart.
           digestFloorAt: digestRetentionFloor(db),
+          detailRetentionMs: getDetailRetentionDays(db, log) * 24 * 60 * 60 * 1000,
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         });
         notifier.pruneAcknowledged(INTENT_RETENTION_MS);

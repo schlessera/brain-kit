@@ -96,7 +96,12 @@ describe("activity routes", () => {
 
   test("a pruned run resolves to its rollup; an unknown id 404s (R26)", async () => {
     const { db, store } = seeded();
-    store.prune({ digestFloorAt: Date.now() + 1000, hardCeilingMs: 0 });
+    store.prune({
+      digestFloorAt: Date.now() + 1000,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1000,
+    });
     const app = createActivityRoutes({ db, store });
 
     const pruned = await request(app, "/activity/runs/turn-1");

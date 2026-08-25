@@ -10,6 +10,8 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
+const DETAIL_RETENTION_KEY = "activity.retention.detailDays";
+const DETAIL_RETENTION_DEFAULT_DAYS = 7;
 
 export function getSetting<T>(db: Database, key: string, fallback: T, log?: Logger): T {
   const row = db
@@ -46,4 +48,19 @@ export function getHiddenModelIds(db: Database, log?: Logger): string[] {
 export function setHiddenModelIds(db: Database, ids: string[]): void {
   const unique = [...new Set(ids.filter((id) => typeof id === "string" && id))];
   setSetting(db, HIDDEN_MODELS_KEY, unique);
+}
+
+/** Minimum days a finished run keeps its detail (spans/events) before the
+ *  digest-covered prune may take it. 0 is valid (prune as soon as covered);
+ *  anything non-numeric or negative degrades to the default. */
+export function getDetailRetentionDays(db: Database, log?: Logger): number {
+  const value = getSetting<unknown>(db, DETAIL_RETENTION_KEY, DETAIL_RETENTION_DEFAULT_DAYS, log);
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return DETAIL_RETENTION_DEFAULT_DAYS;
+  }
+  return value;
+}
+
+export function setDetailRetentionDays(db: Database, days: number): void {
+  setSetting(db, DETAIL_RETENTION_KEY, days);
 }

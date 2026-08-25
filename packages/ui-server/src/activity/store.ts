@@ -169,6 +169,10 @@ export interface PruneOptions {
   /** Spans of runs that ended before this are prunable (digest floor).
    *  Absolute epoch ms, not an offset. */
   digestFloorAt: number;
+  /** Minimum age (ms since ended) a run must reach before the digest floor
+   *  may prune its detail. 0 reproduces floor-only pruning. The hard
+   *  ceiling ignores it. */
+  detailRetentionMs: number;
   /** Runs older than this are pruned REGARDLESS of the digest floor. */
   hardCeilingMs: number;
   now?: number;
@@ -700,8 +704,15 @@ export function createActivityStore(
       const batch = options.batch ?? 50;
       // The digest floor gates pruning, but a dead digest job must not freeze
       // it forever: the hard ceiling prunes regardless (marking the rollup so
-      // the coverage gap is visible).
+      // the coverage gap is visible). The floor alone is NOT enough: it meant
+      // "safe to prune once summarized", but drill-in debugging is a second
+      // reader of detail with a different clock — nightly cron runs end
+      // before the morning digest, day sessions after, so floor-only pruning
+      // took cron span trees within the hour while sessions kept theirs (it
+      // looked cron-specific; it was clock skew). The retention cutoff ANDs
+      // with the floor so covered runs still keep detail for a minimum window.
       const floor = Math.max(options.digestFloorAt, 0);
+      const retentionCutoff = now - options.detailRetentionMs;
       const ceiling = now - options.hardCeilingMs;
       return inWrite(() => {
         // Candidates come from the rollups (they exist for every finished
@@ -711,14 +722,14 @@ export function createActivityStore(
           .query(
             `SELECT run_id, ended_at AS ended FROM activity_run_rollups r
              WHERE detail_pruned = 0 AND ended_at IS NOT NULL
-               AND (ended_at < ? OR ended_at < ?)
+               AND ((ended_at < ? AND ended_at < ?) OR ended_at < ?)
                AND NOT EXISTS (
                  SELECT 1 FROM activity_spans s
                  WHERE s.run_id = r.run_id AND s.outcome IS NULL
                )
              LIMIT ?`
           )
-          .all(floor, ceiling, batch) as Array<{ run_id: string; ended: number }>;
+          .all(floor, retentionCutoff, ceiling, batch) as Array<{ run_id: string; ended: number }>;
         let spansDeleted = 0;
         for (const { run_id, ended } of candidates) {
           db.query(
