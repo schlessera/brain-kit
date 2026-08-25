@@ -79,6 +79,7 @@ export function runActivityQuery(
         const liveRollup = rollupRow ? rowToRunRollup(rollupRow) : null;
         return {
           runId: query.runId,
+          costUsd: liveRollup?.costUsd ?? null,
           effectiveCostUsd: liveRollup?.effectiveCostUsd ?? null,
           billingMode: liveRollup?.billingMode ?? null,
           pricingEstimate: liveRollup?.pricingEstimate ?? null,

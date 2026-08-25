@@ -300,7 +300,11 @@ describe("createModelPricing refresh behavior", () => {
 
     const state = pricing.state();
     expect(state.source).toBe("remote");
-    expect(state.stale).toBe(false);
+    // Staleness keys on the OLDEST source: with litellm still dark the table
+    // counts as stale, so ensureFresh keeps retrying the failed side (and
+    // the client's staleness indicator can fire) instead of hiding behind
+    // the winner's timestamp for a full TTL.
+    expect(state.stale).toBe(true);
     expect(state.error).toContain("litellm");
     expect(state.litellmFetchedAt).toBeNull();
     expect(state.openrouterFetchedAt).not.toBeNull();

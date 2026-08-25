@@ -363,7 +363,19 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
   let lastWriteError: string | undefined;
   let inFlight: Promise<void> | null = null;
 
-  const isStale = () => remote === null || now() - remote.fetchedAt > ttlMs;
+  // Staleness keys on the OLDEST source, not the envelope: a partial refresh
+  // (one catalog up, one down) must keep retrying the failed side on the
+  // normal ensureFresh cadence instead of hiding behind the winner's
+  // timestamp for a full TTL — which would also suppress the client's
+  // staleness indicator exactly while one source is dark.
+  const isStale = () => {
+    if (remote === null) return true;
+    const oldest = Math.min(
+      remote.litellm.fetchedAt ?? 0,
+      remote.openrouter.fetchedAt ?? 0
+    );
+    return now() - oldest > ttlMs;
+  };
 
   async function doRefresh(): Promise<void> {
     const [litellm, openrouter] = await Promise.allSettled([

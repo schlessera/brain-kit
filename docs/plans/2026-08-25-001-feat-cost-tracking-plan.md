@@ -45,6 +45,7 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 
 ### Deferred to Follow-Up Work
 
+- Provider-route-aware price selection: `resolve()` keys on model id alone; a cross-review noted an id carried by both catalogs would price at OpenRouter's rate even for a non-OpenRouter route. The two key namespaces (bare vs `vendor/model`) are disjoint in practice, so v1 accepts it; plumbing the resolved profile route into resolution is the v2 shape (pairs with exact OpenRouter per-generation accounting).
 - brain-ui deployment shell: dependency bump + verifying the cron env allowlist in `scripts/entrypoint.sh` exposes the same credentials the server classifies against — separate PR in the brain-ui repo after release.
 
 ---

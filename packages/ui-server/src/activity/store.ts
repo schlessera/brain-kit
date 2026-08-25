@@ -460,15 +460,21 @@ export function createActivityStore(
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
 
     // Billing rides the root span when the recorder knew it at run start
-    // (session runs, U3). A root without the attr — every cron root —
-    // classifies from THIS process's env: for cron rollups the executing
-    // process is the wrapper itself, i.e. exactly the credential set the
-    // job's agent authenticated under, so classification and reality move
-    // together.
+    // (session runs, U3). A root without the attr classifies from THIS
+    // process's env ONLY for non-session origins: for cron rollups the
+    // executing process is the wrapper itself — exactly the credential set
+    // the job's agent authenticated under — so classification and reality
+    // move together. A SESSION root without the attr (a custom backend the
+    // registry could not classify, or a failed profile resolution) stays
+    // unknown instead: this process's ambient credentials say nothing about
+    // whichever backend ran the turn, and a wrong subscription-$0 would
+    // freeze forever where unknown stays honestly unpriced.
     const attrBilling = root.attrs["brain.billing_mode"];
-    const billingMode: BillingMode = isBillingMode(attrBilling)
+    const billingMode: BillingMode | null = isBillingMode(attrBilling)
       ? attrBilling
-      : resolveAmbientBillingMode();
+      : root.origin === "session"
+        ? null
+        : resolveAmbientBillingMode();
 
     // List-price math runs regardless of billing mode: it gap-fills a
     // missing backend cost_usd (pi without snapshots, cron) AND provides the
@@ -485,10 +491,18 @@ export function createActivityStore(
     // missing. The estimate flag qualifies the effective number, so it is
     // NULL exactly when that is, and 0 for a subscription $0 (exact, not
     // estimated).
+    // An unclassified run (billingMode null — session root without the
+    // attr) prices as unknown: no subscription-zero, no api pricing.
     const effectiveCostUsd =
-      billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
+      billingMode === null ? null : billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
     const pricingEstimate =
-      billingMode === "subscription" ? 0 : priced ? (priced.estimate ? 1 : 0) : null;
+      billingMode === null
+        ? null
+        : billingMode === "subscription"
+          ? 0
+          : priced
+            ? (priced.estimate ? 1 : 0)
+            : null;
     const costUsd = root.usage.costUsd ?? priced?.costUsd ?? null;
 
     db.query(

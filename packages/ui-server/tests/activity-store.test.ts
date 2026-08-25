@@ -872,4 +872,32 @@ describe("activity store: effective cost (migration 010)", () => {
     expect(r.pricing_estimate).toBeNull();
     expect(r.cost_usd).toBeNull();
   });
+
+  test("a session root without a billing attr stays UNKNOWN — never env-classified", () => {
+    // The ambient fallback is cron-only: this process's credentials say
+    // nothing about whichever custom backend ran a session turn, and a wrong
+    // subscription-$0 would freeze forever where unknown stays honest.
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, {
+      pricing: {
+        resolve: () => ({
+          input: 1e-6,
+          output: 2e-6,
+          cacheRead: null,
+          cacheWrite: null,
+          estimate: false,
+          source: "litellm" as const,
+        }),
+      },
+    });
+    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "oauth", ANTHROPIC_API_KEY: undefined }, () => {
+      sessionRun(store, "run-unclassified", {
+        perModel: { "claude-sonnet-4-6": { inputTokens: 1_000 } },
+      });
+    });
+    const r = rollupOf(db, "run-unclassified");
+    expect(r.billing_mode).toBeNull();
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+  });
 });

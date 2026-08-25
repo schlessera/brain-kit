@@ -23,6 +23,8 @@ export function ModelsTab({ active }: { active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const loadProviders = useProviderStore((s) => s.loadProviders);
   const commitGate = useRef(createRequestGate());
+  /** Serializes full-record PUTs — see commitCatalog. */
+  const commitQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!active) return;
@@ -69,16 +71,26 @@ export function ModelsTab({ active }: { active: boolean }) {
     const previous = catalog;
     setCatalog(optimistic);
     setError(null);
-    try {
-      const confirmed = await commit();
-      if (isCurrent()) setCatalog(confirmed);
-      void loadProviders();
-    } catch (err) {
-      if (isCurrent()) {
-        setCatalog(previous);
-        setError(err instanceof Error ? err.message : "Could not save");
+    // The gate drops superseded RESPONSES; this queue serializes the WRITES.
+    // Both matter: the server stores full records, so two concurrent PUTs
+    // could land older-last and silently clobber the newer record server-side
+    // even while the client looked right. Each commit waits for the previous
+    // one to settle; payloads are built on optimistic state, so the newest
+    // write already carries every earlier edit.
+    const run = commitQueue.current.then(async () => {
+      try {
+        const confirmed = await commit();
+        if (isCurrent()) setCatalog(confirmed);
+        void loadProviders();
+      } catch (err) {
+        if (isCurrent()) {
+          setCatalog(previous);
+          setError(err instanceof Error ? err.message : "Could not save");
+        }
       }
-    }
+    });
+    commitQueue.current = run;
+    await run;
   }
 
   async function toggleHidden(entry: ModelCatalogEntry) {
