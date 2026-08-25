@@ -5,6 +5,12 @@
 -- push-service failure no longer forfeits push for the intent.
 ALTER TABLE notification_intents ADD COLUMN send_attempts INTEGER NOT NULL DEFAULT 0;
 
+-- Pre-migration send_failed rows were TERMINAL under the old semantics; a
+-- zero counter would re-arm them and batch-resend arbitrarily old
+-- notifications on the first tick after upgrade. Backfill them as having
+-- spent the budget (3 = MAX_SEND_ATTEMPTS in notify.ts).
+UPDATE notification_intents SET send_attempts = 3 WHERE status = 'send_failed';
+
 -- The hourly prune's candidate query filters on detail_pruned = 0 and
 -- ended_at; without an index it scans every already-pruned row, growing with
 -- exactly the table it is trying to shrink. Partial: pruned rows leave it.

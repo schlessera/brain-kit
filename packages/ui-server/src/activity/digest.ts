@@ -40,6 +40,16 @@ export function generateActivityDigest(db: Database, now = Date.now()): Activity
 
 function generateInTx(db: Database, now: number): ActivityDigest {
   const covered = getSetting<number | null>(db, DIGEST_COVERED_KEY, null);
+  if (covered !== null && now <= covered) {
+    // A newer generation already committed — we serialized behind the race's
+    // winner, or our clock trails coveredUntil. The window would be inverted
+    // and empty; return the winner's digest instead of overwriting it.
+    const latest = latestActivityDigest(db);
+    if (latest) return latest;
+    // Covered set but no stored digest (partial state): degrade to an empty
+    // window at the floor rather than inverting it.
+    now = covered;
+  }
   const windowStart = covered ?? now - FIRST_WINDOW_MS;
 
   // Windowed on ended_at, not started_at: every FINISHED run gets

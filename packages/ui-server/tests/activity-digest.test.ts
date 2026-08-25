@@ -105,14 +105,17 @@ describe("activity digest", () => {
     expect(digest.failures).toBe(0);
   });
 
-  test("the retention floor never regresses when a generator's clock trails it", () => {
+  test("a generator whose clock trails coveredUntil neither regresses the floor nor overwrites the digest", () => {
     const db = createUiDb(":memory:");
-    generateActivityDigest(db, 1_000_000);
+    const winner = generateActivityDigest(db, 1_000_000);
     expect(digestRetentionFloor(db)).toBe(1_000_000);
-    // A second generator with a trailing clock (skew, or the serialized
-    // loser of a manual-vs-cron race) must not walk the floor backwards.
-    generateActivityDigest(db, 500_000);
+    // The serialized loser of a manual-vs-cron race (or a skewed clock):
+    // its window would be inverted and empty. It must return the winner's
+    // digest, not persist an empty one with windowStart > windowEnd.
+    const loser = generateActivityDigest(db, 500_000);
+    expect(loser).toEqual(winner);
     expect(digestRetentionFloor(db)).toBe(1_000_000);
+    expect(latestActivityDigest(db)!.windowEnd).toBe(1_000_000);
   });
 
   test("pruning respects the digest floor and the ceiling overrides a frozen one", () => {
