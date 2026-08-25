@@ -1243,6 +1243,13 @@ export interface ServerActivityDelta {
 // The HTTP half of the activity contract, beside its WS half above — shared
 // types live here per repo convention, never re-declared in a client.
 
+/**
+ * How a run's inference was billed: `subscription` (a seat plan — marginal
+ * cost genuinely $0) or `api` (pay-as-you-go at list price). Resolved once
+ * at run start from the run's inference profile; absent means unknown.
+ */
+export type BillingMode = "subscription" | "api";
+
 export interface ActivityRunSummary {
   runId: string;
   origin: ActivitySpanOrigin;
@@ -1254,7 +1261,18 @@ export interface ActivityRunSummary {
   outcome: ActivitySpanOutcome | null;
   running: boolean;
   durationMs: number | null;
+  /** List-price cost as the backend reported it. NULL = unknown, never $0. */
   costUsd: number | null;
+  /**
+   * What the run actually cost (additive) — $0 for subscription-billed work,
+   * list price for API-billed. NULL/absent = unknown, 0 = genuinely free;
+   * frozen at first rollup, so later pricing-table changes never rewrite it.
+   */
+  effectiveCostUsd?: number | null;
+  /** Billing classification behind `effectiveCostUsd`; absent = unknown. */
+  billingMode?: BillingMode;
+  /** True when the effective cost was computed from estimated rates. */
+  pricingEstimate?: boolean;
   failureReason: string | null;
   detailPruned: boolean;
 }
@@ -1269,7 +1287,14 @@ export interface ActivityRunRollup {
   outcome: ActivitySpanOutcome | null;
   durationMs: number | null;
   spanCount: number;
+  /** List-price cost as the backend reported it. NULL = unknown, never $0. */
   costUsd: number | null;
+  /** Effective cost (additive) — same semantics as `ActivityRunSummary`. */
+  effectiveCostUsd?: number | null;
+  /** Billing classification behind `effectiveCostUsd`; absent = unknown. */
+  billingMode?: BillingMode;
+  /** True when the effective cost was computed from estimated rates. */
+  pricingEstimate?: boolean;
   failureReason: string | null;
 }
 
@@ -1285,7 +1310,16 @@ export interface ActivityRunDetail {
 export interface ActivityAggregate {
   runs: number;
   failures: number;
+  /** Sum of KNOWN list-price costs — unknown-cost runs are excluded, not $0. */
   costUsd: number;
+  /**
+   * Sum of KNOWN effective costs; the excluded runs are `unpricedRuns`.
+   * Optional on the wire (additive — a pre-pricing server omits it); the
+   * current server always emits both.
+   */
+  effectiveCostUsd?: number;
+  /** Runs with unknown effective cost — render "≥ $X · N unpriced" when nonzero. */
+  unpricedRuns?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -1307,7 +1341,12 @@ export interface ActivityDigest {
   windowEnd: number;
   runs: number;
   failures: number;
+  /** Sum of KNOWN list-price costs — unknown-cost runs are excluded, not $0. */
   costUsd: number;
+  /** Sum of KNOWN effective costs (additive — absent on digests persisted before pricing shipped). */
+  effectiveCostUsd?: number;
+  /** Runs with unknown effective cost in the window (additive, same vintage). */
+  unpricedRuns?: number;
   inputTokens: number;
   outputTokens: number;
   notable: Array<{
