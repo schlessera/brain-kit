@@ -1,5 +1,12 @@
 # @schlessera/brain-module-jobs
 
+## 0.21.0
+
+### Patch Changes
+
+- @schlessera/brain@0.21.0
+- @schlessera/brain-scrape@0.21.0
+
 ## 0.20.0
 
 ### Patch Changes
