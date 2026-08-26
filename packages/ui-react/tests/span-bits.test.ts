@@ -7,8 +7,10 @@ import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import {
   digestCostClause,
+  eventTypeLabel,
   formatAggregateCost,
   formatEffectiveCost,
+  formatSpanUsage,
   runCostText,
   spanToolLabel,
 } from "../src/components/activity/span-bits";
@@ -53,6 +55,47 @@ describe("spanToolLabel", () => {
   });
 });
 
+describe("eventTypeLabel", () => {
+  test("known types read as prose", () => {
+    expect(eventTypeLabel("tool_input")).toBe("Input");
+    expect(eventTypeLabel("tool_output")).toBe("Output");
+    expect(eventTypeLabel("transcript_assistant")).toBe("Transcript · assistant");
+    expect(eventTypeLabel("job_output")).toBe("Job output");
+  });
+
+  test("an unknown type names itself rather than posing as output", () => {
+    expect(eventTypeLabel("sink_progress")).toBe("sink progress");
+  });
+});
+
+describe("formatSpanUsage", () => {
+  test("a span with no recorded usage has no usage line", () => {
+    expect(formatSpanUsage(span({}))).toBeNull();
+    expect(formatSpanUsage(span({ usage: {} }))).toBeNull();
+  });
+
+  test("model and token classes render, cache reads named separately", () => {
+    expect(
+      formatSpanUsage(
+        span({
+          usage: {
+            model: "sonnet-5",
+            inputTokens: 1200,
+            outputTokens: 340,
+            cacheReadTokens: 20000,
+          },
+        })
+      )
+    ).toBe("sonnet-5 · 1k in · 340 out · 20k cached");
+  });
+
+  test("zero-valued classes are omitted, not printed as 0", () => {
+    expect(formatSpanUsage(span({ usage: { inputTokens: 500, outputTokens: 0 } }))).toBe(
+      "500 in"
+    );
+  });
+});
+
 describe("formatEffectiveCost", () => {
   test("unknown cost renders an em dash, NEVER $0.00 (AE3)", () => {
     expect(formatEffectiveCost(null)).toBe("—");
@@ -62,6 +105,17 @@ describe("formatEffectiveCost", () => {
 
   test("zero is genuinely free, distinct from unknown", () => {
     expect(formatEffectiveCost(0)).toBe("free");
+    expect(formatEffectiveCost(0, false, "api")).toBe("free");
+    expect(formatEffectiveCost(0, false, null)).toBe("free");
+  });
+
+  test("subscription-billed zero reads subbed, not free", () => {
+    expect(formatEffectiveCost(0, false, "subscription")).toBe("subbed");
+  });
+
+  test("billing mode never changes a nonzero amount", () => {
+    expect(formatEffectiveCost(1.234, false, "subscription")).toBe("$1.23");
+    expect(formatEffectiveCost(null, false, "subscription")).toBe("—");
   });
 
   test("priced runs render dollars", () => {
@@ -118,6 +172,13 @@ describe("runCostText", () => {
     expect(runCostText({ costUsd: 1.5, effectiveCostUsd: 0.5, pricingEstimate: true })).toBe(
       "~$0.50"
     );
+  });
+
+  test("a subscription-billed run says subbed; a zero-rate model still says free", () => {
+    expect(
+      runCostText({ costUsd: 1.5, effectiveCostUsd: 0, billingMode: "subscription" })
+    ).toBe("subbed");
+    expect(runCostText({ costUsd: 0, effectiveCostUsd: 0, billingMode: "api" })).toBe("free");
   });
 });
 

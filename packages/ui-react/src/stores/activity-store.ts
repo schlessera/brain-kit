@@ -407,6 +407,11 @@ export function eventsFor(state: ActivityState, spanId: string): ActivitySpanEve
   return state.events[spanId] ?? EMPTY_EVENTS;
 }
 
+/** Payload event types the tool expander owns — every OTHER type belongs to
+ *  the narrative stream (`narrativeEventsFor`) so nothing recorded is
+ *  rendered nowhere. */
+const TOOL_PAYLOAD_TYPES = new Set(["tool_input", "tool_output"]);
+
 /**
  * The recorded input/output payload events of a tool span (AE7). Returns a
  * fresh array per call — subscribe through `useShallow` (like `childSpans`).
@@ -414,10 +419,38 @@ export function eventsFor(state: ActivityState, spanId: string): ActivitySpanEve
 export function payloadEventsFor(state: ActivityState, spanId: string): ActivitySpanEvent[] {
   const events = state.events[spanId];
   if (!events) return EMPTY_EVENTS;
-  const payloads = events.filter(
-    (e) => e.eventType === "tool_input" || e.eventType === "tool_output"
-  );
+  const payloads = events.filter((e) => TOOL_PAYLOAD_TYPES.has(e.eventType));
   return payloads.length > 0 ? payloads : EMPTY_EVENTS;
+}
+
+/**
+ * Everything recorded against a span that is NOT a tool input/output payload:
+ * transcript excerpts, job output, and any span-sink event type a producer
+ * invents. Rendered as the span's narrative so an unknown type degrades to a
+ * labelled block rather than to invisibility.
+ */
+export function narrativeEventsFor(
+  state: ActivityState,
+  spanId: string
+): ActivitySpanEvent[] {
+  const events = state.events[spanId];
+  if (!events) return EMPTY_EVENTS;
+  const rest = events.filter((e) => !TOOL_PAYLOAD_TYPES.has(e.eventType));
+  return rest.length > 0 ? rest : EMPTY_EVENTS;
+}
+
+/** Every event recorded under a run, ordered by time — the run detail's
+ *  narrative stream and the raw-trace dump both read through this. */
+export function runEvents(state: ActivityState, runId: string): ActivitySpanEvent[] {
+  const byId = state.spans[runId];
+  if (!byId) return EMPTY_EVENTS;
+  const out: ActivitySpanEvent[] = [];
+  for (const spanId of Object.keys(byId)) {
+    const events = state.events[spanId];
+    if (events) out.push(...events);
+  }
+  if (out.length === 0) return EMPTY_EVENTS;
+  return out.sort((a, b) => a.ts - b.ts || a.eventIndex - b.eventIndex);
 }
 
 /** The span behind one tool call (span ids ARE toolUseIds), if streamed. */

@@ -8,7 +8,9 @@ import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import {
   useActivityStore,
   childSpans,
+  narrativeEventsFor,
   payloadEventsFor,
+  runEvents,
   spanForTool,
   subagentSpans,
   timingFor,
@@ -389,6 +391,43 @@ describe("selectors", () => {
     ]);
     // A span with no payload events (pre-feature run) yields the empty result.
     expect(payloadEventsFor(state, "agent-1")).toHaveLength(0);
+  });
+
+  test("narrativeEventsFor and runEvents cover everything the payload view filters out", () => {
+    const s = useActivityStore.getState();
+    s.applySnapshot({
+      type: "activity_snapshot",
+      view: "run",
+      runId: "cron-1",
+      spans: [
+        span({ spanId: "cron-1:root", runId: "cron-1", kind: "cron", origin: "cron" }),
+        span({ spanId: "tool-9", runId: "cron-1", parentSpanId: "cron-1:root", startedAt: 110 }),
+      ],
+      events: [
+        { spanId: "tool-9", eventIndex: 0, ts: 130, eventType: "tool_input", payload: "{}" },
+        { spanId: "cron-1:root", eventIndex: 0, ts: 120, eventType: "job_output", payload: "done" },
+        // An event type no client version knows about must still be reachable.
+        { spanId: "cron-1:root", eventIndex: 1, ts: 140, eventType: "sink_note", payload: "hi" },
+      ],
+      highWaterSeq: { "cron-1": 1 },
+    });
+    const state = useActivityStore.getState();
+    // The cron root has no tool payloads — without the narrative selector its
+    // recorded output would render nowhere.
+    expect(payloadEventsFor(state, "cron-1:root")).toHaveLength(0);
+    expect(narrativeEventsFor(state, "cron-1:root").map((e) => e.eventType)).toEqual([
+      "job_output",
+      "sink_note",
+    ]);
+    // Tool payloads stay with the payload expander, out of the narrative.
+    expect(narrativeEventsFor(state, "tool-9")).toHaveLength(0);
+    // The run-wide view is every event, in time order across spans.
+    expect(runEvents(state, "cron-1").map((e) => [e.ts, e.eventType])).toEqual([
+      [120, "job_output"],
+      [130, "tool_input"],
+      [140, "sink_note"],
+    ]);
+    expect(runEvents(state, "unknown-run")).toHaveLength(0);
   });
 
   test("timingFor uses the wait/execution boundary and server clock", () => {
