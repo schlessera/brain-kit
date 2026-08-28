@@ -44,7 +44,9 @@
   ],
   "scripts": {
     "test": "bun test tests --timeout 30000",
-    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+    "prepublishOnly": "bun ../../scripts/check-dist.ts",
+    "eval:triage": "bun run evals/triage/run.ts",
+    "eval:triage:validate": "bun run evals/triage/validate.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
