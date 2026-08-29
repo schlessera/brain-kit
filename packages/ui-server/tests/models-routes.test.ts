@@ -341,3 +341,24 @@ describe("custom OpenRouter model routes", () => {
     expect(readDefaultModelId(db)).toBeNull();
   });
 });
+
+describe("custom OpenRouter collision guard", () => {
+  test("a generated id owned by another source is refused before persisting", async () => {
+    const collidingRegistry = createStaticBackendRegistry(
+      [
+        makeFakeBackend({
+          id: "pi",
+          profiles: [{ id: "openrouter:z.ai/glm-5.3-flash", label: "Taken", vendor: "openrouter" }],
+        }),
+      ],
+      "pi"
+    );
+    const routes = createModelRoutes({ registry: collidingRegistry, db });
+    const response = await routes.request("/models/custom", {
+      method: "PUT",
+      body: JSON.stringify({ models: ["z.ai/glm-5.3-flash"] }),
+    });
+    expect(response.status).toBe(400);
+    expect(readCustomModels(db)).toEqual([]);
+  });
+});

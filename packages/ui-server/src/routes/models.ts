@@ -136,19 +136,43 @@ export function createModelRoutes(deps: {
       return c.json({ error: `Not an OpenRouter model id: "${bad}"` }, 400);
     }
 
-    // Removing a model that is the stored default would strand the default on
-    // a vanished profile; clear it back to auto in the same write.
-    const next = new Set(models as string[]);
-    const currentDefault = getDefaultModelId(db);
-    if (
-      currentDefault?.startsWith("openrouter:") &&
-      !next.has(currentDefault.slice("openrouter:".length))
-    ) {
-      setDefaultModelId(db, null);
+    // A generated id ("openrouter:<model>") that collides with a profile
+    // another source owns (a pi profile, a discovered model) must be refused
+    // BEFORE persisting: stored, it would 500 every roster read until the
+    // setting is dug out of the database. An id the CLAUDE env already
+    // declares is fine — the merge dedupes it in the declared entry's favor.
+    const currentCustomIds = new Set(
+      getCustomOpenRouterModels(db).map((model) => `openrouter:${model}`)
+    );
+    const nonCustomIds = new Set(
+      (await registry.listAllProviders({ includeHidden: true }))
+        .filter((profile) => !currentCustomIds.has(profile.id))
+        .map((profile) => profile.id)
+    );
+    const collision = (models as string[])
+      .map((model) => `openrouter:${model}`)
+      .find((id) => nonCustomIds.has(id));
+    if (collision !== undefined) {
+      return c.json(
+        { error: `"${collision}" collides with an existing profile id.` },
+        400
+      );
     }
 
     setCustomOpenRouterModels(db, models as string[]);
     registry.invalidateProfiles();
+
+    // A removal that takes the stored default's profile off the roster would
+    // strand the default on nothing; reset it to auto — but only when the
+    // profile is actually gone (an id the env also declares survives the
+    // removal of its custom duplicate).
+    const currentDefault = getDefaultModelId(db);
+    if (currentDefault) {
+      const roster = await registry.listAllProviders({ includeHidden: true });
+      if (!roster.some((profile) => profile.id === currentDefault)) {
+        setDefaultModelId(db, null);
+      }
+    }
     return c.json(await buildCatalog());
   })
 
