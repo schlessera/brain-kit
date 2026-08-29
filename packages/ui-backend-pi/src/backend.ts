@@ -502,14 +502,29 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       // string is still accepted as an ad-hoc profileId (resolveModelSpec).
       const profiles = configuredProfiles();
       if (profiles && profiles.length > 0) {
-        return profiles.map((p) => ({
-          id: p.id,
-          label: p.label,
-          vendor: p.vendor,
+        return profiles.map((p) => {
           // Effective reasoning level (pi defaults absent ones to "medium").
-          // Presence doubles as "this profile supports an effort setting".
-          thinkingLevel: p.thinkingLevel ?? "medium",
-        }));
+          // Presence doubles as "this profile supports an effort setting",
+          // so it is OMITTED for models the catalog marks non-reasoning —
+          // pi would clamp any level to "off" there, and advertising an
+          // effort knob for them would be a lie. An unknown model (declared
+          // typo — fails loudly at session time) gets no knob either.
+          let reasoning = false;
+          try {
+            reasoning =
+              p.vendor !== undefined &&
+              (getBuiltinModel(p.vendor as never, p.model as never) as Model<any> | undefined)
+                ?.reasoning === true;
+          } catch {
+            reasoning = false;
+          }
+          return {
+            id: p.id,
+            label: p.label,
+            vendor: p.vendor,
+            ...(reasoning ? { thinkingLevel: p.thinkingLevel ?? "medium" } : {}),
+          };
+        });
       }
       if (options.model) {
         const spec = parseModelString(options.model);
