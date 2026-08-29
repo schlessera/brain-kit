@@ -104,6 +104,7 @@ export function createWsHandlers(host: WsHost) {
               sessionId: sid,
               isNew: false,
               providerId: turn.providerId ?? catalog.getStoredProviderId(sid) ?? undefined,
+              backendId: catalog.getStoredBackendId(sid) ?? turn.backend.id,
             },
             turn
           )

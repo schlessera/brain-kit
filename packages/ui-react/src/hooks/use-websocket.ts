@@ -281,6 +281,18 @@ export function handleServerMessage(msg: ServerMessage) {
 
     case "session_info": {
       ensureActivitySubscription(msg.sessionId);
+      // Record backend ownership for renderer scoping — for ANY session, since
+      // background sessions keep their own transcript buffers. Older servers
+      // omit backendId; derive it from the pinned profile when still possible
+      // (fails only for since-hidden profiles, which then use the default).
+      const ownerBackendId =
+        msg.backendId ??
+        useProviderStore
+          .getState()
+          .available.find((p) => p.id === msg.providerId)?.backendId;
+      if (ownerBackendId) {
+        useChatStore.getState().setSessionBackend(msg.sessionId, ownerBackendId);
+      }
       // bindDraftSession above handled draft adoption; an info frame may still
       // re-pin the provider picker when it concerns the session in view.
       const current = useChatStore.getState();

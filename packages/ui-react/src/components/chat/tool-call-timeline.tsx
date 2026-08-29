@@ -9,8 +9,8 @@ import {
   AlertTriangle,
   FileText,
 } from "lucide-react";
-import { resolveToolRenderer } from "@schlessera/brain-ui-sdk/client";
-import type { ToolCall } from "../../stores/chat-store.js";
+import { resolveToolRenderer, type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
+import { useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
@@ -26,10 +26,18 @@ import { SpanStatusDot } from "../activity/span-bits.js";
 // runs on module load.
 registerBuiltinRenderers();
 
-// One backend is active per deployment (v1). The shipped default is the Claude
-// backend; renderer resolution is backend-scoped so a future multi-backend
-// build can thread the real id through here.
-const BACKEND_ID = "claude";
+// Sessions that predate backend stamping (old servers, cleared stores) scope
+// to the shipped default backend.
+const DEFAULT_BACKEND_ID = "claude";
+
+/** Backend owning the session in view, scoping renderer resolution. */
+function useBackendId(): string {
+  return useChatStore(
+    (s) =>
+      (s.activeSessionId ? s.backendIds[s.activeSessionId] : undefined) ??
+      DEFAULT_BACKEND_ID
+  );
+}
 
 export function ToolCallTimeline({
   toolCalls,
@@ -44,6 +52,7 @@ export function ToolCallTimeline({
   // Collapse the whole run to a summary row once the turn is over. History
   // messages mount collapsed; a live timeline collapses when streaming ends.
   const [collapsed, setCollapsed] = useState(!live);
+  const backendId = useBackendId();
   const prevLive = useRef(live);
   useEffect(() => {
     if (prevLive.current && !live) setCollapsed(true);
@@ -57,7 +66,11 @@ export function ToolCallTimeline({
 
   if (effectiveCollapsed) {
     return (
-      <TimelineSummaryRow toolCalls={toolCalls} onExpand={() => setCollapsed(false)} />
+      <TimelineSummaryRow
+        toolCalls={toolCalls}
+        backendId={backendId}
+        onExpand={() => setCollapsed(false)}
+      />
     );
   }
 
@@ -75,7 +88,12 @@ export function ToolCallTimeline({
       )}
       <div className="relative ml-1 border-l-2 border-border/40 pl-4 space-y-1.5">
         {toolCalls.map((tool) => (
-          <ToolCallEntry key={tool.id} toolCall={tool} onApproval={onApproval} />
+          <ToolCallEntry
+            key={tool.id}
+            toolCall={tool}
+            backendId={backendId}
+            onApproval={onApproval}
+          />
         ))}
       </div>
     </div>
@@ -84,13 +102,22 @@ export function ToolCallTimeline({
 
 function TimelineSummaryRow({
   toolCalls,
+  backendId,
   onExpand,
 }: {
   toolCalls: ToolCall[];
+  backendId: string;
   onExpand: () => void;
 }) {
   const steps = toolCalls.length;
-  const files = new Set(toolCalls.map(getTouchedFile).filter(Boolean)).size;
+  const files = new Set(
+    toolCalls
+      .map(
+        (t) =>
+          resolveToolRenderer(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t)
+      )
+      .filter(Boolean)
+  ).size;
   const errors = toolCalls.filter((t) => t.isError).length;
   const started = Math.min(...toolCalls.map((t) => t.startedAt ?? Infinity));
   const ended = Math.max(...toolCalls.map((t) => t.endedAt ?? -Infinity));
@@ -123,9 +150,11 @@ function TimelineSummaryRow({
 
 function ToolCallEntry({
   toolCall,
+  backendId,
   onApproval,
 }: {
   toolCall: ToolCall;
+  backendId: string;
   onApproval: (toolUseId: string, approved: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(
@@ -147,8 +176,12 @@ function ToolCallEntry({
     : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
   // shape-sniffing predicate). Falls back to the generic renderer.
-  const renderer = resolveToolRenderer(toolCall, BACKEND_ID) ?? GENERIC_RENDERER;
+  const renderer = resolveToolRenderer(toolCall, backendId) ?? GENERIC_RENDERER;
   const Icon = renderer.icon ?? FileText;
+  const label =
+    typeof renderer.label === "function"
+      ? renderer.label(toolCall)
+      : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = toolCall.status === "pending_approval";
   const summary = renderer.summary?.(timed) ?? null;
   const meta = renderer.meta?.(timed) ?? null;
@@ -204,7 +237,7 @@ function ToolCallEntry({
       >
         <Icon className="h-3.5 w-3.5 shrink-0" />
         <span className="font-[family-name:var(--font-mono)] font-medium">
-          {getToolLabel(toolCall.name)}
+          {label}
         </span>
         {summary && (
           <span
@@ -226,8 +259,8 @@ function ToolCallEntry({
         </span>
       </button>
 
-      {/* Live subagent state for Agent fan-outs, fed by the activity stream. */}
-      {toolCall.name === "Agent" && <SubagentEntryRows agentToolUseId={toolCall.id} />}
+      {/* Live subagent state for tool fan-outs, fed by the activity stream. */}
+      {renderer.subagentRows && <SubagentEntryRows agentToolUseId={toolCall.id} />}
 
       {/* Expandable detail */}
       <AnimatePresence>
@@ -251,7 +284,9 @@ function ToolCallEntry({
               {Input && <Input tool={toolCall} />}
 
               {/* Risk hints — advisory only, never blocks approval */}
-              {isPending && <RiskHints toolCall={toolCall} />}
+              {isPending && (
+                <RiskHints toolCall={toolCall} semantics={renderer.semantics} />
+              )}
 
               {/* Approval buttons */}
               {isPending && (
@@ -333,8 +368,14 @@ function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
   );
 }
 
-function RiskHints({ toolCall }: { toolCall: ToolCall }) {
-  const hints = riskHints(toolCall);
+function RiskHints({
+  toolCall,
+  semantics,
+}: {
+  toolCall: ToolCall;
+  semantics?: ToolSemantics;
+}) {
+  const hints = riskHints(toolCall, semantics);
   if (hints.length === 0) return null;
   return (
     <div className="space-y-0.5 text-[11px] text-amber-400">

@@ -261,6 +261,7 @@ export "./client" (./src/client/index.ts)
   type SystemStatus
   type ToolCallView
   type ToolRenderer
+  type ToolSemantics
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode

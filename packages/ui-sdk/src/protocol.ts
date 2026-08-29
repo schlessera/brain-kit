@@ -452,6 +452,12 @@ export interface ServerSessionInfo {
   /** Provider+model profile this session is pinned to. */
   providerId?: string;
   /**
+   * Backend that owns this session (rev 3, additive). Lets the client scope
+   * tool-call rendering per backend without deriving it from `providerId`,
+   * which fails for profiles the user has since hidden from the picker.
+   */
+  backendId?: string;
+  /**
    * Echo of the `draftId` the client sent on the `chat_message` that started
    * this conversation (rev 2, additive). Absent on a resumed session, and on
    * any turn whose client did not send one.
