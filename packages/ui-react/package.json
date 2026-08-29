@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-react",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "brain-kit chat-UI React components: chat surface, tool-call timeline, file browser, voice dictation, stores, and WebSocket transport",
   "license": "MIT",
   "keywords": [
