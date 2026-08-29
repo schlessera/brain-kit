@@ -14,6 +14,7 @@
 // The descriptor contract and readEnvVar are shared across every chokepoint
 // via the sync-enforced copy in ./env-core.ts.
 import type { DynamicEnvReadSpec } from "./env-core.js";
+import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
 
@@ -43,7 +44,46 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
       "search to FTS-only.",
     required: false,
   },
+  {
+    name: "BRAIN_UI_REVERSE_GEOCODE",
+    description:
+      '"0"/"off"/"false" disables reverse geocoding in the location tool ' +
+      "(raw coordinates only).",
+    default: "enabled",
+    required: false,
+  },
+  {
+    name: "NOMINATIM_URL",
+    description: "Reverse-geocoding endpoint.",
+    default: "https://nominatim.openstreetmap.org",
+    required: false,
+  },
+  {
+    name: "NOMINATIM_USER_AGENT",
+    description: "Identifying User-Agent for Nominatim (usage-policy requirement).",
+    default: "brain-kit-ui/1.0",
+    required: false,
+  },
 ];
+
+/** Statically-named environment configuration, resolved at call time. */
+export interface PiBackendEnv {
+  /** BRAIN_UI_REVERSE_GEOCODE is not falsy (0/false/off/no, case-insensitive). */
+  reverseGeocodeEnabled: boolean;
+  /** NOMINATIM_URL with the public-OSM default applied. */
+  nominatimUrl: string;
+  /** NOMINATIM_USER_AGENT with the default applied. */
+  nominatimUserAgent: string;
+}
+
+/** Resolve the statically-named variables. Reads happen here and only here. */
+export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
+  return {
+    reverseGeocodeEnabled: envFlag(env.BRAIN_UI_REVERSE_GEOCODE, true),
+    nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
+    nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",
+  };
+}
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
   {

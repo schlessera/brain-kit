@@ -24,9 +24,13 @@ import type {
 import {
   BackendBusyError,
   BackendRequestError,
+  bashCommand,
   buildSystemPromptAppend,
+  compileConfirmPatterns,
   createKeyedLock,
+  DEFAULT_CONFIRM_BASH_PATTERNS,
   LockBusyError,
+  rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 import { isAbsolute, join, normalize } from "node:path";
 import { envSnapshot } from "./config/env.js";
@@ -209,64 +213,18 @@ export function lockKeyForTool(
 /**
  * Bash commands that raise a confirmation card before they run.
  *
- * WHY THIS EXISTS. `Bash` is auto-allowed, and the SDK never consults
+ * WHY THIS EXISTS HERE. `Bash` is auto-allowed, and the SDK never consults
  * `canUseTool` for an allowlisted tool — so `brain archive x.md` typed into
  * Bash ran silently while the same operation through `brain_archive` raised a
  * card. Worse, the brain repo's own CLAUDE.md documents the CLI form, so the
  * gated path was the one nobody took. The approval existed on the path the
  * documentation steers away from.
  *
- * WHAT THIS IS NOT. It is not containment. An agent with Bash can always reach
- * the same effect another way — `sh -c`, a heredoc, a script it just wrote —
- * and nothing here tries to stop that. The threat this addresses is an agent
- * doing something destructive you did not intend, not an adversary evading a
- * control. Read it as a seatbelt, not a lock; the real boundary is auth.
- *
- * Matched case-insensitively against the whole command string, so a pattern
- * fires wherever it appears in a pipeline.
+ * The pattern list itself is backend-independent policy and lives in
+ * `@schlessera/brain-ui-sdk/server` (shared with the pi backend's tool_call
+ * gate); re-exported here for compatibility.
  */
-export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly string[] = [
-  // Archiving is a VISIBILITY change, and that is the reason to confirm it —
-  // not that it is hard to undo (it is a move inside a git repo). An archived
-  // document drops out of search, briefings and context assembly, so a silent
-  // archive shows up later as holes in output you cannot account for: results
-  // that should have been there simply are not, with nothing pointing at why.
-  // The MCP equivalent already asks; this is the path people actually use.
-  String.raw`\bbrain\s+archive\b`,
-  // Recursive delete, in any of its spellings.
-  String.raw`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]`,
-  // History rewrites and discards — recoverable only if you notice in time.
-  String.raw`\bgit\s+push\b.*--force`,
-  String.raw`\bgit\s+reset\b.*--hard`,
-  String.raw`\bgit\s+clean\b.*-[a-zA-Z]*f`,
-  // Truncation via redirect into a tracked path is easy to do by accident.
-  String.raw`\bgit\s+checkout\b.*\s--\s`,
-];
-
-/** Compile pattern sources, skipping (and reporting) any that will not parse. */
-function compileConfirmPatterns(
-  sources: readonly string[],
-  onInvalid: (source: string, message: string) => void
-): RegExp[] {
-  const compiled: RegExp[] = [];
-  for (const source of sources) {
-    try {
-      compiled.push(new RegExp(source, "i"));
-    } catch (e) {
-      // A bad pattern must not take the backend down: the safe direction to
-      // fail is "this one never matches", reported loudly.
-      onInvalid(source, e instanceof Error ? e.message : String(e));
-    }
-  }
-  return compiled;
-}
-
-/** The command string a Bash tool call is about to run, if it has one. */
-function bashCommand(input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
-  const command = (input as { command?: unknown }).command;
-  return typeof command === "string" && command.trim() ? command : null;
-}
+export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Minimal host-injected log seam. A callback rather than a logger object so
@@ -817,6 +775,44 @@ export function createClaudeBackend(
                       updatedInput: { ...input, run_in_background: false },
                       additionalContext:
                         "This Agent call was rewritten to run_in_background: false. Each turn is its own process, so a background agent would be killed at turn end before its results could be read. Fan out with foreground agents and collect results within the turn.",
+                    },
+                  };
+                },
+              ],
+            },
+            {
+              // rtk (token-optimizing CLI proxy) rewrite. Runs AFTER the
+              // mutating-tools entry above, so confirm patterns and lock
+              // classification see the command as the model wrote it; the
+              // rewritten form (`rtk git status`) is what executes. When the
+              // rtk binary is absent or declines, the command is untouched.
+              // "allow" is required for updatedInput to take effect — Bash is
+              // auto-allowed by the default allowlist anyway; a deployment
+              // that removes it from allowedTools should know this rewrite
+              // re-admits rewritten commands.
+              matcher: "^Bash$",
+              hooks: [
+                async (hookInput) => {
+                  if (
+                    hookInput.hook_event_name !== "PreToolUse" ||
+                    hookInput.tool_name !== "Bash"
+                  ) {
+                    return { continue: true };
+                  }
+                  const command = bashCommand(hookInput.tool_input);
+                  if (!command) return { continue: true };
+                  const rewritten = await rtkRewriteCommand(command);
+                  if (rewritten === command) return { continue: true };
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: "PreToolUse",
+                      permissionDecision: "allow",
+                      permissionDecisionReason: "rtk auto-rewrite",
+                      updatedInput: {
+                        ...(hookInput.tool_input as Record<string, unknown>),
+                        command: rewritten,
+                      },
                     },
                   };
                 },

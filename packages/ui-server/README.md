@@ -95,10 +95,11 @@ Every variable this package reads, and what happens when it is unset.
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
-| `HOME` | Fallback anchor for the BRAIN_PATH default only. | /root |
+| `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
 | `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior. | (unset) |
+| `PI_CODING_AGENT_DIR` | pi config dir override — where the web-search settings write the pi-web-access extension's web-search.json (same precedence the extension itself uses). | $XDG_CONFIG_HOME/pi, else $HOME/.pi |
 | `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
 | `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |
@@ -111,6 +112,7 @@ Every variable this package reads, and what happens when it is unset.
 | `WEBAUTHN_RP_NAME` | Relying-party display name shown by authenticators. | Brain UI |
 | `WEBAUTHN_USER_ID` | Stable WebAuthn user handle (wire contract — burned into every resident credential; max 64 bytes; never change it after the first passkey). | brain-ui-owner |
 | `WEBAUTHN_USER_NAME` | WebAuthn user name shown by authenticators. | owner |
+| `XDG_CONFIG_HOME` | Second-precedence anchor for the pi config dir ($XDG_CONFIG_HOME/pi). | — |
 
 Generated from `packages/ui-server/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->

@@ -105,6 +105,26 @@ export interface PiLoginFlow {
   startedAt: number;
 }
 
+/** One selectable web-search provider (mirror of the server view). */
+export interface WebSearchProvider {
+  id: string;
+  label: string;
+  /** Whether this provider accepts an API key ("auto" does not). */
+  hasKeyField: boolean;
+  /** True when a key for it is stored server-side (values never travel). */
+  keyConfigured: boolean;
+  /** True when the provider works without any key (Exa's free tier). */
+  keyless: boolean;
+}
+
+/** Web-search configuration for the pi backend's web extension. */
+export interface WebSearchConfig {
+  /** False when the pi backend is not configured — hide the card. */
+  configured: boolean;
+  provider: string;
+  providers: WebSearchProvider[];
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${apiBase()}${path}`, {
     ...init,
@@ -260,6 +280,22 @@ export const api = {
     fetchJson<{ ok: boolean }>("/pi-auth/logout", {
       method: "POST",
       body: JSON.stringify({ providerId }),
+    }),
+
+  /** Web-search provider config; `configured: false` when pi is not in play. */
+  webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
+
+  /**
+   * Update the web-search provider and/or stored API keys (null/"" clears a
+   * key). Returns the updated config.
+   */
+  webSearchUpdate: (update: {
+    provider?: string;
+    apiKeys?: Record<string, string | null>;
+  }) =>
+    fetchJson<WebSearchConfig>("/web-search", {
+      method: "PUT",
+      body: JSON.stringify(update),
     }),
 
   /** Replace the reasoning-effort override record (full record, not a delta). */

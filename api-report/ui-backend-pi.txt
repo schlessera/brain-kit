@@ -9,14 +9,17 @@ export "." (./src/index.ts)
   type BrainToolDeps
   type CreatePiAuthOptions
   type CreatePiBackendOptions
+  DEFAULT_PI_ALLOWED_TOOLS
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
   type EnvVarSpec
   PI_BACKEND_ID
+  type PermissionGateOptions
   type PiAuth
   type PiAuthProviderStatus
   type PiAuthRuntime
+  type PiBackendEnv
   type PiLoginFlow
   type PiLoginFlowStatus
   type PiProfile
@@ -26,16 +29,20 @@ export "." (./src/index.ts)
   type SessionToolkit
   TOOL_RISK
   type TurnContext
+  approvalReason
   createBrainAccess
   createBrainTools
+  createPermissionGate
   createPiAuth
   createPiBackend
   createTurnContext
   getPiHistory
   hasStoredCredential
+  invalidateExtensionCache
   listPiSessions
   mapPiEvent
   normalizeMessages
   readEnvVar
+  resolveEnv
 
 export "./package.json" (./package.json) [asset]
