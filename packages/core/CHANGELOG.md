@@ -1,5 +1,11 @@
 # @schlessera/brain
 
+## 0.25.0
+
+### Patch Changes
+
+- @schlessera/brain-render-template@0.25.0
+
 ## 0.24.0
 
 ### Patch Changes
