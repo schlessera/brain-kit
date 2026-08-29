@@ -1,5 +1,7 @@
 # @schlessera/brain-ui-sdk
 
+## 0.23.0
+
 ## 0.22.0
 
 ### Minor Changes
