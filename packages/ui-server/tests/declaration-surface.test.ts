@@ -24,12 +24,14 @@ import { readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import ts from "typescript";
 import type * as claude from "@schlessera/brain-backend-claude";
+import type * as pi from "@schlessera/brain-backend-pi";
 import type {
   ClaudeBackendModule,
   ClaudeModelSource,
   ClaudeProfile,
   ClaudeProfileInput,
   ModelDiscoveryState,
+  PiProfileInput,
 } from "../src/agent/backend";
 
 const PKG = resolve(import.meta.dir, "..");
@@ -144,6 +146,9 @@ type _stateCompat = Assert<
 // the real defineProfiles, and real resolved profiles must satisfy the mirror.
 type _inputCompat = Assert<ClaudeProfileInput extends claude.InferenceProfileInput ? true : false>;
 type _profileCompat = Assert<claude.InferenceProfile extends ClaudeProfile ? true : false>;
+// pi: mirror profile inputs must be accepted by the real createPiBackend, i.e.
+// each entry satisfies the real PiProfile shape (thinkingLevel union included).
+type _piInputCompat = Assert<PiProfileInput extends pi.PiProfile ? true : false>;
 
 describe("structural mirrors of the Claude module", () => {
   test("the type-level compatibility assertions above compiled", () => {

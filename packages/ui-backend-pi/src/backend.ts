@@ -23,6 +23,7 @@ import {
   type AgentSessionEvent,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { ImageContent, Model, Usage } from "@earendil-works/pi-ai";
 
@@ -114,6 +115,11 @@ export interface PiProfile {
   vendor?: string;
   /** pi model id within the vendor, e.g. "claude-sonnet-4-5". */
   model: string;
+  /**
+   * Reasoning level for this profile's NEW sessions (pi clamps it to the
+   * model's capabilities). Absent = pi's default ("medium").
+   */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface CreatePiBackendOptions {
@@ -183,6 +189,7 @@ interface SessionEntry {
 interface ModelSpec {
   vendor?: string;
   model: string;
+  thinkingLevel?: ThinkingLevel;
 }
 
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
@@ -256,29 +263,46 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     const profiles = options.profiles;
     if (profileId) {
       const p = profiles?.find((x) => x.id === profileId);
-      if (p) return { vendor: p.vendor, model: p.model };
+      if (p) return { vendor: p.vendor, model: p.model, thinkingLevel: p.thinkingLevel };
       // Ad-hoc "vendor/modelId" profile ids are accepted (config-driven UIs
       // may pass them directly). A malformed opaque id is a caller error.
       if (profileId.includes("/")) return parseModelString(profileId);
       throw new BackendRequestError(`Unknown profileId: ${profileId}`);
     }
     if (profiles && profiles.length > 0) {
-      return { vendor: profiles[0].vendor, model: profiles[0].model };
+      const p = profiles[0];
+      return { vendor: p.vendor, model: p.model, thinkingLevel: p.thinkingLevel };
     }
     if (options.model) return parseModelString(options.model);
     return undefined;
   }
 
-  /** Resolve a spec to a concrete pi Model, or undefined to let pi choose. */
+  /**
+   * Resolve a spec to a concrete pi Model, or undefined to let pi choose
+   * (only when no vendor was configured at all). A DECLARED vendor/model that
+   * is not in pi's builtin catalog throws instead of silently handing the
+   * choice back to pi — which would run whichever provider happens to have
+   * ambient credentials, under the declared profile's label and billing.
+   */
   function toModel(spec: ModelSpec | undefined): Model<any> | undefined {
     if (!spec?.vendor) return undefined;
+    let model: Model<any> | undefined;
     try {
       // Cast: getBuiltinModel is literal-typed over the static catalog; at
       // runtime it's a lookup returning undefined for unknown vendor/model.
-      return getBuiltinModel(spec.vendor as never, spec.model as never) as Model<any> | undefined;
+      model = getBuiltinModel(spec.vendor as never, spec.model as never) as
+        | Model<any>
+        | undefined;
     } catch {
-      return undefined;
+      model = undefined;
     }
+    if (!model) {
+      throw new BackendRequestError(
+        `Unknown model "${spec.vendor}/${spec.model}" — not in pi's builtin catalog. ` +
+          "Fix the profile's vendor/model or update the pi SDK."
+      );
+    }
+    return model;
   }
 
   /** A fresh per-session TurnContext and the curated tools bound to it. */
@@ -299,6 +323,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     }
     const sm = SessionManager.create(brainPath, sessionDir);
     const resources = await getSharedResources();
+    const model = toModel(spec); // throws on a declared model missing from the catalog
     const { session } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
@@ -307,7 +332,8 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       ...(resources
         ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
         : {}),
-      ...(toModel(spec) ? { model: toModel(spec) } : {}),
+      ...(model ? { model } : {}),
+      ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
     });
     return { session, turnContext: toolkit.turnContext };
   }
@@ -325,7 +351,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     if (!info) throw new BackendRequestError(`Cannot resume unknown session: ${sessionId}`);
     const sm = SessionManager.open(info.path, sessionDir);
     const resources = await getSharedResources();
-    const { session } = await createAgentSession({
+    const { session, modelFallbackMessage } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
       customTools: toolkit.tools,
@@ -335,6 +361,16 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
         : {}),
     });
+    // pi silently substitutes another configured model when the saved one is
+    // unavailable (catalog change, missing/expired credential). Refuse instead:
+    // continuing would run the turn on a different model — and possibly a
+    // different provider and billing — under the session's pinned identity.
+    if (modelFallbackMessage) {
+      throw new BackendRequestError(
+        `Cannot resume on the session's saved model: ${modelFallbackMessage} ` +
+          "Restore the credential (e.g. `pi login`) or start a new conversation."
+      );
+    }
     return { session, turnContext: toolkit.turnContext };
   }
 

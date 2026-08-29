@@ -260,6 +260,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PI_PROFILES",
+    description:
+      "JSON array of pi-backend model profiles ({id,label,vendor,model,thinkingLevel?}). " +
+      "When set (and AGENT_BACKEND is claude), the pi backend runs ALONGSIDE " +
+      "the Claude backend and these profiles join the picker — e.g. OpenAI " +
+      'models under a ChatGPT subscription via vendor "openai-codex".',
+    default: "(none)",
+    required: false,
+  },
+  {
     name: "CLAUDE_CODE_OAUTH_TOKEN",
     description:
       "Consulted for PRESENCE only, to classify billing: with it set and no " +
@@ -379,6 +389,12 @@ export interface AgentConfig {
   defaultModel: string;
   /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed lazily by the registry. */
   profilesJson: string | null;
+  /**
+   * Raw BRAIN_UI_PI_PROFILES JSON, parsed by the registry. When set, the pi
+   * backend runs alongside the Claude backend and these profiles join the
+   * picker.
+   */
+  piProfilesJson: string | null;
   modelDiscovery: boolean;
   modelTtlMs: number;
   /**
@@ -575,6 +591,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       claudeCodePath: env.CLAUDE_CODE_PATH || "/usr/local/bin/claude",
       defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || "claude-sonnet-4-6",
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
+      piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
       ambientBilling: resolveAmbientBillingMode(env),
