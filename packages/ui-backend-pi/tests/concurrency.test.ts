@@ -327,12 +327,31 @@ describe("pi backend — shared working-tree safety", () => {
         toolkit: SessionToolkit
       ): PiSessionLike {
         const writeTool = toolkit.tools.find((t) => t.name === "write_file")!;
+        const askTool = toolkit.tools.find((t) => t.name === "ask_user")!;
         return {
           sessionId: spec.id,
           subscribe: () => () => {},
           async prompt() {
             if (++arrived === 2) releaseBoth();
             await bothStarted;
+            // A bridge-backed call proves this session's tools reach THIS
+            // turn's bridge (write_file no longer round-trips — approvals
+            // live in the tool_call gate).
+            await askTool.execute(
+              spec.id,
+              {
+                questions: [
+                  {
+                    question: `Write ${spec.path}?`,
+                    header: "Write",
+                    options: [{ label: "Yes", description: "proceed" }],
+                  },
+                ],
+              },
+              undefined,
+              undefined,
+              CTX
+            );
             await writeTool.execute(
               spec.id,
               { path: spec.path, content: spec.content },
@@ -356,8 +375,8 @@ describe("pi backend — shared working-tree safety", () => {
         },
       });
 
-      const bridgeA = makeMockBridge();
-      const bridgeB = makeMockBridge();
+      const bridgeA = makeMockBridge({ askUser: { answers: { Write: "Yes" } } });
+      const bridgeB = makeMockBridge({ askUser: { answers: { Write: "Yes" } } });
       await Promise.all([
         backend.startTurn({
           prompt: "a",
@@ -371,11 +390,11 @@ describe("pi backend — shared working-tree safety", () => {
         }),
       ]);
 
-      // Each turn's write_file approval surfaced on its OWN bridge only.
-      expect(bridgeA.permissionCalls).toHaveLength(1);
-      expect(bridgeA.permissionCalls[0].input.path).toBe("a.md");
-      expect(bridgeB.permissionCalls).toHaveLength(1);
-      expect(bridgeB.permissionCalls[0].input.path).toBe("b.md");
+      // Each turn's ask_user surfaced on its OWN bridge only.
+      expect(bridgeA.askUserCalls).toHaveLength(1);
+      expect(bridgeA.askUserCalls[0].requestId).toBe("A");
+      expect(bridgeB.askUserCalls).toHaveLength(1);
+      expect(bridgeB.askUserCalls[0].requestId).toBe("B");
       expect(readFileSync(join(brain.root, "a.md"), "utf-8")).toBe("AAA");
       expect(readFileSync(join(brain.root, "b.md"), "utf-8")).toBe("BBB");
     } finally {

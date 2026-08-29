@@ -755,6 +755,7 @@ export function createBackendRegistry(
         brainPath: string;
         profiles?: PiProfileInput[] | (() => PiProfileInput[]);
         log?: BackendLogFn;
+        confirmBashPatterns?: readonly string[];
       }) => AgentBackend;
     };
     if (typeof mod.createPiBackend !== "function") {
@@ -780,6 +781,11 @@ export function createBackendRegistry(
       brainPath,
       ...(profiles.length > 0 ? { profiles: withOverrides } : {}),
       ...(backendLog ? { log: backendLog } : {}),
+      // Same shared confirm-pattern config as the Claude backend, so both
+      // backends stop on the same destructive bash shapes.
+      ...(agent.confirmBashPatterns !== null
+        ? { confirmBashPatterns: agent.confirmBashPatterns }
+        : {}),
     });
   }
 

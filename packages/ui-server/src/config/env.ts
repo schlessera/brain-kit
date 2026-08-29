@@ -60,8 +60,24 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   },
   {
     name: "HOME",
-    description: "Fallback anchor for the BRAIN_PATH default only.",
+    description:
+      "Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi).",
     default: "/root",
+    required: false,
+  },
+  {
+    name: "PI_CODING_AGENT_DIR",
+    description:
+      "pi config dir override — where the web-search settings write the " +
+      "pi-web-access extension's web-search.json (same precedence the " +
+      "extension itself uses).",
+    default: "$XDG_CONFIG_HOME/pi, else $HOME/.pi",
+    required: false,
+  },
+  {
+    name: "XDG_CONFIG_HOME",
+    description: "Second-precedence anchor for the pi config dir ($XDG_CONFIG_HOME/pi).",
+    default: null,
     required: false,
   },
   {
@@ -623,4 +639,16 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
  */
 export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
   return { ...process.env, ...extra };
+}
+
+/**
+ * The pi config directory, resolved with EXACTLY the precedence pi-web-access
+ * uses for its `web-search.json` (PI_CODING_AGENT_DIR, then XDG_CONFIG_HOME/pi,
+ * then ~/.pi) — the settings routes write the file the extension reads, so
+ * the two resolutions must never diverge.
+ */
+export function resolvePiConfigDir(env: EnvRecord = process.env): string {
+  if (env.PI_CODING_AGENT_DIR) return env.PI_CODING_AGENT_DIR;
+  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "pi");
+  return join(env.HOME || "/root", ".pi");
 }

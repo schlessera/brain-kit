@@ -16,6 +16,7 @@ import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { createProviderRoutes } from "./routes/providers.js";
 import { createModelRoutes } from "./routes/models.js";
 import { createPiAuthRoutes } from "./routes/pi-auth.js";
+import { createWebSearchRoutes } from "./routes/web-search.js";
 import { createGraphRoutes } from "./routes/graph.js";
 import {
   resolveAuthMode,
@@ -355,6 +356,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     createModelRoutes({ registry, db, pricing, log: observability.logger("models") })
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
+  app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route(
     "/api",
     createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })

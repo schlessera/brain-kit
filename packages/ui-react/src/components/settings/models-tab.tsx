@@ -11,6 +11,7 @@ import { api } from "../../lib/api-client.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { cn } from "../../lib/utils.js";
 import { PiAccountsSection } from "./pi-accounts.js";
+import { WebSearchSection } from "./web-search-settings.js";
 
 /**
  * The model picker's contents, and which of them to show.
@@ -250,6 +251,8 @@ export function ModelsTab({ active }: { active: boolean }) {
         )}
 
         <PiAccountsSection active={active} />
+
+        <WebSearchSection active={active} />
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border p-4">

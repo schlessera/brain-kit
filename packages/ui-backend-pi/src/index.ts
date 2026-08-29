@@ -29,15 +29,19 @@ export type {
 export { createBrainAccess } from "./brain-access.js";
 export type { BrainAccess } from "./brain-access.js";
 
-export { createBrainTools, TOOL_RISK } from "./tools.js";
+export { createBrainTools, TOOL_RISK, DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
 export type { RiskClass, BrainToolDeps } from "./tools.js";
+
+export { createPermissionGate, approvalReason } from "./permission-gate.js";
+export type { PermissionGateOptions } from "./permission-gate.js";
+
+export { invalidateExtensionCache } from "./extension-cache.js";
 
 export { createTurnContext } from "./turn-context.js";
 export type { TurnContext } from "./turn-context.js";
 
 export { listPiSessions, getPiHistory, normalizeMessages } from "./history.js";
 
-// Environment contract (chokepoint: src/config/env.ts). No resolveEnv here:
-// the package's only read is data-driven (config-named apiKeyEnv).
-export { ENV_VARS, DYNAMIC_ENV_READS, readEnvVar } from "./config/env.js";
-export type { EnvVarSpec, DynamicEnvReadSpec } from "./config/env.js";
+// Environment contract (chokepoint: src/config/env.ts).
+export { ENV_VARS, DYNAMIC_ENV_READS, readEnvVar, resolveEnv } from "./config/env.js";
+export type { EnvVarSpec, DynamicEnvReadSpec, PiBackendEnv } from "./config/env.js";

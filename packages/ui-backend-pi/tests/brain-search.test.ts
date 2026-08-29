@@ -82,9 +82,10 @@ describe("brain_context wrapper", () => {
   });
 });
 
-describe("brain_add wrapper (deny path, no write)", () => {
-  test("denied add throws and creates no file", async () => {
-    const { makeMockBridge } = await import("./mock-bridge");
+describe("brain_add wrapper", () => {
+  // Approval denial is the tool_call gate's job now (see
+  // tools-permission.test.ts); the wrapper itself just captures.
+  test("adds a note and reports the written path", async () => {
     const turn = createTurnContext();
     const list = createBrainTools({
       brain: createBrainAccess(brain.root),
@@ -92,9 +93,13 @@ describe("brain_add wrapper (deny path, no write)", () => {
       writeLock: createWriteLock(),
     });
     const brainAdd = list.find((t) => t.name === "brain_add")!;
-    turn.bridge = makeMockBridge({ decision: { behavior: "deny", message: "nope" } }).bridge;
-    await expect(
-      brainAdd.execute("a1", { content: "a new captured note" }, undefined, undefined, CTX)
-    ).rejects.toThrow("nope");
+    const res = await brainAdd.execute(
+      "a1",
+      { content: "A captured pi-backend test note about retrieval" },
+      undefined,
+      undefined,
+      CTX
+    );
+    expect(resultText(res)).toContain(".md");
   });
 });

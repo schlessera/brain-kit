@@ -3,10 +3,12 @@
  * pi coding-agent SDK (@earendil-works/pi-coding-agent).
  *
  * pi's built-in read/bash/edit/write tools are disabled (`noTools: "builtin"`)
- * and replaced with a curated, brain-repo-scoped tool set (see tools.ts) that
- * carries the permission gate inside each tool. Conversations are pi
- * SessionManager JSONL trees; the wire protocol frames are produced by
- * subscribing to the AgentSession event stream.
+ * and replaced with a curated, brain-repo-scoped tool set (see tools.ts).
+ * Approvals are enforced by a single tool_call gate (permission-gate.ts)
+ * registered as an inline extension on every session — it covers curated AND
+ * extension-registered tools with the Claude backend's approval posture.
+ * Conversations are pi SessionManager JSONL trees; the wire protocol frames
+ * are produced by subscribing to the AgentSession event stream.
  *
  * Auth/model credentials come from pi's own mechanisms (env vars / `pi` auth
  * storage under the agent dir) — this backend does not manage keys.
@@ -30,8 +32,11 @@ import type { ImageContent, Model, Usage } from "@earendil-works/pi-ai";
 import {
   BackendBusyError,
   BackendRequestError,
+  compileConfirmPatterns,
   createWriteLock,
+  DEFAULT_CONFIRM_BASH_PATTERNS,
   type AgentBackend,
+  type BackendBridge,
   type BackendCapabilities,
   type ProviderInfo,
   type ServerMessage,
@@ -39,6 +44,7 @@ import {
   type FollowUpRequest,
   type ChatSession,
   type ChatImageAttachment,
+  type ClientEnvironment,
   type SessionHistoryMessage,
   type WriteLock,
   type ModelUsage,
@@ -46,10 +52,16 @@ import {
   buildSystemPromptAppend,
   sumModelUsage,
 } from "@schlessera/brain-ui-sdk/server";
+import { existsSync, readFileSync } from "fs";
 
 import { createBrainAccess } from "./brain-access.js";
+import { createPermissionGate } from "./permission-gate.js";
 import { createTurnContext, type TurnContext } from "./turn-context.js";
-import { createBrainTools, PI_ASK_USER_TOOL_NAME } from "./tools.js";
+import {
+  createBrainTools,
+  DEFAULT_PI_ALLOWED_TOOLS,
+  PI_ASK_USER_TOOL_NAME,
+} from "./tools.js";
 import { listPiSessions, getPiHistory } from "./history.js";
 
 export const PI_BACKEND_ID = "pi";
@@ -137,18 +149,37 @@ export interface CreatePiBackendOptions {
   /** Where pi stores session JSONL. Default: <brainPath>/.brain-kit-ui/sessions. */
   sessionDir?: string;
   /**
-   * Load pi extensions discovered in the brain repo. Default false: the curated
-   * tool surface is the whole point, so repo-provided pi extensions (which can
-   * register tools and lifecycle hooks) are NOT loaded. Skills and AGENTS.md /
-   * CLAUDE.md context files always load regardless.
+   * Load pi extensions (installed pi packages and repo-local extensions).
+   * Default TRUE since the tool_call permission gate covers extension tools:
+   * a tool the gate's allowlist does not know raises an approval card before
+   * it runs, so installing e.g. `pi-mcp-adapter` (MCP servers from the repo's
+   * `.mcp.json`) or `pi-web-access` (web search/fetch) extends the surface
+   * with the same approval posture the Claude backend gives MCP tools.
+   * Set false to pin the surface to the curated tools alone.
    */
   loadExtensions?: boolean;
   /**
    * Text appended to the system prompt describing the chat surface the answer
-   * renders on. Defaults to `buildSystemPromptAppend()` with no device detail
-   * (see below); pass an empty string to append nothing.
+   * renders on. Defaults to `buildSystemPromptAppend()` fed with the
+   * session-opening turn's client environment and the host's bridge
+   * capabilities; pass an empty string to append nothing.
    */
   systemPromptAppend?: string;
+  /**
+   * Regex sources; a bash command matching any of them raises a confirmation
+   * card before it runs even though bash is auto-allowed. Defaults to the
+   * shared DEFAULT_CONFIRM_BASH_PATTERNS. An EMPTY array disables the
+   * confirmation entirely — honoured as given, like the Claude backend.
+   */
+  confirmBashPatterns?: readonly string[];
+  /**
+   * Tool names that run WITHOUT an approval card. Defaults to
+   * DEFAULT_PI_ALLOWED_TOOLS (every curated tool except brain_archive, plus
+   * the recommended web extension's tools). Any executed tool NOT in this
+   * list — e.g. a third-party MCP tool through pi-mcp-adapter — raises an
+   * approval card.
+   */
+  allowedTools?: readonly string[];
   /**
    * Serializes mutating tool executions across all this backend's sessions so
    * concurrent agents never interleave writes/git ops in the shared working
@@ -197,21 +228,36 @@ interface ModelSpec {
   thinkingLevel?: ThinkingLevel;
 }
 
+/** The host bridge capabilities one session's tool surface is built for. */
+interface SessionCaps {
+  askUser: boolean;
+  location: boolean;
+  activity: boolean;
+  mask: boolean;
+}
+
+/** What one session's system prompt and toolset are conditioned on. */
+interface SessionEnv {
+  client?: ClientEnvironment;
+  caps: SessionCaps;
+  turnBudgetMs?: number;
+}
+
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   const brainPath = options.brainPath;
   const sessionDir = options.sessionDir ?? join(brainPath, ".brain-kit-ui", "sessions");
-  // Built WITHOUT a client environment: pi's resource loader (and therefore
-  // its system prompt) is constructed once per backend and shared by every
-  // session, so unlike the Claude backend there is no per-turn hook to feed
-  // the current device into. The brief degrades to its device-unknown form.
-  const systemPromptAppend =
-    options.systemPromptAppend ??
-    buildSystemPromptAppend({
-      // pi's ask tool is registered under its bare name (see tools.ts) and pi
-      // has no location tool at all — naming Claude's MCP tools here would
-      // send the model after tools this backend does not have.
-      tools: { askUser: PI_ASK_USER_TOOL_NAME, location: false },
-    });
+  const loadExtensions = options.loadExtensions ?? true;
+  const allowedTools: ReadonlySet<string> = new Set(
+    options.allowedTools ?? DEFAULT_PI_ALLOWED_TOOLS
+  );
+  const confirmPatterns = compileConfirmPatterns(
+    options.confirmBashPatterns ?? DEFAULT_CONFIRM_BASH_PATTERNS,
+    (source, message) =>
+      options.log?.("error", "invalid confirm pattern; it will never match", {
+        pattern: source,
+        error: message,
+      })
+  );
 
   // Shared across all sessions: read paths are parallel-safe (per-call handles,
   // busy_timeout on the write path) and the write lock is what serializes mutations.
@@ -222,46 +268,113 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   // reused sessions are re-inserted at the tail (touch), eviction drops the head.
   const sessions = new Map<string, SessionEntry>();
 
-  // Shared resource loader + settings, built once and reused. Disabling
-  // extensions keeps the tool surface curated; skills + context files still load.
-  let sharedResources:
-    | { loader: DefaultResourceLoader; settingsManager: SettingsManager }
-    | null
-    | undefined; // undefined = not yet attempted, null = build failed (use pi defaults)
+  function capsOf(bridge: BackendBridge): SessionCaps {
+    return {
+      askUser: Boolean(bridge.askUser),
+      location: Boolean(bridge.getLocation),
+      activity: Boolean(bridge.queryActivity),
+      mask: Boolean(bridge.requestMask),
+    };
+  }
 
-  async function getSharedResources() {
-    if (sharedResources !== undefined) return sharedResources;
-    try {
-      const agentDir = getAgentDir();
-      const settingsManager = SettingsManager.create(brainPath, agentDir);
-      const loader = new DefaultResourceLoader({
-        cwd: brainPath,
-        agentDir,
-        settingsManager,
-        noExtensions: !options.loadExtensions,
-        // Same chat-surface brief the Claude backend appends: what the answer
-        // renders into (diagrams, share blocks, who is reading), on top of
-        // whatever the brain repo's own context files say. Note the catch
-        // below falls back to pi's internal loader, which loses this.
-        ...(systemPromptAppend
-          ? { appendSystemPromptOverride: (base: string[]) => [...base, systemPromptAppend] }
-          : {}),
-      });
-      await loader.reload();
-      sharedResources = { loader, settingsManager };
-    } catch (err) {
-      // Fall back to pi's internal DefaultResourceLoader (still discovers
-      // skills + context files from cwd). The fallback loses the extension
-      // opt-out AND the chat-surface system-prompt append — degraded output
-      // for every session this backend runs, so it must not happen silently.
-      options.log?.(
-        "warn",
-        "falling back to pi's internal resource loader; the chat-surface system-prompt append is lost",
-        { error: err instanceof Error ? err.message : String(err) }
-      );
-      sharedResources = null;
+  /**
+   * The chat-surface brief for one session: what the answer renders into
+   * (diagrams, share blocks), which bridge tools exist, the reader's device.
+   * Unlike the Claude backend (whose subprocess is rebuilt every turn) this is
+   * baked at SESSION construction, from the session-opening turn's client —
+   * a later device change applies from the next new/reopened session.
+   */
+  function buildAppend(env: SessionEnv): string {
+    return (
+      options.systemPromptAppend ??
+      buildSystemPromptAppend({
+        ...(env.client ? { client: env.client } : {}),
+        ...(env.turnBudgetMs ? { turnBudgetMs: env.turnBudgetMs } : {}),
+        // Named only when the bridge actually provides the handler — the
+        // toolkit registers each tool on the same condition.
+        tools: {
+          askUser: env.caps.askUser && PI_ASK_USER_TOOL_NAME,
+          location: env.caps.location && "get_current_location",
+          activity: env.caps.activity && "query_activity",
+          mask: env.caps.mask && "request_image_mask",
+        },
+      })
+    );
+  }
+
+  /**
+   * Ensure BOTH cwd context files load. pi's own discovery takes the FIRST of
+   * AGENTS.md / CLAUDE.md per directory, but the Claude backend reads
+   * CLAUDE.md — a brain repo carrying both (AGENTS.md as a managed skills
+   * index, CLAUDE.md as the instructions) would give the two backends
+   * different context. Loading both keeps the backends aligned; duplicates
+   * are filtered by path.
+   */
+  function withCwdContextFiles(base: {
+    agentsFiles: Array<{ path: string; content: string }>;
+  }): { agentsFiles: Array<{ path: string; content: string }> } {
+    const files = [...base.agentsFiles];
+    for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+      const path = join(brainPath, name);
+      if (files.some((f) => f.path === path)) continue;
+      if (!existsSync(path)) continue;
+      try {
+        files.push({ path, content: readFileSync(path, "utf-8") });
+      } catch (err) {
+        options.log?.("warn", "failed to read context file", {
+          path,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
-    return sharedResources;
+    return { agentsFiles: files };
+  }
+
+  /** A fresh per-session TurnContext and the curated tools bound to it. */
+  function buildToolkit(caps: SessionCaps): SessionToolkit {
+    const turnContext = createTurnContext();
+    const tools = createBrainTools({
+      brain,
+      turn: turnContext,
+      writeLock,
+      capabilities: { location: caps.location, activity: caps.activity, mask: caps.mask },
+    });
+    return { tools, turnContext };
+  }
+
+  /**
+   * Per-SESSION resource loader: skills, context files, extensions AND the
+   * permission gate (an inline extension closing over this session's turn
+   * holder). Built per session — not shared — because the gate must reach
+   * this session's live bridge and the system-prompt append carries this
+   * session's client environment.
+   *
+   * A loader failure is FATAL for the session, not a degrade-and-continue:
+   * without the loader there is no permission gate, and running extension or
+   * curated mutating tools ungated is worse than failing the turn loudly.
+   */
+  async function buildSessionResources(
+    toolkit: SessionToolkit,
+    env: SessionEnv
+  ): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
+    const agentDir = getAgentDir();
+    const settingsManager = SettingsManager.create(brainPath, agentDir);
+    const append = buildAppend(env);
+    const loader = new DefaultResourceLoader({
+      cwd: brainPath,
+      agentDir,
+      settingsManager,
+      noExtensions: !loadExtensions,
+      extensionFactories: [
+        createPermissionGate({ turn: toolkit.turnContext, allowedTools, confirmPatterns }),
+      ],
+      agentsFilesOverride: withCwdContextFiles,
+      ...(append
+        ? { appendSystemPromptOverride: (base: string[]) => [...base, append] }
+        : {}),
+    });
+    await loader.reload();
+    return { loader, settingsManager };
   }
 
   function configuredProfiles(): PiProfile[] | undefined {
@@ -314,33 +427,26 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     return model;
   }
 
-  /** A fresh per-session TurnContext and the curated tools bound to it. */
-  function buildToolkit(): SessionToolkit {
-    const turnContext = createTurnContext();
-    const tools = createBrainTools({ brain, turn: turnContext, writeLock });
-    return { tools, turnContext };
-  }
-
   async function newSession(
-    profileId?: string
+    profileId: string | undefined,
+    env: SessionEnv
   ): Promise<{ session: PiSessionLike; turnContext: TurnContext }> {
     const spec = resolveModelSpec(profileId); // throws BackendRequestError on bad profile
-    const toolkit = buildToolkit();
+    const toolkit = buildToolkit(env.caps);
     if (options.sessionFactory) {
       const session = await options.sessionFactory.newSession(profileId, toolkit);
       return { session, turnContext: toolkit.turnContext };
     }
     const sm = SessionManager.create(brainPath, sessionDir);
-    const resources = await getSharedResources();
+    const resources = await buildSessionResources(toolkit, env);
     const model = toModel(spec); // throws on a declared model missing from the catalog
     const { session } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
       customTools: toolkit.tools,
       sessionManager: sm,
-      ...(resources
-        ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
-        : {}),
+      resourceLoader: resources.loader,
+      settingsManager: resources.settingsManager,
       ...(model ? { model } : {}),
       ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
     });
@@ -348,9 +454,10 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   }
 
   async function openSession(
-    sessionId: string
+    sessionId: string,
+    env: SessionEnv
   ): Promise<{ session: PiSessionLike; turnContext: TurnContext }> {
-    const toolkit = buildToolkit();
+    const toolkit = buildToolkit(env.caps);
     if (options.sessionFactory) {
       const session = await options.sessionFactory.openSession(sessionId, toolkit);
       return { session, turnContext: toolkit.turnContext };
@@ -359,16 +466,15 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     const info = infos.find((i) => i.id === sessionId);
     if (!info) throw new BackendRequestError(`Cannot resume unknown session: ${sessionId}`);
     const sm = SessionManager.open(info.path, sessionDir);
-    const resources = await getSharedResources();
+    const resources = await buildSessionResources(toolkit, env);
     const { session, modelFallbackMessage } = await createAgentSession({
       cwd: brainPath,
       noTools: "builtin",
       customTools: toolkit.tools,
       sessionManager: sm,
       // Resumed sessions stay pinned to their saved model — no model override.
-      ...(resources
-        ? { resourceLoader: resources.loader, settingsManager: resources.settingsManager }
-        : {}),
+      resourceLoader: resources.loader,
+      settingsManager: resources.settingsManager,
     });
     // pi silently substitutes another configured model when the saved one is
     // unavailable (catalog change, missing/expired credential). Refuse instead:
@@ -397,6 +503,11 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   async function acquire(
     req: StartTurnRequest
   ): Promise<{ entry: SessionEntry; isNew: boolean }> {
+    const env: SessionEnv = {
+      ...(req.client ? { client: req.client } : {}),
+      caps: capsOf(req.bridge),
+      ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
+    };
     if (req.sessionId) {
       const existing = sessions.get(req.sessionId);
       if (existing) {
@@ -406,7 +517,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         return { entry: existing, isNew: false };
       }
       // Not resident — reopen the transcript from disk.
-      const { session, turnContext } = await openSession(req.sessionId);
+      const { session, turnContext } = await openSession(req.sessionId, env);
       // A concurrent turn for the same id may have registered it while we opened.
       const raced = sessions.get(req.sessionId);
       if (raced) {
@@ -420,7 +531,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       register(entry);
       return { entry, isNew: false };
     }
-    const { session, turnContext } = await newSession(req.profileId);
+    const { session, turnContext } = await newSession(req.profileId, env);
     const existing = sessions.get(session.sessionId);
     if (existing) {
       // The runtime handed back an id we already track. In production pi ids are

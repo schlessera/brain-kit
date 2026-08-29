@@ -531,6 +531,7 @@ export "./server" (./src/server/index.ts)
   type ClientToolApproval
   type ClientToolDenial
   type CronJobStatus
+  DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
   type FileContentKind
@@ -570,6 +571,8 @@ export "./server" (./src/server/index.ts)
   type RenderContentType
   type RenderFormat
   type RenderRequest
+  type ReverseGeocodeConfig
+  type ReverseGeocodeResult
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -617,6 +620,7 @@ export "./server" (./src/server/index.ts)
   type SpeechProvider
   type SpeechSession
   type StartTurnRequest
+  type SurfaceTools
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
@@ -628,8 +632,10 @@ export "./server" (./src/server/index.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   type WriteLock
+  bashCommand
   buildSystemPromptAppend
   canonicalModelId
+  compileConfirmPatterns
   createKeyedLock
   createTranscriptStore
   createWriteLock
@@ -637,6 +643,10 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  resetRtkProbe
+  reverseGeocode
+  rtkAvailable
+  rtkRewriteCommand
   sumModelUsage
 
 export "./share-target" (./src/client/share-target.ts)
