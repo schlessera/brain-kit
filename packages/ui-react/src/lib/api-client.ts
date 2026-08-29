@@ -80,6 +80,30 @@ export interface BackendInfo {
   };
 }
 
+/** Auth status of one configured pi provider (mirror of the server view). */
+export interface PiAuthProviderStatus {
+  providerId: string;
+  /** Human label for the credential, e.g. "OpenAI (ChatGPT Plus/Pro)". */
+  name: string;
+  configured: boolean;
+  source?: string;
+  /** Whether this provider can be signed in through the UI. */
+  oauth: boolean;
+}
+
+/** One OAuth device-code login flow (mirror of the server view). */
+export interface PiLoginFlow {
+  id: string;
+  providerId: string;
+  status: "pending" | "success" | "error" | "cancelled";
+  userCode?: string;
+  verificationUri?: string;
+  intervalSeconds?: number;
+  expiresInSeconds?: number;
+  error?: string;
+  startedAt: number;
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${apiBase()}${path}`, {
     ...init,
@@ -208,6 +232,34 @@ export const api = {
 
   /** Pricing-table freshness for the Activity staleness indicator (see `PricingState`). */
   pricingState: () => fetchJson<PricingState>("/models/pricing"),
+
+  /** Auth status of configured pi providers; empty when pi is not in play. */
+  piAuthProviders: () =>
+    fetchJson<{ providers: PiAuthProviderStatus[] }>("/pi-auth/providers"),
+
+  /** Start an OAuth device-code login; resolves once the user code exists. */
+  piAuthStart: (providerId: string) =>
+    fetchJson<{ flow: PiLoginFlow }>("/pi-auth/login", {
+      method: "POST",
+      body: JSON.stringify({ providerId }),
+    }),
+
+  /** Poll one login flow. */
+  piAuthFlow: (id: string) =>
+    fetchJson<{ flow: PiLoginFlow }>(`/pi-auth/login/${encodeURIComponent(id)}`),
+
+  /** Abort a pending login flow. */
+  piAuthCancel: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/pi-auth/login/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+
+  /** Remove the stored credential for a pi provider. */
+  piAuthLogout: (providerId: string) =>
+    fetchJson<{ ok: boolean }>("/pi-auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ providerId }),
+    }),
 
   /** Force a discovery refresh, bypassing the TTL. */
   refreshModels: () =>
