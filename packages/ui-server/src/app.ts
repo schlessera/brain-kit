@@ -39,6 +39,7 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
@@ -207,6 +208,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
       getDefaultModelId: () => getDefaultModelId(db, dbLog),
       getCustomOpenRouterModels: () => getCustomOpenRouterModels(db, dbLog),
+      getThinkingOverrides: () => getThinkingOverrides(db, dbLog),
       getBillingOverrides: () => getBillingOverrides(db, dbLog),
       log: observability.logger("agent"),
     });

@@ -38,9 +38,11 @@ describe("createPiBackend (no LLM)", () => {
           { id: "gpt", label: "GPT", vendor: "openai", model: "gpt-5" },
         ],
       });
+      // thinkingLevel is the EFFECTIVE level: pi defaults absent ones to
+      // "medium", and its presence marks the profile as effort-capable.
       expect(backend.listProfiles()).toEqual([
-        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic" },
-        { id: "gpt", label: "GPT", vendor: "openai" },
+        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic", thinkingLevel: "medium" },
+        { id: "gpt", label: "GPT", vendor: "openai", thinkingLevel: "medium" },
       ]);
     } finally {
       brain.cleanup();

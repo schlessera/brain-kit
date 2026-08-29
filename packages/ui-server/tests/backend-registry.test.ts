@@ -20,6 +20,7 @@ function registryFor(
     getBillingOverrides?: () => Record<string, "subscription" | "api">;
     getDefaultModelId?: () => string | null;
     getCustomOpenRouterModels?: () => string[];
+    getThinkingOverrides?: () => Record<string, "low" | "max">;
     getHiddenModelIds?: () => string[];
   } = {}
 ): BackendRegistry {
@@ -400,5 +401,38 @@ describe("custom OpenRouter models", () => {
       if (saved === undefined) delete process.env[key];
       else process.env[key] = saved;
     }
+  });
+});
+
+describe("per-profile thinking overrides", () => {
+  const GPT = JSON.stringify([
+    {
+      id: "gpt-sol",
+      label: "Sol",
+      vendor: "openai-codex",
+      model: "gpt-5.6-sol",
+      thinkingLevel: "xhigh",
+    },
+  ]);
+
+  test("an override replaces the configured level at read time, live after invalidate", async () => {
+    let overrides: Record<string, "low" | "max"> = {};
+    const registry = registryFor(
+      { BRAIN_UI_PI_PROFILES: GPT },
+      { getThinkingOverrides: () => overrides }
+    );
+    const before = await registry.listAllProviders();
+    expect(before.find((p) => p.id === "gpt-sol")?.thinkingLevel).toBe("xhigh");
+
+    overrides = { "gpt-sol": "low" };
+    registry.invalidateProfiles();
+    const after = await registry.listAllProviders();
+    expect(after.find((p) => p.id === "gpt-sol")?.thinkingLevel).toBe("low");
+  });
+
+  test("claude rows carry no thinking level", async () => {
+    const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT });
+    const providers = await registry.listAllProviders();
+    expect(providers.find((p) => p.id === "claude")?.thinkingLevel).toBeUndefined();
   });
 });

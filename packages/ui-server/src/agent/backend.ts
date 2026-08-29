@@ -211,6 +211,12 @@ export interface BackendRegistryOptions {
    */
   getCustomOpenRouterModels?: () => string[];
   /**
+   * Per-profile reasoning-effort overrides (from the app's settings table),
+   * applied over the pi roster's configured levels at read time — no rebuild
+   * or redeploy needed.
+   */
+  getThinkingOverrides?: () => Record<string, PiThinkingLevel>;
+  /**
    * Per-profile billing-mode overrides (from the app's settings table).
    * Consulted LAST: an override wins over both the declared-credential rule
    * and the ambient predicate. Defaults to "no overrides".
@@ -747,7 +753,7 @@ export function createBackendRegistry(
     const mod = (await loadBackendModule("pi")) as {
       createPiBackend?: (opts: {
         brainPath: string;
-        profiles?: PiProfileInput[];
+        profiles?: PiProfileInput[] | (() => PiProfileInput[]);
         log?: BackendLogFn;
       }) => AgentBackend;
     };
@@ -759,9 +765,20 @@ export function createBackendRegistry(
     // Re-parsed here (assertBackendResolvable already validated at boot) so an
     // injected-registry path without the boot assert still fails loudly.
     const profiles = parsePiProfiles(agent.piProfilesJson, agent.profilesJson);
+    // A FUNCTION, so per-profile thinking overrides from settings are read on
+    // every use (roster listing AND new-session model resolution) — a change
+    // in Settings applies to the next turn without a rebuild.
+    const withOverrides = (): PiProfileInput[] => {
+      const overrides = options.getThinkingOverrides?.() ?? {};
+      return profiles.map((profile) =>
+        overrides[profile.id]
+          ? { ...profile, thinkingLevel: overrides[profile.id] }
+          : profile
+      );
+    };
     return mod.createPiBackend({
       brainPath,
-      ...(profiles.length > 0 ? { profiles } : {}),
+      ...(profiles.length > 0 ? { profiles: withOverrides } : {}),
       ...(backendLog ? { log: backendLog } : {}),
     });
   }

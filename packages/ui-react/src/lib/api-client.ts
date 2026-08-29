@@ -8,6 +8,7 @@ import type {
   PasskeySummary,
   BillingMode,
   ModelCatalogResponse,
+  ThinkingLevel,
   ActivityRunSummary,
   ActivityRunDetail,
   ActivityRollups,
@@ -259,6 +260,13 @@ export const api = {
     fetchJson<{ ok: boolean }>("/pi-auth/logout", {
       method: "POST",
       body: JSON.stringify({ providerId }),
+    }),
+
+  /** Replace the reasoning-effort override record (full record, not a delta). */
+  setThinkingOverrides: (thinking: Record<string, ThinkingLevel>) =>
+    fetchJson<ModelCatalogResponse>("/models/thinking", {
+      method: "PUT",
+      body: JSON.stringify({ thinking }),
     }),
 
   /** Set the default model (a profile id, or null for auto); returns the new catalog. */

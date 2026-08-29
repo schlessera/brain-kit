@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Loader2, RefreshCw, X } from "lucide-react";
-import type {
-  BillingMode,
-  ModelCatalogEntry,
-  ModelCatalogResponse,
+import {
+  THINKING_LEVELS,
+  type BillingMode,
+  type ModelCatalogEntry,
+  type ModelCatalogResponse,
+  type ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { api } from "../../lib/api-client.js";
 import { useProviderStore } from "../../stores/provider-store.js";
@@ -132,6 +134,23 @@ export function ModelsTab({ active }: { active: boolean }) {
     );
   }
 
+  async function changeThinking(entry: ModelCatalogEntry, next: ThinkingLevel | "auto") {
+    if (!catalog) return;
+    await commitCatalog(
+      {
+        ...catalog,
+        models: catalog.models.map((model) => {
+          if (model.id !== entry.id) return model;
+          const { thinkingOverride: _cleared, ...base } = model;
+          return next === "auto"
+            ? base
+            : { ...base, thinkingOverride: next, thinkingLevel: next };
+        }),
+      },
+      () => api.setThinkingOverrides(nextThinkingOverrides(catalog.models, entry.id, next))
+    );
+  }
+
   async function changeDefault(next: string | null) {
     if (!catalog) return;
     await commitCatalog(
@@ -193,6 +212,7 @@ export function ModelsTab({ active }: { active: boolean }) {
                 entry={entry}
                 onToggle={() => toggleHidden(entry)}
                 onBilling={(next) => changeBilling(entry, next)}
+                onThinking={(next) => changeThinking(entry, next)}
               />
             ))}
             {catalog?.models.length === 0 && (
@@ -409,14 +429,35 @@ function billingLabel(mode: BillingMode): string {
   return mode === "api" ? "API" : "Subscription";
 }
 
+/**
+ * The effort-override record PUT after changing one profile: every other
+ * profile keeps its stored override, the changed one is set — or, for "auto",
+ * REMOVED, never stored as a redundant explicit value.
+ */
+export function nextThinkingOverrides(
+  models: ModelCatalogEntry[],
+  id: string,
+  next: ThinkingLevel | "auto"
+): Record<string, ThinkingLevel> {
+  const thinking: Record<string, ThinkingLevel> = {};
+  for (const model of models) {
+    const value =
+      model.id === id ? (next === "auto" ? undefined : next) : model.thinkingOverride;
+    if (value) thinking[model.id] = value;
+  }
+  return thinking;
+}
+
 function ModelRow({
   entry,
   onToggle,
   onBilling,
+  onThinking,
 }: {
   entry: ModelCatalogEntry;
   onToggle: () => void;
   onBilling: (next: BillingMode | "auto") => void;
+  onThinking: (next: ThinkingLevel | "auto") => void;
 }) {
   const Icon = entry.hidden ? EyeOff : Eye;
   return (
@@ -434,6 +475,26 @@ function ModelRow({
           {entry.source === "declared" ? " · configured" : ""}
         </p>
       </div>
+      {/* Reasoning effort — only for profiles that take one (the gpt models).
+          Same tri-state pattern as billing: Default shows what it resolves
+          to, an explicit pick is stored as an override. */}
+      {entry.thinkingLevel && (
+        <select
+          value={entry.thinkingOverride ?? "auto"}
+          onChange={(e) => onThinking(e.target.value as ThinkingLevel | "auto")}
+          aria-label={`Reasoning effort for ${entry.label}`}
+          className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+        >
+          <option value="auto">
+            {!entry.thinkingOverride ? `Default (${entry.thinkingLevel})` : "Default"}
+          </option>
+          {THINKING_LEVELS.map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+      )}
       {/* Tri-state billing: the collapsed control always reads as the
           RESOLVED mode — the Auto option carries what auto resolves to, so
           "Auto (subscription)" and a forced "Subscription" are both legible

@@ -362,3 +362,56 @@ describe("custom OpenRouter collision guard", () => {
     expect(readCustomModels(db)).toEqual([]);
   });
 });
+
+describe("thinking override routes", () => {
+  function thinkingRoutes() {
+    const registry = createStaticBackendRegistry(
+      [
+        makeFakeBackend({
+          id: "pi",
+          profiles: [
+            { id: "gpt-sol", label: "Sol", vendor: "openai-codex", thinkingLevel: "xhigh" },
+          ],
+        }),
+        makeFakeBackend({
+          id: "claude",
+          profiles: [{ id: "claude", label: "Claude", vendor: "anthropic" }],
+        }),
+      ],
+      "claude"
+    );
+    return createModelRoutes({ registry, db });
+  }
+
+  test("PUT /models/thinking stores overrides for effort-capable rows and tags the catalog", async () => {
+    const routes = thinkingRoutes();
+    const response = await routes.request("/models/thinking", {
+      method: "PUT",
+      body: JSON.stringify({ thinking: { "gpt-sol": "low" } }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    const sol = body.models.find((m: { id: string }) => m.id === "gpt-sol");
+    expect(sol.thinkingOverride).toBe("low");
+  });
+
+  test("PUT /models/thinking rejects invalid levels and effort-less profiles", async () => {
+    const routes = thinkingRoutes();
+    expect(
+      (
+        await routes.request("/models/thinking", {
+          method: "PUT",
+          body: JSON.stringify({ thinking: { "gpt-sol": "ultra" } }),
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await routes.request("/models/thinking", {
+          method: "PUT",
+          body: JSON.stringify({ thinking: { claude: "high" } }),
+        })
+      ).status
+    ).toBe(400);
+  });
+});
