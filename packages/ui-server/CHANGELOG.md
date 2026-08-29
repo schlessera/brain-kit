@@ -1,5 +1,68 @@
 # @schlessera/brain-ui-server
 
+## 0.22.0
+
+### Minor Changes
+
+- 2a1c6c5: Run the pi backend alongside Claude, with declared model profiles — the path
+  to OpenAI models under a ChatGPT subscription.
+
+  - New `BRAIN_UI_PI_PROFILES` env var (JSON array of
+    `{id,label,vendor,model,thinkingLevel?}`): when set with the default
+    `AGENT_BACKEND=claude`, the pi backend joins the registry and its profiles
+    join the picker. pi-ai's built-in `openai-codex` vendor authenticates only
+    via ChatGPT Plus/Pro OAuth (`pi login`, device-code capable), so e.g.
+    `{"id":"gpt-sol","label":"GPT-5.6 Sol","vendor":"openai-codex","model":"gpt-5.6-sol","thinkingLevel":"xhigh"}`
+    runs on the subscription, not API tokens.
+  - Fail-loud everywhere a wrong-but-plausible default could hide: malformed
+    profiles JSON, duplicate/reserved ids (`default`, `claude`, `claude-*`),
+    and invalid thinking levels refuse at boot; a missing pi package with the
+    variable set refuses at boot; a declared vendor/model absent from pi's
+    catalog rejects the turn instead of letting pi pick a provider; a resume
+    whose saved model is unavailable rejects instead of silently substituting.
+  - Billing classification keys on the profile vendor: `openai-codex` →
+    subscription, other pi vendors (ambient API keys) → api. Claude
+    classification is unchanged.
+  - `PiProfile` gains `thinkingLevel` (passed to new sessions; pi clamps to the
+    model's capability).
+
+### Patch Changes
+
+- d4261bb: Complete the per-backend tool-call rendering abstraction.
+
+  The renderer registry was already backend-scoped, but the timeline hardcoded
+  `backend: "claude"`, three code paths bypassed the registry (header label,
+  touched-file summary, subagent-row gating), and risk advisories keyed on
+  Claude tool names — so pi tool calls fell to the generic tier and risky pi
+  `bash`/`write_file` inputs raised no approval-card advisories.
+
+  - `session_info` now carries `backendId` (rev 3, additive); backends stamp
+    their own, the host stamps stored sessions on resume/reattach. The client
+    records it per session and scopes renderer resolution with it.
+  - `ToolRenderer` grows `label`, `touchedFile`, `subagentRows`, and a
+    backend-neutral `semantics` contract (`command`/`writePath`/`unsandboxed`);
+    the timeline consumes only the renderer, no more name switches.
+  - Risk rules now test semantics instead of Claude tool names, with a
+    shape-sniffing fallback for renderers that declare none — the same rm -rf /
+    force-push / curl|sh / writes-outside-repo advisories fire for every
+    backend.
+  - New pi renderer pack: `bash`, `read_file`, `write_file`, `edit_file`,
+    `grep`, `brain_search`, `brain_context`, `brain_add` render with the same
+    dedicated views (diff, file write, command, grep rows) as the Claude pack;
+    pi's bare `ask_user` is recognized by the ask-user card grouping.
+
+- 6f16547: Add `eval:triage` and `eval:triage:validate` scripts for the background-triage
+  model gate.
+
+  The eval itself lives in `evals/` and is not published — it is excluded from the
+  package's `files` list, sits outside the test glob, and refuses to run without
+  `BRAIN_UI_LIVE_EVALS=1` because it calls paid provider APIs. Only the two script
+  entries are user-visible.
+
+- Updated dependencies [d4261bb]
+  - @schlessera/brain-ui-sdk@0.22.0
+  - @schlessera/brain-render-template@0.22.0
+
 ## 0.21.0
 
 ### Patch Changes
