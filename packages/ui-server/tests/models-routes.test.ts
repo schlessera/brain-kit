@@ -8,8 +8,11 @@ import {
 import { createUiDb } from "../src/db/client";
 import {
   getBillingOverrides as readBillingOverrides,
+  getCustomOpenRouterModels as readCustomModels,
+  getDefaultModelId as readDefaultModelId,
   getHiddenModelIds as readHiddenModelIds,
   setBillingOverrides,
+  setDefaultModelId,
   setSetting,
 } from "../src/db/settings";
 import { createModelRoutes } from "../src/routes/models";
@@ -38,7 +41,11 @@ beforeEach(() => {
       }),
     ],
     "claude",
-    { getHiddenModelIds, getBillingOverrides }
+    {
+      getHiddenModelIds,
+      getBillingOverrides,
+      getDefaultModelId: () => readDefaultModelId(db),
+    }
   );
   modelRoutes = createModelRoutes({ registry, db });
   providerRoutes = createProviderRoutes({ registry });
@@ -258,5 +265,79 @@ describe("billing overrides", () => {
       expect(response.status).toBe(400);
     }
     expect(getBillingOverrides()).toEqual({});
+  });
+});
+
+describe("default model routes", () => {
+  test("PUT /models/default stores a known profile and resolves it", async () => {
+    const response = await modelRoutes.request("/models/default", {
+      method: "PUT",
+      body: JSON.stringify({ defaultId: "claude-haiku-4-5" }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.defaultModelId).toBe("claude-haiku-4-5");
+    expect(body.resolvedDefaultId).toBe("claude-haiku-4-5");
+    expect(readDefaultModelId(db)).toBe("claude-haiku-4-5");
+
+    // The picker lists the default first.
+    const providers = await (await providerRoutes.request("/providers")).json();
+    expect(providers.providers[0].id).toBe("claude-haiku-4-5");
+  });
+
+  test("PUT /models/default rejects an unknown profile id", async () => {
+    const response = await modelRoutes.request("/models/default", {
+      method: "PUT",
+      body: JSON.stringify({ defaultId: "nope" }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  test("PUT /models/default null resets to auto", async () => {
+    setDefaultModelId(db, "claude-haiku-4-5");
+    const response = await modelRoutes.request("/models/default", {
+      method: "PUT",
+      body: JSON.stringify({ defaultId: null }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.defaultModelId).toBeNull();
+    expect(readDefaultModelId(db)).toBeNull();
+  });
+});
+
+describe("custom OpenRouter model routes", () => {
+  test("PUT /models/custom stores well-formed ids", async () => {
+    const response = await modelRoutes.request("/models/custom", {
+      method: "PUT",
+      body: JSON.stringify({ models: ["z.ai/glm-5.3-flash", "openai/gpt-oss-120b:nitro"] }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.customModels).toEqual(["z.ai/glm-5.3-flash", "openai/gpt-oss-120b:nitro"]);
+    expect(readCustomModels(db)).toEqual([
+      "z.ai/glm-5.3-flash",
+      "openai/gpt-oss-120b:nitro",
+    ]);
+  });
+
+  test("PUT /models/custom rejects ids that are not <org>/<model>", async () => {
+    for (const bad of ["no-slash", "/leading", "a b/c", "a/../b"]) {
+      const response = await modelRoutes.request("/models/custom", {
+        method: "PUT",
+        body: JSON.stringify({ models: [bad] }),
+      });
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("removing the model behind the stored default resets the default to auto", async () => {
+    setDefaultModelId(db, "openrouter:z.ai/glm-5.3-flash");
+    const response = await modelRoutes.request("/models/custom", {
+      method: "PUT",
+      body: JSON.stringify({ models: [] }),
+    });
+    expect(response.status).toBe(200);
+    expect(readDefaultModelId(db)).toBeNull();
   });
 });

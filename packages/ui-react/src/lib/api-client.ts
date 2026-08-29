@@ -261,6 +261,20 @@ export const api = {
       body: JSON.stringify({ providerId }),
     }),
 
+  /** Set the default model (a profile id, or null for auto); returns the new catalog. */
+  setDefaultModel: (defaultId: string | null) =>
+    fetchJson<ModelCatalogResponse>("/models/default", {
+      method: "PUT",
+      body: JSON.stringify({ defaultId }),
+    }),
+
+  /** Replace the custom OpenRouter model list (full list, not a delta). */
+  setCustomModels: (models: string[]) =>
+    fetchJson<ModelCatalogResponse>("/models/custom", {
+      method: "PUT",
+      body: JSON.stringify({ models }),
+    }),
+
   /** Force a discovery refresh, bypassing the TTL. */
   refreshModels: () =>
     fetchJson<ModelCatalogResponse>("/models/refresh", { method: "POST" }),

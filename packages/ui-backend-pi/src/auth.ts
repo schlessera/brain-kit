@@ -23,7 +23,7 @@
  * the host can type it as a structural mirror without importing pi packages.
  */
 
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import type { BackendLogFn } from "./backend.js";
 
@@ -115,6 +115,16 @@ const FLOW_RETENTION_MS = 30 * 60 * 1000;
  * advertised as connectable.
  */
 const WEB_LOGIN_PROVIDERS = new Set(["openai-codex"]);
+
+/**
+ * Whether pi holds a stored credential for a provider — a cheap file read
+ * against pi's auth store (PI_CODING_AGENT_DIR aware), with no ModelRuntime
+ * construction. The host uses this to decide e.g. whether a
+ * subscription-auth profile should be the preferred default.
+ */
+export function hasStoredCredential(providerId: string): boolean {
+  return readStoredCredential(providerId) !== undefined;
+}
 
 export function createPiAuth(options: CreatePiAuthOptions = {}): PiAuth {
   let runtimePromise: Promise<PiAuthRuntime> | null = null;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Loader2, LogOut, X } from "lucide-react";
 import { api, type PiAuthProviderStatus, type PiLoginFlow } from "../../lib/api-client.js";
+import { useProviderStore } from "../../stores/provider-store.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -63,7 +64,12 @@ export function PiAccountsSection({ active }: { active: boolean }) {
         const { flow: next } = await api.piAuthFlow(flow.id);
         if (disposed) return;
         setFlow(next);
-        if (next.status === "success") void reload();
+        if (next.status === "success") {
+          void reload();
+          // A connected subscription account can change the picker's default
+          // ordering — refresh the composer's roster copy too.
+          void useProviderStore.getState().loadProviders();
+        }
       } catch {
         if (disposed) return;
         // Transient poll failure: keep trying until the flow expires.

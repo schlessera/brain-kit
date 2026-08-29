@@ -18,6 +18,9 @@ function registryFor(
   env: Record<string, string | undefined>,
   options: {
     getBillingOverrides?: () => Record<string, "subscription" | "api">;
+    getDefaultModelId?: () => string | null;
+    getCustomOpenRouterModels?: () => string[];
+    getHiddenModelIds?: () => string[];
   } = {}
 ): BackendRegistry {
   // NODE_ENV=test keeps model discovery off by default: a suite that silently
@@ -277,5 +280,125 @@ describe("static registry (test/embedder seam)", () => {
     expect((await registry.getBackendForSession(null)).id).toBe("b");
     expect((await registry.getBackendForSession("a")).id).toBe("a");
     expect((await registry.getBackendForSession("missing")).id).toBe("b");
+  });
+});
+
+describe("preferred default profile", () => {
+  const GPT = JSON.stringify([
+    { id: "gpt-sol", label: "Sol", vendor: "openai-codex", model: "gpt-5.6-sol" },
+  ]);
+
+  /** Point pi's auth store at a temp dir, with or without a codex credential. */
+  async function withPiAuthDir(
+    credential: boolean,
+    fn: () => Promise<void>
+  ): Promise<void> {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/pi-auth-test-${Math.random().toString(36).slice(2)}`;
+    const { mkdirSync, writeFileSync, rmSync } = await import("fs");
+    mkdirSync(`${dir}/agent`, { recursive: true });
+    if (credential) {
+      writeFileSync(
+        `${dir}/agent/auth.json`,
+        JSON.stringify({ "openai-codex": { type: "oauth", access: "x", refresh: "y", expires: 1 } })
+      );
+    }
+    const saved = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = `${dir}/agent`;
+    try {
+      await fn();
+    } finally {
+      if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("a stored default wins and leads the provider list", async () => {
+    const registry = registryFor(
+      { BRAIN_UI_PI_PROFILES: GPT },
+      { getDefaultModelId: () => "gpt-sol" }
+    );
+    expect(await registry.getPreferredProfileId()).toBe("gpt-sol");
+    expect((await registry.listAllProviders())[0]?.id).toBe("gpt-sol");
+  });
+
+  test("a stored default naming a vanished profile falls through", async () => {
+    await withPiAuthDir(false, async () => {
+      const registry = registryFor(
+        { BRAIN_UI_PI_PROFILES: GPT },
+        { getDefaultModelId: () => "gone" }
+      );
+      expect(await registry.getPreferredProfileId()).toBeNull();
+    });
+  });
+
+  test("auto prefers a CONNECTED openai-codex profile, else none", async () => {
+    await withPiAuthDir(true, async () => {
+      const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT });
+      expect(await registry.getPreferredProfileId()).toBe("gpt-sol");
+      expect((await registry.listAllProviders())[0]?.id).toBe("gpt-sol");
+    });
+    await withPiAuthDir(false, async () => {
+      const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT });
+      expect(await registry.getPreferredProfileId()).toBeNull();
+      expect((await registry.listAllProviders())[0]?.id).toBe("claude");
+    });
+  });
+
+  test("a hidden codex profile is not auto-preferred", async () => {
+    await withPiAuthDir(true, async () => {
+      const registry = registryFor(
+        { BRAIN_UI_PI_PROFILES: GPT },
+        { getHiddenModelIds: () => ["gpt-sol"] }
+      );
+      expect(await registry.getPreferredProfileId()).toBeNull();
+    });
+  });
+});
+
+describe("custom OpenRouter models", () => {
+  test("stored ids join the Claude roster as api-billed declared profiles", async () => {
+    const key = "OPENROUTER_API_KEY";
+    const saved = process.env[key];
+    process.env[key] = "test-openrouter-token";
+    try {
+      const registry = registryFor(
+        { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
+        { getCustomOpenRouterModels: () => ["z.ai/glm-5.3-flash"] }
+      );
+      const providers = await registry.listAllProviders();
+      const custom = providers.find((p) => p.id === "openrouter:z.ai/glm-5.3-flash");
+      expect(custom).toBeDefined();
+      expect(custom?.backendId).toBe("claude");
+      expect(custom?.billingMode).toBe("api");
+      // The ambient default stays subscription-billed.
+      expect(providers.find((p) => p.id === "claude")?.billingMode).toBe("subscription");
+    } finally {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
+  });
+
+  test("a list change is visible after invalidateProfiles", async () => {
+    const key = "OPENROUTER_API_KEY";
+    const saved = process.env[key];
+    process.env[key] = "test-openrouter-token";
+    try {
+      let models: string[] = [];
+      const registry = registryFor({}, { getCustomOpenRouterModels: () => models });
+      expect(
+        (await registry.listAllProviders()).some((p) => p.id.startsWith("openrouter:"))
+      ).toBe(false);
+      models = ["z.ai/glm-5.3-flash"];
+      registry.invalidateProfiles();
+      expect(
+        (await registry.listAllProviders()).some(
+          (p) => p.id === "openrouter:z.ai/glm-5.3-flash"
+        )
+      ).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
   });
 });

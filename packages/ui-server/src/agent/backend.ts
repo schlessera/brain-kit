@@ -200,6 +200,17 @@ export interface BackendRegistryOptions {
    */
   getHiddenModelIds?: () => string[];
   /**
+   * Settings-stored default profile id (Settings → Models). Null/absent =
+   * auto (a connected subscription-auth profile, else the default backend's
+   * own default).
+   */
+  getDefaultModelId?: () => string | null;
+  /**
+   * User-managed OpenRouter model ids (from the app's settings table), added
+   * to the Claude roster as declared OpenRouter profiles at runtime.
+   */
+  getCustomOpenRouterModels?: () => string[];
+  /**
    * Per-profile billing-mode overrides (from the app's settings table).
    * Consulted LAST: an override wins over both the declared-credential rule
    * and the ambient predicate. Defaults to "no overrides".
@@ -234,6 +245,17 @@ export interface BackendRegistry {
    * catalog.
    */
   listAllProviders(options?: { includeHidden?: boolean }): Promise<ProviderInfo[]>;
+  /**
+   * The profile new sessions and host-initiated turns (shares, actions)
+   * default to when the client named none, or null for "the default
+   * backend's own default". Resolution: the Settings-stored default model
+   * (when it still exists on the roster) wins; otherwise AUTO — a
+   * subscription-auth profile (pi vendor "openai-codex") that is on the
+   * roster, not hidden, and whose account is actually connected. The
+   * resolved profile is also listed FIRST by `listAllProviders`, so a fresh
+   * client's picker lands on it.
+   */
+  getPreferredProfileId(): Promise<string | null>;
   /** Per-backend capability metadata exposed by the providers route. */
   getBackendsInfo(): Promise<
     Record<string, { id: string; capabilities: BackendCapabilities }>
@@ -552,26 +574,54 @@ export function createBackendRegistry(
   let mergeCache: {
     declared: ClaudeProfile[];
     discovered: ClaudeProfileInput[];
+    customKey: string;
     result: ClaudeProfile[];
   } | null = null;
+
+  /**
+   * User-managed OpenRouter models (Settings → Models) as declared Claude
+   * profiles — same shape a BRAIN_UI_CLAUDE_PROFILES OpenRouter entry has,
+   * but editable at runtime without an env change or redeploy.
+   */
+  function customOpenRouterInputs(): ClaudeProfileInput[] {
+    const models = options.getCustomOpenRouterModels?.() ?? [];
+    return models.map((model) => ({
+      id: `openrouter:${model}`,
+      label: `${model} (OpenRouter)`,
+      vendor: "openrouter",
+      model,
+      baseUrl: "https://openrouter.ai/api",
+      authTokenEnv: "OPENROUTER_API_KEY",
+      modelAliases: true,
+      source: "declared" as const,
+    }));
+  }
 
   function mergeDiscovered(
     claude: ClaudeBackendModule,
     declared: ClaudeProfile[],
     discovered: ClaudeProfileInput[]
   ): ClaudeProfile[] {
+    const custom = customOpenRouterInputs();
+    const customKey = custom.map((profile) => profile.id).join("\n");
     if (
       mergeCache &&
       mergeCache.declared === declared &&
-      mergeCache.discovered === discovered
+      mergeCache.discovered === discovered &&
+      mergeCache.customKey === customKey
     ) {
       return mergeCache.result;
     }
 
     const declaredIds = new Set(declared.map((profile) => profile.id));
-    const extra = discovered.filter((input) => !declaredIds.has(input.id));
-    const result = [...declared, ...claude.defineProfiles(extra)];
-    mergeCache = { declared, discovered, result };
+    const customExtra = custom.filter((input) => !declaredIds.has(input.id));
+    // OpenRouter runs on its own key: always api-billed, like an env-declared
+    // profile with explicit credentials.
+    for (const input of customExtra) declaredApiProfileIds.add(input.id);
+    const knownIds = new Set([...declaredIds, ...customExtra.map((input) => input.id)]);
+    const extra = discovered.filter((input) => !knownIds.has(input.id));
+    const result = [...declared, ...claude.defineProfiles([...customExtra, ...extra])];
+    mergeCache = { declared, discovered, customKey, result };
     return result;
   }
 
@@ -749,6 +799,33 @@ export function createBackendRegistry(
     return cachedRegistry;
   }
 
+  /**
+   * Whether the openai-codex (ChatGPT subscription) account is connected —
+   * a cheap file probe through the pi package, memoized briefly so provider
+   * listings and turn routing don't re-read the auth store on every call.
+   */
+  let codexCredentialCache: { at: number; value: boolean } | null = null;
+  async function hasCodexCredential(): Promise<boolean> {
+    const piInPlay = Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi";
+    if (!piInPlay) return false;
+    if (codexCredentialCache && Date.now() - codexCredentialCache.at < PROFILE_MEMO_MS) {
+      return codexCredentialCache.value;
+    }
+    let value = false;
+    try {
+      const mod = (await loadBackendModule("pi")) as {
+        hasStoredCredential?: (providerId: string) => boolean;
+      };
+      value =
+        typeof mod.hasStoredCredential === "function" &&
+        mod.hasStoredCredential("openai-codex");
+    } catch {
+      value = false;
+    }
+    codexCredentialCache = { at: Date.now(), value };
+    return value;
+  }
+
   return makeRegistry(
     getRegistry,
     getHidden,
@@ -762,6 +839,10 @@ export function createBackendRegistry(
       ...(options.getBillingOverrides
         ? { getOverrides: options.getBillingOverrides }
         : {}),
+    },
+    {
+      ...(options.getDefaultModelId ? { getOverride: options.getDefaultModelId } : {}),
+      auto: { vendor: "openai-codex", hasCredential: hasCodexCredential },
     }
   );
 }
@@ -777,6 +858,7 @@ export function createStaticBackendRegistry(
   defaultBackendId = backends[0]?.id ?? "",
   options: {
     getHiddenModelIds?: () => string[];
+    getDefaultModelId?: () => string | null;
     getBillingOverrides?: () => Record<string, BillingMode>;
     log?: Logger;
   } = {}
@@ -791,7 +873,9 @@ export function createStaticBackendRegistry(
     // registry could reason about, so only an explicit override sets a mode.
     options.getBillingOverrides
       ? { getOverrides: options.getBillingOverrides }
-      : {}
+      : {},
+    // No auto rule either — only the stored default applies here.
+    options.getDefaultModelId ? { getOverride: options.getDefaultModelId } : {}
   );
 }
 
@@ -806,6 +890,12 @@ function makeRegistry(
     classify?: (profile: ProviderInfo & { backendId: string }) => BillingMode;
     /** Settings overrides, consulted LAST — an override wins over `classify`. */
     getOverrides?: () => Record<string, BillingMode>;
+  } = {},
+  defaults: {
+    /** Settings-stored default profile id; null/absent = auto. */
+    getOverride?: () => string | null;
+    /** Auto rule: prefer this vendor's profile while its account is connected. */
+    auto?: { vendor: string; hasCredential: () => Promise<boolean> };
   } = {}
 ): BackendRegistry {
   let profileSnapshot: ProfileSnapshot | null = null;
@@ -866,6 +956,36 @@ function makeRegistry(
     }
   }
 
+  /**
+   * The preferred-default profile. The stored Settings override wins while it
+   * still names a roster profile (a vanished profile falls through to auto
+   * rather than pinning turns to nothing); auto is the first non-hidden
+   * roster entry of the auto vendor, but only while its credential exists.
+   * Any failure degrades to "no preference" — this must never take routing
+   * down.
+   */
+  async function getPreferredProfileId(): Promise<string | null> {
+    try {
+      const snapshot = await getProfileSnapshot();
+      const override = defaults.getOverride?.() ?? null;
+      if (override && snapshot.owners.has(override)) return override;
+
+      const auto = defaults.auto;
+      if (!auto) return null;
+      const registry = await getRegistry();
+      const hidden = hiddenIds();
+      for (const backend of registry.backends) {
+        const match = (snapshot.byBackend.get(backend.id) ?? []).find(
+          (profile) => profile.vendor === auto.vendor && !hidden.has(profile.id)
+        );
+        if (match) return (await auto.hasCredential()) ? match.id : null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async getBackends() {
       return (await getRegistry()).backends;
@@ -910,7 +1030,7 @@ function makeRegistry(
       // saved override is live for the very next run without invalidation.
       const overrides = billingOverrides();
 
-      return registry.backends.flatMap((backend) =>
+      const providers = registry.backends.flatMap((backend) =>
         (snapshot.byBackend.get(backend.id) ?? [])
           .filter((profile) => !hidden.has(profile.id))
           .map((profile) => {
@@ -919,7 +1039,18 @@ function makeRegistry(
             return billingMode ? { ...entry, billingMode } : entry;
           })
       );
+
+      // A connected subscription-auth profile leads the list: a fresh client
+      // with no stored selection defaults to providers[0].
+      const preferredId = await getPreferredProfileId();
+      if (preferredId) {
+        const index = providers.findIndex((provider) => provider.id === preferredId);
+        if (index > 0) providers.unshift(...providers.splice(index, 1));
+      }
+      return providers;
     },
+
+    getPreferredProfileId,
 
     async getBackendsInfo() {
       const backends = (await getRegistry()).backends;

@@ -12,6 +12,8 @@ import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protoc
 
 const HIDDEN_MODELS_KEY = "models.hidden";
 const BILLING_OVERRIDES_KEY = "models.billing";
+const DEFAULT_MODEL_KEY = "models.default";
+const CUSTOM_OPENROUTER_KEY = "models.customOpenRouter";
 const DETAIL_RETENTION_KEY = "activity.retention.detailDays";
 const DETAIL_RETENTION_DEFAULT_DAYS = 7;
 
@@ -87,6 +89,34 @@ export function setBillingOverrides(
     )
   );
   setSetting(db, BILLING_OVERRIDES_KEY, clean);
+}
+
+/**
+ * The user's chosen default model profile, used when a turn names none (new
+ * conversations from a fresh client, shares, host-initiated actions). Null =
+ * auto (a connected subscription-auth profile, else the default backend's
+ * own default).
+ */
+export function getDefaultModelId(db: Database, log?: Logger): string | null {
+  const value = getSetting<unknown>(db, DEFAULT_MODEL_KEY, null, log);
+  return typeof value === "string" && value ? value : null;
+}
+
+export function setDefaultModelId(db: Database, id: string | null): void {
+  setSetting(db, DEFAULT_MODEL_KEY, id);
+}
+
+/** User-managed OpenRouter model ids (e.g. "z.ai/glm-5.3-flash"). */
+export function getCustomOpenRouterModels(db: Database, log?: Logger): string[] {
+  const value = getSetting<unknown>(db, CUSTOM_OPENROUTER_KEY, [], log);
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/** Replace the custom OpenRouter list (full list, not a delta). */
+export function setCustomOpenRouterModels(db: Database, models: string[]): void {
+  const unique = [...new Set(models.filter((id) => typeof id === "string" && id))];
+  setSetting(db, CUSTOM_OPENROUTER_KEY, unique);
 }
 
 /** Minimum days a finished run keeps its detail (spans/events) before the

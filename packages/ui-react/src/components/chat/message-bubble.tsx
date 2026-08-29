@@ -1,5 +1,5 @@
 import { uiConfig } from "../../config.js";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Mic, Image as ImageIcon } from "lucide-react";
 import type {
   ChatMessage,
@@ -317,6 +317,14 @@ function ThinkingSection({
   isStreaming: boolean;
 }) {
   const [expanded, setExpanded] = useState(isStreaming);
+  // Auto-collapse when the thinking finishes: the blurb is process, not
+  // product — the answer below it is what the reader is waiting for. It stays
+  // reopenable via the collapsed "Thought for ~N tokens" button.
+  const prevStreaming = useRef(isStreaming);
+  useEffect(() => {
+    if (prevStreaming.current && !isStreaming) setExpanded(false);
+    prevStreaming.current = isStreaming;
+  }, [isStreaming]);
 
   if (!isStreaming && !expanded) {
     // Collapsed: minimal clickable text

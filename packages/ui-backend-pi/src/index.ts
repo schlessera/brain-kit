@@ -16,7 +16,7 @@ export type {
   SessionToolkit,
 } from "./backend.js";
 
-export { createPiAuth } from "./auth.js";
+export { createPiAuth, hasStoredCredential } from "./auth.js";
 export type {
   PiAuth,
   PiAuthProviderStatus,
