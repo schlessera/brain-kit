@@ -508,6 +508,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
           type: "session_info",
           sessionId,
           isNew,
+          backendId: PI_BACKEND_ID,
           ...(req.profileId ? { providerId: req.profileId } : {}),
         });
 

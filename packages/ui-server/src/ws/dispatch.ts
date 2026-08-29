@@ -196,6 +196,7 @@ export async function handleClientMessage(
         sessionId: msg.sessionId,
         isNew: false,
         providerId: catalog.getStoredProviderId(msg.sessionId) ?? undefined,
+        backendId: catalog.getStoredBackendId(msg.sessionId) ?? undefined,
       });
 
       try {

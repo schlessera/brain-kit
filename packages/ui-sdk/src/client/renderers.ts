@@ -20,6 +20,25 @@ export interface ToolCallView {
   input: Record<string, unknown>;
   output?: string;
   isError?: boolean;
+  /** Raw input JSON as streamed; absent on history-loaded calls. */
+  inputJson?: string;
+  status?: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
+  startedAt?: number;
+  endedAt?: number;
+}
+
+/**
+ * Backend-neutral meaning extracted from a tool call, for cross-cutting
+ * consumers (risk advisories) that must not key on per-backend tool names.
+ * Accessors return null/false when the aspect does not apply.
+ */
+export interface ToolSemantics {
+  /** The shell command line this call executes, if it executes one. */
+  command?(tool: ToolCallView): string | null;
+  /** The filesystem path this call writes or edits, if it writes one. */
+  writePath?(tool: ToolCallView): string | null;
+  /** True when the call explicitly opts out of its backend's sandbox. */
+  unsandboxed?(tool: ToolCallView): boolean;
 }
 
 export interface ToolRenderer {
@@ -34,6 +53,14 @@ export interface ToolRenderer {
   summary?(tool: ToolCallView): string | null;
   /** Secondary metadata line. */
   meta?(tool: ToolCallView): string | null;
+  /** Header label; absent = the caller's default name formatting. */
+  label?: string | ((tool: ToolCallView) => string);
+  /** File the call touches, for the collapsed run summary. */
+  touchedFile?(tool: ToolCallView): string | null;
+  /** This tool fans out subagents the timeline should surface live. */
+  subagentRows?: boolean;
+  /** Backend-neutral meaning, consumed by risk advisories. */
+  semantics?: ToolSemantics;
   Input?: ComponentType<{ tool: ToolCallView }>;
   Output?: ComponentType<{ tool: ToolCallView }>;
 }

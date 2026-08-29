@@ -4,6 +4,7 @@
 
 import { registerToolRenderers } from "@schlessera/brain-ui-sdk/client";
 import { claudeToolPack } from "./claude-tools.js";
+import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
 
 let registered = false;
@@ -13,6 +14,7 @@ export function registerBuiltinRenderers(): void {
   if (registered) return;
   registered = true;
   registerToolRenderers(claudeToolPack);
+  registerToolRenderers(piToolPack);
   registerToolRenderers(genericToolPack);
 }
 

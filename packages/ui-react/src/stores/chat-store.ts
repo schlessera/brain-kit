@@ -124,6 +124,12 @@ interface ChatState {
    */
   runStates: Record<string, "streaming" | "queued" | "idle">;
   /**
+   * Backend that owns each session, from `session_info` (or the session list
+   * for history sessions). Scopes tool-call renderer resolution per backend;
+   * absence falls back to the deployment default.
+   */
+  backendIds: Record<string, string>;
+  /**
    * Per-session note attached to a `queued` status — the host sends one once a
    * session's follow-up queue grows heavy. Cleared when the session leaves the
    * queued state, so a stale warning cannot outlive the queue it described.
@@ -190,6 +196,8 @@ interface ChatState {
     state: "streaming" | "queued" | "idle",
     note?: string
   ) => void;
+  /** Record which backend owns a session (idempotent). */
+  setSessionBackend: (sessionId: string, backendId: string) => void;
 }
 
 let messageCounter = 0;
@@ -350,6 +358,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     activeSessionId: readPersistedSessionId(),
     runStates: {},
     queueNotes: {},
+    backendIds: {},
 
     // createIfMissing: a user-initiated send must never be dropped, even when
     // the active session's buffer hasn't been materialized yet (cold start
@@ -658,6 +667,13 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         return { runStates, queueNotes };
       }),
+
+    setSessionBackend: (sessionId, backendId) =>
+      set((state) =>
+        state.backendIds[sessionId] === backendId
+          ? state
+          : { backendIds: { ...state.backendIds, [sessionId]: backendId } }
+      ),
 
     clearMessages: () => {
       const state = get();

@@ -886,6 +886,7 @@ export function createClaudeBackend(
             sessionId: sessionId,
             isNew: !req.sessionId,
             providerId: profile.id,
+            backendId: BACKEND_ID,
           });
         }
         for (const serverMsg of adapter.adapt(msg)) {

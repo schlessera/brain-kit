@@ -355,6 +355,7 @@ describe("startTurn", () => {
       sessionId: "sess-1",
       isNew: true,
       providerId: "claude",
+      backendId: "claude",
     });
     expect(frames).toContainEqual({
       type: "result",

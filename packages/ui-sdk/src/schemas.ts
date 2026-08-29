@@ -629,6 +629,7 @@ export const serverSessionInfoSchema = z.looseObject({
   sessionId: z.string().max(MAX_ID_CHARS),
   isNew: z.boolean(),
   providerId: z.string().max(MAX_ID_CHARS).optional(),
+  backendId: z.string().max(MAX_ID_CHARS).optional(),
   draftId: z.string().max(MAX_ID_CHARS).optional(),
 }) satisfies z.ZodType<ServerSessionInfo>;
 

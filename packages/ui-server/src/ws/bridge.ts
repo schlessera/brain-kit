@@ -35,6 +35,10 @@ export function makeBridge(
         // Echo the client's correlation id, so it can recognise which
         // announcement is its own rather than adopting the first to arrive.
         if (turn.draftId) msg = { ...msg, draftId: turn.draftId };
+        // The host owns backend identity: stamp it authoritatively so an
+        // injected backend that omits (or mislabels) it still scopes the
+        // client's tool rendering correctly.
+        msg = { ...msg, backendId };
         coordinator.bySession.set(msg.sessionId, turn);
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.

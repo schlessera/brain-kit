@@ -21,7 +21,12 @@ export function normalizeToolName(name: string): string {
     : name;
 }
 
+// The pi backend registers its ask-user tool under the bare name.
+const PI_ASK_USER_TOOL_NAME = "ask_user";
+
 export const isAskUserTool = (name: string | undefined): boolean =>
-  !!name && normalizeToolName(name) === ASK_USER_TOOL_NAME;
+  !!name &&
+  (normalizeToolName(name) === ASK_USER_TOOL_NAME ||
+    name === PI_ASK_USER_TOOL_NAME);
 export const isLocationTool = (name: string | undefined): boolean =>
   !!name && normalizeToolName(name) === GET_LOCATION_TOOL_NAME;
