@@ -36,11 +36,17 @@ describe("createPiBackend (no LLM)", () => {
         profiles: [
           { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" },
           { id: "gpt", label: "GPT", vendor: "openai", model: "gpt-5" },
+          // Unknown model: no effort knob (and fails loudly at session time).
+          { id: "typo", label: "Typo", vendor: "openai", model: "not-a-model" },
         ],
       });
+      // thinkingLevel is the EFFECTIVE level: pi defaults absent ones to
+      // "medium", and its presence marks the profile as effort-capable —
+      // omitted when the catalog can't confirm the model reasons.
       expect(backend.listProfiles()).toEqual([
-        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic" },
-        { id: "gpt", label: "GPT", vendor: "openai" },
+        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic", thinkingLevel: "medium" },
+        { id: "gpt", label: "GPT", vendor: "openai", thinkingLevel: "medium" },
+        { id: "typo", label: "Typo", vendor: "openai" },
       ]);
     } finally {
       brain.cleanup();

@@ -10,9 +10,11 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import {
   isBillingMode,
+  isThinkingLevel,
   type BillingMode,
   type ModelCatalogEntry,
   type ModelCatalogResponse,
+  type ThinkingLevel,
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { ModelPricingState } from "../pricing/model-pricing.js";
@@ -21,10 +23,12 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getThinkingOverrides,
   setBillingOverrides,
   setCustomOpenRouterModels,
   setDefaultModelId,
   setHiddenModelIds,
+  setThinkingOverrides,
 } from "../db/settings.js";
 
 export function createModelRoutes(deps: {
@@ -41,6 +45,7 @@ export function createModelRoutes(deps: {
   const source = await registry.getModelSource();
   const hidden = new Set(getHiddenModelIds(db));
   const overrides = getBillingOverrides(db);
+  const thinking = getThinkingOverrides(db);
   // `billingMode` already rides each provider entry (the registry applies the
   // override last); the catalog additionally tags WHICH rows carry an explicit
   // override, so the settings screen can render auto vs forced.
@@ -50,6 +55,10 @@ export function createModelRoutes(deps: {
     ...profile,
     hidden: hidden.has(profile.id),
     ...(overrides[profile.id] ? { billingOverride: overrides[profile.id] } : {}),
+    // `thinkingLevel` on the profile is already the EFFECTIVE level (the
+    // registry applies overrides at read time); this tags which rows carry
+    // an explicit user choice, so the UI can render default vs forced.
+    ...(thinking[profile.id] ? { thinkingOverride: thinking[profile.id] } : {}),
   }));
 
   const state = source?.state();
@@ -173,6 +182,39 @@ export function createModelRoutes(deps: {
         setDefaultModelId(db, null);
       }
     }
+    return c.json(await buildCatalog());
+  })
+
+  .put("/models/thinking", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const thinking = (body as { thinking?: unknown } | null)?.thinking;
+    if (
+      typeof thinking !== "object" ||
+      thinking === null ||
+      Array.isArray(thinking) ||
+      Object.values(thinking).some((level) => !isThinkingLevel(level))
+    ) {
+      return c.json(
+        { error: "thinking must map profile ids to a reasoning-effort level" },
+        400
+      );
+    }
+    // Only rows that actually take an effort level accept an override — a
+    // stray id would be stored dead weight and mislead the settings UI.
+    const known = await registry.listAllProviders({ includeHidden: true });
+    const supported = new Set(
+      known.filter((profile) => profile.thinkingLevel).map((profile) => profile.id)
+    );
+    const stray = Object.keys(thinking).find((id) => !supported.has(id));
+    if (stray !== undefined) {
+      return c.json(
+        { error: `Profile "${stray}" does not take a reasoning-effort level.` },
+        400
+      );
+    }
+
+    setThinkingOverrides(db, thinking as Record<string, ThinkingLevel>);
+    registry.invalidateProfiles();
     return c.json(await buildCatalog());
   })
 

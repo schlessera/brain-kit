@@ -8,12 +8,18 @@
 
 import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
-import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+import {
+  isBillingMode,
+  isThinkingLevel,
+  type BillingMode,
+  type ThinkingLevel,
+} from "@schlessera/brain-ui-sdk/protocol";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
 const BILLING_OVERRIDES_KEY = "models.billing";
 const DEFAULT_MODEL_KEY = "models.default";
 const CUSTOM_OPENROUTER_KEY = "models.customOpenRouter";
+const THINKING_OVERRIDES_KEY = "models.thinking";
 const DETAIL_RETENTION_KEY = "activity.retention.detailDays";
 const DETAIL_RETENTION_DEFAULT_DAYS = 7;
 
@@ -117,6 +123,39 @@ export function getCustomOpenRouterModels(db: Database, log?: Logger): string[] 
 export function setCustomOpenRouterModels(db: Database, models: string[]): void {
   const unique = [...new Set(models.filter((id) => typeof id === "string" && id))];
   setSetting(db, CUSTOM_OPENROUTER_KEY, unique);
+}
+
+/**
+ * Per-profile reasoning-effort overrides: profile id → forced level. A
+ * profile absent from the record keeps its configured default. Invalid
+ * levels are dropped on read (same degradation discipline as billing).
+ */
+export function getThinkingOverrides(
+  db: Database,
+  log?: Logger
+): Record<string, ThinkingLevel> {
+  const value = getSetting<unknown>(db, THINKING_OVERRIDES_KEY, {}, log);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return Object.create(null);
+  }
+  const overrides: Record<string, ThinkingLevel> = Object.create(null);
+  for (const [profileId, level] of Object.entries(value)) {
+    if (isThinkingLevel(level)) overrides[profileId] = level;
+  }
+  return overrides;
+}
+
+/** Replace the override record (the client always sends the full record, not a delta). */
+export function setThinkingOverrides(
+  db: Database,
+  overrides: Record<string, ThinkingLevel>
+): void {
+  const clean = Object.fromEntries(
+    Object.entries(overrides).filter(
+      ([profileId, level]) => profileId && isThinkingLevel(level)
+    )
+  );
+  setSetting(db, THINKING_OVERRIDES_KEY, clean);
 }
 
 /** Minimum days a finished run keeps its detail (spans/events) before the

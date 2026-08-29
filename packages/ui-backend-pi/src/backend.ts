@@ -127,8 +127,13 @@ export interface CreatePiBackendOptions {
   brainPath: string;
   /** Default model when no profiles are configured: "vendor/modelId" or "modelId". */
   model?: string;
-  /** Selectable model/endpoint profiles. First is the default for new sessions. */
-  profiles?: PiProfile[];
+  /**
+   * Selectable model/endpoint profiles. First is the default for new
+   * sessions. A FUNCTION is re-read on every use, so the host can apply
+   * runtime configuration (e.g. per-model thinking overrides from settings)
+   * without rebuilding the backend.
+   */
+  profiles?: PiProfile[] | (() => PiProfile[]);
   /** Where pi stores session JSONL. Default: <brainPath>/.brain-kit-ui/sessions. */
   sessionDir?: string;
   /**
@@ -259,8 +264,12 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     return sharedResources;
   }
 
+  function configuredProfiles(): PiProfile[] | undefined {
+    return typeof options.profiles === "function" ? options.profiles() : options.profiles;
+  }
+
   function resolveModelSpec(profileId?: string): ModelSpec | undefined {
-    const profiles = options.profiles;
+    const profiles = configuredProfiles();
     if (profileId) {
       const p = profiles?.find((x) => x.id === profileId);
       if (p) return { vendor: p.vendor, model: p.model, thinkingLevel: p.thinkingLevel };
@@ -491,8 +500,31 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       // dependent, and it surfaces ids the deployment never chose. Profiles
       // are deliberately an explicit-configuration surface; a "vendor/model"
       // string is still accepted as an ad-hoc profileId (resolveModelSpec).
-      if (options.profiles && options.profiles.length > 0) {
-        return options.profiles.map((p) => ({ id: p.id, label: p.label, vendor: p.vendor }));
+      const profiles = configuredProfiles();
+      if (profiles && profiles.length > 0) {
+        return profiles.map((p) => {
+          // Effective reasoning level (pi defaults absent ones to "medium").
+          // Presence doubles as "this profile supports an effort setting",
+          // so it is OMITTED for models the catalog marks non-reasoning —
+          // pi would clamp any level to "off" there, and advertising an
+          // effort knob for them would be a lie. An unknown model (declared
+          // typo — fails loudly at session time) gets no knob either.
+          let reasoning = false;
+          try {
+            reasoning =
+              p.vendor !== undefined &&
+              (getBuiltinModel(p.vendor as never, p.model as never) as Model<any> | undefined)
+                ?.reasoning === true;
+          } catch {
+            reasoning = false;
+          }
+          return {
+            id: p.id,
+            label: p.label,
+            vendor: p.vendor,
+            ...(reasoning ? { thinkingLevel: p.thinkingLevel ?? "medium" } : {}),
+          };
+        });
       }
       if (options.model) {
         const spec = parseModelString(options.model);

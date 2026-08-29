@@ -118,11 +118,14 @@ export "." (./src/index.ts)
   type SetCustomModelsRequest
   type SetDefaultModelRequest
   type SetHiddenModelsRequest
+  type SetThinkingOverridesRequest
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
   type SystemStatus
+  THINKING_LEVELS
+  type ThinkingLevel
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
@@ -132,6 +135,7 @@ export "." (./src/index.ts)
   canonicalModelId
   isBillingMode
   isFailureOutcome
+  isThinkingLevel
   sumModelUsage
 
 export "./client" (./src/client/index.ts)
@@ -258,11 +262,14 @@ export "./client" (./src/client/index.ts)
   type SetCustomModelsRequest
   type SetDefaultModelRequest
   type SetHiddenModelsRequest
+  type SetThinkingOverridesRequest
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
   type SystemStatus
+  THINKING_LEVELS
+  type ThinkingLevel
   type ToolCallView
   type ToolRenderer
   type ToolSemantics
@@ -277,6 +284,7 @@ export "./client" (./src/client/index.ts)
   createBrainUiClient
   isBillingMode
   isFailureOutcome
+  isThinkingLevel
   registerAsrClient
   registerToolRenderers
   resetAsrClients
@@ -402,11 +410,14 @@ export "./protocol" (./src/protocol.ts)
   type SetCustomModelsRequest
   type SetDefaultModelRequest
   type SetHiddenModelsRequest
+  type SetThinkingOverridesRequest
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
   type SystemStatus
+  THINKING_LEVELS
+  type ThinkingLevel
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
@@ -416,6 +427,7 @@ export "./protocol" (./src/protocol.ts)
   canonicalModelId
   isBillingMode
   isFailureOutcome
+  isThinkingLevel
   sumModelUsage
 
 export "./push-handlers" (./src/client/push-handlers.ts)
@@ -597,6 +609,7 @@ export "./server" (./src/server/index.ts)
   type SetCustomModelsRequest
   type SetDefaultModelRequest
   type SetHiddenModelsRequest
+  type SetThinkingOverridesRequest
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
@@ -605,6 +618,8 @@ export "./server" (./src/server/index.ts)
   type SpeechSession
   type StartTurnRequest
   type SystemStatus
+  THINKING_LEVELS
+  type ThinkingLevel
   type TranscriptStore
   type TurnUsage
   type VoiceKeytermsResponse
@@ -621,6 +636,7 @@ export "./server" (./src/server/index.ts)
   defineSpeechProvider
   isBillingMode
   isFailureOutcome
+  isThinkingLevel
   sumModelUsage
 
 export "./share-target" (./src/client/share-target.ts)

@@ -485,6 +485,12 @@ export interface ProviderInfo {
   /** Context window in tokens, when the backend knows it. Presentation only. */
   contextWindow?: number;
   /**
+   * Effective reasoning-effort level, for backends whose models take one
+   * (the pi backend's profiles). Presence doubles as "this profile supports
+   * a per-model effort setting" — absent on Claude rows.
+   */
+  thinkingLevel?: ThinkingLevel;
+  /**
    * Where the profile came from: the backend's own pinned default, a
    * host-declared profile (env/config), or provider-API discovery. Presentation
    * only — the client must not switch behavior on it.
@@ -510,6 +516,12 @@ export interface ModelCatalogEntry extends ProviderInfo {
    * classification rather than a user choice.
    */
   billingOverride?: BillingMode;
+  /**
+   * Explicit reasoning-effort override stored for this profile, when one is
+   * set. Absent = the profile's configured default — `thinkingLevel` then
+   * reflects that default rather than a user choice.
+   */
+  thinkingOverride?: ThinkingLevel;
 }
 
 /** Response of GET /api/models, PUT /api/models/hidden, POST /api/models/refresh. */
@@ -544,6 +556,39 @@ export interface SetHiddenModelsRequest {
  */
 export interface SetBillingOverridesRequest {
   billing: Record<string, BillingMode>;
+}
+
+/** Reasoning-effort levels (mirror of the pi SDK's ThinkingLevel union). */
+export type ThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/** THE membership check for {@link ThinkingLevel} at validation boundaries. */
+export function isThinkingLevel(v: unknown): v is ThinkingLevel {
+  return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v);
+}
+
+/**
+ * Body of PUT /api/models/thinking — the complete override record, not a
+ * delta. A profile absent from the record uses its configured default.
+ */
+export interface SetThinkingOverridesRequest {
+  thinking: Record<string, ThinkingLevel>;
 }
 
 /** Body of PUT /api/models/default — a profile id, or null for auto. */
