@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-render-template",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "description": "Shared markdown/HTML → print-ready document shell for brain-kit (used by the UI's /api/render and the CLI's `brain render`)",
   "license": "MIT",
   "keywords": [
