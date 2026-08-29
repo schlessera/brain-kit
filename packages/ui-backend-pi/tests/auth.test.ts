@@ -8,7 +8,7 @@ type Interaction = Parameters<PiAuthRuntime["login"]>[2];
  * announced and when the login settles, mirroring the real timing (code
  * arrives mid-await, login blocks until the user approves).
  */
-function makeRuntime() {
+function makeRuntime(opts: { ignoreAbort?: boolean } = {}) {
   let interaction: Interaction | null = null;
   let resolveLogin!: () => void;
   let rejectLogin!: (err: Error) => void;
@@ -20,9 +20,11 @@ function makeRuntime() {
       return new Promise<void>((resolve, reject) => {
         resolveLogin = resolve;
         rejectLogin = reject;
-        i.signal?.addEventListener("abort", () =>
-          reject(new Error("Login cancelled"))
-        );
+        if (!opts.ignoreAbort) {
+          i.signal?.addEventListener("abort", () =>
+            reject(new Error("Login cancelled"))
+          );
+        }
       });
     },
     async logout(providerId) {
@@ -157,6 +159,50 @@ describe("createPiAuth", () => {
 
     expect(service.getFlow(first.id)?.status).toBe("cancelled");
     expect(service.getFlow(secondFlow.id)?.status).toBe("pending");
+  });
+
+  test("providers without a web-drivable flow are not advertised as oauth", async () => {
+    const rt = makeRuntime();
+    rt.runtime.getProvider = () => ({ auth: { oauth: { name: "GitHub Copilot" } } });
+    const statuses = await auth(rt).status(["github-copilot"]);
+    expect(statuses[0]?.oauth).toBe(false);
+    await expect(auth(rt).startLogin("github-copilot")).rejects.toThrow(
+      "cannot be signed in from the web UI"
+    );
+  });
+
+  test("two simultaneous starts leave exactly one pending flow", async () => {
+    const rt = makeRuntime();
+    const service = auth(rt);
+    const a = service.startLogin("openai-codex");
+    const b = service.startLogin("openai-codex");
+    await Bun.sleep(0);
+    rt.announceCode();
+    const [flowA, flowB] = await Promise.all([a, b]);
+    const statuses = [service.getFlow(flowA.id)?.status, service.getFlow(flowB.id)?.status];
+    expect(statuses.filter((s) => s === "pending")).toHaveLength(1);
+    expect(statuses.filter((s) => s === "cancelled")).toHaveLength(1);
+  });
+
+  test("cancel racing a just-approved login removes the persisted credential", async () => {
+    // Model the real race: pi's login checks the abort signal only at poll
+    // points, so an approval mid-refresh resolves the promise DESPITE a
+    // just-fired abort.
+    const rt = makeRuntime({ ignoreAbort: true });
+    const service = auth(rt);
+    const started = service.startLogin("openai-codex");
+    await Bun.sleep(0);
+    rt.announceCode();
+    const flow = await started;
+
+    // The user approves at the provider and hits Cancel in the same instant:
+    // cancel lands first, then the login promise resolves successfully.
+    service.cancelFlow(flow.id);
+    rt.approve();
+    await Bun.sleep(0);
+
+    expect(service.getFlow(flow.id)?.status).toBe("cancelled");
+    expect(rt.calls).toContain("logout:openai-codex");
   });
 
   test("logout cancels any pending flow and delegates to the runtime", async () => {

@@ -116,8 +116,16 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
         return c.json({ error: "Unknown provider." }, 400);
       }
       const auth = await getAuth();
-      const flow = await auth.startLogin(providerId);
-      return c.json({ flow });
+      try {
+        const flow = await auth.startLogin(providerId);
+        return c.json({ flow });
+      } catch (err) {
+        // e.g. a provider whose flow the web surface cannot drive.
+        return c.json(
+          { error: err instanceof Error ? err.message : "Could not start login." },
+          400
+        );
+      }
     })
     .get("/pi-auth/login/:id", async (c) => {
       const auth = await getAuth();

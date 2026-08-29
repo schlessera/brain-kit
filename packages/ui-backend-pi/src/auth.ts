@@ -107,6 +107,15 @@ export interface CreatePiAuthOptions {
 /** Settled flows are kept for polling this long, then dropped. */
 const FLOW_RETENTION_MS = 30 * 60 * 1000;
 
+/**
+ * Providers whose pi OAuth flow this service can actually drive headlessly —
+ * i.e. whose only interactive step is the method selector it answers with
+ * "device_code". Other providers' flows open with prompts (pasted codes,
+ * text input) the web surface does not support yet, so they must not be
+ * advertised as connectable.
+ */
+const WEB_LOGIN_PROVIDERS = new Set(["openai-codex"]);
+
 export function createPiAuth(options: CreatePiAuthOptions = {}): PiAuth {
   let runtimePromise: Promise<PiAuthRuntime> | null = null;
   function getRuntime(): Promise<PiAuthRuntime> {
@@ -160,18 +169,27 @@ export function createPiAuth(options: CreatePiAuthOptions = {}): PiAuth {
           name: oauth?.name ?? providerId,
           configured: status.configured,
           ...(status.source ? { source: status.source } : {}),
-          oauth: Boolean(oauth),
+          oauth: Boolean(oauth) && WEB_LOGIN_PROVIDERS.has(providerId),
         };
       });
     },
 
     async startLogin(providerId) {
       prune();
+      if (!WEB_LOGIN_PROVIDERS.has(providerId)) {
+        throw new Error(
+          `Provider "${providerId}" cannot be signed in from the web UI. ` +
+            "Use `pi login` on the host instead."
+        );
+      }
+      // Resolve the runtime BEFORE claiming the provider slot: with an await
+      // between check and claim, two simultaneous starts would both see no
+      // pending flow and run two device flows at once.
+      const runtime = await getRuntime();
       // One pending flow per provider: a re-click supersedes, never stacks.
       const previous = pendingByProvider.get(providerId);
       if (previous) this.cancelFlow(previous);
 
-      const runtime = await getRuntime();
       const controller = new AbortController();
       const state: FlowState = {
         flow: {
@@ -225,6 +243,20 @@ export function createPiAuth(options: CreatePiAuthOptions = {}): PiAuth {
           },
         })
         .then(() => {
+          if (state.flow.status === "cancelled") {
+            // The user approved at the provider in the same instant they hit
+            // Cancel here: the credential is already persisted, but the UI
+            // told them the login was cancelled. Honor the cancel — unless a
+            // NEWER flow for this provider is underway, whose credential this
+            // logout would destroy.
+            if (!pendingByProvider.has(providerId)) {
+              runtime.logout(providerId).catch(() => {});
+              options.log?.("info", "pi oauth login cancelled after approval; credential removed", {
+                providerId,
+              });
+            }
+            return;
+          }
           settle(state, "success");
           options.log?.("info", "pi oauth login completed", { providerId });
         })
