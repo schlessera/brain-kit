@@ -60,6 +60,15 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
  * payload, so an answered question survives session resume (rendered in its
  * chronological slot, collapsed) instead of vanishing.
  */
+function isBareAnswersMap(v: unknown): v is Record<string, string> {
+  return (
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    Object.values(v).every((x) => typeof x === "string")
+  );
+}
+
 function reconstructAskUserExchanges(
   toolCalls: SessionHistoryMessage["toolCalls"]
 ): AskUserExchange[] | undefined {
@@ -74,8 +83,14 @@ function reconstructAskUserExchanges(
           answers?: Record<string, string>;
           annotations?: AskUserExchange["annotations"];
         };
-        exchange.answers = payload.answers;
-        exchange.annotations = payload.annotations;
+        if (payload && typeof payload === "object" && payload.answers) {
+          exchange.answers = payload.answers;
+          exchange.annotations = payload.annotations;
+        } else if (isBareAnswersMap(payload)) {
+          // The pi backend persists the bare answers map, without the
+          // `{answers}` envelope the Claude tool writes.
+          exchange.answers = payload;
+        }
       } catch {
         // Non-JSON output means the question was dismissed or errored out.
         exchange.cancelled = true;
