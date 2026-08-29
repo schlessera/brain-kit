@@ -37,6 +37,8 @@ export { reverseGeocode } from "./reverse-geocode.js";
 
 export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 
+export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
+
 export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";
 

@@ -20,14 +20,15 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import {
   BackendBusyError,
   BackendRequestError,
-  createWriteLock,
+  createKeyedLock,
+  GIT_LOCK_KEY,
   type BackendBridge,
   type ServerMessage,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBackend, type PiSessionLike, type SessionToolkit } from "../src/backend";
 import { createBrainAccess } from "../src/brain-access";
-import { createBrainTools } from "../src/tools";
+import { createBrainTools, toolLockFromKeyed } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
 import { makeEmptyBrain, resultText } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
@@ -248,47 +249,50 @@ describe("pi backend — parallel sessions", () => {
 });
 
 describe("pi backend — shared working-tree safety", () => {
-  test("(d) writeLock serializes mutating tools; read tools never block", async () => {
+  test("(d) keyed lock: same-path writes serialize; different paths, reads and plain bash run free", async () => {
     const brain = makeEmptyBrain();
     try {
       writeFileSync(join(brain.root, "seed.md"), "hello read", "utf-8");
-      const writeLock = createWriteLock();
+      const keyed = createKeyedLock();
+      const lock = toolLockFromKeyed(keyed);
       const access = createBrainAccess(brain.root);
 
       const turnA = createTurnContext();
       turnA.bridge = makeMockBridge().bridge; // allow
       const toolsA = Object.fromEntries(
-        createBrainTools({ brain: access, turn: turnA, writeLock }).map((t) => [t.name, t])
+        createBrainTools({ brain: access, turn: turnA, lock }).map((t) => [t.name, t])
       );
       const turnB = createTurnContext();
       turnB.bridge = makeMockBridge().bridge; // allow
       const toolsB = Object.fromEntries(
-        createBrainTools({ brain: access, turn: turnB, writeLock }).map((t) => [t.name, t])
+        createBrainTools({ brain: access, turn: turnB, lock }).map((t) => [t.name, t])
       );
 
-      // Hold the lock so both writes park after their (ungated) permission step.
-      const release = await writeLock.acquire();
+      // Hold the CONTESTED file's key so writes targeting it park.
+      const release = await keyed.acquire(`path:${join(brain.root, "same.md")}`);
 
       const aWrite = toolsA.write_file.execute(
         "a",
-        { path: "a.md", content: "A" },
-        undefined,
-        undefined,
-        CTX
-      );
-      const bWrite = toolsB.write_file.execute(
-        "b",
-        { path: "b.md", content: "B" },
+        { path: "same.md", content: "A" },
         undefined,
         undefined,
         CTX
       );
       await settle();
-      // Writes are blocked on the lock — neither file exists yet.
-      expect(existsSync(join(brain.root, "a.md"))).toBe(false);
-      expect(existsSync(join(brain.root, "b.md"))).toBe(false);
+      // Blocked on the held key — the file does not exist yet.
+      expect(existsSync(join(brain.root, "same.md"))).toBe(false);
 
-      // A read tool completes while the lock is held (reads bypass the lock).
+      // A write to a DIFFERENT path completes while the key is held.
+      await toolsB.write_file.execute(
+        "b",
+        { path: "other.md", content: "B" },
+        undefined,
+        undefined,
+        CTX
+      );
+      expect(readFileSync(join(brain.root, "other.md"), "utf-8")).toBe("B");
+
+      // A read tool completes (reads never take a lock).
       const readRes = await toolsB.read_file.execute(
         "r",
         { path: "seed.md" },
@@ -298,11 +302,62 @@ describe("pi backend — shared working-tree safety", () => {
       );
       expect(resultText(readRes)).toContain("hello read");
 
-      // Release; the two queued writes drain in FIFO order.
+      // A non-git bash command completes (no contention class → no lock).
+      const bashRes = await toolsB.bash.execute(
+        "sh",
+        { command: "echo parallel-ok" },
+        undefined,
+        undefined,
+        CTX
+      );
+      expect(resultText(bashRes)).toContain("parallel-ok");
+
+      // Release; the parked same-path write drains.
       release();
-      await Promise.all([aWrite, bWrite]);
-      expect(readFileSync(join(brain.root, "a.md"), "utf-8")).toBe("A");
-      expect(readFileSync(join(brain.root, "b.md"), "utf-8")).toBe("B");
+      await aWrite;
+      expect(readFileSync(join(brain.root, "same.md"), "utf-8")).toBe("A");
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("(d2) git-mutating bash serializes on the repo-git key", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const keyed = createKeyedLock();
+      const lock = toolLockFromKeyed(keyed);
+      const access = createBrainAccess(brain.root);
+      const turn = createTurnContext();
+      turn.bridge = makeMockBridge().bridge;
+      const tools = Object.fromEntries(
+        createBrainTools({ brain: access, turn, lock }).map((t) => [t.name, t])
+      );
+
+      const release = await keyed.acquire(GIT_LOCK_KEY);
+      const gitCall = tools.bash.execute(
+        "g",
+        { command: "git add -A; touch git-ran" },
+        undefined,
+        undefined,
+        CTX
+      );
+      await settle();
+      // Parked on the repo-git key: nothing has run.
+      expect(existsSync(join(brain.root, "git-ran"))).toBe(false);
+
+      // A non-git command is unaffected.
+      const echo = await tools.bash.execute(
+        "e",
+        { command: "echo free" },
+        undefined,
+        undefined,
+        CTX
+      );
+      expect(resultText(echo)).toContain("free");
+
+      release();
+      await gitCall;
+      expect(existsSync(join(brain.root, "git-ran"))).toBe(true);
     } finally {
       brain.cleanup();
     }

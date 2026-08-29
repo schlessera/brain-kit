@@ -69,13 +69,17 @@ as opposed to `"steer"`, which interrupts. Frames keep flowing through the runni
 turn's existing subscription. It rejects `BackendRequestError` when the session
 has no running turn (the host then queues the message as the next turn instead).
 
-**Shared-repo safety.** Every backend holds one `WriteLock`; each mutating tool
-(`write_file`, `edit_file`, `bash`, `brain_add`, `brain_update`, `brain_archive`)
-runs its body under `writeLock.withLock()`, so concurrent sessions never
-interleave file writes or git operations in the shared working tree. Read-class
-tools never take the lock. The permission round-trip happens in the `tool_call`
-gate **before** the lock, so approvals are never serialized behind another
-session's write.
+**Shared-repo safety.** Mutations serialize per CONTENTION KEY (a `KeyedLock`),
+not on one global mutex: file writes lock `path:<abs>` (same file serializes,
+different files run in parallel), the brain document tools share a
+`brain-docs` key (write + reindex bursts), and `bash` locks the repo-wide
+`repo-git` key ONLY when the command touches git staging/history or the brain
+CLI's write path (shared `bashLockKey` policy from ui-sdk — the same
+classification the Claude backend uses). Builds, greps, curls and other
+read-shaped bash run lock-free, so parallel sibling tool calls and parallel
+sessions actually run in parallel. Read-class tools never take a lock. The
+permission round-trip happens in the `tool_call` gate **before** any lock.
+Injecting the legacy `writeLock` option restores whole-lock serialization.
 
 ## Curated tools, permissions & risk classes
 
@@ -146,9 +150,18 @@ ecosystem, loaded by default (`loadExtensions: true`):
   so each one raises an approval card — same posture as non-allowlisted MCP
   tools on the Claude backend. Note the brain's own MCP server is redundant
   here (the curated tools above cover it in-process).
+- **`pi-subagents`** — the `subagent` fan-out tool (parallel reviews,
+  research, scoped worker agents), parity with Claude's Agent tool and
+  auto-allowed like it. When the package is installed, the system-prompt
+  brief names the tool and encourages fan-out; without it, the brief tells
+  the model to batch independent tool calls instead (pi executes sibling
+  tool calls concurrently by default). NOTE: a child agent's own tool calls
+  run inside pi's child session with that agent's declared tools, not
+  through this backend's gate — delegation itself is the reviewed act.
 
 Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter`); the brain-ui container does this on boot.
+npm:pi-mcp-adapter npm:pi-subagents`); the brain-ui container does this on
+boot.
 
 ## Event mapping (pi → wire protocol)
 

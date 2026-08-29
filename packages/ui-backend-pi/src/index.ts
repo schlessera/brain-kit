@@ -29,8 +29,14 @@ export type {
 export { createBrainAccess } from "./brain-access.js";
 export type { BrainAccess } from "./brain-access.js";
 
-export { createBrainTools, TOOL_RISK, DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
-export type { RiskClass, BrainToolDeps } from "./tools.js";
+export {
+  createBrainTools,
+  TOOL_RISK,
+  DEFAULT_PI_ALLOWED_TOOLS,
+  toolLockFromKeyed,
+  toolLockFromWriteLock,
+} from "./tools.js";
+export type { RiskClass, BrainToolDeps, ToolLock } from "./tools.js";
 
 export { createPermissionGate, approvalReason } from "./permission-gate.js";
 export type { PermissionGateOptions } from "./permission-gate.js";

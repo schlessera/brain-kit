@@ -29,8 +29,13 @@ import { dirname, extname } from "path";
 import { Type } from "typebox";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AskUserQuestion, WriteLock } from "@schlessera/brain-ui-sdk/server";
-import { reverseGeocode, rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
+import type { AskUserQuestion, KeyedLock, WriteLock } from "@schlessera/brain-ui-sdk/server";
+import {
+  bashLockKey,
+  BRAIN_LOCK_KEY,
+  reverseGeocode,
+  rtkRewriteCommand,
+} from "@schlessera/brain-ui-sdk/server";
 
 import { resolveEnv } from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
@@ -52,15 +57,50 @@ function clip(text: string, max = MAX_OUTPUT_BYTES): string {
   return text.slice(0, max) + `\n… [truncated ${text.length - max} bytes]`;
 }
 
+/**
+ * The serialization seam the tools run their mutating bodies through. `key`
+ * partitions contention (see ui-sdk's lock-keys); null means "no contention
+ * class — run immediately". One instance is shared by every per-session
+ * toolset (see backend.ts).
+ */
+export interface ToolLock {
+  withKey<T>(key: string | null, fn: () => Promise<T> | T): Promise<T>;
+}
+
+/**
+ * Keyed partitioning (the default): same-key calls serialize FIFO, different
+ * keys — and key-less calls — run concurrently. This is what lets parallel
+ * sibling tool calls actually BE parallel.
+ */
+export function toolLockFromKeyed(keyed: KeyedLock): ToolLock {
+  return {
+    withKey(key, fn) {
+      return key === null ? Promise.resolve(fn()) : keyed.withLock(key, fn);
+    },
+  };
+}
+
+/**
+ * Legacy whole-lock semantics for an injected WriteLock: EVERY mutating body
+ * serializes on the one mutex, key or no key — exactly the pre-keyed
+ * behavior a deployment sharing a lock with another writer opted into.
+ */
+export function toolLockFromWriteLock(writeLock: WriteLock): ToolLock {
+  return {
+    withKey(_key, fn) {
+      return writeLock.withLock(fn);
+    },
+  };
+}
+
 export interface BrainToolDeps {
   brain: BrainAccess;
   turn: TurnContext;
   /**
-   * Serializes MUTATING tool executions across all sessions that share this
-   * backend's working tree. Read-class tools never take it. One lock instance
-   * is shared by every per-session toolset (see backend.ts).
+   * Serializes MUTATING tool executions that contend on the same resource
+   * across all sessions of this backend. Read-class tools never take it.
    */
-  writeLock: WriteLock;
+  lock: ToolLock;
   /**
    * Which bridge-backed tools to register, mirroring the host's
    * BackendBridge capability surface. Absent = ask_user only (it degrades at
@@ -130,13 +170,19 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // auto-allowed WebSearch/WebFetch.
   "web_search",
   "fetch_content",
+  // pi-subagents (recommended fan-out extension) — parity with Claude's
+  // auto-allowed Agent tool. NOTE: a child agent's own tool calls run inside
+  // pi's child session with that agent's declared tools, NOT through this
+  // backend's gate — same trust domain as Claude's subagents, minus the
+  // bash confirm patterns. Delegation itself is the reviewed act.
+  "subagent",
 ];
 
 /** Name of pi's tappable-choice tool — also stated in the agent surface brief. */
 export const PI_ASK_USER_TOOL_NAME = "ask_user";
 
 export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
-  const { brain, turn, writeLock, capabilities } = deps;
+  const { brain, turn, lock, capabilities } = deps;
 
   const resolveOrThrow = (rel: string): string => {
     const abs = brain.resolveInRepo(rel);
@@ -254,11 +300,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       content: Type.String({ description: "Full file contents to write." }),
     }),
     async execute(_id: string, params: { path: string; content: string }) {
-      // The mutation runs under the shared write lock so concurrent sessions
-      // never interleave writes in the same working tree. Approval (when the
-      // gate requires one) already happened in the tool_call event.
-      return writeLock.withLock(() => {
-        const abs = resolveOrThrow(params.path);
+      // Per-path lock: writes to the same file serialize, different files run
+      // in parallel. Approval (when the gate requires one) already happened
+      // in the tool_call event.
+      const abs = resolveOrThrow(params.path);
+      return lock.withKey(`path:${abs}`, () => {
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, params.content, "utf-8");
         return textResult(`Wrote ${params.content.length} bytes to ${params.path}.`, {
@@ -282,9 +328,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       _id: string,
       params: { path: string; old_string: string; new_string: string }
     ) {
-      // Read-modify-write is atomic under the shared write lock.
-      return writeLock.withLock(() => {
-        const abs = resolveOrThrow(params.path);
+      // Read-modify-write is atomic under the file's own lock key.
+      const abs = resolveOrThrow(params.path);
+      return lock.withKey(`path:${abs}`, () => {
         const raw = readFileSync(abs, "utf-8");
         const occurrences = raw.split(params.old_string).length - 1;
         if (occurrences === 0) throw new Error(`old_string not found in ${params.path}.`);
@@ -315,9 +361,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
       const cmd = await rtkRewriteCommand(params.command);
-      // A shell command may touch git/index/hooks, so the whole execution runs
-      // under the shared write lock — cross-session bash is serialized.
-      return writeLock.withLock(async () => {
+      // Only commands that touch git staging/history or the brain CLI's
+      // write path take a lock (shared bashLockKey policy) — builds, greps,
+      // curls and other reads run in parallel, across sessions and across
+      // sibling tool calls in one message.
+      return lock.withKey(bashLockKey(params.command), async () => {
         const proc = spawn(["bash", "-lc", cmd], {
           cwd: brain.root,
           stdout: "pipe",
@@ -356,8 +404,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       _id: string,
       params: { content: string; type?: string; title?: string; tags?: string[] }
     ) {
-      // brain.add writes a markdown file and reindexes — serialize under the lock.
-      return writeLock.withLock(async () => {
+      // brain.add writes a markdown file and reindexes — brain-docs key.
+      return lock.withKey(BRAIN_LOCK_KEY, async () => {
         const outcome = await brain.add({
           content: params.content,
           type: params.type,
@@ -503,8 +551,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
           `Invalid relevance "${params.relevance}" — use primary, secondary, or historical.`
         );
       }
-      // Write + reindex — serialize under the shared lock like the other writers.
-      return writeLock.withLock(async () => {
+      // Write + reindex — brain-docs key, like the other document writers.
+      return lock.withKey(BRAIN_LOCK_KEY, async () => {
         const outcome = await brain.update({
           path: params.path,
           summary: params.summary,
@@ -532,7 +580,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       dry_run: Type.Optional(Type.Boolean({ description: "Preview without changing anything." })),
     }),
     async execute(_id: string, params: { path: string; dry_run?: boolean }) {
-      return writeLock.withLock(async () => {
+      return lock.withKey(BRAIN_LOCK_KEY, async () => {
         const outcome = await brain.archive(params.path, params.dry_run ?? false);
         return textResult(JSON.stringify(outcome, null, 2), outcome);
       });

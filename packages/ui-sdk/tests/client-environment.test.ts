@@ -102,6 +102,34 @@ describe("clientEnvironmentSchema", () => {
   });
 });
 
+describe("buildSystemPromptAppend — execution brief", () => {
+  test("default keeps the Claude backend's per-turn-process fan-out text", () => {
+    const out = buildSystemPromptAppend();
+    expect(out).toContain("Each turn is its own process");
+    expect(out).toContain("reruns Agent calls");
+    expect(out).not.toContain("run concurrently.** Batch");
+  });
+
+  test("pi shape: parallel batching, no phantom subagents", () => {
+    const out = buildSystemPromptAppend({
+      execution: { perTurnProcess: false, parallelToolCalls: true, subagentTool: false },
+    });
+    expect(out).toContain("Independent tool calls in one message run concurrently");
+    expect(out).not.toContain("Each turn is its own process");
+    expect(out).not.toContain("subagent");
+    expect(out).not.toContain("Agent calls");
+  });
+
+  test("pi shape with pi-subagents installed names the subagent tool", () => {
+    const out = buildSystemPromptAppend({
+      execution: { perTurnProcess: false, parallelToolCalls: true, subagentTool: "subagent" },
+    });
+    expect(out).toContain("Fan out with `subagent`");
+    expect(out).toContain("run concurrently");
+    expect(out).not.toContain("Each turn is its own process");
+  });
+});
+
 describe("buildSystemPromptAppend", () => {
   /** The sentence a capability lands in, so has/lacks can't be swapped silently. */
   function partition(out: string) {
