@@ -33,7 +33,7 @@ import {
   BackendBusyError,
   BackendRequestError,
   compileConfirmPatterns,
-  createWriteLock,
+  createKeyedLock,
   DEFAULT_CONFIRM_BASH_PATTERNS,
   type AgentBackend,
   type BackendBridge,
@@ -61,6 +61,9 @@ import {
   createBrainTools,
   DEFAULT_PI_ALLOWED_TOOLS,
   PI_ASK_USER_TOOL_NAME,
+  toolLockFromKeyed,
+  toolLockFromWriteLock,
+  type ToolLock,
 } from "./tools.js";
 import { listPiSessions, getPiHistory } from "./history.js";
 
@@ -181,10 +184,12 @@ export interface CreatePiBackendOptions {
    */
   allowedTools?: readonly string[];
   /**
-   * Serializes mutating tool executions across all this backend's sessions so
-   * concurrent agents never interleave writes/git ops in the shared working
-   * tree. Defaults to a fresh in-process lock; inject one to share a lock with
-   * another writer in the same process.
+   * LEGACY whole-lock opt-in: when injected, EVERY mutating tool execution
+   * serializes on this one mutex (the pre-0.27 behavior — for sharing a lock
+   * with another in-process writer). Absent (the default), mutations
+   * serialize per contention key instead: git staging/history commands
+   * repo-wide, brain document writes together, file writes per path — and
+   * everything else (builds, greps, curls) runs in parallel.
    */
   writeLock?: WriteLock;
   /** Where this backend reports degradations. Absent means silence. */
@@ -260,9 +265,15 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   );
 
   // Shared across all sessions: read paths are parallel-safe (per-call handles,
-  // busy_timeout on the write path) and the write lock is what serializes mutations.
+  // busy_timeout on the write path); mutations serialize per contention key
+  // (git staging, brain-docs reindex, per-file writes) so independent work —
+  // including parallel sibling tool calls in one assistant message — actually
+  // runs in parallel. An injected legacy WriteLock opts back into whole-lock
+  // serialization (a deployment sharing one mutex with another writer).
   const brain = createBrainAccess(brainPath);
-  const writeLock = options.writeLock ?? createWriteLock();
+  const lock: ToolLock = options.writeLock
+    ? toolLockFromWriteLock(options.writeLock)
+    : toolLockFromKeyed(createKeyedLock());
 
   // Resident sessions, keyed by pi sessionId. Insertion order is the LRU order:
   // reused sessions are re-inserted at the tail (touch), eviction drops the head.
@@ -284,7 +295,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
    * baked at SESSION construction, from the session-opening turn's client —
    * a later device change applies from the next new/reopened session.
    */
-  function buildAppend(env: SessionEnv): string {
+  function buildAppend(env: SessionEnv, subagentTool: string | false): string {
     return (
       options.systemPromptAppend ??
       buildSystemPromptAppend({
@@ -298,8 +309,38 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
           activity: env.caps.activity && "query_activity",
           mask: env.caps.mask && "request_image_mask",
         },
+        // How THIS backend executes: sessions persist in-process (no
+        // per-turn subprocess), sibling tool calls run concurrently, and the
+        // fan-out tool exists only when the pi-subagents package is
+        // installed — naming a missing tool would send the model after it.
+        execution: {
+          perTurnProcess: false,
+          parallelToolCalls: true,
+          subagentTool,
+        },
       })
     );
+  }
+
+  /**
+   * Whether the pi-subagents package is installed (global or project scope),
+   * read from the same settings the extension loader consults. Presence in
+   * the package list is the honest signal available at session build; a
+   * package that is installed but fails to load simply leaves the model with
+   * a named tool that errors — the same failure mode any extension has.
+   */
+  function hasSubagentsPackage(settingsManager: SettingsManager): boolean {
+    try {
+      const settings = settingsManager.getGlobalSettings() as {
+        packages?: Array<string | { source?: string }>;
+      };
+      const sources = (settings.packages ?? []).map((p) =>
+        typeof p === "string" ? p : (p.source ?? "")
+      );
+      return sources.some((src) => src.includes("pi-subagents"));
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -336,7 +377,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     const tools = createBrainTools({
       brain,
       turn: turnContext,
-      writeLock,
+      lock,
       capabilities: { location: caps.location, activity: caps.activity, mask: caps.mask },
     });
     return { tools, turnContext };
@@ -359,7 +400,9 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   ): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
     const agentDir = getAgentDir();
     const settingsManager = SettingsManager.create(brainPath, agentDir);
-    const append = buildAppend(env);
+    const subagentTool =
+      loadExtensions && hasSubagentsPackage(settingsManager) ? "subagent" : false;
+    const append = buildAppend(env, subagentTool);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,

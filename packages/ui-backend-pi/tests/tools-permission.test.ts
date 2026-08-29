@@ -5,13 +5,13 @@ import { join } from "path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   compileConfirmPatterns,
-  createWriteLock,
+  createKeyedLock,
   DEFAULT_CONFIRM_BASH_PATTERNS,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { approvalReason, createPermissionGate } from "../src/permission-gate";
-import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK } from "../src/tools";
+import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK, toolLockFromKeyed } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
 import { makeEmptyBrain, makeIndexedBrain, resultText } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
@@ -161,7 +161,7 @@ describe("curated tools execute without in-tool gating", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "should not ask" } });
       turn.bridge = mock.bridge;
@@ -179,7 +179,7 @@ describe("curated tools execute without in-tool gating", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "should not ask" } });
       turn.bridge = mock.bridge;
@@ -197,7 +197,7 @@ describe("curated tools execute without in-tool gating", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       turn.bridge = makeMockBridge().bridge; // no askUser
 
@@ -231,7 +231,7 @@ describe("brain document tools", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const read = await tools.brain_read.execute("r1", { path: "notes/alpha.md" }, undefined, undefined, CTX);
       expect(resultText(read)).toContain("Links to [[beta]]");
@@ -250,7 +250,7 @@ describe("brain document tools", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const res = await tools.brain_graph.execute(
         "g1",
@@ -271,7 +271,7 @@ describe("brain document tools", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const res = await tools.brain_update.execute(
         "u1",
@@ -296,7 +296,7 @@ describe("brain document tools", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       const dry = await tools.brain_archive.execute(
         "a1",
@@ -329,7 +329,7 @@ describe("bridge-capability tool registration", () => {
     try {
       const turn = createTurnContext();
       const base = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       expect(base.get_current_location).toBeUndefined();
       expect(base.query_activity).toBeUndefined();
@@ -339,7 +339,7 @@ describe("bridge-capability tool registration", () => {
         createBrainTools({
           brain: createBrainAccess(brain.root),
           turn,
-          writeLock: createWriteLock(),
+          lock: toolLockFromKeyed(createKeyedLock()),
           capabilities: { location: true, activity: true, mask: true },
         })
       );
@@ -358,7 +358,7 @@ describe("bridge-capability tool registration", () => {
       const tools = createBrainTools({
         brain: createBrainAccess(brain.root),
         turn,
-        writeLock: createWriteLock(),
+        lock: toolLockFromKeyed(createKeyedLock()),
         capabilities: { location: true, activity: true, mask: true },
       });
       for (const t of tools) {
@@ -380,7 +380,7 @@ describe("path containment", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       turn.bridge = makeMockBridge({ decision: { behavior: "allow" } }).bridge;
 
@@ -397,7 +397,7 @@ describe("path containment", () => {
     try {
       const turn = createTurnContext();
       const tools = toolMap(
-        createBrainTools({ brain: createBrainAccess(brain.root), turn, writeLock: createWriteLock() })
+        createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) })
       );
       await expect(
         tools.read_file.execute("e2", { path: "../../etc/passwd" }, undefined, undefined, CTX)

@@ -503,6 +503,7 @@ export "./server" (./src/server/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
   type BackendActivityEvent
   type BackendBridge
@@ -540,6 +541,7 @@ export "./server" (./src/server/index.ts)
   type FileResolveResponse
   type FileTreeResponse
   type FollowUpRequest
+  GIT_LOCK_KEY
   type GeoCoords
   type GeoRequestOptions
   type GraphBrokenLink
@@ -633,6 +635,7 @@ export "./server" (./src/server/index.ts)
   type WikilinkMapResponse
   type WriteLock
   bashCommand
+  bashLockKey
   buildSystemPromptAppend
   canonicalModelId
   compileConfirmPatterns

@@ -79,32 +79,74 @@ UI. Anything you write to /tmp or elsewhere is invisible to the reader.
  * locks. Costed one 48-country research fan-out (23 dead background agents,
  * three false "the user refused" stops) before it was written down.
  */
-function turnLifecycleSection(turnBudgetMs?: number): string {
+export interface ExecutionBrief {
+  /**
+   * Name of the fan-out/delegation tool, or false when this backend has
+   * none. Default "Agent" (the Claude backend's tool) preserves the
+   * historical text; a backend without one must pass false — naming a tool
+   * the model cannot call is worse than saying nothing.
+   */
+  subagentTool?: string | false;
+  /**
+   * True when each turn runs as its own PROCESS whose background children
+   * die at turn end (the Claude backend). False for an in-process backend
+   * whose sessions persist across turns. Default true.
+   */
+  perTurnProcess?: boolean;
+  /**
+   * True when sibling tool calls in one assistant message execute
+   * concurrently and the model should be told to batch independent calls.
+   * Default false (the Claude backend's harness decides this itself).
+   */
+  parallelToolCalls?: boolean;
+}
+
+function turnLifecycleSection(turnBudgetMs?: number, execution?: ExecutionBrief): string {
   const budget =
     turnBudgetMs && turnBudgetMs > 0
       ? `about ${Math.round(turnBudgetMs / 60000)} minutes`
       : "a fixed number of minutes";
+  const subagentTool = execution?.subagentTool ?? "Agent";
+  const perTurnProcess = execution?.perTurnProcess ?? true;
+  const lines: string[] = [];
+
+  if (perTurnProcess && subagentTool) {
+    lines.push(`- **Each turn is its own process; everything it started dies with it.** A
+  background subagent cannot outlive the turn, so the host reruns ${subagentTool} calls
+  in the foreground. Fan out with foreground subagents and collect their
+  results before the turn ends.`);
+  } else if (subagentTool) {
+    lines.push(`- **Fan out with \`${subagentTool}\` for independent workstreams** — parallel
+  reviews, research alongside implementation, multiple audits. Foreground
+  runs return results within this turn; collect them before summarizing.`);
+  }
+  if (execution?.parallelToolCalls) {
+    lines.push(`- **Independent tool calls in one message run concurrently.** Batch your
+  reads — searches, file reads, web fetches — into a single message instead
+  of issuing them one at a time. Same-file writes and git commands still
+  serialize safely, so batching is never unsafe.`);
+  }
+  const incremental = subagentTool
+    ? "have subagents write results\n  incrementally (one file per finding), never batched at the end"
+    : "write intermediate results to\n  files as you go, never batched at the end";
+  lines.push(`- **This turn has a hard budget of ${budget}** — the host cancels it at the
+  cap, mid-flight work included. Size batches to finish inside it, prefer
+  several small turns over one big one, and ${incremental}.`);
+  lines.push(`- **A tool error is not always a human refusal.** "The user doesn't want to
+  take this action", "hook did not respond before its timeout" or "lock busy"
+  usually mean a cancelled turn or a busy write lock — especially in context
+  from an earlier turn that hit the budget. Retry once before concluding the
+  user said no.`);
+  lines.push(`- **Sessions run in parallel against one repo.** Writes to the same file
+  serialize, and git staging/history commands serialize repo-wide. A "lock
+  busy — retry" denial means exactly that: the identical call is fine a
+  moment later.`);
+
   return `
 
 # Turn lifecycle
 
-- **Each turn is its own process; everything it started dies with it.** A
-  background subagent cannot outlive the turn, so the host reruns Agent calls
-  in the foreground. Fan out with foreground subagents and collect their
-  results before the turn ends.
-- **This turn has a hard budget of ${budget}** — the host cancels it at the
-  cap, mid-flight work included. Size batches to finish inside it, prefer
-  several small turns over one big one, and have subagents write results
-  incrementally (one file per finding), never batched at the end.
-- **A tool error is not always a human refusal.** "The user doesn't want to
-  take this action", "hook did not respond before its timeout" or "lock busy"
-  usually mean a cancelled turn or a busy write lock — especially in context
-  from an earlier turn that hit the budget. Retry once before concluding the
-  user said no.
-- **Sessions run in parallel against one repo.** Writes to the same file
-  serialize, and git staging/history commands serialize repo-wide. A "lock
-  busy — retry" denial means exactly that: the identical call is fine a
-  moment later.`;
+${lines.join("\n")}`;
 }
 
 /**
@@ -242,10 +284,12 @@ export function buildSystemPromptAppend(
      * number.
      */
     turnBudgetMs?: number;
+    /** How this backend executes work — see {@link ExecutionBrief}. */
+    execution?: ExecutionBrief;
   } = {}
 ): string {
   const device = opts.client ? describeClient(opts.client) : UNKNOWN_DEVICE;
-  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs)}${toolSection(opts.tools ?? {})}
+  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs, opts.execution)}${toolSection(opts.tools ?? {})}
 
 # Who is reading
 

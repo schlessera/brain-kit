@@ -26,6 +26,8 @@ import {
   BackendRequestError,
   bashCommand,
   buildSystemPromptAppend,
+  bashLockKey,
+  BRAIN_LOCK_KEY,
   compileConfirmPatterns,
   createKeyedLock,
   DEFAULT_CONFIRM_BASH_PATTERNS,
@@ -146,25 +148,9 @@ const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
  * writers in the same repo. A false positive merely over-serializes one
  * command.
  */
-export const GIT_LOCK_KEY = "repo-git";
-export const BRAIN_LOCK_KEY = "brain-docs";
-
-/**
- * Git verbs that mutate the staging area, the working tree, or history.
- * Deliberately absent: status/log/diff/show/blame/branch/fetch and every
- * other read, so ordinary inspection never serializes. `[^\n|;&]{0,120}?`
- * keeps the match inside one pipeline segment (a `git` before a pipe cannot
- * claim a verb after it) while tolerating `-C <dir>` / `--no-pager` style
- * options between the word `git` and its verb.
- */
-const GIT_BASH_PATTERN =
-  /\bgit\b[^\n|;&]{0,120}?\b(add|commit|rm|mv|restore|rebase|merge|cherry-pick|revert|reset|checkout|switch|stash|apply|am|pull|push|clean|worktree)\b/;
-
-/** brain CLI commands that drive git under the hood (sync commits/pushes). */
-const GIT_BRAIN_CLI_PATTERN = /\bbrain\s+(sync|import)\b/;
-
-/** brain CLI commands that write a document and reindex, like the MCP tools. */
-const BRAIN_CLI_PATTERN = /\bbrain\s+(add|update|archive)\b/;
+// The key constants and the bash classification live in ui-sdk/server
+// (shared with the pi backend's tools); re-exported here for compatibility.
+export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 
 const BRAIN_DOC_TOOLS = new Set([
   `${BRAIN_MCP_PREFIX}brain_add`,
@@ -193,11 +179,7 @@ export function lockKeyForTool(
   if (toolName === "Bash") {
     const command = bashCommand(input);
     if (!command) return null;
-    if (GIT_BASH_PATTERN.test(command) || GIT_BRAIN_CLI_PATTERN.test(command)) {
-      return GIT_LOCK_KEY;
-    }
-    if (BRAIN_CLI_PATTERN.test(command)) return BRAIN_LOCK_KEY;
-    return null;
+    return bashLockKey(command);
   }
   if (BRAIN_DOC_TOOLS.has(toolName)) return BRAIN_LOCK_KEY;
   if (toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit") {

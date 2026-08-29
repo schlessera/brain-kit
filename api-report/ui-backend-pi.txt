@@ -28,6 +28,7 @@ export "." (./src/index.ts)
   type RiskClass
   type SessionToolkit
   TOOL_RISK
+  type ToolLock
   type TurnContext
   approvalReason
   createBrainAccess
@@ -44,5 +45,7 @@ export "." (./src/index.ts)
   normalizeMessages
   readEnvVar
   resolveEnv
+  toolLockFromKeyed
+  toolLockFromWriteLock
 
 export "./package.json" (./package.json) [asset]

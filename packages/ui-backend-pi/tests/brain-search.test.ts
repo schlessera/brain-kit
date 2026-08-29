@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createWriteLock } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
-import { createBrainTools } from "../src/tools";
+import { createBrainTools, toolLockFromKeyed } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
 import { makeIndexedBrain, resultText, type TempBrain } from "./helpers";
 
@@ -25,7 +25,7 @@ function tools(): Record<string, ToolDefinition> {
   const list = createBrainTools({
     brain: createBrainAccess(brain.root),
     turn,
-    writeLock: createWriteLock(),
+    lock: toolLockFromKeyed(createKeyedLock()),
   });
   return Object.fromEntries(list.map((t) => [t.name, t]));
 }
@@ -90,7 +90,7 @@ describe("brain_add wrapper", () => {
     const list = createBrainTools({
       brain: createBrainAccess(brain.root),
       turn,
-      writeLock: createWriteLock(),
+      lock: toolLockFromKeyed(createKeyedLock()),
     });
     const brainAdd = list.find((t) => t.name === "brain_add")!;
     const res = await brainAdd.execute(
