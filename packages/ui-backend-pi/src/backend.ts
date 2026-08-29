@@ -366,6 +366,11 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     // continuing would run the turn on a different model — and possibly a
     // different provider and billing — under the session's pinned identity.
     if (modelFallbackMessage) {
+      try {
+        session.dispose();
+      } catch {
+        // Best-effort: the rejection below is the primary signal.
+      }
       throw new BackendRequestError(
         `Cannot resume on the session's saved model: ${modelFallbackMessage} ` +
           "Restore the credential (e.g. `pi login`) or start a new conversation."

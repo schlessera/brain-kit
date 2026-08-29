@@ -66,6 +66,15 @@ describe("assertBackendResolvable", () => {
     expect(() => assertBackendResolvable(withPiProfiles)).not.toThrow();
   });
 
+  test("a malformed BRAIN_UI_PI_PROFILES refuses at boot, not on first request", () => {
+    const malformed = resolveServerConfig({
+      BRAIN_UI_PI_PROFILES: "not json",
+    }).agent;
+    expect(() => assertBackendResolvable(malformed)).toThrow(
+      "BRAIN_UI_PI_PROFILES is not valid JSON"
+    );
+  });
+
   test("an unrecognized AGENT_BACKEND refuses without touching the resolver", () => {
     const touched: string[] = [];
     expect(() =>

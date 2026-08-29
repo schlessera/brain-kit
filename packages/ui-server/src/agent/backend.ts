@@ -378,6 +378,94 @@ export async function loadBackendModule(
   }
 }
 
+/**
+ * Parse + validate the pi roster from BRAIN_UI_PI_PROFILES (a JSON array of
+ * {id,label,vendor,model,thinkingLevel?}). Malformed input THROWS rather than
+ * silently dropping the roster; `assertBackendResolvable` runs this at boot so
+ * a bad config refuses to start instead of reporting healthy and 500ing later.
+ *
+ * Ids Claude's side of the picker uses or can mint later ("default",
+ * "claude", "claude-*" — discovery canonicalizes every Anthropic model to a
+ * claude-* alias) are rejected, as is any collision with an id declared in
+ * BRAIN_UI_CLAUDE_PROFILES — a cross-backend collision otherwise surfaces as
+ * a 500 on first request. Claude's own JSON is parsed leniently here: when it
+ * is malformed, the Claude loader raises its own (more precise) boot error.
+ */
+export function parsePiProfiles(
+  raw: string | null,
+  claudeProfilesRaw?: string | null
+): PiProfileInput[] {
+  if (!raw) return [];
+
+  let inputs: unknown;
+  try {
+    inputs = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `BRAIN_UI_PI_PROFILES is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  if (!Array.isArray(inputs)) {
+    throw new Error("BRAIN_UI_PI_PROFILES must be a JSON array.");
+  }
+
+  const claudeIds = new Set<string>();
+  if (claudeProfilesRaw) {
+    try {
+      const claudeInputs = JSON.parse(claudeProfilesRaw);
+      if (Array.isArray(claudeInputs)) {
+        for (const entry of claudeInputs) {
+          if (entry && typeof entry.id === "string") claudeIds.add(entry.id);
+        }
+      }
+    } catch {
+      // Malformed Claude JSON is the Claude loader's error to raise.
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const input of inputs as PiProfileInput[]) {
+    if (!input || typeof input !== "object") {
+      throw new Error("Each BRAIN_UI_PI_PROFILES entry must be an object.");
+    }
+    for (const field of ["id", "label", "vendor", "model"] as const) {
+      if (typeof input[field] !== "string" || input[field].length === 0) {
+        throw new Error(
+          `Each BRAIN_UI_PI_PROFILES entry needs a non-empty string ${field}.`
+        );
+      }
+    }
+    if (input.id === "default" || /^claude(-|$)/.test(input.id)) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES id "${input.id}" is reserved for the Claude ` +
+          "roster (built-in default and discovered claude-* aliases)."
+      );
+    }
+    if (claudeIds.has(input.id)) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES id "${input.id}" collides with a ` +
+          "BRAIN_UI_CLAUDE_PROFILES entry."
+      );
+    }
+    if (seen.has(input.id)) {
+      throw new Error(`Duplicate profile id in BRAIN_UI_PI_PROFILES: "${input.id}".`);
+    }
+    seen.add(input.id);
+    if (
+      input.thinkingLevel !== undefined &&
+      !PI_THINKING_LEVELS.includes(input.thinkingLevel)
+    ) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES entry "${input.id}" has invalid thinkingLevel ` +
+          `"${input.thinkingLevel}" (expected one of ${PI_THINKING_LEVELS.join(", ")}).`
+      );
+    }
+  }
+  return inputs as PiProfileInput[];
+}
+
 export function assertBackendResolvable(
   agent: AgentConfig,
   resolve: (specifier: string) => void = (specifier) => {
@@ -405,6 +493,10 @@ export function assertBackendResolvable(
       );
     }
   }
+  // Validate the pi roster itself at boot too — the registry is built lazily,
+  // so without this a malformed BRAIN_UI_PI_PROFILES would still report a
+  // healthy startup and only fail on first request.
+  parsePiProfiles(agent.piProfilesJson, agent.profilesJson);
 }
 
 export function createBackendRegistry(
@@ -557,67 +649,6 @@ export function createBackendRegistry(
     return [...base, ...claude.defineProfiles(declared)];
   }
 
-  /**
-   * The pi roster from BRAIN_UI_PI_PROFILES (a JSON array of
-   * {id,label,vendor,model,thinkingLevel?}). Malformed input THROWS — caught
-   * at boot by the registry fail-fast — rather than silently dropping the
-   * roster. Ids that Claude's side of the picker uses or can mint later
-   * ("default", "claude", "claude-*" — discovery canonicalizes every
-   * Anthropic model to a claude-* alias) are rejected here at boot, because
-   * a cross-backend collision otherwise surfaces as a 500 on first request.
-   */
-  function loadPiProfiles(): PiProfileInput[] {
-    const raw = agent.piProfilesJson;
-    if (!raw) return [];
-
-    let inputs: unknown;
-    try {
-      inputs = JSON.parse(raw);
-    } catch (err) {
-      throw new Error(
-        `BRAIN_UI_PI_PROFILES is not valid JSON: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
-    }
-    if (!Array.isArray(inputs)) {
-      throw new Error("BRAIN_UI_PI_PROFILES must be a JSON array.");
-    }
-
-    const seen = new Set<string>();
-    for (const input of inputs as PiProfileInput[]) {
-      if (!input || typeof input !== "object") {
-        throw new Error("Each BRAIN_UI_PI_PROFILES entry must be an object.");
-      }
-      for (const field of ["id", "label", "vendor", "model"] as const) {
-        if (typeof input[field] !== "string" || input[field].length === 0) {
-          throw new Error(
-            `Each BRAIN_UI_PI_PROFILES entry needs a non-empty string ${field}.`
-          );
-        }
-      }
-      if (input.id === "default" || /^claude(-|$)/.test(input.id)) {
-        throw new Error(
-          `BRAIN_UI_PI_PROFILES id "${input.id}" is reserved for the Claude ` +
-            "roster (built-in default and discovered claude-* aliases)."
-        );
-      }
-      if (seen.has(input.id)) {
-        throw new Error(`Duplicate profile id in BRAIN_UI_PI_PROFILES: "${input.id}".`);
-      }
-      seen.add(input.id);
-      if (
-        input.thinkingLevel !== undefined &&
-        !PI_THINKING_LEVELS.includes(input.thinkingLevel)
-      ) {
-        throw new Error(
-          `BRAIN_UI_PI_PROFILES entry "${input.id}" has invalid thinkingLevel ` +
-            `"${input.thinkingLevel}" (expected one of ${PI_THINKING_LEVELS.join(", ")}).`
-        );
-      }
-    }
-    return inputs as PiProfileInput[];
-  }
 
   /**
    * NEITHER backend package is a hard dependency — a deployment installs the
@@ -675,9 +706,9 @@ export function createBackendRegistry(
         '"@schlessera/brain-backend-pi" does not export createPiBackend.'
       );
     }
-    // Parsed EAGERLY so a malformed BRAIN_UI_PI_PROFILES fails at boot rather
-    // than on first request (same guarantee loadClaudeProfiles gives).
-    const profiles = loadPiProfiles();
+    // Re-parsed here (assertBackendResolvable already validated at boot) so an
+    // injected-registry path without the boot assert still fails loudly.
+    const profiles = parsePiProfiles(agent.piProfilesJson, agent.profilesJson);
     return mod.createPiBackend({
       brainPath,
       ...(profiles.length > 0 ? { profiles } : {}),

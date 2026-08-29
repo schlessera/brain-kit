@@ -154,6 +154,19 @@ describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
     }
   });
 
+  test("a collision with a declared Claude profile id is rejected at boot", async () => {
+    await expect(
+      registryFor({
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          { id: "fast", label: "Fast (Anthropic)" },
+        ]),
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          { id: "fast", label: "Fast (OpenAI)", vendor: "openai-codex", model: "gpt-5.5" },
+        ]),
+      }).getBackends()
+    ).rejects.toThrow('collides with a BRAIN_UI_CLAUDE_PROFILES entry');
+  });
+
   test("an invalid thinkingLevel is rejected at boot", async () => {
     await expect(
       registryFor({
