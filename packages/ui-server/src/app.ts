@@ -34,7 +34,12 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
-import { getBillingOverrides, getHiddenModelIds } from "./db/settings.js";
+import {
+  getBillingOverrides,
+  getCustomOpenRouterModels,
+  getDefaultModelId,
+  getHiddenModelIds,
+} from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
@@ -200,6 +205,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
+      getDefaultModelId: () => getDefaultModelId(db, dbLog),
+      getCustomOpenRouterModels: () => getCustomOpenRouterModels(db, dbLog),
       getBillingOverrides: () => getBillingOverrides(db, dbLog),
       log: observability.logger("agent"),
     });

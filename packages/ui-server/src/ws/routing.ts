@@ -33,6 +33,15 @@ export async function resolveTurnTarget(
     }
   }
 
+  // No explicit choice (fresh client, share, host-initiated action): the
+  // preferred default — the Settings-stored default model, else a connected
+  // subscription-auth profile — before the default backend's own first profile.
+  const preferred = await registry.getPreferredProfileId();
+  if (preferred) {
+    const backend = await registry.getBackendForProfile(preferred);
+    if (backend) return { backend, profileId: preferred };
+  }
+
   const backend = await registry.getDefaultBackend();
   const profileId = (await backend.listProfiles())[0]?.id;
   return { backend, ...(profileId ? { profileId } : {}) };

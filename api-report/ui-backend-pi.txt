@@ -32,6 +32,7 @@ export "." (./src/index.ts)
   createPiBackend
   createTurnContext
   getPiHistory
+  hasStoredCredential
   listPiSessions
   mapPiEvent
   normalizeMessages

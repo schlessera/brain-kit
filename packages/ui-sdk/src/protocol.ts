@@ -516,6 +516,12 @@ export interface ModelCatalogEntry extends ProviderInfo {
 export interface ModelCatalogResponse {
   /** Every known profile, hidden ones included (each tagged). */
   models: ModelCatalogEntry[];
+  /** Stored default-model choice; null = auto. */
+  defaultModelId?: string | null;
+  /** What the default currently RESOLVES to (stored choice or the auto rule). */
+  resolvedDefaultId?: string;
+  /** User-managed OpenRouter model ids (Settings → Models). */
+  customModels?: string[];
   /** When discovery last succeeded; null when it never has. */
   refreshedAt: number | null;
   /** The cached discovery result is older than the TTL. */
@@ -538,6 +544,16 @@ export interface SetHiddenModelsRequest {
  */
 export interface SetBillingOverridesRequest {
   billing: Record<string, BillingMode>;
+}
+
+/** Body of PUT /api/models/default — a profile id, or null for auto. */
+export interface SetDefaultModelRequest {
+  defaultId: string | null;
+}
+
+/** Body of PUT /api/models/custom — the complete OpenRouter list, not a delta. */
+export interface SetCustomModelsRequest {
+  models: string[];
 }
 
 /**

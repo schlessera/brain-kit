@@ -18,8 +18,12 @@ import type { BackendRegistry } from "../agent/backend.js";
 import type { ModelPricingState } from "../pricing/model-pricing.js";
 import {
   getBillingOverrides,
+  getCustomOpenRouterModels,
+  getDefaultModelId,
   getHiddenModelIds,
   setBillingOverrides,
+  setCustomOpenRouterModels,
+  setDefaultModelId,
   setHiddenModelIds,
 } from "../db/settings.js";
 
@@ -49,8 +53,12 @@ export function createModelRoutes(deps: {
   }));
 
   const state = source?.state();
+  const resolvedDefaultId = await registry.getPreferredProfileId();
   return {
     models,
+    defaultModelId: getDefaultModelId(db),
+    ...(resolvedDefaultId ? { resolvedDefaultId } : {}),
+    customModels: getCustomOpenRouterModels(db),
     refreshedAt: state?.refreshedAt ?? null,
     stale: state?.stale ?? false,
     discovery: {
@@ -93,6 +101,78 @@ export function createModelRoutes(deps: {
     setHiddenModelIds(db, hidden as string[]);
     // The picker reads through a memo — drop it so the change is immediate.
     registry.invalidateProfiles();
+    return c.json(await buildCatalog());
+  })
+
+  .put("/models/default", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const defaultId = (body as { defaultId?: unknown } | null)?.defaultId;
+    if (defaultId !== null && typeof defaultId !== "string") {
+      return c.json({ error: "defaultId must be a profile id or null" }, 400);
+    }
+    if (typeof defaultId === "string") {
+      const known = await registry.listAllProviders({ includeHidden: true });
+      if (!known.some((profile) => profile.id === defaultId)) {
+        return c.json({ error: `Unknown profile id: ${defaultId}` }, 400);
+      }
+    }
+
+    setDefaultModelId(db, defaultId);
+    registry.invalidateProfiles();
+    return c.json(await buildCatalog());
+  })
+
+  .put("/models/custom", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const models = (body as { models?: unknown } | null)?.models;
+    if (!Array.isArray(models) || models.some((id) => typeof id !== "string")) {
+      return c.json({ error: "models must be an array of OpenRouter model ids" }, 400);
+    }
+    // OpenRouter ids are "<org>/<model>", org and model from a small safe
+    // charset (e.g. "z.ai/glm-5.3-flash", "openai/gpt-oss-120b:nitro").
+    const ID_SHAPE = /^[A-Za-z0-9][\w.-]*\/[\w.:-]+$/;
+    const bad = (models as string[]).find((id) => !ID_SHAPE.test(id));
+    if (bad !== undefined) {
+      return c.json({ error: `Not an OpenRouter model id: "${bad}"` }, 400);
+    }
+
+    // A generated id ("openrouter:<model>") that collides with a profile
+    // another source owns (a pi profile, a discovered model) must be refused
+    // BEFORE persisting: stored, it would 500 every roster read until the
+    // setting is dug out of the database. An id the CLAUDE env already
+    // declares is fine — the merge dedupes it in the declared entry's favor.
+    const currentCustomIds = new Set(
+      getCustomOpenRouterModels(db).map((model) => `openrouter:${model}`)
+    );
+    const nonCustomIds = new Set(
+      (await registry.listAllProviders({ includeHidden: true }))
+        .filter((profile) => !currentCustomIds.has(profile.id))
+        .map((profile) => profile.id)
+    );
+    const collision = (models as string[])
+      .map((model) => `openrouter:${model}`)
+      .find((id) => nonCustomIds.has(id));
+    if (collision !== undefined) {
+      return c.json(
+        { error: `"${collision}" collides with an existing profile id.` },
+        400
+      );
+    }
+
+    setCustomOpenRouterModels(db, models as string[]);
+    registry.invalidateProfiles();
+
+    // A removal that takes the stored default's profile off the roster would
+    // strand the default on nothing; reset it to auto — but only when the
+    // profile is actually gone (an id the env also declares survives the
+    // removal of its custom duplicate).
+    const currentDefault = getDefaultModelId(db);
+    if (currentDefault) {
+      const roster = await registry.listAllProviders({ includeHidden: true });
+      if (!roster.some((profile) => profile.id === currentDefault)) {
+        setDefaultModelId(db, null);
+      }
+    }
     return c.json(await buildCatalog());
   })
 

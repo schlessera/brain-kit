@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Loader2, RefreshCw, X } from "lucide-react";
 import type {
   BillingMode,
   ModelCatalogEntry,
@@ -132,6 +132,22 @@ export function ModelsTab({ active }: { active: boolean }) {
     );
   }
 
+  async function changeDefault(next: string | null) {
+    if (!catalog) return;
+    await commitCatalog(
+      { ...catalog, defaultModelId: next },
+      () => api.setDefaultModel(next)
+    );
+  }
+
+  async function setCustom(models: string[]) {
+    if (!catalog) return;
+    await commitCatalog(
+      { ...catalog, customModels: models },
+      () => api.setCustomModels(models)
+    );
+  }
+
   async function onRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -160,6 +176,10 @@ export function ModelsTab({ active }: { active: boolean }) {
           The list is read from the provider and refreshes on its own. Hide the
           ones you never pick — running sessions are unaffected.
         </p>
+
+        {catalog && (
+          <DefaultModelSelect catalog={catalog} onChange={changeDefault} />
+        )}
 
         {loading ? (
           <div className="mt-6 flex justify-center">
@@ -202,6 +222,13 @@ export function ModelsTab({ active }: { active: boolean }) {
           </p>
         )}
 
+        {catalog && (
+          <OpenRouterSection
+            models={catalog.customModels ?? []}
+            onChange={setCustom}
+          />
+        )}
+
         <PiAccountsSection active={active} />
       </div>
 
@@ -216,6 +243,129 @@ export function ModelsTab({ active }: { active: boolean }) {
         >
           <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
           Refresh
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The default-model choice: which profile answers when a turn names none —
+ * a fresh device's first conversation, a share filed into the brain, any
+ * host-initiated action. "Auto" prefers a connected subscription account
+ * (e.g. ChatGPT for the gpt profiles) and falls back to the built-in default.
+ */
+function DefaultModelSelect({
+  catalog,
+  onChange,
+}: {
+  catalog: ModelCatalogResponse;
+  onChange: (next: string | null) => void;
+}) {
+  const stored = catalog.defaultModelId ?? null;
+  const byId = new Map(catalog.models.map((model) => [model.id, model]));
+  const resolved = catalog.resolvedDefaultId
+    ? byId.get(catalog.resolvedDefaultId)
+    : undefined;
+  // Offer everything visible, plus a stored default that has since been
+  // hidden (dropping it from the list would silently rewrite the choice).
+  const options = catalog.models.filter(
+    (model) => !model.hidden || model.id === stored
+  );
+  return (
+    <div className="mt-4 flex items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-foreground">Default model</p>
+        <p className="text-[11px] text-muted-foreground">
+          Used for new conversations, shares, and actions that don't pick one.
+        </p>
+      </div>
+      <select
+        value={stored ?? "auto"}
+        onChange={(e) => onChange(e.target.value === "auto" ? null : e.target.value)}
+        aria-label="Default model"
+        className="h-8 max-w-[45%] shrink-0 truncate rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+      >
+        <option value="auto">
+          {!stored && resolved ? `Auto (${resolved.label})` : "Auto"}
+        </option>
+        {options.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * User-managed OpenRouter models: added and removed here by model id, no env
+ * change or redeploy. They appear in the roster above as ordinary profiles
+ * (api-billed via OPENROUTER_API_KEY).
+ */
+function OpenRouterSection({
+  models,
+  onChange,
+}: {
+  models: string[];
+  onChange: (models: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function add() {
+    const id = draft.trim();
+    if (!id || models.includes(id)) return;
+    onChange([...models, id]);
+    setDraft("");
+  }
+
+  return (
+    <div className="mt-6">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        OpenRouter models
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Add any OpenRouter model by its id (needs OPENROUTER_API_KEY on the
+        server). Added models join the list above.
+      </p>
+      {models.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {models.map((model) => (
+            <li
+              key={model}
+              className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-foreground">
+                {model}
+              </span>
+              <button
+                onClick={() => onChange(models.filter((m) => m !== model))}
+                title={`Remove ${model}`}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-raised hover:text-destructive"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") add();
+          }}
+          placeholder="z.ai/glm-5.3-flash"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-border-subtle bg-surface px-2 font-[family-name:var(--font-mono)] text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none"
+        />
+        <button
+          onClick={add}
+          disabled={!draft.trim()}
+          className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+        >
+          Add
         </button>
       </div>
     </div>
