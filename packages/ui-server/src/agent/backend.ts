@@ -97,6 +97,30 @@ export interface ClaudeProfileInput {
   source?: "builtin" | "declared" | "discovered";
 }
 
+/** Reasoning levels pi accepts (mirror of pi-agent-core's `ThinkingLevel`). */
+export const PI_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type PiThinkingLevel = (typeof PI_THINKING_LEVELS)[number];
+
+/** Mirror of the pi package's `PiProfile` (declarative shape). */
+export interface PiProfileInput {
+  id: string;
+  label: string;
+  /** pi provider id, e.g. "openai-codex", "anthropic", "google". */
+  vendor: string;
+  /** pi model id within the vendor, e.g. "gpt-5.6-sol". */
+  model: string;
+  /** Reasoning level for new sessions; pi clamps to the model's capability. */
+  thinkingLevel?: PiThinkingLevel;
+}
+
 /** Mirror of the Claude package's resolved `InferenceProfile`. */
 export interface ClaudeProfile {
   id: string;
@@ -354,6 +378,94 @@ export async function loadBackendModule(
   }
 }
 
+/**
+ * Parse + validate the pi roster from BRAIN_UI_PI_PROFILES (a JSON array of
+ * {id,label,vendor,model,thinkingLevel?}). Malformed input THROWS rather than
+ * silently dropping the roster; `assertBackendResolvable` runs this at boot so
+ * a bad config refuses to start instead of reporting healthy and 500ing later.
+ *
+ * Ids Claude's side of the picker uses or can mint later ("default",
+ * "claude", "claude-*" — discovery canonicalizes every Anthropic model to a
+ * claude-* alias) are rejected, as is any collision with an id declared in
+ * BRAIN_UI_CLAUDE_PROFILES — a cross-backend collision otherwise surfaces as
+ * a 500 on first request. Claude's own JSON is parsed leniently here: when it
+ * is malformed, the Claude loader raises its own (more precise) boot error.
+ */
+export function parsePiProfiles(
+  raw: string | null,
+  claudeProfilesRaw?: string | null
+): PiProfileInput[] {
+  if (!raw) return [];
+
+  let inputs: unknown;
+  try {
+    inputs = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `BRAIN_UI_PI_PROFILES is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  if (!Array.isArray(inputs)) {
+    throw new Error("BRAIN_UI_PI_PROFILES must be a JSON array.");
+  }
+
+  const claudeIds = new Set<string>();
+  if (claudeProfilesRaw) {
+    try {
+      const claudeInputs = JSON.parse(claudeProfilesRaw);
+      if (Array.isArray(claudeInputs)) {
+        for (const entry of claudeInputs) {
+          if (entry && typeof entry.id === "string") claudeIds.add(entry.id);
+        }
+      }
+    } catch {
+      // Malformed Claude JSON is the Claude loader's error to raise.
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const input of inputs as PiProfileInput[]) {
+    if (!input || typeof input !== "object") {
+      throw new Error("Each BRAIN_UI_PI_PROFILES entry must be an object.");
+    }
+    for (const field of ["id", "label", "vendor", "model"] as const) {
+      if (typeof input[field] !== "string" || input[field].length === 0) {
+        throw new Error(
+          `Each BRAIN_UI_PI_PROFILES entry needs a non-empty string ${field}.`
+        );
+      }
+    }
+    if (input.id === "default" || /^claude(-|$)/.test(input.id)) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES id "${input.id}" is reserved for the Claude ` +
+          "roster (built-in default and discovered claude-* aliases)."
+      );
+    }
+    if (claudeIds.has(input.id)) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES id "${input.id}" collides with a ` +
+          "BRAIN_UI_CLAUDE_PROFILES entry."
+      );
+    }
+    if (seen.has(input.id)) {
+      throw new Error(`Duplicate profile id in BRAIN_UI_PI_PROFILES: "${input.id}".`);
+    }
+    seen.add(input.id);
+    if (
+      input.thinkingLevel !== undefined &&
+      !PI_THINKING_LEVELS.includes(input.thinkingLevel)
+    ) {
+      throw new Error(
+        `BRAIN_UI_PI_PROFILES entry "${input.id}" has invalid thinkingLevel ` +
+          `"${input.thinkingLevel}" (expected one of ${PI_THINKING_LEVELS.join(", ")}).`
+      );
+    }
+  }
+  return inputs as PiProfileInput[];
+}
+
 export function assertBackendResolvable(
   agent: AgentConfig,
   resolve: (specifier: string) => void = (specifier) => {
@@ -368,6 +480,23 @@ export function assertBackendResolvable(
   } catch {
     throw missingBackendError(key);
   }
+  // BRAIN_UI_PI_PROFILES opts the pi backend in ALONGSIDE the primary — its
+  // package must resolve at boot too, or the roster silently loses those
+  // profiles on first request instead of refusing to start.
+  if (agent.piProfilesJson && key !== "pi") {
+    try {
+      resolve(BACKEND_SPECIFIERS.pi);
+    } catch {
+      throw new Error(
+        'BRAIN_UI_PI_PROFILES is set but "@schlessera/brain-backend-pi" is not ' +
+          "installed. Add it (with its pi SDK dependencies) or unset the variable."
+      );
+    }
+  }
+  // Validate the pi roster itself at boot too — the registry is built lazily,
+  // so without this a malformed BRAIN_UI_PI_PROFILES would still report a
+  // healthy startup and only fail on first request.
+  parsePiProfiles(agent.piProfilesJson, agent.profilesJson);
 }
 
 export function createBackendRegistry(
@@ -387,21 +516,26 @@ export function createBackendRegistry(
    * before any profile can be listed or run.
    */
   const declaredApiProfileIds = new Set<string>();
-  /** The Claude backend's id, once built — profiles on any OTHER backend (pi) have no subscription path. */
+  /** The Claude backend's id, once built — Claude's subscription path only applies to its own profiles. */
   let claudeBackendId: string | null = null;
 
   /**
    * Base billing classification for one roster entry, BEFORE the settings
    * override (applied last by the shared accessor surface):
-   *   - a non-Claude backend (pi) → "api";
-   *   - a declared profile with explicit credentials → "api";
+   *   - a non-Claude backend profile → by VENDOR: pi's "openai-codex" runs
+   *     only against a ChatGPT-subscription OAuth credential (the provider
+   *     has no API-key path at all) → "subscription"; every other vendor
+   *     resolves ambient API keys → "api";
+   *   - a declared Claude profile with explicit credentials → "api";
    *   - everything ambient (built-in default, discovered models, declared
    *     entries without their own credentials) → the env-resolved ambient
    *     mode (subscription iff the OAuth token is present and no
    *     ANTHROPIC_API_KEY — the Agent SDK's own precedence).
    */
   function classifyBilling(profile: ProviderInfo & { backendId: string }): BillingMode {
-    if (claudeBackendId === null || profile.backendId !== claudeBackendId) return "api";
+    if (claudeBackendId === null || profile.backendId !== claudeBackendId) {
+      return profile.vendor === "openai-codex" ? "subscription" : "api";
+    }
     if (declaredApiProfileIds.has(profile.id)) return "api";
     return agent.ambientBilling;
   }
@@ -515,6 +649,7 @@ export function createBackendRegistry(
     return [...base, ...claude.defineProfiles(declared)];
   }
 
+
   /**
    * NEITHER backend package is a hard dependency — a deployment installs the
    * one its AGENT_BACKEND names (both, if it switches). Loaded lazily through
@@ -560,15 +695,23 @@ export function createBackendRegistry(
 
   async function buildPiBackend(): Promise<AgentBackend> {
     const mod = (await loadBackendModule("pi")) as {
-      createPiBackend?: (opts: { brainPath: string; log?: BackendLogFn }) => AgentBackend;
+      createPiBackend?: (opts: {
+        brainPath: string;
+        profiles?: PiProfileInput[];
+        log?: BackendLogFn;
+      }) => AgentBackend;
     };
     if (typeof mod.createPiBackend !== "function") {
       throw new Error(
         '"@schlessera/brain-backend-pi" does not export createPiBackend.'
       );
     }
+    // Re-parsed here (assertBackendResolvable already validated at boot) so an
+    // injected-registry path without the boot assert still fails loudly.
+    const profiles = parsePiProfiles(agent.piProfilesJson, agent.profilesJson);
     return mod.createPiBackend({
       brainPath,
+      ...(profiles.length > 0 ? { profiles } : {}),
       ...(backendLog ? { log: backendLog } : {}),
     });
   }
@@ -582,6 +725,14 @@ export function createBackendRegistry(
     }
 
     const backends = [await buildClaudeBackend()];
+
+    // BRAIN_UI_PI_PROFILES opts the pi backend in ALONGSIDE claude: its
+    // profiles join the picker (e.g. OpenAI models under a ChatGPT
+    // subscription via pi's "openai-codex" vendor) while claude stays the
+    // default backend. Without the variable, behavior is unchanged.
+    if (agent.piProfilesJson) {
+      backends.push(await buildPiBackend());
+    }
 
     // AGENT_BACKEND must name a configured backend. The in-process options are
     // "claude" (default) and "pi" (handled above). An unrecognized value is a

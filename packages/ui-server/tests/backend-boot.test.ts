@@ -49,6 +49,32 @@ describe("assertBackendResolvable", () => {
     );
   });
 
+  test("BRAIN_UI_PI_PROFILES with a missing pi package refuses at boot", () => {
+    const withPiProfiles = resolveServerConfig({
+      BRAIN_UI_PI_PROFILES: JSON.stringify([
+        { id: "gpt-sol", label: "Sol", vendor: "openai-codex", model: "gpt-5.6-sol" },
+      ]),
+    }).agent;
+    // Only the pi specifier is absent — the claude (primary) one resolves.
+    const claudeOnly = (specifier: string) => {
+      if (specifier.includes("backend-pi")) absent(specifier);
+    };
+    expect(() => assertBackendResolvable(withPiProfiles, claudeOnly)).toThrow(
+      'BRAIN_UI_PI_PROFILES is set but "@schlessera/brain-backend-pi" is not installed'
+    );
+    // With everything resolvable, the opt-in passes.
+    expect(() => assertBackendResolvable(withPiProfiles)).not.toThrow();
+  });
+
+  test("a malformed BRAIN_UI_PI_PROFILES refuses at boot, not on first request", () => {
+    const malformed = resolveServerConfig({
+      BRAIN_UI_PI_PROFILES: "not json",
+    }).agent;
+    expect(() => assertBackendResolvable(malformed)).toThrow(
+      "BRAIN_UI_PI_PROFILES is not valid JSON"
+    );
+  });
+
   test("an unrecognized AGENT_BACKEND refuses without touching the resolver", () => {
     const touched: string[] = [];
     expect(() =>

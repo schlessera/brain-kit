@@ -95,6 +95,95 @@ describe("backend registry", () => {
   });
 });
 
+describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
+  const GPT_PROFILES = JSON.stringify([
+    {
+      id: "gpt-sol",
+      label: "GPT-5.6 Sol",
+      vendor: "openai-codex",
+      model: "gpt-5.6-sol",
+      thinkingLevel: "xhigh",
+    },
+    { id: "gpt-api", label: "GPT (API)", vendor: "openai", model: "gpt-5.5" },
+  ]);
+
+  test("pi runs alongside claude; claude stays the default backend", async () => {
+    const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT_PROFILES });
+    const backends = await registry.getBackends();
+    expect(backends.map((backend) => backend.id)).toEqual(["claude", "pi"]);
+    expect(await registry.getDefaultBackendId()).toBe("claude");
+
+    const providers = await registry.listAllProviders();
+    const byId = new Map(providers.map((provider) => [provider.id, provider]));
+    expect(byId.get("gpt-sol")?.backendId).toBe("pi");
+    expect(byId.get("claude")?.backendId).toBe("claude");
+    expect((await registry.getBackendForProfile("gpt-sol"))?.id).toBe("pi");
+  });
+
+  test("pi profile billing keys on the vendor: openai-codex is subscription, others api", async () => {
+    const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT_PROFILES });
+    const providers = await registry.listAllProviders();
+    const byId = new Map(providers.map((provider) => [provider.id, provider]));
+    expect(byId.get("gpt-sol")?.billingMode).toBe("subscription");
+    expect(byId.get("gpt-api")?.billingMode).toBe("api");
+  });
+
+  test("malformed BRAIN_UI_PI_PROFILES fails at registry build, loudly", async () => {
+    await expect(
+      registryFor({ BRAIN_UI_PI_PROFILES: "not json" }).getBackends()
+    ).rejects.toThrow("BRAIN_UI_PI_PROFILES is not valid JSON");
+    await expect(
+      registryFor({ BRAIN_UI_PI_PROFILES: '{"id":"x"}' }).getBackends()
+    ).rejects.toThrow("must be a JSON array");
+    await expect(
+      registryFor({
+        BRAIN_UI_PI_PROFILES: JSON.stringify([{ id: "x", label: "X", vendor: "openai-codex" }]),
+      }).getBackends()
+    ).rejects.toThrow("non-empty string model");
+  });
+
+  test("ids the Claude roster owns or can mint later are rejected at boot", async () => {
+    for (const id of ["claude", "default", "claude-sonnet-5"]) {
+      await expect(
+        registryFor({
+          BRAIN_UI_PI_PROFILES: JSON.stringify([
+            { id, label: "X", vendor: "openai-codex", model: "gpt-5.6-sol" },
+          ]),
+        }).getBackends()
+      ).rejects.toThrow("reserved for the Claude roster");
+    }
+  });
+
+  test("a collision with a declared Claude profile id is rejected at boot", async () => {
+    await expect(
+      registryFor({
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          { id: "fast", label: "Fast (Anthropic)" },
+        ]),
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          { id: "fast", label: "Fast (OpenAI)", vendor: "openai-codex", model: "gpt-5.5" },
+        ]),
+      }).getBackends()
+    ).rejects.toThrow('collides with a BRAIN_UI_CLAUDE_PROFILES entry');
+  });
+
+  test("an invalid thinkingLevel is rejected at boot", async () => {
+    await expect(
+      registryFor({
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          {
+            id: "gpt-sol",
+            label: "X",
+            vendor: "openai-codex",
+            model: "gpt-5.6-sol",
+            thinkingLevel: "ultra",
+          },
+        ]),
+      }).getBackends()
+    ).rejects.toThrow('invalid thinkingLevel "ultra"');
+  });
+});
+
 describe("billing classification", () => {
   // Credential PRESENCE resolves from the env record handed to the resolver,
   // never from the test process's environment — registries are built from
