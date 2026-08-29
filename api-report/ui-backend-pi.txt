@@ -7,12 +7,18 @@ export "." (./src/index.ts)
   type BackendLogFn
   type BrainAccess
   type BrainToolDeps
+  type CreatePiAuthOptions
   type CreatePiBackendOptions
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
   type EnvVarSpec
   PI_BACKEND_ID
+  type PiAuth
+  type PiAuthProviderStatus
+  type PiAuthRuntime
+  type PiLoginFlow
+  type PiLoginFlowStatus
   type PiProfile
   type PiSessionFactory
   type PiSessionLike
@@ -22,6 +28,7 @@ export "." (./src/index.ts)
   type TurnContext
   createBrainAccess
   createBrainTools
+  createPiAuth
   createPiBackend
   createTurnContext
   getPiHistory

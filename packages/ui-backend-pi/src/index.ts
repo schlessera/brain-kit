@@ -16,6 +16,16 @@ export type {
   SessionToolkit,
 } from "./backend.js";
 
+export { createPiAuth } from "./auth.js";
+export type {
+  PiAuth,
+  PiAuthProviderStatus,
+  PiAuthRuntime,
+  PiLoginFlow,
+  PiLoginFlowStatus,
+  CreatePiAuthOptions,
+} from "./auth.js";
+
 export { createBrainAccess } from "./brain-access.js";
 export type { BrainAccess } from "./brain-access.js";
 
