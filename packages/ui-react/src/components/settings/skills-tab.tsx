@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Power, Trash2, X } from "lucide-react";
-import { api, type SkillDetail, type SkillEntry } from "../../lib/api-client.js";
+import { Check, Download, Loader2, Pencil, Plus, Power, Trash2, Upload, X } from "lucide-react";
+import { api, type SkillDetail, type SkillEntry, type SkillInstallOutcome } from "../../lib/api-client.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -37,6 +37,10 @@ export function SkillsTab({ active }: { active: boolean }) {
     readOnly: boolean;
   } | null>(null);
   const [newName, setNewName] = useState("");
+  const [githubSource, setGithubSource] = useState("");
+  const [overwrite, setOverwrite] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [outcomes, setOutcomes] = useState<SkillInstallOutcome[] | null>(null);
 
   async function reload() {
     try {
@@ -102,6 +106,23 @@ export function SkillsTab({ active }: { active: boolean }) {
       setEditing(null);
       return result;
     });
+  }
+
+  async function install(fn: () => Promise<{ outcomes: SkillInstallOutcome[]; warning?: string }>) {
+    setInstalling(true);
+    setError(null);
+    setWarning(null);
+    setOutcomes(null);
+    try {
+      const result = await fn();
+      setOutcomes(result.outcomes);
+      if (result.warning) setWarning(result.warning);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Install failed");
+    } finally {
+      setInstalling(false);
+    }
   }
 
   const custom = skills.filter((s) => s.source === "custom");
@@ -180,6 +201,86 @@ export function SkillsTab({ active }: { active: boolean }) {
           <Plus className="h-3 w-3" />
           Create
         </button>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-border-subtle bg-surface p-3">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Install
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <label
+            className={cn(
+              "flex cursor-pointer items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary",
+              installing && "pointer-events-none opacity-50"
+            )}
+          >
+            <Upload className="h-3 w-3" />
+            Upload .zip
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void install(() => api.skillInstallZip(file, overwrite));
+              }}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(e) => setOverwrite(e.target.checked)}
+            />
+            overwrite existing
+          </label>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            value={githubSource}
+            onChange={(e) => setGithubSource(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && githubSource.trim() && !installing) {
+                void install(() => api.skillInstallGitHub(githubSource.trim(), overwrite));
+              }
+            }}
+            placeholder="GitHub: owner/repo or https://github.com/…/tree/main/skills"
+            className="min-w-0 flex-1 rounded-md border border-border-subtle bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+          />
+          <button
+            onClick={() =>
+              void install(() => api.skillInstallGitHub(githubSource.trim(), overwrite))
+            }
+            disabled={installing || !githubSource.trim()}
+            className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+          >
+            {installing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            Install
+          </button>
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          A skill is any folder with a SKILL.md; one source may carry several.
+          Private repos use the server's GITHUB_TOKEN.
+        </p>
+        {outcomes && (
+          <ul className="mt-2 flex flex-col gap-1">
+            {outcomes.map((o, i) => (
+              <li key={`${o.name}-${i}`} className="text-[11px]">
+                {o.status === "skipped" ? (
+                  <span className="text-muted-foreground">
+                    ✗ {o.name} — {o.reason}
+                  </span>
+                ) : (
+                  <span className="text-primary">
+                    ✓ {o.name} {o.status === "replaced" ? "replaced" : "installed"}
+                    {typeof o.files === "number" ? ` (${o.files} file${o.files === 1 ? "" : "s"})` : ""}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}

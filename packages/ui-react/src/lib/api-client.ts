@@ -121,6 +121,14 @@ export interface SkillDetail extends SkillEntry {
   extraFiles: string[];
 }
 
+/** Per-skill result of an archive/GitHub install. */
+export interface SkillInstallOutcome {
+  name: string;
+  status: "installed" | "replaced" | "skipped";
+  reason?: string;
+  files?: number;
+}
+
 /** One selectable web-search provider (mirror of the server view). */
 export interface WebSearchProvider {
   id: string;
@@ -331,6 +339,33 @@ export const api = {
     fetchJson<{ ok: boolean; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }),
+
+  /** Install skill(s) from an uploaded ZIP archive. */
+  skillInstallZip: async (file: File, overwrite: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("overwrite", overwrite ? "true" : "false");
+    // Raw fetch: the browser must set the multipart boundary itself.
+    const res = await fetch(`${apiBase()}/skills/install/zip`, {
+      method: "POST",
+      body: form,
+    });
+    const body = (await res.json().catch(() => null)) as
+      | { outcomes?: SkillInstallOutcome[]; warning?: string; error?: string }
+      | null;
+    if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+    return body as { outcomes: SkillInstallOutcome[]; warning?: string };
+  },
+
+  /** Install skill(s) from a GitHub repository (owner/repo or URL). */
+  skillInstallGitHub: (source: string, overwrite: boolean, ref?: string) =>
+    fetchJson<{ outcomes: SkillInstallOutcome[]; warning?: string }>(
+      "/skills/install/github",
+      {
+        method: "POST",
+        body: JSON.stringify({ source, overwrite, ...(ref ? { ref } : {}) }),
+      }
+    ),
 
   /** Tools remembered as "always allow" (auto-approved without a card). */
   toolPermissions: () => fetchJson<{ tools: string[] }>("/tool-permissions"),

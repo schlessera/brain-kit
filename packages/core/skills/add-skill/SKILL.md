@@ -71,7 +71,7 @@ Ask (use the ask-user picker where the answer is one of a few options):
 - The Claude backend sees the skill from its NEXT turn; the pi backend from
   its next new conversation.
 - Tell the user: manage it later in Settings → Skills (edit, disable,
-  remove), and the files live in the brain repo so the next `brain sync`
-  commits them.
+  remove — and install more from a ZIP or a GitHub repo there), and the
+  files live in the brain repo so the next `brain sync` commits them.
 - Offer a dry run: restate a trigger phrase and confirm the skill would be
   the one to fire.

@@ -20,12 +20,25 @@ import {
   SkillNotFoundError,
   SkillValidationError,
 } from "../skills/manager.js";
+import {
+  InstallError,
+  installSkillsFromGitHub,
+  installSkillsFromZip,
+  MAX_ARCHIVE_BYTES,
+  parseGitHubSource,
+  type Fetcher,
+} from "../skills/install.js";
+import { resolveGitHubToken } from "../config/env.js";
 
 export interface SkillRoutesDeps {
   brainPath: string;
   /** Runs `brain skills sync`; resolves with a human-readable summary. */
   syncSkills: () => Promise<string>;
   log?: Logger;
+  /** Test seam — GitHub zipball fetcher. */
+  fetcher?: Fetcher;
+  /** Test seam — token source; default reads GITHUB_TOKEN at call time. */
+  githubToken?: () => string | undefined;
 }
 
 export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
@@ -53,8 +66,77 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
     }
   }
 
+  const githubToken = deps.githubToken ?? resolveGitHubToken;
+
   return new Hono()
     .get("/skills", (c) => c.json({ skills: manager.list() }))
+    .post("/skills/install/zip", async (c) => {
+      let file: File | null = null;
+      let overwrite = false;
+      try {
+        const form = await c.req.formData();
+        const entry = form.get("file");
+        file = entry instanceof File ? entry : null;
+        overwrite = form.get("overwrite") === "true";
+      } catch {
+        return c.json({ error: "Send multipart/form-data with a `file` field." }, 400);
+      }
+      if (!file) return c.json({ error: "Missing `file` (a .zip archive)." }, 400);
+      if (file.size > MAX_ARCHIVE_BYTES) {
+        return c.json({ error: `Archive exceeds ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB.` }, 400);
+      }
+      try {
+        const outcomes = installSkillsFromZip(
+          { brainPath: deps.brainPath },
+          new Uint8Array(await file.arrayBuffer()),
+          { overwrite }
+        );
+        const warning = outcomes.some((o) => o.status !== "skipped")
+          ? await syncAfterMutation()
+          : undefined;
+        return c.json({ outcomes, ...(warning ? { warning } : {}) });
+      } catch (err) {
+        if (err instanceof InstallError) return c.json({ error: err.message }, 400);
+        const { status, message } = errorResponse(err);
+        return c.json({ error: message }, status);
+      }
+    })
+    .post("/skills/install/github", async (c) => {
+      const body = (await c.req.json().catch(() => null)) as {
+        source?: unknown;
+        ref?: unknown;
+        overwrite?: unknown;
+      } | null;
+      if (typeof body?.source !== "string" || !body.source.trim()) {
+        return c.json(
+          { error: "Body needs `source`: owner/repo or a github.com URL." },
+          400
+        );
+      }
+      const parsed = parseGitHubSource(body.source);
+      if (!parsed) {
+        return c.json(
+          { error: "Could not parse the source — use owner/repo or a github.com URL." },
+          400
+        );
+      }
+      if (typeof body.ref === "string" && body.ref.trim()) parsed.ref = body.ref.trim();
+      try {
+        const outcomes = await installSkillsFromGitHub({ brainPath: deps.brainPath }, parsed, {
+          overwrite: body.overwrite === true,
+          token: githubToken(),
+          ...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+        });
+        const warning = outcomes.some((o) => o.status !== "skipped")
+          ? await syncAfterMutation()
+          : undefined;
+        return c.json({ outcomes, ...(warning ? { warning } : {}) });
+      } catch (err) {
+        if (err instanceof InstallError) return c.json({ error: err.message }, 400);
+        const { status, message } = errorResponse(err);
+        return c.json({ error: message }, status);
+      }
+    })
     .get("/skills/:name", (c) => {
       try {
         return c.json(manager.get(c.req.param("name")));

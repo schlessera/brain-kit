@@ -20,6 +20,13 @@ Custom user skills, managed from the frontend.
   deleted through this surface). Every mutation runs `brain skills sync` so
   the change reaches the next turn/session without a restart; a failed sync
   degrades to a response warning.
+- **Install from ZIP or GitHub**: upload a .zip, or point at a repository
+  (`owner/repo`, a github.com URL, or a `/tree/<ref>/<path>` URL —
+  private repos via the server's `GITHUB_TOKEN`). Any folder containing a
+  SKILL.md installs as a skill, one source may carry several; the installed
+  name comes from the frontmatter, zip-slip is rejected outright, archives
+  are size/count-capped, installs are staged-then-swapped, conflicts are
+  skipped unless overwrite is chosen, and built-ins can never be replaced.
 - **New core skill `add-skill`**: interactive, brain-kit-optimized skill
   authoring — interviews for the workflow and triggers, enforces the
   backend-portable subset (no agent-specific frontmatter or tool names,
