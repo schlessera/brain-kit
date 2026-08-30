@@ -87,6 +87,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_PI_PROFILES` | JSON array of pi-backend model profiles ({id,label,vendor,model,thinkingLevel?}). When set (and AGENT_BACKEND is claude), the pi backend runs ALONGSIDE the Claude backend and these profiles join the picker — e.g. OpenAI models under a ChatGPT subscription via vendor "openai-codex". | (none) |
 | `BRAIN_UI_PRICING_DISCOVERY` | Remote model-pricing refresh (LiteLLM + OpenRouter catalogs); "0"/"off"/"false" disables, and runs then roll up with unknown effective cost. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
 | `BRAIN_UI_PRICING_TTL_HOURS` | How long a fetched model-pricing table stays fresh, in hours. | 24 |
+| `BRAIN_UI_SKILLS_GITHUB_TOKEN` | GitHub token used when installing skills from a private repository (Settings → Skills) — typically read-only Contents on the skill repos. Falls back to GITHUB_TOKEN. | $GITHUB_TOKEN |
 | `BRAIN_UI_TURN_TIMEOUT_MS` | Hard per-turn timeout in ms; the host aborts a turn that runs past it. Raise for agent-heavy research work (e.g. 1800000 for 30 minutes). | 600000 (10 minutes) |
 | `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
@@ -95,7 +96,7 @@ Every variable this package reads, and what happens when it is unset.
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
-| `GITHUB_TOKEN` | GitHub token used when installing skills from a private repository (Settings → Skills). Public repositories need none. | — |
+| `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo git pushes and gh-based jobs. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
