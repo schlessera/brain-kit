@@ -81,6 +81,14 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "GITHUB_TOKEN",
+    description:
+      "GitHub token used when installing skills from a private repository " +
+      "(Settings → Skills). Public repositories need none.",
+    default: null,
+    required: false,
+  },
+  {
     name: "DB_PATH",
     description: "SQLite file for the UI's own database (sessions, passkeys, settings).",
     default: "./brain-ui.db",
@@ -647,6 +655,11 @@ export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
  * then ~/.pi) — the settings routes write the file the extension reads, so
  * the two resolutions must never diverge.
  */
+/** GITHUB_TOKEN for private-repo skill installs, read at call time. */
+export function resolveGitHubToken(env: EnvRecord = process.env): string | undefined {
+  return env.GITHUB_TOKEN || undefined;
+}
+
 export function resolvePiConfigDir(env: EnvRecord = process.env): string {
   if (env.PI_CODING_AGENT_DIR) return env.PI_CODING_AGENT_DIR;
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "pi");

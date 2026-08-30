@@ -18,6 +18,7 @@ import { createModelRoutes } from "./routes/models.js";
 import { createPiAuthRoutes } from "./routes/pi-auth.js";
 import { createWebSearchRoutes } from "./routes/web-search.js";
 import { createToolPermissionRoutes } from "./routes/tool-permissions.js";
+import { createSkillRoutes } from "./routes/skills.js";
 import { createGraphRoutes } from "./routes/graph.js";
 import {
   resolveAuthMode,
@@ -366,6 +367,14 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
+  app.route(
+    "/api",
+    createSkillRoutes({
+      brainPath: config.brainPath,
+      syncSkills: () => brain.skillsSync(),
+      log: observability.logger("skills"),
+    })
+  );
   app.route(
     "/api",
     createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })

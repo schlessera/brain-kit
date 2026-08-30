@@ -95,6 +95,7 @@ Every variable this package reads, and what happens when it is unset.
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
+| `GITHUB_TOKEN` | GitHub token used when installing skills from a private repository (Settings → Skills). Public repositories need none. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
