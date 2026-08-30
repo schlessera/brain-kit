@@ -1,5 +1,16 @@
 # @schlessera/brain-ui-server
 
+## 0.28.1
+
+### Patch Changes
+
+- 42f7941: Skill installs read `BRAIN_UI_SKILLS_GITHUB_TOKEN` first, falling back to
+  `GITHUB_TOKEN` — the deployment-wide pattern is `<specialized>_GITHUB_TOKEN`
+  with a generic fallback, so a narrowly-scoped sync token and a read-only
+  skills token can coexist.
+  - @schlessera/brain-ui-sdk@0.28.1
+  - @schlessera/brain-render-template@0.28.1
+
 ## 0.28.0
 
 ### Minor Changes
