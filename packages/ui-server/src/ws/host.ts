@@ -81,6 +81,20 @@ export interface WsHostOptions {
    * most existing tests want.
    */
   activity?: ActivityRuntime;
+  /**
+   * The user's remembered "always allow" tool grants. Optional: a host
+   * without one never auto-answers and never persists an `always` approval —
+   * every card stays per-use (what existing tests expect).
+   */
+  toolPermissions?: ToolPermissions;
+}
+
+/** The remembered per-tool auto-allow store the ws layer consults. */
+export interface ToolPermissions {
+  /** Whether requests for this tool are answered "allow" without a card. */
+  isAutoAllowed(toolName: string): boolean;
+  /** Remember this tool as always allowed. */
+  add(toolName: string): void;
 }
 
 /** Identity of one turn, as it appears on a log record. */
@@ -119,6 +133,7 @@ export class WsHost {
   readonly observability: Observability;
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
   readonly activity: ActivityRuntime | null;
+  readonly toolPermissions: ToolPermissions | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
   private readonly framesDropped: ReturnType<
@@ -148,6 +163,7 @@ export class WsHost {
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.activity = options.activity ?? null;
+    this.toolPermissions = options.toolPermissions ?? null;
     this.log = this.observability.logger("ws");
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {

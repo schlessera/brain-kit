@@ -78,6 +78,13 @@ export interface PermissionRequest {
   toolName: string;
   input: Record<string, unknown>;
   description?: string;
+  /**
+   * What is being approved. "tool" (default) — a tool outside the
+   * auto-allow list; the host may auto-answer from its remembered-tools
+   * set and may offer "always allow". "command" — a destructive-pattern
+   * confirmation for an otherwise auto-allowed tool; never remembered.
+   */
+  kind?: "tool" | "command";
 }
 
 export interface AskUserResult {

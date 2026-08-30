@@ -14,7 +14,7 @@ import {
   type BackendRegistry,
 } from "../../src/agent/backend";
 import { createUiDb } from "../../src/db/client";
-import { WsHost } from "../../src/ws/host";
+import { WsHost, type ToolPermissions } from "../../src/ws/host";
 import { createSessionCatalog } from "../../src/ws/session-catalog";
 import { handleClientMessage as dispatch } from "../../src/ws/dispatch";
 import type { WSContext } from "../../src/ws/clients";
@@ -24,6 +24,7 @@ let dbPath: string | null = null;
 let registry: BackendRegistry | null = null;
 let host: WsHost | null = null;
 let maxConcurrent = 3;
+let toolPermissions: ToolPermissions | null = null;
 
 /** Open (or reuse) the test database at `path`; ":memory:" works too. */
 export function useTestDb(path = ":memory:"): Database {
@@ -71,12 +72,19 @@ export function setMaxConcurrentSessions(cap: number): void {
   maxConcurrent = cap;
 }
 
+/** Install a remembered-tool-grants store for hosts built after the call. */
+export function setToolPermissionsForTests(tp: ToolPermissions | null): void {
+  toolPermissions = tp;
+  host = null;
+}
+
 /** Drop host, registry and cap back to pristine (db handled separately). */
 export function resetForTests(): void {
   host?.coordinator.reset();
   host = null;
   registry = null;
   maxConcurrent = 3;
+  toolPermissions = null;
 }
 
 export function testHost(): WsHost {
@@ -88,6 +96,7 @@ export function testHost(): WsHost {
       registry,
       catalog: createSessionCatalog(() => getDb()),
       maxConcurrentSessions: () => maxConcurrent,
+      ...(toolPermissions ? { toolPermissions } : {}),
     });
   }
   return host;

@@ -200,6 +200,12 @@ export interface ClientToolApproval {
   type: "tool_approval";
   toolUseId: string;
   updatedInput?: Record<string, unknown>;
+  /**
+   * Also remember this tool as auto-allowed: the host stores the tool name
+   * and answers future requests for it without a card (additive; ignored for
+   * kind "command" requests, which stay per-use).
+   */
+  always?: boolean;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
 }
@@ -355,6 +361,13 @@ export interface ServerToolApprovalRequest extends SessionScoped {
   toolName: string;
   input: Record<string, unknown>;
   description?: string;
+  /**
+   * What is being approved (additive). "tool" (default) — running a tool
+   * that is not auto-allowed; the client may offer "always allow".
+   * "command" — a destructive-pattern confirmation for an otherwise
+   * auto-allowed tool (bash); always per-use, never rememberable.
+   */
+  kind?: "tool" | "command";
 }
 
 export interface ServerResultMessage {

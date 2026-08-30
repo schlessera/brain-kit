@@ -65,6 +65,16 @@ export function makeBridge(
       }
     },
     requestPermission: (req) => {
+      // A remembered "always allow" answers grantable tool requests without
+      // a card. NEVER for kind "command" — those are destructive-pattern
+      // confirmations for tools that are already auto-allowed, and
+      // remembering them would silently disable the seatbelt.
+      if (
+        req.kind !== "command" &&
+        host.toolPermissions?.isAutoAllowed(req.toolName)
+      ) {
+        return Promise.resolve({ behavior: "allow" });
+      }
       if (!host.clients.hasClients()) {
         // Not a failure — the card is parked and re-delivered on reconnect
         // (see resendPendingInteractive) — but the wait was invisible before
@@ -83,6 +93,7 @@ export function makeBridge(
             toolName: req.toolName,
             input: req.input,
             description: req.description,
+            ...(req.kind ? { kind: req.kind } : {}),
           },
           turn,
           turnId

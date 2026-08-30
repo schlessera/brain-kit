@@ -24,6 +24,7 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
           toolName: p.request.toolName,
           input: p.request.input,
           description: p.request.description,
+          ...(p.request.kind ? { kind: p.request.kind } : {}),
         },
         p.turn,
         p.turnId

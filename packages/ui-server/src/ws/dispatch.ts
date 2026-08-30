@@ -139,6 +139,11 @@ export async function handleClientMessage(
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingApprovals.delete(msg.toolUseId);
+        // Remember-on-approve. Kind "command" never persists (the client
+        // hides the option, but the wire is not trusted to enforce policy).
+        if (msg.always && pending.request.kind !== "command") {
+          host.toolPermissions?.add(pending.request.toolName);
+        }
         pending.resolve(
           msg.updatedInput
             ? { behavior: "allow", updatedInput: msg.updatedInput }

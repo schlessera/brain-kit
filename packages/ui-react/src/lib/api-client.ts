@@ -282,6 +282,15 @@ export const api = {
       body: JSON.stringify({ providerId }),
     }),
 
+  /** Tools remembered as "always allow" (auto-approved without a card). */
+  toolPermissions: () => fetchJson<{ tools: string[] }>("/tool-permissions"),
+
+  /** Revoke one remembered tool grant; returns the updated list. */
+  toolPermissionRevoke: (tool: string) =>
+    fetchJson<{ tools: string[] }>(`/tool-permissions/${encodeURIComponent(tool)}`, {
+      method: "DELETE",
+    }),
+
   /** Web-search provider config; `configured: false` when pi is not in play. */
   webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
 
