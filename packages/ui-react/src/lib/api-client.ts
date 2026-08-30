@@ -105,6 +105,22 @@ export interface PiLoginFlow {
   startedAt: number;
 }
 
+/** One managed skill row (mirror of the server view). */
+export interface SkillEntry {
+  name: string;
+  description: string;
+  /** "builtin" = shipped by brain-kit/modules (read-only); "custom" = the user's. */
+  source: "builtin" | "custom";
+  enabled: boolean;
+  warning?: string;
+}
+
+/** One skill with its SKILL.md content. */
+export interface SkillDetail extends SkillEntry {
+  content: string;
+  extraFiles: string[];
+}
+
 /** One selectable web-search provider (mirror of the server view). */
 export interface WebSearchProvider {
   id: string;
@@ -280,6 +296,40 @@ export const api = {
     fetchJson<{ ok: boolean }>("/pi-auth/logout", {
       method: "POST",
       body: JSON.stringify({ providerId }),
+    }),
+
+  /** Custom + built-in skills, as managed from Settings → Skills. */
+  skillsList: () => fetchJson<{ skills: SkillEntry[] }>("/skills"),
+
+  /** One skill's SKILL.md and file list (builtins read-only). */
+  skillGet: (name: string) =>
+    fetchJson<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
+
+  /** Create a custom skill; runs `brain skills sync` server-side. */
+  skillCreate: (name: string, content: string) =>
+    fetchJson<{ skill: SkillEntry; warning?: string }>("/skills", {
+      method: "POST",
+      body: JSON.stringify({ name, content }),
+    }),
+
+  /** Replace a custom skill's SKILL.md. */
+  skillUpdate: (name: string, content: string) =>
+    fetchJson<{ skill: SkillEntry; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
+  /** Enable/disable a custom skill (applies to every backend at once). */
+  skillSetEnabled: (name: string, enabled: boolean) =>
+    fetchJson<{ skill: SkillEntry; warning?: string }>(
+      `/skills/${encodeURIComponent(name)}/enabled`,
+      { method: "POST", body: JSON.stringify({ enabled }) }
+    ),
+
+  /** Delete a custom skill permanently. */
+  skillRemove: (name: string) =>
+    fetchJson<{ ok: boolean; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
+      method: "DELETE",
     }),
 
   /** Tools remembered as "always allow" (auto-approved without a card). */

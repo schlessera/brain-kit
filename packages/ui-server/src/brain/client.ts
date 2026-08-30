@@ -38,6 +38,8 @@ export interface BrainClient {
   ): Promise<void>;
   index(opts?: { force?: boolean }): Promise<void>;
   validate(): Promise<string>;
+  /** Run `brain skills sync` — re-materialize every agent's skill links. */
+  skillsSync(): Promise<string>;
 }
 
 interface ExecResult {
@@ -196,6 +198,16 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
       if (result.exitCode !== 0) {
         throw new Error(`brain index failed: ${result.stderr}`);
       }
+    },
+
+    async skillsSync() {
+      const result = await execBrain(["skills", "sync"]);
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `brain skills sync failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`
+        );
+      }
+      return result.stdout;
     },
 
     async validate() {

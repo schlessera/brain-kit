@@ -1,12 +1,14 @@
-import { KeyRound, SlidersHorizontal } from "lucide-react";
+import { KeyRound, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 import { ModelsTab } from "./models-tab.js";
 import { PasskeyTab } from "./passkey-tab.js";
+import { SkillsTab } from "./skills-tab.js";
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof KeyRound }> = [
   { id: "models", label: "Models", icon: SlidersHorizontal },
+  { id: "skills", label: "Skills", icon: Puzzle },
   { id: "security", label: "Security", icon: KeyRound },
 ];
 
@@ -51,6 +53,8 @@ export function SettingsPanel({
         <div className="min-h-0 flex-1">
           {tab === "models" ? (
             <ModelsTab active={open && tab === "models"} />
+          ) : tab === "skills" ? (
+            <SkillsTab active={open && tab === "skills"} />
           ) : (
             <PasskeyTab active={open && tab === "security"} />
           )}
