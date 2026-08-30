@@ -14,6 +14,7 @@ import {
   InstallError,
   parseGitHubSource,
 } from "../src/skills/install";
+import { resolveGitHubToken } from "../src/config/env";
 import { createSkillManager } from "../src/skills/manager";
 import { createSkillRoutes } from "../src/routes/skills";
 
@@ -126,6 +127,16 @@ describe("installSkillsFromZip", () => {
     expect(() =>
       installSkillsFromZip({ brainPath: root }, zip({ "README.md": "hi" }))
     ).toThrow("No skill found");
+  });
+});
+
+describe("resolveGitHubToken", () => {
+  test("specialized token wins, generic is the fallback", () => {
+    expect(
+      resolveGitHubToken({ BRAIN_UI_SKILLS_GITHUB_TOKEN: "skills", GITHUB_TOKEN: "generic" })
+    ).toBe("skills");
+    expect(resolveGitHubToken({ GITHUB_TOKEN: "generic" })).toBe("generic");
+    expect(resolveGitHubToken({})).toBeUndefined();
   });
 });
 

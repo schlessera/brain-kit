@@ -81,10 +81,21 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
-    name: "GITHUB_TOKEN",
+    name: "BRAIN_UI_SKILLS_GITHUB_TOKEN",
     description:
       "GitHub token used when installing skills from a private repository " +
-      "(Settings → Skills). Public repositories need none.",
+      "(Settings → Skills) — typically read-only Contents on the skill " +
+      "repos. Falls back to GITHUB_TOKEN.",
+    default: "$GITHUB_TOKEN",
+    required: false,
+  },
+  {
+    name: "GITHUB_TOKEN",
+    description:
+      "Generic GitHub token fallback. Used for skill installs when " +
+      "BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also " +
+      "falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo " +
+      "git pushes and gh-based jobs.",
     default: null,
     required: false,
   },
@@ -655,9 +666,13 @@ export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
  * then ~/.pi) — the settings routes write the file the extension reads, so
  * the two resolutions must never diverge.
  */
-/** GITHUB_TOKEN for private-repo skill installs, read at call time. */
+/**
+ * Token for private-repo skill installs, read at call time. Specialized
+ * variable first, generic fallback — the deployment-wide pattern is
+ * `<specialized>_GITHUB_TOKEN` falling back to `GITHUB_TOKEN`.
+ */
 export function resolveGitHubToken(env: EnvRecord = process.env): string | undefined {
-  return env.GITHUB_TOKEN || undefined;
+  return env.BRAIN_UI_SKILLS_GITHUB_TOKEN || env.GITHUB_TOKEN || undefined;
 }
 
 export function resolvePiConfigDir(env: EnvRecord = process.env): string {
