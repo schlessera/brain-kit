@@ -13,6 +13,7 @@ import {
   installSkillsFromZip,
   InstallError,
   parseGitHubSource,
+  unzipWithCaps,
 } from "../src/skills/install";
 import { resolveGitHubToken } from "../src/config/env";
 import { createSkillManager } from "../src/skills/manager";
@@ -127,6 +128,38 @@ describe("installSkillsFromZip", () => {
     expect(() =>
       installSkillsFromZip({ brainPath: root }, zip({ "README.md": "hi" }))
     ).toThrow("No skill found");
+  });
+});
+
+describe("unzipWithCaps", () => {
+  // A tiny archive with a huge inflation ratio stands in for a zip bomb:
+  // zeros compress ~1000:1, so the caps must trip during decompression,
+  // long before the full payload could materialize.
+  const bombish = zipSync({
+    "SKILL.md": strToU8(SKILL("bomb")),
+    "big.bin": new Uint8Array(4 * 1024 * 1024), // zeros, compresses to ~4KB
+  });
+
+  test("per-file cap aborts during decompression", () => {
+    expect(() =>
+      unzipWithCaps(bombish, { maxFileBytes: 1024 * 1024, maxInflatedBytes: 250 * 1024 * 1024 })
+    ).toThrow("big.bin exceeds 1MB.");
+  });
+
+  test("total inflated cap aborts during decompression", () => {
+    expect(() =>
+      unzipWithCaps(bombish, { maxFileBytes: 10 * 1024 * 1024, maxInflatedBytes: 2 * 1024 * 1024 })
+    ).toThrow("inflates past the 2MB cap");
+  });
+
+  test("archive within caps round-trips all entries", () => {
+    const entries = unzipWithCaps(bombish);
+    expect(Object.keys(entries).sort()).toEqual(["SKILL.md", "big.bin"]);
+    expect(entries["big.bin"]!.length).toBe(4 * 1024 * 1024);
+  });
+
+  test("garbage is a readable InstallError, not an fflate throw", () => {
+    expect(() => unzipWithCaps(strToU8("not a zip at all"))).toThrow(InstallError);
   });
 });
 

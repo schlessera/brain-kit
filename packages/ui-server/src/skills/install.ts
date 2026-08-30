@@ -12,20 +12,22 @@
  *   `..`, absolute path, backslash, or NUL rejects the archive; files are
  *   written only under `.agents/skills/<name>/`, staged then swapped so a
  *   half-written skill is never discoverable.
- * - Caps: archive ≤ 20 MB compressed, ≤ 50 MB inflated, ≤ 400 files per
- *   skill, per-file ≤ 10 MB.
+ * - Caps: archive ≤ 100 MB compressed, ≤ 250 MB inflated, ≤ 400 files per
+ *   skill, per-file ≤ 10 MB. The inflated and per-file caps are enforced
+ *   DURING decompression (streaming), so a zip bomb aborts at the cap
+ *   instead of inflating fully into memory first.
  * - Conflicts are SKIPPED by default and reported; `overwrite: true` may
  *   replace an existing CUSTOM skill (enabled or disabled) but can never
  *   touch a package skill — those are symlinks and stay refused.
  */
 
-import { unzipSync } from "fflate";
+import { Unzip, UnzipInflate } from "fflate";
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import matter from "gray-matter";
 
-export const MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;
-export const MAX_INFLATED_BYTES = 50 * 1024 * 1024;
+export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+export const MAX_INFLATED_BYTES = 250 * 1024 * 1024;
 export const MAX_FILES_PER_SKILL = 400;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -66,6 +68,75 @@ function existsAs(p: string): "dir" | "symlink" | null {
   } catch {
     return null;
   }
+}
+
+function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const whole = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return whole;
+}
+
+export interface UnzipCaps {
+  maxFileBytes: number;
+  maxInflatedBytes: number;
+}
+
+/**
+ * Streaming unzip with the size caps enforced as bytes decompress. unzipSync
+ * would inflate the whole archive before any check could run — exactly the
+ * zip-bomb window the caps exist to close. Caps are injectable for tests;
+ * production uses the module constants.
+ */
+export function unzipWithCaps(
+  archive: Uint8Array,
+  caps: UnzipCaps = { maxFileBytes: MAX_FILE_BYTES, maxInflatedBytes: MAX_INFLATED_BYTES }
+): Record<string, Uint8Array> {
+  const entries: Record<string, Uint8Array> = {};
+  let inflated = 0;
+  let sawEntry = false;
+  const unzip = new Unzip((file) => {
+    sawEntry = true;
+    if (file.name.endsWith("/")) return; // directory marker
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    file.ondata = (err, data, final) => {
+      if (err) {
+        throw new InstallError(
+          `Archive entry ${JSON.stringify(file.name)} does not decompress: ${err.message}`
+        );
+      }
+      size += data.length;
+      inflated += data.length;
+      if (size > caps.maxFileBytes) {
+        throw new InstallError(`${file.name} exceeds ${caps.maxFileBytes / 1024 / 1024}MB.`);
+      }
+      if (inflated > caps.maxInflatedBytes) {
+        throw new InstallError(
+          `Archive inflates past the ${caps.maxInflatedBytes / 1024 / 1024}MB cap.`
+        );
+      }
+      chunks.push(data);
+      if (final) entries[file.name] = concatChunks(chunks, size);
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  try {
+    unzip.push(archive, true);
+  } catch (e) {
+    if (e instanceof InstallError) throw e;
+    throw new InstallError(
+      `Not a readable ZIP archive: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+  // The streaming parser scans for entry signatures and finds none in
+  // garbage instead of throwing the way unzipSync did.
+  if (!sawEntry) throw new InstallError("Not a readable ZIP archive: no entries found.");
+  return entries;
 }
 
 /**
@@ -218,15 +289,7 @@ export function installSkillsFromZip(
   if (archive.length > MAX_ARCHIVE_BYTES) {
     throw new InstallError(`Archive exceeds ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB.`);
   }
-  let entries: Record<string, Uint8Array>;
-  try {
-    entries = unzipSync(archive);
-  } catch (e) {
-    throw new InstallError(
-      `Not a readable ZIP archive: ${e instanceof Error ? e.message : String(e)}`
-    );
-  }
-  return installSkillsFromEntries(deps, entries, opts);
+  return installSkillsFromEntries(deps, unzipWithCaps(archive), opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +335,31 @@ export function parseGitHubSource(input: string): GitHubSource | null {
 /** Injectable for tests; production passes globalThis.fetch. */
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** Read a response body, aborting the download once it grows past the cap. */
+async function readBodyCapped(res: Response, cap: number): Promise<Uint8Array> {
+  if (!res.body) {
+    const whole = new Uint8Array(await res.arrayBuffer());
+    if (whole.length > cap) {
+      throw new InstallError(`Repository archive exceeds ${cap / 1024 / 1024}MB.`);
+    }
+    return whole;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > cap) {
+      await reader.cancel();
+      throw new InstallError(`Repository archive exceeds ${cap / 1024 / 1024}MB.`);
+    }
+    chunks.push(value);
+  }
+  return concatChunks(chunks, total);
+}
+
 /**
  * Download a repo zipball (the API endpoint — works for private repos with a
  * token, follows the codeload redirect) and install through the shared
@@ -306,19 +394,8 @@ export async function installSkillsFromGitHub(
   if (!res.ok) {
     throw new InstallError(`GitHub zipball fetch failed: HTTP ${res.status}`);
   }
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.length > MAX_ARCHIVE_BYTES) {
-    throw new InstallError(`Repository archive exceeds ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB.`);
-  }
-
-  let entries: Record<string, Uint8Array>;
-  try {
-    entries = unzipSync(buf);
-  } catch (e) {
-    throw new InstallError(
-      `GitHub returned an unreadable archive: ${e instanceof Error ? e.message : String(e)}`
-    );
-  }
+  const buf = await readBodyCapped(res, MAX_ARCHIVE_BYTES);
+  const entries = unzipWithCaps(buf);
   const stripped: Record<string, Uint8Array> = {};
   for (const [key, bytes] of Object.entries(entries)) {
     const slash = key.indexOf("/");
