@@ -377,10 +377,10 @@ export function ChatPage() {
     send({ type: "cancel", sessionId: sessionId ?? undefined });
   }
 
-  function handleToolApproval(toolUseId: string, approved: boolean) {
+  function handleToolApproval(toolUseId: string, approved: boolean, always?: boolean) {
     resolveToolApproval(toolUseId, approved);
     if (approved) {
-      send({ type: "tool_approval", toolUseId });
+      send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) });
     } else {
       send({ type: "tool_denial", toolUseId, message: "Denied by user" });
     }

@@ -622,6 +622,7 @@ export function createClaudeBackend(
             toolName,
             input,
             description: opts.description,
+            kind: "tool",
           });
           // A mutating tool runs inside this subprocess the moment we return
           // "allow", so take its lock BEFORE allowing and hold it until the
@@ -677,6 +678,9 @@ export function createClaudeBackend(
                         input: hookInput.tool_input as Record<string, unknown>,
                         description:
                           "This command matches a pattern configured to require confirmation.",
+                        // A per-use confirmation, not a tool grant — the host
+                        // must never remember it as "always allow Bash".
+                        kind: "command",
                       });
                       if (decision.behavior !== "allow") {
                         return {

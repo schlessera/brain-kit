@@ -51,6 +51,11 @@ export interface ToolCall {
   isError?: boolean;
   status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
   /**
+   * What the pending approval is for: "tool" may be remembered via "Always
+   * allow"; "command" (a destructive-bash confirmation) is per-use only.
+   */
+  approvalKind?: "tool" | "command";
+  /**
    * Execution timing for the duration badge. `startedAt` is (re)stamped when
    * the input finishes streaming or an approval is granted — so approval
    * wait time doesn't inflate the reported duration. `endedAt` is stamped by
@@ -159,7 +164,8 @@ interface ChatState {
     toolUseId: string,
     toolName: string,
     input: Record<string, unknown>,
-    description?: string
+    description?: string,
+    kind?: "tool" | "command"
   ) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
@@ -465,7 +471,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         ),
       })),
 
-    requestToolApproval: (key, toolUseId, toolName, input, _description) =>
+    requestToolApproval: (key, toolUseId, toolName, input, _description, kind) =>
       mutateLastAssistant(key, (last) => {
         // Check if tool call already exists (from streaming)
         const existingIdx = last.toolCalls.findIndex(
@@ -478,6 +484,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           input,
           inputJson: JSON.stringify(input, null, 2),
           status: "pending_approval",
+          ...(kind ? { approvalKind: kind } : {}),
         };
         let parts = last.parts;
         if (existingIdx >= 0) {

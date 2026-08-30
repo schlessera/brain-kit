@@ -260,6 +260,7 @@ export const clientToolApprovalSchema = z.looseObject({
       { message: `updatedInput must serialize to at most ${MAX_INPUT_SERIALIZED_CHARS} chars` }
     )
     .optional(),
+  always: z.boolean().optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
 

@@ -17,6 +17,7 @@ import { createProviderRoutes } from "./routes/providers.js";
 import { createModelRoutes } from "./routes/models.js";
 import { createPiAuthRoutes } from "./routes/pi-auth.js";
 import { createWebSearchRoutes } from "./routes/web-search.js";
+import { createToolPermissionRoutes } from "./routes/tool-permissions.js";
 import { createGraphRoutes } from "./routes/graph.js";
 import {
   resolveAuthMode,
@@ -36,11 +37,13 @@ import {
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
 import {
+  getAutoAllowedTools,
   getBillingOverrides,
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
   getThinkingOverrides,
+  setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
@@ -224,6 +227,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
+    toolPermissions: {
+      isAutoAllowed: (toolName) => getAutoAllowedTools(db, dbLog).includes(toolName),
+      add: (toolName) =>
+        setAutoAllowedTools(db, [...getAutoAllowedTools(db, dbLog), toolName]),
+    },
     activity: {
       store: activity.store,
       stream: activity.stream,
@@ -357,6 +365,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
   app.route(
     "/api",
     createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })

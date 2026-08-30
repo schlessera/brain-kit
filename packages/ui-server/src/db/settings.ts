@@ -158,6 +158,23 @@ export function setThinkingOverrides(
   setSetting(db, THINKING_OVERRIDES_KEY, clean);
 }
 
+const TOOL_AUTO_ALLOW_KEY = "toolAutoAllow";
+
+/**
+ * Tools the user chose to "always allow" from an approval card. Names as the
+ * backends report them (per-backend, e.g. `mcp__github__create_issue` vs a
+ * pi extension's plain name). Consulted by the ws bridge BEFORE emitting an
+ * approval card; never applied to kind "command" confirmations.
+ */
+export function getAutoAllowedTools(db: Database, log?: Logger): string[] {
+  const raw = getSetting<unknown>(db, TOOL_AUTO_ALLOW_KEY, [], log);
+  return Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string" && t !== "") : [];
+}
+
+export function setAutoAllowedTools(db: Database, tools: string[]): void {
+  setSetting(db, TOOL_AUTO_ALLOW_KEY, [...new Set(tools.filter(Boolean))].sort());
+}
+
 /** Minimum days a finished run keeps its detail (spans/events) before the
  *  digest-covered prune may take it. 0 is valid (prune as soon as covered);
  *  anything non-numeric or negative degrades to the default. */

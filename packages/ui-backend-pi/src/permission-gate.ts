@@ -83,6 +83,10 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           toolName: event.toolName,
           input: (event.input ?? {}) as Record<string, unknown>,
           description: reason,
+          // An allowlisted tool that still needed approval hit a confirm
+          // pattern (bash) — a per-use confirmation the host must never
+          // remember. A non-allowlisted tool is a grantable "tool" request.
+          kind: allowedTools.has(event.toolName) ? "command" : "tool",
         });
         if (decision.behavior === "deny") {
           return {

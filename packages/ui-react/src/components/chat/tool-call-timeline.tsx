@@ -45,7 +45,7 @@ export function ToolCallTimeline({
   live = false,
 }: {
   toolCalls: ToolCall[];
-  onApproval: (toolUseId: string, approved: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
 }) {
@@ -155,7 +155,7 @@ function ToolCallEntry({
 }: {
   toolCall: ToolCall;
   backendId: string;
-  onApproval: (toolUseId: string, approved: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(
     toolCall.status === "pending_approval"
@@ -288,9 +288,11 @@ function ToolCallEntry({
                 <RiskHints toolCall={toolCall} semantics={renderer.semantics} />
               )}
 
-              {/* Approval buttons */}
+              {/* Approval buttons. "Always allow" only for grantable tool
+                  requests — a destructive-command confirmation (kind
+                  "command") stays per-use. */}
               {isPending && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => onApproval(toolCall.id, true)}
                     className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110"
@@ -298,6 +300,16 @@ function ToolCallEntry({
                     <Check className="h-3 w-3" />
                     Allow
                   </button>
+                  {toolCall.approvalKind !== "command" && (
+                    <button
+                      onClick={() => onApproval(toolCall.id, true, true)}
+                      title={`Allow ${toolCall.name} without asking from now on (revocable in Settings → Models)`}
+                      className="flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      <Check className="h-3 w-3" />
+                      Always allow
+                    </button>
+                  )}
                   <button
                     onClick={() => onApproval(toolCall.id, false)}
                     className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"

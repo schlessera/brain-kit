@@ -256,7 +256,7 @@ export function handleServerMessage(msg: ServerMessage) {
       break;
 
     case "tool_approval_request":
-      state.requestToolApproval(key, msg.toolUseId, msg.toolName, msg.input, msg.description);
+      state.requestToolApproval(key, msg.toolUseId, msg.toolName, msg.input, msg.description, msg.kind);
       break;
 
     case "tool_result": {
