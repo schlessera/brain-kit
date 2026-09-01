@@ -50,10 +50,14 @@ import {
   type ModelUsage,
   type TurnUsage,
   buildSystemPromptAppend,
+  resolveWebSearchConfigPath,
   sumModelUsage,
+  webSearchBrief,
+  type WebSearchBrief,
 } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, readFileSync } from "fs";
 
+import { resolveWebSearchEnv } from "./config/env.js";
 import { createBrainAccess } from "./brain-access.js";
 import { createPermissionGate } from "./permission-gate.js";
 import { createTurnContext, type TurnContext } from "./turn-context.js";
@@ -295,12 +299,19 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
    * baked at SESSION construction, from the session-opening turn's client —
    * a later device change applies from the next new/reopened session.
    */
-  function buildAppend(env: SessionEnv, subagentTool: string | false): string {
+  function buildAppend(
+    env: SessionEnv,
+    subagentTool: string | false,
+    webSearch: WebSearchBrief | undefined
+  ): string {
     return (
       options.systemPromptAppend ??
       buildSystemPromptAppend({
         ...(env.client ? { client: env.client } : {}),
         ...(env.turnBudgetMs ? { turnBudgetMs: env.turnBudgetMs } : {}),
+        // Which search providers this deployment actually reaches. Omitted
+        // when the web extension is absent — there is no search tool then.
+        ...(webSearch ? { webSearch } : {}),
         // Named only when the bridge actually provides the handler — the
         // toolkit registers each tool on the same condition.
         tools: {
@@ -329,7 +340,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
    * package that is installed but fails to load simply leaves the model with
    * a named tool that errors — the same failure mode any extension has.
    */
-  function hasSubagentsPackage(settingsManager: SettingsManager): boolean {
+  function hasPackage(settingsManager: SettingsManager, name: string): boolean {
     try {
       const settings = settingsManager.getGlobalSettings() as {
         packages?: Array<string | { source?: string }>;
@@ -337,9 +348,45 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       const sources = (settings.packages ?? []).map((p) =>
         typeof p === "string" ? p : (p.source ?? "")
       );
-      return sources.some((src) => src.includes("pi-subagents"));
+      return sources.some((src) => src.includes(name));
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * The web-search brief for this session, read from the same
+   * `web-search.json` the pi-web-access extension reads.
+   *
+   * Resolved through the SDK helper, NOT from `agentDir`: pi puts its agent
+   * dir at `~/.pi/agent` while the extension reads `~/.pi/web-search.json`,
+   * one level up. Reading the wrong one finds nothing and would silently tell
+   * the model no providers are configured.
+   *
+   * The extension lets its tool be renamed (`toolNames.webSearch`), so the
+   * brief names whatever the model will actually see.
+   */
+  function readWebSearchBrief(): WebSearchBrief | undefined {
+    try {
+      const env = resolveWebSearchEnv();
+      const path = resolveWebSearchConfigPath(env);
+      const raw = existsSync(path) ? readFileSync(path, "utf-8") : "{}";
+      const parsed = JSON.parse(raw) as unknown;
+      const config =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {};
+      const names = config.toolNames;
+      const named =
+        names && typeof names === "object" && !Array.isArray(names)
+          ? (names as Record<string, unknown>).webSearch
+          : undefined;
+      const toolName = typeof named === "string" && named.trim() ? named.trim() : "web_search";
+      return webSearchBrief(config, { toolName, env });
+    } catch {
+      // A malformed config is the extension's problem to report; the brief
+      // just stays silent rather than claiming a provider set it cannot read.
+      return undefined;
     }
   }
 
@@ -401,8 +448,13 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     const agentDir = getAgentDir();
     const settingsManager = SettingsManager.create(brainPath, agentDir);
     const subagentTool =
-      loadExtensions && hasSubagentsPackage(settingsManager) ? "subagent" : false;
-    const append = buildAppend(env, subagentTool);
+      loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
+    // No web extension, no search tool — and nothing to say about providers.
+    const webSearch =
+      loadExtensions && hasPackage(settingsManager, "pi-web-access")
+        ? readWebSearchBrief()
+        : undefined;
+    const append = buildAppend(env, subagentTool, webSearch);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,

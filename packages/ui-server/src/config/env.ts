@@ -19,6 +19,7 @@ import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
+import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/server";
 
 // --- descriptor -------------------------------------------------------------
 
@@ -679,4 +680,24 @@ export function resolvePiConfigDir(env: EnvRecord = process.env): string {
   if (env.PI_CODING_AGENT_DIR) return env.PI_CODING_AGENT_DIR;
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "pi");
   return join(env.HOME || "/root", ".pi");
+}
+
+/**
+ * The environment the web-search surface reads: the variables that locate the
+ * extension's `web-search.json`, plus each provider's API-key variable.
+ *
+ * PRESENCE is all anything does with the key values — they are never logged,
+ * returned over the API, or copied into the config file. Reading them here
+ * keeps the rest of the package taking configuration as a value.
+ */
+export function resolveWebSearchEnv(
+  env: NodeJS.ProcessEnv = process.env
+): Record<string, string | undefined> {
+  const names = [
+    "PI_CODING_AGENT_DIR",
+    "XDG_CONFIG_HOME",
+    "HOME",
+    ...WEB_SEARCH_PROVIDERS.map((p) => p.envVar).filter((n): n is string => Boolean(n)),
+  ];
+  return Object.fromEntries(names.map((name) => [name, env[name]]));
 }

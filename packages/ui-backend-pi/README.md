@@ -142,9 +142,23 @@ behaviour the CLI has).
 pi has no built-in web access or MCP client; both come from the pi package
 ecosystem, loaded by default (`loadExtensions: true`):
 
-- **`pi-web-access`** — `web_search` / `fetch_content` with a provider
-  fallback chain (zero-config Exa MCP; OpenAI key; Brave/Tavily/… keys in
-  `~/.pi/web-search.json`). Auto-allowed, mirroring Claude's WebSearch/WebFetch.
+- **`pi-web-access`** — `web_search` / `fetch_content`, auto-allowed,
+  mirroring Claude's WebSearch/WebFetch. Providers are configured in
+  `~/.pi/web-search.json`; Settings → Models → Web search writes it (see
+  `WEB_SEARCH_PROVIDERS` in `@schlessera/brain-ui-sdk/server` for the
+  catalog). Enabled providers are written as `searchRouting.providers`
+  ordered cheapest-first, so a free provider (zero-config Exa) answers the
+  ordinary case and a paid one is reached only when the cheap ones fail.
+
+  Two traps, handled in `webSearchBrief` and the settings route: a
+  `provider`/`searchProvider` key in that file OVERRIDES `searchRouting`
+  outright — and pi's own `/curator` command writes one back — so a write
+  that owns the chain must delete both; and the extension's tool description
+  statically names ~28 providers regardless of configuration, so the
+  system-prompt brief names the ones actually reachable and says the others
+  are not. A provider with no credential (config key or env var) is dropped
+  from the brief and refused by the settings route, since the extension
+  would skip it at search time anyway.
 - **`pi-mcp-adapter`** — MCP servers from the repo's `.mcp.json` (and standard
   MCP config paths) behind one lazy proxy tool. Its calls are NOT allowlisted,
   so each one raises an approval card — same posture as non-allowlisted MCP
@@ -217,6 +231,7 @@ Reads whose variable *name* is configuration rather than code:
 | Name comes from | What the value is used for |
 | --- | --- |
 | brain.config `embeddings.apiKeyEnv` | API key presence check for the configured embedding provider, read at call time under whatever name the config declares (default: GEMINI_API_KEY). |
+| web-search provider catalog (`WEB_SEARCH_PROVIDERS`) | Presence check for each web-search provider's API key (EXA_API_KEY, PERPLEXITY_API_KEY, BRAVE_API_KEY, …), so a provider configured by environment rather than by `web-search.json` is not reported as unusable. Values are never read out. |
 
 Generated from `packages/ui-backend-pi/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
