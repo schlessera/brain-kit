@@ -63,6 +63,7 @@ type ConfigView = {
   configured: boolean;
   order: string[];
   overriddenBy: string | null;
+  appliesTo: string[];
   providers: ProviderView[];
 };
 
@@ -129,6 +130,14 @@ describe("GET /web-search", () => {
     expect(body.order).toEqual(["exa", "perplexity"]);
     expect(body.providers.find((p) => p.id === "exa")!.enabled).toBe(true);
     expect(body.providers.find((p) => p.id === "brave")!.enabled).toBe(false);
+  });
+
+  test("names the pi models these providers reach", async () => {
+    // The card is shown whenever pi is configured, but Claude models sit in
+    // the same picker and ignore all of this — so the view has to say which
+    // models the toggles actually reach.
+    const body = await get(piApp(tempConfigPath()));
+    expect(body.appliesTo).toEqual(["GPT-5.6 Sol"]);
   });
 
   test("surfaces a single-provider selection as an override", async () => {

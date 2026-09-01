@@ -161,6 +161,11 @@ export interface WebSearchConfig {
    * cleared, the chain below is not what actually runs.
    */
   overriddenBy: string | null;
+  /**
+   * Labels of the models these providers reach (the pi profiles). Claude
+   * models use Anthropic's own built-in web search and ignore all of this.
+   */
+  appliesTo: string[];
   providers: WebSearchProvider[];
 }
 
