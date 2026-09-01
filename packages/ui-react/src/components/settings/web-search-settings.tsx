@@ -82,6 +82,7 @@ export function WebSearchSection({ active }: { active: boolean }) {
         told which are enabled and can pick one deliberately. Changes apply to
         new conversations.
       </p>
+      <AppliesTo models={config.appliesTo} />
 
       <div className="mt-4 rounded-lg border border-border-subtle bg-surface p-3">
         {config.overriddenBy && (
@@ -127,6 +128,27 @@ export function WebSearchSection({ active }: { active: boolean }) {
         {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       </div>
     </div>
+  );
+}
+
+/**
+ * Which models these toggles actually reach.
+ *
+ * The card is shown whenever the pi backend is configured, but a deployment
+ * running both backends puts Claude models in the same picker — and those use
+ * the Agent SDK's Anthropic-hosted WebSearch, which takes no provider setting.
+ * Without this line the toggles look global and silently are not.
+ */
+function AppliesTo({ models }: { models: string[] }) {
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">
+      Applies to{" "}
+      <span className="text-foreground">
+        {models.length > 0 ? models.join(", ") : "the pi models"}
+      </span>
+      . Claude models search through Anthropic instead, which has no provider
+      setting.
+    </p>
   );
 }
 

@@ -42,7 +42,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 import type { AgentConfig } from "../config/env.js";
 import { resolveWebSearchEnv } from "../config/env.js";
-import { loadBackendModule } from "../agent/backend.js";
+import { loadBackendModule, parsePiProfiles } from "../agent/backend.js";
 
 /** One toggleable provider, as the Settings UI renders it. */
 export interface WebSearchProviderView {
@@ -75,6 +75,12 @@ export interface WebSearchConfigView {
    * UI offers to clear it; until then the chain is not what runs.
    */
   overriddenBy: string | null;
+  /**
+   * Labels of the models these providers actually reach — the pi profiles.
+   * Claude models use the Agent SDK's own Anthropic-hosted WebSearch, which
+   * has no provider setting, so the card has to say who it is talking about.
+   */
+  appliesTo: string[];
   providers: WebSearchProviderView[];
 }
 
@@ -129,6 +135,21 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
   const piConfigured = () =>
     Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi";
 
+  /**
+   * The pi models in the picker. Malformed config cannot reach here —
+   * createApp refuses to boot on it — but a throw would take the whole
+   * settings card down over a label, so it degrades to an empty list.
+   */
+  const appliesTo = (): string[] => {
+    try {
+      return parsePiProfiles(agent.piProfilesJson ?? null, agent.profilesJson ?? null).map(
+        (p) => p.label
+      );
+    } catch {
+      return [];
+    }
+  };
+
   function view(): WebSearchConfigView {
     const config = readConfig(configPath());
     const override = readWebSearchOverride(config);
@@ -138,6 +159,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       configured: true,
       order,
       overriddenBy: override,
+      appliesTo: appliesTo(),
       providers: WEB_SEARCH_PROVIDERS.map((p) => ({
         id: p.id,
         label: p.label,
@@ -160,7 +182,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       // Not-configured is a normal state, not an error: the client hides the
       // whole card (same convention as /pi-auth/providers).
       if (!piConfigured()) {
-        return c.json({ configured: false, order: [], overriddenBy: null, providers: [] });
+        return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [] });
       }
       return c.json(view());
     })
