@@ -1,5 +1,23 @@
 # @schlessera/brain-ui-react
 
+## 0.30.1
+
+### Patch Changes
+
+- 7fbf228: fix: the web-search card says which models its providers reach
+
+  The card is shown whenever the pi backend is configured, but a deployment
+  running both backends puts Claude models in the same picker — and those use the
+  Agent SDK's Anthropic-hosted `WebSearch`, which takes no provider setting and
+  ignores `web-search.json` entirely. The toggles looked global and silently were
+  not.
+
+  `GET /api/web-search` now returns `appliesTo`, the labels of the pi profiles,
+  and the card renders "Applies to <models>. Claude models search through
+  Anthropic instead, which has no provider setting."
+
+  - @schlessera/brain-ui-sdk@0.30.1
+
 ## 0.30.0
 
 ### Minor Changes

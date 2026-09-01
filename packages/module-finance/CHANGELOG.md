@@ -1,5 +1,11 @@
 # @schlessera/brain-module-finance
 
+## 0.30.1
+
+### Patch Changes
+
+- @schlessera/brain@0.30.1
+
 ## 0.30.0
 
 ### Patch Changes

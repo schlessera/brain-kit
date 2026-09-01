@@ -1,5 +1,11 @@
 # @schlessera/brain-backend-claude
 
+## 0.30.1
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.30.1
+
 ## 0.30.0
 
 ### Patch Changes
