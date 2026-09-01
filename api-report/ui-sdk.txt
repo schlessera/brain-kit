@@ -534,6 +534,7 @@ export "./server" (./src/server/index.ts)
   type CronJobStatus
   DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
+  type ExecutionBrief
   FILE_SIZE_CAP_BYTES
   type FileContentKind
   type FileContentResponse
@@ -632,6 +633,11 @@ export "./server" (./src/server/index.ts)
   type VoiceMode
   type VoiceSessionResponse
   type VoiceTokenResponse
+  WEB_SEARCH_FALLBACK_ON
+  WEB_SEARCH_PROVIDERS
+  WEB_SEARCH_PROVIDER_KEYS
+  type WebSearchBrief
+  type WebSearchProviderSpec
   type WikilinkMapResponse
   type WriteLock
   bashCommand
@@ -643,14 +649,20 @@ export "./server" (./src/server/index.ts)
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
+  hasWebSearchCredential
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  readWebSearchOverride
+  readWebSearchRouting
   resetRtkProbe
+  resolveWebSearchConfigPath
   reverseGeocode
   rtkAvailable
   rtkRewriteCommand
   sumModelUsage
+  webSearchBrief
+  webSearchProvider
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH

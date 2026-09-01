@@ -129,23 +129,38 @@ export interface SkillInstallOutcome {
   files?: number;
 }
 
-/** One selectable web-search provider (mirror of the server view). */
+/** One toggleable web-search provider (mirror of the server view). */
 export interface WebSearchProvider {
   id: string;
   label: string;
-  /** Whether this provider accepts an API key ("auto" does not). */
+  /** In the active chain. */
+  enabled: boolean;
+  /** Whether this provider accepts an API key. */
   hasKeyField: boolean;
   /** True when a key for it is stored server-side (values never travel). */
   keyConfigured: boolean;
-  /** True when the provider works without any key (Exa's free tier). */
+  /** Its key comes from the environment instead — not editable here. */
+  keyFromEnv: boolean;
+  /** True when the provider works without any credential. */
   keyless: boolean;
+  /** Qualitative cost note, e.g. "Free tier, rate-limited". */
+  costNote: string;
+  /** What the provider is good at. */
+  blurb: string;
 }
 
 /** Web-search configuration for the pi backend's web extension. */
 export interface WebSearchConfig {
   /** False when the pi backend is not configured — hide the card. */
   configured: boolean;
-  provider: string;
+  /** The enabled chain, cheapest first. Empty = the extension chooses. */
+  order: string[];
+  /**
+   * Set when a single-provider selection in the config file is overriding the
+   * chain (a pre-toggle config, or pi's own /curator command). Until it is
+   * cleared, the chain below is not what actually runs.
+   */
+  overriddenBy: string | null;
   providers: WebSearchProvider[];
 }
 
@@ -380,12 +395,13 @@ export const api = {
   webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
 
   /**
-   * Update the web-search provider and/or stored API keys (null/"" clears a
-   * key). Returns the updated config.
+   * Toggle providers and/or store API keys (null/"" clears a key), or clear a
+   * single-provider override. Returns the updated config.
    */
   webSearchUpdate: (update: {
-    provider?: string;
+    enabled?: Record<string, boolean>;
     apiKeys?: Record<string, string | null>;
+    clearOverride?: boolean;
   }) =>
     fetchJson<WebSearchConfig>("/web-search", {
       method: "PUT",

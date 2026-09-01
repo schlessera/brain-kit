@@ -1,4 +1,5 @@
 import type { ClientEnvironment } from "../protocol.js";
+import type { WebSearchBrief } from "./web-search.js";
 
 /**
  * The chat UI's own capability brief, appended to the agent's system prompt.
@@ -166,7 +167,7 @@ export interface SurfaceTools {
   activity?: string | false;
 }
 
-function toolSection(tools: SurfaceTools): string {
+function toolSection(tools: SurfaceTools, webSearch?: WebSearchBrief): string {
   const lines: string[] = [];
   if (tools.askUser) {
     lines.push(
@@ -201,7 +202,38 @@ function toolSection(tools: SurfaceTools): string {
   sync still running", "what did that cost" instead of guessing from logs.`
     );
   }
+  if (webSearch) lines.push(webSearchLine(webSearch));
   return lines.length ? `\n${lines.join("\n")}` : "";
+}
+
+/**
+ * Which search providers are actually reachable. The search tool's own
+ * description names every provider its extension could theoretically use —
+ * around thirty — regardless of what this deployment configured, so a model
+ * reading it alone will happily ask for one that has no key and get an error.
+ * This line is the correction, and it also states the cost gradient, which the
+ * tool description never mentions.
+ */
+function webSearchLine(brief: WebSearchBrief): string {
+  if (brief.providers.length === 0) {
+    return `- **Web search picks its own provider.** No provider chain is configured, so
+  \`${brief.toolName}\` falls back to its built-in order, starting with a free
+  rate-limited tier. Omit the \`provider\` argument and let it choose.`;
+  }
+  const list = brief.providers
+    .map((p) => `\`${p.id}\`${p.paid ? " (paid)" : " (free)"} — ${p.blurb}`)
+    .join("; ");
+  const [cheapest] = brief.providers;
+  const paid = brief.providers.filter((p) => p.paid);
+  const override = paid.length
+    ? `Pass one explicitly — \`provider: "${paid[0]!.id}"\` — only when the question
+  warrants it or the reader asked for that provider.`
+    : `Pass \`provider\` explicitly only when the reader asks for a specific one.`;
+  return `- **Web search runs a fixed provider chain**, tried in this order: ${list}.
+  The first one answers; a later one is reached only when an earlier fails, so
+  omitting the \`provider\` argument keeps searches on ${cheapest!.id}. ${override}
+  \`${brief.toolName}\`'s own description lists many other providers — none of
+  them are configured here, and naming one fails.`;
 }
 
 /** Fallback line when the client never reported its environment. */
@@ -286,10 +318,16 @@ export function buildSystemPromptAppend(
     turnBudgetMs?: number;
     /** How this backend executes work — see {@link ExecutionBrief}. */
     execution?: ExecutionBrief;
+    /**
+     * Which web-search providers this deployment actually reaches. Absent when
+     * the backend has no configurable search (the Claude backend's hosted
+     * WebSearch) — the brief then says nothing about providers.
+     */
+    webSearch?: WebSearchBrief;
   } = {}
 ): string {
   const device = opts.client ? describeClient(opts.client) : UNKNOWN_DEVICE;
-  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs, opts.execution)}${toolSection(opts.tools ?? {})}
+  return `${BRAIN_UI_SYSTEM_PROMPT_APPEND}${turnLifecycleSection(opts.turnBudgetMs, opts.execution)}${toolSection(opts.tools ?? {}, opts.webSearch)}
 
 # Who is reading
 

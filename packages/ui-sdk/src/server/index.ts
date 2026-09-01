@@ -24,7 +24,20 @@ export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
 
 export { BRAIN_UI_SYSTEM_PROMPT_APPEND, buildSystemPromptAppend } from "./system-prompt.js";
-export type { SurfaceTools } from "./system-prompt.js";
+export type { SurfaceTools, ExecutionBrief } from "./system-prompt.js";
+
+export {
+  WEB_SEARCH_PROVIDERS,
+  WEB_SEARCH_FALLBACK_ON,
+  WEB_SEARCH_PROVIDER_KEYS,
+  webSearchProvider,
+  resolveWebSearchConfigPath,
+  hasWebSearchCredential,
+  readWebSearchRouting,
+  readWebSearchOverride,
+  webSearchBrief,
+} from "./web-search.js";
+export type { WebSearchProviderSpec, WebSearchBrief } from "./web-search.js";
 
 export {
   DEFAULT_CONFIRM_BASH_PATTERNS,
