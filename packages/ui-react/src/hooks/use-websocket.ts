@@ -153,7 +153,76 @@ function ensureActivitySubscription(sessionId: string | null | undefined): void 
   void loadSessionActivityHistory(sessionId);
 }
 
+/**
+ * Text and thinking deltas waiting to be applied, per buffer.
+ *
+ * A model streams tokens far faster than the display refreshes, and each socket
+ * frame arrives in its own macrotask, so React cannot batch them: one token was
+ * one store write, one render and one markdown re-parse of the growing message.
+ * Coalescing a frame's worth of tokens into a single write costs nothing
+ * visually — the screen could not have shown the intermediate states anyway.
+ *
+ * Consecutive same-kind chunks merge, so a burst of text becomes ONE appendText
+ * rather than one per token. Kind changes start a new chunk, which is what keeps
+ * interleaved thinking and text in their true chronological order.
+ */
+type PendingDelta = { kind: "text" | "thinking"; text: string };
+const pendingDeltas = new Map<ChatKey, PendingDelta[]>();
+let flushScheduled = false;
+
+/**
+ * Apply every buffered delta, in arrival order, and clear the buffer.
+ *
+ * Exported so tests can force the frame rather than wait for one; production
+ * code never needs to call it, because every path that reads the transcript
+ * flushes first.
+ */
+export function flushChatDeltas(): void {
+  flushDeltas();
+}
+
+function flushDeltas(): void {
+  flushScheduled = false;
+  if (pendingDeltas.size === 0) return;
+  const batches = [...pendingDeltas.entries()];
+  pendingDeltas.clear();
+  const state = useChatStore.getState();
+  for (const [key, chunks] of batches) {
+    for (const chunk of chunks) {
+      if (chunk.kind === "text") state.appendText(key, chunk.text);
+      else state.appendThinking(key, chunk.text);
+    }
+  }
+}
+
+function enqueueDelta(key: ChatKey, kind: PendingDelta["kind"], text: string): void {
+  const chunks = pendingDeltas.get(key);
+  if (!chunks) {
+    pendingDeltas.set(key, [{ kind, text }]);
+  } else {
+    const last = chunks[chunks.length - 1];
+    if (last.kind === kind) last.text += text;
+    else chunks.push({ kind, text });
+  }
+  // Outside a browser (unit tests, SSR) there is no frame to wait for, so apply
+  // straight away and keep the handler's behaviour synchronous.
+  if (typeof requestAnimationFrame !== "function") {
+    flushDeltas();
+    return;
+  }
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(flushDeltas);
+  }
+}
+
 export function handleServerMessage(msg: ServerMessage) {
+  // Every frame that is not itself a delta must see the transcript fully
+  // applied: the demux below reads buffer state, and the store records parts in
+  // arrival order, so a tool call landing ahead of buffered text would reorder
+  // the message.
+  if (msg.type !== "text_delta" && msg.type !== "thinking_delta") flushDeltas();
+
   const state = useChatStore.getState();
 
   // Activity stream frames feed their own store and never touch chat state.
@@ -223,17 +292,19 @@ export function handleServerMessage(msg: ServerMessage) {
 
   switch (msg.type) {
     case "text_delta":
+      // Opening the bubble stays immediate — the first token should show a
+      // message starting, and every later delta needs isStreaming to be true.
       if (!buffer()?.isStreaming) {
         state.startAssistantMessage(key);
       }
-      state.appendText(key, msg.text);
+      enqueueDelta(key, "text", msg.text);
       break;
 
     case "thinking_delta":
       if (!buffer()?.isStreaming) {
         state.startAssistantMessage(key);
       }
-      state.appendThinking(key, msg.text);
+      enqueueDelta(key, "thinking", msg.text);
       break;
 
     case "tool_use_start":
@@ -462,6 +533,12 @@ function coldResumeIfNeeded(sessionId: string | null, messageCount: number) {
 
 function handleStatusChange(status: "connecting" | "connected" | "disconnected") {
   useConnectionStore.getState().setWsStatus(status);
+
+  // A status change can be followed by a history replay that rewrites the
+  // buffer, so land whatever is still buffered before anything reads it. In a
+  // hidden tab requestAnimationFrame does not run at all, which is exactly the
+  // case where deltas could otherwise sit unapplied across a reconnect.
+  flushDeltas();
 
   if (status === "disconnected") {
     wasDisconnected = true;

@@ -1,9 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
-import { runStateForFrame, handleServerMessage } from "../src/hooks/use-websocket";
+import { runStateForFrame, handleServerMessage, flushChatDeltas } from "../src/hooks/use-websocket";
 
 function reset() {
+  // Text deltas are coalesced into the next animation frame when one exists;
+  // these assertions read the store directly, so force the frame.
+  flushChatDeltas();
   useChatStore.setState({
     buffers: {},
     draft: null,
@@ -36,6 +39,7 @@ describe("session demux (handleServerMessage)", () => {
 
     // A frame for the BACKGROUND session B must not touch A's transcript...
     handleServerMessage({ type: "text_delta", text: "B intrudes", sessionId: "B" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     const assistant = activeChat(state).messages.find((m) => m.role === "assistant");
@@ -50,6 +54,7 @@ describe("session demux (handleServerMessage)", () => {
   test("a scoped frame for a session with no buffer only updates its badge", () => {
     useChatStore.getState().setActiveSession("A");
     handleServerMessage({ type: "text_delta", text: "ghost", sessionId: "Z" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     expect(state.buffers["Z"]).toBeUndefined(); // no partial transcript materialized
@@ -62,6 +67,7 @@ describe("session demux (handleServerMessage)", () => {
     store.startAssistantMessage("A");
 
     handleServerMessage({ type: "text_delta", text: "more A", sessionId: "A" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     const assistant = activeChat(state).messages.find((m) => m.role === "assistant");
@@ -79,6 +85,7 @@ describe("session demux (handleServerMessage)", () => {
     store.setActiveSession("A");
     store.startAssistantMessage("A");
     handleServerMessage({ type: "text_delta", text: "legacy" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     const assistant = activeChat(state).messages.find((m) => m.role === "assistant");
@@ -87,6 +94,7 @@ describe("session demux (handleServerMessage)", () => {
 
   test("an unscoped frame with no active session applies to the draft", () => {
     handleServerMessage({ type: "text_delta", text: "draft text" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     const assistant = state.draft?.messages.find((m) => m.role === "assistant");
@@ -103,6 +111,7 @@ describe("session demux (handleServerMessage)", () => {
 
     handleServerMessage({ type: "session_info", sessionId: "S" } as unknown as ServerMessage);
     handleServerMessage({ type: "text_delta", text: "live", sessionId: "S" } as ServerMessage);
+    flushChatDeltas();
 
     const state = useChatStore.getState();
     expect(state.buffers["S"]).toBeDefined();

@@ -3,13 +3,19 @@
 //   bun run tests/render/streaming-bench.tsx [deltas]
 //
 // Seeds the chat store with N already-finished messages, mounts <ChatPage/>,
-// then streams text deltas into a new assistant turn the way the WebSocket
-// does — one store write per delta, each in its own act() because socket
-// frames arrive in separate macrotasks and React cannot batch across them.
+// then streams text_delta frames into a new assistant turn through the real
+// socket handler. Each frame lands in its own act(), because socket frames
+// arrive in separate macrotasks and React cannot batch across them.
 //
-// It reports what one delta costs. The number to watch is how that scales with
-// N: only the streaming message changes, so a delta that costs more the longer
-// the conversation gets means finished messages are re-rendering for nothing.
+// A model streams tokens far faster than the display refreshes, so the frames
+// are delivered in bursts of DELTAS_PER_FRAME with a paint (a flushed
+// requestAnimationFrame) between bursts. requestAnimationFrame is stubbed so
+// those paints happen where the benchmark says they do.
+//
+// It reports what one delta costs. Two numbers matter: how the cost scales
+// with N (only the streaming message changes, so any growth means finished
+// messages are re-rendering for nothing), and commits/delta (below 1 means
+// deltas within a frame are being coalesced).
 //
 // Not a test. See typing-bench.tsx for the happy-dom containment note.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -37,6 +43,14 @@ class DeadSocket {
 }
 (globalThis as { WebSocket?: unknown }).WebSocket = DeadSocket;
 
+// Paints happen when the benchmark says they do, not on a real timer.
+const frameCallbacks: FrameRequestCallback[] = [];
+globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+  frameCallbacks.push(cb);
+  return frameCallbacks.length;
+}) as typeof requestAnimationFrame;
+globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+
 const log = console.error.bind(console);
 console.error = () => {};
 
@@ -45,6 +59,8 @@ const { render, cleanup, act } = await import("@testing-library/react");
 const { ChatPage } = await import("../../src/components/chat/chat-page.js");
 const { useChatStore } = await import("../../src/stores/chat-store.js");
 const { useConnectionStore } = await import("../../src/stores/connection-store.js");
+const { handleServerMessage } = await import("../../src/hooks/use-websocket.js");
+import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 const BODY = `## Section heading
 
@@ -93,7 +109,13 @@ function seed(count: number): void {
   } as never);
 }
 
-function measure(messageCount: number, deltas: number) {
+/** Run every frame callback queued since the last paint. */
+function paint(): void {
+  const due = frameCallbacks.splice(0, frameCallbacks.length);
+  for (const cb of due) cb(performance.now());
+}
+
+function measure(messageCount: number, deltas: number, deltasPerFrame: number) {
   seed(messageCount);
   let commitMs = 0;
   let commits = 0;
@@ -114,14 +136,17 @@ function measure(messageCount: number, deltas: number) {
   commits = 0;
   const t0 = performance.now();
   for (let i = 0; i < deltas; i++) {
-    // One act() per delta: socket frames do not share a macrotask, so React
-    // gets no chance to batch them.
+    // One act() per frame: socket frames do not share a macrotask, so React
+    // gets no chance to batch them on its own.
     act(() => {
-      useChatStore.getState().appendText(null, CHUNKS[i % CHUNKS.length]);
+      handleServerMessage({ type: "text_delta", text: CHUNKS[i % CHUNKS.length] } as ServerMessage);
     });
+    if ((i + 1) % deltasPerFrame === 0) act(paint);
   }
+  act(paint);
   const wallMs = performance.now() - t0;
   cleanup();
+  frameCallbacks.length = 0;
 
   return {
     messageCount,
@@ -132,12 +157,14 @@ function measure(messageCount: number, deltas: number) {
 }
 
 const DELTAS = Number(process.argv[2] ?? 20);
-measure(6, 5); // warm the JIT and the module graph
+const DELTAS_PER_FRAME = Number(process.argv[3] ?? 4);
+measure(6, 5, DELTAS_PER_FRAME); // warm the JIT and the module graph
 
+log(`streaming ${DELTAS} deltas, ${DELTAS_PER_FRAME} per painted frame`);
 log("messages | commit ms/delta | wall ms/delta | commits/delta");
 log("---------|-----------------|---------------|--------------");
 for (const n of [0, 10, 40, 100]) {
-  const r = measure(n, DELTAS);
+  const r = measure(n, DELTAS, DELTAS_PER_FRAME);
   log(
     `${String(r.messageCount).padStart(8)} | ${r.commitMs.toFixed(2).padStart(15)} | ` +
       `${r.wallMs.toFixed(2).padStart(13)} | ${r.commits.toFixed(2).padStart(13)}`
