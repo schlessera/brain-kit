@@ -1,6 +1,9 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils.js";
+
+/** Matches the `duration-300` slide-out below. */
+const SLIDE_OUT_MS = 300;
 
 export function SlidePanel({
   open,
@@ -23,6 +26,29 @@ export function SlidePanel({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
+
+  /**
+   * A closed panel renders nothing.
+   *
+   * The shell (the sliding frame and its header) stays mounted so the CSS
+   * transform still animates, but the contents do not: every panel here is a
+   * child of the chat page, so a mounted panel re-rendered with it, and the
+   * settings tabs and the session list are not cheap to re-render. Every panel
+   * already rebuilds its state when it opens, so there is nothing to preserve
+   * across a close.
+   *
+   * Unmounting is deferred by the length of the slide-out so the panel does not
+   * empty itself on the way off screen.
+   */
+  const [showContent, setShowContent] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setShowContent(true);
+      return;
+    }
+    const t = setTimeout(() => setShowContent(false), SLIDE_OUT_MS);
+    return () => clearTimeout(t);
+  }, [open]);
 
   return (
     <>
@@ -57,7 +83,7 @@ export function SlidePanel({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="flex-1 overflow-y-auto">{showContent ? children : null}</div>
       </div>
     </>
   );
