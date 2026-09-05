@@ -1,10 +1,19 @@
+import { Suspense, lazy } from "react";
 import { KeyRound, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
-import { ModelsTab } from "./models-tab.js";
-import { PasskeyTab } from "./passkey-tab.js";
-import { SkillsTab } from "./skills-tab.js";
+
+/**
+ * Each tab is fetched the first time it is opened. Settings is the largest
+ * surface in the app and most sessions never open it, so none of it belongs in
+ * the bundle that has to arrive before the first message can be shown. The
+ * panel frame and its tab strip stay eager, so opening settings is immediate
+ * and only the body fills in.
+ */
+const ModelsTab = lazy(() => import("./models-tab.js").then((m) => ({ default: m.ModelsTab })));
+const PasskeyTab = lazy(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
+const SkillsTab = lazy(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof KeyRound }> = [
   { id: "models", label: "Models", icon: SlidersHorizontal },
@@ -51,13 +60,15 @@ export function SettingsPanel({
         </div>
 
         <div className="min-h-0 flex-1">
-          {tab === "models" ? (
-            <ModelsTab active={open && tab === "models"} />
-          ) : tab === "skills" ? (
-            <SkillsTab active={open && tab === "skills"} />
-          ) : (
-            <PasskeyTab active={open && tab === "security"} />
-          )}
+          <Suspense fallback={null}>
+            {tab === "models" ? (
+              <ModelsTab active={open && tab === "models"} />
+            ) : tab === "skills" ? (
+              <SkillsTab active={open && tab === "skills"} />
+            ) : (
+              <PasskeyTab active={open && tab === "security"} />
+            )}
+          </Suspense>
         </div>
       </div>
     </SlidePanel>

@@ -15,8 +15,9 @@ export { configureBrainUi, uiConfig, type BrainUiConfig } from "./config.js";
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
 export { AppShell } from "./components/layout/app-shell.js";
 export { ChatPage } from "./components/chat/chat-page.js";
-export { GraphPage } from "./components/graph/graph-page.js";
-export { ActivityPage } from "./components/activity/activity-page.js";
+// Loaded on first use, with their own Suspense boundary, so a shell that
+// renders them keeps working unchanged — see lazy-pages.tsx.
+export { GraphPage, ActivityPage } from "./lazy-pages.js";
 
 // Markdown renderer (also useful standalone, e.g. for a dev kitchen sink).
 export { BrainMarkdown } from "./components/chat/brain-markdown.js";

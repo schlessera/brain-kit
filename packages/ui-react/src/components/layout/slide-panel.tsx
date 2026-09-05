@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { cn } from "../../lib/utils.js";
 
 /** Matches the `duration-300` slide-out below. */
@@ -28,27 +29,12 @@ export function SlidePanel({
   }, [open, onClose]);
 
   /**
-   * A closed panel renders nothing.
-   *
-   * The shell (the sliding frame and its header) stays mounted so the CSS
-   * transform still animates, but the contents do not: every panel here is a
-   * child of the chat page, so a mounted panel re-rendered with it, and the
-   * settings tabs and the session list are not cheap to re-render. Every panel
-   * already rebuilds its state when it opens, so there is nothing to preserve
-   * across a close.
-   *
-   * Unmounting is deferred by the length of the slide-out so the panel does not
-   * empty itself on the way off screen.
+   * A closed panel renders nothing. The shell (the sliding frame and its
+   * header) stays mounted so the CSS transform still animates; the contents do
+   * not. Every panel already rebuilds its state when it opens, so a close never
+   * preserved anything worth keeping.
    */
-  const [showContent, setShowContent] = useState(open);
-  useEffect(() => {
-    if (open) {
-      setShowContent(true);
-      return;
-    }
-    const t = setTimeout(() => setShowContent(false), SLIDE_OUT_MS);
-    return () => clearTimeout(t);
-  }, [open]);
+  const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
 
   return (
     <>

@@ -1,8 +1,13 @@
 import { apiBase } from "../../lib/backend.js";
-import React, { memo, useEffect, useMemo, useRef } from "react";
-import Markdown from "react-markdown";
+import React, {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
+import Markdown, { type Options as MarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import {
   classifyRepoPath,
   isInternalRepoDir,
@@ -239,8 +244,56 @@ function withTextProcessing<T extends keyof React.JSX.IntrinsicElements>(
  * below actually hold.
  */
 const REMARK_PLUGINS = [remarkGfm];
-const REHYPE_PLUGINS = [rehypeHighlight];
-const NO_REHYPE_PLUGINS: never[] = [];
+const NO_REHYPE_PLUGINS: NonNullable<MarkdownOptions["rehypePlugins"]> = [];
+
+/**
+ * Syntax highlighting arrives after first paint.
+ *
+ * rehype-highlight pulls in highlight.js, 166 KB of the entry bundle — more
+ * than every markdown parser here put together — and nothing on the first paint
+ * needs it. It is fetched once, on the first mount of a highlighting renderer;
+ * until it lands, code blocks render as plain text and then gain their colours.
+ * In practice it is loaded long before the first assistant message arrives.
+ *
+ * The module-level cache means the fetch happens once per page, not once per
+ * message, and useSyncExternalStore is what lets every mounted renderer pick up
+ * the plugin the moment it does.
+ */
+let highlightPlugins: NonNullable<MarkdownOptions["rehypePlugins"]> | null = null;
+let highlightRequested = false;
+const highlightListeners = new Set<() => void>();
+
+function subscribeHighlight(onChange: () => void): () => void {
+  highlightListeners.add(onChange);
+  return () => {
+    highlightListeners.delete(onChange);
+  };
+}
+
+function readHighlightPlugins(): NonNullable<MarkdownOptions["rehypePlugins"]> {
+  return highlightPlugins ?? NO_REHYPE_PLUGINS;
+}
+
+function useRehypePlugins(enabled: boolean) {
+  const plugins = useSyncExternalStore(
+    subscribeHighlight,
+    readHighlightPlugins,
+    readHighlightPlugins
+  );
+  useEffect(() => {
+    if (!enabled || highlightRequested) return;
+    highlightRequested = true;
+    import("rehype-highlight")
+      .then((mod) => {
+        highlightPlugins = [mod.default];
+        for (const listener of highlightListeners) listener();
+      })
+      .catch(() => {
+        // Soft-fail: code blocks stay readable, just uncoloured.
+      });
+  }, [enabled]);
+  return enabled ? plugins : NO_REHYPE_PLUGINS;
+}
 
 /**
  * Memoized because rendering it means parsing markdown, and the transcript
@@ -281,6 +334,8 @@ export const BrainMarkdown = memo(function BrainMarkdown({ content, className, e
 const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const processed = entityTags ? renderEntityTags(content) : content;
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
+  // Entity-tag rendering emits its own markup and must not be re-highlighted.
+  const rehypePlugins = useRehypePlugins(!entityTags);
 
   useEffect(() => {
     if (fileLinks) void ensureWikilinks();
@@ -366,7 +421,7 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
     <div className={className ?? "brain-prose"}>
       <Markdown
         remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={entityTags ? NO_REHYPE_PLUGINS : REHYPE_PLUGINS}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {processed}

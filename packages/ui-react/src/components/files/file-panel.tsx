@@ -1,9 +1,19 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { useFileStore } from "../../stores/file-store.js";
-import { FileTree } from "./file-tree.js";
-import { FileViewer } from "./file-viewer.js";
+import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { cn } from "../../lib/utils.js";
+
+/** Matches the `duration-300` slide-out below. */
+const SLIDE_OUT_MS = 300;
+
+/**
+ * The tree and the viewers load the first time the panel is opened. Together
+ * they carry the markdown, HTML, image and PDF viewers, none of which the chat
+ * surface needs to have on hand.
+ */
+const FileTree = lazy(() => import("./file-tree.js").then((m) => ({ default: m.FileTree })));
+const FileViewer = lazy(() => import("./file-viewer.js").then((m) => ({ default: m.FileViewer })));
 
 export function FilePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const currentPath = useFileStore((s) => s.currentPath);
@@ -40,7 +50,10 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     }
   }, [open, currentPath]);
 
-  const showTree = !currentPath || treeExpanded;
+  // The body outlives `open` by the slide-out, then unmounts: a closed panel
+  // was otherwise keeping the whole file tree mounted behind the chat page.
+  const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
+  const showTree = showContent && (!currentPath || treeExpanded);
 
   return (
     <>
@@ -73,7 +86,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
 
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Tree toggle strip — visible when a file is open */}
-          {currentPath && (
+          {showContent && currentPath && (
             <div className="flex items-center gap-1 border-b border-border bg-surface-raised/40 px-3 py-1.5">
               <button
                 onClick={() => setTreeExpanded(!treeExpanded)}
@@ -99,14 +112,18 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
                 currentPath ? "max-h-[45vh] border-b border-border" : "flex-1"
               )}
             >
-              <FileTree />
+              <Suspense fallback={null}>
+                <FileTree />
+              </Suspense>
             </div>
           )}
 
           {/* Viewer area */}
-          {currentPath && (
+          {showContent && currentPath && (
             <div className="flex-1 overflow-hidden">
-              <FileViewer />
+              <Suspense fallback={null}>
+                <FileViewer />
+              </Suspense>
             </div>
           )}
         </div>
