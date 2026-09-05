@@ -3,8 +3,9 @@
 //   bun run tests/render/typing-bench.tsx [keystrokes]
 //
 // Seeds the chat store with N messages, mounts <ChatPage/>, types into the
-// composer, and reports what one keystroke costs: React commit time (Profiler
-// actualDuration), wall time, and how many commits React needed. The number
+// composer, and reports what the mount cost and what one keystroke costs:
+// React commit time (Profiler actualDuration), wall time, and how many commits
+// React needed. The number
 // that matters is how those scale with N — a composer that costs more to type
 // in the longer the conversation gets is the regression this guards.
 //
@@ -95,9 +96,11 @@ function measure(messageCount: number, keystrokes: number) {
     commits++;
   };
 
+  const mountStart = performance.now();
   const view = render(
     React.createElement(React.Profiler, { id: "chat", onRender }, React.createElement(ChatPage))
   );
+  const mountMs = performance.now() - mountStart;
   // useWebSocket's mount effect owns wsStatus, so force "connected" AFTER
   // mount — the composer is disabled until the socket is up.
   act(() => {
@@ -127,6 +130,7 @@ function measure(messageCount: number, keystrokes: number) {
 
   return {
     messageCount,
+    mountMs,
     commitMs: commitMs / keystrokes,
     wallMs: wallMs / keystrokes,
     commits: commits / keystrokes,
@@ -136,12 +140,13 @@ function measure(messageCount: number, keystrokes: number) {
 const KEYS = Number(process.argv[2] ?? 6);
 measure(6, 4); // warm the JIT and the module graph
 
-log("messages | commit ms/key | wall ms/key | commits/key");
-log("---------|---------------|-------------|------------");
-for (const n of [0, 10, 40, 100]) {
+log("messages | mount ms | commit ms/key | wall ms/key | commits/key");
+log("---------|----------|---------------|-------------|------------");
+for (const n of [0, 10, 40, 100, 400]) {
   const r = measure(n, KEYS);
   log(
-    `${String(r.messageCount).padStart(8)} | ${r.commitMs.toFixed(2).padStart(13)} | ` +
+    `${String(r.messageCount).padStart(8)} | ${r.mountMs.toFixed(1).padStart(8)} | ` +
+      `${r.commitMs.toFixed(2).padStart(13)} | ` +
       `${r.wallMs.toFixed(2).padStart(11)} | ${r.commits.toFixed(2).padStart(11)}`
   );
 }

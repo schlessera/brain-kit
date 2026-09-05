@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowDown } from "lucide-react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { ArrowDown, ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import { useUIStore } from "../../stores/ui-store.js";
@@ -23,6 +23,20 @@ import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
 } from "../../lib/client-environment.js";
+
+/**
+ * How much of a long transcript is rendered at once, and how much more each
+ * "show earlier" reveals.
+ *
+ * The transcript is the one part of this app with no natural size limit: a
+ * resumed session can replay hundreds of messages, and every one of them is a
+ * parsed markdown tree that the browser then has to lay out and keep. Rendering
+ * a window instead bounds the DOM without a virtualiser — messages are wildly
+ * variable in height, and estimating that is where virtualisers get scroll
+ * position wrong.
+ */
+const WINDOW_SIZE = 40;
+const WINDOW_STEP = 40;
 
 /**
  * The chat surface: transcript, panels, and the composer.
@@ -61,6 +75,37 @@ export function ChatPage() {
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   const runCommand = useChatCommands();
+
+  // Only the tail of a long transcript is rendered; the rest is one tap away.
+  const [visibleCount, setVisibleCount] = useState(WINDOW_SIZE);
+  // Switching sessions starts a fresh window. Adjusted during render rather
+  // than in an effect, so the new session never paints with the old window.
+  const [windowedSession, setWindowedSession] = useState(sessionId);
+  if (windowedSession !== sessionId) {
+    setWindowedSession(sessionId);
+    setVisibleCount(WINDOW_SIZE);
+  }
+  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
+  // Revealing earlier messages prepends content, which would otherwise shove
+  // the view down by the height of everything added. Remember the distance to
+  // the BOTTOM across the change and restore it, so the message the user was
+  // reading stays where it was.
+  const scrollAnchorRef = useRef<number | null>(null);
+  const showEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    scrollAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
+    setVisibleCount((n) => n + WINDOW_STEP);
+  }, []);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = scrollAnchorRef.current;
+    if (el && anchor !== null) {
+      el.scrollTop = el.scrollHeight - anchor;
+      scrollAnchorRef.current = null;
+    }
+  });
 
   // Auto-scroll on new content when tailing is active
   useEffect(() => {
@@ -216,7 +261,23 @@ export function ChatPage() {
               {...{ [READING_COLUMN_ATTR]: "" }}
               className="mx-auto max-w-3xl divide-y divide-border/20"
             >
-              {messages.map((msg) => (
+              {hiddenCount > 0 && (
+                <div className="flex justify-center py-3">
+                  <button
+                    type="button"
+                    onClick={showEarlier}
+                    className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    Show {Math.min(hiddenCount, WINDOW_STEP)} earlier message
+                    {Math.min(hiddenCount, WINDOW_STEP) === 1 ? "" : "s"}
+                    <span className="text-muted-foreground/50">
+                      ({hiddenCount} hidden)
+                    </span>
+                  </button>
+                </div>
+              )}
+              {visibleMessages.map((msg) => (
                 <MessageBubble
                   key={msg.id}
                   message={msg}
