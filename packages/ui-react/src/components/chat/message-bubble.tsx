@@ -1,5 +1,5 @@
 import { uiConfig } from "../../config.js";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Mic, Image as ImageIcon } from "lucide-react";
 import type {
   ChatMessage,
@@ -18,7 +18,18 @@ import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
 
-export function MessageBubble({
+/**
+ * One message in the transcript.
+ *
+ * Memoized, and the memo is load-bearing rather than a micro-optimisation: the
+ * chat store replaces only the message it touches, so every OTHER message keeps
+ * its object identity across a store write. Without the memo, one streamed
+ * token re-rendered — and re-parsed the markdown of — the whole conversation.
+ *
+ * The contract that keeps it working: every callback prop must be stable.
+ * ChatPage wraps all three in useCallback for exactly this reason.
+ */
+export const MessageBubble = memo(function MessageBubble({
   message,
   onToolApproval,
   onAskUserSubmit,
@@ -93,7 +104,7 @@ export function MessageBubble({
       )}
     </motion.div>
   );
-}
+});
 
 /**
  * User-message image attachments. Live messages render real thumbnails from

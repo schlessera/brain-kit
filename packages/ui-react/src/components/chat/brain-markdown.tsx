@@ -1,5 +1,5 @@
 import { apiBase } from "../../lib/backend.js";
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { memo, useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -230,7 +230,24 @@ function withTextProcessing<T extends keyof React.JSX.IntrinsicElements>(
   );
 }
 
-export function BrainMarkdown({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
+/**
+ * Plugin lists, hoisted out of render.
+ *
+ * react-markdown builds a fresh unified processor on every render and reruns
+ * the whole parse — there is no internal memoization to lean on. Fresh array
+ * literals in the JSX made that unavoidable; module constants let the memo
+ * below actually hold.
+ */
+const REMARK_PLUGINS = [remarkGfm];
+const REHYPE_PLUGINS = [rehypeHighlight];
+const NO_REHYPE_PLUGINS: never[] = [];
+
+/**
+ * Memoized because rendering it means parsing markdown, and the transcript
+ * re-renders whenever anything about the surrounding message changes. All four
+ * props are primitives, so the default shallow comparison is exactly right.
+ */
+export const BrainMarkdown = memo(function BrainMarkdown({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const segments = splitShareBlocks(content);
   if (segments.length > 1 || (segments.length === 1 && segments[0].kind === "share")) {
     return (
@@ -259,9 +276,9 @@ export function BrainMarkdown({ content, className, entityTags = false, fileLink
       fileLinks={fileLinks}
     />
   );
-}
+});
 
-function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
+const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const processed = entityTags ? renderEntityTags(content) : content;
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
 
@@ -348,15 +365,15 @@ function BrainMarkdownInner({ content, className, entityTags = false, fileLinks 
   return (
     <div className={className ?? "brain-prose"}>
       <Markdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={entityTags ? [] : [rehypeHighlight]}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={entityTags ? NO_REHYPE_PLUGINS : REHYPE_PLUGINS}
         components={components}
       >
         {processed}
       </Markdown>
     </div>
   );
-}
+});
 
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
 export function FileLink({ path, children }: { path: string; children?: React.ReactNode }) {
