@@ -89,7 +89,7 @@ export const MessageBubble = memo(function MessageBubble({
         <div className="space-y-2">
           <UserAttachments message={message} />
           {message.content && (
-            <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+            <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
             </div>
           )}
@@ -281,7 +281,12 @@ function AssistantContent({
             // share formats still use the full message content.
             return group.isLastText ? (
               <div key={i} className="group relative" ref={contentRef}>
-                <MarkdownContent content={group.text} />
+                {/* The share menu is deliberately OUTSIDE the skip-render
+                    wrapper: content-visibility implies paint containment,
+                    which would clip a dropdown that opens past the box. */}
+                <div className="chat-message-body">
+                  <MarkdownContent content={group.text} />
+                </div>
                 {showShare && shareOptions.length > 0 && (
                   <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <ShareMenu options={shareOptions} title="Share message" />
@@ -289,7 +294,9 @@ function AssistantContent({
                 )}
               </div>
             ) : (
-              <MarkdownContent key={i} content={group.text} />
+              <div key={i} className="chat-message-body">
+                <MarkdownContent content={group.text} />
+              </div>
             );
         }
       })}
