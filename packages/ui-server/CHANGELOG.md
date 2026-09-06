@@ -1,5 +1,12 @@
 # @schlessera/brain-ui-server
 
+## 0.31.0
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.31.0
+- @schlessera/brain-render-template@0.31.0
+
 ## 0.30.1
 
 ### Patch Changes
