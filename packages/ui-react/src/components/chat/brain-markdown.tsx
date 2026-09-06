@@ -1,8 +1,13 @@
 import { apiBase } from "../../lib/backend.js";
-import React, { useEffect, useMemo, useRef } from "react";
-import Markdown from "react-markdown";
+import React, {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
+import Markdown, { type Options as MarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import {
   classifyRepoPath,
   isInternalRepoDir,
@@ -230,7 +235,72 @@ function withTextProcessing<T extends keyof React.JSX.IntrinsicElements>(
   );
 }
 
-export function BrainMarkdown({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
+/**
+ * Plugin lists, hoisted out of render.
+ *
+ * react-markdown builds a fresh unified processor on every render and reruns
+ * the whole parse — there is no internal memoization to lean on. Fresh array
+ * literals in the JSX made that unavoidable; module constants let the memo
+ * below actually hold.
+ */
+const REMARK_PLUGINS = [remarkGfm];
+const NO_REHYPE_PLUGINS: NonNullable<MarkdownOptions["rehypePlugins"]> = [];
+
+/**
+ * Syntax highlighting arrives after first paint.
+ *
+ * rehype-highlight pulls in highlight.js, 166 KB of the entry bundle — more
+ * than every markdown parser here put together — and nothing on the first paint
+ * needs it. It is fetched once, on the first mount of a highlighting renderer;
+ * until it lands, code blocks render as plain text and then gain their colours.
+ * In practice it is loaded long before the first assistant message arrives.
+ *
+ * The module-level cache means the fetch happens once per page, not once per
+ * message, and useSyncExternalStore is what lets every mounted renderer pick up
+ * the plugin the moment it does.
+ */
+let highlightPlugins: NonNullable<MarkdownOptions["rehypePlugins"]> | null = null;
+let highlightRequested = false;
+const highlightListeners = new Set<() => void>();
+
+function subscribeHighlight(onChange: () => void): () => void {
+  highlightListeners.add(onChange);
+  return () => {
+    highlightListeners.delete(onChange);
+  };
+}
+
+function readHighlightPlugins(): NonNullable<MarkdownOptions["rehypePlugins"]> {
+  return highlightPlugins ?? NO_REHYPE_PLUGINS;
+}
+
+function useRehypePlugins(enabled: boolean) {
+  const plugins = useSyncExternalStore(
+    subscribeHighlight,
+    readHighlightPlugins,
+    readHighlightPlugins
+  );
+  useEffect(() => {
+    if (!enabled || highlightRequested) return;
+    highlightRequested = true;
+    import("rehype-highlight")
+      .then((mod) => {
+        highlightPlugins = [mod.default];
+        for (const listener of highlightListeners) listener();
+      })
+      .catch(() => {
+        // Soft-fail: code blocks stay readable, just uncoloured.
+      });
+  }, [enabled]);
+  return enabled ? plugins : NO_REHYPE_PLUGINS;
+}
+
+/**
+ * Memoized because rendering it means parsing markdown, and the transcript
+ * re-renders whenever anything about the surrounding message changes. All four
+ * props are primitives, so the default shallow comparison is exactly right.
+ */
+export const BrainMarkdown = memo(function BrainMarkdown({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const segments = splitShareBlocks(content);
   if (segments.length > 1 || (segments.length === 1 && segments[0].kind === "share")) {
     return (
@@ -259,11 +329,13 @@ export function BrainMarkdown({ content, className, entityTags = false, fileLink
       fileLinks={fileLinks}
     />
   );
-}
+});
 
-function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
+const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const processed = entityTags ? renderEntityTags(content) : content;
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
+  // Entity-tag rendering emits its own markup and must not be re-highlighted.
+  const rehypePlugins = useRehypePlugins(!entityTags);
 
   useEffect(() => {
     if (fileLinks) void ensureWikilinks();
@@ -348,15 +420,15 @@ function BrainMarkdownInner({ content, className, entityTags = false, fileLinks 
   return (
     <div className={className ?? "brain-prose"}>
       <Markdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={entityTags ? [] : [rehypeHighlight]}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {processed}
       </Markdown>
     </div>
   );
-}
+});
 
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
 export function FileLink({ path, children }: { path: string; children?: React.ReactNode }) {

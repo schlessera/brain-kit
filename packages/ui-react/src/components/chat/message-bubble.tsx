@@ -1,5 +1,5 @@
 import { uiConfig } from "../../config.js";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Mic, Image as ImageIcon } from "lucide-react";
 import type {
   ChatMessage,
@@ -18,7 +18,18 @@ import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
 
-export function MessageBubble({
+/**
+ * One message in the transcript.
+ *
+ * Memoized, and the memo is load-bearing rather than a micro-optimisation: the
+ * chat store replaces only the message it touches, so every OTHER message keeps
+ * its object identity across a store write. Without the memo, one streamed
+ * token re-rendered — and re-parsed the markdown of — the whole conversation.
+ *
+ * The contract that keeps it working: every callback prop must be stable.
+ * ChatPage wraps all three in useCallback for exactly this reason.
+ */
+export const MessageBubble = memo(function MessageBubble({
   message,
   onToolApproval,
   onAskUserSubmit,
@@ -78,7 +89,7 @@ export function MessageBubble({
         <div className="space-y-2">
           <UserAttachments message={message} />
           {message.content && (
-            <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+            <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
             </div>
           )}
@@ -93,7 +104,7 @@ export function MessageBubble({
       )}
     </motion.div>
   );
-}
+});
 
 /**
  * User-message image attachments. Live messages render real thumbnails from
@@ -270,7 +281,12 @@ function AssistantContent({
             // share formats still use the full message content.
             return group.isLastText ? (
               <div key={i} className="group relative" ref={contentRef}>
-                <MarkdownContent content={group.text} />
+                {/* The share menu is deliberately OUTSIDE the skip-render
+                    wrapper: content-visibility implies paint containment,
+                    which would clip a dropdown that opens past the box. */}
+                <div className="chat-message-body">
+                  <MarkdownContent content={group.text} />
+                </div>
                 {showShare && shareOptions.length > 0 && (
                   <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <ShareMenu options={shareOptions} title="Share message" />
@@ -278,7 +294,9 @@ function AssistantContent({
                 )}
               </div>
             ) : (
-              <MarkdownContent key={i} content={group.text} />
+              <div key={i} className="chat-message-body">
+                <MarkdownContent content={group.text} />
+              </div>
             );
         }
       })}

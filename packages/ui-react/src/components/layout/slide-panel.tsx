@@ -1,6 +1,10 @@
 import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { cn } from "../../lib/utils.js";
+
+/** Matches the `duration-300` slide-out below. */
+const SLIDE_OUT_MS = 300;
 
 export function SlidePanel({
   open,
@@ -23,6 +27,14 @@ export function SlidePanel({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
+
+  /**
+   * A closed panel renders nothing. The shell (the sliding frame and its
+   * header) stays mounted so the CSS transform still animates; the contents do
+   * not. Every panel already rebuilds its state when it opens, so a close never
+   * preserved anything worth keeping.
+   */
+  const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
 
   return (
     <>
@@ -57,7 +69,7 @@ export function SlidePanel({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="flex-1 overflow-y-auto">{showContent ? children : null}</div>
       </div>
     </>
   );
