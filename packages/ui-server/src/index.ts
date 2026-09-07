@@ -40,6 +40,9 @@ export {
   type ModelDiscoveryState,
 } from "./agent/backend.js";
 export {
+  authGuard,
+  bumpSessionsEpoch,
+  isWsAuthorized,
   resolveAuthMode,
   type AuthMode,
   type AuthRuntime,

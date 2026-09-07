@@ -229,6 +229,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   });
   const passkeyCtx: PasskeyContext = {
     db,
+    clients: host.clients,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
@@ -304,6 +305,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route(
     "/api",
     authRoutes(authMode, auth, {
+      db,
+      clients: host.clients,
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
       log: authLog,
       failures: authFailures,
@@ -314,7 +317,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Auth guard for every other /api/* route. The probe below is intentionally
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
   // (tailscale) from /api/vpn-check and shows the login / VPN screen.
-  app.use("/api/*", authGuard(authMode, auth));
+  app.use("/api/*", authGuard(authMode, auth, db));
   app.get("/api/vpn-check", (c) => c.json({ vpn: true }));
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
@@ -382,7 +385,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     if (!isSameOriginRequest(c, allowedOrigins, auth.trustProxy)) {
       return c.json({ error: "Cross-origin WebSocket rejected" }, 403);
     }
-    if (!(await isWsAuthorized(c, authMode, auth))) {
+    if (!(await isWsAuthorized(c, authMode, auth, db))) {
       return c.json({ error: "Authentication required" }, 401);
     }
     if (!host.clients.hasCapacity()) {

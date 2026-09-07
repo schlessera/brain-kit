@@ -514,7 +514,7 @@ code and new-format cookies still parse there.
 | --- | --- | --- |
 | U1. App-level test helper | — | done |
 | U2. Origin policy middleware + JSON content-type gate | S1, S10b, S11b | done |
-| U3. Sessions epoch + close-all | S3 | todo |
+| U3. Sessions epoch + close-all | S3 | done |
 | U4. Login limiter counts failures; passkeys get their own budget; eviction; `TRUST_PROXY` guidance | S2 | done |
 | U5. Body limits and share `inFlight`; serve recipe documented; `maxRequestBodySize` set | S5, S6, K4b | todo |
 | U6. `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not on `/ws`) | S9 | todo |
@@ -1061,3 +1061,4 @@ the memory note.
 | 2026-09-07 | 0.32.0 | U7 landed: `ClientSet` cap keyed on the raw socket (astra round 1 found that hono mints a fresh `WSContext` per callback, so a `Set` never freed slots), HTTP 503 before the upgrade so refused clients keep their backoff (round 2 should-fix), `BRAIN_UI_WS_MAX_CONNECTIONS` descriptor and README; round 3 passed |
 | 2026-09-07 | 0.32.0 | U2 landed: `originPolicy` mounted before the public login routes, `requireJson()` on all 19 JSON routes, `isAllowedWsOrigin` deleted, 15 tests in `origin-policy.test.ts` shown failing on the pre-fix tree. astra rounds: share route dropped `trustProxy` (fixed); scheme compared without `TRUST_PROXY` against decision 2 (fixed: host+port only); `WEBAUTHN_ORIGINS` was cut off by the global policy (fixed: scoped to `/api/auth/passkey/*`); final pass clean. brain-ui SECURITY.md, decisions.md decision 7, hosting.md updated; the reviewer's "not yet deployed" caveats were dropped because the deps bump lands on the same branch |
 | 2026-09-07 | 0.32.0 | U4 landed: failures-only buckets with eviction and a 1,024-key cap, in-flight reservations for both verifiers, passkey `pk:` budget, injectable verifier for the concurrency tests. astra rounds: `pw:` per-IP key could collide with `pw:global` (fixed: disjoint prefix); passkey path had no in-flight reservation (fixed: own pool); hosting.md now says to unpublish port 3000 before `TRUST_PROXY=1`; the coordinator moved the blocked check ahead of body parsing (last should-fix). Numbers chosen: 5/IP, 100 global, 2/8 in flight |
+| 2026-09-08 | 0.32.0 | U3 landed: cookie payload `<issuedAt>.<epoch>`, strict `sessionsEpoch` accessor (corrupt row throws), `bumpSessionsEpoch` + `ClientSet.closeAll`, logout and passkey revocation verify the caller first, `authGuard`/`isWsAuthorized` take the db (api-report regenerated), "Sign out everywhere" copy, 12 tests in `sessions-epoch.test.ts` all red pre-fix; astra passed both rounds (one doc scoping should-fix) |

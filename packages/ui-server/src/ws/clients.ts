@@ -63,6 +63,24 @@ export class ClientSet {
   }
 
   /**
+   * Close and forget every attached socket. The set is cleared before close
+   * callbacks can run, and one broken socket cannot prevent the others from
+   * being invalidated.
+   */
+  closeAll(code: number, reason: string): void {
+    const clients = [...this.clients.values()];
+    this.clients.clear();
+    for (const ws of clients) {
+      try {
+        ws.close?.(code, reason);
+      } catch {
+        // Best effort per socket; revocation of the remaining clients must
+        // continue even when one adapter throws during close.
+      }
+    }
+  }
+
+  /**
    * Broadcast a frame to every attached client. Serializes once. A failing
    * socket is skipped (its `onClose` will prune it) so one dead peer can't
    * block delivery to the others; `onSendError` lets the owner count the skip.

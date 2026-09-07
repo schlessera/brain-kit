@@ -18,6 +18,7 @@ import {
   createRecordingObservability,
   type RecordingObservability,
 } from "../src/observability/index";
+import { ClientSet } from "../src/ws/clients";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -25,6 +26,7 @@ const SECRET = "test-cookie-secret-0123456789abcdef";
 const TEST_DB = join(tmpdir(), `passkeys-test-${process.pid}.db`);
 
 let db: Database;
+let clients: ClientSet;
 
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
@@ -40,7 +42,9 @@ afterAll(() => {
 
 beforeEach(() => {
   resetLoginRateLimiter();
+  clients = new ClientSet();
   getDb().exec("DELETE FROM passkey_credentials");
+  getDb().exec("DELETE FROM settings");
 });
 
 const getDb = () => db;
@@ -62,6 +66,7 @@ function fullApp(
   const auth = { ...config.auth, host: config.host };
   const ctx: PasskeyContext = {
     db,
+    clients,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
@@ -72,11 +77,13 @@ function fullApp(
   app.route(
     "/api",
     authRoutes("password", auth, {
+      db,
+      clients,
       passwordDisabled: (c) => passwordLoginDisabled(c, ctx),
     })
   );
   app.route("/api", passkeyPublicRoutes("password", ctx, deps));
-  app.use("/api/*", authGuard("password", auth));
+  app.use("/api/*", authGuard("password", auth, db));
   app.route("/api", passkeyManagementRoutes("password", ctx, deps));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   return app;
@@ -219,6 +226,7 @@ describe("mode gating", () => {
     const config = resolveServerConfig({});
     const ctx: PasskeyContext = {
       db,
+      clients,
       webauthn: config.webauthn,
       auth: { ...config.auth, host: config.host },
       allowedOrigins: config.allowedOrigins,
@@ -808,9 +816,16 @@ describe("registration + management", () => {
       headers: headers({ cookie }, "10.4.3.4"),
     });
     expect(del.status).toBe(200);
+    // Revocation globally invalidates the cookie that authorized it. The last
+    // remaining credential is still for this RP, so explicitly permit the
+    // recovery password to mint a fresh session for the 404 assertion.
+    const freshCookie = await loginCookie(
+      fullApp({}, { BRAIN_UI_ALLOW_PASSWORD: "1" }),
+      "10.4.3.5"
+    );
     const missing = await app.request("/api/auth/passkey/cred-2", {
       method: "DELETE",
-      headers: headers({ cookie }, "10.4.3.5"),
+      headers: headers({ cookie: freshCookie }, "10.4.3.6"),
     });
     expect(missing.status).toBe(404);
   });

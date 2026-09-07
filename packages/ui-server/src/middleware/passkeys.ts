@@ -24,10 +24,12 @@ import {
   PASSKEY_LOGIN_RATE_LIMIT,
   acquirePasskeyVerification,
   releasePasskeyVerification,
+  bumpSessionsEpoch,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { requireJson } from "./origin.js";
+import type { ClientSet } from "../ws/clients.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -47,6 +49,8 @@ import { requireJson } from "./origin.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
+  /** Live sockets invalidated when a credential is revoked. */
+  clients: ClientSet;
   /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
@@ -426,7 +430,7 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    await issueSessionCookie(c, ctx.auth);
+    await issueSessionCookie(c, ctx.auth, ctx.db);
     return c.json({ ok: true });
   });
 
@@ -567,6 +571,7 @@ export function passkeyManagementRoutes(
       .prepare("DELETE FROM passkey_credentials WHERE id = ?")
       .run(c.req.param("id"));
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
+    bumpSessionsEpoch(ctx.db, ctx.clients);
     return c.json({ ok: true });
   });
 

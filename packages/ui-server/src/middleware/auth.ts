@@ -3,9 +3,12 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
+import type { Database } from "bun:sqlite";
 import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
 import { requireJson } from "./origin.js";
+import { setSetting } from "../db/settings.js";
+import type { ClientSet } from "../ws/clients.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -41,6 +44,9 @@ export interface AuthRuntime extends AuthConfig {
 
 const COOKIE_NAME = "brain_ui_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
+const SESSION_REVOKED_CLOSE_CODE = 1008;
+const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
 export const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
 const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // A global cap in addition to the per-IP one: the per-IP key is derived from
@@ -161,7 +167,11 @@ export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime, log?: Logger
 }
 
 /** Middleware guarding /api/* according to the resolved mode. */
-export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler {
+export function authGuard(
+  mode: AuthMode,
+  auth: AuthRuntime,
+  db: Database
+): MiddlewareHandler {
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
@@ -184,7 +194,7 @@ export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler 
       };
     case "password":
       return async (c, next) => {
-        if (await hasValidSession(c, auth)) {
+        if (await hasValidSession(c, auth, db)) {
           await next();
         } else {
           return c.json(
@@ -210,7 +220,8 @@ export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler 
 export async function isWsAuthorized(
   c: Context,
   mode: AuthMode,
-  auth: AuthRuntime
+  auth: AuthRuntime,
+  db: Database
 ): Promise<boolean> {
   switch (mode) {
     case "none":
@@ -220,7 +231,7 @@ export async function isWsAuthorized(
     case "proxy":
       return hasProxyAuth(c, auth);
     case "password":
-      return hasValidSession(c, auth);
+      return hasValidSession(c, auth, db);
   }
 }
 
@@ -231,9 +242,14 @@ export async function isWsAuthorized(
  * both password login and passkey login (middleware/passkeys.ts) call this, so
  * authGuard / isWsAuthorized / TTL semantics stay identical across methods.
  */
-export async function issueSessionCookie(c: Context, auth: AuthRuntime): Promise<void> {
+export async function issueSessionCookie(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database
+): Promise<void> {
   const secret = auth.cookieSecret ?? "";
-  await setSignedCookie(c, COOKIE_NAME, String(Date.now()), secret, {
+  const epoch = sessionsEpoch(db);
+  await setSignedCookie(c, COOKIE_NAME, `${Date.now()}.${epoch}`, secret, {
     httpOnly: true,
     sameSite: "Strict",
     // Always Secure — every real deployment serves over HTTPS, and we do not
@@ -245,22 +261,71 @@ export async function issueSessionCookie(c: Context, auth: AuthRuntime): Promise
   });
 }
 
-async function hasValidSession(c: Context, auth: AuthRuntime): Promise<boolean> {
+async function hasValidSession(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database
+): Promise<boolean> {
   const secret = auth.cookieSecret ?? "";
   if (!secret) return false;
+  let value: string | false | undefined;
   try {
-    const value = await getSignedCookie(c, secret, COOKIE_NAME);
-    if (typeof value !== "string" || value.length === 0) return false;
-    // The cookie value is the issue timestamp. Validate its age server-side:
-    // Max-Age is client-discardable, so the signature alone does not bound a
-    // session's lifetime — this does.
-    const issuedAt = Number(value);
-    if (!Number.isFinite(issuedAt)) return false;
-    const ageSeconds = (Date.now() - issuedAt) / 1000;
-    return ageSeconds >= 0 && ageSeconds < SESSION_TTL_SECONDS;
+    value = await getSignedCookie(c, secret, COOKIE_NAME);
   } catch {
     return false;
   }
+  if (typeof value !== "string" || value.length === 0) return false;
+
+  // Both fields are decimal integers. Requiring the exact shape rejects every
+  // pre-epoch cookie instead of accidentally interpreting its timestamp as a
+  // current session.
+  const match = /^(\d+)\.(\d+)$/.exec(value);
+  if (!match) return false;
+  const issuedAt = Number(match[1]);
+  const cookieEpoch = Number(match[2]);
+  if (!Number.isSafeInteger(issuedAt) || !Number.isSafeInteger(cookieEpoch)) {
+    return false;
+  }
+  const ageSeconds = (Date.now() - issuedAt) / 1000;
+  if (ageSeconds < 0 || ageSeconds >= SESSION_TTL_SECONDS) return false;
+
+  // Deliberately outside the cookie-parser catch: corrupt authoritative auth
+  // state refuses loudly and must never degrade to epoch zero.
+  return cookieEpoch === sessionsEpoch(db);
+}
+
+/**
+ * Read authoritative session state. A missing row is first-run epoch zero;
+ * any present row that is not a non-negative safe integer is corruption.
+ */
+function sessionsEpoch(db: Database): number {
+  const row = db
+    .query("SELECT value FROM settings WHERE key = ?")
+    .get(SESSIONS_EPOCH_KEY) as { value: string } | null;
+  if (!row) return 0;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(row.value);
+  } catch {
+    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a JSON integer`);
+  }
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a non-negative integer`);
+  }
+  return value as number;
+}
+
+/** Invalidate every issued session and disconnect every attached client. */
+export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
+  const current = sessionsEpoch(db);
+  if (current === Number.MAX_SAFE_INTEGER) {
+    throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
+  }
+  const next = current + 1;
+  setSetting(db, SESSIONS_EPOCH_KEY, next);
+  clients.closeAll(SESSION_REVOKED_CLOSE_CODE, SESSION_REVOKED_CLOSE_REASON);
+  return next;
 }
 
 // --- proxy mode helpers ---
@@ -438,6 +503,10 @@ export function authRoutes(
   mode: AuthMode,
   auth: AuthRuntime,
   deps: {
+    /** Authoritative session state. */
+    db: Database;
+    /** Live sockets closed whenever the global session epoch advances. */
+    clients: ClientSet;
     /**
      * When provided and returning true, password login is refused (the app
      * injects passkeys' passwordLoginDisabled so the shared password dies
@@ -451,7 +520,7 @@ export function authRoutes(
     failures?: Counter;
     /** Test-only password verifier; production uses Bun.password.verify. */
     verifyPassword?: (password: string, hash: string) => Promise<boolean>;
-  } = {}
+  }
 ): Hono {
   const app = new Hono();
   const { log, failures } = deps;
@@ -561,7 +630,7 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    await issueSessionCookie(c, auth);
+    await issueSessionCookie(c, auth, deps.db);
     log?.emit({
       severityText: "INFO",
       body: "login succeeded",
@@ -570,7 +639,11 @@ export function authRoutes(
     return c.json({ ok: true });
   });
 
-  app.post("/auth/logout", (c) => {
+  app.post("/auth/logout", async (c) => {
+    if (mode === "password" && !(await hasValidSession(c, auth, deps.db))) {
+      return c.json({ error: "Authentication required", authRequired: true }, 401);
+    }
+    if (mode === "password") bumpSessionsEpoch(deps.db, deps.clients);
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });
   });

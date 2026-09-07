@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Hono } from "hono";
 import {
   resolveAuthMode,
@@ -17,9 +17,12 @@ import {
   createRecordingObservability,
   type RecordingObservability,
 } from "../src/observability/index";
+import { createUiDb } from "../src/db/client";
+import { ClientSet } from "../src/ws/clients";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
+const DB = createUiDb(":memory:");
 const SECRET = "test-cookie-secret-0123456789abcdef";
 
 /**
@@ -35,6 +38,8 @@ function auth(env: Record<string, string | undefined> = {}): AuthRuntime {
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
 });
+
+afterAll(() => DB.close());
 
 describe("resolveAuthMode", () => {
   test("honors an explicit AUTH_MODE", () => {
@@ -120,12 +125,15 @@ function passwordAuth(): AuthRuntime {
 function passwordApp() {
   const runtime = passwordAuth();
   const app = new Hono();
-  app.route("/api", authRoutes("password", runtime));
-  app.use("/api/*", authGuard("password", runtime));
+  app.route(
+    "/api",
+    authRoutes("password", runtime, { db: DB, clients: new ClientSet() })
+  );
+  app.use("/api/*", authGuard("password", runtime, DB));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   // Un-guarded probe so isWsAuthorized can be tested with a real Hono context.
   app.get("/wscheck", async (c) =>
-    c.json({ ok: await isWsAuthorized(c, "password", runtime) })
+    c.json({ ok: await isWsAuthorized(c, "password", runtime, DB) })
   );
   return app;
 }
@@ -203,6 +211,8 @@ describe("password login + guard", () => {
     app.route(
       "/api",
       authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
         verifyPassword: async () => {
           entered++;
           active++;
@@ -252,6 +262,8 @@ describe("login limiter storage", () => {
     app.route(
       "/api",
       authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
         verifyPassword: async (password) => {
           if (password === "delayed") {
             markDelayedEntered();
@@ -297,13 +309,18 @@ describe("login limiter storage", () => {
 describe("isWsAuthorized", () => {
   test("none mode always authorizes", async () => {
     const ctx = { req: { header: () => undefined } };
-    expect(await isWsAuthorized(ctx as never, "none", auth())).toBe(true);
+    expect(await isWsAuthorized(ctx as never, "none", auth(), DB)).toBe(true);
   });
 
   test("password mode rejects without a cookie", async () => {
     const ctx = { req: { header: () => undefined } };
     expect(
-      await isWsAuthorized(ctx as never, "password", auth({ COOKIE_SECRET: SECRET }))
+      await isWsAuthorized(
+        ctx as never,
+        "password",
+        auth({ COOKIE_SECRET: SECRET }),
+        DB
+      )
     ).toBe(false);
   });
 
@@ -315,7 +332,8 @@ describe("isWsAuthorized", () => {
       await isWsAuthorized(
         ctx as never,
         "proxy",
-        auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" })
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" }),
+        DB
       )
     ).toBe(true);
   });
@@ -328,7 +346,8 @@ describe("isWsAuthorized", () => {
       await isWsAuthorized(
         ctx as never,
         "proxy",
-        auth({ PROXY_AUTH_HEADER: "x-forwarded-user" })
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user" }),
+        DB
       )
     ).toBe(false);
   });
@@ -347,6 +366,8 @@ function observedPasswordApp(runtime: AuthRuntime = passwordAuth()): {
   app.route(
     "/api",
     authRoutes("password", runtime, {
+      db: DB,
+      clients: new ClientSet(),
       log: observability.logger("auth"),
       failures: observability.meter("auth").createCounter("auth.failures"),
     })

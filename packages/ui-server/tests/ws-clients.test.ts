@@ -87,6 +87,32 @@ describe("ws client registry", () => {
     expect(() => broadcast(IDLE)).not.toThrow();
   });
 
+  test("closeAll closes every client with the supplied reason and clears the set", () => {
+    const closed: Array<[number | undefined, string | undefined]> = [];
+    const a: WSContext = {
+      send() {},
+      close(code, reason) {
+        closed.push([code, reason]);
+      },
+    };
+    const b: WSContext = {
+      send() {},
+      close(code, reason) {
+        closed.push([code, reason]);
+      },
+    };
+    addClient(a);
+    addClient(b);
+
+    clients.closeAll(1008, "Sessions invalidated");
+
+    expect(closed).toEqual([
+      [1008, "Sessions invalidated"],
+      [1008, "Sessions invalidated"],
+    ]);
+    expect(clientCount()).toBe(0);
+  });
+
   test("a throwing socket does not block delivery to the others", () => {
     const bad: WSContext = {
       send() {
