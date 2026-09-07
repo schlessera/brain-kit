@@ -1,32 +1,100 @@
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 
 /**
- * Same-origin enforcement for requests a browser sends without a preflight.
+ * Compare the browser's Origin with the request's externally visible origin.
  *
- * Every other state-changing route here reads `application/json`, which is not
- * a CORS-simple content type and so forces a preflight the attacker's origin
- * fails — CSRF-safe by accident. A multipart upload has no such protection: it
- * is a simple request, and under `AUTH_MODE=tailscale` the credential is the
- * source IP rather than a cookie, so no SameSite flag stands in the way either.
- * Any page opened on the tailnet could otherwise POST into the brain.
- *
- * The check is free because the routes that use it are only ever called by the
- * app itself, same-origin. Same shape as the WebSocket upgrade's origin guard.
+ * Without a trusted proxy the server cannot know whether TLS was terminated
+ * upstream, so preserve the historical host+port comparison. Once proxy
+ * headers are trusted, include the scheme sourced from X-Forwarded-Proto.
  */
-export function isSameOriginRequest(c: Context, allowed: string[]): boolean {
-  // Chromium and Firefox send this, and it is not settable by script.
-  const site = c.req.header("sec-fetch-site");
-  if (site) return site === "same-origin" || site === "none";
+function originMatchesRequest(
+  c: Context,
+  origin: string,
+  trustProxy: boolean
+): boolean {
+  const host = c.req.header("host");
+  if (!host) return false;
 
-  // Older browsers: fall back to Origin, and to the configured allowlist when
-  // the deployment is split across origins.
+  const parsedOrigin = new URL(origin);
+  if (!trustProxy) return parsedOrigin.host === host;
+
+  const forwarded = c.req.header("x-forwarded-proto")?.split(",", 1)[0]?.trim();
+  const protocol = forwarded
+    ? `${forwarded.toLowerCase()}:`
+    : new URL(c.req.url).protocol;
+
+  return parsedOrigin.origin === new URL(`${protocol}//${host}`).origin;
+}
+
+/**
+ * Browser request origin policy shared by state-changing HTTP routes and the
+ * WebSocket upgrade.
+ *
+ * Fetch metadata is authoritative when it says same-origin (including the
+ * Vite proxy case where Host is rewritten). Older browsers fall back to an
+ * Origin comparison: host+port without TRUST_PROXY, or the full origin when
+ * proxy headers are trusted. Headerless non-browser clients remain accepted
+ * and are still subject to the route's auth guard. ALLOWED_ORIGINS is an
+ * additional path for explicitly configured split-topology deployments.
+ */
+export function isSameOriginRequest(
+  c: Context,
+  allowedOrigins: readonly string[],
+  trustProxy = false
+): boolean {
+  const site = c.req.header("sec-fetch-site")?.toLowerCase();
   const origin = c.req.header("origin");
-  if (!origin) return true; // A non-browser client; still gated by auth.
-  if (allowed.length > 0) return allowed.includes(origin);
-  try {
-    const host = c.req.header("host");
-    return !!host && new URL(origin).host === host;
-  } catch {
-    return false;
+
+  // An opaque sandboxed origin is present, not equivalent to a headerless
+  // non-browser client. Reject it even if other metadata claims same-origin.
+  if (origin?.toLowerCase() === "null") return false;
+
+  if (site === "same-origin" || site === "none") return true;
+
+  if (origin) {
+    try {
+      if (originMatchesRequest(c, origin, trustProxy)) return true;
+    } catch {
+      // Malformed Origin can still only match an allowlist by exact string.
+    }
   }
+
+  if (!site && !origin) return true;
+
+  return origin !== undefined && allowedOrigins.includes(origin);
+}
+
+/**
+ * Enforce the origin policy on every non-GET API request, with an optional
+ * additional allowlist confined to one route prefix.
+ */
+export function originPolicy(
+  allowedOrigins: readonly string[],
+  trustProxy = false,
+  scopedAllowlist?: { pathPrefix: string; origins: readonly string[] }
+): MiddlewareHandler {
+  return async (c, next) => {
+    const requestAllowedOrigins =
+      scopedAllowlist && c.req.path.startsWith(scopedAllowlist.pathPrefix)
+        ? [...allowedOrigins, ...scopedAllowlist.origins]
+        : allowedOrigins;
+    if (
+      c.req.method !== "GET" &&
+      !isSameOriginRequest(c, requestAllowedOrigins, trustProxy)
+    ) {
+      return c.json({ error: "cross_origin_rejected" }, 403);
+    }
+    await next();
+  };
+}
+
+/** Require the exact JSON media type while allowing standard parameters. */
+export function requireJson(): MiddlewareHandler {
+  return async (c, next) => {
+    const mediaType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (mediaType !== "application/json") {
+      return c.json({ error: "unsupported_media_type" }, 415);
+    }
+    await next();
+  };
 }

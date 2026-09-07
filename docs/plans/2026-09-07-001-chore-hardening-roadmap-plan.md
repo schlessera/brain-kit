@@ -513,7 +513,7 @@ code and new-format cookies still parse there.
 | Unit | Findings | Status |
 | --- | --- | --- |
 | U1. App-level test helper | — | done |
-| U2. Origin policy middleware + JSON content-type gate | S1, S10b, S11b | todo |
+| U2. Origin policy middleware + JSON content-type gate | S1, S10b, S11b | done |
 | U3. Sessions epoch + close-all | S3 | todo |
 | U4. Login limiter counts failures; passkeys get their own budget; eviction; `TRUST_PROXY` guidance | S2 | todo |
 | U5. Body limits and share `inFlight`; serve recipe documented; `maxRequestBodySize` set | S5, S6, K4b | todo |
@@ -1059,3 +1059,4 @@ the memory note.
 | 2026-09-07 | 0.32.0 | U11 landed: template pin and LICENSE guards in `release-manifest.test.ts` (both shown failing first), `packages/scrape/LICENSE`, `check-dist.ts` asserts `client/push-handlers.js`, ui-sdk README subpaths + rev 3, CONTRIBUTING lockstep/env-core/B8 notes, release skill template-pin step, brain-ui ROADMAP M9 note; astra round 1 blocked on a missing changeset, round 2 passed |
 | 2026-09-07 | 0.32.0 | U8 implemented and reviewed three times; rounds 1-2 fixed a symlinked-root misclassification and error-message path leaks, round 3 raised a new blocker (Windows drive-relative segment makes the per-component walk diverge from the resolved path). Parked unmerged for the maintainer per the two-fix-round rule; patch kept in the session scratchpad |
 | 2026-09-07 | 0.32.0 | U7 landed: `ClientSet` cap keyed on the raw socket (astra round 1 found that hono mints a fresh `WSContext` per callback, so a `Set` never freed slots), HTTP 503 before the upgrade so refused clients keep their backoff (round 2 should-fix), `BRAIN_UI_WS_MAX_CONNECTIONS` descriptor and README; round 3 passed |
+| 2026-09-07 | 0.32.0 | U2 landed: `originPolicy` mounted before the public login routes, `requireJson()` on all 19 JSON routes, `isAllowedWsOrigin` deleted, 15 tests in `origin-policy.test.ts` shown failing on the pre-fix tree. astra rounds: share route dropped `trustProxy` (fixed); scheme compared without `TRUST_PROXY` against decision 2 (fixed: host+port only); `WEBAUTHN_ORIGINS` was cut off by the global policy (fixed: scoped to `/api/auth/passkey/*`); final pass clean. brain-ui SECURITY.md, decisions.md decision 7, hosting.md updated; the reviewer's "not yet deployed" caveats were dropped because the deps bump lands on the same branch |

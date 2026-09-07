@@ -30,6 +30,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { Hono } from "hono";
+import { requireJson } from "../middleware/origin.js";
 import {
   WEB_SEARCH_FALLBACK_ON,
   WEB_SEARCH_PROVIDER_KEYS,
@@ -186,7 +187,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       }
       return c.json(view());
     })
-    .put("/web-search", async (c) => {
+    .put("/web-search", requireJson(), async (c) => {
       if (!piConfigured()) {
         return c.json({ error: "The pi backend is not configured." }, 409);
       }

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
+import { requireJson } from "../middleware/origin.js";
 
 /**
  * Push subscription lifecycle. Behind the auth guard by mount position —
@@ -59,7 +60,7 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
       }
     })
 
-    .post("/push/subscribe", async (c) => {
+    .post("/push/subscribe", requireJson(), async (c) => {
       try {
         const body = subscribeSchema.parse(await c.req.json());
         sender.subscribe(body.subscription, body.label);
@@ -72,7 +73,7 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
       }
     })
 
-    .post("/push/unsubscribe", async (c) => {
+    .post("/push/unsubscribe", requireJson(), async (c) => {
       try {
         const body = unsubscribeSchema.parse(await c.req.json());
         return c.json({ removed: sender.unsubscribe(body.endpoint) });

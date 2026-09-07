@@ -29,6 +29,7 @@ import {
   type Fetcher,
 } from "../skills/install.js";
 import { resolveGitHubToken } from "../config/env.js";
+import { requireJson } from "../middleware/origin.js";
 
 export interface SkillRoutesDeps {
   brainPath: string;
@@ -101,7 +102,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
         return c.json({ error: message }, status);
       }
     })
-    .post("/skills/install/github", async (c) => {
+    .post("/skills/install/github", requireJson(), async (c) => {
       const body = (await c.req.json().catch(() => null)) as {
         source?: unknown;
         ref?: unknown;
@@ -145,7 +146,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
         return c.json({ error: message }, status);
       }
     })
-    .post("/skills", async (c) => {
+    .post("/skills", requireJson(), async (c) => {
       const body = (await c.req.json().catch(() => null)) as {
         name?: unknown;
         content?: unknown;
@@ -162,7 +163,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
         return c.json({ error: message }, status);
       }
     })
-    .put("/skills/:name", async (c) => {
+    .put("/skills/:name", requireJson(), async (c) => {
       const body = (await c.req.json().catch(() => null)) as { content?: unknown } | null;
       if (typeof body?.content !== "string") {
         return c.json({ error: "Body needs string `content`." }, 400);
@@ -176,7 +177,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
         return c.json({ error: message }, status);
       }
     })
-    .post("/skills/:name/enabled", async (c) => {
+    .post("/skills/:name/enabled", requireJson(), async (c) => {
       const body = (await c.req.json().catch(() => null)) as { enabled?: unknown } | null;
       if (typeof body?.enabled !== "boolean") {
         return c.json({ error: "Body needs boolean `enabled`." }, 400);

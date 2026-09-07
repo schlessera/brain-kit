@@ -5,6 +5,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
 import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
+import { requireJson } from "./origin.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -299,7 +300,7 @@ export function authRoutes(
   const app = new Hono();
   const { log, failures } = deps;
 
-  app.post("/auth/login", async (c) => {
+  app.post("/auth/login", requireJson(), async (c) => {
     if (mode !== "password") {
       return c.json({ error: "Password login is not enabled" }, 400);
     }

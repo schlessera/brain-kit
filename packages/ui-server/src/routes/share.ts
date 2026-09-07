@@ -94,12 +94,14 @@ export interface ShareRoutesDeps {
   brainRoot: string;
   /** ALLOWED_ORIGINS — the same-origin check's split-topology allowlist. */
   allowedOrigins: string[];
+  /** Trust X-Forwarded-Proto when resolving the request's expected origin. */
+  trustProxy: boolean;
   /** Where failures are reported; absent means silence. */
   log?: Logger;
 }
 
 export function createShareRoutes(deps: ShareRoutesDeps): Hono {
-  const { brainRoot, allowedOrigins, log } = deps;
+  const { brainRoot, allowedOrigins, trustProxy, log } = deps;
 
   /**
    * In-flight intakes. Each one holds its whole payload in memory while the
@@ -124,10 +126,9 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
   }
 
   return new Hono().post("/share", async (c) => {
-  // See middleware/origin.ts: a multipart POST is a CORS-simple request, so it
-  // reaches this route with no preflight, and in tailscale mode the credential
-  // is the source IP. This route is only ever called by the app itself.
-  if (!isSameOriginRequest(c, allowedOrigins)) {
+  // Keep the same shared policy at the route boundary as defense in depth for
+  // embedders that mount this exported route factory outside createApp().
+  if (!isSameOriginRequest(c, allowedOrigins, trustProxy)) {
     return c.json({ error: "cross_origin_rejected" }, 403);
   }
 

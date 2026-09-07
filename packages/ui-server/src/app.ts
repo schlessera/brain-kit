@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import type { Context } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
@@ -61,6 +60,7 @@ import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
 import { createObservability, type Observability } from "./observability/index.js";
+import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 
 export type { AppRenderer };
 
@@ -129,25 +129,6 @@ export interface BrainUiApp {
   cancelActiveTurns(): boolean;
   /** Release process-held resources (the SQLite handle). */
   close(): void;
-}
-
-// Cross-site WebSocket hijacking (CSWSH) defense. CORS does not apply to the WS
-// handshake and browsers do not enforce same-origin on `new WebSocket()`, so
-// rejecting a cross-site upgrade is entirely the server's job. A browser always
-// sends `Origin` on a WS handshake; a non-browser client (no Origin) is allowed
-// through here and still gated by isWsAuthorized. When ALLOWED_ORIGINS is set we
-// use it; otherwise we require the Origin's host to match the request host
-// (same-origin). Applied in every auth mode.
-function isAllowedWsOrigin(c: Context, allowedOrigins: string[]): boolean {
-  const origin = c.req.header("origin");
-  if (!origin) return true;
-  if (allowedOrigins.length > 0) return allowedOrigins.includes(origin);
-  try {
-    const host = c.req.header("host");
-    return !!host && new URL(origin).host === host;
-  } catch {
-    return false;
-  }
 }
 
 export function createApp(options: CreateAppOptions = {}): BrainUiApp {
@@ -283,11 +264,23 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     });
   });
 
+  // The origin boundary precedes every API route, including the public login
+  // and passkey POSTs registered below. Hono composes middleware in registration
+  // order, so moving this next to the auth guard would leave those routes out.
+  // WEBAUTHN_ORIGINS stays ceremony-scoped rather than widening every API.
+  const allowedOrigins = config.allowedOrigins;
+  app.use(
+    "/api/*",
+    originPolicy(allowedOrigins, auth.trustProxy, {
+      pathPrefix: "/api/auth/passkey/",
+      origins: config.webauthn.origins,
+    })
+  );
+
   // CORS is only needed for a SPLIT topology where the client is served from a
   // different origin than the API. ALLOWED_ORIGINS is a comma-separated
   // allowlist; empty/unset means same-origin (the default), so the CORS
   // middleware is skipped entirely.
-  const allowedOrigins = config.allowedOrigins;
   if (allowedOrigins.length > 0) {
     app.use(
       "/api/*",
@@ -356,6 +349,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     createShareRoutes({
       brainRoot: config.brainPath,
       allowedOrigins,
+      trustProxy: auth.trustProxy,
       log: observability.logger("share"),
     })
   );
@@ -385,7 +379,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // upgrade authenticates via the session cookie (or IP/proxy header) INSIDE
   // the handler — no header-modifying middleware may sit on this route.
   app.get("/ws", async (c, next) => {
-    if (!isAllowedWsOrigin(c, allowedOrigins)) {
+    if (!isSameOriginRequest(c, allowedOrigins, auth.trustProxy)) {
       return c.json({ error: "Cross-origin WebSocket rejected" }, 403);
     }
     if (!(await isWsAuthorized(c, authMode, auth))) {

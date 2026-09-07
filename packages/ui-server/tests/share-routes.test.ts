@@ -20,7 +20,11 @@ import {
 
 const BRAIN_ROOT = `/tmp/brain-ui-share-${process.pid}`;
 
-const shareRoutes = createShareRoutes({ brainRoot: BRAIN_ROOT, allowedOrigins: [] });
+const shareRoutes = createShareRoutes({
+  brainRoot: BRAIN_ROOT,
+  allowedOrigins: [],
+  trustProxy: false,
+});
 
 beforeEach(async () => {
   await rm(BRAIN_ROOT, { recursive: true, force: true });

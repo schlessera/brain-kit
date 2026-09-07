@@ -9,6 +9,7 @@ import {
 } from "../voice/keyterm-builder.js";
 import { existsSync } from "fs";
 import { join } from "path";
+import { requireJson } from "../middleware/origin.js";
 
 export interface BrainRoutesDeps {
   brain: BrainClient;
@@ -288,7 +289,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     });
   })
 
-  .post("/brain/add", async (c) => {
+  .post("/brain/add", requireJson(), async (c) => {
     const body = await c.req.json<{
       content: string;
       type?: string;

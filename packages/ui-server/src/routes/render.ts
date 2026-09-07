@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
+import { requireJson } from "../middleware/origin.js";
 
 /**
  * Cap on the content string posted for rendering. The old 512KB bound
@@ -32,7 +33,7 @@ const bodySchema = z.object({
 }) satisfies z.ZodType<RenderRequest>;
 
 export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
-  return new Hono().post("/render", async (c) => {
+  return new Hono().post("/render", requireJson(), async (c) => {
     if (!renderer) {
       return c.json(
         { error: "render_unavailable", detail: "This deployment has no renderer configured" },

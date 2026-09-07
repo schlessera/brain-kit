@@ -24,6 +24,7 @@ import {
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
+import { requireJson } from "./origin.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -43,9 +44,10 @@ import type { WebAuthnConfig } from "../config/env.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
+  /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
-  /** ALLOWED_ORIGINS — split-topology origins also valid for ceremonies. */
+  /** ALLOWED_ORIGINS — globally allowed split-topology origins. */
   allowedOrigins: string[];
   /** Where ceremony failures are reported; absent means silence. */
   log?: Logger;
@@ -322,7 +324,7 @@ export function passkeyPublicRoutes(
     return c.json(options);
   });
 
-  app.post("/auth/passkey/login-verify", async (c) => {
+  app.post("/auth/passkey/login-verify", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
     // Same buckets as password login: one combined online-guess budget.
@@ -436,7 +438,7 @@ export function passkeyManagementRoutes(
     return c.json(options);
   });
 
-  app.post("/auth/passkey/register-verify", async (c) => {
+  app.post("/auth/passkey/register-verify", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
@@ -510,7 +512,7 @@ export function passkeyManagementRoutes(
     return c.json({ credentials: rows.map(toSummary) });
   });
 
-  app.put("/auth/passkey/:id", async (c) => {
+  app.put("/auth/passkey/:id", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     let body: { label?: unknown };
     try {

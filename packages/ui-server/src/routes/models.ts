@@ -18,6 +18,7 @@ import {
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { ModelPricingState } from "../pricing/model-pricing.js";
+import { requireJson } from "../middleware/origin.js";
 import {
   getBillingOverrides,
   getCustomOpenRouterModels,
@@ -97,7 +98,7 @@ export function createModelRoutes(deps: {
     return c.json(pricing.state());
   })
 
-  .put("/models/hidden", async (c) => {
+  .put("/models/hidden", requireJson(), async (c) => {
     const body = (await c.req.json().catch(() => null)) as unknown;
     const hidden = (body as { hidden?: unknown } | null)?.hidden;
     if (
@@ -113,7 +114,7 @@ export function createModelRoutes(deps: {
     return c.json(await buildCatalog());
   })
 
-  .put("/models/default", async (c) => {
+  .put("/models/default", requireJson(), async (c) => {
     const body = (await c.req.json().catch(() => null)) as unknown;
     const defaultId = (body as { defaultId?: unknown } | null)?.defaultId;
     if (defaultId !== null && typeof defaultId !== "string") {
@@ -131,7 +132,7 @@ export function createModelRoutes(deps: {
     return c.json(await buildCatalog());
   })
 
-  .put("/models/custom", async (c) => {
+  .put("/models/custom", requireJson(), async (c) => {
     const body = (await c.req.json().catch(() => null)) as unknown;
     const models = (body as { models?: unknown } | null)?.models;
     if (!Array.isArray(models) || models.some((id) => typeof id !== "string")) {
@@ -185,7 +186,7 @@ export function createModelRoutes(deps: {
     return c.json(await buildCatalog());
   })
 
-  .put("/models/thinking", async (c) => {
+  .put("/models/thinking", requireJson(), async (c) => {
     const body = (await c.req.json().catch(() => null)) as unknown;
     const thinking = (body as { thinking?: unknown } | null)?.thinking;
     if (
@@ -218,7 +219,7 @@ export function createModelRoutes(deps: {
     return c.json(await buildCatalog());
   })
 
-  .put("/models/billing", async (c) => {
+  .put("/models/billing", requireJson(), async (c) => {
     const body = (await c.req.json().catch(() => null)) as unknown;
     const billing = (body as { billing?: unknown } | null)?.billing;
     if (

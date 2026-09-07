@@ -272,6 +272,7 @@ describe("default model routes", () => {
   test("PUT /models/default stores a known profile and resolves it", async () => {
     const response = await modelRoutes.request("/models/default", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ defaultId: "claude-haiku-4-5" }),
     });
     const body = await response.json();
@@ -288,6 +289,7 @@ describe("default model routes", () => {
   test("PUT /models/default rejects an unknown profile id", async () => {
     const response = await modelRoutes.request("/models/default", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ defaultId: "nope" }),
     });
     expect(response.status).toBe(400);
@@ -297,6 +299,7 @@ describe("default model routes", () => {
     setDefaultModelId(db, "claude-haiku-4-5");
     const response = await modelRoutes.request("/models/default", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ defaultId: null }),
     });
     const body = await response.json();
@@ -310,6 +313,7 @@ describe("custom OpenRouter model routes", () => {
   test("PUT /models/custom stores well-formed ids", async () => {
     const response = await modelRoutes.request("/models/custom", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ models: ["z.ai/glm-5.3-flash", "openai/gpt-oss-120b:nitro"] }),
     });
     const body = await response.json();
@@ -325,6 +329,7 @@ describe("custom OpenRouter model routes", () => {
     for (const bad of ["no-slash", "/leading", "a b/c", "a/../b"]) {
       const response = await modelRoutes.request("/models/custom", {
         method: "PUT",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ models: [bad] }),
       });
       expect(response.status).toBe(400);
@@ -335,6 +340,7 @@ describe("custom OpenRouter model routes", () => {
     setDefaultModelId(db, "openrouter:z.ai/glm-5.3-flash");
     const response = await modelRoutes.request("/models/custom", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ models: [] }),
     });
     expect(response.status).toBe(200);
@@ -356,6 +362,7 @@ describe("custom OpenRouter collision guard", () => {
     const routes = createModelRoutes({ registry: collidingRegistry, db });
     const response = await routes.request("/models/custom", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ models: ["z.ai/glm-5.3-flash"] }),
     });
     expect(response.status).toBe(400);
@@ -387,6 +394,7 @@ describe("thinking override routes", () => {
     const routes = thinkingRoutes();
     const response = await routes.request("/models/thinking", {
       method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ thinking: { "gpt-sol": "low" } }),
     });
     const body = await response.json();
@@ -401,6 +409,7 @@ describe("thinking override routes", () => {
       (
         await routes.request("/models/thinking", {
           method: "PUT",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ thinking: { "gpt-sol": "ultra" } }),
         })
       ).status
@@ -409,6 +418,7 @@ describe("thinking override routes", () => {
       (
         await routes.request("/models/thinking", {
           method: "PUT",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ thinking: { claude: "high" } }),
         })
       ).status
