@@ -131,6 +131,19 @@ export interface BrainUiApp {
   close(): void;
 }
 
+function isWebSocketUpgradeAttempt(request: Request): boolean {
+  const connectionHasUpgrade = request.headers
+    .get("connection")
+    ?.split(",")
+    .some((token) => token.trim().toLowerCase() === "upgrade");
+  return (
+    request.method === "GET" &&
+    connectionHasUpgrade === true &&
+    request.headers.get("upgrade")?.trim().toLowerCase() === "websocket" &&
+    Boolean(request.headers.get("sec-websocket-key")?.trim())
+  );
+}
+
 export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // The edge: ambient environment becomes explicit configuration exactly once.
   // options.dbPath folds into the config here, so the handle's `config` and
@@ -265,6 +278,20 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     });
   });
 
+  // A genuine WebSocket upgrade must remain free of response-header middleware:
+  // its browser authentication happens inside the route handler below. A plain
+  // HTTP request to /ws is not exempt. Every HTTP response is denied framing,
+  // while a route-specific CSP (the raw file response) is preserved and
+  // supplies its own frame-ancestors directive.
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/ws" && isWebSocketUpgradeAttempt(c.req.raw)) return next();
+    await next();
+    c.header("X-Frame-Options", "DENY");
+    if (!c.res.headers.has("Content-Security-Policy")) {
+      c.header("Content-Security-Policy", "frame-ancestors 'none'");
+    }
+  });
+
   // The origin boundary precedes every API route, including the public login
   // and passkey POSTs registered below. Hono composes middleware in registration
   // order, so moving this next to the auth guard would leave those routes out.
@@ -380,7 +407,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
 
   // WebSocket endpoint. Browsers can't set headers on the WS handshake, so the
   // upgrade authenticates via the session cookie (or IP/proxy header) INSIDE
-  // the handler — no header-modifying middleware may sit on this route.
+  // the handler — no header-modifying middleware may sit on a genuine upgrade.
   app.get("/ws", async (c, next) => {
     if (!isSameOriginRequest(c, allowedOrigins, auth.trustProxy)) {
       return c.json({ error: "Cross-origin WebSocket rejected" }, 403);
@@ -391,6 +418,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     if (!host.clients.hasCapacity()) {
       host.reportRefusedConnection();
       return c.text("WebSocket connection limit reached", 503);
+    }
+    if (!isWebSocketUpgradeAttempt(c.req.raw)) {
+      return c.json({ error: "WebSocket upgrade required" }, 400);
     }
     return wsUpgrade(c, next);
   });

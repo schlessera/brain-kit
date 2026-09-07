@@ -57,7 +57,7 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
             "Content-Length": String(size),
             "Content-Disposition": "inline",
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
             "Cache-Control": "private, max-age=0, must-revalidate",
           },
         });
