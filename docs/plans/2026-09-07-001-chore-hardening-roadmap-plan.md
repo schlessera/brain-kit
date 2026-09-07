@@ -512,7 +512,7 @@ code and new-format cookies still parse there.
 
 | Unit | Findings | Status |
 | --- | --- | --- |
-| U1. App-level test helper | — | todo |
+| U1. App-level test helper | — | done |
 | U2. Origin policy middleware + JSON content-type gate | S1, S10b, S11b | todo |
 | U3. Sessions epoch + close-all | S3 | todo |
 | U4. Login limiter counts failures; passkeys get their own budget; eviction; `TRUST_PROXY` guidance | S2 | todo |
@@ -1055,3 +1055,4 @@ the memory note.
 | Date | Milestone | Event |
 | --- | --- | --- |
 | 2026-09-07 | — | Plan drafted from the layer review (four exploration lanes, one web-research lane); three adversarial passes → revision 2; second-pass check and a gpt-6-astra pass → revision 3; the suspected pi-backend gap was re-verified in the CI-built image and downgraded to a linker fragility |
+| 2026-09-07 | 0.32.0 | U1 landed on `feat/0.32.0-boundary`: `tests/helpers/test-app.ts` + self-test; gpt-5.6-sol implemented, gpt-6-astra passed with two should-fixes (pricing discovery forced off, `PI_CODING_AGENT_DIR` redirected) applied by the coordinator |
