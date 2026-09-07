@@ -228,6 +228,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
+    wsMaxConnections: config.wsMaxConnections,
     toolPermissions: {
       isAutoAllowed: (toolName) => getAutoAllowedTools(db, dbLog).includes(toolName),
       add: (toolName) =>
@@ -389,6 +390,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     }
     if (!(await isWsAuthorized(c, authMode, auth))) {
       return c.json({ error: "Authentication required" }, 401);
+    }
+    if (!host.clients.hasCapacity()) {
+      host.reportRefusedConnection();
+      return c.text("WebSocket connection limit reached", 503);
     }
     return wsUpgrade(c, next);
   });

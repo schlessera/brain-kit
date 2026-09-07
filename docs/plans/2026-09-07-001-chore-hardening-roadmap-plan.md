@@ -518,7 +518,7 @@ code and new-format cookies still parse there.
 | U4. Login limiter counts failures; passkeys get their own budget; eviction; `TRUST_PROXY` guidance | S2 | todo |
 | U5. Body limits and share `inFlight`; serve recipe documented; `maxRequestBodySize` set | S5, S6, K4b | todo |
 | U6. `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not on `/ws`) | S9 | todo |
-| U7. WebSocket connection cap | S10a | todo |
+| U7. WebSocket connection cap | S10a | done |
 | U8. Share staging canonicalizes the inbox parent | S11a | in-progress |
 | U10. `SUBPROCESS_ENV` descriptor + server-only secrets stripped from every spawn | S4a (step 1) | todo |
 | U11. Release guards and hygiene | K1, K2, K3, K6, M5, B8, M9 | done |
@@ -1058,3 +1058,4 @@ the memory note.
 | 2026-09-07 | 0.32.0 | U1 landed on `feat/0.32.0-boundary`: `tests/helpers/test-app.ts` + self-test; gpt-5.6-sol implemented, gpt-6-astra passed with two should-fixes (pricing discovery forced off, `PI_CODING_AGENT_DIR` redirected) applied by the coordinator |
 | 2026-09-07 | 0.32.0 | U11 landed: template pin and LICENSE guards in `release-manifest.test.ts` (both shown failing first), `packages/scrape/LICENSE`, `check-dist.ts` asserts `client/push-handlers.js`, ui-sdk README subpaths + rev 3, CONTRIBUTING lockstep/env-core/B8 notes, release skill template-pin step, brain-ui ROADMAP M9 note; astra round 1 blocked on a missing changeset, round 2 passed |
 | 2026-09-07 | 0.32.0 | U8 implemented and reviewed three times; rounds 1-2 fixed a symlinked-root misclassification and error-message path leaks, round 3 raised a new blocker (Windows drive-relative segment makes the per-component walk diverge from the resolved path). Parked unmerged for the maintainer per the two-fix-round rule; patch kept in the session scratchpad |
+| 2026-09-07 | 0.32.0 | U7 landed: `ClientSet` cap keyed on the raw socket (astra round 1 found that hono mints a fresh `WSContext` per callback, so a `Set` never freed slots), HTTP 503 before the upgrade so refused clients keep their backoff (round 2 should-fix), `BRAIN_UI_WS_MAX_CONNECTIONS` descriptor and README; round 3 passed |

@@ -127,6 +127,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_WS_MAX_CONNECTIONS",
+    description: "Maximum number of WebSocket connections accepted by one server process.",
+    default: "32",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_WS_RATE",
     description:
       "Sustained inbound WebSocket frames per second per connection. 0 " +
@@ -471,6 +477,8 @@ export interface ServerConfig {
   logLevel: Severity;
   /** Inbound WebSocket frame metering, per connection. */
   wsRate: { ratePerSecond: number; burst: number };
+  /** Maximum WebSocket connections accepted by one server process. */
+  wsMaxConnections: number;
   auth: AuthConfig;
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
@@ -633,6 +641,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ambientBilling: resolveAmbientBillingMode(env),
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
+    wsMaxConnections: positiveNumber(env.BRAIN_UI_WS_MAX_CONNECTIONS, 32),
     wsRate: {
       ratePerSecond: positiveNumber(env.BRAIN_UI_WS_RATE, 20),
       burst: positiveNumber(env.BRAIN_UI_WS_BURST, 60),

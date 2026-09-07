@@ -75,6 +75,8 @@ export interface WsHostOptions {
    * fronting the socket with its own limiter wants.
    */
   wsRate?: { ratePerSecond: number; burst: number };
+  /** Maximum WebSocket connections accepted by this host (default 32). */
+  wsMaxConnections?: number;
   /**
    * Activity recording (span store + live stream). Optional: a host without
    * one records nothing and never sends activity frames — which is also what
@@ -124,7 +126,7 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  */
 export class WsHost {
   readonly coordinator = new TurnCoordinator();
-  readonly clients = new ClientSet();
+  readonly clients: ClientSet;
   readonly registry: BackendRegistry;
   catalog: SessionCatalog;
   appName: string;
@@ -151,8 +153,12 @@ export class WsHost {
   private readonly wsErrors: ReturnType<
     ReturnType<Observability["meter"]>["createCounter"]
   >;
+  private readonly connectionsRefused: ReturnType<
+    ReturnType<Observability["meter"]>["createCounter"]
+  >;
 
   constructor(options: WsHostOptions) {
+    this.clients = new ClientSet(options.wsMaxConnections);
     this.registry = options.registry;
     this.catalog = options.catalog;
     this.appName = options.appName ?? "Brain UI";
@@ -181,6 +187,9 @@ export class WsHost {
     this.wsErrors = meter.createCounter("ws.errors", {
       description: "Transport errors reported by the socket layer",
     });
+    this.connectionsRefused = meter.createCounter("ws.connections.refused", {
+      description: "WebSocket connections refused before admission",
+    });
     this.coordinator.log = this.log;
   }
 
@@ -203,6 +212,19 @@ export class WsHost {
       severityText: "WARN",
       body: "inbound frame rejected",
       attributes: detail ? { reason, detail } : { reason },
+    });
+  }
+
+  /** Record a socket refused because this process has reached its connection cap. */
+  reportRefusedConnection(): void {
+    this.connectionsRefused.add(1, { reason: "connection_limit" });
+    this.log.emit({
+      severityText: "WARN",
+      body: "websocket connection refused",
+      attributes: {
+        reason: "connection_limit",
+        "connection.limit": this.clients.maxConnections,
+      },
     });
   }
 

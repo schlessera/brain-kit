@@ -29,6 +29,13 @@ const hasClients = () => clients.hasClients();
 const clientCount = () => clients.count();
 
 describe("ws client registry", () => {
+  test("the default cap accepts 32 clients and refuses the 33rd", () => {
+    const sockets = Array.from({ length: 33 }, () => fakeSocket());
+    for (const ws of sockets) addClient(ws);
+
+    expect(clientCount()).toBe(32);
+  });
+
   test("broadcast reaches every attached client", () => {
     const a = fakeSocket();
     const b = fakeSocket();
