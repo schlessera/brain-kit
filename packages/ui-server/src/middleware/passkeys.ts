@@ -19,8 +19,11 @@ import {
   type AuthRuntime,
   issueSessionCookie,
   consumeLoginToken,
-  LOGIN_RATE_LIMIT,
-  GLOBAL_LOGIN_RATE_LIMIT,
+  isLoginBlocked,
+  recordLoginFailure,
+  PASSKEY_LOGIN_RATE_LIMIT,
+  acquirePasskeyVerification,
+  releasePasskeyVerification,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
@@ -327,12 +330,6 @@ export function passkeyPublicRoutes(
   app.post("/auth/passkey/login-verify", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
-    // Same buckets as password login: one combined online-guess budget.
-    const perIpOk = consumeLoginToken(`ip:${ip}`, LOGIN_RATE_LIMIT);
-    const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
-    if (!perIpOk || !globalOk) {
-      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
-    }
     const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
@@ -354,22 +351,59 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    try {
-      const result = await verifyAuthentication({
-        response,
-        expectedChallenge: challenge,
-        expectedOrigin: rp.origin,
-        expectedRPID: rp.rpID,
-        credential: toWebAuthnCredential(row),
+    // Only a credential for this RP carrying a live, single-use challenge can
+    // reach this budget. Random bodies are rejected above without allocating
+    // or incrementing attacker-controlled bucket keys.
+    const failureBucket = `pk:${ip}`;
+    if (isLoginBlocked(failureBucket, PASSKEY_LOGIN_RATE_LIMIT)) {
+      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
+    }
+
+    if (!acquirePasskeyVerification(ip)) {
+      ctx.failures?.add(1, {
+        reason: "in_flight_limited",
+        ceremony: "authentication",
       });
-      if (!result.verified) return fail();
-      ctx.db
-        .prepare(
-          "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
-        )
-        .run(result.authenticationInfo.newCounter, now(), row.id);
+      ctx.log?.emit({
+        severityText: "WARN",
+        body: "passkey verification capacity reached",
+        attributes: { ip },
+      });
+      return c.json({ error: "Too many login verifications in progress." }, 429);
+    }
+
+    try {
+      try {
+        const result = await verifyAuthentication({
+          response,
+          expectedChallenge: challenge,
+          expectedOrigin: rp.origin,
+          expectedRPID: rp.rpID,
+          credential: toWebAuthnCredential(row),
+        });
+        if (!result.verified) {
+          recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
+          ctx.failures?.add(1, {
+            reason: "verification_failed",
+            ceremony: "authentication",
+          });
+          ctx.log?.emit({
+            severityText: "WARN",
+            body: "passkey authentication failed",
+          });
+          return fail();
+        }
+        ctx.db
+          .prepare(
+            "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
+          )
+          .run(result.authenticationInfo.newCounter, now(), row.id);
+      } finally {
+        releasePasskeyVerification(ip);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
       // The library throws on a counter regression — possible cloned
       // credential. Cloud passkeys legitimately sit at 0, so warn, don't
       // revoke.

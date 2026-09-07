@@ -5,6 +5,8 @@ import {
   assertAuthConfig,
   authGuard,
   authRoutes,
+  consumeLoginToken,
+  GLOBAL_LOGIN_RATE_LIMIT,
   isWsAuthorized,
   resetLoginRateLimiter,
   type AuthMode,
@@ -182,6 +184,114 @@ describe("password login + guard", () => {
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
     expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
   });
+
+  test("bounds concurrent password verification per client IP", async () => {
+    const runtime = passwordAuth();
+    const app = new Hono();
+    let entered = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let twoEntered!: () => void;
+    const enteredTwo = new Promise<void>((resolve) => {
+      twoEntered = resolve;
+    });
+
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        verifyPassword: async () => {
+          entered++;
+          active++;
+          maxActive = Math.max(maxActive, active);
+          if (entered === 2) twoEntered();
+          await gate;
+          active--;
+          return false;
+        },
+      })
+    );
+
+    const requests = Array.from({ length: 6 }, () =>
+      login(app, "wrong", "10.9.9.10")
+    );
+    await Promise.race([
+      enteredTwo,
+      Bun.sleep(250).then(() => {
+        throw new Error("two requests did not enter the injected verifier");
+      }),
+    ]);
+    expect(entered).toBe(2);
+    expect(maxActive).toBe(2);
+
+    release();
+    const statuses = await Promise.all(requests.map(async (request) => (await request).status));
+    expect(statuses.filter((status) => status === 401)).toHaveLength(2);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(4);
+  });
+});
+
+describe("login limiter storage", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a client-derived key cannot overwrite the global password bucket", async () => {
+    const runtime = passwordAuth();
+    const app = new Hono();
+    let releaseDelayed!: () => void;
+    const delayedGate = new Promise<void>((resolve) => {
+      releaseDelayed = resolve;
+    });
+    let markDelayedEntered!: () => void;
+    const delayedEntered = new Promise<void>((resolve) => {
+      markDelayedEntered = resolve;
+    });
+
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        verifyPassword: async (password) => {
+          if (password === "delayed") {
+            markDelayedEntered();
+            await delayedGate;
+          }
+          return password === PASSWORD;
+        },
+      })
+    );
+
+    // `global` used to produce the same `pw:global` key as the process-wide
+    // bucket. Hold this failure in verification while other source keys fill
+    // the global budget, reproducing the ordering that could clamp it back to 5.
+    const collidingFailure = login(app, "delayed", "global");
+    await delayedEntered;
+
+    for (let index = 0; index < GLOBAL_LOGIN_RATE_LIMIT; index++) {
+      expect((await login(app, "wrong", `other-${index}`)).status).toBe(401);
+    }
+    expect((await login(app, PASSWORD, "blocked-before-release")).status).toBe(429);
+
+    releaseDelayed();
+    expect((await collidingFailure).status).toBe(401);
+
+    // Finishing the colliding request must not reduce the saturated global
+    // counter and reopen verification for a fresh source key.
+    expect((await login(app, PASSWORD, "blocked-after-release")).status).toBe(429);
+  });
+
+  test("evicts old buckets when the size cap is reached", () => {
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(true);
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(false);
+
+    for (let index = 0; index < 1_024; index++) {
+      expect(consumeLoginToken(`bounded:${index}`, 1)).toBe(true);
+    }
+
+    // The sentinel was the oldest entry, so a capped map admits it afresh.
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(true);
+  });
 });
 
 describe("isWsAuthorized", () => {
@@ -324,5 +434,20 @@ describe("login outcomes are observable", () => {
     const [record] = observability.logs.find({ scope: "auth", severity: "ERROR" });
     expect(record.body).toContain("BRAIN_UI_PASSWORD_HASH");
     expect(observability.logs.count({ body: "login failed" })).toBe(0);
+  });
+
+  test("warns once when X-Forwarded-For is ignored in password mode", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+    });
+    const { app, observability } = observedPasswordApp(runtime);
+
+    await login(app, "wrong", "10.1.0.5");
+    await login(app, "wrong", "10.1.0.6");
+
+    expect(
+      observability.logs.count({ body: "X-Forwarded-For ignored in password mode" })
+    ).toBe(1);
   });
 });
