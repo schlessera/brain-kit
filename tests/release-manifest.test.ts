@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -77,6 +77,26 @@ function ciImportList(variable: string): string[] {
 describe("release manifests", () => {
   test("there are packages to check", () => {
     expect(packages.length).toBeGreaterThan(5);
+  });
+
+  // The template stayed pinned to the first release while every package moved
+  // on, so a newly created brain installed an obsolete core.
+  test("the template pins the current core version", () => {
+    const core = packages.find((p) => p.manifest.name === "@schlessera/brain");
+    if (!core) throw new Error("could not find the @schlessera/brain manifest");
+    const template = JSON.parse(
+      readFileSync(join(ROOT, "template/package.json"), "utf8")
+    ) as Manifest;
+    expect(template.dependencies?.["@schlessera/brain"]).toBe(`^${core.manifest.version}`);
+  });
+
+  // One package published MIT metadata without carrying the license text in
+  // its package directory or tarball.
+  test("every publishable package carries a LICENSE file", () => {
+    const missing = packages
+      .filter((p) => !existsSync(join(PACKAGES_DIR, p.dir, "LICENSE")))
+      .map((p) => p.dir);
+    expect(missing).toEqual([]);
   });
 
   // A new package added to packages/ but not to these hardcoded lists is

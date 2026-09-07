@@ -23,6 +23,8 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
       // Its own export subpath: a service worker must import it without
       // dragging in the renderer/ASR registries that client/index.js holds.
       "client/share-target.js",
+      // A service worker imports this subpath directly too, so it must build to a real file.
+      "client/push-handlers.js",
     ]) {
       requireFile(join(packageDir, "dist", entry), packageName);
     }

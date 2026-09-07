@@ -10,6 +10,8 @@ nothing else does: no HTTP framework, no UI, no model vendor.
 @schlessera/brain-ui-sdk/schemas    → zod runtime schemas + parseClientMessage
 @schlessera/brain-ui-sdk/server     → AgentBackend / SpeechProvider seams, transcript store
 @schlessera/brain-ui-sdk/client     → tool-renderer + AsrClient registries (React peer)
+@schlessera/brain-ui-sdk/share-target → Web Share Target service-worker handler
+@schlessera/brain-ui-sdk/push-handlers → web-push service-worker handlers
 ```
 
 Import the submodules explicitly — the root export carries the protocol only,
@@ -18,7 +20,7 @@ only exercised by `./client`).
 
 ## The wire protocol (`./protocol`)
 
-Protocol **rev 2**: sessions run in parallel, every turn-scoped frame carries a
+Protocol **rev 3**: sessions run in parallel, every turn-scoped frame carries a
 host-minted `turnId`, servers greet with `server_hello`, and every turn ends in
 **exactly one** terminal `result` frame with a unified `outcome`. The TypeScript
 interfaces are the compatibility contract consumed by both sides; additive
@@ -48,6 +50,31 @@ Registries mapping tool names to renderers and ASR providers to `AsrClient`
 implementations, so a chat UI can render unknown tools with a generic fallback
 and add specialized views without touching its timeline component. React is a
 peer dependency of this submodule only.
+
+## Service-worker handlers (`./share-target`, `./push-handlers`)
+
+The share-target and web-push handlers are separate export subpaths so a
+service worker can import them without dragging in the renderer and ASR
+registries from `./client`:
+
+```ts
+/// <reference lib="webworker" />
+import { registerShareTarget } from "@schlessera/brain-ui-sdk/share-target";
+import { registerPushHandlers } from "@schlessera/brain-ui-sdk/push-handlers";
+
+declare let self: ServiceWorkerGlobalScope;
+
+registerShareTarget();
+registerPushHandlers(self as unknown as Parameters<typeof registerPushHandlers>[0]);
+```
+
+`registerShareTarget` intercepts the manifest's `POST /share-target`, stashes
+the payload locally, and redirects to the app. That payload is untrusted input:
+the share flow must show it to the user for confirmation and must never act on
+it automatically. Its optional argument sets `path` and `landingPath`.
+`registerPushHandlers` wires push notifications, notification clicks, and
+subscription renewal; its optional second argument sets `subscribeUrl` and
+`defaultUrl`.
 
 ## Versioning
 

@@ -43,6 +43,9 @@ refresh by hand. `scripts/publish.ts` refuses the release if the pins are stale.
 
 **Then read the version it produced, before anything else.**
 
+Bump `template/package.json`'s `@schlessera/brain` pin to that version. A
+forgotten bump is caught by `tests/release-manifest.test.ts`.
+
 ```sh
 bunx tsc --noEmit && bun test packages tests && bun run build
 ```
