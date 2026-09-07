@@ -519,7 +519,7 @@ code and new-format cookies still parse there.
 | U5. Body limits and share `inFlight`; serve recipe documented; `maxRequestBodySize` set | S5, S6, K4b | todo |
 | U6. `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not on `/ws`) | S9 | todo |
 | U7. WebSocket connection cap | S10a | todo |
-| U8. Share staging canonicalizes the inbox parent | S11a | todo |
+| U8. Share staging canonicalizes the inbox parent | S11a | in-progress |
 | U10. `SUBPROCESS_ENV` descriptor + server-only secrets stripped from every spawn | S4a (step 1) | todo |
 | U11. Release guards and hygiene | K1, K2, K3, K6, M5, B8, M9 | done |
 | U12. `[brain-ui]` deps bump, tautological tests + Agent SDK dep out, manifests, thin-shell test, `setup-vps.sh` out, stale refs, lockfile, `maxRequestBodySize`, tag `v0.32.0` | B3, B6, B8, S13, S6 | todo |
@@ -1057,3 +1057,4 @@ the memory note.
 | 2026-09-07 | — | Plan drafted from the layer review (four exploration lanes, one web-research lane); three adversarial passes → revision 2; second-pass check and a gpt-6-astra pass → revision 3; the suspected pi-backend gap was re-verified in the CI-built image and downgraded to a linker fragility |
 | 2026-09-07 | 0.32.0 | U1 landed on `feat/0.32.0-boundary`: `tests/helpers/test-app.ts` + self-test; gpt-5.6-sol implemented, gpt-6-astra passed with two should-fixes (pricing discovery forced off, `PI_CODING_AGENT_DIR` redirected) applied by the coordinator |
 | 2026-09-07 | 0.32.0 | U11 landed: template pin and LICENSE guards in `release-manifest.test.ts` (both shown failing first), `packages/scrape/LICENSE`, `check-dist.ts` asserts `client/push-handlers.js`, ui-sdk README subpaths + rev 3, CONTRIBUTING lockstep/env-core/B8 notes, release skill template-pin step, brain-ui ROADMAP M9 note; astra round 1 blocked on a missing changeset, round 2 passed |
+| 2026-09-07 | 0.32.0 | U8 implemented and reviewed three times; rounds 1-2 fixed a symlinked-root misclassification and error-message path leaks, round 3 raised a new blocker (Windows drive-relative segment makes the per-component walk diverge from the resolved path). Parked unmerged for the maintainer per the two-fix-round rule; patch kept in the session scratchpad |
