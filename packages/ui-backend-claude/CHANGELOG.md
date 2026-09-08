@@ -1,5 +1,16 @@
 # @schlessera/brain-backend-claude
 
+## 0.32.0
+
+### Minor Changes
+
+- ec340d2: Add the experimental audience-tagged subprocess environment descriptor and strip server-only credentials from brain CLI and agent subprocesses while retaining agent authentication, git credentials, and unknown operator variables.
+
+### Patch Changes
+
+- Updated dependencies [ec340d2]
+  - @schlessera/brain-ui-sdk@0.32.0
+
 ## 0.31.0
 
 ### Patch Changes

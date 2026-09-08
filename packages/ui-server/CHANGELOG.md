@@ -1,5 +1,24 @@
 # @schlessera/brain-ui-server
 
+## 0.32.0
+
+### Minor Changes
+
+- c5bee3f: JSON routes read their body through `readJsonBody`, which refuses an oversized `Content-Length` before touching the stream and cancels a chunked body the moment it crosses the cap (256 KB; 5 MB for `/api/render`, measured in bytes, replacing the zod character count). The read happens where the handler calls it, so the login admission checks still run before any body is read and the request object is never swapped. Share intake counts its in-flight slot before the first await. `MAX_ARCHIVE_BYTES` is exported and the README carries the full `Bun.serve` recipe (`maxRequestBodySize`, idle timeout, WebSocket payload cap, warm-up, shutdown).
+- e7dac56: Every HTTP response carries `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'` (the raw file response appends the directive to its own CSP). Only a genuine WebSocket upgrade on `/ws` is exempt; a plain HTTP request to `/ws` now gets 400 instead of falling through to the SPA.
+- 30b2fc6: Login limiting counts failures, not attempts. Password failures count per IP (5/min) and globally (100/min); passkey `login-verify` has its own budget and counts only an assertion that matched an outstanding challenge and then failed verification. A bounded in-flight reservation (2 per IP, 8 per process, separate pools for password and passkey) keeps argon2id and WebAuthn verification from being flooded, buckets evict on window expiry and a size cap, and a blocked client is refused before its body is read. Password mode logs once when `X-Forwarded-For` arrives while `TRUST_PROXY` is off.
+- a9b761b: One origin policy guards every non-GET request under `/api/*` and the WebSocket upgrade in every auth mode: accepted on `Sec-Fetch-Site: same-origin`/`none`, on a matching `Origin` (host and port; scheme too from `X-Forwarded-Proto` under `TRUST_PROXY`), or when both headers are absent; `Origin: null` is refused; `ALLOWED_ORIGINS` is consulted after both, and `WEBAUTHN_ORIGINS` only for the passkey ceremony routes. JSON routes require `Content-Type: application/json` (415 otherwise), which closes the `text/plain` form CSRF on JSON POSTs in tailscale, proxy and none modes. `isAllowedWsOrigin` is gone; the upgrade uses the same policy.
+- 49e2c5d: `safeResolve` canonicalizes the brain root, walks every existing component of the resolved path through `lstat` and `realpath`, fails closed on a dangling symlink, treats unresolvable components as not found, and rejects Windows path syntax up front; share staging resolves the inbox parent through it before `mkdir`, so a symlinked `.brain-ui/inbox` fails loudly instead of redirecting writes. Error responses no longer echo filesystem paths.
+- f98026c: Password session cookies carry a strict server-side epoch. Signing out or revoking a passkey globally invalidates every outstanding cookie and closes every open WebSocket; callers without a current valid session cannot trigger invalidation. The Security panel now labels the action “Sign out everywhere.”
+- ec340d2: Add the experimental audience-tagged subprocess environment descriptor and strip server-only credentials from brain CLI and agent subprocesses while retaining agent authentication, git credentials, and unknown operator variables.
+- c22e6d7: WebSocket connections are capped per process (`BRAIN_UI_WS_MAX_CONNECTIONS`, default 32). An over-cap upgrade is refused with HTTP 503 before the handshake, a socket that slips through the race window is closed with code 4008, and membership is keyed on the raw socket so reconnects free their slot.
+
+### Patch Changes
+
+- Updated dependencies [ec340d2]
+  - @schlessera/brain-ui-sdk@0.32.0
+  - @schlessera/brain-render-template@0.32.0
+
 ## 0.31.0
 
 ### Patch Changes

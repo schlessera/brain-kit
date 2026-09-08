@@ -1,5 +1,11 @@
 # @schlessera/brain-scrape
 
+## 0.32.0
+
+### Patch Changes
+
+- 82f5971: Ship the package's LICENSE file with every release.
+
 ## 0.31.0
 
 ## 0.30.1

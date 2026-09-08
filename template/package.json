@@ -9,6 +9,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@schlessera/brain": "^0.31.0"
+    "@schlessera/brain": "^0.32.0"
   }
 }

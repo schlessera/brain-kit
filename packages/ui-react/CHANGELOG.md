@@ -1,5 +1,16 @@
 # @schlessera/brain-ui-react
 
+## 0.32.0
+
+### Minor Changes
+
+- f98026c: Password session cookies carry a strict server-side epoch. Signing out or revoking a passkey globally invalidates every outstanding cookie and closes every open WebSocket; callers without a current valid session cannot trigger invalidation. The Security panel now labels the action “Sign out everywhere.”
+
+### Patch Changes
+
+- Updated dependencies [ec340d2]
+  - @schlessera/brain-ui-sdk@0.32.0
+
 ## 0.31.0
 
 ### Minor Changes
