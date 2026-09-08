@@ -259,6 +259,75 @@ describe("POST /api/share", () => {
     expect(response.status).toBe(413);
     expect((await response.json()).error).toBe("share_too_large");
   });
+
+  test("counts overlapping uploads before their first body-read await", async () => {
+    const boundary = "brain-ui-concurrency-boundary";
+    const encoded = new TextEncoder().encode(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="text"\r\n\r\n' +
+        "overlapping upload\r\n" +
+        `--${boundary}--\r\n`
+    );
+
+    function stalledUpload() {
+      let markStarted!: () => void;
+      let release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let pulled = false;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (pulled) return;
+          pulled = true;
+          markStarted();
+          await released;
+          controller.enqueue(encoded);
+          controller.close();
+        },
+      });
+      const response = shareRoutes.request("/share", {
+        method: "POST",
+        headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+        body,
+        // @ts-expect-error -- required by fetch for a streamed body, absent from the DOM types
+        duplex: "half",
+      });
+      return { response, started, release };
+    }
+
+    // The first two intakes are deliberately held inside readCappedBody(). If
+    // reservations happen before that await, both already consume capacity.
+    const first = stalledUpload();
+    const second = stalledUpload();
+    await Promise.all([first.started, second.started]);
+
+    // Fill the one remaining slot, then verify the next request is refused
+    // without reading or parsing its body.
+    const third = stalledUpload();
+    await third.started;
+    const fourth = new FormData();
+    fourth.set("text", "must be refused while the other uploads are stalled");
+
+    try {
+      const response = await post(fourth);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "busy" });
+    } finally {
+      first.release();
+      second.release();
+      third.release();
+      const responses = await Promise.all([
+        first.response,
+        second.response,
+        third.response,
+      ]);
+      expect(responses.map((response) => response.status)).toEqual([201, 201, 201]);
+    }
+  });
 });
 
 describe("share staging", () => {

@@ -17,6 +17,7 @@
 import { Hono } from "hono";
 import type { AgentConfig } from "../config/env.js";
 import { loadBackendModule, parsePiProfiles } from "../agent/backend.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
 /** Structural mirror of the pi package's PiLoginFlow (primitives only). */
@@ -106,7 +107,9 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
       return c.json({ providers: await auth.status(providers) });
     })
     .post("/pi-auth/login", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as {
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as {
         providerId?: unknown;
       } | null;
       const providerId = typeof body?.providerId === "string" ? body.providerId : "";
@@ -140,7 +143,9 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
       return c.json({ ok: true });
     })
     .post("/pi-auth/logout", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as {
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as {
         providerId?: unknown;
       } | null;
       const providerId = typeof body?.providerId === "string" ? body.providerId : "";

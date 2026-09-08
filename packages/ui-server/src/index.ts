@@ -110,6 +110,11 @@ export {
 // intake route also sweeps opportunistically on every share.
 export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";
 
+// Skill archive transport sizing for deployment shells. The route keeps the
+// application-level check; consumers use this value only to avoid setting a
+// smaller process-level request ceiling.
+export { MAX_ARCHIVE_BYTES } from "./skills/install.js";
+
 // Observability: the producing side is the OpenTelemetry API, the consuming
 // side is ours. Swap the consumer to change where a deployment reports; a test
 // swaps in the recording one and asserts on what the server actually said.

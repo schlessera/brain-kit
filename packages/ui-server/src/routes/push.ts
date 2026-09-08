@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
 /**
@@ -62,7 +63,9 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
 
     .post("/push/subscribe", requireJson(), async (c) => {
       try {
-        const body = subscribeSchema.parse(await c.req.json());
+        const result = await readJsonBody(c);
+        if (result instanceof Response) return result;
+        const body = subscribeSchema.parse(result);
         sender.subscribe(body.subscription, body.label);
         return c.json({ ok: true });
       } catch (err) {
@@ -75,7 +78,9 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
 
     .post("/push/unsubscribe", requireJson(), async (c) => {
       try {
-        const body = unsubscribeSchema.parse(await c.req.json());
+        const result = await readJsonBody(c);
+        if (result instanceof Response) return result;
+        const body = unsubscribeSchema.parse(result);
         return c.json({ removed: sender.unsubscribe(body.endpoint) });
       } catch (err) {
         return c.json(

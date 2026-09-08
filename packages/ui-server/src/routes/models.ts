@@ -18,6 +18,7 @@ import {
 } from "@schlessera/brain-ui-sdk";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { ModelPricingState } from "../pricing/model-pricing.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 import {
   getBillingOverrides,
@@ -99,7 +100,8 @@ export function createModelRoutes(deps: {
   })
 
   .put("/models/hidden", requireJson(), async (c) => {
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
     const hidden = (body as { hidden?: unknown } | null)?.hidden;
     if (
       !Array.isArray(hidden) ||
@@ -115,7 +117,8 @@ export function createModelRoutes(deps: {
   })
 
   .put("/models/default", requireJson(), async (c) => {
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
     const defaultId = (body as { defaultId?: unknown } | null)?.defaultId;
     if (defaultId !== null && typeof defaultId !== "string") {
       return c.json({ error: "defaultId must be a profile id or null" }, 400);
@@ -133,7 +136,8 @@ export function createModelRoutes(deps: {
   })
 
   .put("/models/custom", requireJson(), async (c) => {
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
     const models = (body as { models?: unknown } | null)?.models;
     if (!Array.isArray(models) || models.some((id) => typeof id !== "string")) {
       return c.json({ error: "models must be an array of OpenRouter model ids" }, 400);
@@ -187,7 +191,8 @@ export function createModelRoutes(deps: {
   })
 
   .put("/models/thinking", requireJson(), async (c) => {
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
     const thinking = (body as { thinking?: unknown } | null)?.thinking;
     if (
       typeof thinking !== "object" ||
@@ -220,7 +225,8 @@ export function createModelRoutes(deps: {
   })
 
   .put("/models/billing", requireJson(), async (c) => {
-    const body = (await c.req.json().catch(() => null)) as unknown;
+    const body = await readJsonBody(c).catch(() => null);
+    if (body instanceof Response) return body;
     const billing = (body as { billing?: unknown } | null)?.billing;
     if (
       typeof billing !== "object" ||

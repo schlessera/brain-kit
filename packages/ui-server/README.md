@@ -11,22 +11,62 @@ pieces through `createApp()`.
 ## Usage
 
 ```ts
-import { createApp } from "@schlessera/brain-ui-server";
+import { createApp, MAX_ARCHIVE_BYTES } from "@schlessera/brain-ui-server";
+import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import { MAX_CLIENT_FRAME_BYTES } from "@schlessera/brain-ui-sdk/schemas";
+import { renderPng, renderPdf, shutdownRenderer } from "./renderer.js";
 
 const app = createApp({
   staticRoot: "./client/dist",        // optional: serve a built SPA + fallback
-  renderer,                           // optional: { renderPng, renderPdf }
+  renderer: { renderPng, renderPdf }, // optional
   appName: "Brain UI",                // branding in status copy
   // config: resolveServerConfig(env) // optional: explicit configuration;
   //                                  // omitted = resolved from process.env once
 });
 
-export default {
+// Fail startup while it is still visible if a lazy backend cannot construct.
+await app.wsHost.registry.getBackends();
+
+// The brain-ui shell does not currently pre-start its Puppeteer browser. For
+// deployments where first-render latency matters, this is a recommended
+// optional warm-up probe before Bun.serve(); let a failure abort startup:
+// await renderPng({ html: "<!doctype html><title>renderer warm-up</title>" });
+
+const MULTIPART_HEADROOM_BYTES = 1_000_000;
+Bun.serve({
   port: 3000,
+  hostname: "0.0.0.0",
+  // Leave multipart framing room above the largest upload accepted by any
+  // route: currently skill archives (100 MiB), ahead of shares (50 MB).
+  maxRequestBodySize:
+    Math.max(MAX_ARCHIVE_BYTES, SHARE_MAX_TOTAL_BYTES) +
+    MULTIPART_HEADROOM_BYTES,
+  // SSE sync/whatsup streams may be quiet while nested processes work. This
+  // is Bun's maximum idle timeout.
+  idleTimeout: 255,
   fetch: app.fetch,
-  websocket: app.websocket,
-};
+  websocket: {
+    ...app.websocket,
+    // Let the SDK parser normally produce the application-level frame error.
+    maxPayloadLength: MAX_CLIENT_FRAME_BYTES + 64 * 1024,
+  },
+});
+
+process.on("SIGTERM", async () => {
+  const hadActiveTurns = app.cancelActiveTurns();
+  if (hadActiveTurns) {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  await shutdownRenderer();
+  app.close();
+  process.exit(0);
+});
 ```
+
+The values and shutdown order above mirror the `brain-ui` deployment shell.
+The only intentionally additional step is the commented renderer warm-up:
+`brain-ui` has no browser pre-start today, so its first real render pays the
+headless Chrome cold-start cost.
 
 Apps are self-contained: each `createApp()` call builds its own WebSocket
 coordinator, SQLite handle and backend registry from its (resolved or

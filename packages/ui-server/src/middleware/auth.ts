@@ -6,6 +6,7 @@ import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
 import type { Database } from "bun:sqlite";
 import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
+import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
 import { setSetting } from "../db/settings.js";
 import type { ClientSet } from "../ws/clients.js";
@@ -576,7 +577,9 @@ export function authRoutes(
     const secret = auth.cookieSecret ?? "";
     let body: { password?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{ password?: unknown }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }

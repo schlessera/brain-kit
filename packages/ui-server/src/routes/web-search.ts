@@ -30,6 +30,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { Hono } from "hono";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 import {
   WEB_SEARCH_FALLBACK_ON,
@@ -191,7 +192,9 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       if (!piConfigured()) {
         return c.json({ error: "The pi backend is not configured." }, 409);
       }
-      const body = (await c.req.json().catch(() => null)) as {
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as {
         enabled?: unknown;
         apiKeys?: unknown;
         clearOverride?: unknown;

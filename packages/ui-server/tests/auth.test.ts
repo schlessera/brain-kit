@@ -7,6 +7,7 @@ import {
   authRoutes,
   consumeLoginToken,
   GLOBAL_LOGIN_RATE_LIMIT,
+  LOGIN_RATE_LIMIT,
   isWsAuthorized,
   resetLoginRateLimiter,
   type AuthMode,
@@ -19,6 +20,7 @@ import {
 } from "../src/observability/index";
 import { createUiDb } from "../src/db/client";
 import { ClientSet } from "../src/ws/clients";
+import { clientIp } from "../src/middleware/tailscale";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -40,6 +42,20 @@ beforeAll(async () => {
 });
 
 afterAll(() => DB.close());
+
+const CAN_BIND_LOOPBACK = (() => {
+  try {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("ok"),
+    });
+    server.stop(true);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 describe("resolveAuthMode", () => {
   test("honors an explicit AUTH_MODE", () => {
@@ -470,5 +486,131 @@ describe("login outcomes are observable", () => {
     expect(
       observability.logs.count({ body: "X-Forwarded-For ignored in password mode" })
     ).toBe(1);
+  });
+});
+
+describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a chunked over-cap body gets 413 without losing the socket IP", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+    });
+    const app = new Hono();
+    let observedIp = "not-observed";
+    app.use("/api/auth/login", async (c, next) => {
+      await next();
+      observedIp = clientIp(c, false);
+    });
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async () => false,
+      })
+    );
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: app.fetch,
+    });
+
+    const attempt = () => {
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({ password: "x".repeat(257 * 1024) })
+      );
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
+            controller.enqueue(bytes.slice(offset, offset + 64 * 1024));
+          }
+          controller.close();
+        },
+      });
+      return fetch(`http://127.0.0.1:${server.port}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        // @ts-expect-error -- streamed request bodies require duplex at runtime
+        duplex: "half",
+      });
+    };
+
+    try {
+      expect((await attempt()).status).toBe(413);
+      expect(observedIp).toBe("127.0.0.1");
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("password login admission", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a blocked client gets 429 without waiting for its body to finish", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+      TRUST_PROXY: "1",
+    });
+    const app = new Hono();
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async () => false,
+      })
+    );
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+        controller.enqueue(new TextEncoder().encode('{"password":"'));
+      },
+    });
+
+    try {
+      for (let index = 0; index < LOGIN_RATE_LIMIT; index++) {
+        const response = await app.request("/api/auth/login", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "192.0.2.10, 192.0.2.20",
+          },
+          body: JSON.stringify({ password: "wrong" }),
+        });
+        expect(response.status).toBe(401);
+      }
+
+      const responsePromise = Promise.resolve(
+        app.request(
+          new Request("http://localhost/api/auth/login", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-forwarded-for": "192.0.2.10, 192.0.2.20",
+            },
+            body,
+            // @ts-expect-error -- streamed request bodies require duplex at runtime
+            duplex: "half",
+          })
+        )
+      );
+      const status = await Promise.race([
+        responsePromise.then((response) => response.status),
+        Bun.sleep(500).then(() => "timed-out" as const),
+      ]);
+      expect(status).toBe(429);
+
+      bodyController?.close();
+      bodyController = undefined;
+      await responsePromise;
+    } finally {
+      bodyController?.close();
+    }
   });
 });

@@ -30,6 +30,7 @@ export "." (./src/index.ts)
   type LogQuery
   type LogReader
   type LogWriter
+  MAX_ARCHIVE_BYTES
   MIN_BRAIN_SCHEMA_VERSION
   type MetricPoint
   type MetricSnapshot

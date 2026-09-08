@@ -28,6 +28,7 @@ import {
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
+import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
 import type { ClientSet } from "../ws/clients.js";
 
@@ -339,7 +340,9 @@ export function passkeyPublicRoutes(
 
     let response: AuthenticationResponseJSON;
     try {
-      response = await c.req.json();
+      const result = await readJsonBody<AuthenticationResponseJSON>(c);
+      if (result instanceof Response) return result;
+      response = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
@@ -483,7 +486,12 @@ export function passkeyManagementRoutes(
 
     let body: { response?: RegistrationResponseJSON; label?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{
+        response?: RegistrationResponseJSON;
+        label?: unknown;
+      }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
@@ -554,7 +562,9 @@ export function passkeyManagementRoutes(
     if (mode !== "password") return notEnabled(c);
     let body: { label?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{ label?: unknown }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }

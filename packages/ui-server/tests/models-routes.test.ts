@@ -56,6 +56,23 @@ afterEach(() => {
 });
 
 describe("model catalog routes", () => {
+  test("PUT /models/hidden rejects a 257 KiB JSON body before parsing it", async () => {
+    const targetBytes = 257 * 1024;
+    const emptyBody = JSON.stringify({ hidden: [""] });
+    const body = JSON.stringify({
+      hidden: ["x".repeat(targetBytes - Buffer.byteLength(emptyBody))],
+    });
+    expect(Buffer.byteLength(body)).toBe(targetBytes);
+
+    const response = await modelRoutes.request("/models/hidden", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+
+    expect(response.status).toBe(413);
+  });
+
   test("GET /models lists every profile, none hidden by default", async () => {
     const response = await modelRoutes.request("/models");
     const body = await response.json();

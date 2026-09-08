@@ -29,6 +29,7 @@ import {
   type Fetcher,
 } from "../skills/install.js";
 import { resolveGitHubToken } from "../config/env.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
 export interface SkillRoutesDeps {
@@ -103,7 +104,9 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
       }
     })
     .post("/skills/install/github", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as {
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as {
         source?: unknown;
         ref?: unknown;
         overwrite?: unknown;
@@ -147,7 +150,9 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
       }
     })
     .post("/skills", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as {
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as {
         name?: unknown;
         content?: unknown;
       } | null;
@@ -164,7 +169,9 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
       }
     })
     .put("/skills/:name", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as { content?: unknown } | null;
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as { content?: unknown } | null;
       if (typeof body?.content !== "string") {
         return c.json({ error: "Body needs string `content`." }, 400);
       }
@@ -178,7 +185,9 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
       }
     })
     .post("/skills/:name/enabled", requireJson(), async (c) => {
-      const body = (await c.req.json().catch(() => null)) as { enabled?: unknown } | null;
+      const result = await readJsonBody(c).catch(() => null);
+      if (result instanceof Response) return result;
+      const body = result as { enabled?: unknown } | null;
       if (typeof body?.enabled !== "boolean") {
         return c.json({ error: "Body needs boolean `enabled`." }, 400);
       }
