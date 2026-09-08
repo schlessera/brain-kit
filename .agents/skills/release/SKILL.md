@@ -82,10 +82,18 @@ git push origin main --follow-tags
   An agent should prepare the release, verify it, and stop here.
 - A dead npm token does not say so plainly: it surfaces as a 404 "version does
   not exist" and then a 403 "cannot publish over <previous>".
-- Publishing is ordered so a failure lands as little as possible. If it fails
-  midway, packages already live cannot be republished at the same version:
-  comment the published names out of the list in `scripts/publish.ts`, re-run,
-  then restore the list.
+- Publishing is ordered so a failure lands as little as possible, and a partial
+  release is finished by **re-running `bun run release`**. It asks the registry
+  which versions are already live and skips them, so the run continues where it
+  stopped. Nothing gets commented out of `scripts/publish.ts` — that was the old
+  runbook, and hand-editing release tooling mid-release is how a restored list
+  gets forgotten. `tests/release-resume.test.ts` guards the skip.
+- **"did not appear on the registry within 5 minutes"** — the publish itself
+  almost certainly SUCCEEDED and npm is still propagating. 0.32.0 stopped exactly
+  this way with the package already live, and the run after it died on a 403.
+  Open the package page to confirm, then re-run.
+- **`403 ... cannot publish over the previously published versions`** says that
+  version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
 
 ## After publishing
