@@ -520,7 +520,7 @@ code and new-format cookies still parse there.
 | U6. `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not on `/ws`) | S9 | done |
 | U7. WebSocket connection cap | S10a | done |
 | U8. Share staging canonicalizes the inbox parent | S11a | in-progress |
-| U10. `SUBPROCESS_ENV` descriptor + server-only secrets stripped from every spawn | S4a (step 1) | todo |
+| U10. `SUBPROCESS_ENV` descriptor + server-only secrets stripped from every spawn | S4a (step 1) | done |
 | U11. Release guards and hygiene | K1, K2, K3, K6, M5, B8, M9 | done |
 | U12. `[brain-ui]` deps bump, tautological tests + Agent SDK dep out, manifests, thin-shell test, `setup-vps.sh` out, stale refs, lockfile, `maxRequestBodySize`, tag `v0.32.0` | B3, B6, B8, S13, S6 | todo |
 
@@ -1064,3 +1064,4 @@ the memory note.
 | 2026-09-08 | 0.32.0 | U3 landed: cookie payload `<issuedAt>.<epoch>`, strict `sessionsEpoch` accessor (corrupt row throws), `bumpSessionsEpoch` + `ClientSet.closeAll`, logout and passkey revocation verify the caller first, `authGuard`/`isWsAuthorized` take the db (api-report regenerated), "Sign out everywhere" copy, 12 tests in `sessions-epoch.test.ts` all red pre-fix; astra passed both rounds (one doc scoping should-fix) |
 | 2026-09-08 | 0.32.0 | U6 landed: frame headers set by hand (the `hono/secure-headers` question resolved by a two-header middleware), `/ws` exempt only for a genuine upgrade attempt after astra found a path-based exemption let a plain GET `/ws` fall through to the unframed SPA; second round passed |
 | 2026-09-08 | 0.32.0 | U5 implemented and reviewed three times; round 1 (brain-ui `maxRequestBodySize` below the 100 MiB skill-archive cap) and round 2 (`hono/body-limit` re-wraps `c.req.raw` on chunked bodies so `clientIp` lost the socket; brain-ui imported an unpublished export) were fixed, round 3 raised two new blockers (the IP-capture regression test passes pre-fix; chunked bodies are buffered before the admission checks U4 put ahead of parsing). Parked unmerged per the two-fix-round rule; patch in the session scratchpad. Open design question for the maintainer: `hono/body-limit` versus a `Content-Length`-only check plus `maxRequestBodySize` as the byte owner |
+| 2026-09-08 | 0.32.0 | U10 landed: `SUBPROCESS_ENV` + `filterSubprocessEnv` in `ui-sdk/server` (`@experimental`, api-report regenerated), applied in ui-server `subprocessEnv`, Claude `envSnapshot` (now set for every profile) and both pi spawns; regression tests in all four packages red pre-fix. astra rounds were about SECURITY.md wording (fixed); the round-3 should-fix (`NODE_ENV` stripped, breaking bun's `.env.<mode>` selection in children) applied by the coordinator |

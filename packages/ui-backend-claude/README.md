@@ -144,7 +144,7 @@ Reads whose variable *name* is configuration rather than code:
 
 | Name comes from | What the value is used for |
 | --- | --- |
-| full environment passthrough | The Claude Code subprocess inherits the entire host environment (with profile overrides merged on top) when a profile overrides env. |
+| filtered environment snapshot | The Claude Code subprocess inherits the host environment minus server-only variables (with profile overrides merged on top). |
 | inference profile `authTokenEnv` / `apiKeyEnv` | Credential for a declared inference profile, read at query time under whatever name the profile declares (also drives profile availability). |
 
 Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.

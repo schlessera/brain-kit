@@ -837,9 +837,7 @@ export function createClaudeBackend(
           }),
         };
       }
-      if (Object.keys(profileEnv).length > 0) {
-        sdkOptions.env = { ...envSnapshot(), ...profileEnv };
-      }
+      sdkOptions.env = { ...envSnapshot(), ...profileEnv };
 
       const queryPrompt =
         req.attachments && req.attachments.length > 0

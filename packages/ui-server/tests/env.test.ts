@@ -1,6 +1,40 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { resolveServerConfig } from "../src/config/env";
+import { resolveServerConfig, subprocessEnv } from "../src/config/env";
+
+const SUBPROCESS_KEYS = [
+  "COOKIE_SECRET",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "GITHUB_TOKEN",
+  "BRAIN_UI_SYNC_GITHUB_TOKEN",
+] as const;
+const savedSubprocessEnv = Object.fromEntries(
+  SUBPROCESS_KEYS.map((key) => [key, process.env[key]])
+);
+
+afterEach(() => {
+  for (const key of SUBPROCESS_KEYS) {
+    const value = savedSubprocessEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+describe("config/env subprocessEnv", () => {
+  test("strips server-only secrets while preserving agent and git credentials", () => {
+    process.env.COOKIE_SECRET = "server-only-test-secret";
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-test-token";
+    process.env.GITHUB_TOKEN = "github-test-token";
+    process.env.BRAIN_UI_SYNC_GITHUB_TOKEN = "sync-test-token";
+
+    const env = subprocessEnv();
+
+    expect(env.COOKIE_SECRET).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oauth-test-token");
+    expect(env.GITHUB_TOKEN).toBe("github-test-token");
+    expect(env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBe("sync-test-token");
+  });
+});
 
 /**
  * Boolean flag parsing in resolveServerConfig — all of it goes through the
