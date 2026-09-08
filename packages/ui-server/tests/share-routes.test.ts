@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, readdir, readFile, rm, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SHARE_MAX_FILES,
@@ -17,6 +18,7 @@ import {
   shareStagingRoot,
   stageShare,
 } from "../src/share/staging";
+import { PathEscapeError } from "../src/files/walker";
 
 const BRAIN_ROOT = `/tmp/brain-ui-share-${process.pid}`;
 
@@ -331,6 +333,71 @@ describe("POST /api/share", () => {
 });
 
 describe("share staging", () => {
+  test("accepts brain roots reached through direct and ancestor symlinks", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "brain-share-linked-root-"));
+    const directRoot = join(sandbox, "direct-root");
+    const directLink = join(sandbox, "direct-link");
+    const nestedParent = join(sandbox, "nested-parent");
+    const nestedRoot = join(nestedParent, "brain");
+    const nestedParentLink = join(sandbox, "nested-parent-link");
+
+    try {
+      await mkdir(directRoot);
+      await symlink(directRoot, directLink, "dir");
+      await mkdir(nestedRoot, { recursive: true });
+      await symlink(nestedParent, nestedParentLink, "dir");
+
+      for (const brainRoot of [directLink, join(nestedParentLink, "brain")]) {
+        const result = await stageShare(
+          brainRoot,
+          { text: "root symlinks are trusted", files: [] }
+        );
+        await expect(readFile(join(brainRoot, result.dir, "meta.json"), "utf-8")).resolves.toContain(
+          "root symlinks are trusted"
+        );
+      }
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an inbox symlink that escapes the brain root", async () => {
+    const brainRoot = await mkdtemp(join(tmpdir(), "brain-share-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "brain-share-outside-"));
+
+    try {
+      await mkdir(join(brainRoot, ".brain-ui"));
+      await symlink(outsideRoot, shareStagingRoot(brainRoot), "dir");
+
+      await expect(
+        stageShare(brainRoot, { text: "must stay inside", files: [] })
+      ).rejects.toBeInstanceOf(PathEscapeError);
+      expect(await readdir(outsideRoot)).toEqual([]);
+    } finally {
+      await rm(brainRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a dangling inbox symlink as a containment failure", async () => {
+    const brainRoot = await mkdtemp(join(tmpdir(), "brain-share-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "brain-share-outside-"));
+    const missingTarget = join(outsideRoot, "missing-inbox");
+
+    try {
+      await mkdir(join(brainRoot, ".brain-ui"));
+      await symlink(missingTarget, shareStagingRoot(brainRoot), "dir");
+
+      await expect(
+        stageShare(brainRoot, { text: "must fail closed", files: [] })
+      ).rejects.toBeInstanceOf(PathEscapeError);
+      expect(await readdir(outsideRoot)).toEqual([]);
+    } finally {
+      await rm(brainRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
   test("sanitizeFileName strips control characters and separators", () => {
     expect(sanitizeFileName("pho\u0000to:1.jpg", "image/jpeg")).toBe("photo-1.jpg");
     expect(sanitizeFileName("dir/sub\\shot.PNG", "image/png")).toBe("shot.png");

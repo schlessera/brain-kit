@@ -519,7 +519,7 @@ code and new-format cookies still parse there.
 | U5. Body limits and share `inFlight`; serve recipe documented; `maxRequestBodySize` set | S5, S6, K4b | done |
 | U6. `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not on `/ws`) | S9 | done |
 | U7. WebSocket connection cap | S10a | done |
-| U8. Share staging canonicalizes the inbox parent | S11a | in-progress |
+| U8. Share staging canonicalizes the inbox parent | S11a | done |
 | U10. `SUBPROCESS_ENV` descriptor + server-only secrets stripped from every spawn | S4a (step 1) | done |
 | U11. Release guards and hygiene | K1, K2, K3, K6, M5, B8, M9 | done |
 | U12. `[brain-ui]` deps bump, tautological tests + Agent SDK dep out, manifests, thin-shell test, `setup-vps.sh` out, stale refs, lockfile, `maxRequestBodySize`, tag `v0.32.0` | B3, B6, B8, S13, S6 | in-progress |
@@ -1067,3 +1067,4 @@ the memory note.
 | 2026-09-08 | 0.32.0 | U10 landed: `SUBPROCESS_ENV` + `filterSubprocessEnv` in `ui-sdk/server` (`@experimental`, api-report regenerated), applied in ui-server `subprocessEnv`, Claude `envSnapshot` (now set for every profile) and both pi spawns; regression tests in all four packages red pre-fix. astra rounds were about SECURITY.md wording (fixed); the round-3 should-fix (`NODE_ENV` stripped, breaking bun's `.env.<mode>` selection in children) applied by the coordinator |
 | 2026-09-08 | 0.32.0 | U12 shell work landed on brain-ui `feat/0.32.0-boundary`: tautological tests and the Agent SDK dependency out, root manifest without `@schlessera/*`, both backends declared by `server/`, CI asserts the installed backends, `thin-shell.test.ts`, `setup-vps.sh` deleted, stale `config/crontab` references fixed, `qs` re-resolved (audit clean); astra passed first round. Left for the human: the `^0.32.0` bump after `bun run release`, the `maxRequestBodySize` line (parked with U5), tag `v0.32.0` |
 | 2026-09-08 | 0.32.0 | U5 landed after a fourth round: the coordinator replaced `hono/body-limit` with `readJsonBody(c, maxBytes)` (Content-Length precheck, streaming byte counter, no request swap, called after the admission checks); render cap owned in bytes; share `inFlight` fixed; README serve recipe; brain-ui sets `maxRequestBodySize` from a local constant until the `^0.32.0` pin lands. astra round 4 clean, all regression tests red pre-fix |
+| 2026-09-08 | 0.32.0 | U8 landed after five review rounds: candidates now derive from the resolved path and Windows syntax is rejected up front (round 3), the wikilink walk skips a rejected discovered subtree instead of failing the whole map (round 4), and the coordinator fixed the last blocker (a relative import without `.js`, which the emitted dist would not resolve) and proved it with `bun run build && bun run check-dist-types` |

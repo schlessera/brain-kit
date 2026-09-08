@@ -1,6 +1,5 @@
-import { readdir, readFile, stat, realpath } from "node:fs/promises";
-import { join, resolve, sep, posix, dirname } from "node:path";
-import { existsSync } from "node:fs";
+import { lstat, readdir, readFile, stat, realpath } from "node:fs/promises";
+import { join, relative, resolve, sep, posix, dirname } from "node:path";
 import ignore, { type Ignore } from "ignore";
 import type { FileEntry, FileContentKind } from "@schlessera/brain-ui-sdk/protocol";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
@@ -24,6 +23,15 @@ const HARD_EXCLUDE_FILE_NAMES = new Set(
     "skills-lock.json",
   ].map((n) => n.toLowerCase())
 );
+
+const UNRESOLVABLE_PATH_CODES = new Set([
+  "ENOENT",
+  "ENOTDIR",
+  "ENAMETOOLONG",
+  "ELOOP",
+  "EACCES",
+  "EPERM",
+]);
 
 export class PathEscapeError extends Error {
   constructor(rel: string) {
@@ -52,8 +60,14 @@ export class TooLargeError extends Error {
  */
 export async function safeResolve(rel: string, root: string): Promise<string> {
   if (typeof rel !== "string") throw new PathEscapeError(String(rel));
-  // Reject absolute paths and null bytes
-  if (rel.startsWith("/") || rel.startsWith("\\") || rel.includes("\0")) {
+  const requestSegments = rel.split("/");
+  // Reject absolute paths, null bytes, and Windows path syntax before resolving.
+  if (
+    rel.startsWith("/") ||
+    rel.startsWith("\\") ||
+    rel.includes("\0") ||
+    requestSegments.some((segment) => segment.includes(":") || segment.includes("\\"))
+  ) {
     throw new PathEscapeError(rel);
   }
   // Normalize separators; reject ".." segments anywhere
@@ -61,14 +75,49 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
   for (const seg of normalized.split("/")) {
     if (seg === "..") throw new PathEscapeError(rel);
   }
-  const absRoot = resolve(root);
+  const lexicalRoot = resolve(root);
+  let absRoot: string;
+  try {
+    absRoot = await realpath(lexicalRoot);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    absRoot = lexicalRoot;
+  }
   const abs = resolve(absRoot, normalized);
   if (abs !== absRoot && !abs.startsWith(absRoot + sep)) {
     throw new PathEscapeError(rel);
   }
-  // Check for symlink escape via realpath when the path exists
-  if (existsSync(abs)) {
-    const real = await realpath(abs);
+  // Canonicalize every existing component. Stopping at the first genuinely
+  // missing component permits callers to create a new path, while lstat
+  // distinguishes that case from a dangling symlink, which must fail closed.
+  let candidate = absRoot;
+  const candidates = [candidate];
+  for (const segment of relative(absRoot, abs).split(sep)) {
+    if (!segment || segment === ".") continue;
+    candidate = join(candidate, segment);
+    candidates.push(candidate);
+  }
+
+  for (const existing of candidates) {
+    try {
+      await lstat(existing);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
+      throw err;
+    }
+
+    let real: string;
+    try {
+      real = await realpath(existing);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        throw new PathEscapeError(rel);
+      }
+      if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
+      throw err;
+    }
     if (real !== absRoot && !real.startsWith(absRoot + sep)) {
       throw new PathEscapeError(rel);
     }
@@ -373,7 +422,14 @@ export async function buildWikilinkMap(root: string): Promise<Record<string, str
       }
 
       if (childStat.isDirectory()) {
-        await walk(relChild);
+        try {
+          await walk(relChild);
+        } catch (err) {
+          // Directory names come from readdir rather than an external request.
+          // Keep request-facing validation strict, but skip a discovered path
+          // that safeResolve rejects instead of discarding the whole map.
+          if (!(err instanceof PathEscapeError)) throw err;
+        }
         continue;
       }
       const lower = d.name.toLowerCase();
