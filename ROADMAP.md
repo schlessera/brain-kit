@@ -77,6 +77,17 @@ when it was made — not a preference.
 
 Roughly in order. Items move down as they land.
 
+- **Hardening roadmap (four releases: 0.32.0 Boundary, 0.33.0 Kit owns the
+  app, 0.34.0 One backend seam, 0.35.0 Least privilege container).** Closes
+  every finding of the 2026-09-06 layer review — CSRF on JSON POSTs outside
+  password mode, stateless sessions, login lockout, the agent's inherited
+  environment, cron and crontab logic living in the shell, the `claude | pi`
+  registry and duplicated bridge tools, and the packaging/docs tail. Findings:
+  [docs/brainstorms/2026-09-06-layer-review-findings.md](docs/brainstorms/2026-09-06-layer-review-findings.md);
+  plan with per-unit status and progress log:
+  [docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md](docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md).
+  Each release keeps to one runtime blast radius; only the last has a data
+  step.
 - **A real `brain-template` repo.** `docs/quickstart.md`, `template/README.md`,
   and this repo's README all point users at `schlessera/brain-template`, which
   does not exist yet — `template/` here is its source. Publishing it (marked as

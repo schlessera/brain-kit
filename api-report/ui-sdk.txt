@@ -589,6 +589,7 @@ export "./server" (./src/server/index.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  SUBPROCESS_ENV
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -623,6 +624,7 @@ export "./server" (./src/server/index.ts)
   type SpeechProvider
   type SpeechSession
   type StartTurnRequest
+  type SubprocessEnvAudience
   type SurfaceTools
   type SystemStatus
   THINKING_LEVELS
@@ -649,6 +651,7 @@ export "./server" (./src/server/index.ts)
   createTranscriptStore
   createWriteLock
   defineSpeechProvider
+  filterSubprocessEnv
   hasWebSearchCredential
   isBillingMode
   isFailureOutcome

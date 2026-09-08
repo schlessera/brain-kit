@@ -17,7 +17,10 @@ import type { DynamicEnvReadSpec } from "./env-core.js";
 import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
-import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/server";
+import {
+  filterSubprocessEnv,
+  WEB_SEARCH_PROVIDERS,
+} from "@schlessera/brain-ui-sdk/server";
 
 /**
  * One environment variable this package reads.
@@ -121,4 +124,9 @@ export function resolveWebSearchEnv(
     ...WEB_SEARCH_PROVIDERS.map((p) => p.envVar).filter((n): n is string => Boolean(n)),
   ];
   return Object.fromEntries(names.map((name) => [name, env[name]]));
+}
+
+/** Filtered ambient environment handed to each pi tool subprocess. */
+export function subprocessEnv(): NodeJS.ProcessEnv {
+  return filterSubprocessEnv(process.env);
 }

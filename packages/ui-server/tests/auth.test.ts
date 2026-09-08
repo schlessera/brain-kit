@@ -1,10 +1,13 @@
-import { describe, test, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Hono } from "hono";
 import {
   resolveAuthMode,
   assertAuthConfig,
   authGuard,
   authRoutes,
+  consumeLoginToken,
+  GLOBAL_LOGIN_RATE_LIMIT,
+  LOGIN_RATE_LIMIT,
   isWsAuthorized,
   resetLoginRateLimiter,
   type AuthMode,
@@ -15,9 +18,13 @@ import {
   createRecordingObservability,
   type RecordingObservability,
 } from "../src/observability/index";
+import { createUiDb } from "../src/db/client";
+import { ClientSet } from "../src/ws/clients";
+import { clientIp } from "../src/middleware/tailscale";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
+const DB = createUiDb(":memory:");
 const SECRET = "test-cookie-secret-0123456789abcdef";
 
 /**
@@ -33,6 +40,22 @@ function auth(env: Record<string, string | undefined> = {}): AuthRuntime {
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
 });
+
+afterAll(() => DB.close());
+
+const CAN_BIND_LOOPBACK = (() => {
+  try {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("ok"),
+    });
+    server.stop(true);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 describe("resolveAuthMode", () => {
   test("honors an explicit AUTH_MODE", () => {
@@ -118,12 +141,15 @@ function passwordAuth(): AuthRuntime {
 function passwordApp() {
   const runtime = passwordAuth();
   const app = new Hono();
-  app.route("/api", authRoutes("password", runtime));
-  app.use("/api/*", authGuard("password", runtime));
+  app.route(
+    "/api",
+    authRoutes("password", runtime, { db: DB, clients: new ClientSet() })
+  );
+  app.use("/api/*", authGuard("password", runtime, DB));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   // Un-guarded probe so isWsAuthorized can be tested with a real Hono context.
   app.get("/wscheck", async (c) =>
-    c.json({ ok: await isWsAuthorized(c, "password", runtime) })
+    c.json({ ok: await isWsAuthorized(c, "password", runtime, DB) })
   );
   return app;
 }
@@ -182,18 +208,135 @@ describe("password login + guard", () => {
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
     expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
   });
+
+  test("bounds concurrent password verification per client IP", async () => {
+    const runtime = passwordAuth();
+    const app = new Hono();
+    let entered = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let twoEntered!: () => void;
+    const enteredTwo = new Promise<void>((resolve) => {
+      twoEntered = resolve;
+    });
+
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async () => {
+          entered++;
+          active++;
+          maxActive = Math.max(maxActive, active);
+          if (entered === 2) twoEntered();
+          await gate;
+          active--;
+          return false;
+        },
+      })
+    );
+
+    const requests = Array.from({ length: 6 }, () =>
+      login(app, "wrong", "10.9.9.10")
+    );
+    await Promise.race([
+      enteredTwo,
+      Bun.sleep(250).then(() => {
+        throw new Error("two requests did not enter the injected verifier");
+      }),
+    ]);
+    expect(entered).toBe(2);
+    expect(maxActive).toBe(2);
+
+    release();
+    const statuses = await Promise.all(requests.map(async (request) => (await request).status));
+    expect(statuses.filter((status) => status === 401)).toHaveLength(2);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(4);
+  });
+});
+
+describe("login limiter storage", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a client-derived key cannot overwrite the global password bucket", async () => {
+    const runtime = passwordAuth();
+    const app = new Hono();
+    let releaseDelayed!: () => void;
+    const delayedGate = new Promise<void>((resolve) => {
+      releaseDelayed = resolve;
+    });
+    let markDelayedEntered!: () => void;
+    const delayedEntered = new Promise<void>((resolve) => {
+      markDelayedEntered = resolve;
+    });
+
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async (password) => {
+          if (password === "delayed") {
+            markDelayedEntered();
+            await delayedGate;
+          }
+          return password === PASSWORD;
+        },
+      })
+    );
+
+    // `global` used to produce the same `pw:global` key as the process-wide
+    // bucket. Hold this failure in verification while other source keys fill
+    // the global budget, reproducing the ordering that could clamp it back to 5.
+    const collidingFailure = login(app, "delayed", "global");
+    await delayedEntered;
+
+    for (let index = 0; index < GLOBAL_LOGIN_RATE_LIMIT; index++) {
+      expect((await login(app, "wrong", `other-${index}`)).status).toBe(401);
+    }
+    expect((await login(app, PASSWORD, "blocked-before-release")).status).toBe(429);
+
+    releaseDelayed();
+    expect((await collidingFailure).status).toBe(401);
+
+    // Finishing the colliding request must not reduce the saturated global
+    // counter and reopen verification for a fresh source key.
+    expect((await login(app, PASSWORD, "blocked-after-release")).status).toBe(429);
+  });
+
+  test("evicts old buckets when the size cap is reached", () => {
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(true);
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(false);
+
+    for (let index = 0; index < 1_024; index++) {
+      expect(consumeLoginToken(`bounded:${index}`, 1)).toBe(true);
+    }
+
+    // The sentinel was the oldest entry, so a capped map admits it afresh.
+    expect(consumeLoginToken("bounded:sentinel", 1)).toBe(true);
+  });
 });
 
 describe("isWsAuthorized", () => {
   test("none mode always authorizes", async () => {
     const ctx = { req: { header: () => undefined } };
-    expect(await isWsAuthorized(ctx as never, "none", auth())).toBe(true);
+    expect(await isWsAuthorized(ctx as never, "none", auth(), DB)).toBe(true);
   });
 
   test("password mode rejects without a cookie", async () => {
     const ctx = { req: { header: () => undefined } };
     expect(
-      await isWsAuthorized(ctx as never, "password", auth({ COOKIE_SECRET: SECRET }))
+      await isWsAuthorized(
+        ctx as never,
+        "password",
+        auth({ COOKIE_SECRET: SECRET }),
+        DB
+      )
     ).toBe(false);
   });
 
@@ -205,7 +348,8 @@ describe("isWsAuthorized", () => {
       await isWsAuthorized(
         ctx as never,
         "proxy",
-        auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" })
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" }),
+        DB
       )
     ).toBe(true);
   });
@@ -218,7 +362,8 @@ describe("isWsAuthorized", () => {
       await isWsAuthorized(
         ctx as never,
         "proxy",
-        auth({ PROXY_AUTH_HEADER: "x-forwarded-user" })
+        auth({ PROXY_AUTH_HEADER: "x-forwarded-user" }),
+        DB
       )
     ).toBe(false);
   });
@@ -237,6 +382,8 @@ function observedPasswordApp(runtime: AuthRuntime = passwordAuth()): {
   app.route(
     "/api",
     authRoutes("password", runtime, {
+      db: DB,
+      clients: new ClientSet(),
       log: observability.logger("auth"),
       failures: observability.meter("auth").createCounter("auth.failures"),
     })
@@ -324,5 +471,146 @@ describe("login outcomes are observable", () => {
     const [record] = observability.logs.find({ scope: "auth", severity: "ERROR" });
     expect(record.body).toContain("BRAIN_UI_PASSWORD_HASH");
     expect(observability.logs.count({ body: "login failed" })).toBe(0);
+  });
+
+  test("warns once when X-Forwarded-For is ignored in password mode", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+    });
+    const { app, observability } = observedPasswordApp(runtime);
+
+    await login(app, "wrong", "10.1.0.5");
+    await login(app, "wrong", "10.1.0.6");
+
+    expect(
+      observability.logs.count({ body: "X-Forwarded-For ignored in password mode" })
+    ).toBe(1);
+  });
+});
+
+describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a chunked over-cap body gets 413 without losing the socket IP", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+    });
+    const app = new Hono();
+    let observedIp = "not-observed";
+    app.use("/api/auth/login", async (c, next) => {
+      await next();
+      observedIp = clientIp(c, false);
+    });
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async () => false,
+      })
+    );
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: app.fetch,
+    });
+
+    const attempt = () => {
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({ password: "x".repeat(257 * 1024) })
+      );
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
+            controller.enqueue(bytes.slice(offset, offset + 64 * 1024));
+          }
+          controller.close();
+        },
+      });
+      return fetch(`http://127.0.0.1:${server.port}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        // @ts-expect-error -- streamed request bodies require duplex at runtime
+        duplex: "half",
+      });
+    };
+
+    try {
+      expect((await attempt()).status).toBe(413);
+      expect(observedIp).toBe("127.0.0.1");
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("password login admission", () => {
+  beforeEach(() => resetLoginRateLimiter());
+
+  test("a blocked client gets 429 without waiting for its body to finish", async () => {
+    const runtime = auth({
+      BRAIN_UI_PASSWORD_HASH: HASH,
+      COOKIE_SECRET: SECRET,
+      TRUST_PROXY: "1",
+    });
+    const app = new Hono();
+    app.route(
+      "/api",
+      authRoutes("password", runtime, {
+        db: DB,
+        clients: new ClientSet(),
+        verifyPassword: async () => false,
+      })
+    );
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+        controller.enqueue(new TextEncoder().encode('{"password":"'));
+      },
+    });
+
+    try {
+      for (let index = 0; index < LOGIN_RATE_LIMIT; index++) {
+        const response = await app.request("/api/auth/login", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "192.0.2.10, 192.0.2.20",
+          },
+          body: JSON.stringify({ password: "wrong" }),
+        });
+        expect(response.status).toBe(401);
+      }
+
+      const responsePromise = Promise.resolve(
+        app.request(
+          new Request("http://localhost/api/auth/login", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-forwarded-for": "192.0.2.10, 192.0.2.20",
+            },
+            body,
+            // @ts-expect-error -- streamed request bodies require duplex at runtime
+            duplex: "half",
+          })
+        )
+      );
+      const status = await Promise.race([
+        responsePromise.then((response) => response.status),
+        Bun.sleep(500).then(() => "timed-out" as const),
+      ]);
+      expect(status).toBe(429);
+
+      bodyController?.close();
+      bodyController = undefined;
+      await responsePromise;
+    } finally {
+      bodyController?.close();
+    }
   });
 });

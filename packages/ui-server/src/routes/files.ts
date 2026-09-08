@@ -24,7 +24,7 @@ function errorResponse(err: unknown, log?: Logger): { body: { error: string; siz
     return { body: { error: "file_too_large", size: err.size }, status: 413 };
   }
   log?.emit({ severityText: "ERROR", body: "file request failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
-  return { body: { error: err instanceof Error ? err.message : "internal_error" }, status: 500 };
+  return { body: { error: "internal_error" }, status: 500 };
 }
 
 export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
@@ -57,7 +57,7 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
             "Content-Length": String(size),
             "Content-Disposition": "inline",
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
             "Cache-Control": "private, max-age=0, must-revalidate",
           },
         });

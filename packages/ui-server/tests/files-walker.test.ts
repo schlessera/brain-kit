@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, writeFile, symlink, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
 import {
   listDirectory,
@@ -15,6 +15,7 @@ import {
   TooLargeError,
 } from "../src/files/walker";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import { createFilesRoutes } from "../src/routes/files";
 
 let root: string;
 
@@ -65,6 +66,29 @@ describe("safeResolve", () => {
   });
   test("rejects null byte", async () => {
     await expect(safeResolve("a\0b", root)).rejects.toBeInstanceOf(PathEscapeError);
+  });
+  test("rejects Windows path syntax before candidate paths can diverge", async () => {
+    const windowsRoot = "C:\\brain";
+    const driveRelative = "C:escape-link/secret.md";
+    const resolved = win32.resolve(windowsRoot, driveRelative);
+    const rawCandidates = driveRelative.split("/").reduce<string[]>((candidates, segment) => {
+      candidates.push(win32.join(candidates.at(-1)!, segment));
+      return candidates;
+    }, [windowsRoot]);
+    const derivedCandidates = win32
+      .relative(windowsRoot, resolved)
+      .split(win32.sep)
+      .reduce<string[]>((candidates, segment) => {
+        candidates.push(win32.join(candidates.at(-1)!, segment));
+        return candidates;
+      }, [windowsRoot]);
+
+    expect(resolved).toBe("C:\\brain\\escape-link\\secret.md");
+    expect(rawCandidates.at(-1)).toBe("C:\\brain\\C:escape-link\\secret.md");
+    expect(rawCandidates.at(-1)).not.toBe(resolved);
+    expect(derivedCandidates.at(-1)).toBe(resolved);
+    await expect(safeResolve(driveRelative, root)).rejects.toBeInstanceOf(PathEscapeError);
+    await expect(safeResolve("notes\\foo.md", root)).rejects.toBeInstanceOf(PathEscapeError);
   });
   test("rejects nested '..'", async () => {
     await expect(safeResolve("notes/../../../etc", root)).rejects.toBeInstanceOf(PathEscapeError);
@@ -204,6 +228,34 @@ describe("readFileContent", () => {
   test("rejects path escape", async () => {
     await expect(readFileContent("../etc/passwd", root)).rejects.toBeInstanceOf(PathEscapeError);
   });
+
+  test("a child of an existing file is not found without leaking its absolute path", async () => {
+    const rel = "README.md/child";
+
+    await expect(readFileContent(rel, root)).rejects.toBeInstanceOf(NotFoundError);
+
+    const response = await createFilesRoutes({ brainRoot: root }).request(
+      `/files/content?path=${encodeURIComponent(rel)}`
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(body)).toEqual({ error: "not_found" });
+    expect(body).not.toContain(root);
+  });
+
+  test("an overlong path component is not found without leaking its absolute path", async () => {
+    const rel = "x".repeat(256);
+
+    const response = await createFilesRoutes({ brainRoot: root }).request(
+      `/files/content?path=${encodeURIComponent(rel)}`
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(body)).toEqual({ error: "not_found" });
+    expect(body).not.toContain(root);
+  });
 });
 
 describe("resolveAncestors", () => {
@@ -270,5 +322,50 @@ describe("buildWikilinkMap", () => {
     const map = await buildWikilinkMap(root);
     // README.md at root precedes any deeper README.md alphabetically by walk order
     expect(map["readme"]).toBe("README.md");
+  });
+});
+
+describe("buildWikilinkMap with internally discovered rejected paths", () => {
+  let scanRoot: string;
+
+  beforeAll(async () => {
+    scanRoot = await Bun.$`mktemp -d`.text().then((s) => s.trim());
+    await mkdir(join(scanRoot, "notes/deep"), { recursive: true });
+    await writeFile(join(scanRoot, "README.md"), "root");
+    await writeFile(join(scanRoot, "notes/alpha.md"), "alpha");
+    await writeFile(join(scanRoot, "notes/deep/beta.mdx"), "beta");
+
+    await mkdir(join(scanRoot, "archive:private/nested"), { recursive: true });
+    await writeFile(join(scanRoot, "archive:private/hidden.md"), "hidden");
+    await writeFile(join(scanRoot, "archive:private/nested/also-hidden.md"), "hidden");
+  });
+
+  afterAll(async () => {
+    if (scanRoot) await rm(scanRoot, { recursive: true, force: true });
+  });
+
+  test("skips a colon-named subtree without aborting the rest of the map", async () => {
+    const map = await buildWikilinkMap(scanRoot);
+
+    expect(map).toEqual({
+      readme: "README.md",
+      alpha: "notes/alpha.md",
+      beta: "notes/deep/beta.mdx",
+    });
+  });
+
+  test("serves wikilinks for the rest of the repo when a colon-named subtree exists", async () => {
+    const response = await createFilesRoutes({ brainRoot: scanRoot }).request(
+      "/files/wikilinks"
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.count).toBe(3);
+    expect(body.slugs).toEqual({
+      readme: "README.md",
+      alpha: "notes/alpha.md",
+      beta: "notes/deep/beta.mdx",
+    });
   });
 });

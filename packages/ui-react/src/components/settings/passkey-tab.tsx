@@ -163,14 +163,14 @@ export function PasskeyTab({ active }: { active: boolean }) {
         )}
       </div>
 
-      {/* Sign out */}
+      {/* Sign out everywhere */}
       <div className="border-t border-border p-4">
         <button
           onClick={onSignOut}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-destructive hover:text-destructive"
         >
           <LogOut className="h-4 w-4" />
-          Sign out
+          Sign out everywhere
         </button>
       </div>
     </div>

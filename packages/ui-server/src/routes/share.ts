@@ -94,12 +94,14 @@ export interface ShareRoutesDeps {
   brainRoot: string;
   /** ALLOWED_ORIGINS — the same-origin check's split-topology allowlist. */
   allowedOrigins: string[];
+  /** Trust X-Forwarded-Proto when resolving the request's expected origin. */
+  trustProxy: boolean;
   /** Where failures are reported; absent means silence. */
   log?: Logger;
 }
 
 export function createShareRoutes(deps: ShareRoutesDeps): Hono {
-  const { brainRoot, allowedOrigins, log } = deps;
+  const { brainRoot, allowedOrigins, trustProxy, log } = deps;
 
   /**
    * In-flight intakes. Each one holds its whole payload in memory while the
@@ -124,49 +126,48 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
   }
 
   return new Hono().post("/share", async (c) => {
-  // See middleware/origin.ts: a multipart POST is a CORS-simple request, so it
-  // reaches this route with no preflight, and in tailscale mode the credential
-  // is the source IP. This route is only ever called by the app itself.
-  if (!isSameOriginRequest(c, allowedOrigins)) {
+  // Keep the same shared policy at the route boundary as defense in depth for
+  // embedders that mount this exported route factory outside createApp().
+  if (!isSameOriginRequest(c, allowedOrigins, trustProxy)) {
     return c.json({ error: "cross_origin_rejected" }, 403);
   }
 
   if (inFlight >= SHARE_MAX_CONCURRENT_INTAKE) {
     return c.json({ error: "busy" }, 503);
   }
-
-  const tooLarge = () =>
-    c.json({ error: "share_too_large", limit: SHARE_MAX_TOTAL_BYTES }, 413);
-
-  // Cheap early-out for a client that declares its size honestly; the streamed
-  // count below is what actually enforces the cap.
-  const declaredLength = Number(c.req.header("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > HARD_BODY_LIMIT) {
-    return tooLarge();
-  }
-
-  const raw = await readCappedBody(c.req.raw, HARD_BODY_LIMIT);
-  if (raw === null) return tooLarge();
-
-  let form: FormData;
-  try {
-    const contentType = c.req.header("content-type");
-    form = await new Response(raw, {
-      headers: contentType ? { "content-type": contentType } : {},
-    }).formData();
-  } catch {
-    // A truncated upload or a malformed multipart body. The share is gone
-    // either way; the client re-offers it from its own copy.
-    return c.json({ error: "invalid_form" }, 400);
-  }
-
-  // Empty parts are what an app sends when it has nothing to attach.
-  const files = form
-    .getAll("files")
-    .filter((value): value is File => value instanceof File && value.size > 0);
-
   inFlight += 1;
+
   try {
+    const tooLarge = () =>
+      c.json({ error: "share_too_large", limit: SHARE_MAX_TOTAL_BYTES }, 413);
+
+    // Cheap early-out for a client that declares its size honestly; the streamed
+    // count below is what actually enforces the cap.
+    const declaredLength = Number(c.req.header("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > HARD_BODY_LIMIT) {
+      return tooLarge();
+    }
+
+    const raw = await readCappedBody(c.req.raw, HARD_BODY_LIMIT);
+    if (raw === null) return tooLarge();
+
+    let form: FormData;
+    try {
+      const contentType = c.req.header("content-type");
+      form = await new Response(raw, {
+        headers: contentType ? { "content-type": contentType } : {},
+      }).formData();
+    } catch {
+      // A truncated upload or a malformed multipart body. The share is gone
+      // either way; the client re-offers it from its own copy.
+      return c.json({ error: "invalid_form" }, 400);
+    }
+
+    // Empty parts are what an app sends when it has nothing to attach.
+    const files = form
+      .getAll("files")
+      .filter((value): value is File => value instanceof File && value.size > 0);
+
     const result = await stageShare(
       brainRoot,
       {

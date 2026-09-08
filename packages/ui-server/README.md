@@ -11,22 +11,62 @@ pieces through `createApp()`.
 ## Usage
 
 ```ts
-import { createApp } from "@schlessera/brain-ui-server";
+import { createApp, MAX_ARCHIVE_BYTES } from "@schlessera/brain-ui-server";
+import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import { MAX_CLIENT_FRAME_BYTES } from "@schlessera/brain-ui-sdk/schemas";
+import { renderPng, renderPdf, shutdownRenderer } from "./renderer.js";
 
 const app = createApp({
   staticRoot: "./client/dist",        // optional: serve a built SPA + fallback
-  renderer,                           // optional: { renderPng, renderPdf }
+  renderer: { renderPng, renderPdf }, // optional
   appName: "Brain UI",                // branding in status copy
   // config: resolveServerConfig(env) // optional: explicit configuration;
   //                                  // omitted = resolved from process.env once
 });
 
-export default {
+// Fail startup while it is still visible if a lazy backend cannot construct.
+await app.wsHost.registry.getBackends();
+
+// The brain-ui shell does not currently pre-start its Puppeteer browser. For
+// deployments where first-render latency matters, this is a recommended
+// optional warm-up probe before Bun.serve(); let a failure abort startup:
+// await renderPng({ html: "<!doctype html><title>renderer warm-up</title>" });
+
+const MULTIPART_HEADROOM_BYTES = 1_000_000;
+Bun.serve({
   port: 3000,
+  hostname: "0.0.0.0",
+  // Leave multipart framing room above the largest upload accepted by any
+  // route: currently skill archives (100 MiB), ahead of shares (50 MB).
+  maxRequestBodySize:
+    Math.max(MAX_ARCHIVE_BYTES, SHARE_MAX_TOTAL_BYTES) +
+    MULTIPART_HEADROOM_BYTES,
+  // SSE sync/whatsup streams may be quiet while nested processes work. This
+  // is Bun's maximum idle timeout.
+  idleTimeout: 255,
   fetch: app.fetch,
-  websocket: app.websocket,
-};
+  websocket: {
+    ...app.websocket,
+    // Let the SDK parser normally produce the application-level frame error.
+    maxPayloadLength: MAX_CLIENT_FRAME_BYTES + 64 * 1024,
+  },
+});
+
+process.on("SIGTERM", async () => {
+  const hadActiveTurns = app.cancelActiveTurns();
+  if (hadActiveTurns) {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  await shutdownRenderer();
+  app.close();
+  process.exit(0);
+});
 ```
+
+The values and shutdown order above mirror the `brain-ui` deployment shell.
+The only intentionally additional step is the commented renderer warm-up:
+`brain-ui` has no browser pre-start today, so its first real render pays the
+headless Chrome cold-start cost.
 
 Apps are self-contained: each `createApp()` call builds its own WebSocket
 coordinator, SQLite handle and backend registry from its (resolved or
@@ -90,6 +130,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_SKILLS_GITHUB_TOKEN` | GitHub token used when installing skills from a private repository (Settings → Skills) — typically read-only Contents on the skill repos. Falls back to GITHUB_TOKEN. | $GITHUB_TOKEN |
 | `BRAIN_UI_TURN_TIMEOUT_MS` | Hard per-turn timeout in ms; the host aborts a turn that runs past it. Raise for agent-heavy research work (e.g. 1800000 for 30 minutes). | 600000 (10 minutes) |
 | `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
+| `BRAIN_UI_WS_MAX_CONNECTIONS` | Maximum number of WebSocket connections accepted by one server process. | 32 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Consulted for PRESENCE only, to classify billing: with it set and no ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in default and discovered models) count as subscription-billed. The token itself is consumed by the Claude backend / Agent SDK, not this package. | — |
 | `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |

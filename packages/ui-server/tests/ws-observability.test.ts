@@ -12,10 +12,12 @@
  * handler that threw sent a generic frame while discarding the cause.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { createBunWebSocket } from "hono/bun";
 
 import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
+import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
@@ -25,17 +27,41 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 /** A socket that records what the server sent it. */
-function fakeSocket(): WSContext & { sent: string[] } {
-  const sent: string[] = [];
-  return {
-    send: (data: string) => sent.push(data),
-    close: () => {},
-    readyState: 1,
-    sent,
-  } as unknown as WSContext & { sent: string[] };
+interface FakeSocket extends WSContext {
+  sent: string[];
+  closed: Array<{ code: number; reason: string }>;
 }
 
-function setup() {
+function fakeSocket(): FakeSocket {
+  const sent: string[] = [];
+  const closed: Array<{ code: number; reason: string }> = [];
+  return {
+    send: (data: string) => sent.push(data),
+    close: (code: number, reason: string) => closed.push({ code, reason }),
+    readyState: 1,
+    sent,
+    closed,
+  } as unknown as FakeSocket;
+}
+
+function bunAdapterSocket(events: ReturnType<typeof createWsHandlers>) {
+  const closed: Array<{ code?: number; reason?: string }> = [];
+  return {
+    send() {},
+    close(code?: number, reason?: string) {
+      closed.push({ code, reason });
+    },
+    data: {
+      events,
+      url: new URL("http://example.test/ws"),
+      protocol: "",
+    },
+    readyState: 1 as const,
+    closed,
+  };
+}
+
+function setup(wsMaxConnections?: number) {
   const db = createUiDb(":memory:");
   const observability = createRecordingObservability();
   const backend = makeFakeBackend({ id: "fake" });
@@ -43,6 +69,7 @@ function setup() {
     registry: createStaticBackendRegistry([backend], backend.id),
     catalog: createSessionCatalog(() => db),
     observability,
+    ...(wsMaxConnections === undefined ? {} : { wsMaxConnections }),
   });
   return { db, host, observability, handlers: createWsHandlers(host) };
 }
@@ -162,6 +189,68 @@ describe("the snapshot /api/status serves", () => {
         value: 1,
         kind: "counter",
       },
+    ]);
+  });
+});
+
+describe("connection admission is observable", () => {
+  test("a sequential reconnect frees capacity through Hono's Bun adapter", () => {
+    const { db, host } = setup(1);
+    close = () => db.close();
+    const { websocket: bunWebSocket } = createBunWebSocket();
+    const first = bunAdapterSocket(createWsHandlers(host));
+
+    bunWebSocket.open(first);
+    bunWebSocket.close(first, 1000, "normal closure");
+
+    const second = bunAdapterSocket(createWsHandlers(host));
+    bunWebSocket.open(second);
+
+    expect(second.closed).toEqual([]);
+    expect(host.clients.count()).toBe(1);
+  });
+
+  test("the 33rd connection is closed and reported at the default cap", async () => {
+    const config = resolveServerConfig({});
+    const { db, host, observability } = setup(config.wsMaxConnections);
+    close = () => db.close();
+    const sockets = Array.from({ length: 33 }, () => fakeSocket());
+
+    for (const ws of sockets) {
+      await createWsHandlers(host).onOpen({} as Event, ws);
+    }
+
+    expect(host.clients.count()).toBe(32);
+    expect(sockets.slice(0, 32).every((ws) => ws.closed.length === 0)).toBe(true);
+    expect(sockets[32].closed).toEqual([
+      { code: 4008, reason: "Connection limit reached" },
+    ]);
+    expect(
+      observability.metrics.value("ws.connections.refused", {
+        reason: "connection_limit",
+      })
+    ).toBe(1);
+    const [record] = observability.logs.find({ body: "websocket connection refused" });
+    expect(record.severity).toBe("WARN");
+    expect(record.attributes).toEqual({
+      reason: "connection_limit",
+      "connection.limit": 32,
+    });
+  });
+
+  test("BRAIN_UI_WS_MAX_CONNECTIONS honours a lower cap", async () => {
+    const config = resolveServerConfig({ BRAIN_UI_WS_MAX_CONNECTIONS: "2" });
+    const { db, host } = setup(config.wsMaxConnections);
+    close = () => db.close();
+    const sockets = Array.from({ length: 3 }, () => fakeSocket());
+
+    for (const ws of sockets) {
+      await createWsHandlers(host).onOpen({} as Event, ws);
+    }
+
+    expect(host.clients.count()).toBe(2);
+    expect(sockets[2].closed).toEqual([
+      { code: 4008, reason: "Connection limit reached" },
     ]);
   });
 });

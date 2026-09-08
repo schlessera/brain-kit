@@ -14,6 +14,11 @@ import {
 } from "../src/middleware/passkeys";
 import { createUiDb } from "../src/db/client";
 import { resolveServerConfig } from "../src/config/env";
+import {
+  createRecordingObservability,
+  type RecordingObservability,
+} from "../src/observability/index";
+import { ClientSet } from "../src/ws/clients";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -21,6 +26,7 @@ const SECRET = "test-cookie-secret-0123456789abcdef";
 const TEST_DB = join(tmpdir(), `passkeys-test-${process.pid}.db`);
 
 let db: Database;
+let clients: ClientSet;
 
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
@@ -36,7 +42,9 @@ afterAll(() => {
 
 beforeEach(() => {
   resetLoginRateLimiter();
+  clients = new ClientSet();
   getDb().exec("DELETE FROM passkey_credentials");
+  getDb().exec("DELETE FROM settings");
 });
 
 const getDb = () => db;
@@ -44,7 +52,11 @@ const getDb = () => db;
 // Mirrors the app.ts mount order: public routes before the guard, management
 // routes after it. Configuration is injected per app instance — tests vary it
 // by passing env overrides through the real resolver, never by mutation.
-function fullApp(deps: PasskeyDeps = {}, env: Record<string, string | undefined> = {}) {
+function fullApp(
+  deps: PasskeyDeps = {},
+  env: Record<string, string | undefined> = {},
+  observability?: RecordingObservability
+) {
   const config = resolveServerConfig({
     BRAIN_UI_PASSWORD_HASH: HASH,
     COOKIE_SECRET: SECRET,
@@ -54,19 +66,24 @@ function fullApp(deps: PasskeyDeps = {}, env: Record<string, string | undefined>
   const auth = { ...config.auth, host: config.host };
   const ctx: PasskeyContext = {
     db,
+    clients,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
+    log: observability?.logger("auth"),
+    failures: observability?.meter("auth").createCounter("auth.failures"),
   };
   const app = new Hono();
   app.route(
     "/api",
     authRoutes("password", auth, {
+      db,
+      clients,
       passwordDisabled: (c) => passwordLoginDisabled(c, ctx),
     })
   );
   app.route("/api", passkeyPublicRoutes("password", ctx, deps));
-  app.use("/api/*", authGuard("password", auth));
+  app.use("/api/*", authGuard("password", auth, db));
   app.route("/api", passkeyManagementRoutes("password", ctx, deps));
   app.get("/api/secret", (c) => c.json({ ok: true }));
   return app;
@@ -85,6 +102,13 @@ function headers(extra: Record<string, string> = {}, ip = "10.0.0.1") {
     ...extra,
   };
 }
+
+const passwordLogin = (app: Hono, password: string, ip: string) =>
+  app.request("/api/auth/login", {
+    method: "POST",
+    headers: headers({}, ip),
+    body: JSON.stringify({ password }),
+  });
 
 async function loginCookie(app: Hono, ip = "10.0.0.99"): Promise<string> {
   const res = await app.request("/api/auth/login", {
@@ -202,6 +226,7 @@ describe("mode gating", () => {
     const config = resolveServerConfig({});
     const ctx: PasskeyContext = {
       db,
+      clients,
       webauthn: config.webauthn,
       auth: { ...config.auth, host: config.host },
       allowedOrigins: config.allowedOrigins,
@@ -334,6 +359,51 @@ describe("origin / RP resolution", () => {
 });
 
 describe("login-verify", () => {
+  test("20 junk POSTs lock neither password nor passkey login", async () => {
+    const app = fullApp(
+      { verifyAuthenticationResponse: verifiedAuth() },
+      { BRAIN_UI_ALLOW_PASSWORD: "1" }
+    );
+
+    for (let index = 0; index < 20; index++) {
+      const junkPassword = await app.request("/api/auth/login", {
+        method: "POST",
+        headers: headers({}, "10.3.0.10"),
+        body: "not-json",
+      });
+      expect(junkPassword.status).toBe(400);
+    }
+    expect(
+      (
+        await app.request("/api/auth/login", {
+          method: "POST",
+          headers: headers({}, "10.3.0.10"),
+          body: JSON.stringify({ password: PASSWORD }),
+        })
+      ).status
+    ).toBe(200);
+
+    seedCredential();
+    for (let index = 0; index < 20; index++) {
+      const junkPasskey = await app.request("/api/auth/passkey/login-verify", {
+        method: "POST",
+        headers: headers({}, "10.3.0.11"),
+        body: JSON.stringify(assertionResponse(`unknown-${index}`)),
+      });
+      expect(junkPasskey.status).toBe(401);
+    }
+    const challenge = await freshLoginChallenge(app, "10.3.0.12");
+    expect(
+      (
+        await app.request("/api/auth/passkey/login-verify", {
+          method: "POST",
+          headers: headers({}, "10.3.0.11"),
+          body: JSON.stringify(assertionResponse(challenge)),
+        })
+      ).status
+    ).toBe(200);
+  });
+
   test("valid assertion sets the session cookie and updates the credential", async () => {
     const app = fullApp({ verifyAuthenticationResponse: verifiedAuth(7), now: () => 5000 });
     seedCredential();
@@ -475,25 +545,126 @@ describe("login-verify", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
-  test("shares the password login rate budget per IP", async () => {
-    const app = fullApp({ verifyAuthenticationResponse: verifiedAuth() });
-    const attempt = () =>
+  test("bounds concurrent passkey verification per client IP", async () => {
+    let entered = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let twoEntered!: () => void;
+    const enteredTwo = new Promise<void>((resolve) => {
+      twoEntered = resolve;
+    });
+    const delayedFailure = (async () => {
+      entered++;
+      active++;
+      maxActive = Math.max(maxActive, active);
+      if (entered === 2) twoEntered();
+      await gate;
+      active--;
+      return { verified: false };
+    }) as unknown as NonNullable<PasskeyDeps["verifyAuthenticationResponse"]>;
+    const observability = createRecordingObservability();
+    const app = fullApp({ verifyAuthenticationResponse: delayedFailure }, {}, observability);
+    seedCredential();
+    const challenges = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        freshLoginChallenge(app, `10.3.5.${index + 10}`)
+      )
+    );
+
+    const requests = challenges.map((challenge) =>
       app.request("/api/auth/passkey/login-verify", {
         method: "POST",
-        headers: headers({}, "10.3.6.1"),
-        body: "not-json",
-      });
-    const statuses: number[] = [];
-    for (let i = 0; i < 7; i++) statuses.push((await attempt()).status);
-    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
+        headers: headers({}, "10.3.5.20"),
+        body: JSON.stringify(assertionResponse(challenge)),
+      })
+    );
+    try {
+      await Promise.race([
+        enteredTwo,
+        Bun.sleep(250).then(() => {
+          throw new Error("two requests did not enter the injected verifier");
+        }),
+      ]);
+      // Give every concurrently-started route a chance to pass the admission
+      // check. Without a reservation all six enter before any failure records.
+      await Bun.sleep(10);
+      expect(entered).toBe(2);
+      expect(maxActive).toBe(2);
+    } finally {
+      release();
+    }
 
-    // The same IP is now also blocked from password login — one shared budget.
-    const pw = await app.request("/api/auth/login", {
-      method: "POST",
-      headers: headers({}, "10.3.6.1"),
-      body: JSON.stringify({ password: PASSWORD }),
-    });
-    expect(pw.status).toBe(429);
+    const statuses = await Promise.all(requests.map(async (request) => (await request).status));
+    expect(statuses.filter((status) => status === 401)).toHaveLength(2);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(4);
+    expect(
+      observability.metrics.value("auth.failures", {
+        reason: "in_flight_limited",
+        ceremony: "authentication",
+      })
+    ).toBe(4);
+    expect(
+      observability.logs.count({ body: "passkey verification capacity reached" })
+    ).toBe(4);
+  });
+
+  test("passkey and password failure budgets are independent", async () => {
+    let app = fullApp(
+      { verifyAuthenticationResponse: verifiedAuth() },
+      { BRAIN_UI_ALLOW_PASSWORD: "1" }
+    );
+    seedCredential();
+    for (let index = 0; index < 5; index++) {
+      expect((await passwordLogin(app, "wrong", "10.3.6.1")).status).toBe(401);
+    }
+    const challenge = await freshLoginChallenge(app, "10.3.6.2");
+    expect(
+      (
+        await app.request("/api/auth/passkey/login-verify", {
+          method: "POST",
+          headers: headers({}, "10.3.6.1"),
+          body: JSON.stringify(assertionResponse(challenge)),
+        })
+      ).status
+    ).toBe(200);
+
+    resetLoginRateLimiter();
+    getDb().exec("DELETE FROM passkey_credentials");
+    const notVerified = (async () => ({
+      verified: false,
+    })) as unknown as NonNullable<PasskeyDeps["verifyAuthenticationResponse"]>;
+    app = fullApp(
+      { verifyAuthenticationResponse: notVerified },
+      { BRAIN_UI_ALLOW_PASSWORD: "1" }
+    );
+    seedCredential();
+    for (let index = 0; index < 5; index++) {
+      const failedChallenge = await freshLoginChallenge(app, `10.3.6.${index + 10}`);
+      expect(
+        (
+          await app.request("/api/auth/passkey/login-verify", {
+            method: "POST",
+            headers: headers({}, "10.3.6.3"),
+            body: JSON.stringify(assertionResponse(failedChallenge)),
+          })
+        ).status
+      ).toBe(401);
+    }
+    const blockedChallenge = await freshLoginChallenge(app, "10.3.6.20");
+    expect(
+      (
+        await app.request("/api/auth/passkey/login-verify", {
+          method: "POST",
+          headers: headers({}, "10.3.6.3"),
+          body: JSON.stringify(assertionResponse(blockedChallenge)),
+        })
+      ).status
+    ).toBe(429);
+    expect((await passwordLogin(app, PASSWORD, "10.3.6.3")).status).toBe(200);
   });
 });
 
@@ -645,9 +816,16 @@ describe("registration + management", () => {
       headers: headers({ cookie }, "10.4.3.4"),
     });
     expect(del.status).toBe(200);
+    // Revocation globally invalidates the cookie that authorized it. The last
+    // remaining credential is still for this RP, so explicitly permit the
+    // recovery password to mint a fresh session for the 404 assertion.
+    const freshCookie = await loginCookie(
+      fullApp({}, { BRAIN_UI_ALLOW_PASSWORD: "1" }),
+      "10.4.3.5"
+    );
     const missing = await app.request("/api/auth/passkey/cred-2", {
       method: "DELETE",
-      headers: headers({ cookie }, "10.4.3.5"),
+      headers: headers({ cookie: freshCookie }, "10.4.3.6"),
     });
     expect(missing.status).toBe(404);
   });

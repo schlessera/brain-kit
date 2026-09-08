@@ -3,8 +3,13 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
+import type { Database } from "bun:sqlite";
 import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
+import { readJsonBody } from "./body-limit.js";
+import { requireJson } from "./origin.js";
+import { setSetting } from "../db/settings.js";
+import type { ClientSet } from "../ws/clients.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -40,15 +45,39 @@ export interface AuthRuntime extends AuthConfig {
 
 const COOKIE_NAME = "brain_ui_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
-export const LOGIN_RATE_LIMIT = 5; // attempts per window, per client IP
+const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
+const SESSION_REVOKED_CLOSE_CODE = 1008;
+const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
+export const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
 const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // A global cap in addition to the per-IP one: the per-IP key is derived from
 // X-Forwarded-For, which a client behind a trusted proxy can rotate to mint a
 // fresh bucket per request. The global cap bounds brute force across rotated
-// IPs. It stays well above a human's needs and, combined with the argon2id
-// verify cost, makes online guessing infeasible without being a lockout an
-// attacker could weaponize to deny the owner access.
-export const GLOBAL_LOGIN_RATE_LIMIT = 20; // attempts per window, all IPs combined
+// IPs. At 100 genuine failures/minute it stays well above a human's needs and
+// makes a global lockout substantially harder to weaponize, while still
+// bounding distributed online guessing. Per-IP failures remain at 5/minute.
+// Passkeys get 5 matched-but-invalid assertions/minute in an independent
+// `pk:` bucket: assertions are not guessable, but verification still consumes
+// resources. Password and passkey verification therefore each allow two
+// in-flight operations per IP and eight process-wide. Two tolerates a browser
+// retry/double-submit; eight bounds either verifier's comparable CPU cost.
+// Keeping the reservation pools separate preserves passkeys' independent
+// admission path while each pool still has a process-wide ceiling. The failure
+// map and both reservation maps cap at 1,024 source keys, comfortably above
+// the global password-failure budget while bounding forged-IP memory growth.
+export const GLOBAL_LOGIN_RATE_LIMIT = 100; // failures per window, all IPs combined
+export const PASSKEY_LOGIN_RATE_LIMIT = 5;
+const PASSWORD_VERIFY_IN_FLIGHT_PER_IP = 2;
+const PASSWORD_VERIFY_IN_FLIGHT_GLOBAL = 8;
+const PASSKEY_VERIFY_IN_FLIGHT_PER_IP = 2;
+const PASSKEY_VERIFY_IN_FLIGHT_GLOBAL = 8;
+const LOGIN_BUCKET_CAP = 1_024;
+// Client-derived password buckets always start `pw:ip:`, which cannot equal
+// the fixed `pw:global` key for any client-controlled key suffix. Keeping these
+// namespaces disjoint prevents a per-IP saturated write from clamping the
+// authoritative global failure counter to the smaller per-IP limit.
+const PASSWORD_IP_BUCKET_PREFIX = "pw:ip:";
+const PASSWORD_GLOBAL_BUCKET = "pw:global";
 
 export function resolveAuthMode(auth: AuthRuntime, log?: Logger): AuthMode {
   if (auth.mode) return auth.mode;
@@ -139,7 +168,11 @@ export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime, log?: Logger
 }
 
 /** Middleware guarding /api/* according to the resolved mode. */
-export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler {
+export function authGuard(
+  mode: AuthMode,
+  auth: AuthRuntime,
+  db: Database
+): MiddlewareHandler {
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
@@ -162,7 +195,7 @@ export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler 
       };
     case "password":
       return async (c, next) => {
-        if (await hasValidSession(c, auth)) {
+        if (await hasValidSession(c, auth, db)) {
           await next();
         } else {
           return c.json(
@@ -188,7 +221,8 @@ export function authGuard(mode: AuthMode, auth: AuthRuntime): MiddlewareHandler 
 export async function isWsAuthorized(
   c: Context,
   mode: AuthMode,
-  auth: AuthRuntime
+  auth: AuthRuntime,
+  db: Database
 ): Promise<boolean> {
   switch (mode) {
     case "none":
@@ -198,7 +232,7 @@ export async function isWsAuthorized(
     case "proxy":
       return hasProxyAuth(c, auth);
     case "password":
-      return hasValidSession(c, auth);
+      return hasValidSession(c, auth, db);
   }
 }
 
@@ -209,9 +243,14 @@ export async function isWsAuthorized(
  * both password login and passkey login (middleware/passkeys.ts) call this, so
  * authGuard / isWsAuthorized / TTL semantics stay identical across methods.
  */
-export async function issueSessionCookie(c: Context, auth: AuthRuntime): Promise<void> {
+export async function issueSessionCookie(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database
+): Promise<void> {
   const secret = auth.cookieSecret ?? "";
-  await setSignedCookie(c, COOKIE_NAME, String(Date.now()), secret, {
+  const epoch = sessionsEpoch(db);
+  await setSignedCookie(c, COOKIE_NAME, `${Date.now()}.${epoch}`, secret, {
     httpOnly: true,
     sameSite: "Strict",
     // Always Secure — every real deployment serves over HTTPS, and we do not
@@ -223,22 +262,71 @@ export async function issueSessionCookie(c: Context, auth: AuthRuntime): Promise
   });
 }
 
-async function hasValidSession(c: Context, auth: AuthRuntime): Promise<boolean> {
+async function hasValidSession(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database
+): Promise<boolean> {
   const secret = auth.cookieSecret ?? "";
   if (!secret) return false;
+  let value: string | false | undefined;
   try {
-    const value = await getSignedCookie(c, secret, COOKIE_NAME);
-    if (typeof value !== "string" || value.length === 0) return false;
-    // The cookie value is the issue timestamp. Validate its age server-side:
-    // Max-Age is client-discardable, so the signature alone does not bound a
-    // session's lifetime — this does.
-    const issuedAt = Number(value);
-    if (!Number.isFinite(issuedAt)) return false;
-    const ageSeconds = (Date.now() - issuedAt) / 1000;
-    return ageSeconds >= 0 && ageSeconds < SESSION_TTL_SECONDS;
+    value = await getSignedCookie(c, secret, COOKIE_NAME);
   } catch {
     return false;
   }
+  if (typeof value !== "string" || value.length === 0) return false;
+
+  // Both fields are decimal integers. Requiring the exact shape rejects every
+  // pre-epoch cookie instead of accidentally interpreting its timestamp as a
+  // current session.
+  const match = /^(\d+)\.(\d+)$/.exec(value);
+  if (!match) return false;
+  const issuedAt = Number(match[1]);
+  const cookieEpoch = Number(match[2]);
+  if (!Number.isSafeInteger(issuedAt) || !Number.isSafeInteger(cookieEpoch)) {
+    return false;
+  }
+  const ageSeconds = (Date.now() - issuedAt) / 1000;
+  if (ageSeconds < 0 || ageSeconds >= SESSION_TTL_SECONDS) return false;
+
+  // Deliberately outside the cookie-parser catch: corrupt authoritative auth
+  // state refuses loudly and must never degrade to epoch zero.
+  return cookieEpoch === sessionsEpoch(db);
+}
+
+/**
+ * Read authoritative session state. A missing row is first-run epoch zero;
+ * any present row that is not a non-negative safe integer is corruption.
+ */
+function sessionsEpoch(db: Database): number {
+  const row = db
+    .query("SELECT value FROM settings WHERE key = ?")
+    .get(SESSIONS_EPOCH_KEY) as { value: string } | null;
+  if (!row) return 0;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(row.value);
+  } catch {
+    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a JSON integer`);
+  }
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a non-negative integer`);
+  }
+  return value as number;
+}
+
+/** Invalidate every issued session and disconnect every attached client. */
+export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
+  const current = sessionsEpoch(db);
+  if (current === Number.MAX_SAFE_INTEGER) {
+    throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
+  }
+  const next = current + 1;
+  setSetting(db, SESSIONS_EPOCH_KEY, next);
+  clients.closeAll(SESSION_REVOKED_CLOSE_CODE, SESSION_REVOKED_CLOSE_REASON);
+  return next;
 }
 
 // --- proxy mode helpers ---
@@ -253,28 +341,161 @@ function hasProxyAuth(c: Context, auth: AuthRuntime): boolean {
   return !!user && user.trim().length > 0;
 }
 
-// --- login rate limiter (in-memory token bucket, per client IP) ---
+// --- login rate limiter (in-memory failure windows + verification reservations) ---
 
 interface Bucket {
-  tokens: number;
+  failures: number;
   resetAt: number;
 }
 const loginBuckets = new Map<string, Bucket>();
 
+interface InFlightBucket {
+  count: number;
+  expiresAt: number;
+}
+
+interface VerificationReservations {
+  acquire(ip: string): boolean;
+  release(ip: string): void;
+  reset(): void;
+}
+
+function pruneExpiredBuckets(now: number): void {
+  for (const [key, bucket] of loginBuckets) {
+    if (now >= bucket.resetAt) loginBuckets.delete(key);
+  }
+}
+
+function makeBucketRoom(): void {
+  while (loginBuckets.size >= LOGIN_BUCKET_CAP) {
+    // Keep the global password bucket authoritative. The cap is larger than
+    // its maximum number of per-IP contributors in one window, so ordinary
+    // password traffic never needs to evict an active per-IP failure record.
+    const oldest = [...loginBuckets.keys()].find(
+      (key) => key !== PASSWORD_GLOBAL_BUCKET
+    );
+    if (oldest === undefined) break;
+    loginBuckets.delete(oldest);
+  }
+}
+
+function bucketForWrite(key: string, now: number): Bucket {
+  pruneExpiredBuckets(now);
+  const existing = loginBuckets.get(key);
+  if (existing) return existing;
+  makeBucketRoom();
+  const bucket = { failures: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
+  loginBuckets.set(key, bucket);
+  return bucket;
+}
+
+/** Record one genuine authentication failure in a fixed one-minute window. */
+export function recordLoginFailure(key: string, limit: number): void {
+  const bucket = bucketForWrite(key, Date.now());
+  // Saturate: callers only care whether the limit was reached, and this avoids
+  // an unbounded counter if a test or future caller records after blocking.
+  bucket.failures = Math.min(limit, bucket.failures + 1);
+}
+
+/** Read without allocating: junk requests cannot grow the failure map. */
+export function isLoginBlocked(key: string, limit: number): boolean {
+  const now = Date.now();
+  const bucket = loginBuckets.get(key);
+  if (!bucket) return false;
+  if (now >= bucket.resetAt) {
+    loginBuckets.delete(key);
+    return false;
+  }
+  return bucket.failures >= limit;
+}
+
+function createVerificationReservations(
+  perIpLimit: number,
+  globalLimit: number
+): VerificationReservations {
+  const buckets = new Map<string, InFlightBucket>();
+  let totalInFlight = 0;
+
+  function prune(now: number): void {
+    for (const [key, bucket] of buckets) {
+      if (bucket.count === 0 && now >= bucket.expiresAt) buckets.delete(key);
+    }
+  }
+
+  return {
+    acquire(ip) {
+      const now = Date.now();
+      prune(now);
+      if (totalInFlight >= globalLimit) return false;
+
+      let bucket = buckets.get(ip);
+      if (bucket && bucket.count >= perIpLimit) return false;
+      if (!bucket) {
+        while (buckets.size >= LOGIN_BUCKET_CAP) {
+          const idle = [...buckets].find(([, entry]) => entry.count === 0);
+          if (!idle) return false;
+          buckets.delete(idle[0]);
+        }
+        bucket = { count: 0, expiresAt: now + LOGIN_RATE_WINDOW_MS };
+        buckets.set(ip, bucket);
+      }
+      bucket.count++;
+      bucket.expiresAt = now + LOGIN_RATE_WINDOW_MS;
+      totalInFlight++;
+      return true;
+    },
+    release(ip) {
+      const bucket = buckets.get(ip);
+      if (!bucket || bucket.count === 0) return;
+      bucket.count--;
+      bucket.expiresAt = Date.now() + LOGIN_RATE_WINDOW_MS;
+      totalInFlight--;
+    },
+    reset() {
+      buckets.clear();
+      totalInFlight = 0;
+    },
+  };
+}
+
+const passwordVerifications = createVerificationReservations(
+  PASSWORD_VERIFY_IN_FLIGHT_PER_IP,
+  PASSWORD_VERIFY_IN_FLIGHT_GLOBAL
+);
+const passkeyVerifications = createVerificationReservations(
+  PASSKEY_VERIFY_IN_FLIGHT_PER_IP,
+  PASSKEY_VERIFY_IN_FLIGHT_GLOBAL
+);
+
+function acquirePasswordVerification(ip: string): boolean {
+  return passwordVerifications.acquire(ip);
+}
+
+function releasePasswordVerification(ip: string): void {
+  passwordVerifications.release(ip);
+}
+
+/** Internal middleware coordination; not exported from the package root. */
+export function acquirePasskeyVerification(ip: string): boolean {
+  return passkeyVerifications.acquire(ip);
+}
+
+/** Internal middleware coordination; not exported from the package root. */
+export function releasePasskeyVerification(ip: string): void {
+  passkeyVerifications.release(ip);
+}
+
 /** Test-only: clear all rate-limit buckets (they are module-global state). */
 export function resetLoginRateLimiter(): void {
   loginBuckets.clear();
+  passwordVerifications.reset();
+  passkeyVerifications.reset();
 }
 
+/** Attempt-counting bucket retained for passkey option generation. */
 export function consumeLoginToken(key: string, limit: number): boolean {
-  const now = Date.now();
-  let bucket = loginBuckets.get(key);
-  if (!bucket || now >= bucket.resetAt) {
-    bucket = { tokens: limit, resetAt: now + LOGIN_RATE_WINDOW_MS };
-    loginBuckets.set(key, bucket);
-  }
-  if (bucket.tokens <= 0) return false;
-  bucket.tokens--;
+  if (isLoginBlocked(key, limit)) return false;
+  recordLoginFailure(key, limit);
   return true;
 }
 
@@ -283,6 +504,10 @@ export function authRoutes(
   mode: AuthMode,
   auth: AuthRuntime,
   deps: {
+    /** Authoritative session state. */
+    db: Database;
+    /** Live sockets closed whenever the global session epoch advances. */
+    clients: ClientSet;
     /**
      * When provided and returning true, password login is refused (the app
      * injects passkeys' passwordLoginDisabled so the shared password dies
@@ -294,28 +519,35 @@ export function authRoutes(
     log?: Logger;
     /** Failed-login counter — the same `auth.failures` instrument passkeys use. */
     failures?: Counter;
-  } = {}
+    /** Test-only password verifier; production uses Bun.password.verify. */
+    verifyPassword?: (password: string, hash: string) => Promise<boolean>;
+  }
 ): Hono {
   const app = new Hono();
   const { log, failures } = deps;
+  const verifyPassword = deps.verifyPassword ?? Bun.password.verify;
+  let warnedUntrustedForwardedFor = false;
 
-  app.post("/auth/login", async (c) => {
+  app.post("/auth/login", requireJson(), async (c) => {
     if (mode !== "password") {
       return c.json({ error: "Password login is not enabled" }, 400);
     }
 
-    const key = clientIp(c, auth.trustProxy, auth.trustProxyHops) || "unknown";
-    const perIpOk = consumeLoginToken(`ip:${key}`, LOGIN_RATE_LIMIT);
-    const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
-    if (!perIpOk || !globalOk) {
-      failures?.add(1, { reason: "rate_limited", method: "password" });
+    if (
+      !auth.trustProxy &&
+      !warnedUntrustedForwardedFor &&
+      c.req.header("x-forwarded-for")
+    ) {
+      warnedUntrustedForwardedFor = true;
       log?.emit({
         severityText: "WARN",
-        body: "login rate limited",
-        attributes: { ip: key, limit: perIpOk ? "global" : "ip" },
+        body: "X-Forwarded-For ignored in password mode",
+        attributes: { "auth.mode": "password", "auth.trust_proxy": false },
       });
-      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
+
+    const key = clientIp(c, auth.trustProxy, auth.trustProxyHops) || "unknown";
+    const perIpBucket = `${PASSWORD_IP_BUCKET_PREFIX}${key}`;
 
     if (deps.passwordDisabled?.(c)) {
       return c.json(
@@ -324,23 +556,46 @@ export function authRoutes(
       );
     }
 
+    // Refuse a blocked client before reading its body: admission control is
+    // cheapest when it costs no parsing.
+    const perIpBlocked = isLoginBlocked(perIpBucket, LOGIN_RATE_LIMIT);
+    const globalBlocked = isLoginBlocked(
+      PASSWORD_GLOBAL_BUCKET,
+      GLOBAL_LOGIN_RATE_LIMIT
+    );
+    if (perIpBlocked || globalBlocked) {
+      failures?.add(1, { reason: "rate_limited", method: "password" });
+      log?.emit({
+        severityText: "WARN",
+        body: "login rate limited",
+        attributes: { ip: key, limit: perIpBlocked ? "ip" : "global" },
+      });
+      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
+    }
+
     const hash = auth.passwordHash ?? "";
     const secret = auth.cookieSecret ?? "";
     let body: { password?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{ password?: unknown }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
     const password = typeof body.password === "string" ? body.password : "";
     if (!password || !hash || !secret) {
-      failures?.add(1, { reason: "invalid_password", method: "password" });
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
+
+    if (!acquirePasswordVerification(key)) {
+      failures?.add(1, { reason: "in_flight_limited", method: "password" });
       log?.emit({
         severityText: "WARN",
-        body: "login failed",
+        body: "password verification capacity reached",
         attributes: { ip: key },
       });
-      return c.json({ error: "Invalid credentials" }, 401);
+      return c.json({ error: "Too many login verifications in progress." }, 429);
     }
 
     // A verify that THROWS is not a wrong password — it is a hash Bun cannot
@@ -349,9 +604,11 @@ export function authRoutes(
     let ok = false;
     let verifyError: unknown = null;
     try {
-      ok = await Bun.password.verify(password, hash);
+      ok = await verifyPassword(password, hash);
     } catch (err) {
       verifyError = err;
+    } finally {
+      releasePasswordVerification(key);
     }
     if (verifyError) {
       failures?.add(1, { reason: "verify_error", method: "password" });
@@ -365,6 +622,8 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
     if (!ok) {
+      recordLoginFailure(perIpBucket, LOGIN_RATE_LIMIT);
+      recordLoginFailure(PASSWORD_GLOBAL_BUCKET, GLOBAL_LOGIN_RATE_LIMIT);
       failures?.add(1, { reason: "invalid_password", method: "password" });
       log?.emit({
         severityText: "WARN",
@@ -374,7 +633,7 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    await issueSessionCookie(c, auth);
+    await issueSessionCookie(c, auth, deps.db);
     log?.emit({
       severityText: "INFO",
       body: "login succeeded",
@@ -383,7 +642,11 @@ export function authRoutes(
     return c.json({ ok: true });
   });
 
-  app.post("/auth/logout", (c) => {
+  app.post("/auth/logout", async (c) => {
+    if (mode === "password" && !(await hasValidSession(c, auth, deps.db))) {
+      return c.json({ error: "Authentication required", authRequired: true }, 401);
+    }
+    if (mode === "password") bumpSessionsEpoch(deps.db, deps.clients);
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });
   });

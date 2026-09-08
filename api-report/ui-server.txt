@@ -30,6 +30,7 @@ export "." (./src/index.ts)
   type LogQuery
   type LogReader
   type LogWriter
+  MAX_ARCHIVE_BYTES
   MIN_BRAIN_SCHEMA_VERSION
   type MetricPoint
   type MetricSnapshot
@@ -55,7 +56,9 @@ export "." (./src/index.ts)
   WsHost
   type WsHostOptions
   assertBackendResolvable
+  authGuard
   buildKeyterms
+  bumpSessionsEpoch
   createActivityStore
   createActivityStream
   createApp
@@ -76,6 +79,7 @@ export "." (./src/index.ts)
   generateActivityDigest
   handleClientMessage
   ingestSpanSink
+  isWsAuthorized
   latestActivityDigest
   openBrainDb
   pruneShareStaging

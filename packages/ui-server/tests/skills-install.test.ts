@@ -283,12 +283,14 @@ describe("install routes", () => {
 
     let res = await app.request("/skills/install/github", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ source: "https://gitlab.com/o/r" }),
     });
     expect(res.status).toBe(400);
 
     res = await app.request("/skills/install/github", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ source: "owner/repo" }),
     });
     expect(res.status).toBe(200);

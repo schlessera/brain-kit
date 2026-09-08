@@ -13,6 +13,7 @@ import {
   type ShareIntakeResult,
   type ShareStagingManifest,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { safeResolve } from "../files/walker.js";
 
 /**
  * Staging for an incoming system share.
@@ -301,7 +302,7 @@ export async function stageShare(
     throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
   }
 
-  const root = shareStagingRoot(brainPath);
+  const root = await safeResolve(SHARE_STAGING_DIR, brainPath);
   if ((await countStaged(root)) >= SHARE_MAX_STAGED) {
     throw new ShareTooLargeError("inbox_full", SHARE_MAX_STAGED);
   }

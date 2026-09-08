@@ -60,10 +60,20 @@ needs an API key or the network.
    sequences. A single raw NUL byte makes grep and ripgrep classify the file
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
-7. Versioning is lockstep across `@schlessera/brain-*` via changesets; add a
-   changeset to any user-visible change. Keep the changeset itself short —
-   what was added / changed / removed, in one line each. The commit it links to
-   carries the reasoning.
+7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
+   `fixed` group, including packages whose own code did not change and receive
+   only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
+   tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
+   the changeset itself short — what was added / changed / removed, in one line
+   each. The commit it links to carries the reasoning.
+
+The header of `tests/env-core-sync.test.ts` records why the `env-core.ts` files
+remain synchronized copies instead of moving into a shared package.
+
+brain-kit and brain-ui each keep their own copies of the invisible-character
+and leakage gates. brain-ui's invisible-character gate stays dependency-free
+so it can run before `bun install`; each leakage gate keeps its
+deployment-specific patterns.
 
 ## Releasing
 

@@ -29,6 +29,13 @@ const hasClients = () => clients.hasClients();
 const clientCount = () => clients.count();
 
 describe("ws client registry", () => {
+  test("the default cap accepts 32 clients and refuses the 33rd", () => {
+    const sockets = Array.from({ length: 33 }, () => fakeSocket());
+    for (const ws of sockets) addClient(ws);
+
+    expect(clientCount()).toBe(32);
+  });
+
   test("broadcast reaches every attached client", () => {
     const a = fakeSocket();
     const b = fakeSocket();
@@ -78,6 +85,32 @@ describe("ws client registry", () => {
     expect(clientCount()).toBe(0);
     // Broadcasting with no clients is a no-op, not a throw.
     expect(() => broadcast(IDLE)).not.toThrow();
+  });
+
+  test("closeAll closes every client with the supplied reason and clears the set", () => {
+    const closed: Array<[number | undefined, string | undefined]> = [];
+    const a: WSContext = {
+      send() {},
+      close(code, reason) {
+        closed.push([code, reason]);
+      },
+    };
+    const b: WSContext = {
+      send() {},
+      close(code, reason) {
+        closed.push([code, reason]);
+      },
+    };
+    addClient(a);
+    addClient(b);
+
+    clients.closeAll(1008, "Sessions invalidated");
+
+    expect(closed).toEqual([
+      [1008, "Sessions invalidated"],
+      [1008, "Sessions invalidated"],
+    ]);
+    expect(clientCount()).toBe(0);
   });
 
   test("a throwing socket does not block delivery to the others", () => {

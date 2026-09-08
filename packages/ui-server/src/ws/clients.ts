@@ -8,8 +8,15 @@ import { shrinkForReplication } from "./shrink.js";
  */
 export type WSContext = {
   send: (data: string) => void;
-  raw?: { send?: (data: string) => number } | undefined;
+  close?: (code?: number, reason?: string) => void;
+  raw?: unknown;
 };
+
+function canSendRaw(raw: unknown): raw is { send: (data: string) => unknown } {
+  return (
+    typeof raw === "object" && raw !== null && "send" in raw && typeof raw.send === "function"
+  );
+}
 
 /** Serialize + size-bound a frame, then send it to one specific socket. */
 export function sendTo(ws: WSContext, msg: ServerMessage): void {
@@ -24,22 +31,53 @@ export function sendTo(ws: WSContext, msg: ServerMessage): void {
  * which would have cross-wired two coexisting app instances.)
  */
 export class ClientSet {
-  private readonly clients = new Set<WSContext>();
+  // Hono creates a new WSContext for every Bun open/message/close callback.
+  // The raw socket remains stable across those wrappers, so it is the identity
+  // that admission and removal must share.
+  private readonly clients = new Map<unknown, WSContext>();
 
-  add(ws: WSContext): void {
-    this.clients.add(ws);
+  constructor(readonly maxConnections = 32) {}
+
+  add(ws: WSContext): boolean {
+    const identity = ws.raw ?? ws;
+    if (!this.clients.has(identity) && this.clients.size >= this.maxConnections) return false;
+    this.clients.set(identity, ws);
+    return true;
   }
 
   remove(ws: WSContext): void {
-    this.clients.delete(ws);
+    this.clients.delete(ws.raw ?? ws);
   }
 
   count(): number {
     return this.clients.size;
   }
 
+  /** Whether another distinct socket can be admitted without exceeding the cap. */
+  hasCapacity(): boolean {
+    return this.clients.size < this.maxConnections;
+  }
+
   hasClients(): boolean {
     return this.clients.size > 0;
+  }
+
+  /**
+   * Close and forget every attached socket. The set is cleared before close
+   * callbacks can run, and one broken socket cannot prevent the others from
+   * being invalidated.
+   */
+  closeAll(code: number, reason: string): void {
+    const clients = [...this.clients.values()];
+    this.clients.clear();
+    for (const ws of clients) {
+      try {
+        ws.close?.(code, reason);
+      } catch {
+        // Best effort per socket; revocation of the remaining clients must
+        // continue even when one adapter throws during close.
+      }
+    }
   }
 
   /**
@@ -50,13 +88,13 @@ export class ClientSet {
   broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
-    for (const ws of this.clients) {
+    for (const ws of this.clients.values()) {
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed
         // connection) rather than throwing, and hono's WSContext.send discards
         // that status — so write through the raw socket where one exists. -1
         // is backpressure: the frame is queued, not lost.
-        if (typeof ws.raw?.send === "function") {
+        if (canSendRaw(ws.raw)) {
           if (ws.raw.send(payload) === 0) {
             onSendError?.(new Error("send dropped: connection closed"));
           }

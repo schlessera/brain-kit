@@ -49,6 +49,9 @@ import type { WSContext } from "./clients.js";
 
 export { websocket };
 
+const CONNECTION_LIMIT_CLOSE_CODE = 4008;
+const CONNECTION_LIMIT_CLOSE_REASON = "Connection limit reached";
+
 /**
  * The socket lifecycle handlers for one host, separate from the Hono upgrade
  * that wraps them.
@@ -68,6 +71,14 @@ export function createWsHandlers(host: WsHost) {
 
   return {
     async onOpen(_evt: Event, ws: WSContext) {
+      if (!host.clients.add(ws)) {
+        host.reportRefusedConnection();
+        // Hono's WSContext always exposes close(); the local structural socket
+        // type keeps it optional because send-only test/dispatch fakes never
+        // exercise connection admission.
+        ws.close!(CONNECTION_LIMIT_CLOSE_CODE, CONNECTION_LIMIT_CLOSE_REASON);
+        return;
+      }
       host.log.emit({ severityText: "INFO", body: "client connected" });
       const { coordinator, catalog } = host;
 
@@ -123,7 +134,6 @@ export function createWsHandlers(host: WsHost) {
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
         } finally {
-          host.clients.add(ws);
           host.sendMessage(
             ws,
             withTurnScope(
@@ -141,7 +151,6 @@ export function createWsHandlers(host: WsHost) {
         return;
       }
 
-      host.clients.add(ws);
       host.sendMessage(ws, {
         type: "status",
         status: "idle",

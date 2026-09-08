@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, readdir, readFile, rm, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SHARE_MAX_FILES,
@@ -17,10 +18,15 @@ import {
   shareStagingRoot,
   stageShare,
 } from "../src/share/staging";
+import { PathEscapeError } from "../src/files/walker";
 
 const BRAIN_ROOT = `/tmp/brain-ui-share-${process.pid}`;
 
-const shareRoutes = createShareRoutes({ brainRoot: BRAIN_ROOT, allowedOrigins: [] });
+const shareRoutes = createShareRoutes({
+  brainRoot: BRAIN_ROOT,
+  allowedOrigins: [],
+  trustProxy: false,
+});
 
 beforeEach(async () => {
   await rm(BRAIN_ROOT, { recursive: true, force: true });
@@ -255,9 +261,143 @@ describe("POST /api/share", () => {
     expect(response.status).toBe(413);
     expect((await response.json()).error).toBe("share_too_large");
   });
+
+  test("counts overlapping uploads before their first body-read await", async () => {
+    const boundary = "brain-ui-concurrency-boundary";
+    const encoded = new TextEncoder().encode(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="text"\r\n\r\n' +
+        "overlapping upload\r\n" +
+        `--${boundary}--\r\n`
+    );
+
+    function stalledUpload() {
+      let markStarted!: () => void;
+      let release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let pulled = false;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (pulled) return;
+          pulled = true;
+          markStarted();
+          await released;
+          controller.enqueue(encoded);
+          controller.close();
+        },
+      });
+      const response = shareRoutes.request("/share", {
+        method: "POST",
+        headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+        body,
+        // @ts-expect-error -- required by fetch for a streamed body, absent from the DOM types
+        duplex: "half",
+      });
+      return { response, started, release };
+    }
+
+    // The first two intakes are deliberately held inside readCappedBody(). If
+    // reservations happen before that await, both already consume capacity.
+    const first = stalledUpload();
+    const second = stalledUpload();
+    await Promise.all([first.started, second.started]);
+
+    // Fill the one remaining slot, then verify the next request is refused
+    // without reading or parsing its body.
+    const third = stalledUpload();
+    await third.started;
+    const fourth = new FormData();
+    fourth.set("text", "must be refused while the other uploads are stalled");
+
+    try {
+      const response = await post(fourth);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "busy" });
+    } finally {
+      first.release();
+      second.release();
+      third.release();
+      const responses = await Promise.all([
+        first.response,
+        second.response,
+        third.response,
+      ]);
+      expect(responses.map((response) => response.status)).toEqual([201, 201, 201]);
+    }
+  });
 });
 
 describe("share staging", () => {
+  test("accepts brain roots reached through direct and ancestor symlinks", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "brain-share-linked-root-"));
+    const directRoot = join(sandbox, "direct-root");
+    const directLink = join(sandbox, "direct-link");
+    const nestedParent = join(sandbox, "nested-parent");
+    const nestedRoot = join(nestedParent, "brain");
+    const nestedParentLink = join(sandbox, "nested-parent-link");
+
+    try {
+      await mkdir(directRoot);
+      await symlink(directRoot, directLink, "dir");
+      await mkdir(nestedRoot, { recursive: true });
+      await symlink(nestedParent, nestedParentLink, "dir");
+
+      for (const brainRoot of [directLink, join(nestedParentLink, "brain")]) {
+        const result = await stageShare(
+          brainRoot,
+          { text: "root symlinks are trusted", files: [] }
+        );
+        await expect(readFile(join(brainRoot, result.dir, "meta.json"), "utf-8")).resolves.toContain(
+          "root symlinks are trusted"
+        );
+      }
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an inbox symlink that escapes the brain root", async () => {
+    const brainRoot = await mkdtemp(join(tmpdir(), "brain-share-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "brain-share-outside-"));
+
+    try {
+      await mkdir(join(brainRoot, ".brain-ui"));
+      await symlink(outsideRoot, shareStagingRoot(brainRoot), "dir");
+
+      await expect(
+        stageShare(brainRoot, { text: "must stay inside", files: [] })
+      ).rejects.toBeInstanceOf(PathEscapeError);
+      expect(await readdir(outsideRoot)).toEqual([]);
+    } finally {
+      await rm(brainRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a dangling inbox symlink as a containment failure", async () => {
+    const brainRoot = await mkdtemp(join(tmpdir(), "brain-share-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "brain-share-outside-"));
+    const missingTarget = join(outsideRoot, "missing-inbox");
+
+    try {
+      await mkdir(join(brainRoot, ".brain-ui"));
+      await symlink(missingTarget, shareStagingRoot(brainRoot), "dir");
+
+      await expect(
+        stageShare(brainRoot, { text: "must fail closed", files: [] })
+      ).rejects.toBeInstanceOf(PathEscapeError);
+      expect(await readdir(outsideRoot)).toEqual([]);
+    } finally {
+      await rm(brainRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
   test("sanitizeFileName strips control characters and separators", () => {
     expect(sanitizeFileName("pho\u0000to:1.jpg", "image/jpeg")).toBe("photo-1.jpg");
     expect(sanitizeFileName("dir/sub\\shot.PNG", "image/png")).toBe("shot.png");

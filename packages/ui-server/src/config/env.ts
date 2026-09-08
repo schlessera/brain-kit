@@ -19,7 +19,10 @@ import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
-import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/server";
+import {
+  filterSubprocessEnv,
+  WEB_SEARCH_PROVIDERS,
+} from "@schlessera/brain-ui-sdk/server";
 
 // --- descriptor -------------------------------------------------------------
 
@@ -124,6 +127,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "way; it stops a destructive command you did not intend, not one that is " +
       "trying to get past you.",
     default: "the shipped pattern set",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WS_MAX_CONNECTIONS",
+    description: "Maximum number of WebSocket connections accepted by one server process.",
+    default: "32",
     required: false,
   },
   {
@@ -471,6 +480,8 @@ export interface ServerConfig {
   logLevel: Severity;
   /** Inbound WebSocket frame metering, per connection. */
   wsRate: { ratePerSecond: number; burst: number };
+  /** Maximum WebSocket connections accepted by one server process. */
+  wsMaxConnections: number;
   auth: AuthConfig;
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
@@ -633,6 +644,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ambientBilling: resolveAmbientBillingMode(env),
     },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
+    wsMaxConnections: positiveNumber(env.BRAIN_UI_WS_MAX_CONNECTIONS, 32),
     wsRate: {
       ratePerSecond: positiveNumber(env.BRAIN_UI_WS_RATE, 20),
       burst: positiveNumber(env.BRAIN_UI_WS_BURST, 60),
@@ -651,14 +663,13 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 }
 
 /**
- * The parent environment for spawned subprocesses (brain CLI, whatsup), plus
- * overrides. Child processes legitimately inherit the whole environment
- * (PATH, credentials for the tools they run) — that is process plumbing, not
- * configuration, but it still reads `process.env`, so it lives behind this
- * chokepoint.
+ * The filtered parent environment for spawned subprocesses (brain CLI,
+ * whatsup), plus explicit overrides. The shared descriptor strips server-only
+ * material while retaining all known subprocess capabilities and unknown
+ * variables. This reads `process.env`, so it lives behind this chokepoint.
  */
 export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
-  return { ...process.env, ...extra };
+  return { ...filterSubprocessEnv(process.env), ...extra };
 }
 
 /**

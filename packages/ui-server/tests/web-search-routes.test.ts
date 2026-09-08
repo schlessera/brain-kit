@@ -77,7 +77,11 @@ async function put(
   app: ReturnType<typeof appFor>,
   body: Record<string, unknown>
 ): Promise<Response> {
-  return app.request("/web-search", { method: "PUT", body: JSON.stringify(body) });
+  return app.request("/web-search", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 describe("GET /web-search", () => {

@@ -7,8 +7,8 @@
  * credentials may appear after import, and profile availability is checked
  * when asked. `readEnvVar()` covers the profile-declared reads (a profile's
  * `authTokenEnv` / `apiKeyEnv` can name any variable), and `envSnapshot()`
- * is the documented full-environment passthrough handed to the Claude Code
- * subprocess. `DYNAMIC_ENV_READS` documents both families.
+ * is the filtered environment handed to the Claude Code subprocess.
+ * `DYNAMIC_ENV_READS` documents both families.
  *
  * `ENV_VARS` is the runtime-introspectable contract the env parity gate
  * diffs against the package's env documentation.
@@ -16,6 +16,7 @@
 
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
+import { filterSubprocessEnv } from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
 // across every chokepoint via the sync-enforced copy in ./env-core.ts.
@@ -84,10 +85,10 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "whatever name the profile declares (also drives profile availability).",
   },
   {
-    source: "full environment passthrough",
+    source: "filtered environment snapshot",
     description:
-      "The Claude Code subprocess inherits the entire host environment " +
-      "(with profile overrides merged on top) when a profile overrides env.",
+      "The Claude Code subprocess inherits the host environment minus " +
+      "server-only variables (with profile overrides merged on top).",
   },
 ];
 
@@ -117,10 +118,10 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ClaudeBackendE
 }
 
 /**
- * The entire host environment, for the Claude Code subprocess (profile env
+ * The filtered host environment for the Claude Code subprocess (profile env
  * overrides are merged on top by the caller). Documented in
- * `DYNAMIC_ENV_READS`; keep this the only whole-environment escape hatch.
+ * `DYNAMIC_ENV_READS`; keep this the only whole-environment read.
  */
 export function envSnapshot(): NodeJS.ProcessEnv {
-  return { ...process.env };
+  return filterSubprocessEnv(process.env);
 }

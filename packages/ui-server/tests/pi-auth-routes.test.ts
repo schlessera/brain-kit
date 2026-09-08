@@ -80,6 +80,7 @@ describe("pi-auth routes", () => {
     });
     const res = await routes.request("/pi-auth/login", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ providerId: "openai-codex" }),
     });
     expect(res.status).toBe(200);
@@ -94,6 +95,7 @@ describe("pi-auth routes", () => {
       (
         await unconfigured.request("/pi-auth/login", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ providerId: "openai-codex" }),
         })
       ).status
@@ -107,6 +109,7 @@ describe("pi-auth routes", () => {
       (
         await configured.request("/pi-auth/login", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ providerId: "anthropic" }),
         })
       ).status
@@ -142,6 +145,7 @@ describe("pi-auth routes", () => {
       (
         await routes.request("/pi-auth/logout", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ providerId: "nope" }),
         })
       ).status
@@ -149,6 +153,7 @@ describe("pi-auth routes", () => {
 
     const ok = await routes.request("/pi-auth/logout", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ providerId: "openai-codex" }),
     });
     expect(ok.status).toBe(200);

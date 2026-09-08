@@ -37,7 +37,7 @@ import {
   rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { resolveEnv } from "./config/env.js";
+import { resolveEnv, subprocessEnv } from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -227,6 +227,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       resolveOrThrow(rel);
       const proc = spawn(["grep", "-rInE", "--", params.pattern, rel], {
         cwd: brain.root,
+        env: subprocessEnv(),
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -368,6 +369,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       return lock.withKey(bashLockKey(params.command), async () => {
         const proc = spawn(["bash", "-lc", cmd], {
           cwd: brain.root,
+          env: subprocessEnv(),
           stdout: "pipe",
           stderr: "pipe",
         });

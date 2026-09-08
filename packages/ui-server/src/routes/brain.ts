@@ -9,6 +9,8 @@ import {
 } from "../voice/keyterm-builder.js";
 import { existsSync } from "fs";
 import { join } from "path";
+import { readJsonBody } from "../middleware/body-limit.js";
+import { requireJson } from "../middleware/origin.js";
 
 export interface BrainRoutesDeps {
   brain: BrainClient;
@@ -288,13 +290,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     });
   })
 
-  .post("/brain/add", async (c) => {
-    const body = await c.req.json<{
+  .post("/brain/add", requireJson(), async (c) => {
+    const result = await readJsonBody<{
       content: string;
       type?: string;
       title?: string;
       tags?: string[];
-    }>();
+    }>(c);
+    if (result instanceof Response) return result;
+    const body = result;
     if (!body.content) {
       return c.json({ error: "Field 'content' is required" }, 400);
     }

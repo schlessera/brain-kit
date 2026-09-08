@@ -3,16 +3,18 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
+import {
+  readJsonBody,
+  RENDER_BODY_LIMIT_BYTES,
+} from "../middleware/body-limit.js";
+import { requireJson } from "../middleware/origin.js";
 
 /**
- * Cap on the content string posted for rendering. The old 512KB bound
- * predated inlined assets: a shared document carries `data:` image URIs and
- * pre-rendered mermaid SVGs, which pass that on their own without the prose
- * being long. This is an HTTP body, not a socket frame, so it is not bounded
- * by the WebSocket budget.
+ * A shared document may carry inlined images and pre-rendered mermaid SVGs.
+ * The route's streaming reader owns its 5 MB request cap before JSON parsing;
+ * the schema validates shape only so it cannot disagree by counting UTF-16
+ * code units instead.
  */
-const MAX_CONTENT_BYTES = 4 * 1024 * 1024;
-
 /**
  * Rendering seam. The deployment owns the actual renderer process (e.g. the
  * network-denied headless Chrome in @schlessera/brain-render-puppeteer) and
@@ -25,14 +27,14 @@ export interface AppRenderer {
 }
 
 const bodySchema = z.object({
-  content: z.string().min(1).max(MAX_CONTENT_BYTES),
+  content: z.string().min(1),
   contentType: z.enum(["markdown", "html"]),
   format: z.enum(["png", "pdf"]),
   title: z.string().max(200).optional(),
 }) satisfies z.ZodType<RenderRequest>;
 
 export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
-  return new Hono().post("/render", async (c) => {
+  return new Hono().post("/render", requireJson(), async (c) => {
     if (!renderer) {
       return c.json(
         { error: "render_unavailable", detail: "This deployment has no renderer configured" },
@@ -42,7 +44,9 @@ export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
 
     let parsed;
     try {
-      parsed = bodySchema.parse(await c.req.json());
+      const result = await readJsonBody(c, RENDER_BODY_LIMIT_BYTES);
+      if (result instanceof Response) return result;
+      parsed = bodySchema.parse(result);
     } catch (err) {
       return c.json({ error: "invalid_request", detail: err instanceof Error ? err.message : "bad body" }, 400);
     }

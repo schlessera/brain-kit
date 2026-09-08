@@ -19,11 +19,18 @@ import {
   type AuthRuntime,
   issueSessionCookie,
   consumeLoginToken,
-  LOGIN_RATE_LIMIT,
-  GLOBAL_LOGIN_RATE_LIMIT,
+  isLoginBlocked,
+  recordLoginFailure,
+  PASSKEY_LOGIN_RATE_LIMIT,
+  acquirePasskeyVerification,
+  releasePasskeyVerification,
+  bumpSessionsEpoch,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
+import { readJsonBody } from "./body-limit.js";
+import { requireJson } from "./origin.js";
+import type { ClientSet } from "../ws/clients.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -43,9 +50,12 @@ import type { WebAuthnConfig } from "../config/env.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
+  /** Live sockets invalidated when a credential is revoked. */
+  clients: ClientSet;
+  /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
-  /** ALLOWED_ORIGINS — split-topology origins also valid for ceremonies. */
+  /** ALLOWED_ORIGINS — globally allowed split-topology origins. */
   allowedOrigins: string[];
   /** Where ceremony failures are reported; absent means silence. */
   log?: Logger;
@@ -322,21 +332,17 @@ export function passkeyPublicRoutes(
     return c.json(options);
   });
 
-  app.post("/auth/passkey/login-verify", async (c) => {
+  app.post("/auth/passkey/login-verify", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
-    // Same buckets as password login: one combined online-guess budget.
-    const perIpOk = consumeLoginToken(`ip:${ip}`, LOGIN_RATE_LIMIT);
-    const globalOk = consumeLoginToken("global", GLOBAL_LOGIN_RATE_LIMIT);
-    if (!perIpOk || !globalOk) {
-      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
-    }
     const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     let response: AuthenticationResponseJSON;
     try {
-      response = await c.req.json();
+      const result = await readJsonBody<AuthenticationResponseJSON>(c);
+      if (result instanceof Response) return result;
+      response = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
@@ -352,22 +358,59 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    try {
-      const result = await verifyAuthentication({
-        response,
-        expectedChallenge: challenge,
-        expectedOrigin: rp.origin,
-        expectedRPID: rp.rpID,
-        credential: toWebAuthnCredential(row),
+    // Only a credential for this RP carrying a live, single-use challenge can
+    // reach this budget. Random bodies are rejected above without allocating
+    // or incrementing attacker-controlled bucket keys.
+    const failureBucket = `pk:${ip}`;
+    if (isLoginBlocked(failureBucket, PASSKEY_LOGIN_RATE_LIMIT)) {
+      return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
+    }
+
+    if (!acquirePasskeyVerification(ip)) {
+      ctx.failures?.add(1, {
+        reason: "in_flight_limited",
+        ceremony: "authentication",
       });
-      if (!result.verified) return fail();
-      ctx.db
-        .prepare(
-          "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
-        )
-        .run(result.authenticationInfo.newCounter, now(), row.id);
+      ctx.log?.emit({
+        severityText: "WARN",
+        body: "passkey verification capacity reached",
+        attributes: { ip },
+      });
+      return c.json({ error: "Too many login verifications in progress." }, 429);
+    }
+
+    try {
+      try {
+        const result = await verifyAuthentication({
+          response,
+          expectedChallenge: challenge,
+          expectedOrigin: rp.origin,
+          expectedRPID: rp.rpID,
+          credential: toWebAuthnCredential(row),
+        });
+        if (!result.verified) {
+          recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
+          ctx.failures?.add(1, {
+            reason: "verification_failed",
+            ceremony: "authentication",
+          });
+          ctx.log?.emit({
+            severityText: "WARN",
+            body: "passkey authentication failed",
+          });
+          return fail();
+        }
+        ctx.db
+          .prepare(
+            "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
+          )
+          .run(result.authenticationInfo.newCounter, now(), row.id);
+      } finally {
+        releasePasskeyVerification(ip);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
       // The library throws on a counter regression — possible cloned
       // credential. Cloud passkeys legitimately sit at 0, so warn, don't
       // revoke.
@@ -390,7 +433,7 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    await issueSessionCookie(c, ctx.auth);
+    await issueSessionCookie(c, ctx.auth, ctx.db);
     return c.json({ ok: true });
   });
 
@@ -436,14 +479,19 @@ export function passkeyManagementRoutes(
     return c.json(options);
   });
 
-  app.post("/auth/passkey/register-verify", async (c) => {
+  app.post("/auth/passkey/register-verify", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     const rp = resolveRp(c, ctx);
     if (!rp) return c.json({ error: "Origin not allowed" }, 400);
 
     let body: { response?: RegistrationResponseJSON; label?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{
+        response?: RegistrationResponseJSON;
+        label?: unknown;
+      }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
@@ -510,11 +558,13 @@ export function passkeyManagementRoutes(
     return c.json({ credentials: rows.map(toSummary) });
   });
 
-  app.put("/auth/passkey/:id", async (c) => {
+  app.put("/auth/passkey/:id", requireJson(), async (c) => {
     if (mode !== "password") return notEnabled(c);
     let body: { label?: unknown };
     try {
-      body = await c.req.json();
+      const result = await readJsonBody<{ label?: unknown }>(c);
+      if (result instanceof Response) return result;
+      body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
@@ -531,6 +581,7 @@ export function passkeyManagementRoutes(
       .prepare("DELETE FROM passkey_credentials WHERE id = ?")
       .run(c.req.param("id"));
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
+    bumpSessionsEpoch(ctx.db, ctx.clients);
     return c.json({ ok: true });
   });
 

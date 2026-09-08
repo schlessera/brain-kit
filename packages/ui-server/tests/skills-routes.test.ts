@@ -133,6 +133,7 @@ describe("skill routes", () => {
 
     let res = await app.request("/skills", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "my-flow", content: SKILL("my-flow") }),
     });
     expect(res.status).toBe(201);
@@ -140,6 +141,7 @@ describe("skill routes", () => {
 
     res = await app.request("/skills/my-flow/enabled", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ enabled: false }),
     });
     expect(res.status).toBe(200);
@@ -164,6 +166,7 @@ describe("skill routes", () => {
     });
     const res = await app.request("/skills", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "my-flow", content: SKILL("my-flow") }),
     });
     expect(res.status).toBe(201);
@@ -181,6 +184,7 @@ describe("skill routes", () => {
       (
         await app.request("/skills", {
           method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ name: "../etc", content: "x" }),
         })
       ).status
@@ -189,6 +193,7 @@ describe("skill routes", () => {
       (
         await app.request("/skills/add", {
           method: "PUT",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ content: SKILL("add") }),
         })
       ).status
