@@ -399,7 +399,11 @@ describe("pi backend — shared working-tree safety", () => {
                   {
                     question: `Write ${spec.path}?`,
                     header: "Write",
-                    options: [{ label: "Yes", description: "proceed" }],
+                    options: [
+                      { label: "Yes", description: "proceed" },
+                      { label: "No", description: "stop" },
+                    ],
+                    multiSelect: false,
                   },
                 ],
               },

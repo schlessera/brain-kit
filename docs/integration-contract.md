@@ -72,6 +72,8 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
+The four bridge tools are defined once in `@schlessera/brain-ui-sdk/server`;
+their names and Claude-side input schemas are unchanged.
 Result fields are additive (treat unknown fields as such). Cost fields are
 dual: `costUsd` is the list-price reference, `effectiveCostUsd` the actual
 out-of-pocket cost ($0 for subscription-billed runs); `null` means unknown,

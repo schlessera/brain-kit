@@ -480,6 +480,9 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_USER_DESCRIPTION
+  ASK_USER_INPUT_SCHEMA
+  ASK_USER_TOOL_NAME
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
@@ -497,7 +500,9 @@ export "./server" (./src/server/index.ts)
   type ActivityView
   type AgentBackend
   type AskUserAnnotation
+  type AskUserInput
   type AskUserOption
+  type AskUserPayload
   type AskUserQuestion
   type AskUserResult
   type AsrEvent
@@ -505,6 +510,7 @@ export "./server" (./src/server/index.ts)
   type AsrPartial
   BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
+  BRIDGE_TOOL_POSTURE
   type BackendActivityEvent
   type BackendBridge
   BackendBusyError
@@ -513,6 +519,8 @@ export "./server" (./src/server/index.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  type BridgeToolAdapter
+  type BridgeToolName
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -543,9 +551,13 @@ export "./server" (./src/server/index.ts)
   type FileResolveResponse
   type FileTreeResponse
   type FollowUpRequest
+  GET_CURRENT_LOCATION_DESCRIPTION
+  GET_CURRENT_LOCATION_INPUT_SCHEMA
+  GET_CURRENT_LOCATION_TOOL_NAME
   GIT_LOCK_KEY
   type GeoCoords
   type GeoRequestOptions
+  type GetCurrentLocationInput
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -553,9 +565,13 @@ export "./server" (./src/server/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  type ImageMaskHandlerOptions
+  type ImageMaskPayload
   type KeyedLock
   type Keyterm
   type LocationFix
+  type LocationHandlerOptions
+  type LocationPayload
   LockBusyError
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
@@ -572,9 +588,17 @@ export "./server" (./src/server/index.ts)
   type PermissionRequest
   type PronunciationOverride
   type ProviderInfo
+  QUERY_ACTIVITY_DESCRIPTION
+  QUERY_ACTIVITY_INPUT_SCHEMA
+  QUERY_ACTIVITY_TOOL_NAME
+  type QueryActivityInput
+  REQUEST_IMAGE_MASK_DESCRIPTION
+  REQUEST_IMAGE_MASK_INPUT_SCHEMA
+  REQUEST_IMAGE_MASK_TOOL_NAME
   type RenderContentType
   type RenderFormat
   type RenderRequest
+  type RequestImageMaskInput
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
   SHARE_MAX_CONCURRENT_INTAKE
@@ -649,6 +673,8 @@ export "./server" (./src/server/index.ts)
   bashLockKey
   buildSystemPromptAppend
   canonicalModelId
+  claudeMaskFilename
+  claudeReportedMaskPath
   compileConfirmPatterns
   createKeyedLock
   createToolPermissionRequest
@@ -657,15 +683,22 @@ export "./server" (./src/server/index.ts)
   decideToolPermission
   defineSpeechProvider
   filterSubprocessEnv
+  handleAskUser
+  handleGetCurrentLocation
+  handleQueryActivity
+  handleRequestImageMask
   hasWebSearchCredential
   isBillingMode
   isFailureOutcome
   isThinkingLevel
   parseSubprocessEnvExtra
+  piMaskFilename
+  piReportedMaskPath
   readWebSearchOverride
   readWebSearchRouting
   requestToolPermission
   resetRtkProbe
+  resolveInRepo
   resolveWebSearchConfigPath
   reverseGeocode
   rtkAvailable
@@ -673,6 +706,7 @@ export "./server" (./src/server/index.ts)
   sumModelUsage
   webSearchBrief
   webSearchProvider
+  wrapUntrustedData
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH

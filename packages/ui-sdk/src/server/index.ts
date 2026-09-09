@@ -59,6 +59,8 @@ export {
 export type { ReverseGeocodeConfig, ReverseGeocodeResult } from "./reverse-geocode.js";
 export { reverseGeocode } from "./reverse-geocode.js";
 
+export * from "./bridge-tools/index.js";
+
 export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 
 export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
