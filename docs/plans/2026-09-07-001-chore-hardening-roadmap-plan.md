@@ -649,7 +649,7 @@ not roll back the brain repo's core pin (U9).
 | U9. Core `parseArgs` end-of-options + `--` before positionals in the brain client | S12 | done |
 | U13. `brain-ui-cron` bin in ui-server: `run`, `digest` | B1 | done |
 | U14. Crontab and environment emitters (`crontab`, `environment`), golden test, adversarial fixtures | B2, S4 prerequisite | todo |
-| U15. SDK `./sw-policy` (registrars injected) + ui-react `useHashRoutes` / `useServiceWorkerUpdates` | B4 | todo |
+| U15. SDK `./sw-policy` (registrars injected) + ui-react `useHashRoutes` / `useServiceWorkerUpdates` | B4 | done (kit half; shell adoption and the real-browser guard follow with the deps bump) |
 | U16. Renderer and ASR registration on mount | K5 | done |
 | U17. Protocol/schema type-level equality test | M6 | done |
 | U18. `[brain-ui]` integration suite pruned and in CI against a temp brain | B5 | todo |

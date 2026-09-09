@@ -25,6 +25,8 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
       "client/share-target.js",
       // A service worker imports this subpath directly too, so it must build to a real file.
       "client/push-handlers.js",
+      // Workbox-free route policy imported directly by a service worker.
+      "client/sw-policy.js",
     ]) {
       requireFile(join(packageDir, "dist", entry), packageName);
     }

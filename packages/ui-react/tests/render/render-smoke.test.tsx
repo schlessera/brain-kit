@@ -8,7 +8,7 @@
 import { unregisterDom } from "./dom.js";
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
 
 import { MarkdownContent } from "../../src/components/chat/markdown-content.js";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
@@ -16,9 +16,219 @@ import { AskUserCard } from "../../src/components/chat/ask-user-card.js";
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
 import type { ToolCall } from "../../src/stores/chat-store.js";
 import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
+import { useHashRoutes } from "../../src/hooks/use-hash-routes.js";
+import {
+  hasUnsentText,
+  useServiceWorkerUpdates,
+} from "../../src/hooks/use-service-worker-updates.js";
+import { useFileStore } from "../../src/stores/file-store.js";
+import { useUIStore } from "../../src/stores/ui-store.js";
 
 afterEach(cleanup);
 afterAll(unregisterDom);
+
+function setHash(hash: string): void {
+  history.replaceState(null, "", hash || "/");
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+describe("useHashRoutes", () => {
+  const originalOpenFile = useFileStore.getState().openFile;
+  const originalOpenDir = useFileStore.getState().openDir;
+
+  afterEach(() => {
+    history.replaceState(null, "", "/");
+    act(() => {
+      useUIStore.setState({ activeView: "chat", filePanelOpen: false });
+      useFileStore.setState({
+        openFile: originalOpenFile,
+        openDir: originalOpenDir,
+      });
+    });
+  });
+
+  test("opens file and directory hash routes", async () => {
+    const openedFiles: string[] = [];
+    const openedDirs: string[] = [];
+    useFileStore.setState({
+      openFile: async (path) => {
+        openedFiles.push(path);
+      },
+      openDir: async (path) => {
+        openedDirs.push(path);
+      },
+    });
+    history.replaceState(null, "", "#/files/notes/example.md");
+    renderHook(() => useHashRoutes());
+
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
+    expect(openedFiles).toEqual(["notes/example.md"]);
+
+    act(() => setHash("#/files/projects/current/"));
+    expect(openedDirs).toEqual(["projects/current"]);
+  });
+
+  test("selects graph and activity routes while preserving activity deep links", () => {
+    history.replaceState(null, "", "#/graph");
+    renderHook(() => useHashRoutes());
+    expect(useUIStore.getState().activeView).toBe("graph");
+
+    act(() => setHash("#/activity/run-42"));
+    expect(useUIStore.getState().activeView).toBe("activity");
+    expect(window.location.hash).toBe("#/activity/run-42");
+  });
+
+  test("store-driven replaceState sync is silent and does not loop", () => {
+    history.replaceState(null, "", "/");
+    const originalReplaceState = history.replaceState.bind(history);
+    const replacements: string[] = [];
+    history.replaceState = ((data: unknown, unused: string, url?: string | URL | null) => {
+      replacements.push(String(url));
+      originalReplaceState(data, unused, url);
+    }) as typeof history.replaceState;
+
+    const { rerender } = renderHook(() => useHashRoutes());
+    act(() => useUIStore.getState().setActiveView("graph"));
+    expect(window.location.hash).toBe("#/graph");
+    expect(replacements).toEqual(["#/graph"]);
+
+    rerender();
+    expect(replacements).toEqual(["#/graph"]);
+
+    const chatRoute = window.location.pathname;
+    act(() => useUIStore.getState().setActiveView("chat"));
+    expect(window.location.hash).toBe("");
+    expect(replacements).toEqual(["#/graph", chatRoute]);
+
+    history.replaceState = originalReplaceState;
+  });
+
+  test("an activity deep-link change does not swallow the next view switch", () => {
+    // `#/activity/one` -> `#/activity/two` keeps the SAME active view, so
+    // setActiveView is a no-op and the store-sync effect never runs. If the
+    // hash effect armed its suppression flag anyway, the flag would still be
+    // set when the user later switches to Chat, and the URL would be left
+    // pointing at Activity while the app shows Chat — a refresh would jump
+    // back to Activity.
+    history.replaceState(null, "", "#/activity/one");
+    renderHook(() => useHashRoutes());
+    expect(useUIStore.getState().activeView).toBe("activity");
+
+    act(() => {
+      history.replaceState(null, "", "#/activity/two");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(useUIStore.getState().activeView).toBe("activity");
+    expect(window.location.hash).toBe("#/activity/two");
+
+    act(() => useUIStore.getState().setActiveView("chat"));
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(window.location.hash).toBe("");
+  });
+});
+
+class FakeServiceWorker extends EventTarget {
+  state: ServiceWorkerState = "installing";
+
+  install(): void {
+    this.state = "installed";
+    this.dispatchEvent(new Event("statechange"));
+  }
+}
+
+class FakeServiceWorkerRegistration extends EventTarget {
+  constructor(readonly installing: ServiceWorker) {
+    super();
+  }
+}
+
+class FakeServiceWorkerContainer extends EventTarget {
+  controller: ServiceWorker | null = null;
+  readonly worker = new FakeServiceWorker();
+  readonly registration = new FakeServiceWorkerRegistration(
+    this.worker as unknown as ServiceWorker
+  );
+  registerCalls: string[] = [];
+
+  async register(path: string): Promise<ServiceWorkerRegistration> {
+    this.registerCalls.push(path);
+    return this.registration as unknown as ServiceWorkerRegistration;
+  }
+
+  takeControl(): void {
+    this.controller = this.worker as unknown as ServiceWorker;
+    this.dispatchEvent(new Event("controllerchange"));
+  }
+}
+
+describe("useServiceWorkerUpdates", () => {
+  test("the default DOM probe finds non-empty text fields", () => {
+    const textarea = document.createElement("textarea");
+    document.body.append(textarea);
+    expect(hasUnsentText()).toBe(false);
+    textarea.value = "draft";
+    expect(hasUnsentText()).toBe(true);
+    textarea.remove();
+  });
+
+  test("does not reload on first install", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: serviceWorker,
+    });
+    let reloads = 0;
+    renderHook(() =>
+      useServiceWorkerUpdates({
+        isBusy: false,
+        hasUnsentText: () => false,
+        reload: () => reloads++,
+      })
+    );
+    await act(async () => Promise.resolve());
+
+    act(() => {
+      serviceWorker.worker.install();
+      serviceWorker.takeControl();
+    });
+
+    expect(serviceWorker.registerCalls).toEqual(["/service-worker.js"]);
+    expect(reloads).toBe(0);
+  });
+
+  test("defers an update takeover until idle and reloads at most once", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: serviceWorker,
+    });
+    let reloads = 0;
+    const { rerender } = renderHook(
+      ({ isBusy }) =>
+        useServiceWorkerUpdates({
+          isBusy,
+          hasUnsentText: () => false,
+          reload: () => reloads++,
+        }),
+      { initialProps: { isBusy: true } }
+    );
+    await act(async () => Promise.resolve());
+
+    act(() => {
+      serviceWorker.worker.install();
+      serviceWorker.takeControl();
+    });
+    expect(reloads).toBe(0);
+
+    rerender({ isBusy: false });
+    expect(reloads).toBe(1);
+
+    act(() => serviceWorker.takeControl());
+    rerender({ isBusy: false });
+    expect(reloads).toBe(1);
+  });
+});
 
 describe("MarkdownContent", () => {
   test("renders heading, list, and code from markdown source", () => {

@@ -25,6 +25,7 @@ export "." (./src/index.ts)
   ShareIntake
   type ShareIntakeState
   type ToolCall
+  type UseServiceWorkerUpdatesOptions
   activeChat
   anyStreaming
   api
@@ -34,6 +35,7 @@ export "." (./src/index.ts)
   getWsUrl
   handleServerMessage
   hasPendingShare
+  hasUnsentText
   inlineMermaidDiagrams
   renderMermaidSvg
   runStateForFrame
@@ -43,8 +45,10 @@ export "." (./src/index.ts)
   useConnectionStore
   useFileStore
   useGraphStore
+  useHashRoutes
   useMaskStore
   useProviderStore
+  useServiceWorkerUpdates
   useShareStore
   useUIStore
   useVoiceStore

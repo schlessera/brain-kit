@@ -683,3 +683,21 @@ export "./share-target" (./src/client/share-target.ts)
   pruneStoredShares
   readShareLaunchParams
   registerShareTarget
+
+export "./sw-policy" (./src/client/sw-policy.ts)
+  type CacheExpirationConstructor
+  type CacheExpirationLike
+  type CacheLike
+  type CacheStorageLike
+  type ExpirationOptions
+  type ExtendableEventLike
+  type PrecacheEntry
+  type PurgeLegacyApiCachesDeps
+  type RegisterDefaultRoutesDeps
+  type RouteHandlerCallback
+  type RouteHandlerOptions
+  type RouteMatchCallback
+  type RouteMatchOptions
+  type ServiceWorkerPolicyScope
+  purgeLegacyApiCaches
+  registerDefaultRoutes
