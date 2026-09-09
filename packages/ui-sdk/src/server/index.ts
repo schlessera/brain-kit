@@ -45,6 +45,17 @@ export {
   bashCommand,
 } from "./confirm-patterns.js";
 
+export type {
+  ToolPermissionDecisionInput,
+  ToolPermissionApproval,
+  CreateToolPermissionRequestInput,
+} from "./permission-gate.js";
+export {
+  decideToolPermission,
+  createToolPermissionRequest,
+  requestToolPermission,
+} from "./permission-gate.js";
+
 export type { ReverseGeocodeConfig, ReverseGeocodeResult } from "./reverse-geocode.js";
 export { reverseGeocode } from "./reverse-geocode.js";
 

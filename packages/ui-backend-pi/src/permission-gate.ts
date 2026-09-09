@@ -22,7 +22,11 @@
  */
 
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
-import { bashCommand } from "@schlessera/brain-ui-sdk/server";
+import {
+  createToolPermissionRequest,
+  decideToolPermission,
+  requestToolPermission,
+} from "@schlessera/brain-ui-sdk/server";
 
 import type { TurnContext } from "./turn-context.js";
 
@@ -42,16 +46,15 @@ export function approvalReason(
   allowedTools: ReadonlySet<string>,
   confirmPatterns: readonly RegExp[]
 ): string | null {
-  if (!allowedTools.has(toolName)) {
-    return `Tool "${toolName}" is not auto-allowed in this deployment.`;
-  }
-  if (toolName === "bash" && confirmPatterns.length > 0) {
-    const command = bashCommand(input);
-    if (command && confirmPatterns.some((re) => re.test(command))) {
-      return "This command matches a pattern configured to require confirmation.";
-    }
-  }
-  return null;
+  return (
+    decideToolPermission({
+      toolName,
+      shellToolName: "bash",
+      input,
+      allowedTools,
+      confirmPatterns,
+    })?.reason ?? null
+  );
 }
 
 export function createPermissionGate(options: PermissionGateOptions): InlineExtension {
@@ -60,34 +63,23 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     name: "brain-permission-gate",
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
-        const reason = approvalReason(
-          event.toolName,
-          event.input,
+        const approval = decideToolPermission({
+          toolName: event.toolName,
+          shellToolName: "bash",
+          input: event.input,
           allowedTools,
-          confirmPatterns
-        );
-        if (!reason) return undefined;
+          confirmPatterns,
+        });
+        if (!approval) return undefined;
 
-        const bridge = turn.bridge;
-        if (!bridge) {
-          // A gated tool with no live turn has no one to ask. Refuse — the
-          // safe direction — instead of running unapproved.
-          return {
-            block: true,
-            reason: `No active turn to approve ${event.toolName}.`,
-          };
-        }
-
-        const decision = await bridge.requestPermission({
+        const request = createToolPermissionRequest({
           toolUseId: event.toolCallId,
           toolName: event.toolName,
           input: (event.input ?? {}) as Record<string, unknown>,
-          description: reason,
-          // An allowlisted tool that still needed approval hit a confirm
-          // pattern (bash) — a per-use confirmation the host must never
-          // remember. A non-allowlisted tool is a grantable "tool" request.
-          kind: allowedTools.has(event.toolName) ? "command" : "tool",
+          description: approval.reason,
+          approval,
         });
+        const decision = await requestToolPermission(turn.bridge, request);
         if (decision.behavior === "deny") {
           return {
             block: true,
@@ -95,7 +87,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           };
         }
         if (decision.updatedInput && event.input && typeof event.input === "object") {
-          // In-place mutation is pi's contract for patching tool arguments.
+          // In-place mutation is pi's runtime contract for patching tool
+          // arguments. Claude must instead return a structural updatedInput;
+          // this runtime-specific difference deliberately stays in the binding.
           const target = event.input as Record<string, unknown>;
           for (const key of Object.keys(target)) {
             if (!(key in decision.updatedInput)) delete target[key];

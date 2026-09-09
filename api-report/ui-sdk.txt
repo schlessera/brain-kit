@@ -531,6 +531,7 @@ export "./server" (./src/server/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type CreateToolPermissionRequestInput
   type CronJobStatus
   DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
@@ -629,6 +630,8 @@ export "./server" (./src/server/index.ts)
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
+  type ToolPermissionApproval
+  type ToolPermissionDecisionInput
   type TranscriptStore
   type TurnUsage
   type VoiceKeytermsResponse
@@ -648,8 +651,10 @@ export "./server" (./src/server/index.ts)
   canonicalModelId
   compileConfirmPatterns
   createKeyedLock
+  createToolPermissionRequest
   createTranscriptStore
   createWriteLock
+  decideToolPermission
   defineSpeechProvider
   filterSubprocessEnv
   hasWebSearchCredential
@@ -658,6 +663,7 @@ export "./server" (./src/server/index.ts)
   isThinkingLevel
   readWebSearchOverride
   readWebSearchRouting
+  requestToolPermission
   resetRtkProbe
   resolveWebSearchConfigPath
   reverseGeocode

@@ -96,6 +96,22 @@ describe("tool_call permission gate", () => {
     expect(mock.permissionCalls).toHaveLength(0);
   });
 
+  test("allowlisted extension named Bash is not treated as pi's bash tool", async () => {
+    const turn = createTurnContext(); // bridge stays null
+    const handler = gateHandler({
+      turn,
+      allowedTools: new Set(["Bash"]),
+      confirmPatterns: CONFIRM,
+    });
+
+    const res = await handler({
+      toolName: "Bash",
+      toolCallId: "extension-bash",
+      input: { command: "rm -rf notes" },
+    });
+    expect(res).toBeUndefined();
+  });
+
   test("gated call asks, denial blocks with the host's message", async () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "user said no" } });
