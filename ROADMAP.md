@@ -87,7 +87,11 @@ Roughly in order. Items move down as they land.
   plan with per-unit status and progress log:
   [docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md](docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md).
   Each release keeps to one runtime blast radius; only the last has a data
-  step.
+  step. **0.32.0 Boundary shipped on 2026-09-08** — the HTTP origin policy and
+  JSON media-type gate, server-side session invalidation, a failure-counting
+  login limiter, body and WebSocket connection caps, frame headers,
+  share-staging containment, and server-only secrets stripped from every
+  subprocess. 0.33.0 is next.
 - **A real `brain-template` repo.** `docs/quickstart.md`, `template/README.md`,
   and this repo's README all point users at `schlessera/brain-template`, which
   does not exist yet — `template/` here is its source. Publishing it (marked as
