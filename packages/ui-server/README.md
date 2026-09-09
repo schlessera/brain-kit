@@ -84,6 +84,12 @@ scripts:
 ```sh
 brain-ui-cron run <job-name> -- <command...>
 brain-ui-cron digest
+brain-ui-cron crontab \
+  [--wrapper-command <command>] \
+  [--digest-command <command>] \
+  [--path-line <line>] \
+  [--user <user>]
+brain-ui-cron environment
 ```
 
 `run` spawns the command directly as argv (never through a shell), tees stdout
@@ -94,6 +100,37 @@ unavailable UI database produces a warning but does not suppress the job.
 `digest` generates and persists the daily activity digest. Unlike run
 tracking, digest generation fails loud with a non-zero exit because a stalled
 covered-until marker would block normal activity-detail retention.
+
+`crontab` writes a complete system crontab to stdout. It runs `brain module
+list --json` from `BRAIN_PATH` (default `/data/brain`), re-validates every
+module cron field before placing it in a system crontab line, and keeps the
+legacy `scripts/jobs/scrape-all.ts` fallback when that file exists and no
+enabled module exposes the `jobs` command. Its deployment parameters default
+to the historical shell values:
+
+| Flag | Default |
+| --- | --- |
+| `--wrapper-command` | `bun /opt/brain-ui/server/scripts/cron-run.ts` |
+| `--digest-command` | `bun /opt/brain-ui/server/scripts/brain-digest.ts` |
+| `--path-line` | `PATH=/root/.local/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` |
+| `--user` | `root` |
+
+For the packaged-bin cutover, pass the bin by absolute path because each job
+first changes directory to `/data/brain`, whose own `node_modules` must not
+decide which executable runs:
+
+```sh
+brain-ui-cron crontab \
+  --wrapper-command "/opt/brain-ui/server/node_modules/.bin/brain-ui-cron run" \
+  --digest-command "/opt/brain-ui/server/node_modules/.bin/brain-ui-cron digest" \
+  --user root
+```
+
+`environment` writes `/etc/environment` content to stdout. Its fixed-order
+allowlist comes from the SDK's `SUBPROCESS_ENV` `cron` audience. `NODE_ENV` is
+the one explicit compatibility exclusion: scheduled jobs historically did not
+receive it, so adding it would change Bun's `.env.<mode>` selection in the
+brain repository.
 
 ## What it owns
 

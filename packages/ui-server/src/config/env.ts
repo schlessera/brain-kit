@@ -499,6 +499,8 @@ type EnvRecord = Record<string, string | undefined>;
 
 /** Configuration resolved specifically for the standalone cron bin. */
 export interface CronConfig {
+  /** Brain repository inspected by the crontab emitter. */
+  brainPath: string;
   /** The deployment database; unlike createApp(), the bin defaults to the container path. */
   dbPath: string;
   /** Exact inherited environment for the scheduled child, before the span sink is added. */
@@ -681,6 +683,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
  */
 export function resolveCronConfig(env: EnvRecord = process.env): CronConfig {
   return {
+    brainPath: env.BRAIN_PATH || "/data/brain",
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",
     childEnv: { ...env },
   };

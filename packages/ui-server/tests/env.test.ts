@@ -39,6 +39,7 @@ describe("config/env subprocessEnv", () => {
 describe("config/env resolveCronConfig", () => {
   test("uses the container DB default and preserves the scheduled-job environment", () => {
     const config = resolveCronConfig({ SECRET: "still-visible" });
+    expect(config.brainPath).toBe("/data/brain");
     expect(config.dbPath).toBe("/data/db/brain-ui.db");
     expect(config.childEnv).toEqual({ SECRET: "still-visible" });
   });
@@ -46,6 +47,12 @@ describe("config/env resolveCronConfig", () => {
   test("honors DB_PATH", () => {
     expect(resolveCronConfig({ DB_PATH: "/custom/brain-ui.db" }).dbPath).toBe(
       "/custom/brain-ui.db"
+    );
+  });
+
+  test("honors BRAIN_PATH", () => {
+    expect(resolveCronConfig({ BRAIN_PATH: "/custom/brain" }).brainPath).toBe(
+      "/custom/brain"
     );
   });
 });

@@ -1,0 +1,33 @@
+{
+  "enabled": [
+    {
+      "name": "jobs",
+      "key": "@schlessera/brain-module-jobs",
+      "description": "Job search workflows",
+      "types": ["opportunity"],
+      "commands": ["jobs"],
+      "cron": [
+        {
+          "name": "scrape",
+          "schedule": "0 6 * * *",
+          "command": "jobs scrape --all --browser"
+        }
+      ]
+    },
+    {
+      "name": "finance",
+      "key": "@schlessera/brain-module-finance",
+      "description": "Finance workflows",
+      "types": ["finance"],
+      "commands": ["finance"],
+      "cron": [
+        {
+          "name": "remind",
+          "schedule": "15 8 * * 1",
+          "command": "finance reminders"
+        }
+      ]
+    }
+  ],
+  "available": []
+}

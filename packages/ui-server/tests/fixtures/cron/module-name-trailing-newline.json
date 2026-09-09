@@ -1,0 +1,33 @@
+{
+  "enabled": [
+    {
+      "name": "jobs\n",
+      "key": "./modules/jobs",
+      "description": null,
+      "types": [],
+      "commands": ["jobs"],
+      "cron": [
+        {
+          "name": "scrape",
+          "schedule": "0 6 * * *",
+          "command": "jobs scrape"
+        }
+      ]
+    },
+    {
+      "name": "finance",
+      "key": "@schlessera/brain-module-finance",
+      "description": null,
+      "types": ["finance"],
+      "commands": ["finance"],
+      "cron": [
+        {
+          "name": "remind",
+          "schedule": "15 8 * * 1",
+          "command": "finance reminders"
+        }
+      ]
+    }
+  ],
+  "available": []
+}
