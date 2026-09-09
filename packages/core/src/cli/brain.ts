@@ -31,7 +31,7 @@ import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/
 
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
-import { computeJson, UsageError } from "./io.js";
+import { computeJson, scanCliArgs, UsageError } from "./io.js";
 
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
@@ -157,8 +157,7 @@ async function main(): Promise<number> {
     return 0;
   }
   const json = computeJson(argv);
-  const wantsHelp = argv.includes("--help") || argv.includes("-h");
-  const command = argv[0] && !argv[0].startsWith("-") ? argv[0] : undefined;
+  const { command, wantsHelp } = scanCliArgs(argv);
 
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;

@@ -53,7 +53,7 @@ import {
   createBackendRegistry,
   type BackendRegistry,
 } from "./agent/backend.js";
-import { createBrainClient } from "./brain/client.js";
+import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
@@ -177,6 +177,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
+  probeBrainCliVersion(config.brainPath, observability.logger("brain"));
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
   const brain = createBrainClient({ brainPath: config.brainPath });

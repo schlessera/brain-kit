@@ -1,10 +1,157 @@
-import { describe, test, expect } from "bun:test";
-import { createBrainClient } from "../src/brain/client";
+import { afterEach, describe, test, expect } from "bun:test";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { createStaticBackendRegistry } from "../src/agent/backend";
+import { createApp } from "../src/app";
+import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
+import { resolveServerConfig } from "../src/config/env";
+import { createRecordingObservability } from "../src/observability/index";
+import { makeFakeBackend } from "./helpers/fake-backend";
+
+const temporaryRoots: string[] = [];
+
+afterEach(() => {
+  while (temporaryRoots.length) {
+    rmSync(temporaryRoots.pop()!, { recursive: true, force: true });
+  }
+});
+
+function temporaryBrain(): string {
+  const root = mkdtempSync(join(tmpdir(), "brain-client-test-"));
+  temporaryRoots.push(root);
+  return root;
+}
+
+function installBrainCli(root: string, source: string): void {
+  const binDir = join(root, "node_modules", ".bin");
+  mkdirSync(binDir, { recursive: true });
+  const bin = join(binDir, "brain");
+  writeFileSync(bin, `#!/usr/bin/env bun\n${source}`);
+  chmodSync(bin, 0o755);
+}
+
+function appConfig(brainPath: string) {
+  return resolveServerConfig({
+    AUTH_MODE: "none",
+    HOST: "127.0.0.1",
+    DB_PATH: ":memory:",
+    BRAIN_PATH: brainPath,
+    BRAIN_UI_PRICING_DISCOVERY: "0",
+  });
+}
+
+const registry = () =>
+  createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
+
+describe("brain CLI invocation", () => {
+  test("places flags before -- and a --prefixed search query after it", async () => {
+    const root = temporaryBrain();
+    const capture = join(root, "argv.jsonl");
+    installBrainCli(
+      root,
+      `import { appendFileSync } from "fs";\n` +
+        `appendFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
+        `console.log(JSON.stringify({ results: [], warnings: [] }));\n`
+    );
+
+    await createBrainClient({ brainPath: root }).search("--weird query", {
+      type: "note",
+      limit: 2,
+    });
+
+    expect(JSON.parse(readFileSync(capture, "utf8").trim())).toEqual([
+      "search",
+      "--type",
+      "note",
+      "--limit",
+      "2",
+      "--",
+      "--weird query",
+    ]);
+  });
+});
+
+describe("brain CLI version probe", () => {
+  test("a below-minimum brain repo pin refuses app creation", () => {
+    const root = temporaryBrain();
+    installBrainCli(root, `console.log("0.32.9");\n`);
+    const observability = createRecordingObservability();
+
+    expect(() =>
+      createApp({
+        config: appConfig(root),
+        observability,
+        registry: registry(),
+      })
+    ).toThrow(
+      /brain CLI version 0\.32\.9.*version 0\.33\.0.*bump the brain repo's @schlessera\/brain pin/
+    );
+  });
+
+  test("a malformed version string warns and still boots", () => {
+    // "0.32.9-.." is not SemVer: the prerelease identifiers are empty. A loose
+    // prerelease pattern would parse it as a real 0.32.9 prerelease and refuse
+    // to boot; the contract is that anything unparseable warns and continues.
+    const root = temporaryBrain();
+    installBrainCli(root, `console.log("0.32.9-..");\n`);
+    const observability = createRecordingObservability();
+
+    const app = createApp({
+      config: appConfig(root),
+      observability,
+      registry: registry(),
+    });
+
+    expect(
+      observability.logs.count({ scope: "brain", severity: "WARN" })
+    ).toBe(1);
+    app.close();
+  });
+
+  test("an unresolvable CLI warns and still boots", () => {
+    const root = temporaryBrain();
+    const observability = createRecordingObservability();
+    const app = createApp({
+      config: appConfig(root),
+      observability,
+      registry: registry(),
+    });
+
+    expect(
+      observability.logs.count({
+        scope: "brain",
+        severity: "WARN",
+        body: "version probe failed",
+      })
+    ).toBe(1);
+    app.close();
+  });
+});
 
 // These tests require the brain repo at ~/brain
-const BRAIN_AVAILABLE = Bun.spawnSync(["test", "-d", `${process.env.HOME}/brain/.git`]).exitCode === 0;
+const LOCAL_BRAIN_PATH = `${process.env.HOME}/brain`;
+const BRAIN_AVAILABLE = (() => {
+  if (Bun.spawnSync(["test", "-d", `${LOCAL_BRAIN_PATH}/.git`]).exitCode !== 0) {
+    return false;
+  }
+  const observability = createRecordingObservability();
+  try {
+    probeBrainCliVersion(LOCAL_BRAIN_PATH, observability.logger("brain"));
+    return observability.logs.count({ severity: "WARN" }) === 0;
+  } catch {
+    return false;
+  }
+})();
 
-const client = createBrainClient({ brainPath: `${process.env.HOME}/brain` });
+const client = createBrainClient({ brainPath: LOCAL_BRAIN_PATH });
 const brainSearch = client.search;
 const brainBriefing = client.briefing;
 const brainStats = client.stats;

@@ -19,6 +19,7 @@ const ENV = [
   "ALLOWED_ORIGINS",
   "TRUST_PROXY",
   "DB_PATH",
+  "BRAIN_PATH",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 const TEST_DB = join(tmpdir(), `app-wiring-test-${process.pid}.db`);
@@ -33,6 +34,8 @@ beforeAll(async () => {
   delete process.env.TRUST_PROXY;
   // Passkey routes touch the DB; never let a wiring test open a real db file.
   process.env.DB_PATH = TEST_DB;
+  // The version probe must never inspect a developer's real brain repo.
+  process.env.BRAIN_PATH = join(tmpdir(), `app-wiring-brain-${process.pid}`);
 });
 
 afterAll(() => {

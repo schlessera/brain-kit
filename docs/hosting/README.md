@@ -23,6 +23,15 @@ holds your data and your API tokens. That is powerful and it is a real attack
 surface — which is why auth is mandatory (below) and why the content repo must
 stay private.
 
+## Upgrading to 0.33.0
+
+Before deploying brain-ui 0.33.0, bump the brain repo's
+`@schlessera/brain` pin to 0.33.0 or newer and refresh its lockfile. The
+ui-server now places `--` before user-controlled CLI positionals, which requires
+the end-of-options parser added in core 0.33.0. Rolling the image back does not
+roll back the brain repo's package pin; manage that pin separately (and leaving
+the compatible newer core pinned is safe).
+
 ## The `/brain-host` skill
 
 `/brain-host` is the conversational way to set this up. It interviews you for

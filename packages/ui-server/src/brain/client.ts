@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { join } from "path";
+import type { Logger } from "@opentelemetry/api-logs";
 import { subprocessEnv } from "../config/env.js";
 import type {
   BrainSearchResult,
@@ -49,6 +50,13 @@ interface ExecResult {
 }
 
 /**
+ * First core release whose parser understands `--`. The ui-server inserts the
+ * separator before user input, so an older brain repo pin would lose every
+ * positional silently.
+ */
+export const MIN_BRAIN_CLI_VERSION = "0.33.0";
+
+/**
  * argv prefix for invoking the brain CLI inside `brainPath`.
  *
  * Two brain-repo layouts exist and both must work: a repo that depends on
@@ -65,6 +73,88 @@ export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");
   if (existsSync(packaged)) return [packaged];
   return ["bun", "scripts/brain-cli.ts"];
+}
+
+interface ParsedVersion {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: boolean;
+}
+
+function parseVersion(value: string): ParsedVersion | null {
+  const match = value.match(
+    // Full SemVer 2.0.0 grammar: prerelease and build metadata are
+    // dot-separated NON-EMPTY identifiers. A loose `[0-9A-Za-z.-]+` would
+    // accept "0.32.9-.." and treat garbage as a real prerelease, which the
+    // comparison below would then refuse to boot on instead of warning.
+    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+  );
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] !== undefined,
+  };
+}
+
+function isBelowMinimum(found: ParsedVersion, minimum: ParsedVersion): boolean {
+  for (const key of ["major", "minor", "patch"] as const) {
+    if (found[key] !== minimum[key]) return found[key] < minimum[key];
+  }
+  return found.prerelease && !minimum.prerelease;
+}
+
+/** Probe the brain repo's own CLI pin, refusing only known-incompatible versions. */
+export function probeBrainCliVersion(brainPath: string, log: Logger): void {
+  let result: ReturnType<typeof Bun.spawnSync>;
+  try {
+    result = Bun.spawnSync([...brainCliCommand(brainPath), "--version"], {
+      cwd: brainPath,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: subprocessEnv({ NO_COLOR: "1" }),
+      timeout: 5_000,
+    });
+  } catch (error) {
+    log.emit({
+      severityText: "WARN",
+      body: "brain CLI version probe failed; continuing",
+      attributes: {
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    });
+    return;
+  }
+
+  if (result.exitCode !== 0) {
+    log.emit({
+      severityText: "WARN",
+      body: "brain CLI version probe failed; continuing",
+      attributes: { "exit.code": result.exitCode },
+    });
+    return;
+  }
+
+  const foundText = new TextDecoder().decode(result.stdout).trim();
+  const found = parseVersion(foundText);
+  const minimum = parseVersion(MIN_BRAIN_CLI_VERSION)!;
+  if (!found) {
+    log.emit({
+      severityText: "WARN",
+      body: "brain CLI returned an unparseable version; continuing",
+      attributes: { version: foundText },
+    });
+    return;
+  }
+
+  if (isBelowMinimum(found, minimum)) {
+    throw new Error(
+      `brain CLI version ${foundText} is incompatible: version ${MIN_BRAIN_CLI_VERSION} ` +
+        `or newer is required; bump the brain repo's @schlessera/brain pin before deploying.`
+    );
+  }
 }
 
 export function createBrainClient(opts: { brainPath: string }): BrainClient {
@@ -108,11 +198,12 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
     },
 
     async search(query, opts) {
-      const args = ["search", query];
+      const args = ["search"];
       if (opts?.type) args.push("--type", opts.type);
       if (opts?.tag) args.push("--tag", opts.tag);
       if (opts?.limit) args.push("--limit", String(opts.limit));
       if (opts?.mode) args.push("--mode", opts.mode);
+      args.push("--", query);
 
       const result = await execBrain(args);
       const parsed = parseJsonOutput<BrainSearchResponse | BrainSearchResult[]>(result);
@@ -146,7 +237,7 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
     },
 
     async read(path) {
-      const result = await execBrain(["read", path]);
+      const result = await execBrain(["read", "--", path]);
       if (result.exitCode !== 0) {
         throw new Error(`brain read failed: ${result.stderr}`);
       }
@@ -178,10 +269,11 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
     },
 
     async add(content, opts) {
-      const args = ["add", content];
+      const args = ["add"];
       if (opts?.type) args.push("--type", opts.type);
       if (opts?.title) args.push("--title", opts.title);
       if (opts?.tags) args.push("--tags", opts.tags.join(","));
+      args.push("--", content);
 
       const result = await execBrain(args);
       if (result.exitCode !== 0) {

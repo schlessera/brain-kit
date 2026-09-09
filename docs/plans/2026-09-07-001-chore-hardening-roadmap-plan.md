@@ -646,7 +646,7 @@ not roll back the brain repo's core pin (U9).
 
 | Unit | Findings | Status |
 | --- | --- | --- |
-| U9. Core `parseArgs` end-of-options + `--` before positionals in the brain client | S12 | todo |
+| U9. Core `parseArgs` end-of-options + `--` before positionals in the brain client | S12 | done |
 | U13. `brain-ui-cron` bin in ui-server: `run`, `digest` | B1 | todo |
 | U14. Crontab and environment emitters (`crontab`, `environment`), golden test, adversarial fixtures | B2, S4 prerequisite | todo |
 | U15. SDK `./sw-policy` (registrars injected) + ui-react `useHashRoutes` / `useServiceWorkerUpdates` | B4 | todo |
@@ -1006,7 +1006,9 @@ Per milestone, in the same PRs:
 
 Release mechanics per milestone: changesets for every touched package;
 `bun run version`; read the version; `bunx tsc --noEmit && bun run test &&
-bun run build`; human `bun run release`; brain-ui deps-bump PR; prod deploy;
+bun run build`; human `bun run release`; brain-ui deps-bump PR; bump and install
+the brain repo's `@schlessera/brain` pin before the 0.33.0 prod deploy (an image
+rollback does not roll back that pin); prod deploy;
 did-it-actually-ship check; tag brain-ui; update the progress log below and
 the memory note.
 

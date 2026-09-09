@@ -23,6 +23,9 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 - Exit codes: `0` success · `1` usage error · `2` internal failure
   (`maintain` exits `2` if any step failed).
 - Boolean flags never consume the following argument.
+- End-of-options: a bare `--` stops flag parsing, and every later argument is
+  positional verbatim. Output-mode and help flags after it are positional too
+  (additive in 0.33.0).
 
 ### Stable `--json` shapes
 
