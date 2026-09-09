@@ -91,7 +91,19 @@ Roughly in order. Items move down as they land.
   JSON media-type gate, server-side session invalidation, a failure-counting
   login limiter, body and WebSocket connection caps, frame headers,
   share-staging containment, and server-only secrets stripped from every
-  subprocess. 0.33.0 is next.
+  subprocess. **0.33.0 Kit owns the app shipped on 2026-09-09** — the
+  `brain-ui-cron` bin with the crontab and `/etc/environment` emitters, core
+  `--` end-of-options with a CLI-version boot probe, the service-worker policy
+  and shell hooks in the SDK, registration on mount, protocol/schema type
+  equality, pinned installers and the sshd program out of the app container.
+  **0.33.1** followed with the per-audience subprocess allowlist and a
+  WebSocket origin fix (a proxy that forwards `wss` as the upgrade scheme made
+  every browser handshake fail the origin comparison). **0.34.0 One backend
+  seam** is prepared: a published contract harness, characterization tests on
+  both backends, one permission decision core, split factories, the four bridge
+  tools defined once in the SDK, and self-describing backend descriptors the
+  registry iterates; **0.34.1** carries the dispatcher, store and page splits.
+  0.35.0 Least privilege container is next, designed by the U24 spike.
 - **A real `brain-template` repo.** `docs/quickstart.md`, `template/README.md`,
   and this repo's README all point users at `schlessera/brain-template`, which
   does not exist yet — `template/` here is its source. Publishing it (marked as
