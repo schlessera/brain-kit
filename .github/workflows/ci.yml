@@ -208,6 +208,67 @@ jobs:
           CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
           (cd "$CONSUMER_DIR" && bun add -d @types/bun @types/react @types/react-dom)
           bun scripts/check-dist-types.ts --root "$CONSUMER_DIR"
+      - name: Smoke-test brain-ui-react against React 18
+        # The primary consumer above follows the current React release. This
+        # narrow second consumer keeps the package's >=18 peer claim honest
+        # without reinstalling or rechecking the complete package matrix.
+        run: |
+          set -euo pipefail
+          REPO_DIR="$PWD"
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-react18-consumer"
+          mkdir -p "$CONSUMER_DIR"
+          cd "$CONSUMER_DIR"
+          bun add \
+            "$TARBALL_DIR/ui-sdk.tgz" \
+            "$TARBALL_DIR/ui-react.tgz" \
+            'react@^18' \
+            'react-dom@^18'
+          bun add -d \
+            '@types/react@^18' \
+            '@types/react-dom@^18'
+          bun -e '
+            for (const name of [
+              "react",
+              "react-dom",
+              "@types/react",
+              "@types/react-dom",
+            ]) {
+              const manifest = await Bun.file(`node_modules/${name}/package.json`).json();
+              if (!manifest.version.startsWith("18.")) {
+                throw new Error(`Expected ${name} 18.x, got ${manifest.version}`);
+              }
+            }
+            const loaded = await import("@schlessera/brain-ui-react");
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error("Bun failed to import @schlessera/brain-ui-react on React 18");
+            }
+            await Bun.write("index.ts", `
+              import * as ui from "@schlessera/brain-ui-react";
+              ui;
+            `);
+            await Bun.write("tsconfig.json", JSON.stringify({
+              compilerOptions: {
+                target: "ESNext",
+                module: "ESNext",
+                moduleResolution: "bundler",
+                strict: true,
+                skipLibCheck: false,
+                noEmit: true,
+                lib: ["ESNext", "DOM", "DOM.Iterable"],
+                jsx: "react-jsx",
+                types: [],
+              },
+              include: ["index.ts"],
+            }, null, 2) + "\n");
+          '
+          node --input-type=module -e '
+            const loaded = await import("@schlessera/brain-ui-react");
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error("Node failed to import @schlessera/brain-ui-react on React 18");
+            }
+          '
+          "$REPO_DIR/node_modules/.bin/tsc" -p tsconfig.json --pretty false
 
   changeset:
     # A user-visible change without a changeset publishes with no version entry

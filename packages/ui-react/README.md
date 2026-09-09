@@ -9,6 +9,13 @@ The deployment shell owns the document: `index.html`, the mount point, the
 Vite/PWA build, the service worker, and the theme entry. This package ships
 prebuilt JS + `.d.ts` plus its styles in two forms.
 
+## React compatibility
+
+The `react` and `react-dom` peer range remains `>=18`: React 18 and the current
+React release are both covered by the packaging smoke test. It installs the
+packed package with matching `@types/react` and `@types/react-dom`, imports the
+entry point, and typechecks the emitted `.d.ts` against React 18's types.
+
 ## Usage
 
 ```tsx

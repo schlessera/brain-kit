@@ -654,7 +654,7 @@ not roll back the brain repo's core pin (U9).
 | U17. Protocol/schema type-level equality test | M6 | done |
 | U18. `[brain-ui]` integration suite pruned and in CI against a temp brain | B5 | todo |
 | U19. `[brain-ui]` entrypoint calls the bin; hosting.md first boot, token scope, required vars, `TRUST_PROXY`; deploy shim image owner as argument | B7 | todo |
-| U20. React 18 in the CI smoke test, or peer narrowed | K7a | todo |
+| U20. React 18 in the CI smoke test, or peer narrowed | K7a | done |
 | U21. Subprocess env, step 2: per-audience allowlist + escape hatch (ships as 0.33.1) | S4a (final) | todo |
 | U22. `[brain-ui]` pinned installers with checksums; sshd program and `EXPOSE 22` out | S7, S8 | todo |
 | U23. `[brain-ui]` deps bump, tag `v0.33.0` | — | todo |
