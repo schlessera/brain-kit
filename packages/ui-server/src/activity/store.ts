@@ -38,6 +38,7 @@ import {
   resolveStandalonePricingConfig,
 } from "../config/env.js";
 import { createModelPricing, type PricingRates } from "../pricing/model-pricing.js";
+import { ACTIVITY_SQL } from "./sql.js";
 
 export const SPAN_OUTCOMES = [
   "success",
@@ -327,15 +328,13 @@ export function createActivityStore(
 
   function nextSeq(runId: string): number {
     const row = db
-      .query("SELECT COALESCE(MAX(seq), 0) AS hi FROM activity_changes WHERE run_id = ?")
+      .query(ACTIVITY_SQL.nextSeq)
       .get(runId) as { hi: number };
     return row.hi + 1;
   }
 
   function logChange(runId: string, seq: number, spanId: string, eventIndex?: number) {
-    db.query(
-      "INSERT INTO activity_changes (run_id, seq, span_id, event_index) VALUES (?, ?, ?, ?)"
-    ).run(runId, seq, spanId, eventIndex ?? null);
+    db.query(ACTIVITY_SQL.insertChange).run(runId, seq, spanId, eventIndex ?? null);
   }
 
   function rowToSpan(r: any): SpanRow {
@@ -380,20 +379,20 @@ export function createActivityStore(
   }
 
   function getSpanRaw(spanId: string): SpanRow | null {
-    const r = db.query("SELECT * FROM activity_spans WHERE span_id = ?").get(spanId);
+    const r = db.query(ACTIVITY_SQL.spanById).get(spanId);
     return r ? rowToSpan(r) : null;
   }
 
   function runHighWaterSeqRaw(runId: string): number {
     const row = db
-      .query("SELECT COALESCE(MAX(seq), 0) AS hi FROM activity_changes WHERE run_id = ?")
+      .query(ACTIVITY_SQL.nextSeq)
       .get(runId) as { hi: number };
     return row.hi;
   }
 
   function endSpanInTx(spanId: string, input: EndSpanInput): boolean {
     const existing = db
-      .query("SELECT run_id, outcome, attrs FROM activity_spans WHERE span_id = ?")
+      .query(ACTIVITY_SQL.spanStateById)
       .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
     if (!existing || existing.outcome !== null) return false;
 
@@ -402,16 +401,7 @@ export function createActivityStore(
       ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...input.attrs })
       : existing.attrs;
     const u = input.usage ?? {};
-    db.query(
-      `UPDATE activity_spans SET outcome = ?, outcome_reason = ?, ended_at = ?, attrs = ?,
-         input_tokens = COALESCE(?, input_tokens),
-         output_tokens = COALESCE(?, output_tokens),
-         cache_read_tokens = COALESCE(?, cache_read_tokens),
-         cache_creation_tokens = COALESCE(?, cache_creation_tokens),
-         cost_usd = COALESCE(?, cost_usd),
-         model = COALESCE(?, model)
-       WHERE span_id = ?`
-    ).run(
+    db.query(ACTIVITY_SQL.endSpan).run(
       input.outcome,
       input.reason ?? null,
       endedAt,
@@ -431,9 +421,7 @@ export function createActivityStore(
   /** Close every open span of the run (children first) and roll it up. */
   function closeRunInTx(runId: string, outcome: SpanOutcome, reason: string): number {
     const open = db
-      .query(
-        "SELECT span_id FROM activity_spans WHERE run_id = ? AND outcome IS NULL ORDER BY started_at DESC"
-      )
+      .query(ACTIVITY_SQL.openSpansByRun)
       .all(runId) as Array<{ span_id: string }>;
     let closed = 0;
     for (const { span_id } of open) {
@@ -445,7 +433,7 @@ export function createActivityStore(
 
   function rollupRunInTx(runId: string) {
     const spans = db
-      .query("SELECT * FROM activity_spans WHERE run_id = ? ORDER BY started_at")
+      .query(ACTIVITY_SQL.spansByRun)
       .all(runId)
       .map(rowToSpan);
     if (spans.length === 0) return;
@@ -506,37 +494,7 @@ export function createActivityStore(
     const costUsd = root.usage.costUsd ?? priced?.costUsd ?? null;
 
     db.query(
-      `INSERT INTO activity_run_rollups
-         (run_id, origin, name, session_id, job_name, started_at, ended_at, outcome,
-          duration_ms, span_count, input_tokens, output_tokens, cache_read_tokens,
-          cache_creation_tokens, cost_usd, effective_cost_usd, billing_mode,
-          pricing_estimate, failure_reason, detail_pruned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-       ON CONFLICT(run_id) DO UPDATE SET
-         ended_at = excluded.ended_at, outcome = excluded.outcome,
-         duration_ms = excluded.duration_ms, span_count = excluded.span_count,
-         input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
-         cache_read_tokens = excluded.cache_read_tokens,
-         cache_creation_tokens = excluded.cache_creation_tokens,
-         cost_usd = COALESCE(activity_run_rollups.cost_usd, excluded.cost_usd),
-         effective_cost_usd = CASE
-           WHEN activity_run_rollups.effective_cost_usd IS NOT NULL
-             THEN activity_run_rollups.effective_cost_usd
-           WHEN activity_run_rollups.billing_mode IS NULL
-             OR activity_run_rollups.billing_mode = excluded.billing_mode
-             THEN excluded.effective_cost_usd
-           ELSE NULL
-         END,
-         billing_mode = COALESCE(activity_run_rollups.billing_mode, excluded.billing_mode),
-         pricing_estimate = CASE
-           WHEN activity_run_rollups.pricing_estimate IS NOT NULL
-             THEN activity_run_rollups.pricing_estimate
-           WHEN activity_run_rollups.billing_mode IS NULL
-             OR activity_run_rollups.billing_mode = excluded.billing_mode
-             THEN excluded.pricing_estimate
-           ELSE NULL
-         END,
-         failure_reason = excluded.failure_reason`
+      ACTIVITY_SQL.upsertRollup
       // Every cost column is FROZEN at first non-NULL write (AE5): a re-rollup
       // after a pricing refresh must not silently reprice history — only a
       // still-NULL slot may be filled by a later computation. cost_usd gets
@@ -576,12 +534,7 @@ export function createActivityStore(
     startSpan(input) {
       return inWrite(() => {
         const startedAt = input.startedAt ?? Date.now();
-        db.query(
-          `INSERT INTO activity_spans
-             (span_id, run_id, parent_span_id, name, kind, origin, session_id, job_name,
-              attrs, started_at, writer, last_heartbeat_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        db.query(ACTIVITY_SQL.insertSpan).run(
           input.spanId,
           input.runId,
           input.parentSpanId ?? null,
@@ -607,23 +560,14 @@ export function createActivityStore(
     patchSpan(spanId, patch) {
       return inWrite(() => {
         const existing = db
-          .query("SELECT run_id, outcome, attrs FROM activity_spans WHERE span_id = ?")
+          .query(ACTIVITY_SQL.spanStateById)
           .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
         if (!existing || existing.outcome !== null) return false;
         const attrs = patch.attrs
           ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...patch.attrs })
           : existing.attrs;
         const u = patch.usage ?? {};
-        db.query(
-          `UPDATE activity_spans SET attrs = ?, wait_until = COALESCE(?, wait_until),
-             input_tokens = COALESCE(?, input_tokens),
-             output_tokens = COALESCE(?, output_tokens),
-             cache_read_tokens = COALESCE(?, cache_read_tokens),
-             cache_creation_tokens = COALESCE(?, cache_creation_tokens),
-             cost_usd = COALESCE(?, cost_usd),
-             model = COALESCE(?, model)
-           WHERE span_id = ?`
-        ).run(
+        db.query(ACTIVITY_SQL.patchSpan).run(
           attrs,
           patch.waitUntil ?? null,
           u.inputTokens ?? null,
@@ -642,19 +586,21 @@ export function createActivityStore(
     appendEvent(spanId, eventType, payload, ts, cap) {
       return inWrite(() => {
         const span = db
-          .query("SELECT run_id FROM activity_spans WHERE span_id = ?")
+          .query(ACTIVITY_SQL.spanRunById)
           .get(spanId) as { run_id: string } | null;
         if (!span) return null;
         const next = db
-          .query(
-            "SELECT COALESCE(MAX(event_index), -1) + 1 AS idx FROM activity_events WHERE span_id = ?"
-          )
+          .query(ACTIVITY_SQL.nextEventIndex)
           .get(spanId) as { idx: number };
         const stored = capPayload(payload, cap);
         const at = ts ?? Date.now();
-        db.query(
-          "INSERT INTO activity_events (span_id, event_index, ts, event_type, payload) VALUES (?, ?, ?, ?, ?)"
-        ).run(spanId, next.idx, at, eventType, JSON.stringify(stored));
+        db.query(ACTIVITY_SQL.insertEvent).run(
+          spanId,
+          next.idx,
+          at,
+          eventType,
+          JSON.stringify(stored)
+        );
         logChange(span.run_id, nextSeq(span.run_id), spanId, next.idx);
         // Built from the values just written — no read-back needed.
         return {
@@ -672,9 +618,7 @@ export function createActivityStore(
       inWrite(() => {
         // Deliberately NOT change-logged: a heartbeat is liveness metadata,
         // not activity the client needs a delta for.
-        db.query(
-          "UPDATE activity_spans SET last_heartbeat_at = ? WHERE span_id = ? AND outcome IS NULL"
-        ).run(at ?? Date.now(), spanId);
+        db.query(ACTIVITY_SQL.heartbeat).run(at ?? Date.now(), spanId);
       });
     },
 
@@ -697,9 +641,7 @@ export function createActivityStore(
       // loop re-checks open-ness inside the transaction (endSpanInTx is
       // write-once), so a race just skips.
       const open = db
-        .query(
-          "SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL AND origin = 'session'"
-        )
+        .query(ACTIVITY_SQL.openSessionRuns)
         .all() as Array<{ run_id: string }>;
       if (open.length === 0) return 0;
       getPricing(); // construct outside the write lock; rollup reuses it
@@ -718,11 +660,7 @@ export function createActivityStore(
       // legitimately long, quiet run with a live writer is never killed.
       // Candidate read outside the write transaction, same as sweepOwnOrphans.
       const staleRoots = db
-        .query(
-          `SELECT span_id, run_id FROM activity_spans
-           WHERE outcome IS NULL AND parent_span_id IS NULL
-             AND writer != ? AND COALESCE(last_heartbeat_at, started_at) < ?`
-        )
+        .query(ACTIVITY_SQL.staleRoots)
         .all(writer, cutoff) as Array<{ span_id: string; run_id: string }>;
       if (staleRoots.length === 0) return 0;
       getPricing(); // construct outside the write lock; rollup reuses it
@@ -739,9 +677,7 @@ export function createActivityStore(
       const cutoff = (now ?? Date.now()) - thresholdMs;
       return (
         db
-          .query(
-            "SELECT * FROM activity_spans WHERE outcome IS NULL AND parent_span_id IS NULL AND started_at < ?"
-          )
+          .query(ACTIVITY_SQL.stuckRoots)
           .all(cutoff) as any[]
       ).map(rowToSpan);
     },
@@ -751,23 +687,10 @@ export function createActivityStore(
       // change whose span/event row was pruned drops out via the join, same
       // as the old per-row miss.
       const spanRows = db
-        .query(
-          `SELECT c.change_id, c.run_id, c.seq, s.*
-           FROM activity_changes c
-           JOIN activity_spans s ON s.span_id = c.span_id
-           WHERE c.change_id > ? AND c.event_index IS NULL
-           ORDER BY c.change_id LIMIT ?`
-        )
+        .query(ACTIVITY_SQL.spanChanges)
         .all(changeCursor, limit) as any[];
       const eventRows = db
-        .query(
-          `SELECT c.change_id, c.run_id, c.seq, e.*
-           FROM activity_changes c
-           JOIN activity_events e
-             ON e.span_id = c.span_id AND e.event_index = c.event_index
-           WHERE c.change_id > ? AND c.event_index IS NOT NULL
-           ORDER BY c.change_id LIMIT ?`
-        )
+        .query(ACTIVITY_SQL.eventChanges)
         .all(changeCursor, limit) as any[];
       const changes: ActivityChange[] = [
         ...spanRows.map(
@@ -795,22 +718,14 @@ export function createActivityStore(
 
     terminalRootChangesSince(changeCursor, limit = 500) {
       const rows = db
-        .query(
-          `SELECT MAX(c.change_id) AS change_id, s.*
-           FROM activity_changes c
-           JOIN activity_spans s ON s.span_id = c.span_id
-           WHERE c.change_id > ? AND c.event_index IS NULL
-             AND s.parent_span_id IS NULL AND s.outcome IS NOT NULL
-           GROUP BY s.span_id
-           ORDER BY change_id LIMIT ?`
-        )
+        .query(ACTIVITY_SQL.terminalRootChanges)
         .all(changeCursor, limit) as any[];
       return rows.map((r) => ({ changeId: r.change_id, span: rowToSpan(r) }));
     },
 
     latestChangeCursor() {
       const row = db
-        .query("SELECT COALESCE(MAX(change_id), 0) AS hi FROM activity_changes")
+        .query(ACTIVITY_SQL.latestChangeCursor)
         .get() as { hi: number };
       return row.hi;
     },
@@ -822,21 +737,17 @@ export function createActivityStore(
       return db.transaction(() => {
         const spans = (
           db
-            .query("SELECT * FROM activity_spans WHERE run_id = ? ORDER BY started_at")
+            .query(ACTIVITY_SQL.spansByRun)
             .all(runId) as any[]
         ).map(rowToSpan);
         if (spans.length === 0) return null;
         const events = (
           db
-            .query(
-              `SELECT e.* FROM activity_events e
-               JOIN activity_spans s ON s.span_id = e.span_id
-               WHERE s.run_id = ? ORDER BY e.ts, e.event_index`
-            )
+            .query(ACTIVITY_SQL.eventsByRun)
             .all(runId) as any[]
         ).map(rowToEvent);
         const cursor = db
-          .query("SELECT COALESCE(MAX(change_id), 0) AS hi FROM activity_changes")
+          .query(ACTIVITY_SQL.latestChangeCursor)
           .get() as { hi: number };
         return {
           runId,
@@ -855,9 +766,7 @@ export function createActivityStore(
     openRootSpans() {
       return (
         db
-          .query(
-            "SELECT * FROM activity_spans WHERE outcome IS NULL AND parent_span_id IS NULL ORDER BY started_at DESC"
-          )
+          .query(ACTIVITY_SQL.openRootSpans)
           .all() as any[]
       ).map(rowToSpan);
     },
@@ -887,46 +796,24 @@ export function createActivityStore(
         // run — that terminal write is what made the run prunable), guarded
         // against any run that still has an open span.
         const candidates = db
-          .query(
-            `SELECT run_id, ended_at AS ended FROM activity_run_rollups r
-             WHERE detail_pruned = 0 AND ended_at IS NOT NULL
-               AND ((ended_at < ? AND ended_at < ?) OR ended_at < ?)
-               AND NOT EXISTS (
-                 SELECT 1 FROM activity_spans s
-                 WHERE s.run_id = r.run_id AND s.outcome IS NULL
-               )
-             LIMIT ?`
-          )
+          .query(ACTIVITY_SQL.pruneCandidates)
           .all(floor, retentionCutoff, ceiling, batch) as Array<{ run_id: string; ended: number }>;
         let spansDeleted = 0;
         for (const { run_id, ended } of candidates) {
-          db.query(
-            "UPDATE activity_run_rollups SET detail_pruned = 1 WHERE run_id = ?"
-          ).run(run_id);
+          db.query(ACTIVITY_SQL.markDetailPruned).run(run_id);
           if (ended >= floor) {
             // Pruned by the hard ceiling alone — the digest never covered
             // this run; make the coverage gap visible on the rollup.
-            db.query(
-              "UPDATE activity_run_rollups SET failure_reason = COALESCE(failure_reason, 'digest coverage gap') WHERE run_id = ?"
-            ).run(run_id);
+            db.query(ACTIVITY_SQL.markDigestCoverageGap).run(run_id);
           }
-          db.query(
-            `DELETE FROM activity_events WHERE span_id IN
-               (SELECT span_id FROM activity_spans WHERE run_id = ?)`
-          ).run(run_id);
-          const res = db.query("DELETE FROM activity_spans WHERE run_id = ?").run(run_id);
+          db.query(ACTIVITY_SQL.deleteEventsByRun).run(run_id);
+          const res = db.query(ACTIVITY_SQL.deleteSpansByRun).run(run_id);
           spansDeleted += res.changes;
-          db.query("DELETE FROM activity_changes WHERE run_id = ?").run(run_id);
+          db.query(ACTIVITY_SQL.deleteChangesByRun).run(run_id);
         }
         // The change log only serves live polling; rows this deep in the past
         // are unreachable by any live cursor. Keep runs with open spans.
-        db.query(
-          `DELETE FROM activity_changes WHERE change_id < (
-             SELECT COALESCE(MAX(change_id), 0) FROM activity_changes
-           ) - 100000 AND run_id NOT IN (
-             SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL
-           )`
-        ).run();
+        db.query(ACTIVITY_SQL.compactChanges).run();
         return { runsPruned: candidates.length, spansDeleted };
       });
     },

@@ -2,115 +2,17 @@ import { useEffect, useRef, useCallback } from "react";
 import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
-import { useProviderStore } from "../stores/provider-store.js";
-import { useMaskStore } from "../stores/mask-store.js";
 import { useActivityStore, loadSessionActivityHistory } from "../stores/activity-store.js";
 import { getWsUrl } from "../lib/backend.js";
 import type {
   ServerMessage,
   ClientMessage,
   ServerLocationRequest,
-  SessionHistoryMessage,
-  AskUserQuestion,
 } from "@schlessera/brain-ui-sdk/protocol";
-import type { ChatMessage, ToolCall, AskUserExchange } from "../stores/chat-store.js";
-import { isAskUserTool } from "../lib/tool-names.js";
+import { dispatchServerMessage } from "./websocket-handlers/index.js";
+import { runStateForFrame } from "./websocket-handlers/chat.js";
 
-let historyMessageCounter = 0;
-function historyId() {
-  return `hist-${++historyMessageCounter}-${Date.now()}`;
-}
-
-function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
-  // Fallback for history without chronological parts: synthesize the legacy
-  // grouped order (thinking, tools, text).
-  const parts =
-    msg.parts ??
-    [
-      ...(msg.thinking ? [{ kind: "thinking", text: msg.thinking } as const] : []),
-      ...msg.toolCalls.map((_, i) => ({ kind: "tool", toolIndex: i }) as const),
-      ...(msg.content ? [{ kind: "text", text: msg.content } as const] : []),
-    ];
-  const askUserExchanges = reconstructAskUserExchanges(msg.toolCalls);
-  return {
-    id: historyId(),
-    role: msg.role,
-    content: msg.content,
-    thinking: msg.thinking,
-    toolCalls: msg.toolCalls.map((tc): ToolCall => ({
-      id: tc.id,
-      name: tc.name,
-      input: tc.input,
-      inputJson: JSON.stringify(tc.input, null, 2),
-      output: tc.output,
-      isError: tc.isError,
-      status: "complete",
-    })),
-    parts,
-    isStreaming: false,
-    timestamp: Date.now(),
-    ...(askUserExchanges ? { askUserExchanges } : {}),
-    ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
-  };
-}
-
-/**
- * Rebuild ask_user exchanges from a resumed message's tool calls. The ask_user
- * tool's input carries the questions and its output carries the JSON answer
- * payload, so an answered question survives session resume (rendered in its
- * chronological slot, collapsed) instead of vanishing.
- */
-function isBareAnswersMap(v: unknown): v is Record<string, string> {
-  return (
-    !!v &&
-    typeof v === "object" &&
-    !Array.isArray(v) &&
-    Object.values(v).every((x) => typeof x === "string")
-  );
-}
-
-function reconstructAskUserExchanges(
-  toolCalls: SessionHistoryMessage["toolCalls"]
-): AskUserExchange[] | undefined {
-  const exchanges: AskUserExchange[] = [];
-  for (const tc of toolCalls) {
-    if (!isAskUserTool(tc.name)) continue;
-    const questions = (tc.input?.questions as AskUserQuestion[]) ?? [];
-    const exchange: AskUserExchange = { requestId: tc.id, questions };
-    if (tc.output) {
-      try {
-        const payload = JSON.parse(tc.output) as {
-          answers?: Record<string, string>;
-          annotations?: AskUserExchange["annotations"];
-        };
-        if (payload && typeof payload === "object" && payload.answers) {
-          exchange.answers = payload.answers;
-          exchange.annotations = payload.annotations;
-        } else if (isBareAnswersMap(payload)) {
-          // The pi backend persists the bare answers map, without the
-          // `{answers}` envelope the Claude tool writes.
-          exchange.answers = payload;
-        }
-      } catch {
-        // Non-JSON output means the question was dismissed or errored out.
-        exchange.cancelled = true;
-      }
-    }
-    if (tc.isError && !exchange.answers) exchange.cancelled = true;
-    exchanges.push(exchange);
-  }
-  return exchanges.length ? exchanges : undefined;
-}
-
-/** Map a frame to the run-state its session should show in the session list. */
-export function runStateForFrame(msg: ServerMessage): "streaming" | "queued" | "idle" {
-  if (msg.type === "result" || msg.type === "error") return "idle";
-  if (msg.type === "status") {
-    if (msg.status === "queued") return "queued";
-    if (msg.status === "idle" || msg.status === "cancelled") return "idle";
-  }
-  return "streaming";
-}
+export { runStateForFrame } from "./websocket-handlers/chat.js";
 
 /**
  * Does this frame announce the identity of the conversation THIS client just
@@ -226,21 +128,24 @@ export function handleServerMessage(msg: ServerMessage) {
   const state = useChatStore.getState();
 
   // Activity stream frames feed their own store and never touch chat state.
-  if (msg.type === "server_hello") {
-    useActivityStore.getState().setSupported(msg.capabilities?.activity === true);
-    // A new hello means a new connection: server-side subscriptions are gone.
-    useActivityStore.getState().resetSubscriptions();
-    // …and view-owned subscriptions (the Activity index) must re-send too.
-    useActivityStore.getState().bumpConnectionEpoch();
-    ensureActivitySubscription(state.activeSessionId);
-    return;
-  }
-  if (msg.type === "activity_snapshot") {
-    useActivityStore.getState().applySnapshot(msg);
-    return;
-  }
-  if (msg.type === "activity_delta") {
-    useActivityStore.getState().applyDelta(msg);
+  if (
+    msg.type === "server_hello" ||
+    msg.type === "activity_snapshot" ||
+    msg.type === "activity_delta"
+  ) {
+    const key = state.activeSessionId;
+    dispatchServerMessage(msg, {
+      state,
+      frameSessionId: undefined,
+      key,
+      buffer: () => (key === null ? state.draft : state.buffers[key]),
+      enqueueDelta,
+      ensureActivitySubscription,
+      requestBrowserLocation,
+      resyncIfNeeded,
+      coldResumeIfNeeded,
+      markHistoryReplaced,
+    });
     return;
   }
 
@@ -290,162 +195,18 @@ export function handleServerMessage(msg: ServerMessage) {
     return key === null ? s.draft : s.buffers[key];
   };
 
-  switch (msg.type) {
-    case "text_delta":
-      // Opening the bubble stays immediate — the first token should show a
-      // message starting, and every later delta needs isStreaming to be true.
-      if (!buffer()?.isStreaming) {
-        state.startAssistantMessage(key);
-      }
-      enqueueDelta(key, "text", msg.text);
-      break;
-
-    case "thinking_delta":
-      if (!buffer()?.isStreaming) {
-        state.startAssistantMessage(key);
-      }
-      enqueueDelta(key, "thinking", msg.text);
-      break;
-
-    case "tool_use_start":
-      // A tool call INSIDE a subagent nests under its Agent entry, rendered
-      // from the activity stream — putting it in the flat transcript would
-      // interleave fan-out work with the main turn's steps.
-      if (msg.parentToolUseId) break;
-      state.startToolCall(key, msg.toolUseId, msg.toolName);
-      break;
-
-    case "tool_input_delta":
-      state.appendToolInput(key, msg.partialJson);
-      break;
-
-    case "tool_use_complete":
-      // Subagent tool calls render nested (activity stream), and the flat
-      // store's name-based fallback match must never see them.
-      if (msg.parentToolUseId) break;
-      state.completeToolCall(key, msg.toolUseId, msg.toolName, msg.input);
-      break;
-
-    case "tool_approval_request":
-      state.requestToolApproval(key, msg.toolUseId, msg.toolName, msg.input, msg.description, msg.kind);
-      break;
-
-    case "tool_result": {
-      state.setToolResult(key, msg.toolUseId, msg.output, msg.isError);
-      // Once the agent receives the ask_user tool result, the exchange is
-      // complete — drop any leftover ask_user UI state.
-      const chat = buffer();
-      if (chat?.askUser?.answers || chat?.askUser?.cancelled) {
-        state.clearAskUser(key);
-      }
-      break;
-    }
-
-    case "ask_user_request":
-      state.setAskUserRequest(key, msg.requestId, msg.questions);
-      break;
-
-    case "location_request":
-      requestBrowserLocation(msg);
-      break;
-
-    case "mask_request":
-      // Opens the editor; the answer travels back from the component, because
-      // only the user can say which part of the picture they meant.
-      useMaskStore.getState().open({
-        requestId: msg.requestId,
-        imagePath: msg.imagePath,
-        ...(msg.instruction ? { instruction: msg.instruction } : {}),
-        ...(msg.turnId ? { turnId: msg.turnId } : {}),
-      });
-      break;
-
-    case "result":
-      state.finishAssistantMessage(key);
-      resyncIfNeeded(msg.sessionId);
-      break;
-
-    case "session_info": {
-      ensureActivitySubscription(msg.sessionId);
-      // Record backend ownership for renderer scoping — for ANY session, since
-      // background sessions keep their own transcript buffers. Older servers
-      // omit backendId; derive it from the pinned profile when still possible
-      // (fails only for since-hidden profiles, which then use the default).
-      const ownerBackendId =
-        msg.backendId ??
-        useProviderStore
-          .getState()
-          .available.find((p) => p.id === msg.providerId)?.backendId;
-      if (ownerBackendId) {
-        useChatStore.getState().setSessionBackend(msg.sessionId, ownerBackendId);
-      }
-      // bindDraftSession above handled draft adoption; an info frame may still
-      // re-pin the provider picker when it concerns the session in view.
-      const current = useChatStore.getState();
-      if (frameSessionId && frameSessionId === current.activeSessionId) {
-        useProviderStore.getState().setPinned(msg.providerId ?? null);
-        // Reattachment on a fresh connection: enter streaming mode so deltas
-        // append to a live assistant message instead of vanishing.
-        const chat = current.buffers[frameSessionId];
-        if (chat && !chat.isStreaming && chat.messages.length === 0) {
-          current.startAssistantMessage(frameSessionId);
-        }
-      }
-      break;
-    }
-
-    case "session_history": {
-      const converted = msg.messages.map(convertHistoryMessage);
-      if (msg.append) {
-        state.appendMessages(key, converted);
-      } else {
-        // First (replacing) chunk = fresh authoritative transcript. Cancel any
-        // pending reconnect resync so we don't redundantly re-fetch it, and
-        // mark this session cold-resumed so idle-status handling doesn't loop.
-        state.setMessages(key, converted);
-        if (key !== null && key === resyncSessionId) resyncSessionId = null;
-        coldResumedSessionId = key;
-      }
-      break;
-    }
-
-    case "status": {
-      // Only finish streaming if this buffer actually started it
-      if (
-        (msg.status === "idle" || msg.status === "cancelled") &&
-        buffer()?.isStreaming
-      ) {
-        state.finishAssistantMessage(key);
-      }
-      // A session that finished while we were offline never delivers its
-      // `result` — the idle status on reconnect is the cue to resync. Keyed to
-      // THIS frame's session: a background session settling must not consume
-      // (or trigger) the active session's pending resync.
-      if (msg.status === "idle" || msg.status === "cancelled") {
-        const current = useChatStore.getState();
-        resyncIfNeeded(frameSessionId ?? current.activeSessionId);
-        // Cold load: we hold a stored session id but an empty transcript and
-        // the server is idle (so it sent no snapshot). Fetch the history.
-        // Only the active session's own (or an unscoped legacy) idle counts.
-        if (!frameSessionId || frameSessionId === current.activeSessionId) {
-          coldResumeIfNeeded(current.activeSessionId, activeChat(current).messages.length);
-        }
-      }
-      break;
-    }
-
-    case "error":
-      // ALWAYS recorded. Appending to the transcript only works while a
-      // message is streaming, and this used to be the whole handler — so an
-      // error arriving between turns (a rejected frame, a failed resume) was
-      // dropped as silently on the client as it was on the server.
-      useConnectionStore.getState().reportError(msg.code, msg.message);
-      if (buffer()?.isStreaming) {
-        state.appendText(key, `\n\n**Error:** ${msg.message}`);
-        state.finishAssistantMessage(key);
-      }
-      break;
-  }
+  dispatchServerMessage(msg, {
+    state,
+    frameSessionId,
+    key,
+    buffer,
+    enqueueDelta,
+    ensureActivitySubscription,
+    requestBrowserLocation,
+    resyncIfNeeded,
+    coldResumeIfNeeded,
+    markHistoryReplaced,
+  });
 }
 
 /**
@@ -523,6 +284,11 @@ function resyncIfNeeded(sessionId: string | null) {
 // connection — an empty session would otherwise re-trigger on every idle
 // status and loop.
 let coldResumedSessionId: string | null = null;
+
+function markHistoryReplaced(key: ChatKey): void {
+  if (key !== null && key === resyncSessionId) resyncSessionId = null;
+  coldResumedSessionId = key;
+}
 
 function coldResumeIfNeeded(sessionId: string | null, messageCount: number) {
   if (!sessionId || messageCount > 0) return;
