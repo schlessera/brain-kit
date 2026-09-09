@@ -32,6 +32,29 @@ the end-of-options parser added in core 0.33.0. Rolling the image back does not
 roll back the brain repo's package pin; manage that pin separately (and leaving
 the compatible newer core pinned is safe).
 
+## Subprocess environment allowlist (0.33.1+)
+
+Agent and scheduled-job subprocesses receive a per-audience allowlist rather
+than the server's whole environment. If an agent or scheduled job suddenly
+cannot authenticate after upgrading, the credential probably uses a custom
+environment-variable name that the shipped allowlist does not know. Set
+`BRAIN_UI_SUBPROCESS_ENV_EXTRA` to a comma-separated list of the missing names
+(for example, `BRAIN_UI_SUBPROCESS_ENV_EXTRA=ACME_API_TOKEN,HTTPS_PROXY`) and
+recreate the container. Whitespace is trimmed and malformed or empty entries
+are ignored.
+
+Only add variables the child genuinely needs: every listed name is exposed to
+all subprocess audiences. `BRAIN_UI_SUBPROCESS_ENV_EXTRA` itself is control
+configuration and is never forwarded to the spawned command.
+
+The shipped allowlist includes the core CLI's `BRAIN_ROOT`,
+`BRAIN_RERANK_MODE`, and `XDG_BIN_HOME` settings; the jobs module's
+`SCRAPE_CHROME_URL`, `CHROME_CDP_URL`, `SCRAPE_CHROME_PATH`,
+`SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_USER_AGENT`, and
+`SCRAPE_RESPECT_ROBOTS` settings; and the images module's `OPENAI_BASE_URL`
+and `GEMINI_BASE_URL`. These capability settings are available to agents,
+direct brain CLI children, and scheduled jobs.
+
 ## The `/brain-host` skill
 
 `/brain-host` is the conversational way to set this up. It interviews you for

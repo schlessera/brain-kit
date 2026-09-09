@@ -22,13 +22,18 @@ const RTK_TIMEOUT_MS = 2000;
 let rtkProbe: Promise<boolean> | undefined;
 
 /** Whether the `rtk` binary is available. Probed once, cached. */
-export function rtkAvailable(): Promise<boolean> {
+export function rtkAvailable(env: NodeJS.ProcessEnv): Promise<boolean> {
   if (rtkProbe) return rtkProbe;
   rtkProbe = new Promise<boolean>((resolve) => {
     try {
-      execFile("rtk", ["--version"], { timeout: RTK_TIMEOUT_MS }, (err) => {
-        resolve(!err);
-      });
+      execFile(
+        "rtk",
+        ["--version"],
+        { timeout: RTK_TIMEOUT_MS, env },
+        (err) => {
+          resolve(!err);
+        }
+      );
     } catch {
       resolve(false);
     }
@@ -45,8 +50,11 @@ export function resetRtkProbe(): void {
  * Rewrite one bash command through rtk, or return it unchanged when rtk is
  * absent, declines, or errors. The result is what should actually execute.
  */
-export async function rtkRewriteCommand(command: string): Promise<string> {
-  if (!(await rtkAvailable())) return command;
+export async function rtkRewriteCommand(
+  command: string,
+  env: NodeJS.ProcessEnv
+): Promise<string> {
+  if (!(await rtkAvailable(env))) return command;
   const payload = JSON.stringify({
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
@@ -57,7 +65,7 @@ export async function rtkRewriteCommand(command: string): Promise<string> {
       const child = execFile(
         "rtk",
         ["hook", "claude"],
-        { timeout: RTK_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+        { timeout: RTK_TIMEOUT_MS, maxBuffer: 1024 * 1024, env },
         (err, out) => resolve(err ? null : out)
       );
       child.stdin?.write(payload);

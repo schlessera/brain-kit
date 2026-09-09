@@ -53,7 +53,11 @@ export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
 
 export type { SubprocessEnvAudience } from "./subprocess-env.js";
-export { SUBPROCESS_ENV, filterSubprocessEnv } from "./subprocess-env.js";
+export {
+  SUBPROCESS_ENV,
+  filterSubprocessEnv,
+  parseSubprocessEnvExtra,
+} from "./subprocess-env.js";
 
 export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";

@@ -7,6 +7,10 @@ const SUBPROCESS_KEYS = [
   "CLAUDE_CODE_OAUTH_TOKEN",
   "GITHUB_TOKEN",
   "BRAIN_UI_SYNC_GITHUB_TOKEN",
+  "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
+  "CUSTOM_CHILD_TOKEN",
+  "UNKNOWN_CHILD_VALUE",
+  "PI_CODING_AGENT_DIR",
 ] as const;
 const savedSubprocessEnv = Object.fromEntries(
   SUBPROCESS_KEYS.map((key) => [key, process.env[key]])
@@ -34,14 +38,62 @@ describe("config/env subprocessEnv", () => {
     expect(env.GITHUB_TOKEN).toBe("github-test-token");
     expect(env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBe("sync-test-token");
   });
+
+  test("brain CLI children receive only their audience plus operator extras", () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "nested-sync-test-token";
+    process.env.GITHUB_TOKEN = "github-test-token";
+    process.env.PI_CODING_AGENT_DIR = "/agent-only/pi";
+    process.env.CUSTOM_CHILD_TOKEN = "custom-test-token";
+    process.env.UNKNOWN_CHILD_VALUE = "must-not-pass";
+    process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA =
+      " CUSTOM_CHILD_TOKEN, ,CUSTOM_CHILD_TOKEN,bad-name ";
+
+    const env = subprocessEnv("brainCli");
+
+    expect(env.GITHUB_TOKEN).toBe("github-test-token");
+    expect(env.CUSTOM_CHILD_TOKEN).toBe("custom-test-token");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("nested-sync-test-token");
+    expect(env.PI_CODING_AGENT_DIR).toBeUndefined();
+    expect(env.UNKNOWN_CHILD_VALUE).toBeUndefined();
+    expect(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA).toBeUndefined();
+  });
 });
 
 describe("config/env resolveCronConfig", () => {
-  test("uses the container DB default and preserves the scheduled-job environment", () => {
-    const config = resolveCronConfig({ SECRET: "still-visible" });
+  test("uses the container DB default and allowlists the scheduled-job environment", () => {
+    const config = resolveCronConfig({
+      PATH: "/usr/bin",
+      DB_PATH: "/data/db/custom.db",
+      HOME: "/must/not/pass",
+      CUSTOM_CRON_TOKEN: "custom",
+      SECRET: "must-not-pass",
+      BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CUSTOM_CRON_TOKEN",
+    });
     expect(config.brainPath).toBe("/data/brain");
-    expect(config.dbPath).toBe("/data/db/brain-ui.db");
-    expect(config.childEnv).toEqual({ SECRET: "still-visible" });
+    expect(config.dbPath).toBe("/data/db/custom.db");
+    expect(config.childEnv).toEqual({
+      PATH: "/usr/bin",
+      DB_PATH: "/data/db/custom.db",
+      CUSTOM_CRON_TOKEN: "custom",
+    });
+    expect(config.subprocessEnvExtraNames).toEqual(["CUSTOM_CRON_TOKEN"]);
+  });
+
+  test("re-admits names carried by the generated cron wrapper", () => {
+    const config = resolveCronConfig(
+      {
+        PATH: "/usr/bin",
+        CUSTOM_CRON_TOKEN: "custom",
+        UNKNOWN_CHILD_VALUE: "must-not-pass",
+      },
+      [" CUSTOM_CRON_TOKEN ", "bad-name", "CUSTOM_CRON_TOKEN"]
+    );
+
+    expect(config.childEnv).toEqual({
+      PATH: "/usr/bin",
+      CUSTOM_CRON_TOKEN: "custom",
+    });
+    expect(config.subprocessEnvExtraNames).toEqual(["CUSTOM_CRON_TOKEN"]);
   });
 
   test("honors DB_PATH", () => {

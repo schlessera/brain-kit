@@ -17,6 +17,7 @@ import {
   createClaudeBackend,
   lockKeyForTool,
 } from "../src/backend";
+import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
@@ -299,6 +300,60 @@ describe("createClaudeBackend identity + profiles", () => {
     expect(backend.listProfiles()).toEqual([
       { id: "claude", label: "Claude", vendor: "anthropic" },
     ]);
+  });
+
+  test("profile-declared auth and API key names reach the Agent SDK subprocess environment", async () => {
+    const authName = "CUSTOM_PROFILE_AUTH_TOKEN";
+    const apiName = "CUSTOM_PROFILE_API_KEY";
+    const siblingName = "UNDECLARED_PROFILE_CREDENTIAL";
+    const previousAuth = process.env[authName];
+    const previousApi = process.env[apiName];
+    const previousSibling = process.env[siblingName];
+    process.env[authName] = "profile-auth-test-token";
+    process.env[apiName] = "profile-api-test-key";
+    process.env[siblingName] = "must-not-pass";
+    let captured: Options | undefined;
+    const queryFn = ((params: { options?: Options }) => {
+      captured = params.options;
+      return (async function* () {
+        yield initMsg("profile-env-session");
+        yield resultMsg("profile-env-session");
+      })();
+    }) as unknown as typeof query;
+
+    try {
+      const backend = createClaudeBackend({
+        brainPath: "/brain",
+        profiles: defineProfiles([
+          {
+            id: "custom",
+            label: "Custom",
+            authTokenEnv: authName,
+            apiKeyEnv: apiName,
+          },
+        ]),
+        queryFn,
+      });
+      const { bridge } = makeBridge();
+      await backend.startTurn(
+        makeReq(bridge, new AbortController().signal, { profileId: "custom" })
+      );
+
+      expect(captured?.env?.[authName]).toBe("profile-auth-test-token");
+      expect(captured?.env?.[apiName]).toBe("profile-api-test-key");
+      expect(captured?.env?.ANTHROPIC_AUTH_TOKEN).toBe(
+        "profile-auth-test-token"
+      );
+      expect(captured?.env?.ANTHROPIC_API_KEY).toBe("profile-api-test-key");
+      expect(captured?.env?.[siblingName]).toBeUndefined();
+    } finally {
+      if (previousAuth === undefined) delete process.env[authName];
+      else process.env[authName] = previousAuth;
+      if (previousApi === undefined) delete process.env[apiName];
+      else process.env[apiName] = previousApi;
+      if (previousSibling === undefined) delete process.env[siblingName];
+      else process.env[siblingName] = previousSibling;
+    }
   });
 });
 

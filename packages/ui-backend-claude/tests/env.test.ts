@@ -7,6 +7,10 @@ const SUBPROCESS_KEYS = [
   "CLAUDE_CODE_OAUTH_TOKEN",
   "GITHUB_TOKEN",
   "BRAIN_UI_SYNC_GITHUB_TOKEN",
+  "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
+  "CUSTOM_PROFILE_TOKEN",
+  "CUSTOM_OPERATOR_TOKEN",
+  "UNKNOWN_CHILD_VALUE",
 ] as const;
 const savedSubprocessEnv = Object.fromEntries(
   SUBPROCESS_KEYS.map((key) => [key, process.env[key]])
@@ -33,6 +37,21 @@ describe("config/env envSnapshot", () => {
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oauth-test-token");
     expect(env.GITHUB_TOKEN).toBe("github-test-token");
     expect(env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBe("sync-test-token");
+  });
+
+  test("admits profile names and operator extras without forwarding unknowns or the hatch", () => {
+    process.env.CUSTOM_PROFILE_TOKEN = "profile-test-token";
+    process.env.CUSTOM_OPERATOR_TOKEN = "operator-test-token";
+    process.env.UNKNOWN_CHILD_VALUE = "must-not-pass";
+    process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA =
+      " CUSTOM_OPERATOR_TOKEN, ,CUSTOM_OPERATOR_TOKEN,bad-name ";
+
+    const env = envSnapshot(["CUSTOM_PROFILE_TOKEN"]);
+
+    expect(env.CUSTOM_PROFILE_TOKEN).toBe("profile-test-token");
+    expect(env.CUSTOM_OPERATOR_TOKEN).toBe("operator-test-token");
+    expect(env.UNKNOWN_CHILD_VALUE).toBeUndefined();
+    expect(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA).toBeUndefined();
   });
 });
 
@@ -75,6 +94,7 @@ describe("config/env descriptor", () => {
       [
         "ANTHROPIC_API_KEY",
         "BRAIN_UI_REVERSE_GEOCODE",
+        "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
         "CLAUDE_CODE_OAUTH_TOKEN",
         "NOMINATIM_URL",
         "NOMINATIM_USER_AGENT",

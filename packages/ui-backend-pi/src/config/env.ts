@@ -11,6 +11,8 @@
  * env documentation.
  */
 
+import { existsSync, readFileSync } from "fs";
+
 // The descriptor contract and readEnvVar are shared across every chokepoint
 // via the sync-enforced copy in ./env-core.ts.
 import type { DynamicEnvReadSpec } from "./env-core.js";
@@ -19,6 +21,11 @@ export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
 import {
   filterSubprocessEnv,
+  parseSubprocessEnvExtra,
+  readWebSearchOverride,
+  readWebSearchRouting,
+  resolveWebSearchConfigPath,
+  webSearchProvider,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -40,6 +47,16 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
+    description:
+      "Comma-separated environment variable names to admit to pi tool " +
+      "subprocesses when an operator integration needs a variable outside " +
+      "the shipped agent allowlist. Names are trimmed; malformed entries are " +
+      "ignored; the control variable itself is never forwarded.",
+    default: "(empty)",
+    required: false,
+  },
   {
     name: "GEMINI_API_KEY",
     description:
@@ -126,7 +143,43 @@ export function resolveWebSearchEnv(
   return Object.fromEntries(names.map((name) => [name, env[name]]));
 }
 
-/** Filtered ambient environment handed to each pi tool subprocess. */
-export function subprocessEnv(): NodeJS.ProcessEnv {
-  return filterSubprocessEnv(process.env);
+/**
+ * Environment names for the providers selected by the active web-search
+ * config. A malformed or absent file has no explicit enabled set.
+ */
+export function resolveEnabledWebSearchEnvNames(): string[] {
+  try {
+    const env = resolveWebSearchEnv();
+    const path = resolveWebSearchConfigPath(env);
+    if (!existsSync(path)) return [];
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const config = parsed as Record<string, unknown>;
+    const override = readWebSearchOverride(config);
+    const ids = override
+      ? override.split(",").map((id) => id.trim())
+      : readWebSearchRouting(config);
+    return [
+      ...new Set(
+        ids
+          .map((id) => webSearchProvider(id)?.envVar)
+          .filter((name): name is string => Boolean(name))
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+/** Allowlisted ambient environment handed to each pi tool subprocess. */
+export function subprocessEnv(
+  extraNames: readonly string[] = []
+): NodeJS.ProcessEnv {
+  const operatorNames = parseSubprocessEnvExtra(
+    process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA
+  );
+  return filterSubprocessEnv(process.env, "agent", [
+    ...operatorNames,
+    ...extraNames,
+  ]);
 }

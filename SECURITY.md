@@ -28,7 +28,19 @@ within a week, not hours.
    there; `AUTH_MODE=none` refuses to start on any non-loopback host,
    regardless of `NODE_ENV`, unless an explicit
    `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. See brain-ui's own
-   SECURITY.md — it is the more critical of the two.
+   SECURITY.md — it is the more critical of the two. From 0.33.1, every agent,
+   cron, and brain CLI subprocess that brain-kit itself spawns receives only
+   its audience allowlist; required agent credentials and git tokens remain,
+   while server-only values such as `COOKIE_SECRET`, the password hash,
+   Deepgram key, skills token, WebAuthn settings, and proxy-auth settings do
+   not. One pi-SDK residual remains: an extension's `pi.exec()` follows
+   `DefaultResourceLoader` → extension loader → `execCommand()` → `spawn()`,
+   and pi's package-manager helpers spawn the same way, with no supported
+   environment option in pi 0.84.4. Those in-SDK children therefore inherit
+   the full brain-ui server environment, including those server-only values.
+   S4a is closed for every spawn this repository owns and remains open for
+   pi's in-SDK spawns until U32 in 0.35.0 moves the pi runtime under the
+   `agent` uid.
 5. **Key handling.** Every API key lives in `.env` (gitignored) and is only
    read by the provider that declares it (`apiKeyEnv`). What each key can
    spend: an embeddings key (Gemini free tier covers a personal corpus) is

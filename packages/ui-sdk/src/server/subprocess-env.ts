@@ -6,12 +6,9 @@
 export type SubprocessEnvAudience = "cron" | "agent" | "brainCli";
 
 const NONE = Object.freeze([]) as readonly SubprocessEnvAudience[];
+const PER_CALL = Object.freeze([]) as readonly SubprocessEnvAudience[];
 const AGENT = Object.freeze(["agent"]) as readonly SubprocessEnvAudience[];
 const CRON = Object.freeze(["cron"]) as readonly SubprocessEnvAudience[];
-const AGENT_AND_CRON = Object.freeze([
-  "agent",
-  "cron",
-]) as readonly SubprocessEnvAudience[];
 const AGENT_AND_BRAIN_CLI = Object.freeze([
   "agent",
   "brainCli",
@@ -22,13 +19,17 @@ const ALL = Object.freeze([
   "brainCli",
 ]) as readonly SubprocessEnvAudience[];
 
+const SUBPROCESS_ENV_EXTRA_NAME = "BRAIN_UI_SUBPROCESS_ENV_EXTRA";
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
  * Environment variables known to the UI server and its agent backends,
  * classified by the subprocess audiences that need them.
  *
- * An empty audience list marks server-only material. The 0.32 denylist filter
- * strips only those entries; variables absent from this descriptor pass
- * through until the per-audience allowlist lands.
+ * An empty audience list means the name is never admitted statically: most
+ * are server-only, while conditional capabilities are admitted explicitly for
+ * the spawn that needs them. Variables absent from this descriptor likewise
+ * reach a child only through an explicit per-call addition.
  *
  * @experimental
  */
@@ -36,32 +37,48 @@ export const SUBPROCESS_ENV = Object.freeze({
   // Process plumbing and paths.
   PATH: ALL,
   BRAIN_PATH: ALL,
+  BRAIN_ROOT: ALL,
   // Generic runtime configuration, not server material: bun picks its
   // .env.<mode> file from it in every child process.
   NODE_ENV: ALL,
   TZ: ALL,
   HOME: AGENT_AND_BRAIN_CLI,
+  XDG_BIN_HOME: ALL,
+  CLAUDE_CONFIG_DIR: AGENT_AND_BRAIN_CLI,
   PI_CODING_AGENT_DIR: AGENT,
   XDG_CONFIG_HOME: AGENT,
   DB_PATH: CRON,
   NO_COLOR: AGENT_AND_BRAIN_CLI,
+  BRAIN_RERANK_MODE: ALL,
+  BRAIN_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
+  BRAIN_UI_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
 
   // Credentials and capability keys used by subprocesses.
-  CLAUDE_CODE_OAUTH_TOKEN: AGENT_AND_CRON,
-  ANTHROPIC_API_KEY: AGENT,
+  // `brain sync` runs the configured agent runner below the brain CLI too.
+  CLAUDE_CODE_OAUTH_TOKEN: ALL,
+  ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI,
   ANTHROPIC_AUTH_TOKEN: AGENT,
   OPENROUTER_API_KEY: AGENT,
   GITHUB_TOKEN: ALL,
   BRAIN_UI_SYNC_GITHUB_TOKEN: ALL,
   GEMINI_API_KEY: ALL,
   OPENAI_API_KEY: ALL,
-  EXA_API_KEY: AGENT,
-  BRAVE_API_KEY: AGENT,
-  JINA_API_KEY: AGENT,
-  PERPLEXITY_API_KEY: AGENT,
-  TAVILY_API_KEY: AGENT,
-  FIRECRAWL_API_KEY: AGENT,
-  KAGI_API_KEY: AGENT,
+  OPENAI_BASE_URL: ALL,
+  GEMINI_BASE_URL: ALL,
+  SCRAPE_CHROME_URL: ALL,
+  CHROME_CDP_URL: ALL,
+  SCRAPE_CHROME_PATH: ALL,
+  SCRAPE_CHROME_NO_SANDBOX: ALL,
+  SCRAPE_USER_AGENT: ALL,
+  SCRAPE_RESPECT_ROBOTS: ALL,
+  // Admitted per spawn only when the matching web-search provider is enabled.
+  EXA_API_KEY: PER_CALL,
+  BRAVE_API_KEY: PER_CALL,
+  JINA_API_KEY: PER_CALL,
+  PERPLEXITY_API_KEY: PER_CALL,
+  TAVILY_API_KEY: PER_CALL,
+  FIRECRAWL_API_KEY: PER_CALL,
+  KAGI_API_KEY: PER_CALL,
 
   // Claude profile overrides built by the backend.
   ANTHROPIC_BASE_URL: AGENT,
@@ -75,6 +92,7 @@ export const SUBPROCESS_ENV = Object.freeze({
   BRAIN_UI_PRICING_TTL_HOURS: CRON,
 
   // Server process configuration: intentionally absent from child processes.
+  BRAIN_UI_SUBPROCESS_ENV_EXTRA: NONE,
   BRAIN_UI_SKILLS_GITHUB_TOKEN: NONE,
   HOST: NONE,
   BRAIN_UI_CONFIRM_BASH: NONE,
@@ -117,20 +135,52 @@ export const SUBPROCESS_ENV = Object.freeze({
 }) satisfies Readonly<Record<string, readonly SubprocessEnvAudience[]>>;
 
 /**
- * Strip descriptor entries that have no subprocess audience.
+ * Parse the operator escape hatch into valid, unique environment names.
  *
- * Unknown variables deliberately pass through: this is the 0.32 denylist
- * step, not the later audience allowlist.
+ * Empty and malformed comma-separated entries are ignored. The escape-hatch
+ * variable cannot admit itself.
+ *
+ * @experimental
+ */
+export function parseSubprocessEnvExtra(value: string | undefined): string[] {
+  if (!value) return [];
+  const names = value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(
+      (name) =>
+        ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME
+    );
+  return [...new Set(names)];
+}
+
+/**
+ * Build a fresh allowlisted environment for one subprocess audience.
+ *
+ * Descriptor entries must include the requested audience. Names that cannot
+ * be declared statically (for example profile-selected credential variables)
+ * may be admitted explicitly for one spawn. Unknown variables never pass
+ * through implicitly, and the escape-hatch control variable is always held
+ * back from the child.
  *
  * @experimental
  */
 export function filterSubprocessEnv(
-  env: Readonly<Record<string, string | undefined>>
+  env: Readonly<Record<string, string | undefined>>,
+  audience: SubprocessEnvAudience,
+  extraNames: readonly string[] = []
 ): Record<string, string | undefined> {
+  const extras = new Set(
+    extraNames.filter(
+      (name) => ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME
+    )
+  );
   return Object.fromEntries(
     Object.entries(env).filter(([name]) => {
-      if (!Object.prototype.hasOwnProperty.call(SUBPROCESS_ENV, name)) return true;
-      return SUBPROCESS_ENV[name as keyof typeof SUBPROCESS_ENV].length > 0;
+      if (name === SUBPROCESS_ENV_EXTRA_NAME) return false;
+      if (extras.has(name)) return true;
+      if (!Object.prototype.hasOwnProperty.call(SUBPROCESS_ENV, name)) return false;
+      return SUBPROCESS_ENV[name as keyof typeof SUBPROCESS_ENV].includes(audience);
     })
   );
 }

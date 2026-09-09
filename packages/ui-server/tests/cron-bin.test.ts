@@ -48,6 +48,41 @@ describe("brain-ui-cron subprocess", () => {
     db.close();
   });
 
+  test("run re-admits a generated wrapper extra without forwarding the hatch", async () => {
+    const bun = Bun.which("bun");
+    if (!bun) throw new Error("bun executable not found");
+    const proc = Bun.spawn(
+      [
+        bun,
+        BIN,
+        "run",
+        "--subprocess-env-extra",
+        " CUSTOM_CRON_TOKEN,bad-name,CUSTOM_CRON_TOKEN ",
+        "extra-env",
+        "--",
+        bun,
+        "-e",
+        "console.log(JSON.stringify({ custom: process.env.CUSTOM_CRON_TOKEN, hatch: process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, unknown: process.env.UNKNOWN_CHILD_VALUE }))",
+      ],
+      {
+        env: {
+          PATH: process.env.PATH,
+          DB_PATH: dbPath,
+          CUSTOM_CRON_TOKEN: "custom",
+          UNKNOWN_CHILD_VALUE: "must-not-pass",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+
+    expect(await proc.exited).toBe(0);
+    expect(JSON.parse(await new Response(proc.stdout).text())).toEqual({
+      custom: "custom",
+    });
+    expect(await new Response(proc.stderr).text()).toBe("");
+  });
+
   test("no arguments prints usage on stderr and exits 2", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
@@ -56,7 +91,7 @@ describe("brain-ui-cron subprocess", () => {
     expect(await proc.exited).toBe(2);
     expect(await new Response(proc.stdout).text()).toBe("");
     expect(await new Response(proc.stderr).text()).toBe(
-      "usage: brain-ui-cron run <job-name> -- <command...>\n" +
+      "usage: brain-ui-cron run [--subprocess-env-extra <names>] <job-name> -- <command...>\n" +
         "       brain-ui-cron digest\n" +
         "       brain-ui-cron crontab [--wrapper-command <command>] [--digest-command <command>] [--path-line <line>] [--user <user>]\n" +
         "       brain-ui-cron environment\n"
@@ -145,6 +180,70 @@ describe("brain-ui-cron subprocess", () => {
     expect(output).not.toContain("module list unavailable");
     expect(output).toContain("bun scripts/jobs/scrape-all.ts --api-only");
     expect(await new Response(proc.stderr).text()).toBe("");
+  });
+
+  test("module discovery uses brainCli env while scheduled commands use cron env", async () => {
+    const bun = Bun.which("bun");
+    if (!bun) throw new Error("bun executable not found");
+    const brainRoot = join(directory, "audience-brain-root");
+    const binDir = join(directory, "audience-bin");
+    const observedEnv = join(directory, "module-discovery-env.txt");
+    mkdirSync(brainRoot, { recursive: true });
+    mkdirSync(binDir, { recursive: true });
+    const fakeBrain = join(binDir, "brain");
+    writeFileSync(
+      fakeBrain,
+      "#!/bin/sh\n" +
+        `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$HOME" "$CLAUDE_CONFIG_DIR" "$ANTHROPIC_API_KEY" "\${DB_PATH-unset}" "$CUSTOM_DISCOVERY_TOKEN" "\${BRAIN_UI_SUBPROCESS_ENV_EXTRA-unset}" "\${UNKNOWN_CHILD_VALUE-unset}" > '${observedEnv}'\n` +
+        "printf '%s\\n' '{\"enabled\":[],\"available\":[]}'\n"
+    );
+    chmodSync(fakeBrain, 0o755);
+
+    const parentEnv = {
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      BRAIN_PATH: brainRoot,
+      DB_PATH: dbPath,
+      HOME: "/brain-cli/home",
+      CLAUDE_CONFIG_DIR: "/brain-cli/claude",
+      ANTHROPIC_API_KEY: "brain-cli-anthropic",
+      CUSTOM_DISCOVERY_TOKEN: "operator-extra",
+      BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CUSTOM_DISCOVERY_TOKEN",
+      UNKNOWN_CHILD_VALUE: "must-not-pass",
+    };
+    const emit = Bun.spawn([bun, BIN, "crontab"], {
+      env: parentEnv,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(await emit.exited).toBe(0);
+    expect(await Bun.file(observedEnv).text()).toBe(
+      "/brain-cli/home|/brain-cli/claude|brain-cli-anthropic|unset|operator-extra|unset|unset\n"
+    );
+    expect(await new Response(emit.stderr).text()).toBe("");
+
+    const run = Bun.spawn(
+      [
+        bun,
+        BIN,
+        "run",
+        "--subprocess-env-extra",
+        "CUSTOM_DISCOVERY_TOKEN",
+        "audience-check",
+        "--",
+        bun,
+        "-e",
+        "console.log(JSON.stringify({ db: process.env.DB_PATH, home: process.env.HOME, claude: process.env.CLAUDE_CONFIG_DIR, anthropic: process.env.ANTHROPIC_API_KEY, custom: process.env.CUSTOM_DISCOVERY_TOKEN, unknown: process.env.UNKNOWN_CHILD_VALUE }))",
+      ],
+      { env: parentEnv, stdout: "pipe", stderr: "pipe" }
+    );
+
+    expect(await run.exited).toBe(0);
+    expect(JSON.parse(await new Response(run.stdout).text())).toEqual({
+      db: dbPath,
+      custom: "operator-extra",
+    });
+    expect(await new Response(run.stderr).text()).toBe("");
   });
 
   /**

@@ -561,6 +561,10 @@ export function createClaudeBackend(
 
     try {
       const profileEnv = profile.buildEnv();
+      const childEnv = {
+        ...envSnapshot(profile.requiredEnvKeys),
+        ...profileEnv,
+      };
       const allowedTools =
         profile.allowedTools ?? options.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const allowed = [...allowedTools];
@@ -787,7 +791,7 @@ export function createClaudeBackend(
                   }
                   const command = bashCommand(hookInput.tool_input);
                   if (!command) return { continue: true };
-                  const rewritten = await rtkRewriteCommand(command);
+                  const rewritten = await rtkRewriteCommand(command, childEnv);
                   if (rewritten === command) return { continue: true };
                   return {
                     continue: true,
@@ -837,7 +841,7 @@ export function createClaudeBackend(
           }),
         };
       }
-      sdkOptions.env = { ...envSnapshot(), ...profileEnv };
+      sdkOptions.env = childEnv;
 
       const queryPrompt =
         req.attachments && req.attachments.length > 0

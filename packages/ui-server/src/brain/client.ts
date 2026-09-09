@@ -114,7 +114,7 @@ export function probeBrainCliVersion(brainPath: string, log: Logger): void {
       cwd: brainPath,
       stdout: "pipe",
       stderr: "pipe",
-      env: subprocessEnv({ NO_COLOR: "1" }),
+      env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
       timeout: 5_000,
     });
   } catch (error) {
@@ -166,7 +166,7 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
       stdout: "pipe",
       stderr: "pipe",
       // Force JSON output when not a TTY
-      env: subprocessEnv({ NO_COLOR: "1" }),
+      env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
     });
 
     const [stdout, stderr] = await Promise.all([

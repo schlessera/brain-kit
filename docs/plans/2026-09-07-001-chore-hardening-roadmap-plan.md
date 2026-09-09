@@ -100,14 +100,23 @@ radius.
   `bun install` in CI; the leakage gate's patterns are deployment-specific by
   nature. Decision: keep both shell copies; the thin-shell import test (U12)
   is the part of B8 that was actually missing.
-- **S4 "auth itself is agent-readable" is closed only for the server's own
-  material.** `CLAUDE_CODE_OAUTH_TOKEN` is what the Claude CLI authenticates
-  with and `GITHUB_TOKEN` / `BRAIN_UI_SYNC_GITHUB_TOKEN` are what `git push`
-  needs, and the agent's shell is a child of that CLI with the same uid and
-  env. Those stay one `env` away from the agent by construction. The
-  denylist (U10) and allowlist (U21) remove `COOKIE_SECRET`, the password
-  hash, Deepgram, the skills token, WebAuthn and proxy-auth settings; U32
-  removes read access to the server DB. SECURITY.md says exactly this.
+- **S4 "auth itself is agent-readable" is closed only for repo-owned spawns.**
+  `CLAUDE_CODE_OAUTH_TOKEN` is what the Claude CLI authenticates with and
+  `GITHUB_TOKEN` / `BRAIN_UI_SYNC_GITHUB_TOKEN` are what `git push` needs, and
+  the agent's shell is a child of that CLI with the same uid and env. Those
+  stay one `env` away from the agent by construction. The denylist (U10) and
+  allowlist (U21) remove `COOKIE_SECRET`, the password hash, Deepgram, the
+  skills token, WebAuthn and proxy-auth settings from every subprocess this
+  repository owns. The installed pi 0.84.4 SDK offers no supported environment
+  option: `DefaultResourceLoader` loads extensions whose `pi.exec()` calls
+  `core/extensions/loader.js:320-323` → `core/exec.js:10-16` → `spawn()` with
+  no `env`, while its package-manager helpers take `process.env` internally at
+  `core/package-manager.js:2094-2109`. Those in-SDK children still inherit the
+  full brain-ui server environment, including the server-only values above.
+  S4a is therefore closed for every spawn this repository owns and open for
+  pi's in-SDK spawns. U32 in 0.35.0 closes that residual by moving pi's runtime
+  under the `agent` uid, the same class of fix concluded by the U24 spike; U32
+  also removes read access to the server DB. SECURITY.md says exactly this.
 
 ---
 

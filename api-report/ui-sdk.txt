@@ -656,6 +656,7 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  parseSubprocessEnvExtra
   readWebSearchOverride
   readWebSearchRouting
   resetRtkProbe
