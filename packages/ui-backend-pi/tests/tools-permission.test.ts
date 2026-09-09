@@ -108,8 +108,16 @@ describe("tool_call permission gate", () => {
       input: { command: "rm -rf notes" },
     });
     expect(res).toEqual({ block: true, reason: "user said no" });
-    expect(mock.permissionCalls).toHaveLength(1);
-    expect(mock.permissionCalls[0].toolName).toBe("bash");
+    expect(mock.permissionCalls).toEqual([
+      {
+        toolUseId: "t2",
+        toolName: "bash",
+        input: { command: "rm -rf notes" },
+        description:
+          "This command matches a pattern configured to require confirmation.",
+        kind: "command",
+      },
+    ]);
   });
 
   test("approval with updatedInput patches the input in place", async () => {
@@ -136,7 +144,10 @@ describe("tool_call permission gate", () => {
       toolCallId: "t4",
       input: {},
     });
-    expect(res?.block).toBe(true);
+    expect(res).toEqual({
+      block: true,
+      reason: "No active turn to approve third_party_tool.",
+    });
   });
 
   test("non-allowlisted extension tool asks and runs on allow", async () => {
@@ -151,7 +162,16 @@ describe("tool_call permission gate", () => {
       input: { server: "x" },
     });
     expect(res).toBeUndefined();
-    expect(mock.permissionCalls).toHaveLength(1);
+    expect(mock.permissionCalls).toEqual([
+      {
+        toolUseId: "t5",
+        toolName: "mcp_proxy_tool",
+        input: { server: "x" },
+        description:
+          'Tool "mcp_proxy_tool" is not auto-allowed in this deployment.',
+        kind: "tool",
+      },
+    ]);
   });
 });
 
