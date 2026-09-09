@@ -7,6 +7,8 @@
  */
 
 export { createPiBackend, PI_BACKEND_ID, mapPiEvent } from "./backend.js";
+export { backendModule, PI_THINKING_LEVELS } from "./module.js";
+export type { PiThinkingLevel } from "./module.js";
 export type {
   BackendLogFn,
   CreatePiBackendOptions,

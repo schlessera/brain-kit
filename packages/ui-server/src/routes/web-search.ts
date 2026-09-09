@@ -44,7 +44,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 import type { AgentConfig } from "../config/env.js";
 import { resolveWebSearchEnv } from "../config/env.js";
-import { loadBackendModule, parsePiProfiles } from "../agent/backend.js";
+import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";
 
 /** One toggleable provider, as the Settings UI renders it. */
 export interface WebSearchProviderView {
@@ -142,17 +142,19 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
    * createApp refuses to boot on it — but a throw would take the whole
    * settings card down over a label, so it degrades to an empty list.
    */
-  const appliesTo = (): string[] => {
+  const appliesTo = async (): Promise<string[]> => {
     try {
-      return parsePiProfiles(agent.piProfilesJson ?? null, agent.profilesJson ?? null).map(
-        (p) => p.label
-      );
+      const descriptor = await loadBackendDescriptor("pi", deps.importer);
+      const parsed = descriptor.profileSchema.parse(agent.piProfilesJson ?? null, {
+        occupiedProfiles: [],
+      });
+      return parsed.ok ? parsed.profiles.map((profile) => profile.label) : [];
     } catch {
       return [];
     }
   };
 
-  function view(): WebSearchConfigView {
+  async function view(): Promise<WebSearchConfigView> {
     const config = readConfig(configPath());
     const override = readWebSearchOverride(config);
     const order = orderByCost(readWebSearchRouting(config));
@@ -161,7 +163,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       configured: true,
       order,
       overriddenBy: override,
-      appliesTo: appliesTo(),
+      appliesTo: await appliesTo(),
       providers: WEB_SEARCH_PROVIDERS.map((p) => ({
         id: p.id,
         label: p.label,
@@ -180,13 +182,13 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
   }
 
   return new Hono()
-    .get("/web-search", (c) => {
+    .get("/web-search", async (c) => {
       // Not-configured is a normal state, not an error: the client hides the
       // whole card (same convention as /pi-auth/providers).
       if (!piConfigured()) {
         return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [] });
       }
-      return c.json(view());
+      return c.json(await view());
     })
     .put("/web-search", requireJson(), async (c) => {
       if (!piConfigured()) {
@@ -317,6 +319,6 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
         /* config written; cache clearing is an optimization */
       }
 
-      return c.json(view());
+      return c.json(await view());
     });
 }

@@ -14,6 +14,24 @@ export type {
 } from "./backend.js";
 export { BackendBusyError, BackendRequestError } from "./backend.js";
 
+export type {
+  BackendLogFn,
+  BackendProfileDeclaration,
+  BackendProfileError,
+  BackendProfileParseResult,
+  BackendProfileSchemaContext,
+  BackendProfileSchema,
+  BackendSettingsReaders,
+  BackendSettingsHooks,
+  BackendModelSourceState,
+  BackendModelSource,
+  BackendModuleContext,
+  ResolvedBackendModule,
+  BackendModuleResolution,
+  BackendModule,
+} from "./backend-module.js";
+export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
+
 export type { WriteLock } from "./write-lock.js";
 export { createWriteLock } from "./write-lock.js";
 

@@ -1,14 +1,16 @@
 # Extending: agent backends
 
-The `AgentBackend` seam is the boundary between the brain-ui server and
-whatever agent runtime drives a chat conversation — the thing that receives a
-prompt, runs an agent with tools over the brain repo, and streams the
-conversation back as wire-protocol frames. It lives in
-`@schlessera/brain-ui-sdk` (`packages/ui-sdk/src/server/backend.ts`), not in
-`@schlessera/brain`: it is a chat-UI seam, distinct from the CLI-oriented
-[`AgentRunner`](agent-runners.md) seam in core. The env-driven built-in
-path activates one backend per deployment; the registry itself is not so
-limited — `createStaticBackendRegistry` takes an array.
+The backend seam has two layers. `AgentBackend` is the running conversation
+engine. `BackendModule` is the self-describing package boundary that validates
+profiles, declares its settings needs, optionally owns model discovery, and
+constructs that engine. Both live in `@schlessera/brain-ui-sdk/server`, not in
+`@schlessera/brain`: this is a chat-UI seam, distinct from the CLI-oriented
+[`AgentRunner`](agent-runners.md) seam in core.
+
+The env-driven built-in path activates only `claude` or `pi`. This is a fixed
+first-party table, not a plugin loader: `AGENT_BACKEND` never accepts package,
+file, or URL specifiers. A third-party module is imported by the deployment's
+own bin and passed by value, as shown below.
 
 Two first-party implementations are the reference material:
 
@@ -21,7 +23,43 @@ Two first-party implementations are the reference material:
   pi coding-agent SDK, with its own curated brain tool set
   (`packages/ui-backend-pi/src/tools.ts`) and risk classes.
 
-## The interface
+## The two interfaces
+
+Every backend package exports one descriptor with exactly this top-level
+shape:
+
+```ts
+export interface BackendModule {
+  id: string;
+  resolveFromEnv(
+    context: BackendModuleContext,
+  ): BackendModuleResolution | Promise<BackendModuleResolution>;
+  profileSchema: BackendProfileSchema;
+  settingsHooks: BackendSettingsHooks;
+  modelSource?(context: BackendModuleContext): BackendModelSource | null;
+}
+```
+
+- `profileSchema` owns JSON parsing, required fields, reserved ids, and
+  duplicates. It returns typed `BackendProfileError`s; the host
+  raises `BackendProfileConfigError` while retaining those typed details. Its
+  context also carries raw inactive rosters for lenient cross-roster collision
+  checks; inspecting that data must never require or strictly validate the
+  inactive backend.
+- `settingsHooks` declares which of the host's hidden/default/OpenRouter/
+  thinking/billing readers the backend consumes. A descriptor receives only
+  those readers. Claude asks for OpenRouter models; pi asks for thinking
+  overrides; each owns its own billing classifier.
+- `modelSource` is optional. The Claude descriptor uses it for Anthropic model
+  discovery; pi has no discovery source.
+- `resolveFromEnv` returns `{ ok: true, value }` with the `AgentBackend` and its
+  registry hooks, or `{ ok: false, error }`. Construction errors therefore stay
+  explicit without teaching the host a backend's options.
+
+Use `defineBackendModule()` for inference and excess-property checking. The
+interface is `@experimental` until 1.0.
+
+The descriptor ultimately constructs the runtime interface:
 
 From `@schlessera/brain-ui-sdk/server` (`packages/ui-sdk/src/server/backend.ts`):
 
@@ -145,34 +183,96 @@ declare protocol revision 3, tolerated absent for older revisions
 `turnId` — its obligation is simply to route every interactive round-trip
 through the bridge so the correlation holds.
 
-## How ui-server loads a backend
+## How ui-server loads first-party modules
 
-`@schlessera/brain-ui-server` builds a `BackendRegistry` in `createApp()`
-(`packages/ui-server/src/agent/backend.ts`). Both first-party backend
-packages are **optional peers, loaded lazily** via dynamic `import()` — a
-deployment installs the one its `AGENT_BACKEND` env names (`claude`, the
-default, or `pi`) and the other never has to be present, at runtime or at
-type-check time (the registry mirrors the Claude module's shapes structurally
-rather than importing its types). At boot, `assertBackendResolvable` checks
-that the selected package at least RESOLVES, so a broken install refuses to
-start instead of failing every turn; at first use, the loaded module is
-checked structurally (`createClaudeBackend` / `createPiBackend` must be
-exported functions). Only a module-not-found error naming the backend's own
-package maps to the "not installed" hint — an installed backend that fails
-to load surfaces its real error.
+`@schlessera/brain-ui-server` keeps one hardcoded specifier table for the two
+optional first-party peers. It dynamically imports the selected entries, checks
+their `backendModule` exports structurally, then iterates the descriptors. The
+registry does not call `createClaudeBackend`, `createPiBackend`, model discovery,
+credential probes, or backend profile parsers itself.
 
-The registry's env-driven path only knows the two first-party ids. To run a
-third-party backend today, construct the registry yourself and inject it —
-`createApp({ registry: createStaticBackendRegistry([myBackend()]) })` — which
-also skips the resolvability assertion. Profile ids must be globally unique
-across a registry's backends; the roster is memoized briefly and hidden
-profiles still resolve for sessions pinned to them.
+At boot, `assertBackendResolvable` resolves and synchronously loads only active
+backend packages. It runs each active backend-owned profile parser before
+health reporting; backend construction and model discovery remain lazy. Raw
+inactive rosters are handed to those parsers as collision data without loading
+or strictly parsing the inactive package. Thus pi-primary deployments still
+reject ids declared in the Claude roster, while malformed or incomplete
+inactive Claude data contributes no ids and does not make pi depend on Claude.
+Only a module-not-found error naming an active package maps to the actionable
+install hint; a missing transitive dependency or throwing active module keeps
+its original diagnostic.
+
+Profile ids must be globally unique across the registry. Hidden profiles remain
+resolvable for pinned sessions. A null/empty stored backend id is a legacy
+session and uses the default; an unknown non-empty stored id fails explicitly.
+
+## Pass a third-party backend by value
+
+There is no registration step and no environment-based package loading. Import
+the descriptor in your deployment bin, resolve it from deployment-owned values,
+put its backend value in a static registry, and inject that registry into the
+app:
+
+```ts
+import { backendModule as acmeModule } from "@acme/brain-backend-acme";
+import {
+  createApp,
+  createStaticBackendRegistry,
+} from "@schlessera/brain-ui-server";
+
+const parsed = acmeModule.profileSchema.parse(
+  process.env.BRAIN_UI_ACME_PROFILES ?? null,
+  { occupiedProfiles: [], inactiveRosters: [] },
+);
+if (!parsed.ok) throw new Error(parsed.errors[0]?.message);
+
+const base = {
+  brainPath: process.env.BRAIN_PATH ?? "/data/brain",
+  config: {},
+  profiles: parsed.profiles,
+  confirmBashPatterns: null,
+  settings: {
+    ...(acmeModule.settingsHooks.hiddenModelIds
+      ? { getHiddenModelIds: () => [] }
+      : {}),
+    ...(acmeModule.settingsHooks.defaultModelId
+      ? { getDefaultModelId: () => process.env.BRAIN_UI_DEFAULT_MODEL ?? null }
+      : {}),
+    ...(acmeModule.settingsHooks.customOpenRouterModels
+      ? { getCustomOpenRouterModels: () => [] }
+      : {}),
+    ...(acmeModule.settingsHooks.thinkingOverrides
+      ? { getThinkingOverrides: () => ({}) }
+      : {}),
+    ...(acmeModule.settingsHooks.billingOverrides
+      ? { getBillingOverrides: () => ({}) }
+      : {}),
+  },
+};
+const modelSource = acmeModule.modelSource?.(base) ?? null;
+const resolved = await acmeModule.resolveFromEnv({
+  ...base,
+  ...(modelSource ? { modelSource } : {}),
+});
+if (!resolved.ok) throw resolved.error;
+
+const registry = createStaticBackendRegistry(
+  [resolved.value],
+  resolved.value.backend.id,
+  { modelSource },
+);
+const app = createApp({ registry });
+```
+
+That import is ordinary application code: the package manager and deployment
+own it, TypeScript sees it normally, and rollback is an image rollback. The
+server never interprets an npm specifier from configuration.
 
 ## Naming and stability
 
 - Publish as `brain-backend-<vendor>` under your own npm scope, matching the
   in-tree precedent (`brain-backend-claude`, `brain-backend-pi`).
-- The interfaces are **`@experimental` until 1.0**: breaking seam changes are
+- `BackendModule` and `AgentBackend` are **`@experimental` until 1.0**: breaking seam changes are
   minor-version events, announced in the CHANGELOG. The wire protocol itself
   (`packages/ui-sdk/src/protocol.ts`) is the harder contract — see
   [integration-contract.md](../integration-contract.md).

@@ -41,7 +41,22 @@ function appFor(
     ...(configPath ? { configPath } : {}),
     env: processEnv,
     // Deterministic stand-in for the lazily-loaded pi module (cache clearing).
-    importer: async () => ({ invalidateExtensionCache: async () => true }),
+    importer: async () => ({
+      backendModule: {
+        id: "pi",
+        settingsHooks: {},
+        profileSchema: {
+          source: "BRAIN_UI_PI_PROFILES",
+          parse(raw: string | null) {
+            return { ok: true, profiles: raw ? JSON.parse(raw) : [] } as const;
+          },
+        },
+        resolveFromEnv() {
+          throw new Error("not used by route tests");
+        },
+      },
+      invalidateExtensionCache: async () => true,
+    }),
   });
 }
 

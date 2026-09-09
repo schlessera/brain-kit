@@ -78,8 +78,9 @@ The self-hosted chat UI adds four more in `@schlessera/brain-ui-sdk`
 (`packages/ui-sdk` in this monorepo): `AgentBackend` and `SpeechProvider`
 (server), `ToolRenderer` and `AsrClient` (client).
 
-- **[Agent backends](agent-backends.md)** — `AgentBackend`, the agent runtime
-  that drives a chat conversation. Has its own authoring guide.
+- **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
+  descriptor, constructs an `AgentBackend`, the runtime that drives a chat
+  conversation. Has its own authoring guide.
 - **`SpeechProvider`** (server) — mints per-session STT connection material
   (endpoint URL, short-lived token, params) for the client's matching
   `AsrClient`; audio never transits the brain-ui server unless the provider

@@ -16,7 +16,7 @@
 
 import { Hono } from "hono";
 import type { AgentConfig } from "../config/env.js";
-import { loadBackendModule, parsePiProfiles } from "../agent/backend.js";
+import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
@@ -64,10 +64,15 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
    * Vendors the deployment actually configured — the only providers this
    * surface may touch. Empty when pi is not in play at all.
    */
-  function allowedProviders(): string[] {
-    const fromProfiles = parsePiProfiles(agent.piProfilesJson, agent.profilesJson).map(
-      (profile) => profile.vendor
-    );
+  async function allowedProviders(): Promise<string[]> {
+    const descriptor = await loadBackendDescriptor("pi", deps.importer);
+    const parsed = descriptor.profileSchema.parse(agent.piProfilesJson, {
+      occupiedProfiles: [],
+    });
+    if (!parsed.ok) throw new Error(parsed.errors[0]?.message ?? "Invalid pi profiles.");
+    const fromProfiles = parsed.profiles
+      .map((profile) => profile.vendor)
+      .filter((vendor): vendor is string => typeof vendor === "string");
     return [...new Set(fromProfiles)];
   }
 
@@ -101,7 +106,7 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
       // Not-configured is a normal state, not an error: the client hides the
       // whole card on an empty list.
       if (!piConfigured()) return c.json({ providers: [] });
-      const providers = allowedProviders();
+      const providers = await allowedProviders();
       if (providers.length === 0) return c.json({ providers: [] });
       const auth = await getAuth();
       return c.json({ providers: await auth.status(providers) });
@@ -116,7 +121,7 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
       if (!piConfigured()) {
         return c.json({ error: "The pi backend is not configured." }, 409);
       }
-      if (!providerId || !allowedProviders().includes(providerId)) {
+      if (!providerId || !(await allowedProviders()).includes(providerId)) {
         return c.json({ error: "Unknown provider." }, 400);
       }
       const auth = await getAuth();
@@ -149,7 +154,7 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
         providerId?: unknown;
       } | null;
       const providerId = typeof body?.providerId === "string" ? body.providerId : "";
-      if (!providerId || !allowedProviders().includes(providerId)) {
+      if (!providerId || !(await allowedProviders()).includes(providerId)) {
         return c.json({ error: "Unknown provider." }, 400);
       }
       const auth = await getAuth();

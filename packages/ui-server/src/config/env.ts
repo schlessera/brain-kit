@@ -447,12 +447,12 @@ export interface AgentConfig {
   confirmBashPatterns: string[] | null;
   claudeCodePath: string;
   defaultModel: string;
-  /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed lazily by the registry. */
+  /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed at boot and again by the registry. */
   profilesJson: string | null;
   /**
-   * Raw BRAIN_UI_PI_PROFILES JSON, parsed by the registry. When set, the pi
-   * backend runs alongside the Claude backend and these profiles join the
-   * picker.
+   * Raw BRAIN_UI_PI_PROFILES JSON, parsed at boot and again by the registry.
+   * When set, the pi backend runs alongside the Claude backend and these
+   * profiles join the picker.
    */
   piProfilesJson: string | null;
   modelDiscovery: boolean;

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  defineBackendModule,
+  type BackendModelSource,
+  type BackendModuleContext,
+} from "@schlessera/brain-ui-sdk/server";
+import {
   createBackendRegistry,
   createStaticBackendRegistry,
   type BackendRegistry,
@@ -171,6 +176,44 @@ describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
     ).rejects.toThrow('collides with a BRAIN_UI_CLAUDE_PROFILES entry');
   });
 
+  test("pi-primary validates collisions against the inactive Claude roster", async () => {
+    await expect(
+      registryFor({
+        AGENT_BACKEND: "pi",
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          { id: "shared", label: "Shared (Anthropic)" },
+        ]),
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          {
+            id: "shared",
+            label: "Shared (OpenAI)",
+            vendor: "openai-codex",
+            model: "gpt-5.5",
+          },
+        ]),
+      }).getBackends()
+    ).rejects.toThrow('collides with a BRAIN_UI_CLAUDE_PROFILES entry');
+  });
+
+  test("pi-primary registry ignores malformed inactive Claude roster entries", async () => {
+    for (const inactiveRoster of ["not json", JSON.stringify([{}])]) {
+      const registry = registryFor({
+        AGENT_BACKEND: "pi",
+        BRAIN_UI_CLAUDE_PROFILES: inactiveRoster,
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          {
+            id: "gpt-test",
+            label: "GPT Test",
+            vendor: "openai-codex",
+            model: "gpt-5.5",
+          },
+        ]),
+      });
+
+      expect((await registry.getBackends()).map((backend) => backend.id)).toEqual(["pi"]);
+    }
+  });
+
   test("an invalid thinkingLevel is rejected at boot", async () => {
     await expect(
       registryFor({
@@ -268,7 +311,7 @@ describe("GET /providers", () => {
 });
 
 describe("static registry (test/embedder seam)", () => {
-  test("orders the default backend first and resolves sessions to it", async () => {
+  test("orders the default backend first and rejects unknown stored backend ids", async () => {
     const registry = createStaticBackendRegistry(
       [makeFakeBackend({ id: "a" }), makeFakeBackend({ id: "b" })],
       "b"
@@ -280,7 +323,80 @@ describe("static registry (test/embedder seam)", () => {
     ]);
     expect((await registry.getBackendForSession(null)).id).toBe("b");
     expect((await registry.getBackendForSession("a")).id).toBe("a");
-    expect((await registry.getBackendForSession("missing")).id).toBe("b");
+    await expect(registry.getBackendForSession("missing")).rejects.toThrow(
+      'Stored backend id "missing" is not configured.'
+    );
+  });
+
+  test("keeps a by-value descriptor resolution's hooks and model source", async () => {
+    const backend = makeFakeBackend({
+      id: "custom",
+      profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+    });
+    const modelSource: BackendModelSource = {
+      list: () => [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+      state: () => ({ enabled: true, refreshedAt: 1, stale: false }),
+      ensureFresh: async () => {},
+      refresh: async () => {},
+    };
+    const customModule = defineBackendModule({
+      id: "custom",
+      profileSchema: {
+        source: "BRAIN_UI_CUSTOM_PROFILES",
+        parse() {
+          return {
+            ok: true,
+            profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+          };
+        },
+      },
+      settingsHooks: { defaultModelId: true, billingOverrides: true },
+      modelSource: () => modelSource,
+      resolveFromEnv(context) {
+        const preferredId = context.settings.getDefaultModelId?.() ?? null;
+        return {
+          ok: true,
+          value: {
+            backend,
+            classifyBilling: () => "subscription",
+            preferredProfile: {
+              matches: (profile) => profile.id === preferredId,
+              hasCredential: () => true,
+            },
+          },
+        };
+      },
+    });
+    const parsed = customModule.profileSchema.parse(null, {
+      occupiedProfiles: [],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error(parsed.errors[0]?.message);
+    const base: BackendModuleContext = {
+      brainPath: "/tmp/brain",
+      config: {},
+      profiles: parsed.profiles,
+      confirmBashPatterns: null,
+      settings: {
+        getDefaultModelId: () => "custom-pro",
+        getBillingOverrides: () => ({}),
+      },
+    };
+    const source = customModule.modelSource?.(base) ?? null;
+    const resolution = await customModule.resolveFromEnv({
+      ...base,
+      ...(source ? { modelSource: source } : {}),
+    });
+    if (!resolution.ok) throw resolution.error;
+
+    const registry = createStaticBackendRegistry(
+      [resolution.value],
+      resolution.value.backend.id,
+      { modelSource: source }
+    );
+    expect((await registry.listAllProviders())[0]?.billingMode).toBe("subscription");
+    expect(await registry.getPreferredProfileId()).toBe("custom-pro");
+    expect(await registry.getModelSource()).toBe(modelSource);
   });
 });
 

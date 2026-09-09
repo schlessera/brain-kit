@@ -25,14 +25,7 @@ import { join, resolve } from "path";
 import ts from "typescript";
 import type * as claude from "@schlessera/brain-backend-claude";
 import type * as pi from "@schlessera/brain-backend-pi";
-import type {
-  ClaudeBackendModule,
-  ClaudeModelSource,
-  ClaudeProfile,
-  ClaudeProfileInput,
-  ModelDiscoveryState,
-  PiProfileInput,
-} from "../src/agent/backend";
+import type { BackendModule } from "@schlessera/brain-ui-sdk/server";
 
 const PKG = resolve(import.meta.dir, "..");
 const BACKEND_SPECIFIER = /@schlessera\/brain-backend-(claude|pi)/;
@@ -124,38 +117,34 @@ describe("emitted declaration graph", () => {
   });
 });
 
-// --- mirror drift guard ------------------------------------------------------
+// --- descriptor drift guard --------------------------------------------------
 //
-// src types the lazily-required Claude module structurally so it never names
-// the specifier. These assertions are where the compile-time link to the real
-// module lives instead: if the real package's shape stops satisfying a mirror,
-// `bunx tsc --noEmit` fails right here. Property-style function members in the
-// mirrors keep the check contravariant under strictFunctionTypes.
+// Tests may name both optional packages. Production source may not: it loads a
+// value and checks it against the shared BackendModule descriptor. These
+// assertions keep both real exports and the descriptor's deliberately small
+// member set linked at compile time.
 type Assert<T extends true> = T;
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 
-// The whole module slice: the real module must be usable wherever the mirror
-// is expected (this is exactly the `claude = require(...)` assignment).
-type _moduleCompat = Assert<typeof claude extends ClaudeBackendModule ? true : false>;
-// Discovery: the real source satisfies the internal view (list included)...
-type _sourceCompat = Assert<claude.ModelSource extends ClaudeModelSource ? true : false>;
-// ...and its state satisfies the public slice on BackendRegistry.
-type _stateCompat = Assert<
-  ReturnType<claude.ModelSource["state"]> extends ModelDiscoveryState ? true : false
+type _descriptorMembers = Assert<
+  Equal<
+    keyof BackendModule,
+    "id" | "resolveFromEnv" | "profileSchema" | "settingsHooks" | "modelSource"
+  >
 >;
-// Profiles, both directions of the boundary: mirror inputs must be accepted by
-// the real defineProfiles, and real resolved profiles must satisfy the mirror.
-type _inputCompat = Assert<ClaudeProfileInput extends claude.InferenceProfileInput ? true : false>;
-type _profileCompat = Assert<claude.InferenceProfile extends ClaudeProfile ? true : false>;
-// pi: mirror profile inputs must be accepted by the real createPiBackend, i.e.
-// each entry satisfies the real PiProfile shape (thinkingLevel union included).
-type _piInputCompat = Assert<PiProfileInput extends pi.PiProfile ? true : false>;
+type _claudeDescriptorCompat = Assert<
+  typeof claude.backendModule extends BackendModule ? true : false
+>;
+type _piDescriptorCompat = Assert<
+  typeof pi.backendModule extends BackendModule ? true : false
+>;
 
-describe("structural mirrors of the Claude module", () => {
+describe("backend module descriptor mirror", () => {
   test("the type-level compatibility assertions above compiled", () => {
-    // The real check is `bunx tsc --noEmit` on the Assert<> lines; this test
-    // exists so their presence is executed and visible in the run.
-    const witness: _moduleCompat & _sourceCompat & _stateCompat & _inputCompat & _profileCompat =
-      true;
+    const witness: _descriptorMembers & _claudeDescriptorCompat & _piDescriptorCompat = true;
     expect(witness).toBe(true);
   });
 });

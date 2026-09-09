@@ -170,7 +170,8 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   assertPasskeyConfig(config.webauthn);
   // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
   // first turn — otherwise /api/health reports healthy while every turn is
-  // guaranteed to fail. Resolution only; the module still loads lazily.
+  // guaranteed to fail. Descriptor loading and profile validation happen here;
+  // backend construction and model discovery remain lazy.
   // Skipped when the embedder injects its own registry.
   if (!options.registry) assertBackendResolvable(config.agent);
 

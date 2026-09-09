@@ -15,6 +15,7 @@ export "." (./src/index.ts)
   ENV_VARS
   type EnvVarSpec
   PI_BACKEND_ID
+  PI_THINKING_LEVELS
   type PermissionGateOptions
   type PiAuth
   type PiAuthProviderStatus
@@ -25,12 +26,14 @@ export "." (./src/index.ts)
   type PiProfile
   type PiSessionFactory
   type PiSessionLike
+  type PiThinkingLevel
   type RiskClass
   type SessionToolkit
   TOOL_RISK
   type ToolLock
   type TurnContext
   approvalReason
+  backendModule
   createBrainAccess
   createBrainTools
   createPermissionGate

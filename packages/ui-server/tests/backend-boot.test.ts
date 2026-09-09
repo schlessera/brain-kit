@@ -5,8 +5,8 @@
  * moved "the package is not installed" from import time to the first agent
  * turn: `createApp()` succeeded and /api/health reported healthy on a
  * deployment that could never run a turn. `assertBackendResolvable` restores
- * the boot-time guarantee (resolution only — the Agent SDK still loads
- * lazily), and `createApp()` calls it next to the auth assertions.
+ * the boot-time guarantee and runs descriptor-owned profile validation before
+ * health can report ready; backend construction remains lazy.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -75,6 +75,57 @@ describe("assertBackendResolvable", () => {
     );
   });
 
+  test("pi primary boots without Claude installed when the inactive roster is empty", () => {
+    const resolved: string[] = [];
+    const piOnly = (specifier: string) => {
+      resolved.push(specifier);
+      if (specifier.includes("backend-claude")) absent(specifier);
+    };
+    const config = resolveServerConfig({
+      AGENT_BACKEND: "pi",
+      BRAIN_UI_CLAUDE_PROFILES: "[]",
+    }).agent;
+
+    expect(() => assertBackendResolvable(config, piOnly)).not.toThrow();
+    expect(resolved).toEqual(["@schlessera/brain-backend-pi"]);
+  });
+
+  test("pi primary boots without Claude installed for a non-colliding inactive roster", () => {
+    const piOnly = (specifier: string) => {
+      if (specifier.includes("backend-claude")) absent(specifier);
+    };
+    const config = resolveServerConfig({
+      AGENT_BACKEND: "pi",
+      BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+        { id: "anthropic-custom", label: "Anthropic Custom" },
+      ]),
+      BRAIN_UI_PI_PROFILES: JSON.stringify([
+        { id: "gpt-test", label: "GPT Test", vendor: "openai-codex", model: "gpt-test" },
+      ]),
+    }).agent;
+
+    expect(() => assertBackendResolvable(config, piOnly)).not.toThrow();
+  });
+
+  test("pi primary ignores malformed data in the inactive Claude roster", () => {
+    for (const inactiveRoster of ["not json", JSON.stringify([{}])]) {
+      const config = resolveServerConfig({
+        AGENT_BACKEND: "pi",
+        BRAIN_UI_CLAUDE_PROFILES: inactiveRoster,
+        BRAIN_UI_PI_PROFILES: JSON.stringify([
+          {
+            id: "gpt-test",
+            label: "GPT Test",
+            vendor: "openai-codex",
+            model: "gpt-test",
+          },
+        ]),
+      }).agent;
+
+      expect(() => assertBackendResolvable(config)).not.toThrow();
+    }
+  });
+
   test("an unrecognized AGENT_BACKEND refuses without touching the resolver", () => {
     const touched: string[] = [];
     expect(() =>
@@ -84,12 +135,28 @@ describe("assertBackendResolvable", () => {
     ).toThrow('AGENT_BACKEND="gemini" does not match any configured backend');
     expect(touched).toEqual([]);
   });
+
+  test("AGENT_BACKEND accepts only the two fixed first-party ids", () => {
+    for (const value of [
+      "@scope/custom-backend",
+      "file:./backend.ts",
+      "https://example.invalid/backend.js",
+      "gemini",
+    ]) {
+      expect(() => assertBackendResolvable(agent(value))).toThrow(
+        `AGENT_BACKEND="${value.toLowerCase()}" does not match any configured backend`
+      );
+    }
+    expect(() => assertBackendResolvable(agent("claude"))).not.toThrow();
+    expect(() => assertBackendResolvable(agent("pi"))).not.toThrow();
+  });
 });
 
 describe("loadBackendModule", () => {
   test("the installed workspace backend loads through the real importer", async () => {
     const claude = (await loadBackendModule("claude")) as Record<string, unknown>;
     expect(typeof claude.createClaudeBackend).toBe("function");
+    expect(typeof claude.backendModule).toBe("object");
   });
 
   test("an absent package maps to the install hint (Bun-shaped resolve error)", async () => {
@@ -177,6 +244,78 @@ describe("createApp boot validation", () => {
     expect(() =>
       createApp({ config: resolveServerConfig({ ...baseEnv, AGENT_BACKEND: "gemini" }) })
     ).toThrow('AGENT_BACKEND="gemini" does not match any configured backend');
+  });
+
+  test("a pi profile missing required fields refuses to boot", () => {
+    expect(() =>
+      createApp({
+        config: resolveServerConfig({
+          ...baseEnv,
+          BRAIN_UI_PI_PROFILES: JSON.stringify([{}]),
+        }),
+      })
+    ).toThrow("Each BRAIN_UI_PI_PROFILES entry needs a non-empty string id.");
+  });
+
+  test("a reserved pi profile id refuses to boot", () => {
+    expect(() =>
+      createApp({
+        config: resolveServerConfig({
+          ...baseEnv,
+          BRAIN_UI_PI_PROFILES: JSON.stringify([
+            {
+              id: "claude-shadow",
+              label: "Shadow",
+              vendor: "openai-codex",
+              model: "gpt-test",
+            },
+          ]),
+        }),
+      })
+    ).toThrow('BRAIN_UI_PI_PROFILES id "claude-shadow" is reserved for the Claude roster');
+  });
+
+  test("an invalid pi thinking level refuses to boot", () => {
+    expect(() =>
+      createApp({
+        config: resolveServerConfig({
+          ...baseEnv,
+          BRAIN_UI_PI_PROFILES: JSON.stringify([
+            {
+              id: "gpt-test",
+              label: "GPT Test",
+              vendor: "openai-codex",
+              model: "gpt-test",
+              thinkingLevel: "ultra",
+            },
+          ]),
+        }),
+      })
+    ).toThrow('BRAIN_UI_PI_PROFILES entry "gpt-test" has invalid thinkingLevel "ultra"');
+  });
+
+  test("pi-primary still rejects ids declared in the inactive Claude roster", () => {
+    expect(() =>
+      createApp({
+        config: resolveServerConfig({
+          ...baseEnv,
+          AGENT_BACKEND: "pi",
+          BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+            { id: "shared", label: "Shared (Anthropic)" },
+          ]),
+          BRAIN_UI_PI_PROFILES: JSON.stringify([
+            {
+              id: "shared",
+              label: "Shared (OpenAI)",
+              vendor: "openai-codex",
+              model: "gpt-test",
+            },
+          ]),
+        }),
+      })
+    ).toThrow(
+      'BRAIN_UI_PI_PROFILES id "shared" collides with a BRAIN_UI_CLAUDE_PROFILES entry.'
+    );
   });
 
   test("an injected registry skips the resolvability check", () => {

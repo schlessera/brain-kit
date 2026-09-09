@@ -21,6 +21,19 @@ function makeFakeModule() {
   };
   const calls: string[] = [];
   const module = {
+    backendModule: {
+      id: "pi",
+      settingsHooks: {},
+      profileSchema: {
+        source: "BRAIN_UI_PI_PROFILES",
+        parse(raw: string | null) {
+          return { ok: true, profiles: raw ? JSON.parse(raw) : [] } as const;
+        },
+      },
+      resolveFromEnv() {
+        throw new Error("not used by route tests");
+      },
+    },
     createPiAuth: () => ({
       async status(providerIds: string[]) {
         calls.push(`status:${providerIds.join(",")}`);
