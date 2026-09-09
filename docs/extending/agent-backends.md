@@ -176,13 +176,11 @@ profiles still resolve for sessions pinned to them.
   minor-version events, announced in the CHANGELOG. The wire protocol itself
   (`packages/ui-sdk/src/protocol.ts`) is the harder contract — see
   [integration-contract.md](../integration-contract.md).
-- The executable form of the turn contract is the cross-backend suite
-  `packages/ui-sdk/tests/backend-contract.test.ts` — the same assertions run
-  against both first-party backends over injected fake runtimes. Honest
-  caveat: that suite is not published and today covers only the in-tree
-  backends; for your own backend, replicate its assertions (session_info
-  first, terminal `result`, abort → cancelled → resolve, per-session
-  busy-ness, unknown-profile rejection) in your own tests.
+- The executable form of the turn contract is published as
+  `runBackendContract` from `@schlessera/brain-ui-sdk/testing`. Supply a
+  `BackendContractHarness` backed by your own fake runtime and inject your test
+  runner's `{ describe, test, expect }`; the same assertions used by both
+  first-party backends then run in your package.
 
 ## See also
 

@@ -9,6 +9,7 @@ nothing else does: no HTTP framework, no UI, no model vendor.
 @schlessera/brain-ui-sdk/protocol   → same, explicit
 @schlessera/brain-ui-sdk/schemas    → zod runtime schemas + parseClientMessage
 @schlessera/brain-ui-sdk/server     → AgentBackend / SpeechProvider seams, transcript store
+@schlessera/brain-ui-sdk/testing    → published AgentBackend contract test harness
 @schlessera/brain-ui-sdk/client     → tool-renderer + AsrClient registries (React peer)
 @schlessera/brain-ui-sdk/share-target → Web Share Target service-worker handler
 @schlessera/brain-ui-sdk/push-handlers → web-push service-worker handlers
@@ -45,6 +46,32 @@ interfaces. Hosts should never cast a client frame; binary frames are rejected.
 actually blocks a mutation, and the shared contract test suite enforces it for
 every in-tree backend. The transcript store persists session metadata without
 prescribing storage for the transcripts themselves (backends own those).
+
+## Backend contract tests (`./testing`)
+
+Backend packages can run the same `startTurn` assertions as the first-party
+implementations by supplying fake runtimes through a `BackendContractHarness`:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import {
+  runBackendContract,
+  type BackendContractHarness,
+} from "@schlessera/brain-ui-sdk/testing";
+
+const harness: BackendContractHarness = {
+  name: "example",
+  scripted: (script) => createExampleBackend({ runtime: scriptedRuntime(script) }),
+  hanging: () => createExampleBackend({ runtime: hangingRuntime() }),
+  failing: (script) => createExampleBackend({ runtime: failingRuntime(script) }),
+  unknownProfileId: "no-such-profile",
+};
+
+runBackendContract(harness, { describe, test, expect });
+```
+
+The caller owns fake-runtime setup and per-test cleanup; the published subpath
+does not import a test runner or Node/Bun filesystem APIs.
 
 ## Client registries (`./client`)
 

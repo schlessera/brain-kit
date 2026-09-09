@@ -19,6 +19,7 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
       "protocol.js",
       "schemas.js",
       "server/index.js",
+      "testing/index.js",
       "client/index.js",
       // Its own export subpath: a service worker must import it without
       // dragging in the renderer/ASR registries that client/index.js holds.

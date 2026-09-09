@@ -701,3 +701,9 @@ export "./sw-policy" (./src/client/sw-policy.ts)
   type ServiceWorkerPolicyScope
   purgeLegacyApiCaches
   registerDefaultRoutes
+
+export "./testing" (./src/testing/index.ts)
+  type BackendContractHarness
+  type ContractTestPrimitives
+  type TurnScript
+  runBackendContract

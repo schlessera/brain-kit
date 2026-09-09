@@ -45,6 +45,11 @@
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
     },
+    "./testing": {
+      "bun": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
     "./client": {
       "bun": "./src/client/index.ts",
       "types": "./dist/client/index.d.ts",

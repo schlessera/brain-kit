@@ -160,6 +160,7 @@ jobs:
             "@schlessera/brain-ui-sdk/protocol",
             "@schlessera/brain-ui-sdk/schemas",
             "@schlessera/brain-ui-sdk/server",
+            "@schlessera/brain-ui-sdk/testing",
             "@schlessera/brain-ui-sdk/client",
             "@schlessera/brain-backend-claude",
             "@schlessera/brain-render-puppeteer",

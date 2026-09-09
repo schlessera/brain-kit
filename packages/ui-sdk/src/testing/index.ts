@@ -1,7 +1,7 @@
 /**
- * Cross-backend contract suite — the SAME assertions run against both
- * first-party AgentBackends. This is the executable
- * form of the startTurn contract documented in src/server/backend.ts:
+ * Published AgentBackend contract suite. The SAME assertions run against all
+ * backends. This is the executable form of the startTurn contract documented
+ * in ../server/backend.ts:
  *
  *   1. capabilities is a complete, honest boolean set
  *   2. listProfiles() yields safe ProviderInfo shapes
@@ -15,55 +15,41 @@
  *      capabilities.concurrentSessions; the backend recovers after drains
  *   6. an unknown profileId rejects with BackendRequestError and emits nothing
  *
- * Backends run against injected fake runtimes (queryFn / sessionFactory) —
- * no live models. Test-only relative imports across packages are intentional;
- * this file is not published.
+ * Backends run against caller-supplied fake runtimes — no live models. Test
+ * registration and assertion primitives are injected so this module remains
+ * importable by plain Node consumers without depending on a test runner.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import type { ProviderInfo, ServerMessage } from "../protocol.js";
+import type { AgentBackend, BackendBridge } from "../server/backend.js";
+import { BackendBusyError, BackendRequestError } from "../server/backend.js";
 
-import type { AgentBackend, BackendBridge } from "../src/server/backend";
-import { BackendBusyError, BackendRequestError } from "../src/server/backend";
-import type { ProviderInfo, ServerMessage } from "../src/protocol";
-
-import { createClaudeBackend } from "../../ui-backend-claude/src/backend";
-import { createPiBackend, type PiSessionLike } from "../../ui-backend-pi/src/backend";
-import type { query, Options } from "@anthropic-ai/claude-agent-sdk";
-
-// ---------------------------------------------------------------------------
-// Harness plumbing
-// ---------------------------------------------------------------------------
-
-const temps: string[] = [];
-function tempBrain(): string {
-  const dir = mkdtempSync(join(tmpdir(), "backend-contract-"));
-  temps.push(dir);
-  return dir;
-}
-afterEach(() => {
-  while (temps.length) rmSync(temps.pop()!, { recursive: true, force: true });
-});
-
-function makeBridge(): { frames: ServerMessage[]; bridge: BackendBridge } {
-  const frames: ServerMessage[] = [];
-  return {
-    frames,
-    bridge: {
-      emit: (m) => frames.push(m),
-      requestPermission: async () => ({ behavior: "allow" }),
-    },
-  };
+interface ContractMatchers {
+  toBe(expected: unknown): void;
+  toEqual(expected: unknown): void;
+  toMatch(expected: RegExp): void;
+  toBeGreaterThan(expected: number): void;
+  toBeGreaterThanOrEqual(expected: number): void;
+  toBeDefined(): void;
+  toHaveLength(expected: number): void;
+  toBeInstanceOf(expected: abstract new (...args: never[]) => unknown): void;
+  readonly not: Pick<ContractMatchers, "toBe" | "toMatch">;
+  readonly rejects: Pick<ContractMatchers, "toBeInstanceOf">;
 }
 
-interface TurnScript {
+/** The minimal test-runner surface used by the backend contract assertions. */
+export interface ContractTestPrimitives {
+  describe(name: string, fn: () => void): void;
+  test(name: string, fn: () => void | Promise<void>): void;
+  expect(actual: unknown): ContractMatchers;
+}
+
+export interface TurnScript {
   sessionId: string;
   textDeltas: string[];
 }
 
-interface Harness {
+export interface BackendContractHarness {
   name: string;
   /** Backend whose next turn plays the script and completes. */
   scripted(script: TurnScript): AgentBackend;
@@ -77,170 +63,16 @@ interface Harness {
   unknownProfileId: string;
 }
 
-// --- claude harness: inject queryFn ----------------------------------------
-
-function claudeScriptedQuery(script: TurnScript): typeof query {
-  return ((_params: { prompt: unknown; options?: Options }) =>
-    (async function* () {
-      yield { type: "system", subtype: "init", session_id: script.sessionId };
-      for (const text of script.textDeltas) {
-        yield {
-          type: "stream_event",
-          session_id: script.sessionId,
-          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
-        };
-      }
-      yield {
-        type: "result",
-        subtype: "success",
-        session_id: script.sessionId,
-        total_cost_usd: 0.01,
-        duration_ms: 5,
-        num_turns: 1,
-      };
-    })()) as unknown as typeof query;
-}
-
-let hangCounter = 0;
-
-/** Emits a session identity, then hangs until the host aborts. */
-function claudeHangingQuery(): typeof query {
-  return ((params: { options?: Options }) =>
-    (async function* () {
-      yield { type: "system", subtype: "init", session_id: `hang-${++hangCounter}` };
-      await new Promise<void>((_resolve, reject) => {
-        const sig = params.options?.abortController?.signal;
-        if (sig?.aborted) return reject(new DOMException("Aborted", "AbortError"));
-        sig?.addEventListener(
-          "abort",
-          () => reject(new DOMException("Aborted", "AbortError")),
-          { once: true }
-        );
-      });
-    })()) as unknown as typeof query;
-}
-
-/** Emits a session identity, then throws like a provider failure. */
-function claudeFailingQuery(script: TurnScript): typeof query {
-  return ((_params: { options?: Options }) =>
-    (async function* () {
-      yield { type: "system", subtype: "init", session_id: script.sessionId };
-      throw new Error("provider exploded");
-    })()) as unknown as typeof query;
-}
-
-/** Emits a session identity and deltas, then ends WITHOUT a result. */
-function claudeTruncatedQuery(script: TurnScript): typeof query {
-  return ((_params: { options?: Options }) =>
-    (async function* () {
-      yield { type: "system", subtype: "init", session_id: script.sessionId };
-      for (const text of script.textDeltas) {
-        yield {
-          type: "stream_event",
-          session_id: script.sessionId,
-          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
-        };
-      }
-    })()) as unknown as typeof query;
-}
-
-const claudeHarness: Harness = {
-  name: "claude",
-  scripted: (script) =>
-    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script) }),
-  hanging: () =>
-    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeHangingQuery() }),
-  failing: (script) =>
-    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeFailingQuery(script) }),
-  truncated: (script) =>
-    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeTruncatedQuery(script) }),
-  unknownProfileId: "no-such-profile",
-};
-
-// --- pi harness: inject sessionFactory --------------------------------------
-
-function piFakeSession(script: TurnScript, opts?: { hang?: boolean }): PiSessionLike {
-  const listeners = new Set<(ev: never) => void>();
-  let aborted: (() => void) | null = null;
+function makeBridge(): { frames: ServerMessage[]; bridge: BackendBridge } {
+  const frames: ServerMessage[] = [];
   return {
-    sessionId: script.sessionId,
-    subscribe(listener) {
-      listeners.add(listener as (ev: never) => void);
-      return () => listeners.delete(listener as (ev: never) => void);
-    },
-    async prompt() {
-      if (opts?.hang) {
-        await new Promise<void>((resolve) => {
-          aborted = resolve;
-        });
-        return;
-      }
-      for (const text of script.textDeltas) {
-        const ev = {
-          type: "message_update",
-          assistantMessageEvent: { type: "text_delta", delta: text, contentIndex: 0 },
-        };
-        for (const l of listeners) (l as (e: unknown) => void)(ev);
-      }
-    },
-    async abort() {
-      aborted?.();
-    },
-    getSessionStats: () => ({ cost: 0.01 }),
-    dispose() {},
-  };
-}
-
-function piHarnessBackend(script: TurnScript, hang: boolean): AgentBackend {
-  return createPiBackend({
-    brainPath: tempBrain(),
-    profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
-    sessionFactory: {
-      newSession: async () => piFakeSession(script, { hang }),
-      openSession: async () => piFakeSession(script, { hang }),
-    },
-  });
-}
-
-function piHangingBackend(): AgentBackend {
-  // Unique session per acquisition so two concurrent NEW turns get distinct ids.
-  return createPiBackend({
-    brainPath: tempBrain(),
-    profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
-    sessionFactory: {
-      newSession: async () =>
-        piFakeSession({ sessionId: `hang-${++hangCounter}`, textDeltas: [] }, { hang: true }),
-      openSession: async (sessionId) =>
-        piFakeSession({ sessionId, textDeltas: [] }, { hang: true }),
-    },
-  });
-}
-
-function piFailingSession(script: TurnScript): PiSessionLike {
-  const base = piFakeSession(script);
-  return {
-    ...base,
-    async prompt() {
-      throw new Error("provider exploded");
+    frames,
+    bridge: {
+      emit: (m) => frames.push(m),
+      requestPermission: async () => ({ behavior: "allow" }),
     },
   };
 }
-
-const piHarness: Harness = {
-  name: "pi",
-  scripted: (script) => piHarnessBackend(script, false),
-  hanging: () => piHangingBackend(),
-  failing: (script) =>
-    createPiBackend({
-      brainPath: tempBrain(),
-      profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
-      sessionFactory: {
-        newSession: async () => piFailingSession(script),
-        openSession: async () => piFailingSession(script),
-      },
-    }),
-  unknownProfileId: "no-such-profile",
-};
 
 /** Poll until `cond` is true (or fail after ~2s). */
 async function waitFor(cond: () => boolean): Promise<void> {
@@ -257,11 +89,13 @@ function sessionIdOf(frames: ServerMessage[]): string {
   return info.sessionId;
 }
 
-// ---------------------------------------------------------------------------
-// The contract
-// ---------------------------------------------------------------------------
+/** Register the complete startTurn contract suite for one backend harness. */
+export function runBackendContract(
+  harness: BackendContractHarness,
+  primitives: ContractTestPrimitives
+): void {
+  const { describe, expect, test } = primitives;
 
-for (const harness of [claudeHarness, piHarness]) {
   describe(`AgentBackend contract: ${harness.name}`, () => {
     test("capabilities is a complete boolean set", () => {
       const backend = harness.scripted({ sessionId: "s", textDeltas: [] });
