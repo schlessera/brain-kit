@@ -277,4 +277,44 @@ describe("WebSocket origin policy", () => {
     expect(matching.status).not.toBe(403);
     expect(mismatched.status).toBe(403);
   });
+
+  // Regression: a proxy that reports the CONNECTION scheme on an upgrade sends
+  // `X-Forwarded-Proto: wss`, and a browser's Origin is always https. Taking
+  // the forwarded value verbatim expected `wss://api.example` and refused
+  // every browser that omits Sec-Fetch-Site on the handshake (Safari, and so
+  // the installed PWA), while ordinary HTTP requests — forwarded as `https`
+  // and sent with fetch metadata — kept working. Seen in production on
+  // brain-kit 0.32.0.
+  test("accepts an https Origin when the proxy forwards the wss upgrade scheme", async () => {
+    const secure = await trustedProxyApp.fetch("/ws", {
+      headers: {
+        ...WS_UPGRADE_HEADERS,
+        host: "api.example",
+        origin: "https://api.example",
+        "x-forwarded-proto": "wss",
+      },
+    });
+    const plain = await trustedProxyApp.fetch("/ws", {
+      headers: {
+        ...WS_UPGRADE_HEADERS,
+        host: "api.example",
+        origin: "http://api.example",
+        "x-forwarded-proto": "ws",
+      },
+    });
+    // The mapping is scheme-preserving, not scheme-widening: a plaintext
+    // upgrade still must not match an https Origin.
+    const crossed = await trustedProxyApp.fetch("/ws", {
+      headers: {
+        ...WS_UPGRADE_HEADERS,
+        host: "api.example",
+        origin: "https://api.example",
+        "x-forwarded-proto": "ws",
+      },
+    });
+
+    expect(secure.status).not.toBe(403);
+    expect(plain.status).not.toBe(403);
+    expect(crossed.status).toBe(403);
+  });
 });
