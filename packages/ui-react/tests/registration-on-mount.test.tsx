@@ -42,7 +42,7 @@ if (!childMode) {
   GlobalRegistrator.register();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-  const { cleanup, render, renderHook } = await import("@testing-library/react");
+  const { cleanup } = await import("@testing-library/react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const harness = await import("./registration-on-mount-harness.js");
 
