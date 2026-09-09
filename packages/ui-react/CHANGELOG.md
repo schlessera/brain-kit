@@ -1,5 +1,19 @@
 # @schlessera/brain-ui-react
 
+## 0.33.0
+
+### Minor Changes
+
+- 07d63eb: Add the injected service-worker policy and shared hash-routing and update-safe reload hooks.
+
+### Patch Changes
+
+- 396f2e6: Register built-in tool renderers and ASR clients synchronously on first render.
+- 5274cd0: Prove the published package imports and typechecks with React 18 and its matching type packages.
+- Updated dependencies [95a180c]
+- Updated dependencies [07d63eb]
+  - @schlessera/brain-ui-sdk@0.33.0
+
 ## 0.32.0
 
 ### Minor Changes

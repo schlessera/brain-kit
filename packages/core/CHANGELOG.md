@@ -1,5 +1,15 @@
 # @schlessera/brain
 
+## 0.33.0
+
+### Minor Changes
+
+- 54725c0: Add CLI end-of-options parsing and require a compatible brain CLI for user-controlled UI positionals.
+
+### Patch Changes
+
+- @schlessera/brain-render-template@0.33.0
+
 ## 0.32.0
 
 ### Patch Changes

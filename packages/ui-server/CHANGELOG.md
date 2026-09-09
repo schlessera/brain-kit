@@ -1,5 +1,20 @@
 # @schlessera/brain-ui-server
 
+## 0.33.0
+
+### Minor Changes
+
+- 7b91676: Add byte-stable `crontab` and audience-derived `environment` emitters to `brain-ui-cron`.
+- c7375d0: Ship `brain-ui-cron` with typed `run` and fail-loud `digest` subcommands.
+- 54725c0: Add CLI end-of-options parsing and require a compatible brain CLI for user-controlled UI positionals.
+
+### Patch Changes
+
+- Updated dependencies [95a180c]
+- Updated dependencies [07d63eb]
+  - @schlessera/brain-ui-sdk@0.33.0
+  - @schlessera/brain-render-template@0.33.0
+
 ## 0.32.0
 
 ### Minor Changes

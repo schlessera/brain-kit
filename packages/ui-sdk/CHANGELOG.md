@@ -1,5 +1,15 @@
 # @schlessera/brain-ui-sdk
 
+## 0.33.0
+
+### Minor Changes
+
+- 07d63eb: Add the injected service-worker policy and shared hash-routing and update-safe reload hooks.
+
+### Patch Changes
+
+- 95a180c: Guard protocol schemas with exact type-level parity checks and align existing server-frame validators.
+
 ## 0.32.0
 
 ### Minor Changes
