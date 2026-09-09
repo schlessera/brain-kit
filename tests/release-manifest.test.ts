@@ -115,6 +115,33 @@ describe("release manifests", () => {
     expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
   });
 
+  // The packed-install smoke test in CI asserts the bin's usage output. That
+  // assertion went stale the moment `crontab` and `environment` were added:
+  // it still matched a two-subcommand line, so it failed the build instead of
+  // proving anything. Both sides are decidable from files, so check them here
+  // rather than waiting for CI to disagree with the source again.
+  test("CI's packed-bin smoke test asserts every brain-ui-cron subcommand", () => {
+    const uiServer = packages.find(
+      (p) => p.manifest.name === "@schlessera/brain-ui-server"
+    );
+    if (!uiServer) throw new Error("could not find the @schlessera/brain-ui-server manifest");
+    const source = readFileSync(
+      join(PACKAGES_DIR, uiServer.dir, "src", "bin", "brain-ui-cron.ts"),
+      "utf8"
+    );
+    const usage = /export const USAGE = `([^`]*)`/.exec(source)?.[1];
+    if (!usage) throw new Error("could not read the USAGE template from brain-ui-cron.ts");
+    const subcommands = [...usage.matchAll(/brain-ui-cron (\w+)/g)].map((m) => m[1]);
+    expect(subcommands.length).toBeGreaterThan(1);
+
+    const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+    const smokeTest = workflow.slice(workflow.indexOf("CRON_USAGE="));
+    expect(smokeTest).not.toBe("");
+    for (const sub of subcommands) {
+      expect(smokeTest.includes(sub)).toBe(true);
+    }
+  });
+
   // A new package added to packages/ but not to these hardcoded lists is
   // silently skipped: the release ships dependents that pin a version nobody
   // published, which is the 0.2.0 uninstallable-package failure in a new guise.

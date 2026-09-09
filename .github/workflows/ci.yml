@@ -202,7 +202,13 @@ jobs:
           CRON_STATUS=$?
           set -e
           test "$CRON_STATUS" -eq 2
-          grep -q '^usage: brain-ui-cron run <job-name> -- <command...> | digest$' <<< "$CRON_USAGE"
+          # One line per subcommand, so adding a subcommand does not silently
+          # stop this from asserting anything. The `run` line is the one the
+          # container crontab is written against, so it is matched in full.
+          grep -qF 'usage: brain-ui-cron run <job-name> -- <command...>' <<< "$CRON_USAGE"
+          for sub in digest crontab environment; do
+            grep -qE "^ *brain-ui-cron $sub( |$)" <<< "$CRON_USAGE"
+          done
       - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
         # The repo's own typecheck resolves cross-package imports to src via
         # customConditions ["bun"], so the emitted .d.ts consumers get is
