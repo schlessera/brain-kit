@@ -21,6 +21,8 @@ import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
 import {
   filterSubprocessEnv,
+  parseSubprocessEnvExtra,
+  type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -67,6 +69,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi).",
     default: "/root",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
+    description:
+      "Comma-separated environment variable names to admit to every child " +
+      "audience when an operator integration needs a variable outside the " +
+      "shipped allowlist. Names are trimmed; malformed entries are ignored; " +
+      "the control variable itself is never forwarded.",
+    default: "(empty)",
     required: false,
   },
   {
@@ -503,8 +515,12 @@ export interface CronConfig {
   brainPath: string;
   /** The deployment database; unlike createApp(), the bin defaults to the container path. */
   dbPath: string;
-  /** Exact inherited environment for the scheduled child, before the span sink is added. */
+  /** Allowlisted brain CLI environment used only to discover module cron entries. */
+  moduleDiscoveryEnv: EnvRecord;
+  /** Allowlisted environment for the scheduled child, before the span sink is added. */
   childEnv: EnvRecord;
+  /** Valid operator-added names, also used when emitting /etc/environment. */
+  subprocessEnvExtraNames: string[];
 }
 
 function list(raw: string | undefined): string[] {
@@ -676,27 +692,63 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 }
 
 /**
- * Resolve the standalone cron bin's environment without applying the server's
- * subprocess secret filter. Scheduled jobs inherit the same environment they
- * did before this behavior moved out of the deployment shell; narrowing that
- * environment belongs to the later least-privilege release.
+ * Resolve the standalone cron bin's paths and allowlisted scheduled-job
+ * environment. The escape hatch is parsed here, at this package's sole env
+ * chokepoint, and its control variable is held back from the child.
  */
-export function resolveCronConfig(env: EnvRecord = process.env): CronConfig {
+export function resolveCronConfig(
+  env: EnvRecord = process.env,
+  admittedNames: readonly string[] = []
+): CronConfig {
+  const subprocessEnvExtraNames = parseSubprocessEnvExtra(
+    [env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, ...admittedNames].join(",")
+  );
   return {
     brainPath: env.BRAIN_PATH || "/data/brain",
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",
-    childEnv: { ...env },
+    moduleDiscoveryEnv: filterPackageSubprocessEnv(
+      env,
+      "brainCli",
+      subprocessEnvExtraNames
+    ),
+    childEnv: filterPackageSubprocessEnv(
+      env,
+      "cron",
+      subprocessEnvExtraNames
+    ),
+    subprocessEnvExtraNames,
   };
 }
 
 /**
- * The filtered parent environment for spawned subprocesses (brain CLI,
- * whatsup), plus explicit overrides. The shared descriptor strips server-only
- * material while retaining all known subprocess capabilities and unknown
- * variables. This reads `process.env`, so it lives behind this chokepoint.
+ * Build a package-owned child environment from an environment value.
  */
-export function subprocessEnv(extra: Record<string, string> = {}): EnvRecord {
-  return { ...filterSubprocessEnv(process.env), ...extra };
+function filterPackageSubprocessEnv(
+  env: EnvRecord,
+  audience: SubprocessEnvAudience,
+  extraNames: readonly string[] = [],
+  extra: Record<string, string> = {}
+): EnvRecord {
+  const operatorNames = parseSubprocessEnvExtra(
+    env.BRAIN_UI_SUBPROCESS_ENV_EXTRA
+  );
+  return {
+    ...filterSubprocessEnv(env, audience, [...operatorNames, ...extraNames]),
+    ...extra,
+  };
+}
+
+/**
+ * The allowlisted parent environment for a spawned subprocess, plus explicit
+ * overrides. The agent default preserves this exported helper's historical
+ * no-argument use; every ui-server spawn names its actual audience.
+ */
+export function subprocessEnv(
+  audience: SubprocessEnvAudience = "agent",
+  extra: Record<string, string> = {},
+  extraNames: readonly string[] = []
+): EnvRecord {
+  return filterPackageSubprocessEnv(process.env, audience, extraNames, extra);
 }
 
 /**

@@ -37,7 +37,11 @@ import {
   rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { resolveEnv, subprocessEnv } from "./config/env.js";
+import {
+  resolveEnabledWebSearchEnvNames,
+  resolveEnv,
+  subprocessEnv,
+} from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -227,7 +231,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       resolveOrThrow(rel);
       const proc = spawn(["grep", "-rInE", "--", params.pattern, rel], {
         cwd: brain.root,
-        env: subprocessEnv(),
+        env: subprocessEnv(resolveEnabledWebSearchEnvNames()),
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -361,7 +365,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // by now (and may have edited the command via updatedInput). The rtk
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
-      const cmd = await rtkRewriteCommand(params.command);
+      const childEnv = subprocessEnv(resolveEnabledWebSearchEnvNames());
+      const cmd = await rtkRewriteCommand(params.command, childEnv);
       // Only commands that touch git staging/history or the brain CLI's
       // write path take a lock (shared bashLockKey policy) — builds, greps,
       // curls and other reads run in parallel, across sessions and across
@@ -369,7 +374,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       return lock.withKey(bashLockKey(params.command), async () => {
         const proc = spawn(["bash", "-lc", cmd], {
           cwd: brain.root,
-          env: subprocessEnv(),
+          env: childEnv,
           stdout: "pipe",
           stderr: "pipe",
         });

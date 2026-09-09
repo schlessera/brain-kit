@@ -117,7 +117,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
           cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: subprocessEnv({ NO_COLOR: "1" }),
+          env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
         });
 
         // Start draining stderr NOW, not after the process exits.
@@ -233,7 +233,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
           cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: subprocessEnv({ NO_COLOR: "1" }),
+          env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
         }
       );
 

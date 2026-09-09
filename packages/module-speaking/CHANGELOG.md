@@ -1,5 +1,11 @@
 # @schlessera/brain-module-speaking
 
+## 0.33.1
+
+### Patch Changes
+
+- @schlessera/brain@0.33.1
+
 ## 0.33.0
 
 ### Patch Changes

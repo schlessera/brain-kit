@@ -16,7 +16,10 @@
 
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
-import { filterSubprocessEnv } from "@schlessera/brain-ui-sdk/server";
+import {
+  filterSubprocessEnv,
+  parseSubprocessEnvExtra,
+} from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
 // across every chokepoint via the sync-enforced copy in ./env-core.ts.
@@ -41,6 +44,16 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
+    description:
+      "Comma-separated environment variable names to admit to the Claude " +
+      "Code subprocess when an operator integration needs a variable outside " +
+      "the shipped agent allowlist. Names are trimmed; malformed entries are " +
+      "ignored; the control variable itself is never forwarded.",
+    default: "(empty)",
+    required: false,
+  },
   {
     name: "ANTHROPIC_API_KEY",
     description:
@@ -87,8 +100,9 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
   {
     source: "filtered environment snapshot",
     description:
-      "The Claude Code subprocess inherits the host environment minus " +
-      "server-only variables (with profile overrides merged on top).",
+      "The Claude Code subprocess receives the SDK agent allowlist, the " +
+      "selected profile's declared credential names, and operator extras " +
+      "(with profile overrides merged on top).",
   },
 ];
 
@@ -122,6 +136,12 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ClaudeBackendE
  * overrides are merged on top by the caller). Documented in
  * `DYNAMIC_ENV_READS`; keep this the only whole-environment read.
  */
-export function envSnapshot(): NodeJS.ProcessEnv {
-  return filterSubprocessEnv(process.env);
+export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessEnv {
+  const operatorNames = parseSubprocessEnvExtra(
+    process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA
+  );
+  return filterSubprocessEnv(process.env, "agent", [
+    ...operatorNames,
+    ...extraNames,
+  ]);
 }

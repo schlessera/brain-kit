@@ -1,6 +1,26 @@
 import type { Context, MiddlewareHandler } from "hono";
 
 /**
+ * The scheme a browser would put in an `Origin` header for a connection this
+ * proxy describes.
+ *
+ * A browser's Origin is always http/https — never ws/wss, even for a
+ * WebSocket. Reverse proxies do not agree on that: several report the
+ * *connection* scheme in `X-Forwarded-Proto` and send `ws` / `wss` on an
+ * upgrade while sending `https` on ordinary requests. Comparing that verbatim
+ * builds an expected origin of `wss://host`, which no browser can ever match,
+ * so every WebSocket handshake that falls back to the Origin comparison is
+ * refused while HTTP keeps working. Browsers that send `Sec-Fetch-Site` on the
+ * handshake never reach this path, which is what made it look like a
+ * client-specific failure.
+ */
+function webOriginProtocol(forwarded: string): string {
+  if (forwarded === "wss") return "https:";
+  if (forwarded === "ws") return "http:";
+  return `${forwarded}:`;
+}
+
+/**
  * Compare the browser's Origin with the request's externally visible origin.
  *
  * Without a trusted proxy the server cannot know whether TLS was terminated
@@ -20,7 +40,7 @@ function originMatchesRequest(
 
   const forwarded = c.req.header("x-forwarded-proto")?.split(",", 1)[0]?.trim();
   const protocol = forwarded
-    ? `${forwarded.toLowerCase()}:`
+    ? webOriginProtocol(forwarded.toLowerCase())
     : new URL(c.req.url).protocol;
 
   return parsedOrigin.origin === new URL(`${protocol}//${host}`).origin;

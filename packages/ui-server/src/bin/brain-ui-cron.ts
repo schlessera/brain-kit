@@ -27,7 +27,7 @@ function isRegularFile(path: string): boolean {
   }
 }
 
-export const USAGE = `usage: brain-ui-cron run <job-name> -- <command...>
+export const USAGE = `usage: brain-ui-cron run [--subprocess-env-extra <names>] <job-name> -- <command...>
        brain-ui-cron digest
        brain-ui-cron crontab [--wrapper-command <command>] [--digest-command <command>] [--path-line <line>] [--user <user>]
        brain-ui-cron environment`;
@@ -72,6 +72,24 @@ function crontabOptions(args: string[]): {
   };
 }
 
+function runOptions(args: string[]): {
+  jobName: string;
+  command: string[];
+  subprocessEnvExtraNames: string[];
+} {
+  let remaining = args;
+  let subprocessEnvExtraNames: string[] = [];
+  if (remaining[0] === "--subprocess-env-extra") {
+    const value = remaining[1];
+    if (value === undefined || value === "") usage();
+    subprocessEnvExtraNames = value.split(",");
+    remaining = remaining.slice(2);
+  }
+  const [jobName, separator, ...command] = remaining;
+  if (!jobName || separator !== "--" || command.length === 0) usage();
+  return { jobName, command, subprocessEnvExtraNames };
+}
+
 async function readModuleList(
   brainPath: string,
   env: Record<string, string | undefined>
@@ -104,11 +122,10 @@ async function readModuleList(
 }
 
 const [subcommand, ...args] = process.argv.slice(2);
-const config = resolveCronConfig();
 
 if (subcommand === "run") {
-  const [jobName, separator, ...command] = args;
-  if (!jobName || separator !== "--" || command.length === 0) usage();
+  const { jobName, command, subprocessEnvExtraNames } = runOptions(args);
+  const config = resolveCronConfig(undefined, subprocessEnvExtraNames);
   process.exit(
     await runJob({
       jobName,
@@ -120,16 +137,22 @@ if (subcommand === "run") {
 }
 
 if (subcommand === "digest" && args.length === 0) {
+  const config = resolveCronConfig();
   process.exit(runDigest({ dbPath: config.dbPath }));
 }
 
 if (subcommand === "crontab") {
+  const config = resolveCronConfig();
   const options = crontabOptions(args);
-  const modules = await readModuleList(config.brainPath, config.childEnv);
+  const modules = await readModuleList(
+    config.brainPath,
+    config.moduleDiscoveryEnv
+  );
   process.stdout.write(
     emitCrontab({
       ...options,
       modules,
+      subprocessEnvExtraNames: config.subprocessEnvExtraNames,
       legacyScraperPresent: isRegularFile(
         join(config.brainPath, "scripts", "jobs", "scrape-all.ts")
       ),
@@ -139,8 +162,11 @@ if (subcommand === "crontab") {
 }
 
 if (subcommand === "environment" && args.length === 0) {
+  const config = resolveCronConfig();
   try {
-    process.stdout.write(emitEnvironment(config.childEnv));
+    process.stdout.write(
+      emitEnvironment(config.childEnv, config.subprocessEnvExtraNames)
+    );
     process.exit(0);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

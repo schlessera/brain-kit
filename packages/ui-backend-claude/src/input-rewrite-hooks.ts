@@ -43,7 +43,7 @@ export function createAgentHook(): HookCallback {
   };
 }
 
-export function createRtkHook(): HookCallback {
+export function createRtkHook(childEnv: NodeJS.ProcessEnv): HookCallback {
   // rtk (token-optimizing CLI proxy) rewrite. Runs AFTER the mutating-tools
   // hook, so confirm patterns and lock classification see the command as the
   // model wrote it; the rewritten form (`rtk git status`) is what executes.
@@ -57,7 +57,7 @@ export function createRtkHook(): HookCallback {
     }
     const command = bashCommand(hookInput.tool_input);
     if (!command) return { continue: true };
-    const rewritten = await rtkRewriteCommand(command);
+    const rewritten = await rtkRewriteCommand(command, childEnv);
     if (rewritten === command) return { continue: true };
     return {
       continue: true,

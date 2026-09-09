@@ -37,8 +37,10 @@ export function createPermissionWiring(options: {
   confirmPatterns: readonly RegExp[];
   brainPath: string;
   turnLock: TurnLockBinding;
+  /** The filtered environment this turn's subprocesses run with. */
+  childEnv: NodeJS.ProcessEnv;
 }): Pick<Options, "canUseTool" | "hooks"> {
-  const { req, allowedTools, confirmPatterns, brainPath, turnLock } = options;
+  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv } = options;
   const allowed = new Set(allowedTools);
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
@@ -163,7 +165,7 @@ export function createPermissionWiring(options: {
   };
 
   const agentHook = createAgentHook();
-  const rtkHook = createRtkHook();
+  const rtkHook = createRtkHook(childEnv);
 
   return {
     canUseTool,

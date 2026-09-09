@@ -14,13 +14,24 @@ import {
 } from "../src/cron/emit";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "cron");
-const HISTORICAL_ENV_NAMES = [
+const CRON_ENV_ORDER = [
   "PATH",
   "BRAIN_PATH",
+  "BRAIN_ROOT",
   "TZ",
+  "XDG_BIN_HOME",
   "DB_PATH",
+  "BRAIN_RERANK_MODE",
+  "SCRAPE_CHROME_URL",
+  "CHROME_CDP_URL",
+  "SCRAPE_CHROME_PATH",
+  "SCRAPE_CHROME_NO_SANDBOX",
+  "SCRAPE_USER_AGENT",
+  "SCRAPE_RESPECT_ROBOTS",
   "GEMINI_API_KEY",
+  "GEMINI_BASE_URL",
   "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
   "GITHUB_TOKEN",
   "BRAIN_UI_SYNC_GITHUB_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN",
@@ -63,6 +74,7 @@ describe("emitCrontab", () => {
       render(jsonFixture("valid-multi-module.json"), {
         wrapperCommand: `${bin} run`,
         digestCommand: `${bin} digest`,
+        subprocessEnvExtraNames: ["CUSTOM_CRON_TOKEN"],
       })
     ).toBe(readFileSync(join(FIXTURES, "production-cutover.crontab"), "utf8"));
   });
@@ -136,11 +148,38 @@ describe("emitCrontab", () => {
       render(jsonFixture("empty.json"), { user: "root\n* * * * * root reboot" })
     ).toThrow("user must be a single line");
   });
+
+  test("carries validated escape-hatch names into every generated wrapper call", () => {
+    const output = render(jsonFixture("valid-multi-module.json"), {
+      subprocessEnvExtraNames: [
+        " CUSTOM_CRON_TOKEN ",
+        "bad-name",
+        "CUSTOM_CRON_TOKEN",
+      ],
+      legacyScraperPresent: true,
+    });
+
+    expect(output).toContain(
+      "brain-ui/server/scripts/cron-run.ts --subprocess-env-extra CUSTOM_CRON_TOKEN sync --"
+    );
+    expect(output).toContain(
+      "brain-ui/server/scripts/cron-run.ts --subprocess-env-extra CUSTOM_CRON_TOKEN jobs-scrape --"
+    );
+    expect(output).not.toContain("bad-name");
+
+    const legacyOutput = render(jsonFixture("no-jobs.json"), {
+      subprocessEnvExtraNames: ["CUSTOM_CRON_TOKEN"],
+      legacyScraperPresent: true,
+    });
+    expect(legacyOutput).toContain(
+      "brain-ui/server/scripts/cron-run.ts --subprocess-env-extra CUSTOM_CRON_TOKEN jobs --"
+    );
+  });
 });
 
 describe("emitEnvironment", () => {
-  test("derives the historical eleven names, in historical order, from the cron audience", () => {
-    expect(CRON_ENV_NAMES).toEqual([...HISTORICAL_ENV_NAMES]);
+  test("derives the scheduled-job names, in fixed order, from the cron audience", () => {
+    expect(CRON_ENV_NAMES).toEqual([...CRON_ENV_ORDER]);
 
     // The SET comes from the SDK; the ORDER is the emitter's own, so compare
     // the audience as a set. A variable joining or leaving the audience
@@ -149,7 +188,7 @@ describe("emitEnvironment", () => {
       .filter(([, audiences]) => (audiences as readonly string[]).includes("cron"))
       .map(([name]) => name);
     expect([...cronAudience].sort()).toEqual(
-      [...HISTORICAL_ENV_NAMES, "NODE_ENV"].sort()
+      [...CRON_ENV_ORDER, "NODE_ENV"].sort()
     );
     expect(SUBPROCESS_ENV.NODE_ENV).toContain("cron");
     expect(CRON_ENV_EXCLUSIONS.has("NODE_ENV")).toBe(true);
@@ -158,15 +197,29 @@ describe("emitEnvironment", () => {
 
   test("emits set values in fixed order and excludes unrelated values", () => {
     const env = Object.fromEntries(
-      HISTORICAL_ENV_NAMES.map((name) => [name, `value-for-${name}`])
+      CRON_ENV_ORDER.map((name) => [name, `value-for-${name}`])
     );
     env.NODE_ENV = "production";
     env.ANTHROPIC_API_KEY = "must-not-be-forwarded";
     env.UNRELATED = "must-not-be-forwarded";
 
     expect(emitEnvironment(env)).toBe(
-      `${HISTORICAL_ENV_NAMES.map((name) => `${name}="value-for-${name}"`).join("\n")}\n`
+      `${CRON_ENV_ORDER.map((name) => `${name}="value-for-${name}"`).join("\n")}\n`
     );
+  });
+
+  test("appends validated operator extras without forwarding the hatch variable", () => {
+    expect(
+      emitEnvironment(
+        {
+          PATH: "/usr/bin",
+          CUSTOM_CRON_TOKEN: "custom",
+          BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CUSTOM_CRON_TOKEN",
+          UNRELATED: "must-not-pass",
+        },
+        ["CUSTOM_CRON_TOKEN", "CUSTOM_CRON_TOKEN", "bad-name"]
+      )
+    ).toBe('PATH="/usr/bin"\nCUSTOM_CRON_TOKEN="custom"\n');
   });
 
   test("omits unset and empty variables like the shell loop", () => {
