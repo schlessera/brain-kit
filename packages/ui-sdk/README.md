@@ -30,8 +30,9 @@ evolution only.
 
 `parseClientMessage` is the single boundary for inbound client frames: payload
 size cap, byte cap, then a zod discriminated union bound to the protocol types
-via `satisfies` — so the schemas cannot drift from the interfaces without a
-type error. Hosts should never cast a client frame; binary frames are rejected.
+via `satisfies`. A compile-time equality test checks exact keys, optionality,
+and nested values in both directions so the schemas cannot drift from the
+interfaces. Hosts should never cast a client frame; binary frames are rejected.
 
 ## Backend seam (`./server`)
 

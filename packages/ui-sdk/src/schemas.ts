@@ -3,10 +3,9 @@
 //
 // Both endpoints previously CAST parsed JSON to the protocol interfaces; these
 // zod schemas make the boundary real: servers validate every inbound client
-// frame. Each schema is bound to its protocol.ts interface via
-// `satisfies z.ZodType<...>`, so the two can never drift without a compile
-// error. (Server→client frames have no runtime schemas yet — the server is
-// the trusted peer; clients ignore unknown frame types.)
+// frame. Each schema is assignability-bound to its protocol.ts interface via
+// `satisfies z.ZodType<...>`; the compile-time equality test additionally
+// checks exact keys, optionality, and nested values in both directions.
 //
 // Validation policy (matches the additive-only protocol contract):
 // - Unknown OBJECT KEYS are PRESERVED (z.looseObject) — a newer peer may add
@@ -480,8 +479,8 @@ export function parseClientMessage(
 // breaking one.
 //
 // Same rules as above otherwise: `looseObject` so a newer peer's optional
-// fields survive the boundary, and each schema bound to its interface with
-// `satisfies` so the two cannot drift without a compile error.
+// fields survive the boundary. `satisfies` checks assignability here; the
+// compile-time equality test guards exact, recursive parity.
 // ============================================================
 
 /**
@@ -502,7 +501,7 @@ const messagePartSchema = z.discriminatedUnion("kind", [
   z.looseObject({ kind: z.literal("tool"), toolIndex: z.number() }),
 ]) satisfies z.ZodType<MessagePart>;
 
-const historyMessageSchema: z.ZodType<SessionHistoryMessage> = z.looseObject({
+const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
   thinking: z.string().optional(),
@@ -517,7 +516,7 @@ const historyMessageSchema: z.ZodType<SessionHistoryMessage> = z.looseObject({
   ),
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
-});
+}) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
 const sessionScoped = {
@@ -581,6 +580,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   toolName: z.string(),
   input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
+  kind: z.enum(["tool", "command"]).optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
@@ -649,7 +649,13 @@ export const serverAskUserRequestSchema = z.looseObject({
       question: z.string(),
       header: z.string(),
       multiSelect: z.boolean(),
-      options: z.array(z.looseObject({ label: z.string(), description: z.string() })),
+      options: z.array(
+        z.looseObject({
+          label: z.string(),
+          description: z.string(),
+          preview: z.string().optional(),
+        })
+      ),
     })
   ),
   ...sessionScoped,
@@ -658,7 +664,13 @@ export const serverAskUserRequestSchema = z.looseObject({
 export const serverLocationRequestSchema = z.looseObject({
   type: z.literal("location_request"),
   requestId: z.string().max(MAX_ID_CHARS),
-  options: z.looseObject({}).optional(),
+  options: z
+    .looseObject({
+      enableHighAccuracy: z.boolean().optional(),
+      timeoutMs: z.number().optional(),
+      maximumAgeMs: z.number().optional(),
+    })
+    .optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerLocationRequest>;
 

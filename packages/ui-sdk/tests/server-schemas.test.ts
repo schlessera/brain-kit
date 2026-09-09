@@ -35,6 +35,7 @@ const SAMPLES: ServerMessage[] = [
     toolUseId: "t1",
     toolName: "Write",
     input: { path: "x" },
+    kind: "command",
     sessionId: "s1",
   },
   { type: "result", sessionId: "s1", durationMs: 10, numTurns: 1, isError: false },
@@ -46,11 +47,21 @@ const SAMPLES: ServerMessage[] = [
     type: "ask_user_request",
     requestId: "r1",
     questions: [
-      { question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "a" }] },
+      {
+        question: "Which?",
+        header: "Pick",
+        multiSelect: false,
+        options: [{ label: "A", description: "a", preview: "Details" }],
+      },
     ],
     sessionId: "s1",
   },
-  { type: "location_request", requestId: "r1", sessionId: "s1" },
+  {
+    type: "location_request",
+    requestId: "r1",
+    options: { enableHighAccuracy: true, timeoutMs: 15_000, maximumAgeMs: 60_000 },
+    sessionId: "s1",
+  },
   { type: "mask_request", requestId: "r1", imagePath: "a.png", sessionId: "s1" },
   {
     type: "activity_snapshot",
@@ -137,6 +148,39 @@ describe("rejections", () => {
 
   test("a missing required field is refused", () => {
     expect(parse({ type: "tool_use_start", toolName: "Read" }).ok).toBe(false);
+  });
+
+  test("known optional server fields retain their protocol value types", () => {
+    expect(
+      parse({
+        type: "tool_approval_request",
+        toolUseId: "t1",
+        toolName: "Write",
+        input: {},
+        kind: "unexpected",
+      }).ok
+    ).toBe(false);
+    expect(
+      parse({
+        type: "ask_user_request",
+        requestId: "r1",
+        questions: [
+          {
+            question: "Which?",
+            header: "Pick",
+            multiSelect: false,
+            options: [{ label: "A", description: "a", preview: 42 }],
+          },
+        ],
+      }).ok
+    ).toBe(false);
+    expect(
+      parse({
+        type: "location_request",
+        requestId: "r1",
+        options: { enableHighAccuracy: "yes" },
+      }).ok
+    ).toBe(false);
   });
 
   test("malformed JSON and oversized frames are refused, not thrown", () => {
