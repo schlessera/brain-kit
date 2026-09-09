@@ -647,7 +647,7 @@ not roll back the brain repo's core pin (U9).
 | Unit | Findings | Status |
 | --- | --- | --- |
 | U9. Core `parseArgs` end-of-options + `--` before positionals in the brain client | S12 | done |
-| U13. `brain-ui-cron` bin in ui-server: `run`, `digest` | B1 | todo |
+| U13. `brain-ui-cron` bin in ui-server: `run`, `digest` | B1 | done |
 | U14. Crontab and environment emitters (`crontab`, `environment`), golden test, adversarial fixtures | B2, S4 prerequisite | todo |
 | U15. SDK `./sw-policy` (registrars injected) + ui-react `useHashRoutes` / `useServiceWorkerUpdates` | B4 | todo |
 | U16. Renderer and ASR registration on mount | K5 | done |

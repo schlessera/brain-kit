@@ -75,6 +75,26 @@ process. The returned handle carries `config`, `db`, `wsHost`,
 `isTurnActive()`, `cancelActiveTurns()` and `close()` for the deployment
 shell's lifecycle wiring.
 
+## Cron bin
+
+The package ships the Bun-only `brain-ui-cron` executable for the container
+crontab. The deployment shell calls this bin instead of carrying loose cron
+scripts:
+
+```sh
+brain-ui-cron run <job-name> -- <command...>
+brain-ui-cron digest
+```
+
+`run` spawns the command directly as argv (never through a shell), tees stdout
+and stderr unchanged, records the run in `cron_runs` and the activity store,
+and returns the command's exit code. Database tracking is fail-open: an
+unavailable UI database produces a warning but does not suppress the job.
+
+`digest` generates and persists the daily activity digest. Unlike run
+tracking, digest generation fails loud with a non-zero exit because a stalled
+covered-until marker would block normal activity-detail retention.
+
 ## What it owns
 
 - **`createApp(options)`** — route mounting order, CORS (split topology via
@@ -135,7 +155,7 @@ Every variable this package reads, and what happens when it is unset.
 | `CLAUDE_CODE_OAUTH_TOKEN` | Consulted for PRESENCE only, to classify billing: with it set and no ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in default and discovered models) count as subscription-billed. The token itself is consumed by the Claude backend / Agent SDK, not this package. | — |
 | `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
-| `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). | ./brain-ui.db |
+| `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). The server factory defaults to ./brain-ui.db; brain-ui-cron defaults to the container path /data/db/brain-ui.db. | ./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron) |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
 | `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo git pushes and gh-based jobs. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |

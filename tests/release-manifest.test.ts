@@ -22,6 +22,7 @@ interface Manifest {
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  bin?: Record<string, string>;
 }
 
 /** Every package directory that is meant to reach npm. */
@@ -97,6 +98,21 @@ describe("release manifests", () => {
       .filter((p) => !existsSync(join(PACKAGES_DIR, p.dir, "LICENSE")))
       .map((p) => p.dir);
     expect(missing).toEqual([]);
+  });
+
+  test("ui-server ships the brain-ui-cron bun bin from dist", () => {
+    const uiServer = packages.find(
+      (p) => p.manifest.name === "@schlessera/brain-ui-server"
+    );
+    if (!uiServer) throw new Error("could not find the @schlessera/brain-ui-server manifest");
+    const target = uiServer.manifest.bin?.["brain-ui-cron"];
+    expect(target).toBe("./dist/bin/brain-ui-cron.js");
+    expect(target?.replace(/^\.\/dist\//, "")).not.toBe(target);
+    const source = readFileSync(
+      join(PACKAGES_DIR, uiServer.dir, "src", "bin", "brain-ui-cron.ts"),
+      "utf8"
+    );
+    expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
   });
 
   // A new package added to packages/ but not to these hardcoded lists is

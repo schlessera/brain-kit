@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { resolveServerConfig, subprocessEnv } from "../src/config/env";
+import { resolveCronConfig, resolveServerConfig, subprocessEnv } from "../src/config/env";
 
 const SUBPROCESS_KEYS = [
   "COOKIE_SECRET",
@@ -33,6 +33,20 @@ describe("config/env subprocessEnv", () => {
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oauth-test-token");
     expect(env.GITHUB_TOKEN).toBe("github-test-token");
     expect(env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBe("sync-test-token");
+  });
+});
+
+describe("config/env resolveCronConfig", () => {
+  test("uses the container DB default and preserves the scheduled-job environment", () => {
+    const config = resolveCronConfig({ SECRET: "still-visible" });
+    expect(config.dbPath).toBe("/data/db/brain-ui.db");
+    expect(config.childEnv).toEqual({ SECRET: "still-visible" });
+  });
+
+  test("honors DB_PATH", () => {
+    expect(resolveCronConfig({ DB_PATH: "/custom/brain-ui.db" }).dbPath).toBe(
+      "/custom/brain-ui.db"
+    );
   });
 });
 

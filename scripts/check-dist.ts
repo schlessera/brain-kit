@@ -35,6 +35,10 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
     requireFile(join(packageDir, "dist", "theme.css"), packageName);
   }
 
+  if (packageName === "@schlessera/brain-ui-server") {
+    requireFile(join(packageDir, "dist", "bin", "brain-ui-cron.js"), packageName);
+  }
+
   if (packageName !== "@schlessera/brain") return;
 
   requireFile(join(packageDir, "dist", "cli", "brain.js"), packageName);

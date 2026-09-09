@@ -92,6 +92,9 @@ jobs:
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
             fi
+            if [ "$package" = ui-server ]; then
+              grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
+            fi
           done
       - name: Install and smoke-test packed packages
         run: |
@@ -194,6 +197,12 @@ jobs:
           }
           NODE
           ./node_modules/.bin/brain --version
+          set +e
+          CRON_USAGE=$(./node_modules/.bin/brain-ui-cron 2>&1)
+          CRON_STATUS=$?
+          set -e
+          test "$CRON_STATUS" -eq 2
+          grep -q '^usage: brain-ui-cron run <job-name> -- <command...> | digest$' <<< "$CRON_USAGE"
       - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
         # The repo's own typecheck resolves cross-package imports to src via
         # customConditions ["bun"], so the emitted .d.ts consumers get is
