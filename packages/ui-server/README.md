@@ -156,6 +156,17 @@ brain repository.
   server-side hidden set (`PUT /api/models/hidden`) and a manual
   `POST /api/models/refresh`. `/api/providers` serves the same roster minus the
   hidden entries; hidden profiles still resolve for sessions pinned to them.
+- **Backend registry** — iterates `BackendModule` descriptors
+  (`@schlessera/brain-ui-sdk/server`) rather than knowing any backend by name.
+  Each backend owns its own profile parsing, billing rule, settings hooks and
+  optional model source. `AGENT_BACKEND` selects among the FIRST-PARTY ids only
+  (`claude`, `pi`) — it is not a package specifier, and there is no runtime
+  discovery. A third-party backend is imported and passed by value:
+  `createApp({ registry: createStaticBackendRegistry({ ... }) })`, which keeps
+  the descriptor's hooks and model source. See
+  [docs/extending/agent-backends.md](../../docs/extending/agent-backends.md).
+  A session whose stored `backend_id` names a backend this deployment does not
+  have fails explicitly instead of silently running on the default.
 
 ## Environment
 
