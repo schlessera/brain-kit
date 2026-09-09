@@ -13,7 +13,7 @@
     },
     "packages/core": {
       "name": "@schlessera/brain",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "bin": {
         "brain": "./dist/cli/brain.js",
       },
@@ -47,7 +47,7 @@
     },
     "packages/module-finance": {
       "name": "@schlessera/brain-module-finance",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "gray-matter": "^4.0.3",
@@ -66,7 +66,7 @@
     },
     "packages/module-images": {
       "name": "@schlessera/brain-module-images",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
@@ -84,7 +84,7 @@
     },
     "packages/module-jobs": {
       "name": "@schlessera/brain-module-jobs",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "@schlessera/brain-scrape": "workspace:*",
@@ -104,7 +104,7 @@
     },
     "packages/module-speaking": {
       "name": "@schlessera/brain-module-speaking",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
@@ -122,7 +122,7 @@
     },
     "packages/render-template": {
       "name": "@schlessera/brain-render-template",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "marked": "^18.0.4",
       },
@@ -133,7 +133,7 @@
     },
     "packages/scrape": {
       "name": "@schlessera/brain-scrape",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "cheerio": "^1.2.0",
         "robots-parser": "^3.0.1",
@@ -154,7 +154,7 @@
     },
     "packages/ui-backend-claude": {
       "name": "@schlessera/brain-backend-claude",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.241",
         "@schlessera/brain-ui-sdk": "workspace:*",
@@ -167,7 +167,7 @@
     },
     "packages/ui-backend-pi": {
       "name": "@schlessera/brain-backend-pi",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@earendil-works/pi-agent-core": "0.84.4",
         "@earendil-works/pi-ai": "0.84.4",
@@ -191,7 +191,7 @@
     },
     "packages/ui-react": {
       "name": "@schlessera/brain-ui-react",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "@schlessera/brain-ui-sdk": "workspace:*",
         "@simplewebauthn/browser": "^13.2.2",
@@ -228,7 +228,7 @@
     },
     "packages/ui-render-puppeteer": {
       "name": "@schlessera/brain-render-puppeteer",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "puppeteer-core": "^25.0.4",
       },
@@ -239,7 +239,7 @@
     },
     "packages/ui-sdk": {
       "name": "@schlessera/brain-ui-sdk",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "dependencies": {
         "zod": "^4.4.3",
       },
@@ -257,7 +257,7 @@
     },
     "packages/ui-server": {
       "name": "@schlessera/brain-ui-server",
-      "version": "0.33.1",
+      "version": "0.34.0",
       "bin": {
         "brain-ui-cron": "./dist/bin/brain-ui-cron.js",
       },
@@ -422,7 +422,7 @@
 
     "@google/genai": ["@google/genai@2.21.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q=="],
 
-    "@happy-dom/global-registrator": ["@happy-dom/global-registrator@20.14.0", "", { "dependencies": { "@types/node": ">=20.0.0", "happy-dom": "^20.14.0" } }, "sha512-Xn0kdkaA1eHOaFFopr+YQ37sPNTZ3JScpUMz3j4rIsn1Nneqoh94z79iW23Ej0Ytt99+LlFr4JrSDd6ow9c7MQ=="],
+    "@happy-dom/global-registrator": ["@happy-dom/global-registrator@20.14.2", "", { "dependencies": { "@types/node": ">=20.0.0", "happy-dom": "^20.14.2" } }, "sha512-cRbr67VqBL9wVSaicrBmP2iFW+zJrQAhT4CayyAYBxUQ7OSZH3cuxNkf4A2A7MietH4EcCKW/mMUaXNcZiuS+w=="],
 
     "@hexagon/base64": ["@hexagon/base64@1.1.28", "", {}, "sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw=="],
 
@@ -1136,7 +1136,7 @@
 
     "hachure-fill": ["hachure-fill@0.5.2", "", {}, "sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg=="],
 
-    "happy-dom": ["happy-dom@20.14.0", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-4bRh1KzRvKDnFNTlLhzT1RZTpkKhQbQDl9j+7GXszWsvuspYdo29k6OHRf4PwiM6oLb8r/pMWeYiJjkfod5AvQ=="],
+    "happy-dom": ["happy-dom@20.14.2", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-zapQ69lX6dvf0rGDYeR1tmLZrlOPxPgtbbihsQw0IRmAqjUfnDhn8wlopw2uzlWY7sPx1r/qBvEFkzwxxYXozw=="],
 
     "has-symbols": ["has-symbols@1.1.0", "", {}, "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ=="],
 
@@ -1722,7 +1722,7 @@
 
     "yargs-parser": ["yargs-parser@22.0.0", "", {}, "sha512-rwu/ClNdSMpkSrUb+d6BRsSkLUq1fmfsY6TOpYzTwvwkg1/NRG85KBy3kq++A8LKQwX6lsu+aWad+2khvuXrqw=="],
 
-    "zod": ["zod@4.6.0", "", {}, "sha512-iIvwyDnebKYpww2ta0DjaNOL8RnVLmPMhgWyOzlW9y0EIIxv5gl+H6Y0ONpt83HqjGqkk78uWp6xWtpxzZdPbw=="],
+    "zod": ["zod@4.6.1", "", {}, "sha512-341aRWQsve0rvronKNTqZpjmzdbUDlFuzHaI/XLg/Ej82qffDJRRfBTCuv7+9q/rMjB6LSLyEBnW4InJeMtt/Q=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 

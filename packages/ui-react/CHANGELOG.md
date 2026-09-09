@@ -1,5 +1,16 @@
 # @schlessera/brain-ui-react
 
+## 0.34.0
+
+### Patch Changes
+
+- 69ce4f5: Add mounted lifecycle regression coverage for the activity and graph pages.
+- Updated dependencies [4adb327]
+- Updated dependencies [17706aa]
+- Updated dependencies [c6d9a30]
+- Updated dependencies [a41e81a]
+  - @schlessera/brain-ui-sdk@0.34.0
+
 ## 0.33.1
 
 ### Patch Changes

@@ -1,5 +1,29 @@
 # @schlessera/brain-ui-server
 
+## 0.34.0
+
+### Minor Changes
+
+- c6d9a30: Add self-describing backend modules and make the server registry iterate their profile, settings, billing, credential, and discovery hooks.
+
+  Preserve descriptor resolution hooks and model discovery when a third-party backend is passed by value through the static registry, and validate active backend-owned profile rules before startup completes without requiring or strictly parsing inactive backend packages.
+
+  Change session routing to reject an unknown non-empty stored backend id instead of silently substituting the default; null and empty legacy ids still use the default.
+
+### Patch Changes
+
+- c61bdb2: Add direct regression coverage for session routing, queueing, cancellation, cleanup, limits, and terminal outcomes.
+- 897e000: Document the descriptor-driven backend registry in the README: `AGENT_BACKEND`
+  selects among first-party ids only, a third-party backend is passed by value to
+  `createApp({ registry })`, and a session pinned to an unknown backend id now
+  fails explicitly.
+- Updated dependencies [4adb327]
+- Updated dependencies [17706aa]
+- Updated dependencies [c6d9a30]
+- Updated dependencies [a41e81a]
+  - @schlessera/brain-ui-sdk@0.34.0
+  - @schlessera/brain-render-template@0.34.0
+
 ## 0.33.1
 
 ### Patch Changes

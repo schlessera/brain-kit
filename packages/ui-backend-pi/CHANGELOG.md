@@ -1,5 +1,31 @@
 # @schlessera/brain-backend-pi
 
+## 0.34.0
+
+### Patch Changes
+
+- 4adb327: Added the published backend contract harness and moved both first-party backends onto it.
+- 17706aa: Add the shared permission-decision core and split backend factories into focused turn, usage, and runtime modules.
+- c6d9a30: Add self-describing backend modules and make the server registry iterate their profile, settings, billing, credential, and discovery hooks.
+
+  Preserve descriptor resolution hooks and model discovery when a third-party backend is passed by value through the static registry, and validate active backend-owned profile rules before startup completes without requiring or strictly parsing inactive backend packages.
+
+  Change session routing to reject an unknown non-empty stored backend id instead of silently substituting the default; null and empty legacy ids still use the default.
+
+- e326368: Add characterization coverage for backend permissions, streaming, usage, and history.
+- a41e81a: - Define the four browser bridge tools once in the UI SDK while preserving Claude's names, descriptions, schemas, and result envelopes.
+  - Reject NUL, absolute, traversal-escape, and symlink-escape paths before either backend writes an image mask.
+  - Give pi's `ask_user` the full shared description, 1–4 question and 2–4 option bounds, a 12-character header bound, and optional option previews.
+  - Require pi's `ask_user.multiSelect` instead of defaulting it to `false`.
+  - Return pi's shared `ask_user` payload (echoed questions, answers, and annotations) to the model while keeping the full `AskUserResult` in details.
+  - Advertise and validate pi's `query_activity.scope` as the shared enum.
+- Updated dependencies [4adb327]
+- Updated dependencies [17706aa]
+- Updated dependencies [c6d9a30]
+- Updated dependencies [a41e81a]
+  - @schlessera/brain-ui-sdk@0.34.0
+  - @schlessera/brain@0.34.0
+
 ## 0.33.1
 
 ### Patch Changes
