@@ -36,6 +36,10 @@ Ask what they want:
 **Always verify repo visibility after `gh repo create`.** A brain pushed to a public repo is a
 serious leak; confirm private before pushing content, and stop if the check disagrees.
 
+Before deploying brain-ui 0.33.0, bump the brain repo's `@schlessera/brain`
+pin to 0.33.0 or newer and refresh its lockfile. Rolling back the image does
+not roll back that repo-owned pin; treat the two rollback actions separately.
+
 ## Auth defaults
 
 For any public path, default to `AUTH_MODE=password`: generate the hash into `.env` and never

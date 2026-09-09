@@ -56,6 +56,12 @@ export { ShareHarness } from "./components/dev/share-harness.js";
 
 // Connectivity probes.
 export { useVpnStatus } from "./hooks/use-vpn-status.js";
+export { useHashRoutes } from "./hooks/use-hash-routes.js";
+export {
+  useServiceWorkerUpdates,
+  hasUnsentText,
+  type UseServiceWorkerUpdatesOptions,
+} from "./hooks/use-service-worker-updates.js";
 export {
   useWebSocket,
   sendClientMessage,

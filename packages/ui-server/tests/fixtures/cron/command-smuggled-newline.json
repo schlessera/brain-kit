@@ -1,0 +1,24 @@
+{
+  "enabled": [
+    {
+      "name": "jobs",
+      "key": "@schlessera/brain-module-jobs",
+      "description": null,
+      "types": ["opportunity"],
+      "commands": ["jobs"],
+      "cron": [
+        {
+          "name": "scrape",
+          "schedule": "0 6 * * *",
+          "command": "jobs scrape\n0 6 25 12 0 root brain maintain"
+        },
+        {
+          "name": "score",
+          "schedule": "30 6 * * *",
+          "command": "jobs score"
+        }
+      ]
+    }
+  ],
+  "available": []
+}

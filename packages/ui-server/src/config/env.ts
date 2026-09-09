@@ -105,8 +105,11 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   },
   {
     name: "DB_PATH",
-    description: "SQLite file for the UI's own database (sessions, passkeys, settings).",
-    default: "./brain-ui.db",
+    description:
+      "SQLite file for the UI's own database (sessions, passkeys, settings). " +
+      "The server factory defaults to ./brain-ui.db; brain-ui-cron defaults " +
+      "to the container path /data/db/brain-ui.db.",
+    default: "./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron)",
     required: false,
   },
   {
@@ -494,6 +497,16 @@ export interface ServerConfig {
 
 type EnvRecord = Record<string, string | undefined>;
 
+/** Configuration resolved specifically for the standalone cron bin. */
+export interface CronConfig {
+  /** Brain repository inspected by the crontab emitter. */
+  brainPath: string;
+  /** The deployment database; unlike createApp(), the bin defaults to the container path. */
+  dbPath: string;
+  /** Exact inherited environment for the scheduled child, before the span sink is added. */
+  childEnv: EnvRecord;
+}
+
 function list(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(",")
@@ -659,6 +672,20 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       enabled: pricingEnabled,
       ttlMs: pricingTtlMs,
     },
+  };
+}
+
+/**
+ * Resolve the standalone cron bin's environment without applying the server's
+ * subprocess secret filter. Scheduled jobs inherit the same environment they
+ * did before this behavior moved out of the deployment shell; narrowing that
+ * environment belongs to the later least-privilege release.
+ */
+export function resolveCronConfig(env: EnvRecord = process.env): CronConfig {
+  return {
+    brainPath: env.BRAIN_PATH || "/data/brain",
+    dbPath: env.DB_PATH || "/data/db/brain-ui.db",
+    childEnv: { ...env },
   };
 }
 

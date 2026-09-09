@@ -60,6 +60,11 @@
       "types": "./dist/client/push-handlers.d.ts",
       "default": "./dist/client/push-handlers.js"
     },
+    "./sw-policy": {
+      "bun": "./src/client/sw-policy.ts",
+      "types": "./dist/client/sw-policy.d.ts",
+      "default": "./dist/client/sw-policy.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

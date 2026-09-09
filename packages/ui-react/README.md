@@ -9,6 +9,13 @@ The deployment shell owns the document: `index.html`, the mount point, the
 Vite/PWA build, the service worker, and the theme entry. This package ships
 prebuilt JS + `.d.ts` plus its styles in two forms.
 
+## React compatibility
+
+The `react` and `react-dom` peer range remains `>=18`: React 18 and the current
+React release are both covered by the packaging smoke test. It installs the
+packed package with matching `@types/react` and `@types/react-dom`, imports the
+entry point, and typechecks the emitted `.d.ts` against React 18's types.
+
 ## Usage
 
 ```tsx
@@ -17,20 +24,50 @@ import {
   ConnectionGate,
   AppShell,
   ChatPage,
+  GraphPage,
+  ActivityPage,
+  useHashRoutes,
+  useUIStore,
 } from "@schlessera/brain-ui-react";
 
 configureBrainUi({ appName: "Brain UI" }); // optional; defaults shown
 
 export function App() {
+  useHashRoutes();
+  const activeView = useUIStore((state) => state.activeView);
+
   return (
     <ConnectionGate>
       <AppShell>
-        <ChatPage />
+        {/* Keep chat mounted so an in-flight turn survives a view switch.
+            `display: contents` rather than a plain wrapper: ChatPage is a
+            flex child of AppShell and its `flex-1` needs to reach the shell's
+            flex container, or the chat loses its viewport-filling layout and
+            bounded scrolling. */}
+        <div style={{ display: activeView === "chat" ? "contents" : "none" }}>
+          <ChatPage />
+        </div>
+        {activeView === "graph" && <GraphPage />}
+        {activeView === "activity" && <ActivityPage />}
       </AppShell>
     </ConnectionGate>
   );
 }
 ```
+
+## Shell hooks
+
+`useHashRoutes()` owns the generic client routes: `#/files/<path>` opens the
+file panel, `#/graph` and `#/activity` select their full-screen views, activity
+deep links keep their suffix, and store-driven view changes use
+`history.replaceState` rather than adding browser-history entries.
+
+`useServiceWorkerUpdates({ isBusy })` registers `/service-worker.js` and
+reloads after an update takes control. It never reloads for a first install,
+and an update takeover that happens while `isBusy` is true waits for the
+transition back to idle. Non-empty text fields are treated as busy by default;
+`hasUnsentText` can override that DOM probe. A Vite shell can preserve its
+development gate with `enabled: import.meta.env.PROD`.
 
 ## Configuration
 

@@ -63,7 +63,8 @@ const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);
  * Parse the argv remainder (everything after the command word) into positional
  * args and flags. Boolean flags never consume the next argument. An unknown
  * `--flag` is a usage error, unless `validate` is false (module commands parse
- * their own flags and pass the raw args through untouched).
+ * their own flags and pass the raw args through untouched). A bare `--` ends
+ * flag parsing; every following value is positional verbatim.
  */
 export function parseArgs(
   rest: string[],
@@ -74,6 +75,10 @@ export function parseArgs(
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
+    if (arg === "--") {
+      args.push(...rest.slice(i + 1));
+      break;
+    }
     if (arg.startsWith("--")) {
       const key = arg.slice(2);
       if (validate && key && !KNOWN_FLAGS.has(key)) {
@@ -94,11 +99,27 @@ export function parseArgs(
   return { args, flags };
 }
 
-/** Output mode: JSON unless stdout is a TTY; `--json`/`--human` force it. */
+/** Output mode; `--json`/`--human` only force it before a bare `--`. */
 export function computeJson(argv: string[]): boolean {
-  if (argv.includes("--json")) return true;
-  if (argv.includes("--human")) return false;
+  const separator = argv.indexOf("--");
+  const options = separator === -1 ? argv : argv.slice(0, separator);
+  if (options.includes("--json")) return true;
+  if (options.includes("--human")) return false;
   return !(process.stdout.isTTY ?? false);
+}
+
+/** Global CLI routing signals, considering only arguments before `--`. */
+export function scanCliArgs(argv: string[]): {
+  command: string | undefined;
+  wantsHelp: boolean;
+} {
+  const separator = argv.indexOf("--");
+  const options = separator === -1 ? argv : argv.slice(0, separator);
+  return {
+    command:
+      options[0] && !options[0].startsWith("-") ? options[0] : undefined,
+    wantsHelp: options.includes("--help") || options.includes("-h"),
+  };
 }
 
 /**

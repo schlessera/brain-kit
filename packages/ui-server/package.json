@@ -27,6 +27,9 @@
   },
   "sideEffects": false,
   "type": "module",
+  "bin": {
+    "brain-ui-cron": "./dist/bin/brain-ui-cron.js"
+  },
   "exports": {
     ".": {
       "bun": "./src/index.ts",

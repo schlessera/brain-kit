@@ -81,6 +81,11 @@ deployment-specific patterns.
 checklist is the repo-local `release` skill (`.agents/skills/release/`), which
 agents load automatically; what follows is why it says what it says.
 
+For the 0.33.0 deployment, bump the brain repo's `@schlessera/brain` pin to
+0.33.0 or newer and refresh its lockfile before deploying brain-ui. The
+ui-server's positional separator requires the matching core parser. Rolling
+the image back does not roll back that repo-owned pin; manage it separately.
+
 `bun run version` chains `rm bun.lock && bun install` after `changeset version`,
 and that second half is not optional: bun resolves `workspace:*` pins from the
 installed lockfile, and a plain install does not refresh them, so a stale lock

@@ -1,0 +1,19 @@
+{
+  "enabled": [
+    {
+      "name": "finance",
+      "key": "@schlessera/brain-module-finance",
+      "description": null,
+      "types": ["finance"],
+      "commands": ["finance"],
+      "cron": [
+        {
+          "name": "remind",
+          "schedule": "15 8 * * 1",
+          "command": "finance reminders"
+        }
+      ]
+    }
+  ],
+  "available": []
+}

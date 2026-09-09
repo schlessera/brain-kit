@@ -9,9 +9,6 @@ import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
 import { api } from "../lib/api-client.js";
 import { registerAsrClients } from "./asr-clients.js";
 
-// Register the built-in ASR clients once at module load.
-registerAsrClients();
-
 /** Apply pronunciation overrides client-side to a finalized transcript. */
 function applyOverrides(
   text: string,
@@ -28,6 +25,9 @@ function applyOverrides(
 }
 
 export function useDictation() {
+  // start() may resolve a client before this hook's effects have run.
+  registerAsrClients();
+
   const clientRef = useRef<AsrClient | null>(null);
   const overridesRef = useRef<PronunciationOverride[]>([]);
   // Bumped on every start() and on every stop/cancel/unmount. A start that

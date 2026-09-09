@@ -25,6 +25,8 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
       "client/share-target.js",
       // A service worker imports this subpath directly too, so it must build to a real file.
       "client/push-handlers.js",
+      // Workbox-free route policy imported directly by a service worker.
+      "client/sw-policy.js",
     ]) {
       requireFile(join(packageDir, "dist", entry), packageName);
     }
@@ -33,6 +35,10 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
   if (packageName === "@schlessera/brain-ui-react") {
     requireFile(join(packageDir, "dist", "styles.css"), packageName);
     requireFile(join(packageDir, "dist", "theme.css"), packageName);
+  }
+
+  if (packageName === "@schlessera/brain-ui-server") {
+    requireFile(join(packageDir, "dist", "bin", "brain-ui-cron.js"), packageName);
   }
 
   if (packageName !== "@schlessera/brain") return;

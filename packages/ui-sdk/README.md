@@ -12,6 +12,7 @@ nothing else does: no HTTP framework, no UI, no model vendor.
 @schlessera/brain-ui-sdk/client     → tool-renderer + AsrClient registries (React peer)
 @schlessera/brain-ui-sdk/share-target → Web Share Target service-worker handler
 @schlessera/brain-ui-sdk/push-handlers → web-push service-worker handlers
+@schlessera/brain-ui-sdk/sw-policy   → default service-worker route/cache policy
 ```
 
 Import the submodules explicitly — the root export carries the protocol only,
@@ -30,8 +31,9 @@ evolution only.
 
 `parseClientMessage` is the single boundary for inbound client frames: payload
 size cap, byte cap, then a zod discriminated union bound to the protocol types
-via `satisfies` — so the schemas cannot drift from the interfaces without a
-type error. Hosts should never cast a client frame; binary frames are rejected.
+via `satisfies`. A compile-time equality test checks exact keys, optionality,
+and nested values in both directions so the schemas cannot drift from the
+interfaces. Hosts should never cast a client frame; binary frames are rejected.
 
 ## Backend seam (`./server`)
 
@@ -51,7 +53,7 @@ implementations, so a chat UI can render unknown tools with a generic fallback
 and add specialized views without touching its timeline component. React is a
 peer dependency of this submodule only.
 
-## Service-worker handlers (`./share-target`, `./push-handlers`)
+## Service-worker handlers (`./share-target`, `./push-handlers`, `./sw-policy`)
 
 The share-target and web-push handlers are separate export subpaths so a
 service worker can import them without dragging in the renderer and ASR
@@ -59,13 +61,34 @@ registries from `./client`:
 
 ```ts
 /// <reference lib="webworker" />
+import {
+  cleanupOutdatedCaches,
+  createHandlerBoundToURL,
+  precacheAndRoute,
+} from "workbox-precaching";
+import { registerRoute } from "workbox-routing";
+import { CacheFirst, NetworkOnly } from "workbox-strategies";
+import { CacheExpiration, ExpirationPlugin } from "workbox-expiration";
 import { registerShareTarget } from "@schlessera/brain-ui-sdk/share-target";
 import { registerPushHandlers } from "@schlessera/brain-ui-sdk/push-handlers";
+import { registerDefaultRoutes } from "@schlessera/brain-ui-sdk/sw-policy";
 
 declare let self: ServiceWorkerGlobalScope;
 
 registerShareTarget();
 registerPushHandlers(self as unknown as Parameters<typeof registerPushHandlers>[0]);
+registerDefaultRoutes({
+  registerRoute,
+  NetworkOnly,
+  CacheFirst,
+  ExpirationPlugin,
+  CacheExpiration,
+  precacheAndRoute,
+  cleanupOutdatedCaches,
+  createHandlerBoundToURL,
+  manifest: self.__WB_MANIFEST,
+  scope: self as unknown as Parameters<typeof registerDefaultRoutes>[0]["scope"],
+});
 ```
 
 `registerShareTarget` intercepts the manifest's `POST /share-target`, stashes
@@ -75,6 +98,12 @@ it automatically. Its optional argument sets `path` and `landingPath`.
 `registerPushHandlers` wires push notifications, notification clicks, and
 subscription renewal; its optional second argument sets `subscribeUrl` and
 `defaultUrl`.
+`registerDefaultRoutes` owns the lifecycle and route policy while keeping
+Workbox in the deployment shell: the shell injects its registrars, strategies,
+expiration classes and precache manifest. It purges legacy API bodies and
+Workbox expiration metadata, keeps `/api` network-only ahead of the asset
+cache, and falls back from navigation network to the precached shell to the
+offline page.
 
 ## Versioning
 

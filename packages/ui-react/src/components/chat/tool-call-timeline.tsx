@@ -22,10 +22,6 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
 import { SpanStatusDot } from "../activity/span-bits.js";
 
-// Register the built-in renderer packs once. Registration is build-time; this
-// runs on module load.
-registerBuiltinRenderers();
-
 // Sessions that predate backend stamping (old servers, cleared stores) scope
 // to the shipped default backend.
 const DEFAULT_BACKEND_ID = "claude";
@@ -49,6 +45,9 @@ export function ToolCallTimeline({
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
 }) {
+  // Resolution happens below during this render, before effects can run.
+  registerBuiltinRenderers();
+
   // Collapse the whole run to a summary row once the turn is over. History
   // messages mount collapsed; a live timeline collapses when streaming ends.
   const [collapsed, setCollapsed] = useState(!live);
