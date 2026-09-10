@@ -1,5 +1,11 @@
 # @schlessera/brain-module-images
 
+## 0.34.1
+
+### Patch Changes
+
+- @schlessera/brain@0.34.1
+
 ## 0.34.0
 
 ### Patch Changes

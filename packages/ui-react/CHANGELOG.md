@@ -1,5 +1,15 @@
 # @schlessera/brain-ui-react
 
+## 0.34.1
+
+### Patch Changes
+
+- 4ddfc80: Keep run detail from showing the wrong run or applying late updates after leaving Activity, prevent stale Graph scene loads, and cancel wasted scene and note-search requests after leaving their views.
+- 9f2e4ae: Split the WebSocket dispatcher, activity stores, and large React surfaces into focused internal modules without changing behavior.
+- aade466: Show when the server refuses the live connection, including a specific connection-limit message and a retry action, instead of leaving the composer on “Connecting...” forever.
+- Updated dependencies [aade466]
+  - @schlessera/brain-ui-sdk@0.34.1
+
 ## 0.34.0
 
 ### Patch Changes

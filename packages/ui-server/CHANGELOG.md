@@ -1,5 +1,14 @@
 # @schlessera/brain-ui-server
 
+## 0.34.1
+
+### Patch Changes
+
+- 9f2e4ae: Split the WebSocket dispatcher, activity stores, and large React surfaces into focused internal modules without changing behavior.
+- Updated dependencies [aade466]
+  - @schlessera/brain-ui-sdk@0.34.1
+  - @schlessera/brain-render-template@0.34.1
+
 ## 0.34.0
 
 ### Minor Changes

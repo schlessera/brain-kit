@@ -1,5 +1,11 @@
 # @schlessera/brain-ui-sdk
 
+## 0.34.1
+
+### Patch Changes
+
+- aade466: Show when the server refuses the live connection, including a specific connection-limit message and a retry action, instead of leaving the composer on “Connecting...” forever.
+
 ## 0.34.0
 
 ### Minor Changes
