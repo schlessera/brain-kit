@@ -1,5 +1,8 @@
 import { useEffect, useRef, useCallback } from "react";
-import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
+import {
+  BrainUiClient,
+  type WebSocketClose,
+} from "@schlessera/brain-ui-sdk/client";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useChatStore, activeChat, type ChatKey } from "../stores/chat-store.js";
 import { useActivityStore, loadSessionActivityHistory } from "../stores/activity-store.js";
@@ -11,6 +14,8 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import { dispatchServerMessage } from "./websocket-handlers/index.js";
 import { runStateForFrame } from "./websocket-handlers/chat.js";
+import { recheckVpnStatus } from "./use-vpn-status.js";
+import { REFUSAL_ATTEMPTS } from "../components/connectivity/connection-state.js";
 
 export { runStateForFrame } from "./websocket-handlers/chat.js";
 
@@ -270,6 +275,17 @@ function requestBrowserLocation(msg: ServerLocationRequest) {
 let wasDisconnected = false;
 let resyncSessionId: string | null = null;
 
+function handleSocketClose(close: WebSocketClose): void {
+  const connection = useConnectionStore.getState();
+  connection.recordWsClose(close.opened, close.code);
+  if (
+    !close.opened &&
+    useConnectionStore.getState().handshakeFailures >= REFUSAL_ATTEMPTS
+  ) {
+    recheckVpnStatus();
+  }
+}
+
 function resyncIfNeeded(sessionId: string | null) {
   if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
   resyncSessionId = null;
@@ -299,6 +315,10 @@ function coldResumeIfNeeded(sessionId: string | null, messageCount: number) {
 
 function handleStatusChange(status: "connecting" | "connected" | "disconnected") {
   useConnectionStore.getState().setWsStatus(status);
+
+  if (status === "connected") {
+    useConnectionStore.getState().noteSocketOpen();
+  }
 
   // A status change can be followed by a history replay that rewrites the
   // buffer, so land whatever is still buffered before anything reads it. In a
@@ -347,12 +367,19 @@ export function sendClientMessage(msg: ClientMessage): boolean {
   return true;
 }
 
+/** Retry the singleton socket immediately, skipping any remaining backoff. */
+export function reconnectWebSocketNow(): void {
+  wsClient?.reconnectNow();
+}
+
 export function useWebSocket() {
   const initialized = useRef(false);
 
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
+    let disposed = false;
+    useConnectionStore.getState().noteSocketOpen();
 
     wsClient = new BrainUiClient({
       url: getWsUrl(),
@@ -360,6 +387,9 @@ export function useWebSocket() {
       // session-buffer demux — see handleServerMessage.
       handlers: { onAny: handleServerMessage },
       onStatusChange: handleStatusChange,
+      onClose: (close) => {
+        if (!disposed) handleSocketClose(close);
+      },
       // A frame the SDK refused. Surfaced rather than logged into a console
       // nobody is attached to; the server-side counterpart is the
       // ws.frames.dropped counter.
@@ -385,6 +415,7 @@ export function useWebSocket() {
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      disposed = true;
       window.removeEventListener("online", reconnectNow);
       document.removeEventListener("visibilitychange", onVisible);
       wsClient?.close();

@@ -59,6 +59,16 @@ export interface ProtocolError {
   frameType?: string;
 }
 
+/** What the platform reported when one WebSocket connection attempt closed. */
+export interface WebSocketClose {
+  /** RFC 6455 close code, or the browser's synthetic 1006 for an abnormal close. */
+  code: number;
+  /** Server-provided close reason; empty when the handshake never upgraded. */
+  reason: string;
+  /** Whether this connection attempt reached `open` before it closed. */
+  opened: boolean;
+}
+
 export interface BrainUiClientOptions {
   url: string;
   handlers?: ServerFrameHandlers;
@@ -69,6 +79,8 @@ export interface BrainUiClientOptions {
    * routes this wherever its reports go.
    */
   onProtocolError?: (error: ProtocolError) => void;
+  /** Called for every socket close, before the disconnected status is reported. */
+  onClose?: (close: WebSocketClose) => void;
   /** Called once per connection, when the server's hello arrives. */
   onHello?: (hello: { protocolRev: number; capabilities: Record<string, boolean> }) => void;
   /** Injected for tests; defaults to the platform WebSocket. */
@@ -139,8 +151,10 @@ export class BrainUiClient {
         ? this.options.socketFactory(this.options.url)
         : new WebSocket(this.options.url);
       this.ws = ws;
+      let opened = false;
 
       ws.onopen = () => {
+        opened = true;
         this.reconnectAttempt = 0;
         // Declare what we speak before anything else. A host uses this to
         // decide which revision's rules apply to this connection; a host that
@@ -154,12 +168,13 @@ export class BrainUiClient {
         this.options.onStatusChange?.("connected");
       };
       ws.onmessage = (evt: MessageEvent) => this.receive(evt.data);
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         // A new connection re-negotiates: the old hello does not describe it.
         this.protocolRev = null;
         this.capabilities = {};
         // Pending exchanges do not survive a reconnect; the host drains them.
         this.turnByRequest.clear();
+        this.options.onClose?.({ code: event.code, reason: event.reason, opened });
         this.options.onStatusChange?.("disconnected");
         if (!this.closed) this.scheduleReconnect();
       };

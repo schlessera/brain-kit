@@ -12,6 +12,7 @@ import {
   PROTOCOL_REV,
   type ProtocolError,
   type ServerMessage,
+  type WebSocketClose,
 } from "../src/client/index.js";
 
 /** A WebSocket stand-in the test drives directly. */
@@ -19,16 +20,17 @@ class FakeSocket {
   readyState = 0;
   onopen: (() => void) | null = null;
   onmessage: ((evt: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   readonly sent: string[] = [];
 
   send(data: string) {
     this.sent.push(data);
   }
-  close() {
+  close(code = 1000, reason = "") {
+    if (this.readyState === 3) return;
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code, reason } as CloseEvent);
   }
   /** Test helper: complete the handshake. */
   open() {
@@ -53,11 +55,13 @@ function makeClient(handlers: Record<string, unknown> = {}) {
   const sockets: FakeSocket[] = [];
   const statuses: string[] = [];
   const errors: ProtocolError[] = [];
+  const closes: WebSocketClose[] = [];
   const client = new BrainUiClient({
     url: "ws://test/ws",
     handlers: handlers as never,
     onStatusChange: (s) => statuses.push(s),
     onProtocolError: (e) => errors.push(e),
+    onClose: (close) => closes.push(close),
     socketFactory: () => {
       const socket = new FakeSocket();
       sockets.push(socket);
@@ -71,8 +75,41 @@ function makeClient(handlers: Record<string, unknown> = {}) {
   // test sent, so the handshake is filtered out rather than counted.
   const replies = () =>
     socket.sent.map((s) => JSON.parse(s)).filter((m) => m.type !== "client_hello");
-  return { client, socket, sockets, statuses, errors, replies };
+  return { client, socket, sockets, statuses, errors, closes, replies };
 }
+
+describe("socket closes", () => {
+  test("reports the close code and reason when an attempt never opened", () => {
+    const sockets: FakeSocket[] = [];
+    const closes: WebSocketClose[] = [];
+    const client = new BrainUiClient({
+      url: "ws://test/ws",
+      onClose: (close) => closes.push(close),
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+
+    client.connect();
+    sockets[0]!.close(1006, "upgrade refused");
+
+    expect(closes).toEqual([{ code: 1006, reason: "upgrade refused", opened: false }]);
+    client.close();
+  });
+
+  test("reports that an opened socket reached open before closing", () => {
+    const { client, socket, closes } = setup({});
+
+    socket.close(4008, "Connection limit reached");
+
+    expect(closes).toEqual([
+      { code: 4008, reason: "Connection limit reached", opened: true },
+    ]);
+    client.close();
+  });
+});
 
 describe("dispatch", () => {
   test("a valid frame reaches its typed handler", () => {
@@ -294,9 +331,8 @@ describe("lifecycle", () => {
   });
 
   test("a deliberate close does not reconnect", () => {
-    const { client, socket, sockets } = setup({});
+    const { client, sockets } = setup({});
     client.close();
-    socket.onclose?.();
     expect(sockets.length).toBe(1);
   });
 });

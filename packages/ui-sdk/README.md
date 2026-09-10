@@ -141,9 +141,10 @@ must be preserved, and `server_hello.protocolRev` announces the revision.
 
 `@schlessera/brain-ui-sdk/client` exports `BrainUiClient`: socket lifecycle
 (1s-doubling backoff to 30s, `reconnectNow`), validated inbound frames,
-`server_hello` capture, and `turnId` echo on turn-scoped replies. It has no
-React, no DOM beyond `WebSocket`, and takes a `socketFactory` so it is testable
-with no network.
+`server_hello` capture, `turnId` echo on turn-scoped replies, and an optional
+`onClose` report with the close code, reason, and whether that attempt ever
+opened. It has no React, no DOM beyond `WebSocket`, and takes a `socketFactory`
+so it is testable with no network.
 
 ```ts
 import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";

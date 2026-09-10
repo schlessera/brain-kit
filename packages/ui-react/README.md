@@ -9,6 +9,11 @@ The deployment shell owns the document: `index.html`, the mount point, the
 Vite/PWA build, the service worker, and the theme entry. This package ships
 prebuilt JS + `.d.ts` plus its styles in two forms.
 
+`ConnectionGate` derives its message from the authenticated HTTP reachability
+probe and live WebSocket facts. After three consecutive handshakes fail before
+opening, it distinguishes a refused live connection from an unreachable
+server; close code 4008 is shown specifically as the server connection limit.
+
 ## React compatibility
 
 The `react` and `react-dom` peer range remains `>=18`: React 18 and the current

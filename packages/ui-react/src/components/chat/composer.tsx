@@ -14,6 +14,7 @@ import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { uiConfig } from "../../config.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
+import { deriveConnectionIssue } from "../connectivity/connection-state.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import {
   fileToAttachment,
@@ -75,6 +76,14 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  const vpnStatus = useConnectionStore((s) => s.vpnStatus);
+  const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
+  const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
+  const connectionIssue = deriveConnectionIssue({
+    vpnStatus,
+    handshakeFailures,
+    lastCloseCode,
+  });
 
   const providers = useProviderStore((s) => s.available);
   const selectedProviderId = useProviderStore((s) => s.selectedId);
@@ -461,7 +470,11 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
                 }}
                 placeholder={
                   wsStatus !== "connected"
-                    ? "Connecting..."
+                    ? connectionIssue === "capacity"
+                      ? "Server connection limit reached"
+                      : connectionIssue === "refused"
+                        ? "Server refused the connection"
+                        : "Connecting..."
                     : uiConfig.composerPlaceholder
                 }
                 disabled={wsStatus !== "connected"}

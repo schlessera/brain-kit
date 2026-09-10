@@ -1,15 +1,28 @@
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
+import { reconnectWebSocketNow } from "../../hooks/use-websocket.js";
+import {
+  deriveConnectionIssue,
+  type ConnectionIssue,
+} from "./connection-state.js";
 
 export function ConnectionGate({ children }: { children: ReactNode }) {
   // The gate owns its connectivity probe — composing <ConnectionGate> is all
   // an embedder needs; the store would otherwise sit on "checking" forever.
   useVpnStatus();
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
+  const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
+  const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
+  const reportError = useConnectionStore((s) => s.reportError);
+  const issue = deriveConnectionIssue({
+    vpnStatus,
+    handshakeFailures,
+    lastCloseCode,
+  });
 
   // Once the app has connected, never unmount the UI again — an intermittent
   // drop must not destroy rendered chat state. Show a banner instead.
@@ -18,9 +31,31 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
     if (vpnStatus === "connected") setEverConnected(true);
   }, [vpnStatus]);
 
+  const refused = issue === "refused" || issue === "capacity";
+  const wasRefused = useRef(false);
+  useEffect(() => {
+    if (!refused) {
+      wasRefused.current = false;
+      return;
+    }
+    if (wasRefused.current) return;
+    wasRefused.current = true;
+    if (issue === "capacity") {
+      reportError(
+        "WEBSOCKET_CAPACITY",
+        "The server refused the WebSocket because its connection limit was reached (close code 4008)."
+      );
+    } else {
+      reportError(
+        "WEBSOCKET_REFUSED",
+        `The server is reachable and the session is valid, but it refused the WebSocket connection (close code ${lastCloseCode ?? 1006}).`
+      );
+    }
+  }, [issue, refused, lastCloseCode, reportError]);
+
   // Auth required (password mode) and no valid session: show the login screen,
   // even if we were connected before (an expired session must re-prompt).
-  if (vpnStatus === "unauthorized") {
+  if (issue === "unauthorized") {
     return <LoginScreen />;
   }
 
@@ -28,8 +63,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
     return (
       <>
         <OfflineBanner
-          show={everConnected && vpnStatus !== "connected"}
-          forbidden={vpnStatus === "forbidden"}
+          show={refused || (everConnected && vpnStatus !== "connected")}
+          issue={issue}
         />
         {children}
       </>
@@ -96,11 +131,22 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
  */
 function OfflineBanner({
   show,
-  forbidden,
+  issue,
 }: {
   show: boolean;
-  forbidden: boolean;
+  issue: ConnectionIssue;
 }) {
+  const message =
+    issue === "forbidden"
+      ? "VPN required — reconnect Tailscale"
+      : issue === "unreachable"
+        ? "Connection lost — reconnecting…"
+        : issue === "capacity"
+          ? "Server connection limit reached"
+          : issue === "refused"
+            ? "Server refused the live connection"
+            : "Connection lost — reconnecting…";
+
   return (
     <AnimatePresence>
       {show && (
@@ -113,18 +159,23 @@ function OfflineBanner({
         >
           <div
             role="status"
-            className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-950/90 px-4 py-1.5 text-xs text-amber-200 shadow-lg backdrop-blur"
+            className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-950/90 px-4 py-1.5 text-xs text-amber-200 shadow-lg backdrop-blur"
           >
-            {forbidden ? (
+            {issue === "forbidden" ? (
               <ShieldAlert className="h-3.5 w-3.5" />
             ) : (
               <WifiOff className="h-3.5 w-3.5" />
             )}
-            <span>
-              {forbidden
-                ? "VPN required — reconnect Tailscale"
-                : "Connection lost — reconnecting…"}
-            </span>
+            <span>{message}</span>
+            {(issue === "refused" || issue === "capacity") && (
+              <button
+                type="button"
+                onClick={reconnectWebSocketNow}
+                className="font-medium underline underline-offset-2 hover:text-amber-100"
+              >
+                Retry now
+              </button>
+            )}
             <span
               className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"
               style={{ animation: "breathe 2s ease-in-out infinite" }}

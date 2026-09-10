@@ -278,6 +278,7 @@ export "./client" (./src/client/index.ts)
   type VoiceMode
   type VoiceSessionResponse
   type VoiceTokenResponse
+  type WebSocketClose
   type WikilinkMapResponse
   canonicalModelId
   createAsrClient

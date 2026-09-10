@@ -9,6 +9,7 @@ import { unregisterDom } from "./dom.js";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
+import { createElement, forwardRef, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
   ActivityRunRollup,
@@ -38,6 +39,49 @@ import {
 } from "../../src/stores/graph-store.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
+import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
+import { Composer } from "../../src/components/chat/composer.js";
+import { useConnectionStore } from "../../src/stores/connection-store.js";
+import { useProviderStore } from "../../src/stores/provider-store.js";
+
+// happy-dom rejects an animation's `finished` promise when a mounted gate
+// changes branches. These tests exercise the rendered state transitions, not
+// the animation engine, so keep motion elements as transparent DOM wrappers.
+function createMotionElement(tag: string) {
+  return forwardRef<HTMLElement, Record<string, unknown>>(
+    (
+      {
+        initial: _initial,
+        animate: _animate,
+        exit: _exit,
+        transition: _transition,
+        ...props
+      },
+      ref
+    ) =>
+      createElement(tag, { ...props, ref })
+  );
+}
+
+const motionElements = new Map<
+  string,
+  ReturnType<typeof createMotionElement>
+>();
+mock.module("framer-motion", () => ({
+  AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+  motion: new Proxy(
+    {},
+    {
+      get: (_target, tag: string) => {
+        const existing = motionElements.get(tag);
+        if (existing) return existing;
+        const element = createMotionElement(tag);
+        motionElements.set(tag, element);
+        return element;
+      },
+    }
+  ),
+}));
 
 // Page lifecycle tests need SceneBody's overlay effects, not Sigma/WebGL. The
 // production canvas is already runtime-tested in a real browser; happy-dom has
@@ -47,7 +91,15 @@ mock.module("../../src/components/graph/graph-canvas.js", () => ({
 }));
 
 afterEach(cleanup);
-afterAll(unregisterDom);
+afterAll(async () => {
+  // Let React's scheduler drain before the DOM globals go. A test that
+  // resolves a deferred response late can leave one `performWorkUntilDeadline`
+  // task queued; unregistering underneath it throws "window is not defined"
+  // from the scheduler, which Bun reports as an error and exits non-zero even
+  // though every test passed.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  unregisterDom();
+});
 
 const realFetch = globalThis.fetch;
 const RealWebSocket = globalThis.WebSocket;
@@ -93,6 +145,21 @@ afterEach(() => {
     filePanelOpen: false,
     settingsPanelOpen: false,
   });
+  useConnectionStore.setState({
+    wsStatus: "disconnected",
+    vpnStatus: "checking",
+    handshakeFailures: 0,
+    lastCloseCode: null,
+    socketOpens: 0,
+    lastError: null,
+  });
+  useProviderStore.setState({
+    available: [],
+    selectedId: "",
+    pinnedId: null,
+    backends: {},
+    loaded: false,
+  });
 });
 
 async function flushPromises(): Promise<void> {
@@ -128,7 +195,7 @@ class PageSocket {
   readyState = 0;
   onopen: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   readonly sent: string[] = [];
 
@@ -140,9 +207,10 @@ class PageSocket {
     this.sent.push(data);
   }
 
-  close(): void {
+  close(code = 1000, reason = ""): void {
+    if (this.readyState === 3) return;
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code, reason } as CloseEvent);
   }
 
   open(): void {
@@ -154,6 +222,376 @@ class PageSocket {
     this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent);
   }
 }
+
+function installControlledTimeouts() {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  const timers = new Map<number, { handler: () => void; delay: number }>();
+  let nextTimer = 0;
+
+  globalThis.setTimeout = ((handler: TimerHandler, delay?: number) => {
+    const id = ++nextTimer;
+    if (typeof handler === "function") {
+      timers.set(id, { handler: handler as () => void, delay: delay ?? 0 });
+    }
+    return id;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id?: number | NodeJS.Timeout) => {
+    if (typeof id === "number") timers.delete(id);
+  }) as typeof clearTimeout;
+
+  return {
+    timers,
+    run(delay: number) {
+      const timer = [...timers.entries()].find(([, entry]) => entry.delay === delay);
+      if (!timer) throw new Error(`No ${delay}ms timer was scheduled`);
+      timers.delete(timer[0]);
+      act(() => timer[1].handler());
+    },
+    /**
+     * Fire a timer whose handler is async (the connectivity poller's) and
+     * await the work it starts. `run` would hand act() a promise it never
+     * awaits, which interleaves act scopes into the NEXT test.
+     */
+    async runAsync(delay: number) {
+      const timer = [...timers.entries()].find(([, entry]) => entry.delay === delay);
+      if (!timer) throw new Error(`No ${delay}ms timer was scheduled`);
+      timers.delete(timer[0]);
+      await act(async () => {
+        timer[1].handler();
+        await flushPromises();
+      });
+    },
+    restore() {
+      timers.clear();
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    },
+  };
+}
+
+async function mountConnectionScenario(
+  vpnResponses: Array<number | Promise<Response>>
+) {
+  PageSocket.instances = [];
+  globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+  const timeouts = installControlledTimeouts();
+  useConnectionStore.setState({
+    wsStatus: "disconnected",
+    vpnStatus: "connected",
+    handshakeFailures: 0,
+    lastCloseCode: null,
+    socketOpens: 0,
+    lastError: null,
+  });
+  const vpnChecks = installConnectionFetch(vpnResponses);
+
+  const page = render(<LiveConnectionGate />);
+  await act(flushPromises);
+  expect(PageSocket.instances).toHaveLength(1);
+  return { page, timeouts, vpnChecks };
+}
+
+async function failThreeHandshakes(
+  timeouts: ReturnType<typeof installControlledTimeouts>
+): Promise<void> {
+  act(() => PageSocket.instances[0]!.close(1006));
+  timeouts.run(1_000);
+  act(() => PageSocket.instances[1]!.close(1006));
+  timeouts.run(2_000);
+  act(() => PageSocket.instances[2]!.close(1006));
+  await act(flushPromises);
+}
+
+function installConnectionFetch(
+  vpnResponses: Array<number | Promise<Response>>
+): () => number {
+  let vpnChecks = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/vpn-check")) {
+      const response = vpnResponses[vpnChecks++];
+      if (response === undefined) {
+        throw new Error(`Unexpected VPN check ${vpnChecks}`);
+      }
+      return typeof response === "number"
+        ? new Response(null, { status: response })
+        : response;
+    }
+    if (url.includes("/api/auth/methods")) {
+      return Response.json({ password: true, passkey: false });
+    }
+    if (url.includes("/api/providers")) {
+      return Response.json({ providers: [], backends: {} });
+    }
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }) as typeof fetch;
+  return () => vpnChecks;
+}
+
+function SocketOwnedComposer() {
+  useWebSocket();
+  return <Composer send={() => {}} />;
+}
+
+function LiveConnectionGate() {
+  return (
+    <ConnectionGate>
+      <SocketOwnedComposer />
+    </ConnectionGate>
+  );
+}
+
+describe("refused WebSocket state", () => {
+  test("three failed handshakes plus a healthy probe show refusal copy and report the error", async () => {
+    const { page, timeouts, vpnChecks } = await mountConnectionScenario([200, 200]);
+    try {
+      await failThreeHandshakes(timeouts);
+      expect(vpnChecks()).toBe(2);
+      expect(page.getByRole("status").textContent).toContain(
+        "Server refused the live connection"
+      );
+      expect(page.getByRole("button", { name: "Retry now" })).toBeTruthy();
+      expect(page.getByPlaceholderText("Server refused the connection")).toBeTruthy();
+      expect(useConnectionStore.getState().lastError?.code).toBe(
+        "WEBSOCKET_REFUSED"
+      );
+      fireEvent.click(page.getByRole("button", { name: "Retry now" }));
+      expect(PageSocket.instances).toHaveLength(4);
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("a recheck returning 401 drives the login screen", async () => {
+    const { page, timeouts } = await mountConnectionScenario([200, 401]);
+    try {
+      await failThreeHandshakes(timeouts);
+      expect(page.getByPlaceholderText("Password")).toBeTruthy();
+      expect(useConnectionStore.getState().vpnStatus).toBe("unauthorized");
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("a recheck returning 403 uses the existing forbidden path", async () => {
+    const { page, timeouts } = await mountConnectionScenario([200, 403]);
+    try {
+      await failThreeHandshakes(timeouts);
+      expect(page.getByText("VPN required — reconnect Tailscale")).toBeTruthy();
+      expect(useConnectionStore.getState().vpnStatus).toBe("forbidden");
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("close code 4008 selects the connection-cap copy", async () => {
+    const { page, timeouts } = await mountConnectionScenario([200, 200]);
+    try {
+      act(() => PageSocket.instances[0]!.close(1006));
+      timeouts.run(1_000);
+      act(() => PageSocket.instances[1]!.close(1006));
+      timeouts.run(2_000);
+      act(() => PageSocket.instances[2]!.close(4008, "Connection limit reached"));
+      await act(flushPromises);
+      expect(page.getByRole("status").textContent).toContain(
+        "Server connection limit reached"
+      );
+      expect(page.getByPlaceholderText("Server connection limit reached")).toBeTruthy();
+      expect(useConnectionStore.getState().lastError?.code).toBe(
+        "WEBSOCKET_CAPACITY"
+      );
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  // Regression: the server ACCEPTS the upgrade and then closes with 4008 when
+  // it is at its connection cap, so the never-opened counter is 0 when the cap
+  // refusal lands. Gating capacity on the inferred threshold made the real
+  // refusal — the only one the server names — unreachable.
+  test("a cap refusal after a successful open still shows the capacity copy", async () => {
+    const { page, timeouts } = await mountConnectionScenario([200, 200]);
+    try {
+      act(() => PageSocket.instances[0]!.open());
+      await act(flushPromises);
+      expect(page.queryByText("Server connection limit reached")).toBeNull();
+
+      act(() => PageSocket.instances[0]!.close(4008, "Connection limit reached"));
+      await act(flushPromises);
+      expect(useConnectionStore.getState().handshakeFailures).toBe(0);
+      expect(page.getByRole("status").textContent).toContain(
+        "Server connection limit reached"
+      );
+      expect(useConnectionStore.getState().lastError?.code).toBe(
+        "WEBSOCKET_CAPACITY"
+      );
+
+      // A socket that gets in again spends the evidence.
+      timeouts.run(1_000);
+      act(() => PageSocket.instances[1]!.open());
+      await act(flushPromises);
+      expect(page.queryByText("Server connection limit reached")).toBeNull();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  // Regression: the stale-probe guard compared wsStatus at the START and END of
+  // the probe. A poll that begins while connected, then sees the socket drop
+  // and a replacement get in before it answers, reads "connected" both times —
+  // so a stale 401 was accepted and logged the reader out of a healthy socket.
+  test("a poll that spans a drop and a reconnect cannot log a healthy socket out", async () => {
+    let resolvePoll: ((res: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      resolvePoll = resolve;
+    });
+    const { page, timeouts } = await mountConnectionScenario([200, pending]);
+    try {
+      act(() => PageSocket.instances[0]!.open());
+      await act(flushPromises);
+      expect(useConnectionStore.getState().wsStatus).toBe("connected");
+
+      // The scheduled poll starts while the socket is up.
+      await timeouts.runAsync(15_000);
+
+      // It drops and a replacement gets in, all while that poll is outstanding.
+      act(() => PageSocket.instances[0]!.close(1006));
+      timeouts.run(1_000);
+      const replacement = PageSocket.instances[PageSocket.instances.length - 1]!;
+      act(() => replacement.open());
+      await act(flushPromises);
+      expect(useConnectionStore.getState().wsStatus).toBe("connected");
+
+      act(() => resolvePoll!(new Response(null, { status: 401 })));
+      await act(flushPromises);
+
+      expect(useConnectionStore.getState().vpnStatus).toBe("connected");
+      expect(page.queryByPlaceholderText("Password")).toBeNull();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  // Regression: nothing exercised the poller's in-flight serialization, so
+  // removing it left every refusal test green.
+  test("a recheck while a poll is outstanding is serialized, and the newest answer wins", async () => {
+    let resolveFirst: ((res: Response) => void) | undefined;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const { page, timeouts, vpnChecks } = await mountConnectionScenario([
+      first,
+      401,
+    ]);
+    try {
+      // The mount probe is still outstanding while the handshakes fail, so the
+      // recheck they trigger must queue rather than race it.
+      await failThreeHandshakes(timeouts);
+      expect(vpnChecks()).toBe(1);
+
+      act(() => resolveFirst!(new Response(null, { status: 200 })));
+      await act(flushPromises);
+      expect(vpnChecks()).toBe(2);
+      expect(useConnectionStore.getState().vpnStatus).toBe("unauthorized");
+      expect(page.getByPlaceholderText("Password")).toBeTruthy();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("one failed handshake followed by an open never shows refusal", async () => {
+    const { page, timeouts, vpnChecks } = await mountConnectionScenario([200]);
+    try {
+      act(() => PageSocket.instances[0]!.close(1006));
+      timeouts.run(1_000);
+      act(() => PageSocket.instances[1]!.open());
+      expect(vpnChecks()).toBe(1);
+      expect(page.getByPlaceholderText("Ask your brain anything...")).toBeTruthy();
+      expect(page.queryByText("Server refused the live connection")).toBeNull();
+      expect(useConnectionStore.getState().handshakeFailures).toBe(0);
+      expect(useConnectionStore.getState().lastError).toBeNull();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("live probe changes replace and restore refusal copy without a socket open", async () => {
+    const { page, timeouts } = await mountConnectionScenario([
+      200,
+      200,
+      403,
+      503,
+      200,
+    ]);
+    try {
+      await failThreeHandshakes(timeouts);
+      expect(page.getByRole("status").textContent).toContain(
+        "Server refused the live connection"
+      );
+      expect(useConnectionStore.getState().handshakeFailures).toBe(3);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+        await flushPromises();
+      });
+      expect(page.getByText("VPN required — reconnect Tailscale")).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+        await flushPromises();
+      });
+      expect(page.getByText("Connection lost — reconnecting…")).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+        await flushPromises();
+      });
+      expect(page.getByRole("status").textContent).toContain(
+        "Server refused the live connection"
+      );
+      expect(useConnectionStore.getState().handshakeFailures).toBe(3);
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+
+  test("a probe response resolving after a successful socket open is ignored", async () => {
+    const staleFailure = deferred<Response>();
+    const { page, timeouts, vpnChecks } = await mountConnectionScenario([
+      200,
+      staleFailure.promise,
+    ]);
+    try {
+      await failThreeHandshakes(timeouts);
+      expect(vpnChecks()).toBe(2);
+      timeouts.run(4_000);
+      act(() => PageSocket.instances[3]!.open());
+      expect(useConnectionStore.getState().handshakeFailures).toBe(0);
+
+      await act(async () => {
+        staleFailure.resolve(new Response(null, { status: 403 }));
+        await flushPromises();
+      });
+      expect(useConnectionStore.getState().vpnStatus).toBe("connected");
+      expect(page.queryByText("Server refused the live connection")).toBeNull();
+      expect(page.queryByText("VPN required — reconnect Tailscale")).toBeNull();
+      expect(page.getByPlaceholderText("Ask your brain anything...")).toBeTruthy();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+    }
+  });
+});
 
 function installActivityFetch(
   detailResponse?: (url: string) => Response | Promise<Response> | undefined

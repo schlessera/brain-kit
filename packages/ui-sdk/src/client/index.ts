@@ -22,6 +22,7 @@ export type {
   ServerFrameHandlers,
   ConnectionStatus,
   ProtocolError,
+  WebSocketClose,
 } from "./ws-client.js";
 
 export * from "../protocol.js";
