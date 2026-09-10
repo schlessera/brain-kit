@@ -443,7 +443,7 @@ describe("ActivityPage lifecycle", () => {
     expect(page.getByRole("heading", { name: "run/two" })).toBeTruthy();
   });
 
-  test("pins the current defect: an older successful detail response clobbers the newer selection", async () => {
+  test("an older successful detail response cannot clobber the newer selection", async () => {
     const oldDetail = deferred<Response>();
     const newDetail = deferred<Response>();
     installActivityFetch((url) => {
@@ -465,10 +465,11 @@ describe("ActivityPage lifecycle", () => {
 
     oldDetail.resolve(Response.json(activityDetail("old", "Old detail")));
     await act(flushPromises);
-    expect(page.getByRole("heading", { name: "Old detail" })).toBeTruthy();
+    expect(Boolean(page.queryByRole("heading", { name: "Old detail" }))).toBe(false);
+    expect(page.getByRole("heading", { name: "New detail" })).toBeTruthy();
   });
 
-  test("pins the current defect: a successful detail response writes to the activity store after unmount", async () => {
+  test("a successful detail response cannot write to the activity store after unmount", async () => {
     const lateDetail = deferred<Response>();
     installActivityFetch((url) =>
       url.includes("/activity/runs/gone?") ? lateDetail.promise : undefined
@@ -496,7 +497,7 @@ describe("ActivityPage lifecycle", () => {
     );
     await act(flushPromises);
 
-    expect(useActivityStore.getState().spans.gone?.["late-root"]).toEqual(lateSpan);
+    expect(useActivityStore.getState().spans.gone?.["late-root"]).toBeUndefined();
   });
 });
 
@@ -525,7 +526,7 @@ describe("GraphPage lifecycle", () => {
     page.unmount();
   });
 
-  test("pins the current defect: the page starts its scene request after unmount when metadata resolves late", async () => {
+  test("the page does not start its scene request after unmount when metadata resolves late", async () => {
     const metaGate = deferred<void>();
     const calls: string[] = [];
     useGraphStore.setState({
@@ -544,7 +545,7 @@ describe("GraphPage lifecycle", () => {
 
     metaGate.resolve();
     await act(flushPromises);
-    expect(calls).toEqual(["meta", "scene"]);
+    expect(calls).toEqual(["meta"]);
   });
 
   test("a mounted page keeps a newer scene when the older response arrives last", async () => {
@@ -742,7 +743,7 @@ describe("GraphPage lifecycle", () => {
     }
   });
 
-  test("pins the current defect: note-picker search stays live and reads its payload after unmount", async () => {
+  test("note-picker search aborts without reading its payload after unmount", async () => {
     const searchResponse = deferred<Response>();
     const realSetTimeout = globalThis.setTimeout;
     const realClearTimeout = globalThis.clearTimeout;
@@ -768,7 +769,16 @@ describe("GraphPage lifecycle", () => {
     const requests: { url: string; signal: AbortSignal | null }[] = [];
     globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: String(input), signal: init?.signal ?? null });
-      return searchResponse.promise;
+      return Promise.race([
+        searchResponse.promise,
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          );
+        }),
+      ]);
     }) as typeof fetch;
     useGraphStore.setState({
       mode: "local",
@@ -815,7 +825,7 @@ describe("GraphPage lifecycle", () => {
 
       page.unmount();
       page = undefined;
-      expect(requests[0]!.signal?.aborted).toBe(false);
+      expect(requests[0]!.signal?.aborted).toBe(true);
 
       let resultReads = 0;
       searchResponse.resolve({
@@ -829,7 +839,7 @@ describe("GraphPage lifecycle", () => {
       } as Response);
       await act(flushPromises);
 
-      expect(resultReads).toBe(1);
+      expect(resultReads).toBe(0);
     } finally {
       page?.unmount();
       pendingTimers.clear();

@@ -37,11 +37,13 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
   const [rawOpen, setRawOpen] = useState(false);
 
   useEffect(() => {
+    let active = true;
     api
       // Payload bodies are excluded from run detail by default; this view's
       // rows expand to them, so opt in.
       .activityRun(runId, { includePayloads: true })
       .then((detail) => {
+        if (!active) return;
         if (detail.rollup) setRollup(detail.rollup);
         if (detail.detailPruned) {
           setPruned(detail.rollup ?? {});
@@ -56,7 +58,12 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
           });
         }
       })
-      .catch(() => setMissing(true));
+      .catch(() => {
+        if (active) setMissing(true);
+      });
+    return () => {
+      active = false;
+    };
   }, [runId, applySnapshot]);
 
   const root = streamed.find((s) => !s.parentSpanId);

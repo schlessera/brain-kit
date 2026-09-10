@@ -40,14 +40,19 @@ export function GraphPage() {
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   useEffect(() => {
+    let active = true;
     // Always refetch meta on mount (the view unmounts when hidden, so this
     // also covers "came back after a brain sync"): a changed computedAt is
     // what invalidates every cached scene. Meta must land before the scene
     // fetch so the cache is keyed by the fresh generation.
     void (async () => {
       await fetchMeta(true);
+      if (!active) return;
       await fetchScene();
     })();
+    return () => {
+      active = false;
+    };
   }, [fetchMeta, fetchScene]);
 
   return (

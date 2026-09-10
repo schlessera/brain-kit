@@ -384,7 +384,10 @@ function NotePicker({
         if (!controller.signal.aborted) setLoading(false);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      controllerRef.current?.abort();
+    };
   }, [editing, trimmed]);
 
   return (
