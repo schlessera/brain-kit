@@ -24,7 +24,7 @@
  */
 import type { Database } from "bun:sqlite";
 
-import { runGraphPrecompute } from "../graph/precompute.js";
+import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../graph/precompute.js";
 import { indexAssets } from "./assets.js";
 import { pruneSidecarCaches, saveAssetCache, saveContextCache } from "./caches.js";
 import { runEmbeddingPhase } from "./embeddings.js";
@@ -81,7 +81,12 @@ function createRun(db: Database, options: IndexOptions): IndexRun {
  */
 function precomputeGraph(run: IndexRun): void {
   try {
-    const graph = runGraphPrecompute(run.db, { root: run.root, taxonomy: run.taxonomy });
+    const compute = run.force ? runGraphPrecompute : runGraphPrecomputeIfChanged;
+    const graph = compute(run.db, { root: run.root, taxonomy: run.taxonomy });
+    if (!graph) {
+      run.report("Graph: unchanged, reused cached metrics and layout");
+      return;
+    }
     run.stats.graphMs = graph.durationMs;
     run.stats.graphNodes = graph.nodes;
     run.report(

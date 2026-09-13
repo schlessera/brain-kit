@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { createHash } from "crypto";
+import { getMeta } from "../db.js";
 
 import { loadLinkGraph } from "./build.js";
 import { bfsDistances } from "./distances.js";
@@ -31,6 +33,8 @@ const ROOT_DIRECTION: GraphDirection = "out";
 
 /** Every `index_metadata` key this module owns, cleared and rewritten per run. */
 const METADATA_KEYS = [
+  "graph_input_hash",
+  "graph_output_counts",
   "graph_computed_at",
   "graph_algo",
   "graph_root",
@@ -49,6 +53,12 @@ function readPreviousLayout(db: Database): Map<number, Position> {
   return positions;
 }
 
+function outputCounts(db: Database): string {
+  return JSON.stringify([
+    "graph_metrics", "graph_communities", "graph_root_distances", "graph_layouts",
+  ].map((table) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n));
+}
+
 /**
  * Rebuild every `graph_*` table from `documents` + `links`.
  *
@@ -62,7 +72,53 @@ export function runGraphPrecompute(
   db: Database,
   options: GraphPrecomputeOptions
 ): GraphPrecomputeResult {
+  return precompute(db, options, false)!;
+}
+
+/** Index runs may reuse a complete cache; explicit graph compute always runs. */
+export function runGraphPrecomputeIfChanged(
+  db: Database,
+  options: GraphPrecomputeOptions
+): GraphPrecomputeResult | null {
+  return precompute(db, options, true);
+}
+
+function precompute(
+  db: Database,
+  options: GraphPrecomputeOptions,
+  reuse: boolean
+): GraphPrecomputeResult | null {
   const started = Date.now();
+
+  const root = resolveGraphRoot(db, {
+    root: options.root,
+    taxonomy: options.taxonomy,
+    override: options.rootOverride,
+  });
+  // Hash authoritative graph inputs, never layout output. Include indexed_at
+  // so the cache's provenance stays newer than edited documents. Resolving the
+  // root on every run also catches edits to index-excluded entry files.
+  // Bump revision when graph algorithms/label rules change, even if their
+  // numeric parameters do not. This key is internal disposable cache state.
+  const hash = createHash("sha256");
+  hash.update(JSON.stringify({
+    revision: 1, root, anchors: options.taxonomy.dirAnchors,
+    damping: PAGERANK_DAMPING, seed: LOUVAIN_SEED,
+    direction: ROOT_DIRECTION, cold: LAYOUT_ITERATIONS_COLD,
+    warm: LAYOUT_ITERATIONS_WARM, cap: LAYOUT_NODE_CAP,
+  }));
+  for (const sql of [
+    "SELECT id, path, title, type, status, updated, content_hash, indexed_at FROM documents WHERE asset_type = 'markdown' ORDER BY id",
+    "SELECT source_id, target, target_id FROM links ORDER BY source_id, target",
+    "SELECT dt.document_id, t.name FROM document_tags dt JOIN tags t ON t.id = dt.tag_id ORDER BY dt.document_id, t.name",
+  ]) {
+    for (const row of db.prepare(sql).iterate()) hash.update(JSON.stringify(row) + "\n");
+  }
+  const inputHash = hash.digest("hex");
+  if (reuse && getMeta(db, "graph_input_hash") === inputHash && getMeta(db, "graph_computed_at") &&
+      getMeta(db, "graph_output_counts") === outputCounts(db)) {
+    return null;
+  }
 
   const { graph, nodes, edges, brokenLinks } = loadLinkGraph(db);
   const metrics = computeMetrics(graph);
@@ -75,11 +131,6 @@ export function runGraphPrecompute(
     }
   );
 
-  const root = resolveGraphRoot(db, {
-    root: options.root,
-    taxonomy: options.taxonomy,
-    override: options.rootOverride,
-  });
   const distances =
     root === null
       ? new Map()
@@ -157,6 +208,8 @@ export function runGraphPrecompute(
       "INSERT OR REPLACE INTO index_metadata (key, value) VALUES (?, ?)"
     );
     setMetaValue.run("graph_computed_at", computedAt);
+    setMetaValue.run("graph_input_hash", inputHash);
+    setMetaValue.run("graph_output_counts", outputCounts(db));
     setMetaValue.run("graph_algo", algo);
     setMetaValue.run("graph_node_count", String(nodes.size));
     if (root) {

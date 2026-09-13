@@ -71,9 +71,12 @@ Index warnings (including skipped files and failed enrichment) go to stderr
 even with `--json`; stdout retains the existing stats object. A successful
 exit can represent a partial index, so automation should retain stderr.
 
-The graph tables are a derived cache, rebuilt wholesale by every index run —
-they stay empty until the first index run on schema v8, and `graph compute`
-exists to rebuild them without reindexing. The `--json` payloads are listed in
+The graph tables are a derived cache, rebuilt wholesale when inputs change —
+unchanged index runs preserve cached metrics and layout. The input fingerprint
+includes document metadata, tags, resolved links, the resolved entry root, and
+algorithm settings. `--force` always rebuilds. The tables stay empty until the
+first index run on schema v8, and `graph compute` exists to rebuild them
+without reindexing. The `--json` payloads are listed in
 the [integration contract](integration-contract.md).
 
 ## OKF interchange

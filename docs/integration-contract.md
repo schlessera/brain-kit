@@ -93,9 +93,12 @@ Prefer the CLI/MCP. If reading directly:
   (community, size, label, top_terms JSON), `graph_root_distances`
   (document_id, distance, parent_id) and `graph_layouts` (mode, document_id,
   x, y). Columns are only ever ADDED within a schema_version line.
-- The `graph_*` tables are **derived cache, rebuilt wholesale by every index
-  run** — they may be empty until the first index run on schema 8, and an
+- The `graph_*` tables are **derived cache, rebuilt wholesale when graph inputs
+  change** — they may be empty until the first index run on schema 8, and an
   older CLI writing to a v8 database leaves them stale rather than wrong.
+  Unchanged index runs may reuse the graph and preserve its provenance and
+  layout; `brain graph compute` and `brain index --force` always rebuild it.
+  Internal input fingerprints are disposable and are not a consumer API.
   Their provenance lives in `index_metadata`: `graph_computed_at` (ISO),
   `graph_algo` (JSON parameters), `graph_root` (a document path, or
   `virtual:AGENTS.md` for an index-excluded entry file), `graph_root_links`

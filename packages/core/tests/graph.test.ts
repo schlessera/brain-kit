@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
@@ -163,6 +163,70 @@ describe("schema v8 migration", () => {
 });
 
 describe("precompute", () => {
+  test("unchanged indexing preserves layout and provenance; root and corpus changes invalidate it", async () => {
+    const root = makeCorpus(CORPUS);
+    const db = openDatabase(join(root, "brain.db"));
+    const options = { root, taxonomy, quiet: true };
+    const inputHash = () => db.prepare("SELECT value FROM index_metadata WHERE key = 'graph_input_hash'").get();
+    try {
+      await indexAll(db, options);
+      const hash = inputHash();
+      const layout = db.prepare("SELECT * FROM graph_layouts ORDER BY document_id").all();
+      const provenance = getGraphStats(db).computedAt;
+      const again = await indexAll(db, options);
+      expect(again.unchanged).toBe(8);
+      expect(again.graphNodes).toBe(0);
+      expect(db.prepare("SELECT * FROM graph_layouts ORDER BY document_id").all()).toEqual(layout);
+      expect(getGraphStats(db).computedAt).toBe(provenance);
+
+      writeFileSync(join(root, "AGENTS.md"), "Start at [[delta]].\n");
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      expect(inputHash()).not.toEqual(hash);
+      expect(getGraphStats(db).reachable).toBe(2);
+
+      const beforeEdit = inputHash();
+      writeFileSync(join(root, "notes/alpha.md"), md("Updated astronomy title", "[[delta]]").replace("tags: [test]", "tags: [astronomy]"));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      expect(inputHash()).not.toEqual(beforeEdit);
+      expect((await indexAll(db, options)).graphNodes).toBe(0);
+
+      unlinkSync(join(root, "notes/alpha.md"));
+      expect((await indexAll(db, options)).graphNodes).toBe(7);
+      db.run("DELETE FROM graph_layouts");
+      expect((await indexAll(db, options)).graphNodes).toBe(7);
+      expect((await indexAll(db, { ...options, force: true })).graphNodes).toBe(7);
+      // Old versions have no fingerprint; explicitly removed provenance also
+      // requires a rebuild rather than blessing unknown graph tables.
+      db.run("DELETE FROM index_metadata WHERE key = 'graph_input_hash'");
+      expect((await indexAll(db, options)).graphNodes).toBe(7);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("root configuration, anchor policy, and repaired link rows invalidate cached graphs", async () => {
+    const root = makeCorpus(CORPUS);
+    const db = openDatabase(join(root, "brain.db"));
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+      const configured = buildTaxonomy({ user: { graph: { root: "notes/delta.md" } } });
+      expect((await indexAll(db, { root, taxonomy: configured, quiet: true })).graphNodes).toBe(8);
+      expect(getGraphStats(db).root).toBe("notes/delta.md");
+      // An explicit compute overrides the index default. The next index must
+      // restore that default even though no document was edited.
+      runGraphPrecompute(db, { root, taxonomy, rootOverride: "notes/alpha.md" });
+      expect((await indexAll(db, { root, taxonomy, quiet: true })).graphNodes).toBe(8);
+      const anchors = buildTaxonomy({ user: { taxonomy: { dirAnchors: ["status.md"] } } });
+      expect((await indexAll(db, { root, taxonomy: anchors, quiet: true })).graphNodes).toBe(8);
+      // A stale writer/resolver can leave different resolved links behind.
+      db.run("UPDATE links SET target_id = NULL");
+      runGraphPrecompute(db, { root, taxonomy: anchors });
+      expect((await indexAll(db, { root, taxonomy: anchors, quiet: true })).graphNodes).toBe(8);
+    } finally {
+      db.close();
+    }
+  });
+
   test("indexAll rebuilds the graph tables", async () => {
     const { db } = await indexCorpus();
 
