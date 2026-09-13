@@ -52,12 +52,13 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         tag: c.req.query("tag"),
         limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
         mode: c.req.query("mode"),
+        signal: c.req.raw.signal,
       });
       return c.json({ results, warnings });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Search failed" },
-        500
+        err instanceof Error && err.name === "TimeoutError" ? 504 : 500
       );
     }
   })

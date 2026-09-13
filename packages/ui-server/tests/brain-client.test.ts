@@ -1,6 +1,7 @@
 import { afterEach, describe, test, expect } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +16,7 @@ import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { createBrainRoutes } from "../src/routes/brain";
 
 const temporaryRoots: string[] = [];
 
@@ -76,6 +78,88 @@ describe("brain CLI invocation", () => {
       "--",
       "--weird query",
     ]);
+  });
+});
+
+describe("search cancellation and deadlines", () => {
+  async function waitUntil(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for subprocess state");
+      await Bun.sleep(10);
+    }
+  }
+
+  function running(pid: number): boolean {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  }
+
+  function stalledBrain() {
+    const root = temporaryBrain();
+    const pidPath = join(root, "search.pid");
+    installBrainCli(root, `
+      import { writeFileSync } from "fs";
+      process.on("SIGTERM", () => {});
+      writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
+      setInterval(() => {}, 1000);
+    `);
+    return { root, pidPath };
+  }
+
+  test("an already cancelled search never starts the CLI", async () => {
+    const { root, pidPath } = stalledBrain();
+    await expect(createBrainClient({ brainPath: root }).search("query", {
+      signal: AbortSignal.abort(),
+    })).rejects.toHaveProperty("name", "AbortError");
+    expect(existsSync(pidPath)).toBe(false);
+  });
+
+  test("aborting a running search reaps a CLI that ignores SIGTERM", async () => {
+    const { root, pidPath } = stalledBrain();
+    const controller = new AbortController();
+    const result = createBrainClient({ brainPath: root }).search("query", { signal: controller.signal })
+      .then(() => null, (error: Error) => error);
+    try {
+      await waitUntil(() => existsSync(pidPath));
+      const pid = Number(readFileSync(pidPath, "utf8"));
+      controller.abort();
+      expect(await result).toHaveProperty("name", "AbortError");
+      expect(running(pid)).toBe(false);
+    } finally {
+      controller.abort();
+      await result;
+    }
+  });
+
+  test("HTTP search deadlines return 504 and reap the stalled process", async () => {
+    const { root, pidPath } = stalledBrain();
+    const brain = createBrainClient({ brainPath: root, searchTimeoutMs: 1_500 });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const response = await app.request("/brain/search?q=query");
+    expect(response.status).toBe(504);
+    expect(await response.json()).toHaveProperty("error", expect.stringContaining("timed out"));
+    expect(running(Number(readFileSync(pidPath, "utf8")))).toBe(false);
+  });
+
+  test("a real HTTP disconnect propagates through Hono to the search process", async () => {
+    const { root, pidPath } = stalledBrain();
+    const brain = createBrainClient({ brainPath: root });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch });
+    const controller = new AbortController();
+    const response = fetch(`http://127.0.0.1:${server.port}/brain/search?q=query`, { signal: controller.signal })
+      .catch((error: Error) => error);
+    try {
+      await waitUntil(() => existsSync(pidPath));
+      const pid = Number(readFileSync(pidPath, "utf8"));
+      controller.abort();
+      await response;
+      await waitUntil(() => !running(pid));
+    } finally {
+      controller.abort();
+      await response;
+      await server.stop(true);
+    }
   });
 });
 

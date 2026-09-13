@@ -20,7 +20,7 @@ export interface BrainClient {
   cliCommand(): string[];
   search(
     query: string,
-    opts?: { type?: string; tag?: string; limit?: number; mode?: string }
+    opts?: { type?: string; tag?: string; limit?: number; mode?: string; signal?: AbortSignal }
   ): Promise<BrainSearchResponse>;
   briefing(): Promise<string>;
   stats(): Promise<BrainStats>;
@@ -157,25 +157,46 @@ export function probeBrainCliVersion(brainPath: string, log: Logger): void {
   }
 }
 
-export function createBrainClient(opts: { brainPath: string }): BrainClient {
-  const { brainPath } = opts;
+/** Interactive search must finish or fail within a bounded time. */
+const SEARCH_TIMEOUT_MS = 15_000;
 
-  async function execBrain(args: string[]): Promise<ExecResult> {
+export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: number }): BrainClient {
+  const { brainPath } = opts;
+  const searchTimeoutMs = opts.searchTimeoutMs ?? SEARCH_TIMEOUT_MS;
+  if (!Number.isFinite(searchTimeoutMs) || searchTimeoutMs <= 0) {
+    throw new Error("searchTimeoutMs must be a positive finite number");
+  }
+
+  async function execBrain(args: string[], signal?: AbortSignal): Promise<ExecResult> {
+    signal?.throwIfAborted();
     const proc = Bun.spawn([...brainCliCommand(brainPath), ...args], {
       cwd: brainPath,
       stdout: "pipe",
       stderr: "pipe",
       // Force JSON output when not a TTY
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+      // Only read-only search passes a signal. Kill even a CLI that ignores
+      // SIGTERM; abandoning a request must not leave the local process alive.
+      ...(signal ? { signal, killSignal: "SIGKILL" } : {}),
     });
 
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const exitCode = await proc.exited;
-
-    return { stdout, stderr, exitCode };
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      signal?.throwIfAborted();
+      return { stdout, stderr, exitCode };
+    } catch (error) {
+      // A pipe-read failure also abandons search. Reap before its caller
+      // clears the deadline; otherwise that failure could orphan the child.
+      if (signal) {
+        proc.kill("SIGKILL");
+        await proc.exited;
+      }
+      throw error;
+    }
   }
 
   function parseJsonOutput<T>(result: ExecResult): T {
@@ -197,18 +218,29 @@ export function createBrainClient(opts: { brainPath: string }): BrainClient {
       return brainCliCommand(brainPath);
     },
 
-    async search(query, opts) {
+    async search(query, searchOpts) {
       const args = ["search"];
-      if (opts?.type) args.push("--type", opts.type);
-      if (opts?.tag) args.push("--tag", opts.tag);
-      if (opts?.limit) args.push("--limit", String(opts.limit));
-      if (opts?.mode) args.push("--mode", opts.mode);
+      if (searchOpts?.type) args.push("--type", searchOpts.type);
+      if (searchOpts?.tag) args.push("--tag", searchOpts.tag);
+      if (searchOpts?.limit) args.push("--limit", String(searchOpts.limit));
+      if (searchOpts?.mode) args.push("--mode", searchOpts.mode);
       args.push("--", query);
 
-      const result = await execBrain(args);
-      const parsed = parseJsonOutput<BrainSearchResponse | BrainSearchResult[]>(result);
-      // brain returns {results, warnings} since 22e82e1; tolerate the old bare array
-      return Array.isArray(parsed) ? { results: parsed, warnings: [] } : parsed;
+      const deadline = new AbortController();
+      const timer = setTimeout(() => deadline.abort(
+        new DOMException("Search timed out. Please try again.", "TimeoutError")
+      ), searchTimeoutMs);
+      const signal = searchOpts?.signal
+        ? AbortSignal.any([searchOpts.signal, deadline.signal])
+        : deadline.signal;
+      try {
+        const result = await execBrain(args, signal);
+        const parsed = parseJsonOutput<BrainSearchResponse | BrainSearchResult[]>(result);
+        // brain returns {results, warnings} since 22e82e1; tolerate the old bare array
+        return Array.isArray(parsed) ? { results: parsed, warnings: [] } : parsed;
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async briefing() {

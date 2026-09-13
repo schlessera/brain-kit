@@ -75,6 +75,14 @@ process. The returned handle carries `config`, `db`, `wsHost`,
 `isTurnActive()`, `cancelActiveTurns()` and `close()` for the deployment
 shell's lifecycle wiring.
 
+## Interactive search
+
+Search has a 15-second deadline and returns HTTP 504 with a readable error on
+expiry. The route propagates the incoming request's abort signal to its
+read-only CLI subprocess, so a disconnected or superseded browser request stops
+that work. Keep the original `Request` when forwarding to `app.fetch` in a
+Bun deployment. Mutating commands retain their existing lifecycle.
+
 ## Cron bin
 
 The package ships the Bun-only `brain-ui-cron` executable for the container
