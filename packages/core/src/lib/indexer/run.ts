@@ -52,9 +52,8 @@ function emptyStats(): IndexStats {
 /**
  * Build the context every phase shares.
  *
- * `quiet` is resolved into `report`/`warn` here and nowhere else, so no phase
- * has to remember the `if (!quiet)` guard — the old version had 24 of them and
- * two console calls that had lost theirs.
+ * `quiet` suppresses progress on stdout, never diagnostics on stderr. JSON
+ * callers receive the stable stats object and can still detect partial runs.
  */
 function createRun(db: Database, options: IndexOptions): IndexRun {
   const quiet = options.quiet ?? false;
@@ -69,7 +68,7 @@ function createRun(db: Database, options: IndexOptions): IndexRun {
     now: new Date().toISOString(),
     stats: emptyStats(),
     report: quiet ? () => {} : (message) => console.log(message),
-    warn: quiet ? () => {} : (message) => console.warn(message),
+    warn: (message) => console.warn(message),
   };
 }
 

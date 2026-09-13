@@ -27,6 +27,21 @@ afterEach(() => {
   while (temps.length) cleanup(temps.pop()!);
 });
 
+test("JSON indexing preserves its stats envelope and reports skipped files on stderr", async () => {
+  const root = tempBrain();
+  writeFileSync(join(root, "notes", "broken.md"), '---\ntitle: "Unclosed\ntype: note\n---\nbody\n');
+  const { stdout, stderr, code } = await runCli(root, ["index", "--json"]);
+  expect(code).toBe(0);
+  const stats = JSON.parse(stdout);
+  expect(Object.keys(stats).sort()).toEqual([
+    "added", "assets", "chunks", "deleted", "embeddings", "graphMs", "graphNodes", "total", "unchanged", "updated",
+  ]);
+  expect(stats.added).toBeGreaterThan(0);
+  expect(stderr).toContain("notes/broken.md");
+  expect(stderr).toContain("invalid frontmatter");
+  expect(stdout).not.toContain("SKIP");
+});
+
 test("init --check emits the preflight shape", async () => {
   const root = tempBrain();
   const { stdout, code } = await runCli(root, ["init", "--check", "--json"]);

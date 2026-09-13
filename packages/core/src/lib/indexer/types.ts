@@ -72,7 +72,7 @@ export interface IndexRun {
   stats: IndexStats;
   /** Progress line, suppressed by `quiet`. */
   report(message: string): void;
-  /** Warning line, suppressed by `quiet` — degradation, not failure. */
+  /** Warning line on stderr, including in quiet/JSON mode. */
   warn(message: string): void;
 }
 

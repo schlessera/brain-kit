@@ -67,6 +67,10 @@ hosts; `data:` URIs always render.
 | `graph export --mode <mode>` ⚖ | Dump one graph view as `{nodes, edges, truncated}` | modes: `clusters` (`--community <n>`, `--no-isolates`), `local` (`--center <path>` required, `--depth 1-3`, `--direction in\|out\|both`), `discovery` (`--root`, `--depth 1-8`, `--direction`), `maintenance` (`--stale-days <n>`; returns orphans/unreachable/broken-links/stale instead of nodes+edges) |
 | `graph stats` ⚖ | Node/edge/component counts, communities, root, computed-at | reports "not computed yet" until the first rebuild |
 
+Index warnings (including skipped files and failed enrichment) go to stderr
+even with `--json`; stdout retains the existing stats object. A successful
+exit can represent a partial index, so automation should retain stderr.
+
 The graph tables are a derived cache, rebuilt wholesale by every index run —
 they stay empty until the first index run on schema v8, and `graph compute`
 exists to rebuild them without reindexing. The `--json` payloads are listed in
