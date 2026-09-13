@@ -41,6 +41,7 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { useConnectionStore } from "../../src/stores/connection-store.js";
 import { useProviderStore } from "../../src/stores/provider-store.js";
 
@@ -175,6 +176,91 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+describe("SearchPanel query ownership", () => {
+  function pressEnter(input: HTMLInputElement) {
+    // Same happy-dom synthetic-input limitation as changeControlledInput below.
+    const key = Object.keys(input).find((key) => key.startsWith("__reactProps$"))!;
+    const props = (input as unknown as Record<string, { onKeyDown: (event: unknown) => void }>)[key];
+    act(() => props.onKeyDown({ key: "Enter", preventDefault() {} }));
+  }
+
+  function searchRequests() {
+    const requests: { url: string; signal: AbortSignal; response: ReturnType<typeof deferred<Response>> }[] = [];
+    globalThis.fetch = ((url: string, init: RequestInit) => {
+      const response = deferred<Response>();
+      requests.push({ url: String(url), signal: init.signal!, response });
+      // Deliberately ignore cancellation: a late response must still be rejected.
+      return response.promise;
+    }) as typeof fetch;
+    return requests;
+  }
+
+  const reply = (title: string) => Response.json({
+    results: [{ path: `notes/${title}.md`, title, type: "note", snippet: "", score: 1 }], warnings: [],
+  });
+
+  test("Enter searches the new query instead of opening old results, without a duplicate debounce", async () => {
+    const requests = searchRequests();
+    const opened: string[] = [];
+    const original = useFileStore.getState().openFile;
+    useFileStore.setState({ openFile: async (path) => { opened.push(path); } });
+    try {
+      const view = render(<SearchPanel open onClose={() => {}} />);
+      const input = view.getByPlaceholderText("Search your brain...") as HTMLInputElement;
+      changeControlledInput(input, "alpha");
+      pressEnter(input);
+      expect(requests).toHaveLength(1);
+      await act(async () => { requests[0].response.resolve(reply("alpha")); await flushPromises(); });
+      expect(view.getByTitle("notes/alpha.md")).toBeTruthy();
+
+      changeControlledInput(input, "beta");
+      expect(view.queryByTitle("notes/alpha.md")).toBeNull();
+      pressEnter(input);
+      expect(opened).toEqual([]);
+      expect(requests).toHaveLength(2);
+      expect(requests[1].url).toContain("q=beta");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+      expect(requests).toHaveLength(2);
+      await act(async () => { requests[1].response.resolve(reply("beta")); await flushPromises(); });
+      pressEnter(input);
+      expect(opened).toEqual(["notes/beta.md"]);
+    } finally {
+      useFileStore.setState({ openFile: original });
+    }
+  });
+
+  test("typing aborts immediately and late responses cannot repopulate results", async () => {
+    const requests = searchRequests();
+    const view = render(<SearchPanel open onClose={() => {}} />);
+    const input = view.getByPlaceholderText("Search your brain...") as HTMLInputElement;
+    changeControlledInput(input, "alpha");
+    pressEnter(input);
+    changeControlledInput(input, "beta");
+    expect(requests[0].signal.aborted).toBe(true);
+    await act(async () => { requests[0].response.resolve(reply("alpha")); await flushPromises(); });
+    expect(view.queryByTitle("notes/alpha.md")).toBeNull();
+    pressEnter(input);
+    view.unmount();
+    expect(requests[1].signal.aborted).toBe(true);
+    await act(async () => { requests[1].response.resolve(reply("beta")); await flushPromises(); });
+  });
+
+  test("whitespace-only edits keep the current request and closing aborts it", async () => {
+    const requests = searchRequests();
+    const view = render(<SearchPanel open onClose={() => {}} />);
+    const input = view.getByPlaceholderText("Search your brain...") as HTMLInputElement;
+    changeControlledInput(input, "alpha");
+    pressEnter(input);
+    changeControlledInput(input, "alpha ");
+    expect(requests[0].signal.aborted).toBe(false);
+    view.rerender(<SearchPanel open={false} onClose={() => {}} />);
+    expect(requests[0].signal.aborted).toBe(true);
+    await act(async () => { requests[0].response.resolve(reply("alpha")); await flushPromises(); });
+    view.rerender(<SearchPanel open onClose={() => {}} />);
+    expect(view.queryByTitle("notes/alpha.md")).toBeNull();
+  });
+});
 
 function changeControlledInput(input: HTMLInputElement, value: string): void {
   // happy-dom's input value tracker does not drive React's synthetic onChange

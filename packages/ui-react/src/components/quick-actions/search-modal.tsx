@@ -24,6 +24,7 @@ export function SearchPanel({
 }) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<State>("idle");
+  const [resultQuery, setResultQuery] = useState("");
   const [results, setResults] = useState<BrainSearchHit[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -31,15 +32,40 @@ export function SearchPanel({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
 
   const trimmed = query.trim();
+  const currentResults = resultQuery === trimmed ? results : [];
+
+  const cancelSearch = useCallback(() => {
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+  }, []);
+
+  function changeQuery(value: string) {
+    if (value.trim() === trimmed) {
+      setQuery(value);
+      return;
+    }
+    // Invalidate before the debounce, including completions already queued.
+    cancelSearch();
+    setQuery(value);
+    setResultQuery("");
+    setResults([]);
+    setWarnings([]);
+    setError("");
+    setSelected(0);
+    setState("idle");
+  }
 
   const runSearch = useCallback(async (q: string) => {
-    controllerRef.current?.abort();
+    cancelSearch();
     const controller = new AbortController();
     controllerRef.current = controller;
 
@@ -50,6 +76,7 @@ export function SearchPanel({
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
+      setResultQuery(q);
       setResults(res.results);
       setWarnings(res.warnings ?? []);
       setSelected(0);
@@ -63,17 +90,17 @@ export function SearchPanel({
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
     }
-  }, []);
+  }, [cancelSearch]);
 
   // Fresh panel every time it opens: stale results from a previous query would
   // otherwise flash before the first search lands.
   useEffect(() => {
     if (!open) {
-      controllerRef.current?.abort();
-      controllerRef.current = null;
+      cancelSearch();
       return;
     }
     setQuery("");
+    setResultQuery("");
     setResults([]);
     setWarnings([]);
     setError("");
@@ -82,27 +109,28 @@ export function SearchPanel({
     // Focus after the slide-in starts; focusing mid-transform fights the
     // mobile keyboard on some browsers.
     const t = setTimeout(() => inputRef.current?.focus(), 120);
-    return () => clearTimeout(t);
-  }, [open]);
+    return () => { clearTimeout(t); cancelSearch(); };
+  }, [open, cancelSearch]);
 
   // Debounced search on typing.
   useEffect(() => {
     if (!open) return;
     if (trimmed.length < MIN_QUERY) {
-      controllerRef.current?.abort();
-      controllerRef.current = null;
+      cancelSearch();
       setResults([]);
       setWarnings([]);
       setState("idle");
       return;
     }
-    const t = setTimeout(() => void runSearch(trimmed), DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [open, trimmed, runSearch]);
+    debounceRef.current = setTimeout(() => void runSearch(trimmed), DEBOUNCE_MS);
+    return cancelSearch;
+  }, [open, trimmed, runSearch, cancelSearch]);
 
   function handleOpenResult(hit: BrainSearchHit) {
     // The file panel takes the same right-hand slot, so hand the screen over
     // rather than stacking two sheets.
+    if (resultQuery !== trimmed || state !== "done") return;
+    cancelSearch();
     onClose();
     setFilePanelOpen(true);
     void openFile(hit.path);
@@ -110,10 +138,10 @@ export function SearchPanel({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      if (results.length === 0) return;
+      if (currentResults.length === 0) return;
       e.preventDefault();
       const delta = e.key === "ArrowDown" ? 1 : -1;
-      const next = (selected + delta + results.length) % results.length;
+      const next = (selected + delta + currentResults.length) % currentResults.length;
       setSelected(next);
       listRef.current
         ?.querySelectorAll("[data-result]")
@@ -122,10 +150,10 @@ export function SearchPanel({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const hit = results[selected];
+      const hit = currentResults[selected];
       if (hit) handleOpenResult(hit);
       // Enter with nothing selected jumps the debounce.
-      else if (trimmed.length >= MIN_QUERY) void runSearch(trimmed);
+      else if (trimmed.length >= MIN_QUERY && state !== "loading") void runSearch(trimmed);
     }
   }
 
@@ -139,7 +167,7 @@ export function SearchPanel({
             <input
               ref={inputRef}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => changeQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search your brain..."
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
@@ -153,7 +181,7 @@ export function SearchPanel({
             {query && state !== "loading" && (
               <button
                 onClick={() => {
-                  setQuery("");
+                  changeQuery("");
                   inputRef.current?.focus();
                 }}
                 className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
@@ -192,7 +220,7 @@ export function SearchPanel({
             <Placeholder>No results for “{trimmed}”.</Placeholder>
           ) : (
             <div className="divide-y divide-border/40">
-              {results.map((hit, i) => (
+              {currentResults.map((hit, i) => (
                 <ResultRow
                   key={hit.path}
                   hit={hit}
