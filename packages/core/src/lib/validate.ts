@@ -20,9 +20,9 @@ import { resolve } from "path";
 
 import { VALID_STATUSES, VALID_RELEVANCES } from "./types.js";
 import type { Taxonomy } from "./taxonomy.js";
+import { createWikiLinkResolver } from "./indexer/links.js";
 import {
   getMarkdownFiles,
-  resolveWikiLink,
   resolveAlias,
   extractWikiLinks,
 } from "./indexer.js";
@@ -61,6 +61,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
     }
   }
 
+  const resolveLink = createWikiLinkResolver(fileMap, taxonomy.dirAnchors);
   for (const filePath of files) {
     const fullPath = resolve(root, filePath);
     const raw = readFileSync(fullPath, "utf-8");
@@ -167,7 +168,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
     const wikiLinks = extractWikiLinks(content);
     for (const link of wikiLinks) {
       const resolved =
-        resolveWikiLink(link, fileMap, filePath, taxonomy.dirAnchors) ??
+        resolveLink(link, filePath) ??
         resolveAlias(link, aliasMap, filePath);
       if (resolved) continue;
 

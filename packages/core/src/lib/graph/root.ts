@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 
-import { extractWikiLinks, resolveWikiLink } from "../indexer.js";
+import { extractWikiLinks, createWikiLinkResolver } from "../indexer/links.js";
 import { safeResolve } from "../safe-path.js";
 import type { Taxonomy } from "../taxonomy.js";
 import type { GraphRoot } from "./types.js";
@@ -101,10 +101,11 @@ function resolveEntryFileLinks(
     idByPath.set(row.path, row.id);
   }
 
+  const resolveLink = createWikiLinkResolver(fileMap, options.taxonomy.dirAnchors);
   const seedIds: number[] = [];
   const seen = new Set<number>();
   for (const link of extractWikiLinks(content)) {
-    const targetPath = resolveWikiLink(link, fileMap, candidate, options.taxonomy.dirAnchors);
+    const targetPath = resolveLink(link, candidate);
     if (!targetPath) continue;
     const id = idByPath.get(targetPath);
     if (id === undefined || seen.has(id)) continue;

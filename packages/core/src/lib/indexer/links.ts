@@ -28,85 +28,71 @@ export function extractWikiLinks(content: string): string[] {
 }
 
 /**
- * Resolve a wiki-link target to a file path using a filename map.
- *
- * Resolution order:
- * 1. Qualified targets containing "/" match by path suffix ([[bookshelf/research]])
- * 2. Unique basename match anywhere in the corpus
- * 3. Ambiguous basenames resolve to a same-directory sibling of sourcePath
- * 4. Otherwise unresolved (null) — never guess among multiple candidates;
- *    the old first-match behavior silently wired 52 [[research]] links to
- *    the alphabetically first research.md in the repo.
- *
- * The directory-anchor list (which file a `[[dir]]` link resolves to) comes
- * from the taxonomy resolver — `taxonomy.dirAnchors` — rather than a hardcoded
- * constant. Defaults to the core anchor set for standalone callers/tests.
+ * Build lookup tables once for a corpus snapshot. No global cache: callers may
+ * mutate a file map between runs, and resolution must see that new snapshot.
  */
+export function createWikiLinkResolver(
+  fileMap: Map<string, string>,
+  dirAnchors: string[] = DEFAULT_DIR_ANCHORS
+): (target: string, sourcePath?: string) => string | null {
+  const paths = new Set(fileMap.keys());
+  const basenames = new Map<string, string[]>();
+  const suffixes = new Map<string, string[]>();
+  const directories = new Map<string, Set<string>>();
+  const add = (map: Map<string, string[]>, key: string, path: string) => {
+    const entries = map.get(key) ?? [];
+    entries.push(path);
+    map.set(key, entries);
+  };
+  for (const path of paths) {
+    const parts = path.split("/");
+    add(basenames, parts.at(-1)!.replace(/\.md$/, ""), path);
+    for (let i = 0; i < parts.length - 1; i++) {
+      add(suffixes, parts.slice(i).join("/"), path);
+      const directory = parts.slice(0, i + 1).join("/");
+      for (let j = 0; j <= i; j++) {
+        const key = parts.slice(j, i + 1).join("/");
+        const entries = directories.get(key) ?? new Set<string>();
+        entries.add(directory);
+        directories.set(key, entries);
+      }
+    }
+  }
+  const anchors = new Map<string, string[]>();
+  for (const [key, dirs] of directories) {
+    const candidates: string[] = [];
+    for (const dir of dirs) {
+      const anchor = dirAnchors.find((name) => paths.has(`${dir}/${name}`));
+      if (anchor) candidates.push(`${dir}/${anchor}`);
+    }
+    anchors.set(key, candidates);
+  }
+
+  return (rawTarget, sourcePath) => {
+    const target = rawTarget.split("#")[0].trim();
+    if (!target) return null;
+    if (target.endsWith("/")) {
+      return disambiguateCandidates(anchors.get(target.replace(/\/+$/, "")) ?? [], sourcePath);
+    }
+    if (target.includes("/")) {
+      const suffix = target.endsWith(".md") ? target : `${target}.md`;
+      // An exact repo-relative path always wins over a shorter suffix match.
+      if (paths.has(suffix)) return suffix;
+      return disambiguateCandidates(suffixes.get(suffix) ?? [], sourcePath);
+    }
+    const candidates = basenames.get(target) ?? basenames.get(`_${target}`) ?? anchors.get(target) ?? [];
+    return disambiguateCandidates(candidates, sourcePath);
+  };
+}
+
+/** Resolve one link; batch callers should build a resolver once per corpus. */
 export function resolveWikiLink(
   target: string,
   fileMap: Map<string, string>,
   sourcePath?: string,
   dirAnchors: string[] = DEFAULT_DIR_ANCHORS
 ): string | null {
-  // Drop heading fragments: [[file#section]] links to the file
-  target = target.split("#")[0].trim();
-  if (!target) return null;
-
-  // A trailing slash is an explicit directory link: it resolves to the
-  // directory's anchor file (dirAnchors order), never to a same-named .md file.
-  // Handles both a qualified dir path ([[projects/active/bookshelf/]]) and a
-  // bare dir name ([[bookshelf/]]).
-  if (target.endsWith("/")) {
-    const dir = target.replace(/\/+$/, "");
-    if (!dir) return null;
-    return resolveDirAnchor(dir, fileMap, dirAnchors, sourcePath);
-  }
-
-  // Qualified link: path suffix match
-  if (target.includes("/")) {
-    const suffix = target.endsWith(".md") ? target : `${target}.md`;
-    for (const [path] of fileMap) {
-      if (path === suffix || path.endsWith("/" + suffix)) return path;
-    }
-    return null;
-  }
-
-  const candidates: string[] = [];
-  for (const [path] of fileMap) {
-    const basename = path.replace(/\.md$/, "").split("/").pop();
-    if (basename === target) candidates.push(path);
-  }
-  // Fall back to _index resolution ([[index]] -> studies/_index.md)
-  if (candidates.length === 0) {
-    for (const [path] of fileMap) {
-      const basename = path.replace(/\.md$/, "").split("/").pop();
-      if (basename === `_${target}`) candidates.push(path);
-    }
-  }
-  // Directory link: [[bookshelf]] -> projects/active/bookshelf/<anchor>.
-  // One anchor per matching directory, by dirAnchors preference.
-  if (candidates.length === 0) {
-    const dirs = new Set<string>();
-    for (const [path] of fileMap) {
-      const segs = path.split("/");
-      for (let i = 0; i < segs.length - 1; i++) {
-        if (segs[i] === target) {
-          dirs.add(segs.slice(0, i + 1).join("/"));
-          break;
-        }
-      }
-    }
-    for (const dir of dirs) {
-      for (const anchor of dirAnchors) {
-        if (fileMap.has(`${dir}/${anchor}`)) {
-          candidates.push(`${dir}/${anchor}`);
-          break;
-        }
-      }
-    }
-  }
-
-  return disambiguateCandidates(candidates, sourcePath);
+  return createWikiLinkResolver(fileMap, dirAnchors)(target, sourcePath);
 }
 
 /**
@@ -127,8 +113,9 @@ function disambiguateCandidates(
 
   if (sourcePath) {
     const srcBase = sourcePath.replace(/\.md$/, "");
-    const namesakeSub = candidates.find((p) => p.startsWith(srcBase + "/"));
-    if (namesakeSub) return namesakeSub;
+    const namesakeSub = candidates.filter((p) => p.startsWith(srcBase + "/"));
+    if (namesakeSub.length === 1) return namesakeSub[0];
+    if (namesakeSub.length > 1) return null;
 
     const parts = sourcePath.split("/").slice(0, -1);
     for (let depth = parts.length; depth >= 0; depth--) {
@@ -140,46 +127,6 @@ function disambiguateCandidates(
   }
 
   return null;
-}
-
-/**
- * Resolve an explicit directory reference to its anchor file. `dir` may be a
- * qualified path (projects/active/bookshelf) matched by full/suffix path, or a
- * bare directory name (bookshelf) matched on any single path segment. One
- * anchor per matching directory, by dirAnchors preference; ambiguity among
- * matching directories is settled from the source's position.
- */
-function resolveDirAnchor(
-  dir: string,
-  fileMap: Map<string, string>,
-  dirAnchors: string[],
-  sourcePath?: string
-): string | null {
-  const qualified = dir.includes("/");
-  const dirs = new Set<string>();
-  for (const [path] of fileMap) {
-    const segs = path.split("/");
-    for (let i = 0; i < segs.length - 1; i++) {
-      const prefix = segs.slice(0, i + 1).join("/");
-      const hit = qualified ? prefix === dir || prefix.endsWith("/" + dir) : segs[i] === dir;
-      if (hit) {
-        dirs.add(prefix);
-        break;
-      }
-    }
-  }
-
-  const candidates: string[] = [];
-  for (const d of dirs) {
-    for (const anchor of dirAnchors) {
-      if (fileMap.has(`${d}/${anchor}`)) {
-        candidates.push(`${d}/${anchor}`);
-        break;
-      }
-    }
-  }
-
-  return disambiguateCandidates(candidates, sourcePath);
 }
 
 /**
@@ -195,4 +142,3 @@ export function resolveAlias(
   if (!candidates || candidates.length === 0) return null;
   return disambiguateCandidates(candidates, sourcePath);
 }
-

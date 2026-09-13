@@ -15,7 +15,7 @@
 import type { Database } from "bun:sqlite";
 
 import { chunkDocument } from "../chunker.js";
-import { extractWikiLinks, resolveAlias, resolveWikiLink } from "./links.js";
+import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
 import type { ExistingDoc, IndexRun, ParseResult, PersistResult } from "./types.js";
 
 /** Frontmatter values arrive as strings, Dates, or nothing at all. */
@@ -221,10 +221,11 @@ function rebuildLinks(run: IndexRun, st: Statements, parsed: ParseResult): void 
     .prepare("SELECT id, path, content FROM documents WHERE asset_type = 'markdown'")
     .all() as { id: number; path: string; content: string }[];
 
+  const resolveLink = createWikiLinkResolver(parsed.fileMap, run.taxonomy.dirAnchors);
   for (const doc of docs) {
     for (const link of extractWikiLinks(doc.content)) {
       const targetPath =
-        resolveWikiLink(link, parsed.fileMap, doc.path, run.taxonomy.dirAnchors) ??
+        resolveLink(link, doc.path) ??
         resolveAlias(link, parsed.aliasMap, doc.path);
       let targetId: number | null = null;
       if (targetPath) {

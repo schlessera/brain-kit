@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createWikiLinkResolver } from "../src/lib/indexer/links";
 
 import {
   extractWikiLinks,
@@ -30,6 +31,42 @@ describe("extractWikiLinks", () => {
 });
 
 describe("resolveWikiLink", () => {
+  test("exact qualified paths beat suffixes in either insertion order", () => {
+    const paths = ["archive/projects/demo.md", "projects/demo.md"];
+    for (const order of [paths, paths.toReversed()]) {
+      const map = new Map(order.map((path) => [path, path]));
+      expect(resolveWikiLink("projects/demo", map)).toBe("projects/demo.md");
+      expect(resolveWikiLink("projects/demo.md#section", map)).toBe("projects/demo.md");
+    }
+  });
+
+  test("qualified suffixes require an unambiguous source scope", () => {
+    const paths = ["archive/projects/demo.md", "active/projects/demo.md"];
+    for (const order of [paths, paths.toReversed()]) {
+      const resolve = createWikiLinkResolver(new Map(order.map((path) => [path, path])));
+      expect(resolve("projects/demo")).toBeNull();
+      expect(resolve("projects/demo", "notes/overview.md")).toBeNull();
+      expect(resolve("projects/demo", "active/overview.md")).toBe("active/projects/demo.md");
+    }
+  });
+
+  test("a namesake subdirectory with multiple matches stays ambiguous", () => {
+    const paths = ["studies/astronomy/north/log.md", "studies/astronomy/south/log.md"];
+    for (const order of [paths, paths.toReversed()]) {
+      expect(resolveWikiLink("log", new Map(order.map((p) => [p, p])), "studies/astronomy.md")).toBeNull();
+    }
+  });
+
+  test("a new corpus snapshot sees added ambiguity and configured anchor priority", () => {
+    const map = new Map([["active/demo/log.md", "Log"], ["active/demo/_index.md", "Index"], ["active/demo/status.md", "Status"]]);
+    const first = createWikiLinkResolver(map, ["status.md", "_index.md"]);
+    expect(first("log")).toBe("active/demo/log.md");
+    expect(first("demo/")).toBe("active/demo/status.md");
+    map.set("archive/demo/log.md", "Archived log");
+    const next = createWikiLinkResolver(map);
+    expect(next("log")).toBeNull();
+    expect(next("demo/")).toBe("active/demo/_index.md");
+  });
   const fileMap = new Map([
     ["me/identity.md", "Identity"],
     ["context/current-focus.md", "Current Focus"],

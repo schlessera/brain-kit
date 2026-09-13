@@ -16,11 +16,11 @@ import {
   getAssetFiles,
   getMarkdownFiles,
   resolveAlias,
-  resolveWikiLink,
 } from "./indexer.js";
 import { normalizeFrontmatterDates, stringifyDocument } from "./frontmatter.js";
 import { safeResolve } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
+import { createWikiLinkResolver } from "./indexer/links.js";
 
 export interface OkfExportOptions {
   root: string;
@@ -250,9 +250,8 @@ function replaceMarkdownProse(text: string, replaceProse: (value: string) => str
 function transformWikiLinks(
   body: string,
   sourcePath: string,
-  fileMap: Map<string, string>,
+  resolveLink: ReturnType<typeof createWikiLinkResolver>,
   aliasMap: Map<string, string[]>,
-  dirAnchors: string[],
   report: Pick<OkfExportReport, "linksConverted" | "linksDegraded" | "degradedLinks">
 ): string {
   // Reuse the indexer's extraction semantics as the authoritative set of prose links.
@@ -270,7 +269,7 @@ function transformWikiLinks(
         ? targetWithoutFragment.replace(/\/$/, "")
         : inner.slice(pipe + 1).trim();
       const resolved =
-        resolveWikiLink(rawTarget, fileMap, sourcePath, dirAnchors) ??
+        resolveLink(rawTarget, sourcePath) ??
         resolveAlias(rawTarget, aliasMap, sourcePath);
 
       if (!resolved) {
@@ -409,13 +408,13 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
   if (existsSync(output.absolute)) rmSync(output.absolute, { recursive: true, force: true });
   mkdirSync(output.absolute, { recursive: true });
 
+  const resolveLink = createWikiLinkResolver(fileMap, options.taxonomy.dirAnchors);
   for (const concept of concepts) {
     const body = transformWikiLinks(
       concept.content,
       concept.path,
-      fileMap,
+      resolveLink,
       aliasMap,
-      options.taxonomy.dirAnchors,
       report
     );
     const destination = resolve(output.absolute, concept.path);
