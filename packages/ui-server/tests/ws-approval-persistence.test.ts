@@ -12,7 +12,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, LocationFix } from "@schlessera/brain-ui-sdk/server";
-import { createWsHandlers } from "../src/ws/connection";
+import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
 import type { WSContext } from "../src/ws/clients";
 import {
   closeDb,
@@ -21,6 +21,10 @@ import {
   setBackendForTests,
   testHost,
 } from "./helpers/test-host";
+import { testPrincipal } from "./helpers/principal";
+
+const createWsHandlers = (host: ReturnType<typeof testHost>) =>
+  createAuthorizedWsHandlers(host, testPrincipal());
 
 interface TurnControl {
   toolUseId: string;

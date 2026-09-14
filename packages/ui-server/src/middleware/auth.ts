@@ -21,8 +21,8 @@ import {
   touchLastSeen,
   type Principal,
 } from "../db/principals.js";
-import type { ClientSet } from "../ws/clients.js";
 import type { AppEnv } from "../app-env.js";
+import type { WsHost } from "../ws/host.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -64,6 +64,7 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
+
 export const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
 const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // A global cap in addition to the per-IP one: the per-IP key is derived from
@@ -451,15 +452,29 @@ function sessionsEpoch(db: Database): number {
  * downgrade guard so rolling back to v1 does not revive pre-upgrade cookies;
  * delete this compatibility helper and the epoch row in the 0.36.0 release.
  */
-export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
+export function applyPrincipalRevocation(
+  revoker: Pick<WsHost, "revokePrincipals">,
+  principalIds: readonly string[]
+): void {
+  revoker.revokePrincipals(
+    principalIds,
+    SESSION_REVOKED_CLOSE_CODE,
+    SESSION_REVOKED_CLOSE_REASON
+  );
+}
+
+export function bumpSessionsEpoch(
+  db: Database,
+  revoker: Pick<WsHost, "revokePrincipals">
+): number {
   const current = sessionsEpoch(db);
   if (current === Number.MAX_SAFE_INTEGER) {
     throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
   }
   const next = current + 1;
-  revokeAllPrincipals(db, Date.now());
+  const revokedIds = revokeAllPrincipals(db, Date.now());
+  applyPrincipalRevocation(revoker, revokedIds);
   setSetting(db, SESSIONS_EPOCH_KEY, next);
-  clients.closeAll(SESSION_REVOKED_CLOSE_CODE, SESSION_REVOKED_CLOSE_REASON);
   return next;
 }
 
@@ -653,8 +668,8 @@ export function authRoutes(
   deps: {
     /** Authoritative session state. */
     db: Database;
-    /** Live sockets closed whenever the global session epoch advances. */
-    clients: ClientSet;
+    /** Runtime authorities invalidated whenever durable principals are revoked. */
+    clients: Pick<WsHost, "revokePrincipals">;
     /**
      * When provided and returning true, password login is refused (the app
      * injects passkeys' passwordLoginDisabled so the shared password dies

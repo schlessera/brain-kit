@@ -11,8 +11,12 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/protocol";
+import type { AuthorizationContext } from "./clients.js";
+import type { TurnRecorder } from "../activity/recorder.js";
 
 export interface QueuedFollowUp {
+  principalId: string;
+  authorization: AuthorizationContext;
   text: string;
   attachments: ChatImageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
@@ -30,7 +34,9 @@ export interface QueuedFollowUp {
  * on the wire.) The client snapshot is a handful of short fields and is not
  * worth walking.
  */
-export function queuedFollowUpBytes(entry: QueuedFollowUp): number {
+export function queuedFollowUpBytes(
+  entry: Pick<QueuedFollowUp, "text" | "attachments">
+): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
     bytes += attachment.data.length;
@@ -51,6 +57,11 @@ export function queuedBytes(turn: RunningTurn): number {
  * same slot (same sessionId) after the current one resolves.
  */
 export interface RunningTurn {
+  /** Principal responsible for the CURRENT turn in this session slot. */
+  principalId: string;
+  authorization: AuthorizationContext;
+  /** Activity recorder for the CURRENT turn, once startup reaches the backend. */
+  recorder?: TurnRecorder;
   sessionId: string | null; // null until session_info resolves it (new session)
   /** Host-minted id of the CURRENT turn in this slot; re-minted per queued follow-up. */
   turnId: string;
@@ -138,6 +149,16 @@ export class TurnCoordinator {
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
 
+  /** Socket authorities waiting between handler creation and WebSocket admission. */
+  readonly pendingAdmissions = new Set<AuthorizationContext>();
+  /**
+   * Parsed frames awaiting/inside asynchronous dispatch, plus turn startups
+   * whose routing or billing has not completed. One connection can have
+   * several at once, so registrations are reference-counted rather than
+   * deduplicated by the shared context.
+   */
+  readonly startingAuthorizations = new Map<AuthorizationContext, number>();
+
   private locationCounter = 0;
   private maskCounter = 0;
 
@@ -152,6 +173,54 @@ export class TurnCoordinator {
   /** True while any session has a running turn. */
   isTurnActive(): boolean {
     return this.running.size > 0;
+  }
+
+  registerPendingAdmission(authorization: AuthorizationContext): void {
+    this.pendingAdmissions.add(authorization);
+  }
+
+  finishPendingAdmission(authorization: AuthorizationContext): void {
+    this.pendingAdmissions.delete(authorization);
+  }
+
+  registerStartingAuthorization(authorization: AuthorizationContext): void {
+    this.startingAuthorizations.set(
+      authorization,
+      (this.startingAuthorizations.get(authorization) ?? 0) + 1
+    );
+  }
+
+  finishStartingAuthorization(authorization: AuthorizationContext): void {
+    const count = this.startingAuthorizations.get(authorization);
+    if (count === undefined) return;
+    if (count === 1) this.startingAuthorizations.delete(authorization);
+    else this.startingAuthorizations.set(authorization, count - 1);
+  }
+
+  /**
+   * Record revocation without aborting running work. Unstarted queued work is
+   * removed per sender, while a current turn merely carries the invalid marker.
+   */
+  revokePrincipals(principalIds: ReadonlySet<string>): RunningTurn[] {
+    const affectedRunning: RunningTurn[] = [];
+    for (const authorization of this.pendingAdmissions) {
+      if (principalIds.has(authorization.principalId)) authorization.valid = false;
+    }
+    for (const authorization of this.startingAuthorizations.keys()) {
+      if (principalIds.has(authorization.principalId)) authorization.valid = false;
+    }
+    for (const turn of this.running) {
+      if (principalIds.has(turn.principalId)) {
+        turn.authorization.valid = false;
+        affectedRunning.push(turn);
+      }
+      turn.queue = turn.queue.filter((entry) => {
+        if (!principalIds.has(entry.principalId)) return true;
+        entry.authorization.valid = false;
+        return false;
+      });
+    }
+    return affectedRunning;
   }
 
   /** Cancel every running turn (used on shutdown). */
@@ -244,6 +313,8 @@ export class TurnCoordinator {
     this.pendingApprovals.clear();
     this.pendingAskUser.clear();
     this.pendingLocation.clear();
+    this.pendingAdmissions.clear();
+    this.startingAuthorizations.clear();
     this.startingSessions = 0;
   }
 }

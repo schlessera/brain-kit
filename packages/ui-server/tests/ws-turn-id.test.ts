@@ -19,6 +19,7 @@ import {
   resetForTests,
   setBackendForTests,
 } from "./helpers/test-host";
+import { testPrincipal } from "./helpers/principal";
 
 interface TurnControl {
   toolUseId: string;
@@ -255,7 +256,7 @@ describe("per-connection state through the socket handlers", () => {
     setBackendForTests(backend);
     const { ws, sent } = fakeClient();
     addClient(ws);
-    const handlers = createWsHandlers(testHost());
+    const handlers = createWsHandlers(testHost(), testPrincipal());
     const send = (msg: unknown) =>
       handlers.onMessage({ data: JSON.stringify(msg) } as MessageEvent, ws);
 

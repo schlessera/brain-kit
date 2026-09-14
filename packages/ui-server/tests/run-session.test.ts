@@ -20,10 +20,31 @@ import {
   QUEUE_WARN_BYTES,
   WsHost,
 } from "../src/ws/host";
-import { handleChatMessage, runSession } from "../src/ws/run-session";
+import {
+  handleChatMessage as handleAuthorizedChatMessage,
+  runSession as runAuthorizedSession,
+} from "../src/ws/run-session";
 import type { SessionCatalog } from "../src/ws/session-catalog";
 import type { QueuedFollowUp, RunningTurn } from "../src/ws/turns";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { testAuthorization } from "./helpers/principal";
+
+const AUTHORIZATION = testAuthorization();
+
+function runSession(
+  host: WsHost,
+  initial: Omit<Parameters<typeof runAuthorizedSession>[1], "authorization">
+) {
+  return runAuthorizedSession(host, { authorization: AUTHORIZATION, ...initial });
+}
+
+function handleChatMessage(
+  host: WsHost,
+  ws: WSContext,
+  msg: Omit<Parameters<typeof handleAuthorizedChatMessage>[2], "authorization">
+) {
+  return handleAuthorizedChatMessage(host, ws, { authorization: AUTHORIZATION, ...msg });
+}
 
 interface FakeCatalog extends SessionCatalog {
   storedProviderId: string | null;
@@ -88,7 +109,7 @@ function setupHost(
       : {}),
     turnTimeoutMs: options.turnTimeoutMs ?? 5_000,
   });
-  host.clients.add(ws);
+  host.clients.add(ws, AUTHORIZATION.principalId, AUTHORIZATION);
   return { host, observability, sent, ws };
 }
 
@@ -114,6 +135,8 @@ function parkedTurn(backend: AgentBackend, queue: QueuedFollowUp[] = []): Runnin
   const timeoutHandle = setTimeout(() => {}, 0);
   clearTimeout(timeoutHandle);
   return {
+    principalId: AUTHORIZATION.principalId,
+    authorization: AUTHORIZATION,
     sessionId: "session-1",
     turnId: "turn-1",
     draftId: null,
@@ -124,6 +147,16 @@ function parkedTurn(backend: AgentBackend, queue: QueuedFollowUp[] = []): Runnin
     queue,
     cancelled: false,
     lastResult: null,
+  };
+}
+
+function queuedFollowUp(
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "client">
+): QueuedFollowUp {
+  return {
+    principalId: AUTHORIZATION.principalId,
+    authorization: AUTHORIZATION,
+    ...entry,
   };
 }
 
@@ -649,7 +682,9 @@ describe("runSession follow-up queue boundaries", () => {
     const { host, sent, ws } = setupHost(backend);
     const turn = parkedTurn(
       backend,
-      Array.from({ length: MAX_SESSION_QUEUE - 1 }, () => ({ text: "x", attachments: [] }))
+      Array.from({ length: MAX_SESSION_QUEUE - 1 }, () =>
+        queuedFollowUp({ text: "x", attachments: [] })
+      )
     );
     installParkedTurn(host, turn);
 
@@ -675,7 +710,10 @@ describe("runSession follow-up queue boundaries", () => {
     const backend = makeFakeBackend({ id: "fake" });
     const { host, observability, sent, ws } = setupHost(backend);
     const halfWarning = "A".repeat(QUEUE_WARN_BYTES / 2);
-    const first = { text: "", attachments: [{ data: halfWarning, mediaType: "image/jpeg" as const }] };
+    const first = queuedFollowUp({
+      text: "",
+      attachments: [{ data: halfWarning, mediaType: "image/jpeg" as const }],
+    });
     const turn = parkedTurn(backend, [first]);
     installParkedTurn(host, turn);
 
@@ -702,10 +740,10 @@ describe("runSession follow-up queue boundaries", () => {
     const { host, observability, sent, ws } = setupHost(backend);
     const belowWarning = "A".repeat(QUEUE_WARN_BYTES - 2);
     const turn = parkedTurn(backend, [
-      {
+      queuedFollowUp({
         text: "",
         attachments: [{ data: belowWarning, mediaType: "image/jpeg" }],
-      },
+      }),
     ]);
     installParkedTurn(host, turn);
 
@@ -729,10 +767,10 @@ describe("runSession follow-up queue boundaries", () => {
     const backend = makeFakeBackend({ id: "fake" });
     const { host, sent, ws } = setupHost(backend);
     const oneFifth = "A".repeat(QUEUE_MAX_BYTES / 5);
-    const entry = {
+    const entry = queuedFollowUp({
       text: "",
       attachments: [{ data: oneFifth, mediaType: "image/jpeg" as const }],
-    };
+    });
     const turn = parkedTurn(backend, [entry, entry, entry, entry]);
     installParkedTurn(host, turn);
 

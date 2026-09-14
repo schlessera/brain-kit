@@ -136,10 +136,12 @@ export function toWireRollup(r: RunRollupRow): ActivityRunRollup {
 }
 
 export interface ActivityStream {
-  handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe): void;
+  handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
   handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
   /** Forget a closed socket. */
   dropConnection(ws: WSContext): void;
+  /** Forget every subscription attached by one revoked principal. */
+  dropFor(principalId: string): void;
   /** Drain new committed changes to subscribers. Reentrancy-safe. */
   pump(): void;
   /** Whether any connection currently watches the given session's activity. */
@@ -150,7 +152,10 @@ export interface ActivityStream {
 }
 
 export function createActivityStream(store: ActivityStore, log?: Logger): ActivityStream {
-  const subscriptions = new Map<WSContext, Subscription[]>();
+  const subscriptions = new Map<
+    unknown,
+    { ws: WSContext; principalId: string; subscriptions: Subscription[] }
+  >();
   let cursor = store.latestChangeCursor();
   let pumping = false;
   let pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -222,9 +227,9 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
           const span = change.kind === "span" ? change.span : undefined;
           if (span) noteSpan(span);
           const frame = deltaFrame(change);
-          for (const [ws, subs] of subscriptions) {
-            if (subs.some((s) => matches(s, change.runId, span))) {
-              sendTo(ws, frame);
+          for (const entry of subscriptions.values()) {
+            if (entry.subscriptions.some((s) => matches(s, change.runId, span))) {
+              sendTo(entry.ws, frame);
             }
           }
         }
@@ -310,7 +315,7 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
   }
 
   return {
-    handleSubscribe(ws, msg) {
+    handleSubscribe(ws, msg, principalId) {
       // A scoped view without its scope id can never match anything and
       // would only leak an all-runs snapshot shape — ignore it up front.
       if ((msg.view === "session" && !msg.sessionId) || (msg.view === "run" && !msg.runId)) {
@@ -321,9 +326,11 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
         ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
         ...(msg.runId ? { runId: msg.runId } : {}),
       };
-      const list = subscriptions.get(ws) ?? [];
+      const identity = ws.raw ?? ws;
+      const existing = subscriptions.get(identity);
+      const list = existing?.subscriptions ?? [];
       if (!list.some((s) => subKey(s) === subKey(sub))) list.push(sub);
-      subscriptions.set(ws, list);
+      subscriptions.set(identity, { ws, principalId, subscriptions: list });
       ensurePolling();
       try {
         sendSnapshot(ws, sub);
@@ -337,29 +344,38 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     },
 
     handleUnsubscribe(ws, msg) {
-      const list = subscriptions.get(ws);
-      if (!list) return;
+      const identity = ws.raw ?? ws;
+      const entry = subscriptions.get(identity);
+      if (!entry) return;
       const key = subKey({
         view: msg.view,
         ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
         ...(msg.runId ? { runId: msg.runId } : {}),
       });
-      const remaining = list.filter((s) => subKey(s) !== key);
-      if (remaining.length > 0) subscriptions.set(ws, remaining);
-      else subscriptions.delete(ws);
+      const remaining = entry.subscriptions.filter((s) => subKey(s) !== key);
+      if (remaining.length > 0) {
+        subscriptions.set(identity, { ...entry, ws, subscriptions: remaining });
+      } else subscriptions.delete(identity);
       stopPollingIfIdle();
     },
 
     dropConnection(ws) {
-      subscriptions.delete(ws);
+      subscriptions.delete(ws.raw ?? ws);
+      stopPollingIfIdle();
+    },
+
+    dropFor(principalId) {
+      for (const [identity, entry] of subscriptions) {
+        if (entry.principalId === principalId) subscriptions.delete(identity);
+      }
       stopPollingIfIdle();
     },
 
     pump,
 
     isWatched(scope) {
-      for (const subs of subscriptions.values()) {
-        for (const s of subs) {
+      for (const entry of subscriptions.values()) {
+        for (const s of entry.subscriptions) {
           if (s.view === "index") return true;
           if (scope.runId && s.view === "run" && s.runId === scope.runId) return true;
           if (scope.sessionId && s.view === "session" && s.sessionId === scope.sessionId)
@@ -371,7 +387,7 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
 
     subscriptionCount() {
       let n = 0;
-      for (const subs of subscriptions.values()) n += subs.length;
+      for (const entry of subscriptions.values()) n += entry.subscriptions.length;
       return n;
     },
 

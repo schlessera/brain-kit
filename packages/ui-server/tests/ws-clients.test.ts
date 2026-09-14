@@ -22,7 +22,7 @@ beforeEach(() => {
   clients = new ClientSet();
 });
 
-const addClient = (ws: WSContext) => clients.add(ws);
+const addClient = (ws: WSContext) => clients.add(ws, "test-principal");
 const removeClient = (ws: WSContext) => clients.remove(ws);
 const broadcast = (msg: ServerMessage) => clients.broadcast(msg);
 const hasClients = () => clients.hasClients();
@@ -111,6 +111,41 @@ describe("ws client registry", () => {
       [1008, "Sessions invalidated"],
     ]);
     expect(clientCount()).toBe(0);
+  });
+
+  test("closeFor closes exactly one principal's sockets and leaves the others attached", () => {
+    const closedA: string[] = [];
+    const closedB: string[] = [];
+    const sentB: string[] = [];
+    const authorizationA1 = { principalId: "principal-a", valid: true };
+    const authorizationA2 = { principalId: "principal-a", valid: true };
+    const authorizationB = { principalId: "principal-b", valid: true };
+    const a1: WSContext = {
+      send() {},
+      close: (_code, reason) => closedA.push(`a1:${reason}`),
+    };
+    const a2: WSContext = {
+      send() {},
+      close: (_code, reason) => closedA.push(`a2:${reason}`),
+    };
+    const b: WSContext = {
+      send: (data) => sentB.push(data),
+      close: (_code, reason) => closedB.push(`b:${reason}`),
+    };
+    clients.add(a1, "principal-a", authorizationA1);
+    clients.add(a2, "principal-a", authorizationA2);
+    clients.add(b, "principal-b", authorizationB);
+
+    clients.closeFor("principal-a", 1008, "revoked");
+    clients.broadcast(IDLE);
+
+    expect(closedA).toEqual(["a1:revoked", "a2:revoked"]);
+    expect(closedB).toEqual([]);
+    expect(authorizationA1.valid).toBe(false);
+    expect(authorizationA2.valid).toBe(false);
+    expect(authorizationB.valid).toBe(true);
+    expect(sentB).toHaveLength(1);
+    expect(clientCount()).toBe(1);
   });
 
   test("a throwing socket does not block delivery to the others", () => {

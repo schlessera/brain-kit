@@ -18,12 +18,14 @@ import { createWsHandlers } from "../src/ws/connection";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { testPrincipal } from "./helpers/principal";
 
-function fakeSocket(): WSContext & { sent: string[]; frames: () => any[] } {
+function fakeSocket(raw?: unknown): WSContext & { sent: string[]; frames: () => any[] } {
   const sent: string[] = [];
   return {
     send: (data: string) => sent.push(data),
     close: () => {},
+    ...(raw === undefined ? {} : { raw }),
     readyState: 1,
     sent,
     frames: () => sent.map((s) => JSON.parse(s)),
@@ -61,7 +63,7 @@ function setup(startTurn?: (req: { bridge: BackendBridge; signal: AbortSignal })
     observability,
     activity: { store, stream },
   });
-  return { db, store, stream, host, handlers: createWsHandlers(host) };
+  return { db, store, stream, host, handlers: createWsHandlers(host, testPrincipal()) };
 }
 
 let cleanup: (() => void) | null = null;
@@ -279,14 +281,25 @@ describe("activity stream over the ws path", () => {
       s.stream.close();
       s.db.close();
     };
-    const ws = openAndSubscribe(s, { type: "activity_subscribe", view: "index" });
-    await until(() => ws.frames().some((f) => f.type === "activity_snapshot"));
+    // Hono creates a fresh WSContext for open/message/close. Only `raw` is
+    // stable, so this reproduces the production adapter rather than reusing a
+    // test wrapper that hid the leak.
+    const raw = {};
+    const opened = fakeSocket(raw);
+    const messaged = fakeSocket(raw);
+    const closed = fakeSocket(raw);
+    s.handlers.onOpen(undefined as never, opened);
+    s.handlers.onMessage(
+      { data: JSON.stringify({ type: "activity_subscribe", view: "index" }) } as MessageEvent,
+      messaged
+    );
+    await until(() => messaged.frames().some((f) => f.type === "activity_snapshot"));
     expect(s.stream.subscriptionCount()).toBe(1);
 
-    s.handlers.onClose({ code: 1000, reason: "" } as CloseEvent, ws);
+    s.handlers.onClose({ code: 1000, reason: "" } as CloseEvent, closed);
     expect(s.stream.subscriptionCount()).toBe(0);
 
-    const before = ws.frames().length;
+    const before = messaged.frames().length;
     const cron = createActivityStore(s.db, { writer: "cron-test" });
     cron.startSpan({
       spanId: "cron-root-2",
@@ -297,7 +310,52 @@ describe("activity stream over the ws path", () => {
       jobName: "sync",
     });
     s.stream.pump();
-    expect(ws.frames().length).toBe(before);
+    expect(messaged.frames().length).toBe(before);
+  });
+
+  test("revocation drops only that principal's activity subscriptions", async () => {
+    const s = setup(scriptedTurn());
+    cleanup = () => {
+      s.stream.close();
+      s.db.close();
+    };
+    const revokedHandlers = createWsHandlers(s.host, testPrincipal("revoked"));
+    const survivorHandlers = createWsHandlers(s.host, testPrincipal("survivor"));
+    const revoked = fakeSocket();
+    const survivor = fakeSocket();
+    await revokedHandlers.onOpen(undefined as never, revoked);
+    await survivorHandlers.onOpen(undefined as never, survivor);
+    revokedHandlers.onMessage(
+      { data: JSON.stringify({ type: "activity_subscribe", view: "index" }) } as MessageEvent,
+      revoked
+    );
+    survivorHandlers.onMessage(
+      { data: JSON.stringify({ type: "activity_subscribe", view: "index" }) } as MessageEvent,
+      survivor
+    );
+    await until(() => s.stream.subscriptionCount() === 2);
+
+    s.host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
+
+    expect(s.stream.subscriptionCount()).toBe(1);
+    const revokedFrameCount = revoked.frames().length;
+    const survivorFrameCount = survivor.frames().length;
+    const cron = createActivityStore(s.db, { writer: "cron-revocation-test" });
+    cron.startSpan({
+      spanId: "survivor-root",
+      runId: "survivor-run",
+      name: "survivor sync",
+      kind: "cron",
+      origin: "cron",
+      jobName: "sync",
+    });
+    s.stream.pump();
+
+    expect(revoked.frames()).toHaveLength(revokedFrameCount);
+    expect(survivor.frames()).toHaveLength(survivorFrameCount + 1);
+    expect(survivor.frames().at(-1)).toEqual(
+      expect.objectContaining({ type: "activity_delta", runId: "survivor-run" })
+    );
   });
 
   test("a scoped subscribe without its scope id is ignored — no snapshot, no subscription", async () => {

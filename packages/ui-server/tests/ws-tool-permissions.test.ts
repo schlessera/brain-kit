@@ -25,6 +25,7 @@ import {
   setToolPermissionsForTests,
   testHost,
 } from "./helpers/test-host";
+import { testPrincipal } from "./helpers/principal";
 
 interface TurnControl {
   request: (req: Omit<PermissionRequest, "toolUseId">, id: string) => Promise<PermissionDecision>;
@@ -108,7 +109,7 @@ const openEvt = {} as Event;
 
 async function startTurn(controls: TurnControl[]) {
   const host = testHost();
-  const handlers = createWsHandlers(host);
+  const handlers = createWsHandlers(host, testPrincipal());
   const client = fakeClient();
   await handlers.onOpen(openEvt, client.ws);
   await handleClientMessage(client.ws, { type: "chat_message", text: "hi" });

@@ -46,6 +46,8 @@ export interface TurnRecorder {
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
   observeActivity(event: BackendActivityEvent): void;
+  /** Record that this turn's principal was revoked while work kept running. */
+  recordPrincipalRevocation(principalId: string): void;
   /** The user's approval decision arrived for a gated tool call. */
   onApprovalDecision(toolUseId: string, allowed: boolean): void;
   /**
@@ -76,6 +78,7 @@ export function createTurnRecorder(
   let resultOutcome: SpanOutcome | null = null;
   let resultUsage: SpanUsage | undefined;
   let resultAttrs: Record<string, unknown> | undefined;
+  let principalRevocationRecorded = false;
 
   const guard = (fn: () => void) => {
     try {
@@ -250,6 +253,16 @@ export function createTurnRecorder(
             break;
           }
         }
+      });
+    },
+
+    recordPrincipalRevocation(principalId) {
+      guard(() => {
+        if (finished || principalRevocationRecorded) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, "principal_revoked", { principalId });
+        principalRevocationRecorded = true;
+        onWrite?.();
       });
     },
 

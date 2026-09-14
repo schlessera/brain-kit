@@ -4,9 +4,11 @@ import { rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
+import { serializeSigned } from "hono/utils/cookie";
 
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
+import { createPrincipal, resolvePrincipal } from "../src/db/principals";
 import { authGuard, authRoutes, type AuthRuntime } from "../src/middleware/auth";
 import {
   passkeyManagementRoutes,
@@ -94,7 +96,7 @@ async function loginCookie(app: Hono): Promise<string> {
   return response.headers.get("set-cookie")!.split(";")[0]!;
 }
 
-function liveSocket(clients: ClientSet): {
+function liveSocket(clients: ClientSet, principalId: string): {
   closed: Array<[number | undefined, string | undefined]>;
 } {
   const closed: Array<[number | undefined, string | undefined]> = [];
@@ -104,18 +106,18 @@ function liveSocket(clients: ClientSet): {
       closed.push([code, reason]);
     },
   };
-  expect(clients.add(ws)).toBe(true);
+  expect(clients.add(ws, principalId)).toBe(true);
   return { closed };
 }
 
-function seedCredential(): void {
+function seedCredential(id: string): void {
   db.prepare(
     `INSERT INTO passkey_credentials
        (id, public_key, counter, transports, rp_id, aaguid, device_type,
         backed_up, label, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    "cred-1",
+    id,
     new Uint8Array([1, 2, 3]),
     0,
     JSON.stringify(["internal"]),
@@ -128,23 +130,63 @@ function seedCredential(): void {
   );
 }
 
-describe("sessions epoch compatibility", () => {
-  test("passkey revocation invalidates the old cookie and closes sockets", async () => {
+describe("passkey credential revocation", () => {
+  test("passkey deletion revokes only principals carrying that credential", async () => {
     const clients = new ClientSet();
-    const socket = liveSocket(clients);
     const app = sessionApp(clients);
-    const cookie = await loginCookie(app);
-    seedCredential();
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(200);
+    const passwordCookie = await loginCookie(app);
+    const passwordPrincipal = db
+      .query("SELECT id FROM principals WHERE auth_method = 'password'")
+      .get() as { id: string };
+    seedCredential("cred-1");
+    seedCredential("cred-2");
+    const first = createPrincipal(db, {
+      kind: "owner",
+      authMethod: "passkey",
+      credentialId: "cred-1",
+      label: "First passkey session",
+      ttlSeconds: 3_600,
+    });
+    const second = createPrincipal(db, {
+      kind: "owner",
+      authMethod: "passkey",
+      credentialId: "cred-1",
+      label: "Second passkey session",
+      ttlSeconds: 3_600,
+    });
+    const other = createPrincipal(db, {
+      kind: "owner",
+      authMethod: "passkey",
+      credentialId: "cred-2",
+      label: "Other passkey session",
+      ttlSeconds: 3_600,
+    });
+    const firstCookie = await serializeSigned("brain_ui_session", first.id, SECRET);
+    const secondCookie = await serializeSigned("brain_ui_session", second.id, SECRET);
+    const otherCookie = await serializeSigned("brain_ui_session", other.id, SECRET);
+    const firstSocket = liveSocket(clients, first.id);
+    const secondSocket = liveSocket(clients, second.id);
+    const passwordSocket = liveSocket(clients, passwordPrincipal.id);
+    const otherSocket = liveSocket(clients, other.id);
 
     const response = await app.request("/api/auth/passkey/cred-1", {
       method: "DELETE",
-      headers: { cookie, origin: ORIGIN, host: "example.test" },
+      headers: { cookie: passwordCookie, origin: ORIGIN, host: "example.test" },
     });
 
     expect(response.status).toBe(200);
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(401);
-    expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
-    expect(clients.count()).toBe(0);
+    expect((await app.request("/api/secret", { headers: { cookie: firstCookie } })).status).toBe(401);
+    expect((await app.request("/api/secret", { headers: { cookie: secondCookie } })).status).toBe(401);
+    expect((await app.request("/api/secret", { headers: { cookie: passwordCookie } })).status).toBe(200);
+    expect((await app.request("/api/secret", { headers: { cookie: otherCookie } })).status).toBe(200);
+    expect(firstSocket.closed).toEqual([[1008, "Sessions invalidated"]]);
+    expect(secondSocket.closed).toEqual([[1008, "Sessions invalidated"]]);
+    expect(passwordSocket.closed).toEqual([]);
+    expect(otherSocket.closed).toEqual([]);
+    expect(resolvePrincipal(db, first.id)?.revokedAt).not.toBeNull();
+    expect(resolvePrincipal(db, second.id)?.revokedAt).not.toBeNull();
+    expect(resolvePrincipal(db, passwordPrincipal.id)?.revokedAt).toBeNull();
+    expect(resolvePrincipal(db, other.id)?.revokedAt).toBeNull();
+    expect(clients.count()).toBe(2);
   });
 });

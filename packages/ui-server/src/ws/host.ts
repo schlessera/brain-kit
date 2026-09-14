@@ -7,6 +7,7 @@ import { createSilentObservability, type Observability } from "../observability/
 import { FrameRateLimiter } from "./rate-limit.js";
 import type { ActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
+import type { Principal } from "../db/principals.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -78,6 +79,13 @@ export interface WsHostOptions {
   /** Maximum WebSocket connections accepted by this host (default 32). */
   wsMaxConnections?: number;
   /**
+   * Final synchronous check before a resolved principal becomes discoverable
+   * to in-memory revocation. Production re-reads the principal row here; a
+   * host without durable authentication (including focused tests) accepts the
+   * already-resolved principal.
+   */
+  isPrincipalValid?: (principal: Principal) => boolean;
+  /**
    * Activity recording (span store + live stream). Optional: a host without
    * one records nothing and never sends activity frames — which is also what
    * most existing tests want.
@@ -134,6 +142,7 @@ export class WsHost {
   maxConcurrentSessions: () => number;
   readonly observability: Observability;
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
+  readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
   readonly toolPermissions: ToolPermissions | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
@@ -168,6 +177,7 @@ export class WsHost {
     this.observability = options.observability ?? createSilentObservability();
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
+    this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     this.log = this.observability.logger("ws");
@@ -298,6 +308,23 @@ export class WsHost {
         direction: "outbound",
       });
     });
+  }
+
+  /**
+   * Apply principal-store revocation to every in-memory authority boundary.
+   * Running turns are marked but deliberately not aborted.
+   */
+  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
+    const revoked = new Set(principalIds);
+    if (revoked.size === 0) return;
+    const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    for (const principalId of revoked) {
+      this.clients.closeFor(principalId, code, reason);
+      this.activity?.stream.dropFor(principalId);
+    }
+    for (const turn of affectedRunning) {
+      turn.recorder?.recordPrincipalRevocation(turn.principalId);
+    }
   }
 
   /** Send a frame to one specific socket (size-bounded). */

@@ -5,6 +5,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
+import type { AuthorizationContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
@@ -27,6 +28,7 @@ import {
 export async function runSession(
   host: WsHost,
   initial: {
+    authorization: AuthorizationContext;
     text: string;
     sessionId?: string;
     attachments: ChatImageAttachment[];
@@ -38,6 +40,7 @@ export async function runSession(
 ): Promise<void> {
   const { coordinator } = host;
   coordinator.startingSessions += 1;
+  coordinator.registerStartingAuthorization(initial.authorization);
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
@@ -55,7 +58,10 @@ export async function runSession(
     return;
   } finally {
     coordinator.startingSessions = Math.max(0, coordinator.startingSessions - 1);
+    coordinator.finishStartingAuthorization(initial.authorization);
   }
+
+  if (!initial.authorization.valid) return;
 
   const { backend, profileId: initialProfileId } = target;
   if (target.droppedPin) {
@@ -72,6 +78,8 @@ export async function runSession(
     });
   }
   const turn: RunningTurn = {
+    principalId: initial.authorization.principalId,
+    authorization: initial.authorization,
     sessionId: initial.sessionId ?? null,
     turnId: crypto.randomUUID(),
     // Only meaningful when the client had no session id to send.
@@ -91,6 +99,8 @@ export async function runSession(
   let profileId = initialProfileId;
   let resumeId = initial.sessionId;
   let next: QueuedFollowUp | null = {
+    principalId: initial.authorization.principalId,
+    authorization: initial.authorization,
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.client ? { client: initial.client } : {}),
@@ -98,6 +108,16 @@ export async function runSession(
 
   try {
     while (next && !turn.cancelled) {
+      turn.principalId = next.principalId;
+      turn.authorization = next.authorization;
+      if (!turn.authorization.valid) {
+        next = turn.queue.shift() ?? null;
+        if (next) {
+          turn.turnId = crypto.randomUUID();
+          turn.lastResult = null;
+        }
+        continue;
+      }
       const { text, attachments, client } = next;
       next = null;
 
@@ -129,6 +149,18 @@ export async function runSession(
       const billing = host.activity
         ? await resolveRunBilling(host.registry, backend.id, profileId)
         : undefined;
+      // Revocation can land while routing or billing is in flight. This is the
+      // final await boundary before startTurn, so an invalid principal never
+      // reaches the backend while an already-running turn remains untouched.
+      if (!turn.authorization.valid) {
+        clearTimeout(timeoutHandle);
+        if (turn.queue.length > 0) {
+          next = turn.queue.shift()!;
+          turn.turnId = crypto.randomUUID();
+          turn.lastResult = null;
+        }
+        continue;
+      }
       const recorder: TurnRecorder | undefined = host.activity
         ? createTurnRecorder(
             {
@@ -139,6 +171,7 @@ export async function runSession(
             { turnId: turn.turnId, sessionId: turn.sessionId, ...billing }
           )
         : undefined;
+      turn.recorder = recorder;
       const bridge = makeBridge(host, turn, text, backend.id, recorder);
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
@@ -182,6 +215,7 @@ export async function runSession(
         );
       } finally {
         clearTimeout(timeoutHandle);
+        turn.recorder = undefined;
       }
 
       // Subsequent (queued) turns resume the now-known session and keep its
@@ -246,6 +280,7 @@ export async function handleChatMessage(
   host: WsHost,
   ws: WSContext,
   msg: {
+    authorization: AuthorizationContext;
     text: string;
     sessionId?: string;
     attachments: ChatImageAttachment[];
@@ -254,7 +289,15 @@ export async function handleChatMessage(
     draftId?: string;
   }
 ): Promise<void> {
-  const { text, attachments, sessionId, providerId: requestedProviderId, client, draftId } = msg;
+  const {
+    authorization,
+    text,
+    attachments,
+    sessionId,
+    providerId: requestedProviderId,
+    client,
+    draftId,
+  } = msg;
   const { coordinator } = host;
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
@@ -273,7 +316,13 @@ export async function handleChatMessage(
         );
       });
     } else {
-      const entry: QueuedFollowUp = { text, attachments, ...(client ? { client } : {}) };
+      const entry: QueuedFollowUp = {
+        principalId: authorization.principalId,
+        authorization,
+        text,
+        attachments,
+        ...(client ? { client } : {}),
+      };
       const parked = queuedBytes(runningTurn);
       const incoming = queuedFollowUpBytes(entry);
       // A single message can never exceed the budget on its own: the frame cap
@@ -344,6 +393,7 @@ export async function handleChatMessage(
     host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
   }
   void runSession(host, {
+    authorization,
     text,
     sessionId,
     attachments,

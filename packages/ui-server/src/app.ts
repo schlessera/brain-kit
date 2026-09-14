@@ -36,7 +36,7 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
-import { prunePrincipals } from "./db/principals.js";
+import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
   getAutoAllowedTools,
   getBillingOverrides,
@@ -228,6 +228,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     maxConcurrentSessions: () => config.maxConcurrentSessions,
     wsRate: config.wsRate,
     wsMaxConnections: config.wsMaxConnections,
+    isPrincipalValid: (principal) => {
+      const current = resolvePrincipal(db, principal.id);
+      return current !== null && isUsablePrincipal(current, Date.now());
+    },
     toolPermissions: {
       isAutoAllowed: (toolName) => getAutoAllowedTools(db, dbLog).includes(toolName),
       add: (toolName) =>
@@ -247,7 +251,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   });
   const passkeyCtx: PasskeyContext = {
     db,
-    clients: host.clients,
+    clients: host,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
@@ -345,7 +349,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     "/api",
     authRoutes(authMode, auth, {
       db,
-      clients: host.clients,
+      clients: host,
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
       log: authLog,
       failures: authFailures,

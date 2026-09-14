@@ -1,6 +1,6 @@
 import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
-import type { WSContext } from "./clients.js";
+import type { AuthorizationContext, WSContext } from "./clients.js";
 import { locationErrorText } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
 import { validateAttachments } from "./attachments.js";
@@ -9,6 +9,16 @@ import type { WsHost } from "./host.js";
 
 /** Per-connection negotiation state, owned by the socket handler. */
 export interface ConnectionState {
+  /**
+   * The transport is gone. Set by onClose, and separate from `authorization`
+   * because a disconnect is not a revocation: work already underway keeps its
+   * authority, but nothing may register new per-connection state afterwards.
+   */
+  closed?: boolean;
+  /** Principal resolved once at the WebSocket upgrade boundary. */
+  principal: import("../db/principals.js").Principal;
+  /** Mutable in-memory decision invalidated synchronously by revocation. */
+  authorization: AuthorizationContext;
   /** Revision the client declared via `client_hello`; absent means rev 2. */
   protocolRev?: number;
 }
@@ -39,8 +49,15 @@ export async function handleClientMessage(
   host: WsHost,
   ws: WSContext,
   msg: ClientMessage,
-  connection: ConnectionState = {}
+  connection: ConnectionState
 ): Promise<void> {
+  // The socket callback schedules dispatch on a microtask. Revocation may land
+  // after parsing but before this function begins, so repeat the in-memory
+  // check at the actual dispatch boundary.
+  if (!connection.authorization.valid) {
+    host.reportDroppedFrame("revoked_principal");
+    return;
+  }
   const { coordinator, catalog } = host;
   const requireEcho = (connection.protocolRev ?? 2) >= PROTOCOL_REV_CLIENT_ECHO;
   switch (msg.type) {
@@ -64,6 +81,7 @@ export async function handleClientMessage(
         return;
       }
       await handleChatMessage(host, ws, {
+        authorization: connection.authorization,
         text: msg.text,
         sessionId: msg.sessionId,
         attachments: attachmentResult.attachments,
@@ -186,7 +204,13 @@ export async function handleClientMessage(
       // View-scoped opt-in: without a subscription this connection never
       // receives an activity frame. No turn correlation — subscriptions are
       // connection state, not turn state.
-      host.activity?.stream.handleSubscribe(ws, msg);
+      //
+      // Dispatch starts on a microtask, so this can run after onClose already
+      // dropped the connection's subscriptions. Registering here would resurrect
+      // a dead socket in the registry and keep the activity poller alive for the
+      // life of the process.
+      if (connection.closed) break;
+      host.activity?.stream.handleSubscribe(ws, msg, connection.authorization.principalId);
       break;
     }
 
@@ -207,6 +231,7 @@ export async function handleClientMessage(
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         const messages = await backend.getHistory(msg.sessionId);
+        if (!connection.authorization.valid) return;
         sendSessionHistory(ws, msg.sessionId, messages);
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming

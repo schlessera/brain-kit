@@ -12,6 +12,18 @@ export type WSContext = {
   raw?: unknown;
 };
 
+/** Mutable admission decision shared by every asynchronous path from one socket. */
+export interface AuthorizationContext {
+  readonly principalId: string;
+  valid: boolean;
+}
+
+interface AttachedClient {
+  ws: WSContext;
+  principalId: string;
+  authorization: AuthorizationContext;
+}
+
 function canSendRaw(raw: unknown): raw is { send: (data: string) => unknown } {
   return (
     typeof raw === "object" && raw !== null && "send" in raw && typeof raw.send === "function"
@@ -34,14 +46,18 @@ export class ClientSet {
   // Hono creates a new WSContext for every Bun open/message/close callback.
   // The raw socket remains stable across those wrappers, so it is the identity
   // that admission and removal must share.
-  private readonly clients = new Map<unknown, WSContext>();
+  private readonly clients = new Map<unknown, AttachedClient>();
 
   constructor(readonly maxConnections = 32) {}
 
-  add(ws: WSContext): boolean {
+  add(
+    ws: WSContext,
+    principalId: string,
+    authorization: AuthorizationContext = { principalId, valid: true }
+  ): boolean {
     const identity = ws.raw ?? ws;
     if (!this.clients.has(identity) && this.clients.size >= this.maxConnections) return false;
-    this.clients.set(identity, ws);
+    this.clients.set(identity, { ws, principalId, authorization });
     return true;
   }
 
@@ -63,6 +79,33 @@ export class ClientSet {
   }
 
   /**
+   * Invalidate, close, and forget only sockets admitted for one principal.
+   * Contexts are invalidated before close callbacks can run, so a frame already
+   * queued by the adapter cannot cross the revocation boundary.
+   */
+  closeFor(principalId: string, code: number, reason: string): void {
+    const closing: AttachedClient[] = [];
+    for (const [identity, client] of this.clients) {
+      if (client.principalId !== principalId) continue;
+      client.authorization.valid = false;
+      this.clients.delete(identity);
+      closing.push(client);
+    }
+    for (const { ws } of closing) {
+      try {
+        ws.close?.(code, reason);
+      } catch {
+        // Best effort per socket; revocation of sibling sockets must continue.
+      }
+    }
+  }
+
+  /** Apply a store result to this registry (used by auth-only embedders/tests). */
+  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
+    for (const principalId of principalIds) this.closeFor(principalId, code, reason);
+  }
+
+  /**
    * Close and forget every attached socket. The set is cleared before close
    * callbacks can run, and one broken socket cannot prevent the others from
    * being invalidated.
@@ -70,7 +113,8 @@ export class ClientSet {
   closeAll(code: number, reason: string): void {
     const clients = [...this.clients.values()];
     this.clients.clear();
-    for (const ws of clients) {
+    for (const client of clients) client.authorization.valid = false;
+    for (const { ws } of clients) {
       try {
         ws.close?.(code, reason);
       } catch {
@@ -88,7 +132,7 @@ export class ClientSet {
   broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
-    for (const ws of this.clients.values()) {
+    for (const { ws } of this.clients.values()) {
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed
         // connection) rather than throwing, and hono's WSContext.send discards

@@ -289,8 +289,6 @@ describe("principal session cookie", () => {
         closed.push([code, reason]);
       },
     };
-    expect(clients.add(socket)).toBe(true);
-
     const auth = runtime();
     const app = new Hono();
     app.route(
@@ -310,6 +308,10 @@ describe("principal session cookie", () => {
       body: JSON.stringify({ password: "accepted by injected verifier" }),
     });
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
+    const principalId = (
+      db.query("SELECT id FROM principals WHERE revoked_at IS NULL").get() as { id: string }
+    ).id;
+    expect(clients.add(socket, principalId)).toBe(true);
     expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(200);
 
     const logout = await app.request("/api/auth/logout", {

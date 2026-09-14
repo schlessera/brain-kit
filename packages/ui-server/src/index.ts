@@ -72,6 +72,7 @@ export {
   turnIdMatches,
   type ConnectionState,
 } from "./ws/dispatch.js";
+export { type AuthorizationContext } from "./ws/clients.js";
 export { resolveTurnTarget } from "./ws/routing.js";
 export {
   createSessionCatalog,

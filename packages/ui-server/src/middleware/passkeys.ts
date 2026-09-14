@@ -24,13 +24,14 @@ import {
   PASSKEY_LOGIN_RATE_LIMIT,
   acquirePasskeyVerification,
   releasePasskeyVerification,
-  bumpSessionsEpoch,
+  applyPrincipalRevocation,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
-import type { ClientSet } from "../ws/clients.js";
+import { revokeByCredential } from "../db/principals.js";
+import type { WsHost } from "../ws/host.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -51,7 +52,7 @@ import type { ClientSet } from "../ws/clients.js";
 export interface PasskeyContext {
   db: Database;
   /** Live sockets invalidated when a credential is revoked. */
-  clients: ClientSet;
+  clients: Pick<WsHost, "revokePrincipals">;
   /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
@@ -584,11 +585,15 @@ export function passkeyManagementRoutes(
 
   app.delete("/auth/passkey/:id", (c) => {
     if (mode !== "password") return notEnabled(c);
+    const credentialId = c.req.param("id");
     const result = ctx.db
       .prepare("DELETE FROM passkey_credentials WHERE id = ?")
-      .run(c.req.param("id"));
+      .run(credentialId);
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
-    bumpSessionsEpoch(ctx.db, ctx.clients);
+    applyPrincipalRevocation(
+      ctx.clients,
+      revokeByCredential(ctx.db, credentialId, Date.now())
+    );
     return c.json({ ok: true });
   });
 

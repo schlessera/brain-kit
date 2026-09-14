@@ -16,6 +16,7 @@ import { WsHost } from "../src/ws/host";
 import { FrameRateLimiter, type Clock } from "../src/ws/rate-limit";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { testPrincipal } from "./helpers/principal";
 
 /** A clock the test advances by hand. */
 function fakeClock(): Clock & { advance(ms: number): void } {
@@ -84,7 +85,7 @@ function setup(wsRate?: { ratePerSecond: number; burst: number }) {
     observability,
     ...(wsRate ? { wsRate } : {}),
   });
-  return { db, host, observability, handlers: createWsHandlers(host) };
+  return { db, host, observability, handlers: createWsHandlers(host, testPrincipal()) };
 }
 
 describe("on the socket", () => {
@@ -125,8 +126,8 @@ describe("on the socket", () => {
     // One noisy tab must not throttle another, and one peer must not throttle
     // everyone else.
     const { db, host } = setup({ ratePerSecond: 1, burst: 1 });
-    const a = createWsHandlers(host);
-    const b = createWsHandlers(host);
+    const a = createWsHandlers(host, testPrincipal("principal-a"));
+    const b = createWsHandlers(host, testPrincipal("principal-b"));
     const wsA = fakeSocket();
     const wsB = fakeSocket();
     const frame = { data: JSON.stringify({ type: "cancel", sessionId: "s" }) } as MessageEvent;
