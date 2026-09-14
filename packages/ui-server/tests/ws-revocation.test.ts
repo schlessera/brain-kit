@@ -389,6 +389,45 @@ describe("principal revocation boundary", () => {
     expect(starts).toBe(0);
   });
 
+  test("a cancellation accepted during startup survives the sender's revocation", async () => {
+    // Both halves are buffered work with no recorder yet: the cancel arrives
+    // while billing is in flight, and the revocation then takes the ordinary
+    // drain path away. The decision was still someone's, so it must be recorded.
+    const billing = deferred();
+    let billingCalls = 0;
+    const backend = makeFakeBackend({ id: "fake", startTurn: async () => {} });
+    const { host, registry } = activityHostFor(backend);
+    const db = databases[databases.length - 1]!;
+    registry.listAllProviders = async () => {
+      billingCalls += 1;
+      await billing.promise;
+      return [];
+    };
+    const authorization = testAuthorization("owner-a");
+
+    const running = runSession(host, {
+      authorization,
+      text: "cancelled mid-startup",
+      sessionId: "session-cancel",
+      attachments: [],
+    });
+    await until(() => billingCalls === 1);
+
+    const turn = [...host.coordinator.running][0]!;
+    turn.pendingCancellationPrincipalIds.push("owner-b");
+    host.revokePrincipals(["owner-a"], 1008, "Sessions invalidated");
+    billing.resolve();
+    await running;
+
+    const events = db
+      .query(
+        "SELECT event_type AS type, payload FROM activity_events WHERE event_type = 'turn_cancelled'"
+      )
+      .all() as Array<{ type: string; payload: string }>;
+    expect(events.map((e) => JSON.parse(e.payload).v.principalId)).toEqual(["owner-b"]);
+    host.coordinator.reset();
+  });
+
   test("revocation keeps a running turn, drops its sender's queued work, and runs another sender's", async () => {
     const releaseFirst = deferred();
     const prompts: string[] = [];
@@ -564,6 +603,7 @@ describe("principal revocation boundary", () => {
       abortController: new AbortController(),
       timeoutHandle,
       queue: [],
+      pendingCancellationPrincipalIds: [],
       cancelled: false,
       lastResult: null,
     };

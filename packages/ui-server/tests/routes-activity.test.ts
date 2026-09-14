@@ -22,6 +22,11 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 function seeded(): { db: ReturnType<typeof createUiDb>; store: ActivityStore } {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "test" });
+  db.query(
+    `INSERT INTO principals
+       (id, kind, auth_method, label, created_at, expires_at)
+     VALUES ('principal-a', 'owner', 'password', 'Alex Example device', 1, ?)`
+  ).run(Number.MAX_SAFE_INTEGER);
   // A finished successful turn with usage.
   store.startSpan({
     spanId: "turn-1:turn",
@@ -30,6 +35,7 @@ function seeded(): { db: ReturnType<typeof createUiDb>; store: ActivityStore } {
     kind: "turn",
     origin: "session",
     sessionId: "sess-1",
+    principalId: "principal-a",
     startedAt: Date.now() - 60_000,
   });
   store.endSpan("turn-1:turn", {
@@ -76,6 +82,12 @@ describe("activity routes", () => {
     expect(all.history.map((r: any) => r.runId)).toEqual(["cron-1", "turn-1"]);
     expect(all.history[0].outcome).toBe("error");
     expect(all.history[0].failureReason).toBe("boom");
+    expect(all.history[0].principalId).toBeNull();
+    expect(all.history[1]).toMatchObject({
+      principalId: "principal-a",
+      principalLabel: "Alex Example device",
+      principalKind: "owner",
+    });
 
     const cronOnly = await (await request(app, "/activity/runs?origin=cron")).json();
     expect(cronOnly.live).toHaveLength(0);
@@ -132,6 +144,7 @@ describe("activity routes", () => {
 
   test("a pruned run resolves to its rollup; an unknown id 404s (R26)", async () => {
     const { db, store } = seeded();
+    db.query("DELETE FROM principals WHERE id = 'principal-a'").run();
     store.prune({
       digestFloorAt: Date.now() + 1000,
       detailRetentionMs: 0,
@@ -146,6 +159,11 @@ describe("activity routes", () => {
     expect(body.detailPruned).toBe(true);
     expect(body.rollup.outcome).toBe("success");
     expect(body.rollup.costUsd).toBe(0.5);
+    expect(body.rollup).toMatchObject({
+      principalId: "principal-a",
+      principalLabel: "Alex Example device",
+      principalKind: "owner",
+    });
 
     const unknown = await request(app, "/activity/runs/never-existed");
     expect(unknown.status).toBe(404);

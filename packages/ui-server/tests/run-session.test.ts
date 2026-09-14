@@ -145,6 +145,7 @@ function parkedTurn(backend: AgentBackend, queue: QueuedFollowUp[] = []): Runnin
     abortController: new AbortController(),
     timeoutHandle,
     queue,
+    pendingCancellationPrincipalIds: [],
     cancelled: false,
     lastResult: null,
   };

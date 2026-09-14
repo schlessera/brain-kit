@@ -62,6 +62,11 @@ export interface RunningTurn {
   authorization: AuthorizationContext;
   /** Activity recorder for the CURRENT turn, once startup reaches the backend. */
   recorder?: TurnRecorder;
+  /**
+   * Cancelling actors accepted before the recorder exists (while billing is
+   * resolving). Drained into immutable activity events at recorder creation.
+   */
+  pendingCancellationPrincipalIds: string[];
   sessionId: string | null; // null until session_info resolves it (new session)
   /** Host-minted id of the CURRENT turn in this slot; re-minted per queued follow-up. */
   turnId: string;
@@ -99,7 +104,10 @@ export interface PendingApproval {
    * locks; an approval must survive that and reappear, not silently die.
    */
   request: PermissionRequest;
-  resolve: (decision: PermissionDecision) => void;
+  resolve: (
+    decision: PermissionDecision,
+    response?: { principalId: string; always?: boolean }
+  ) => void;
 }
 
 export interface PendingAskUser {
@@ -237,6 +245,12 @@ export class TurnCoordinator {
     clearTimeout(turn.timeoutHandle);
     turn.abortController.abort();
     this.drainPendingForTurn(turn, reason);
+  }
+
+  /** Record now, or retain the actor across the pre-recorder startup window. */
+  recordCancellation(turn: RunningTurn, principalId: string): void {
+    if (turn.recorder) turn.recorder.recordCancellation(principalId);
+    else turn.pendingCancellationPrincipalIds.push(principalId);
   }
 
   /** Resolve/reject every pending interactive request belonging to one turn. */

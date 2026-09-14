@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import {
   OUTPUT_TAIL_CHARS,
@@ -6,6 +9,7 @@ import {
   STDERR_TAIL_CHARS,
   runJob,
 } from "../src/cron/run-job";
+import { createUiDb } from "../src/db/client";
 
 function textSink() {
   let text = "";
@@ -42,6 +46,53 @@ describe("cron wrapper constants", () => {
 });
 
 describe("cron runJob", () => {
+  test("attributes recorded cron activity to the system principal, never an owner", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-principal-"));
+    const dbPath = join(dir, "brain-ui.db");
+    try {
+      expect(
+        await runJob(
+          {
+            jobName: "maintain",
+            command: ["job"],
+            dbPath,
+            childEnv: {},
+            stdout: textSink().sink,
+            stderr: textSink().sink,
+          },
+          {
+            sinkPath: join(dir, "sink.jsonl"),
+            spawn: () => ({
+              stdout: stream(),
+              stderr: stream(),
+              exited: Promise.resolve(0),
+              signalCode: null,
+            }),
+          }
+        )
+      ).toBe(0);
+
+      const db = createUiDb(dbPath);
+      const rollup = db.query("SELECT * FROM activity_run_rollups").get() as any;
+      const principal = db
+        .query("SELECT id, kind, label FROM principals WHERE id = ?")
+        .get(rollup.principal_id) as any;
+      expect(principal).toEqual({
+        id: rollup.principal_id,
+        kind: "system",
+        label: "Scheduled jobs",
+      });
+      expect(rollup.principal_kind).toBe("system");
+      expect(rollup.principal_label).toBe("Scheduled jobs");
+      expect(
+        db.query("SELECT COUNT(*) AS count FROM principals WHERE kind = 'owner'").get()
+      ).toEqual({ count: 0 });
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("DB-open failure warns but still runs and propagates the child exit code", async () => {
     const stdout = textSink();
     const stderr = textSink();

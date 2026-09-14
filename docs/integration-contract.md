@@ -168,7 +168,18 @@ append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
 never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
-calls that ran inside a subagent.
+calls that ran inside a subagent. Activity spans may carry the additive
+`principalId` of the actor responsible for them; absence means unattributed.
+Each human tool response also appends an `approval_decision` event whose payload
+records `principalId`, `decision` (`allow` | `always_allow` | `deny`), and
+`requestKind` (`tool` | `command`), preserving every responder when one tool
+raises more than one approval.
+Run summaries and rollups may additionally carry `principalId`,
+`principalLabel`, and `principalKind`. The label and kind are immutable
+historical snapshots taken when the rollup is first written, so consumers must
+not join them back to the live principal record or expect later label changes
+and principal pruning to rewrite history. Older clients may ignore all three
+fields.
 
 ## File-layer contracts
 

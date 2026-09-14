@@ -25,6 +25,44 @@ import {
  * order. The host owns per-turn cancellation (AbortController + timeout). Never
  * throws — runtime failures are emitted as error frames.
  */
+/**
+ * Write out cancellations that were accepted before a recorder existed.
+ *
+ * A cancel can land while routing or billing is still in flight, when there is
+ * nothing to record it on yet, so the actor is buffered on the turn. Both exits
+ * from that window have to drain it — the ordinary one, which then has a
+ * recorder, and the revoked one, which must build a throwaway recorder rather
+ * than drop a decision someone actually made.
+ */
+function recordPendingCancellations(
+  host: WsHost,
+  turn: RunningTurn,
+  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined
+): void {
+  if (turn.pendingCancellationPrincipalIds.length === 0) return;
+  const recorder =
+    turn.recorder ??
+    (host.activity
+      ? createTurnRecorder(
+          {
+            store: host.activity.store,
+            onWrite: () => host.activity!.stream.pump(),
+            log: host.log,
+          },
+          {
+            turnId: turn.turnId,
+            sessionId: turn.sessionId,
+            principalId: turn.principalId,
+            ...billing,
+          }
+        )
+      : undefined);
+  for (const principalId of turn.pendingCancellationPrincipalIds) {
+    recorder?.recordCancellation(principalId);
+  }
+  turn.pendingCancellationPrincipalIds.length = 0;
+}
+
 export async function runSession(
   host: WsHost,
   initial: {
@@ -89,6 +127,7 @@ export async function runSession(
     abortController: new AbortController(),
     timeoutHandle: setTimeout(() => {}, 0),
     queue: [],
+    pendingCancellationPrincipalIds: [],
     cancelled: false,
     lastResult: null,
   };
@@ -154,6 +193,11 @@ export async function runSession(
       // reaches the backend while an already-running turn remains untouched.
       if (!turn.authorization.valid) {
         clearTimeout(timeoutHandle);
+        // A cancellation accepted while billing was in flight is already a
+        // decision someone made; losing it because the turn's own principal
+        // was revoked a moment later would erase the actor, not the turn. Drain
+        // the buffer before leaving.
+        recordPendingCancellations(host, turn, billing);
         if (turn.queue.length > 0) {
           next = turn.queue.shift()!;
           turn.turnId = crypto.randomUUID();
@@ -168,10 +212,19 @@ export async function runSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },
-            { turnId: turn.turnId, sessionId: turn.sessionId, ...billing }
+            {
+              turnId: turn.turnId,
+              sessionId: turn.sessionId,
+              principalId: turn.principalId,
+              ...billing,
+            }
           )
         : undefined;
       turn.recorder = recorder;
+      for (const principalId of turn.pendingCancellationPrincipalIds) {
+        recorder?.recordCancellation(principalId);
+      }
+      turn.pendingCancellationPrincipalIds.length = 0;
       const bridge = makeBridge(host, turn, text, backend.id, recorder);
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
@@ -308,6 +361,7 @@ export async function handleChatMessage(
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
+      runningTurn.recorder?.recordFollowUp(authorization.principalId);
       backend.followUp({ sessionId, prompt: text, attachments }).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);

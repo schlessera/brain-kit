@@ -6,12 +6,16 @@
 import { describe, expect, test } from "bun:test";
 
 import { createTurnRecorder } from "../src/activity/recorder";
-import { createActivityStore } from "../src/activity/store";
+import { createActivityStore, rowToRunRollup } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 
 function setup(
   turnId: string,
-  extra: { profileId?: string; billingMode?: "subscription" | "api" } = {}
+  extra: {
+    profileId?: string;
+    billingMode?: "subscription" | "api";
+    principalId?: string;
+  } = {}
 ) {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "test" });
@@ -21,6 +25,74 @@ function setup(
   );
   return { db, store, recorder };
 }
+
+function insertPrincipal(
+  db: ReturnType<typeof createUiDb>,
+  id: string,
+  label: string,
+  kind: "owner" | "agent" = "owner"
+) {
+  db.query(
+    `INSERT INTO principals
+       (id, kind, auth_method, label, created_at, expires_at)
+     VALUES (?, ?, ?, ?, 1, ?)`
+  ).run(
+    id,
+    kind,
+    kind === "agent" ? "delegated" : "password",
+    label,
+    Number.MAX_SAFE_INTEGER
+  );
+}
+
+describe("principal attribution", () => {
+  test("the initiator is stamped on the root and snapshotted onto the durable rollup", () => {
+    const { db, store, recorder } = setup("turn-actor", { principalId: "principal-a" });
+    insertPrincipal(db, "principal-a", "Alex Example's laptop");
+
+    recorder.finish("success");
+    db.query("UPDATE principals SET label = 'Renamed device' WHERE id = 'principal-a'").run();
+    store.rollupRun("turn-actor");
+
+    expect(store.getSpan("turn-actor:turn")!.principalId).toBe("principal-a");
+    expect(
+      rowToRunRollup(
+        db.query("SELECT * FROM activity_run_rollups WHERE run_id = 'turn-actor'").get()
+      )
+    ).toMatchObject({
+      principalId: "principal-a",
+      principalLabel: "Alex Example's laptop",
+      principalKind: "owner",
+    });
+  });
+
+  test("the rollup keeps the actor snapshot after principal and span pruning", () => {
+    const { db, store, recorder } = setup("turn-pruned", { principalId: "principal-agent" });
+    insertPrincipal(db, "principal-agent", "Research agent", "agent");
+    recorder.finish("success");
+
+    db.query("DELETE FROM principals WHERE id = 'principal-agent'").run();
+    const pruned = store.prune({
+      digestFloorAt: Date.now() + 1,
+      detailRetentionMs: 0,
+      hardCeilingMs: 0,
+      now: Date.now() + 1,
+    });
+
+    expect(pruned.runsPruned).toBe(1);
+    expect(store.snapshotRun("turn-pruned")).toBeNull();
+    expect(
+      rowToRunRollup(
+        db.query("SELECT * FROM activity_run_rollups WHERE run_id = 'turn-pruned'").get()
+      )
+    ).toMatchObject({
+      principalId: "principal-agent",
+      principalLabel: "Research agent",
+      principalKind: "agent",
+      detailPruned: true,
+    });
+  });
+});
 
 describe("turn recorder terminal precedence", () => {
   test("a max_turns error result refines finish('error') into a timeout outcome", () => {
@@ -140,7 +212,7 @@ describe("tool payload capture (AE7)", () => {
       toolName: "Read",
       input: { file_path: "/etc/passwd" },
     });
-    recorder.onApprovalDecision("tool-1", false);
+    recorder.onApprovalDecision("tool-1", "deny", "tool");
     recorder.finish("success");
 
     const events = eventsOf(store, "turn-deny", "tool-1");

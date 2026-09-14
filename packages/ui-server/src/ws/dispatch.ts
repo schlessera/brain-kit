@@ -104,6 +104,10 @@ export async function handleClientMessage(
       const pending = coordinator.pendingAskUser.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
+        pending.turn.recorder?.recordCancellation(
+          connection.authorization.principalId,
+          "ask_user"
+        );
         pending.reject(new Error(msg.reason || "User cancelled the question"));
       }
       break;
@@ -165,7 +169,11 @@ export async function handleClientMessage(
         pending.resolve(
           msg.updatedInput
             ? { behavior: "allow", updatedInput: msg.updatedInput }
-            : { behavior: "allow" }
+            : { behavior: "allow" },
+          {
+            principalId: connection.authorization.principalId,
+            ...(msg.always && pending.request.kind !== "command" ? { always: true } : {}),
+          }
         );
       }
       break;
@@ -175,7 +183,10 @@ export async function handleClientMessage(
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingApprovals.delete(msg.toolUseId);
-        pending.resolve({ behavior: "deny", message: msg.message });
+        pending.resolve(
+          { behavior: "deny", message: msg.message },
+          { principalId: connection.authorization.principalId }
+        );
       }
       break;
     }
@@ -183,7 +194,10 @@ export async function handleClientMessage(
     case "cancel": {
       if (msg.sessionId) {
         const turn = coordinator.bySession.get(msg.sessionId);
-        if (turn) coordinator.cancelTurn(turn, "Cancelled by user");
+        if (turn) {
+          coordinator.recordCancellation(turn, connection.authorization.principalId);
+          coordinator.cancelTurn(turn, "Cancelled by user");
+        }
         return;
       }
       // No sessionId: cancel the sole running session; ambiguous if several run.
@@ -196,7 +210,9 @@ export async function handleClientMessage(
         });
         return;
       }
-      coordinator.cancelTurn([...coordinator.running][0], "Cancelled by user");
+      const turn = [...coordinator.running][0]!;
+      coordinator.recordCancellation(turn, connection.authorization.principalId);
+      coordinator.cancelTurn(turn, "Cancelled by user");
       break;
     }
 
