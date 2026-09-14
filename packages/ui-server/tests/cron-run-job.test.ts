@@ -1,3 +1,6 @@
+import { mkdtempSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -257,5 +260,49 @@ describe("cron runJob", () => {
     expect(recorded!.output.indexOf("first-out")).toBeLessThan(
       recorded!.output.indexOf("then-err")
     );
+  });
+});
+
+
+describe("cron lifecycle recovery", () => {
+  test("a broken output sink does not finish before the real child exits", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cron-lifecycle-"));
+    const marker = join(root, "finished");
+    let closed = false;
+    let recorded: { finished: boolean; code: number; error?: string; output: string } | undefined;
+    try {
+      const code = await runJob({
+        jobName: "fixture", dbPath: ":memory:", childEnv: {},
+        command: [process.execPath, "-e", `console.log('start'); await Bun.sleep(50); await Bun.write(${JSON.stringify(marker)}, 'done'); console.log('end'); process.exit(7);`],
+        stdout: { write() { throw new Error("disconnected"); } }, stderr: textSink().sink,
+      }, {
+        startRecord: async () => ({
+          finish(error, output, exitCode) {
+            recorded = { finished: existsSync(marker), code: exitCode, error, output };
+          },
+          close() { closed = true; },
+        }), removeSink() {},
+      });
+      expect(code).toBe(7);
+      expect(recorded?.finished).toBe(true);
+      expect(recorded?.code).toBe(7);
+      expect(recorded?.error).toContain("exit code 7");
+      expect(recorded?.output).toContain("end");
+      expect(closed).toBe(true);
+      expect(existsSync(marker)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("stream and recorder errors preserve the exit code and still clean up", async () => {
+    let closed = false;
+    let removed = false;
+    const code = await runJob({ jobName: "fixture", command: ["job"], dbPath: ":memory:", childEnv: {}, stderr: textSink().sink }, {
+      startRecord: async () => ({ finish() { throw new Error("DB failure"); }, close() { closed = true; } }),
+      spawn: () => ({ stdout: new ReadableStream({ start(c) { c.error(new Error("read failed")); } }), stderr: stream(), exited: Promise.resolve(9), signalCode: null }),
+      removeSink() { removed = true; },
+    });
+    expect(code).toBe(9);
+    expect(closed).toBe(true);
+    expect(removed).toBe(true);
   });
 });

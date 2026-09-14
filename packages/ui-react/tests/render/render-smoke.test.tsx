@@ -41,6 +41,7 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { StreamingPanel } from "../../src/components/quick-actions/streaming-modal.js";
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
@@ -1845,4 +1846,14 @@ describe("SessionDrawer recovery", () => {
     expect(view.getByText("Saved conversation")).toBeTruthy();
     expect(view.getByRole("status").textContent).toContain("Could not refresh sessions");
   });
+});
+
+
+test("sync busy response explains why another sync cannot start", async () => {
+  globalThis.fetch = (async (_input: RequestInfo | URL) => Response.json(
+    { error: "A sync is already running. Wait for it to finish before retrying." }, { status: 409 }
+  )) as typeof fetch;
+  const view = render(<StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} />);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(view.getByText("A sync is already running. Wait for it to finish before retrying.")).toBeTruthy();
 });

@@ -40,10 +40,10 @@ interface GitResult {
   code: number;
 }
 
-function git(root: string, args: string[]): GitResult {
+function git(root: string, args: string[], raw = false): GitResult {
   const proc = Bun.spawnSync(["git", "-C", root, ...args]);
   return {
-    stdout: new TextDecoder().decode(proc.stdout).trim(),
+    stdout: raw ? new TextDecoder().decode(proc.stdout) : new TextDecoder().decode(proc.stdout).trim(),
     stderr: new TextDecoder().decode(proc.stderr).trim(),
     code: proc.exitCode ?? 0,
   };
@@ -94,14 +94,18 @@ interface AssessedFile {
 }
 
 function assess(root: string): AssessedFile[] {
-  const porcelain = git(root, ["status", "--porcelain"]).stdout;
+  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
+  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
+  const records = result.stdout.split("\0");
   const files: AssessedFile[] = [];
-  for (const line of porcelain.split("\n")) {
-    if (!line.trim()) continue;
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i]!;
+    if (!line) continue;
     const xy = line.slice(0, 2);
-    let file = line.slice(3);
-    if (file.includes(" -> ")) file = file.split(" -> ").pop()!;
-    file = file.replace(/^"|"$/g, "");
+    const file = line.slice(3);
+    // Porcelain -z emits destination first, followed by the original path
+    // for renames/copies. Paths are literal, including newlines and arrows.
+    if (xy.includes("R") || xy.includes("C")) i++;
 
     let status: string;
     const trimmed = xy.trim();
@@ -113,7 +117,7 @@ function assess(root: string): AssessedFile[] {
     else status = trimmed;
 
     // Skip already-ignored files silently.
-    if (git(root, ["check-ignore", "-q", file]).code === 0) continue;
+    if (git(root, ["check-ignore", "-q", "--", file]).code === 0) continue;
 
     let klass: AssessedFile["class"];
     if (matchesAny(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";

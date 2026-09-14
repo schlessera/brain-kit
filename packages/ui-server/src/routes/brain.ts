@@ -7,10 +7,13 @@ import {
   writeCache,
   type KeytermSettings,
 } from "../voice/keyterm-builder.js";
-import { existsSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import { join } from "path";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
+
+// Shared across route instances, keyed by the canonical brain root.
+const syncingRoots = new Set<string>();
 
 export interface BrainRoutesDeps {
   brain: BrainClient;
@@ -207,88 +210,108 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     // Stream sync output via SSE so the client sees live progress.
     // brain sync spawns a nested Claude Code process that can take minutes.
 
+    const syncRoot = realpathSync(brainPath);
+    if (syncingRoots.has(syncRoot)) {
+      return c.json({ error: "A sync is already running. Wait for it to finish before retrying." }, 409);
+    }
+    syncingRoots.add(syncRoot);
     return streamSSE(c, async (stream) => {
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+      let disconnected = false;
+      stream.onAbort(() => { disconnected = true; });
       const send = (data: {
         type: string;
         text?: string;
         success?: boolean;
-      }) => stream.writeSSE({ data: JSON.stringify(data) });
+      }) => disconnected ? Promise.resolve() : stream.writeSSE({ data: JSON.stringify(data) })
+        .catch(() => { disconnected = true; });
 
-      await send({ type: "start", text: "Starting brain sync..." });
-
-      // The nested Claude process can be silent for minutes; without traffic
-      // the socket gets cut by idle timeouts (Bun's own, or a proxy's). SSE
-      // comment lines are ignored by EventSource and data-line parsers.
-      const keepalive = setInterval(() => {
-        stream.write(": keepalive\n\n").catch(() => {});
-      }, 15_000);
-
-      // Merge stderr into stdout — brain sync spawns a nested Claude Code
-      // process whose output goes to stderr. The command comes from
-      // brain.cliCommand() (packaged bin or legacy vendored script), passed to
-      // bash as positional args rather than interpolated into the script, so a
-      // BRAIN_PATH containing spaces or shell metacharacters stays inert.
-      const [cliBin, ...cliArgs] = brain.cliCommand();
-      const proc = Bun.spawn(
-        ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
-        {
-          cwd: brainPath,
-          stdout: "pipe",
-          stderr: "pipe",
-          env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-        }
-      );
-
-      const reader = proc.stdout.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (line.trim()) {
-              await send({ type: "progress", text: line });
+        await send({ type: "start", text: "Starting brain sync..." });
+
+        // The nested Claude process can be silent for minutes; without traffic
+        // the socket gets cut by idle timeouts (Bun's own, or a proxy's). SSE
+        // comment lines are ignored by EventSource and data-line parsers.
+        keepalive = setInterval(() => {
+          stream.write(": keepalive\n\n").catch(() => {});
+        }, 15_000);
+
+        // Merge stderr into stdout — brain sync spawns a nested Claude Code
+        // process whose output goes to stderr. The command comes from
+        // brain.cliCommand() (packaged bin or legacy vendored script), passed to
+        // bash as positional args rather than interpolated into the script, so a
+        // BRAIN_PATH containing spaces or shell metacharacters stays inert.
+        const [cliBin, ...cliArgs] = brain.cliCommand();
+        const proc = Bun.spawn(
+          ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
+          {
+            cwd: brainPath,
+            stdout: "pipe",
+            stderr: "pipe",
+            env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+          }
+        );
+
+        // Keep draining even when the SSE reader disconnects. The repository
+        // stays reserved until the actual sync process has exited.
+        const stderrDone = new Response(proc.stderr).text().catch(() => "");
+        const reader = proc.stdout.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (line.trim()) {
+                await send({ type: "progress", text: line });
+              }
             }
           }
+          if (buffer.trim()) {
+            await send({ type: "progress", text: buffer });
+          }
+        } catch {} finally {
+          clearInterval(keepalive);
         }
-        if (buffer.trim()) {
-          await send({ type: "progress", text: buffer });
+
+        const exitCode = await proc.exited;
+        await stderrDone;
+
+        // Rebuild voice keyterms cache after a successful sync.
+        if (exitCode === 0) {
+          try {
+            const cache = buildKeyterms(keyterms);
+            writeCache(keyterms, cache);
+            await send({
+              type: "progress",
+              text: `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
+            });
+          } catch (err) {
+            await send({
+              type: "progress",
+              text: `[voice] Keyterm rebuild failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            });
+          }
         }
-      } catch {} finally {
+
+        await send({
+          type: "done",
+          success: exitCode === 0,
+          text:
+            exitCode === 0 ? "Sync completed" : `Sync failed (exit ${exitCode})`,
+        });
+      } catch (error) {
+        await send({ type: "done", success: false, text: error instanceof Error ? error.message : "Sync failed" });
+      } finally {
         clearInterval(keepalive);
+        syncingRoots.delete(syncRoot);
       }
-
-      const exitCode = await proc.exited;
-
-      // Rebuild voice keyterms cache after a successful sync.
-      if (exitCode === 0) {
-        try {
-          const cache = buildKeyterms(keyterms);
-          writeCache(keyterms, cache);
-          await send({
-            type: "progress",
-            text: `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
-          });
-        } catch (err) {
-          await send({
-            type: "progress",
-            text: `[voice] Keyterm rebuild failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          });
-        }
-      }
-
-      await send({
-        type: "done",
-        success: exitCode === 0,
-        text:
-          exitCode === 0 ? "Sync completed" : `Sync failed (exit ${exitCode})`,
-      });
     });
   })
 

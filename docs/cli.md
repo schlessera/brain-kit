@@ -121,6 +121,10 @@ leaking paths.
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
 | `sync <verb>` | Mechanical git-sync verbs: `assess`, `group`, `pull`, `conflicts`, `push`, `post-sync` | orchestrated by the `/sync` skill; grouping is taxonomy-driven |
 
+Sync assessment and grouping preserve literal Git paths, including Unicode,
+newlines, and rename destinations. Untracked directories are expanded so
+sensitive files inside them receive their own classification.
+
 Module packages add ONE namespaced top-level command each (`brain jobs …`,
 `brain finance …`, `brain image …`) — see [modules.md](modules.md).
 

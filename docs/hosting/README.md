@@ -57,6 +57,17 @@ direct brain CLI children, and scheduled jobs.
 
 ## Recovery and partial availability
 
+The UI server permits one HTTP sync at a time per canonical brain root.
+Concurrent requests receive HTTP 409 with a busy message. Closing the stream
+leaves the sync running and the reservation in place until the child exits.
+This reservation is local to the server process; external CLI/cron invocations
+are not coordinated by it.
+
+Cron output-forwarding failures do not change the child's exit status. The
+wrapper continues draining output and waits for exit before recording the
+outcome, and closes tracking resources even if recording fails.
+
+
 The session drawer keeps available histories when another backend fails or
 exceeds its three-second listing deadline. It shows a warning and a Retry
 button; a failed refresh preserves sessions already loaded. The HTTP session

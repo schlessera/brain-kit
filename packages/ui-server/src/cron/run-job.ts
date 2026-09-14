@@ -70,7 +70,7 @@ function messageOf(error: unknown): string {
 }
 
 function writeLine(sink: TextSink, text: string): void {
-  sink.write(`${text}\n`);
+  try { sink.write(`${text}\n`); } catch { /* Logging cannot stop the job. */ }
 }
 
 /** Forward a stream verbatim while exposing decoded chunks for tail capture. */
@@ -80,11 +80,17 @@ export async function teeStream(
   onText: (text: string) => void
 ): Promise<void> {
   const decoder = new TextDecoder();
-  for await (const chunk of stream) {
-    const text = decoder.decode(chunk, { stream: true });
-    sink.write(text);
+  let forwarding = true;
+  const forward = async (text: string) => {
     onText(text);
+    if (!forwarding) return;
+    try { await sink.write(text); } catch { forwarding = false; }
+  };
+  for await (const chunk of stream) {
+    await forward(decoder.decode(chunk, { stream: true }));
   }
+  const trailing = decoder.decode();
+  if (trailing) await forward(trailing);
 }
 
 /** Keep the last `cap` characters, never the head. */
@@ -99,8 +105,10 @@ async function startRecord(
   dbPath: string,
   stderr: TextSink
 ): Promise<RunRecorder | null> {
+  let db: ReturnType<typeof createUiDb> | undefined;
   try {
-    const db = createUiDb(dbPath);
+    db = createUiDb(dbPath);
+    const openedDb = db;
     const record = recordCronRun(db, name);
     const store = createActivityStore(db, { writer: `cron:${process.pid}` });
     const runId = `cron-${name}-${Date.now()}`;
@@ -168,10 +176,11 @@ async function startRecord(
       },
       close() {
         clearInterval(heartbeat);
-        db.close();
+        openedDb.close();
       },
     };
   } catch (error) {
+    try { db?.close(); } catch { /* Preserve fail-open tracking. */ }
     writeLine(
       stderr,
       `[cron-run] tracking unavailable (job runs anyway): ${messageOf(error)}`
@@ -191,13 +200,12 @@ export async function runJob(
     dependencies.sinkPath ??
     `/tmp/brain-activity-sink-${process.pid}-${Date.now()}.jsonl`;
   const beginRecord = dependencies.startRecord ?? startRecord;
-  const recorder = await beginRecord(
-    options.jobName,
-    sinkPath,
-    options.command,
-    options.dbPath,
-    stderr
-  );
+  let recorder: RunRecorder | null = null;
+  try {
+    recorder = await beginRecord(options.jobName, sinkPath, options.command, options.dbPath, stderr);
+  } catch (error) {
+    writeLine(stderr, `[cron-run] tracking unavailable (job runs anyway): ${messageOf(error)}`);
+  }
 
   let exitCode: number;
   let errorMessage: string | undefined;
@@ -213,7 +221,7 @@ export async function runJob(
     });
 
     let stderrTail = "";
-    await Promise.all([
+    const outcomes = await Promise.allSettled([
       teeStream(proc.stdout, stdout, (text) => {
         outputTail = appendTail(outputTail, text, OUTPUT_TAIL_CHARS);
       }),
@@ -221,9 +229,16 @@ export async function runJob(
         stderrTail = appendTail(stderrTail, text, STDERR_TAIL_CHARS);
         outputTail = appendTail(outputTail, text, OUTPUT_TAIL_CHARS);
       }),
+      proc.exited,
     ]);
-
-    exitCode = await proc.exited;
+    for (const outcome of outcomes.slice(0, 2)) {
+      if (outcome.status === "rejected") {
+        writeLine(stderr, `[cron-run] output capture failed: ${messageOf(outcome.reason)}`);
+      }
+    }
+    const child = outcomes[2]!;
+    if (child.status === "rejected") throw child.reason;
+    exitCode = child.value;
     if (exitCode !== 0) {
       const cause = proc.signalCode ? `killed by ${proc.signalCode}` : `exit code ${exitCode}`;
       const trimmedTail = stderrTail.trim();
@@ -238,9 +253,12 @@ export async function runJob(
   if (recorder) {
     try {
       recorder.finish(errorMessage, outputTail.trim(), exitCode);
-      recorder.close();
     } catch (error) {
       writeLine(stderr, `[cron-run] failed to record run outcome: ${messageOf(error)}`);
+    } finally {
+      try { recorder.close(); } catch (error) {
+        writeLine(stderr, `[cron-run] failed to close tracking: ${messageOf(error)}`);
+      }
     }
   }
 

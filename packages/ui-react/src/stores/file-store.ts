@@ -86,8 +86,8 @@ async function fetchTree(path: string): Promise<FileEntry[]> {
   return data.entries;
 }
 
-async function fetchContent(path: string): Promise<FileContentResponse> {
-  const res = await fetch(`${apiBase()}/files/content?path=${encodeURIComponent(path)}`);
+async function fetchContent(path: string, signal: AbortSignal): Promise<FileContentResponse> {
+  const res = await fetch(`${apiBase()}/files/content?path=${encodeURIComponent(path)}`, { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     const err = new Error(body.error || `HTTP ${res.status}`);
@@ -98,8 +98,8 @@ async function fetchContent(path: string): Promise<FileContentResponse> {
   return res.json();
 }
 
-async function fetchResolve(path: string): Promise<FileResolveResponse> {
-  const res = await fetch(`${apiBase()}/files/resolve?path=${encodeURIComponent(path)}`);
+async function fetchResolve(path: string, signal: AbortSignal): Promise<FileResolveResponse> {
+  const res = await fetch(`${apiBase()}/files/resolve?path=${encodeURIComponent(path)}`, { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -115,6 +115,10 @@ async function fetchWikilinks(): Promise<WikilinkMapResponse> {
   }
   return res.json();
 }
+
+let fileRequest: AbortController | null = null;
+let directoryRequest: AbortController | null = null;
+let cacheEpoch = 0;
 
 export const useFileStore = create<FileState>((set, get) => ({
   dirCache: {},
@@ -135,6 +139,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   wikilinkLoading: false,
 
   loadDir: async (path) => {
+    const epoch = cacheEpoch;
     const { dirCache, loadingDirs } = get();
     if (dirCache[path] || loadingDirs.has(path)) return;
     const next = new Set(loadingDirs);
@@ -142,6 +147,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ loadingDirs: next });
     try {
       const entries = await fetchTree(path);
+      if (epoch !== cacheEpoch) return;
       set((s) => {
         const loading = new Set(s.loadingDirs);
         loading.delete(path);
@@ -154,6 +160,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         };
       });
     } catch (err) {
+      if (epoch !== cacheEpoch) return;
       set((s) => {
         const loading = new Set(s.loadingDirs);
         loading.delete(path);
@@ -189,13 +196,19 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   openFile: async (path) => {
+    fileRequest?.abort();
+    directoryRequest?.abort();
+    const request = new AbortController();
+    fileRequest = request;
+    const ownsRequest = () => fileRequest === request && !request.signal.aborted;
     const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
     set({ currentPath: normalized, contentLoading: true, contentError: null, currentContent: null, treeExpanded: false });
 
     // Fire-and-await: load ancestor chain then content in parallel
     const ancestorsPromise = (async () => {
       try {
-        const r = await fetchResolve(normalized);
+        const r = await fetchResolve(normalized, request.signal);
+        if (!ownsRequest()) return;
         // Expand each ancestor and root, load their contents
         const dirsToLoad = ["", ...r.ancestors];
         set((s) => {
@@ -210,12 +223,12 @@ export const useFileStore = create<FileState>((set, get) => ({
     })();
 
     try {
-      const content = await fetchContent(normalized);
+      const content = await fetchContent(normalized, request.signal);
       // Drop a response the user has already navigated away from. Two rapid
       // clicks race, and without this the SLOWER fetch wins: the viewer showed
       // the newer file's path with the older file's content, which reads as
       // corruption rather than as a stale load.
-      if (get().currentPath !== normalized) return;
+      if (!ownsRequest()) return;
       set({ currentContent: content, contentLoading: false });
       // Default mode: prefer preview when available; persist otherwise
       const { viewMode } = get();
@@ -233,7 +246,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       else if (e.message === "invalid_path") msg = "Invalid path.";
       // Same guard: a failure for a file the user already left must not
       // replace the file they are now looking at with an error.
-      if (get().currentPath !== normalized) return;
+      if (!ownsRequest()) return;
       set({ contentError: msg, contentLoading: false });
     } finally {
       await ancestorsPromise;
@@ -241,10 +254,15 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   closeFile: () => {
-    set({ currentPath: null, currentContent: null, contentError: null, treeExpanded: true });
+    fileRequest?.abort();
+    fileRequest = null;
+    set({ currentPath: null, currentContent: null, contentError: null, contentLoading: false, treeExpanded: true });
   },
 
   openDir: async (path) => {
+    directoryRequest?.abort();
+    const request = new AbortController();
+    directoryRequest = request;
     const normalized = path
       .replace(/^\/+/, "")
       .replace(/\\/g, "/")
@@ -258,7 +276,8 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ treeExpanded: true, highlightedDir: normalized });
 
     try {
-      const r = await fetchResolve(normalized);
+      const r = await fetchResolve(normalized, request.signal);
+      if (directoryRequest !== request || request.signal.aborted) return;
       const dirs = ["", ...r.ancestors, normalized];
       set((s) => {
         const next = new Set(s.expandedDirs);
@@ -278,11 +297,13 @@ export const useFileStore = create<FileState>((set, get) => ({
   setHighlightedDir: (path) => set({ highlightedDir: path }),
 
   ensureWikilinks: async () => {
+    const epoch = cacheEpoch;
     const { wikilinkLoaded, wikilinkLoading } = get();
     if (wikilinkLoaded || wikilinkLoading) return;
     set({ wikilinkLoading: true });
     try {
       const data = await fetchWikilinks();
+      if (epoch !== cacheEpoch) return;
       set({
         wikilinkMap: data.slugs,
         wikilinkLoaded: true,
@@ -290,6 +311,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       });
     } catch {
       // Soft-fail — leave the map empty; wikilinks will render as plain text
+      if (epoch !== cacheEpoch) return;
       set({ wikilinkLoading: false });
     }
   },
@@ -304,15 +326,23 @@ export const useFileStore = create<FileState>((set, get) => ({
       return { frontmatterCollapsed: next };
     }),
 
-  reset: () =>
+  reset: () => {
+    fileRequest?.abort();
+    directoryRequest?.abort();
+    fileRequest = null;
+    directoryRequest = null;
+    cacheEpoch++;
     set({
+      dirCache: {}, loadingDirs: new Set(), dirErrors: {}, expandedDirs: new Set([""]),
+      highlightedDir: null, wikilinkMap: {}, wikilinkLoaded: false, wikilinkLoading: false,
       currentPath: null,
       currentContent: null,
       contentLoading: false,
       contentError: null,
       viewMode: "preview",
       treeExpanded: true,
-    }),
+    });
+  },
 }));
 
 /**

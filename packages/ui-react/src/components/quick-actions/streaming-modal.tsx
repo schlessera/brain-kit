@@ -41,7 +41,9 @@ export function StreamingPanel({
 
         if (!res.ok || !res.body) {
           setState("error");
-          setLines((l) => [...l, `HTTP ${res.status}: ${res.statusText}`]);
+          const body = await res.json().catch(() => null);
+          const message = typeof body?.error === "string" ? body.error : `HTTP ${res.status}: ${res.statusText}`;
+          if (!controller.signal.aborted) setLines((l) => [...l, message]);
           return;
         }
 
