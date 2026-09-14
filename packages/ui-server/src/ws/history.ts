@@ -1,6 +1,6 @@
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { type WSContext, sendTo } from "./clients.js";
-import { HISTORY_CHUNK_BYTES, shrinkForReplication } from "./shrink.js";
+import { HISTORY_CHUNK_BYTES, jsonBytes, shrinkForReplication } from "./shrink.js";
 
 /**
  * Send a structured history to one socket as one or more `session_history`
@@ -20,8 +20,7 @@ export function sendSessionHistory(
   sessionId: string,
   messages: SessionHistoryMessage[]
 ): void {
-  const bounded = messages.map((m) => shrinkForReplication(m));
-  if (bounded.length === 0) {
+  if (messages.length === 0) {
     sendTo(ws, { type: "session_history", sessionId, messages: [] });
     return;
   }
@@ -41,8 +40,11 @@ export function sendSessionHistory(
     batchBytes = 0;
   };
 
-  for (const message of bounded) {
-    const size = JSON.stringify(message).length;
+  for (const original of messages) {
+    // Reserve the frame wrapper separately: bounding a message to the entire
+    // frame cap caused sendTo to shrink its parent history array a second time.
+    const message = shrinkForReplication(original, HISTORY_CHUNK_BYTES);
+    const size = jsonBytes(message) + 1; // comma between messages
     if (batch.length > 0 && batchBytes + size > HISTORY_CHUNK_BYTES) flush();
     batch.push(message);
     batchBytes += size;

@@ -46,10 +46,8 @@ describe("shrinkForReplication", () => {
     const shrunk = shrinkForReplication(msg);
     expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
     expect(shrunk.content.length).toBeLessThan(content.length);
-    // The clip marker is the last element.
-    expect(JSON.stringify(shrunk.content[shrunk.content.length - 1])).toContain(
-      "items elided"
-    );
+    // Typed arrays must contain only their original element type.
+    expect(shrunk.content.every((block) => typeof block === "object")).toBe(true);
     // Head blocks are preserved in order.
     expect(shrunk.content[0]).toEqual({ type: "text", text: "block-0" });
   });

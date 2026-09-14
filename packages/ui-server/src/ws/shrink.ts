@@ -32,10 +32,9 @@ interface ShrinkPass {
 }
 
 /**
- * Progressive shrink passes. Each tightens both the per-string cap and the
- * per-array head limit; the loop stops at the first pass whose output fits
- * {@link MAX_WS_MESSAGE_BYTES}. The final pass clamps every string to 64 B and
- * every array to one element, so even pathological mixes converge.
+ * Progressive shrink passes. Each tightens display strings and array tails;
+ * the loop stops when the serialized UTF-8 payload fits. Identity strings
+ * remain intact, and typed arrays never receive an untyped elision marker.
  */
 const SHRINK_PASSES: readonly ShrinkPass[] = [
   { stringCap: 64 * 1024, arrayLimit: 256 },
@@ -49,29 +48,64 @@ const SHRINK_PASSES: readonly ShrinkPass[] = [
 
 const STRING_ELISION_RESERVE = 80;
 
+/** JSON's UTF-8 wire size, including escaped control characters. */
+export function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+// These strings identify protocol objects rather than display text.
+const IDENTITY_FIELDS = new Set([
+  "id", "type", "kind", "role", "name", "sessionId", "turnId", "draftId",
+  "requestId", "toolUseId", "parentToolUseId", "providerId", "backendId",
+]);
+
 /**
  * Recursively walk `value`, head-truncating any string longer than
  * `stringCap` and head-clipping any array longer than `arrayLimit`. Returns a
  * freshly built deep clone; short strings/numbers/booleans pass through.
  */
-function shrinkWalk(value: unknown, stringCap: number, arrayLimit: number): unknown {
+function shrinkWalk(value: unknown, stringCap: number, arrayLimit: number, opaque = false): unknown {
   if (typeof value === "string") {
     if (value.length <= stringCap) return value;
-    const headLen = Math.max(0, stringCap - STRING_ELISION_RESERVE);
+    let headLen = Math.max(0, stringCap - STRING_ELISION_RESERVE);
+    // Never split a UTF-16 surrogate pair at the truncation boundary.
+    const last = value.charCodeAt(headLen - 1);
+    if (last >= 0xd800 && last <= 0xdbff) headLen--;
     return `${value.slice(0, headLen)}\n…[${value.length - headLen} chars elided]`;
   }
   if (Array.isArray(value)) {
     const keep = Math.min(value.length, arrayLimit);
-    const elided = value.length - keep;
-    const out: unknown[] = new Array(elided > 0 ? keep + 1 : keep);
-    for (let i = 0; i < keep; i++) out[i] = shrinkWalk(value[i], stringCap, arrayLimit);
-    if (elided > 0) out[keep] = `…[${elided} items elided]`;
+    const out: unknown[] = new Array(keep);
+    for (let i = 0; i < keep; i++) out[i] = shrinkWalk(value[i], stringCap, arrayLimit, opaque);
     return out;
   }
   if (value && typeof value === "object") {
     const src = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
-    for (const k in src) out[k] = shrinkWalk(src[k], stringCap, arrayLimit);
+    // Arbitrary tool input can exceed the cap through key count alone. Clip
+    // its records recursively, while preserving fields on protocol objects.
+    const keys = Object.keys(src);
+    for (const k of opaque ? keys.slice(0, arrayLimit) : keys) {
+      out[k] = !opaque && IDENTITY_FIELDS.has(k) && typeof src[k] === "string"
+        ? src[k]
+        : shrinkWalk(src[k], stringCap, arrayLimit, opaque || k === "input");
+    }
+    // History parts refer to toolCalls by array index. Head clipping preserves
+    // retained indices, but references to removed tools must go with them.
+    if (!opaque && (src.role === "assistant" || src.role === "user") && Array.isArray(out.toolCalls)) {
+      const toolCount = out.toolCalls.length;
+      if (Array.isArray(out.parts)) {
+        out.parts = out.parts.filter((part) =>
+          !part || part.kind !== "tool" ||
+          (Number.isInteger(part.toolIndex) && part.toolIndex >= 0 && part.toolIndex < toolCount)
+        );
+      }
+      if (Array.isArray(src.toolCalls) && src.toolCalls.length > toolCount && typeof out.content === "string") {
+        const notice = `\n…[${src.toolCalls.length - toolCount} tool calls elided]`;
+        out.content += notice;
+        if (Array.isArray(out.parts)) out.parts.push({ kind: "text", text: notice });
+      }
+    }
     return out;
   }
   return value;
@@ -84,12 +118,12 @@ function shrinkWalk(value: unknown, stringCap: number, arrayLimit: number): unkn
  * only string leaves and array tails change — discriminator fields, ids, and
  * other small metadata pass through untouched.
  */
-export function shrinkForReplication<T>(value: T): T {
-  if (JSON.stringify(value).length <= MAX_WS_MESSAGE_BYTES) return value;
+export function shrinkForReplication<T>(value: T, maxBytes = MAX_WS_MESSAGE_BYTES): T {
+  if (jsonBytes(value) <= maxBytes) return value;
   let shrunk: unknown = value;
   for (const pass of SHRINK_PASSES) {
     shrunk = shrinkWalk(value, pass.stringCap, pass.arrayLimit);
-    if (JSON.stringify(shrunk).length <= MAX_WS_MESSAGE_BYTES) return shrunk as T;
+    if (jsonBytes(shrunk) <= maxBytes) return shrunk as T;
   }
   return shrunk as T;
 }
