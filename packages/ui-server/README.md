@@ -139,6 +139,10 @@ brain repository.
   + cookie/IP auth). Refuses to boot on an unsafe auth configuration.
 - **Auth** (`AUTH_MODE`): `password` (+ passkeys/WebAuthn), `tailscale`,
   `proxy`, `none` (loopback-only unless explicitly overridden).
+- **Principal access** (password mode only): `GET /api/auth/principals` lists
+  active devices and agents, `POST /api/auth/principals` mints an agent
+  credential, and `DELETE /api/auth/principals/:id` revokes one. These routes
+  are disabled in every other `AUTH_MODE`.
 - **WebSocket turn coordinator** — parallel sessions with per-session turn
   slots, follow-up queueing, host-owned per-turn timeout/cancellation, and the
   approval / ask-user / location round-trips. Decomposed into explicit host

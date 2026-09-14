@@ -82,6 +82,43 @@ agent without authentication.
 | `proxy`     | Trusts an upstream auth header from a reverse proxy (Authelia, oauth2-proxy, Caddy basic-auth). | You already run an auth proxy.     |
 | `none`      | **Refused in production** unless the host is loopback.                                        | Local development only.               |
 
+## Agent and device access
+
+A principal is the server-side identity attached to an authenticated device,
+delegated agent, or system job. It gives activity an actor and, for
+password-mode devices and agents, gives the owner one credential to revoke
+without signing out the rest.
+
+1. To create agent access, sign in as the owner, open **Settings → Devices &
+   agents**, enter a recognizable label and expiry, and select **Create agent
+   credential**. Copy the credential into the agent's secure configuration as
+   the value of the `brain_ui_session` cookie: the value is shown once and
+   cannot be recovered later.
+2. To remove one device or agent, select **Revoke** beside it. Revocation rejects
+   its future requests, closes its open sockets, discards its queued work that
+   has not started, and makes its push subscriptions ineligible for future
+   delivery. Work already running keeps running, and notifications already sent
+   to a push service or device cannot be recalled.
+3. **Sign out everywhere** still means everywhere: it revokes every active
+   password-mode device and agent principal, not only the browser that selected
+   it.
+
+### Version transition
+
+1. Upgrade brain-ui and expect one re-login on every password-mode device: the
+   new verifier rejects cookies in the old format. An agent using an old owner
+   cookie also loses access; after signing in, mint it a delegated credential.
+2. If the deployment stays on the upgraded version, keep the existing
+   `COOKIE_SECRET`; the forced login is the only transition step.
+3. If you roll back to a version that reads the old cookie format, generate a
+   new `COOKIE_SECRET` and update the deployment secret before starting the
+   rolled-back service. "Sign out everywhere" still advances the legacy epoch
+   the old verifier reads, but **individual** principal revocations recorded
+   after the upgrade do not reach it — so reusing the secret can revive a single
+   revoked cookie.
+4. Restart the rolled-back deployment with the new secret and sign in again on
+   every device that should retain access.
+
 ## The honest cost picture
 
 The hosting is cheap. The AI is not — and that is the part people underestimate.
