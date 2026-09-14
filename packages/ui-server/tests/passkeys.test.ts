@@ -449,39 +449,37 @@ describe("login-verify", () => {
     ]);
   });
 
-  test("a credential deleted during assertion verification cannot mint a session", async () => {
-    let entered!: () => void;
-    const verificationEntered = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    let release!: () => void;
-    const verificationGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const delayedVerification = (async () => {
-      entered();
-      await verificationGate;
-      return { verified: true, authenticationInfo: { newCounter: 7 } };
-    }) as unknown as NonNullable<PasskeyDeps["verifyAuthenticationResponse"]>;
-    const app = fullApp({ verifyAuthenticationResponse: delayedVerification });
+  test("a credential deleted after the verification re-check cannot mint a session", async () => {
+    const app = fullApp({ verifyAuthenticationResponse: verifiedAuth(7) });
     seedCredential();
     const challenge = await freshLoginChallenge(app, "10.3.0.20");
+    // The route re-checks the credential before updating its counter. This
+    // trigger deletes it as that update completes, in the remaining window
+    // before createPrincipal starts its IMMEDIATE transaction.
+    getDb().exec(
+      `CREATE TEMP TRIGGER delete_verified_credential
+       AFTER UPDATE ON passkey_credentials
+       WHEN NEW.id = 'cred-1'
+       BEGIN
+         DELETE FROM passkey_credentials WHERE id = NEW.id;
+       END`
+    );
 
-    const pending = app.request("/api/auth/passkey/login-verify", {
-      method: "POST",
-      headers: headers({}, "10.3.0.21"),
-      body: JSON.stringify(assertionResponse(challenge)),
-    });
-    await verificationEntered;
-    getDb().prepare("DELETE FROM passkey_credentials WHERE id = ?").run("cred-1");
-    release();
+    try {
+      const response = await app.request("/api/auth/passkey/login-verify", {
+        method: "POST",
+        headers: headers({}, "10.3.0.21"),
+        body: JSON.stringify(assertionResponse(challenge)),
+      });
 
-    const response = await pending;
-    expect(response.status).toBe(401);
-    expect(response.headers.get("set-cookie")).toBeNull();
-    expect(getDb().query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
-      count: 0,
-    });
+      expect(response.status).toBe(401);
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(
+        getDb().query("SELECT COUNT(*) AS count FROM principals").get()
+      ).toEqual({ count: 0 });
+    } finally {
+      getDb().exec("DROP TRIGGER delete_verified_credential");
+    }
   });
 
   test("the live-principal cap returns 503 after valid passkey verification", async () => {
@@ -489,7 +487,6 @@ describe("login-verify", () => {
     seedCredential();
     for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
       createPrincipal(getDb(), {
-        kind: "owner",
         authMethod: "password",
         label: `Existing device ${index}`,
         ttlSeconds: 3_600,

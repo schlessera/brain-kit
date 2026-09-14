@@ -3,10 +3,9 @@ import type { Database } from "bun:sqlite";
 
 export const MAX_LIVE_PRINCIPALS = 100;
 export const PRINCIPAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
-export const AMBIENT_PRINCIPAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 export const PRINCIPAL_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
 
-const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
+export const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 const MAX_LABEL_LENGTH = 64;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/u;
 const lastPrincipalPruneByDb = new WeakMap<Database, number>();
@@ -34,18 +33,29 @@ export interface Principal {
 }
 
 export interface CreatePrincipalInput {
-  kind: PrincipalKind;
-  authMethod: PrincipalAuthMethod;
+  authMethod: Exclude<PrincipalAuthMethod, "ambient">;
   label: string;
   credentialId?: string;
   createdBy?: string;
   ttlSeconds: number;
 }
 
+export interface ResolveSystemPrincipalInput {
+  identity: string;
+  label: string;
+}
+
 export class PrincipalLimitError extends Error {
   constructor() {
     super(`live principal limit of ${MAX_LIVE_PRINCIPALS} reached`);
     this.name = "PrincipalLimitError";
+  }
+}
+
+export class PrincipalCredentialNotFoundError extends Error {
+  constructor(credentialId: string) {
+    super(`passkey credential ${credentialId} no longer exists`);
+    this.name = "PrincipalCredentialNotFoundError";
   }
 }
 
@@ -119,15 +129,41 @@ function ambientPrincipalId(
     .toString("base64url");
 }
 
-export function createPrincipal(db: Database, input: CreatePrincipalInput): Principal {
-  if (input.kind === "ambient") {
-    throw new TypeError("ambient principals must be resolved from an auth identity");
+function systemPrincipalId(identity: string): string {
+  return createHash("sha256")
+    .update("brain-ui:system-principal:v1\0")
+    .update(identity)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+}
+
+function kindFromAuthMethod(
+  authMethod: CreatePrincipalInput["authMethod"]
+): "owner" | "agent" {
+  switch (authMethod) {
+    case "password":
+    case "passkey":
+      return "owner";
+    case "delegated":
+      return "agent";
+    default:
+      throw new TypeError(`unsupported principal auth method: ${String(authMethod)}`);
   }
+}
+
+export function createPrincipal(db: Database, input: CreatePrincipalInput): Principal {
   validateLabel(input.label);
   const now = Date.now();
   const expiresAt = expiryFromTtl(now, input.ttlSeconds);
 
   return db.transaction(() => {
+    if (
+      input.credentialId !== undefined &&
+      !db.prepare("SELECT 1 FROM passkey_credentials WHERE id = ?").get(input.credentialId)
+    ) {
+      throw new PrincipalCredentialNotFoundError(input.credentialId);
+    }
     if (countLivePrincipals(db, now) >= MAX_LIVE_PRINCIPALS) {
       throw new PrincipalLimitError();
     }
@@ -142,7 +178,7 @@ export function createPrincipal(db: Database, input: CreatePrincipalInput): Prin
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
-      input.kind,
+      kindFromAuthMethod(input.authMethod),
       input.authMethod,
       input.label,
       input.credentialId ?? null,
@@ -169,10 +205,12 @@ export function resolveAmbientPrincipal(
 ): Principal {
   validateLabel(label);
   const id = ambientPrincipalId(source, identity);
+  const existing = resolvePrincipal(db, id);
+  if (existing) return resolveStoredIdentity(db, existing, label, "ambient");
 
   return db.transaction(() => {
-    const existing = resolvePrincipal(db, id);
-    if (!existing) {
+    let principal = resolvePrincipal(db, id);
+    if (!principal) {
       const now = Date.now();
       db.prepare(
         `INSERT INTO principals
@@ -180,20 +218,71 @@ export function resolveAmbientPrincipal(
             created_at, expires_at, last_seen_at)
          VALUES (?, 'ambient', 'ambient', ?, NULL, NULL, ?, ?, ?)`
       ).run(id, label, now, Number.MAX_SAFE_INTEGER, now);
+      principal = resolvePrincipal(db, id)!;
     }
 
-    const principal = resolvePrincipal(db, id)!;
-    if (
-      principal.kind !== "ambient" ||
-      principal.authMethod !== "ambient" ||
-      principal.label !== label ||
-      !isUsablePrincipal(principal, Date.now())
-    ) {
-      throw new Error(`Corrupt ambient principal ${id}`);
-    }
-    touchLastSeen(db, id, Date.now());
-    return principal;
+    return resolveStoredIdentity(db, principal, label, "ambient");
   }).immediate();
+}
+
+/** Resolve the durable attribution row for a non-cookie system identity. */
+export function resolveSystemPrincipal(
+  db: Database,
+  input: ResolveSystemPrincipalInput
+): Principal {
+  validateLabel(input.label);
+  const id = systemPrincipalId(input.identity);
+  const existing = resolvePrincipal(db, id);
+  if (existing) return resolveStoredIdentity(db, existing, input.label, "system");
+
+  return db.transaction(() => {
+    let principal = resolvePrincipal(db, id);
+    if (!principal) {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO principals
+           (id, kind, auth_method, label, credential_id, created_by,
+            created_at, expires_at)
+         VALUES (?, 'system', 'ambient', ?, NULL, NULL, ?, ?)`
+      ).run(id, input.label, now, Number.MAX_SAFE_INTEGER);
+      principal = resolvePrincipal(db, id)!;
+    }
+    return resolveStoredIdentity(db, principal, input.label, "system");
+  }).immediate();
+}
+
+function resolveStoredIdentity(
+  db: Database,
+  principal: Principal,
+  label: string,
+  kind: "ambient" | "system"
+): Principal {
+  if (
+    principal.kind !== kind ||
+    principal.authMethod !== "ambient" ||
+    !isUsablePrincipal(principal, Date.now())
+  ) {
+    throw new Error(`Corrupt ${kind} principal ${principal.id}`);
+  }
+  if (principal.label !== label) {
+    db.prepare("UPDATE principals SET label = ? WHERE id = ?").run(
+      label,
+      principal.id
+    );
+    principal = { ...principal, label };
+  }
+  if (kind === "ambient") {
+    // The UPDATE's WHERE throttles the write, but issuing it at all starts an
+    // implicit write transaction — on every request, in three of four auth
+    // modes. Decide from the row already in hand; the SQL predicate stays as
+    // the concurrency guard for the writes that do happen.
+    const now = Date.now();
+    if (isLastSeenStale(principal.lastSeenAt, now)) {
+      touchLastSeen(db, principal.id, now);
+      principal = { ...principal, lastSeenAt: now };
+    }
+  }
+  return principal;
 }
 
 export function resolvePrincipal(db: Database, id: string): Principal | null {
@@ -211,6 +300,13 @@ export function isUsablePrincipal(row: Principal, now: number): boolean {
   return row.revokedAt === null && now < row.expiresAt;
 }
 
+/** Whether this principal kind may be carried by an authenticated cookie. */
+export function isCookieBearingPrincipal(
+  principal: Principal
+): principal is Principal & { kind: "owner" | "agent" } {
+  return principal.kind === "owner" || principal.kind === "agent";
+}
+
 function assertPrincipalTimestamp(
   row: Principal,
   column: string,
@@ -219,6 +315,11 @@ function assertPrincipalTimestamp(
 ): void {
   if ((nullable && value === null) || Number.isSafeInteger(value)) return;
   throw new Error(`Corrupt principal ${row.id}: ${column} must be an integer`);
+}
+
+/** Whether a stored last_seen_at is old enough to be worth a write. */
+export function isLastSeenStale(lastSeenAt: number | null, now: number): boolean {
+  return lastSeenAt === null || lastSeenAt < now - LAST_SEEN_WRITE_INTERVAL_MS;
 }
 
 export function touchLastSeen(db: Database, id: string, now: number): void {
@@ -233,7 +334,8 @@ export function revokePrincipal(db: Database, id: string, now: number): string[]
     db
       .prepare(
         `UPDATE principals SET revoked_at = ?
-         WHERE id = ? AND kind <> 'ambient' AND revoked_at IS NULL RETURNING id`
+         WHERE id = ? AND kind IN ('owner', 'agent')
+           AND revoked_at IS NULL RETURNING id`
       )
       .all(now, id) as Array<{ id: string }>
   );
@@ -244,7 +346,8 @@ export function revokeAllPrincipals(db: Database, now: number): string[] {
     db
       .prepare(
         `UPDATE principals SET revoked_at = ?
-         WHERE kind <> 'ambient' AND revoked_at IS NULL RETURNING id`
+         WHERE kind IN ('owner', 'agent')
+           AND revoked_at IS NULL RETURNING id`
       )
       .all(now) as Array<{ id: string }>
   );
@@ -273,7 +376,6 @@ export function prunePrincipals(db: Database, now: number): void {
   // Thirty days preserves a useful audit/debug window after a principal stops
   // being usable while still placing a fixed bound on terminal-row growth.
   const cutoff = now - PRINCIPAL_RETENTION_MS;
-  const ambientCutoff = now - AMBIENT_PRINCIPAL_RETENTION_MS;
   db.prepare(
     `DELETE FROM principals
      WHERE (kind = 'ambient' AND COALESCE(last_seen_at, created_at) < ?)
@@ -281,7 +383,7 @@ export function prunePrincipals(db: Database, now: number): void {
           (revoked_at IS NOT NULL AND revoked_at < ?)
           OR expires_at < ?
         ))`
-  ).run(ambientCutoff, cutoff, cutoff);
+  ).run(cutoff, cutoff, cutoff);
 }
 
 /**
@@ -306,7 +408,8 @@ export function countLivePrincipals(db: Database, now: number): number {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS count FROM principals
-       WHERE kind <> 'ambient' AND revoked_at IS NULL AND expires_at > ?`
+       WHERE kind IN ('owner', 'agent')
+         AND revoked_at IS NULL AND expires_at > ?`
     )
     .get(now) as { count: number };
   return row.count;

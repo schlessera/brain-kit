@@ -172,7 +172,6 @@ describe("principal revocation boundary", () => {
 
     try {
       const principal = createPrincipal(app.db, {
-        kind: "owner",
         authMethod: "password",
         label: "Test device",
         ttlSeconds: 3_600,

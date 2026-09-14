@@ -141,21 +141,18 @@ describe("passkey credential revocation", () => {
     seedCredential("cred-1");
     seedCredential("cred-2");
     const first = createPrincipal(db, {
-      kind: "owner",
       authMethod: "passkey",
       credentialId: "cred-1",
       label: "First passkey session",
       ttlSeconds: 3_600,
     });
     const second = createPrincipal(db, {
-      kind: "owner",
       authMethod: "passkey",
       credentialId: "cred-1",
       label: "Second passkey session",
       ttlSeconds: 3_600,
     });
     const other = createPrincipal(db, {
-      kind: "owner",
       authMethod: "passkey",
       credentialId: "cred-2",
       label: "Other passkey session",

@@ -32,11 +32,10 @@ import { createUiDb } from "../src/db/client";
 import { ClientSet } from "../src/ws/clients";
 import { clientIp } from "../src/middleware/tailscale";
 import {
-  AMBIENT_PRINCIPAL_RETENTION_MS,
+  PRINCIPAL_RETENTION_MS,
   createPrincipal,
   MAX_LIVE_PRINCIPALS,
   PRINCIPAL_PRUNE_INTERVAL_MS,
-  PRINCIPAL_RETENTION_MS,
   resolvePrincipal,
 } from "../src/db/principals";
 
@@ -302,7 +301,6 @@ describe("password login + guard", () => {
   test("the live-principal cap returns 503 without creating a session", async () => {
     for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
       createPrincipal(DB, {
-        kind: "owner",
         authMethod: "password",
         label: `Existing device ${index}`,
         ttlSeconds: 3_600,
@@ -584,6 +582,37 @@ describe("ambient principals", () => {
     ).toEqual({ count: 2 });
   });
 
+  test("a changed derived ambient label is adopted without rejecting the request", async () => {
+    const runtime = auth({
+      TRUST_PROXY: "1",
+      PROXY_AUTH_HEADER: "x-forwarded-user",
+    });
+    const app = new Hono<AppEnv>();
+    app.use("/api/*", authGuard("proxy", runtime, DB));
+    app.get("/api/principal", (c) => c.json(c.get("principal")));
+
+    const first = await app.request("/api/principal", {
+      headers: { "x-forwarded-user": "Alex Example" },
+    });
+    const principal = await first.json();
+    DB.prepare("UPDATE principals SET label = ? WHERE id = ?").run(
+      "Label from an older sanitizer",
+      principal.id
+    );
+
+    const response = await app.request("/api/principal", {
+      headers: { "x-forwarded-user": "Alex Example" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: principal.id,
+      kind: "ambient",
+      label: "Alex Example",
+    });
+    expect(resolvePrincipal(DB, principal.id)?.label).toBe("Alex Example");
+  });
+
   test("proxy admission does not depend on the sanitized label being non-empty", async () => {
     const runtime = auth({
       TRUST_PROXY: "1",
@@ -618,7 +647,7 @@ describe("ambient principals", () => {
       });
       const inactive = await first.json();
       DB.prepare("UPDATE principals SET last_seen_at = ? WHERE id = ?").run(
-        now - AMBIENT_PRINCIPAL_RETENTION_MS - 1,
+        now - PRINCIPAL_RETENTION_MS - 1,
         inactive.id
       );
 

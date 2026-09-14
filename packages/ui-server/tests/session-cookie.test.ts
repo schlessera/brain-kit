@@ -10,6 +10,7 @@ import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import {
   createPrincipal,
+  resolveAmbientPrincipal,
   resolvePrincipal,
   revokePrincipal,
   type Principal,
@@ -17,11 +18,12 @@ import {
 import {
   authGuard,
   authRoutes,
-  hasValidSession,
   issueSessionCookie,
+  resolveCookiePrincipal,
   type AuthRuntime,
 } from "../src/middleware/auth";
 import { ClientSet, type WSContext } from "../src/ws/clients";
+import { createRecordingObservability } from "../src/observability/index";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const COOKIE_NAME = "brain_ui_session";
@@ -56,7 +58,6 @@ function runtime(): AuthRuntime {
 
 function create(ttlSeconds = 3_600): Principal {
   return createPrincipal(db, {
-    kind: "owner",
     authMethod: "password",
     label: "Test browser",
     ttlSeconds,
@@ -91,7 +92,7 @@ async function authenticate(
     throw error;
   });
   app.get("/", async (c) => {
-    principal = await hasValidSession(c, runtime(), database);
+    principal = await resolveCookiePrincipal(c, runtime(), database);
     return c.json({ principalId: principal?.id ?? null }, principal ? 200 : 401);
   });
   const response = await app.request("/", {
@@ -149,6 +150,19 @@ describe("principal session cookie", () => {
   test("a correctly signed v1 issuedAt.epoch cookie is rejected", async () => {
     const cookie = await signedCookie(`${Date.now()}.0`);
     const authenticated = await authenticate(cookie);
+
+    expect(authenticated.response.status).toBe(401);
+    expect(authenticated.principal).toBeNull();
+  });
+
+  test("a signed cookie naming an ambient principal is rejected", async () => {
+    const ambient = resolveAmbientPrincipal(
+      db,
+      "none",
+      "No authentication",
+      "No authentication"
+    );
+    const authenticated = await authenticate(await signedCookie(ambient.id));
 
     expect(authenticated.response.status).toBe(401);
     expect(authenticated.principal).toBeNull();
@@ -353,5 +367,46 @@ describe("principal session cookie", () => {
     expect(
       db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
     ).toBeNull();
+  });
+
+  test("logout still revokes sessions when the legacy epoch row is corrupt", async () => {
+    const principal = create();
+    const cookie = await signedCookie(principal.id);
+    db.prepare(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ('auth.sessionsEpoch', 'not-json', ?)`
+    ).run(Date.now());
+    const observability = createRecordingObservability();
+    const auth = runtime();
+    const app = new Hono();
+    app.route(
+      "/api",
+      authRoutes("password", auth, {
+        db,
+        clients: new ClientSet(),
+        log: observability.logger("auth"),
+      })
+    );
+    app.use("/api/*", authGuard("password", auth, db));
+    app.get("/api/secret", (c) => c.json({ ok: true }));
+
+    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(
+      200
+    );
+    const logout = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: { cookie },
+    });
+
+    expect(logout.status).toBe(200);
+    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(
+      401
+    );
+    expect(resolvePrincipal(db, principal.id)?.revokedAt).not.toBeNull();
+    expect(
+      observability.logs.count({
+        body: "legacy session epoch is corrupt; downgrade guard was not advanced",
+      })
+    ).toBe(1);
   });
 });

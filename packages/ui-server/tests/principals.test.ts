@@ -7,16 +7,17 @@ import { join } from "path";
 
 import { createUiDb } from "../src/db/client";
 import {
-  AMBIENT_PRINCIPAL_RETENTION_MS,
+  LAST_SEEN_WRITE_INTERVAL_MS,
+  PRINCIPAL_RETENTION_MS,
   countLivePrincipals,
   createPrincipal,
   isUsablePrincipal,
   MAX_LIVE_PRINCIPALS,
   PrincipalLimitError,
-  PRINCIPAL_RETENTION_MS,
   prunePrincipals,
   resolveAmbientPrincipal,
   resolvePrincipal,
+  resolveSystemPrincipal,
   revokeAllPrincipals,
   revokeByCredential,
   revokePrincipal,
@@ -40,17 +41,24 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  db.exec("DELETE FROM principals");
+  db.exec("DELETE FROM principals; DELETE FROM passkey_credentials");
 });
 
 function create(overrides: Partial<Parameters<typeof createPrincipal>[1]> = {}) {
   return createPrincipal(db, {
-    kind: "owner",
     authMethod: "password",
     label: "Test browser",
     ttlSeconds: 3_600,
     ...overrides,
   });
+}
+
+function seedCredential(id: string): void {
+  db.prepare(
+    `INSERT INTO passkey_credentials
+       (id, public_key, counter, rp_id, backed_up, label, created_at)
+     VALUES (?, ?, 0, 'example.test', 0, 'Test key', ?)`
+  ).run(id, new Uint8Array([1, 2, 3]), BASE_NOW);
 }
 
 function setTimes(
@@ -78,13 +86,11 @@ function setTimes(
 }
 
 describe("principal store", () => {
-  test("migration applies and a created principal round-trips as usable", () => {
+  test("kind is derived from auth method and a principal round-trips as usable", () => {
     const ttlSeconds = 3_600;
     const principal = create({
-      kind: "agent",
       authMethod: "delegated",
       label: "Build agent",
-      credentialId: "credential-1",
       createdBy: "owner-1",
       ttlSeconds,
     });
@@ -100,7 +106,7 @@ describe("principal store", () => {
     expect(resolved!.kind).toBe("agent");
     expect(resolved!.authMethod).toBe("delegated");
     expect(resolved!.label).toBe("Build agent");
-    expect(resolved!.credentialId).toBe("credential-1");
+    expect(resolved!.credentialId).toBeNull();
     expect(resolved!.createdBy).toBe("owner-1");
     expect(resolved!.lastSeenAt).toBeNull();
     expect(resolved!.revokedAt).toBeNull();
@@ -177,6 +183,8 @@ describe("principal store", () => {
   });
 
   test("revokeByCredential revokes only every row carrying that credential", () => {
+    seedCredential("credential-a");
+    seedCredential("credential-b");
     const first = create({ credentialId: "credential-a", label: "First" });
     const second = create({ credentialId: "credential-a", label: "Second" });
     const other = create({ credentialId: "credential-b", label: "Other" });
@@ -202,11 +210,7 @@ describe("principal store", () => {
     expect(revokeAllPrincipals(db, BASE_NOW + 1)).toEqual([]);
   });
 
-  test("ambient principals can only be resolved and cannot be revoked", () => {
-    expect(() =>
-      create({ kind: "ambient", authMethod: "ambient", label: "Not allowed" })
-    ).toThrow(/must be resolved/);
-
+  test("ambient and system principals use dedicated resolvers and cannot be revoked", () => {
     const ambient = resolveAmbientPrincipal(
       db,
       "none",
@@ -216,6 +220,67 @@ describe("principal store", () => {
     expect(revokePrincipal(db, ambient.id, BASE_NOW)).toEqual([]);
     expect(revokeAllPrincipals(db, BASE_NOW)).toEqual([]);
     expect(resolvePrincipal(db, ambient.id)?.revokedAt).toBeNull();
+
+    const system = resolveSystemPrincipal(db, {
+      identity: "scheduled-jobs",
+      label: "Scheduled jobs",
+    });
+    expect(system).toMatchObject({ kind: "system", authMethod: "ambient" });
+    expect(revokePrincipal(db, system.id, BASE_NOW)).toEqual([]);
+    expect(countLivePrincipals(db, BASE_NOW)).toBe(0);
+  });
+
+  test("ambient resolution performs no write for a fresh hit", () => {
+    const now = spyOn(Date, "now").mockReturnValue(BASE_NOW);
+    try {
+      const first = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      const before = db.query("SELECT total_changes() AS count").get() as {
+        count: number;
+      };
+
+      const second = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      const after = db.query("SELECT total_changes() AS count").get() as {
+        count: number;
+      };
+
+      expect(second.id).toBe(first.id);
+      expect(after.count).toBe(before.count);
+
+      // total_changes() cannot see a write transaction that changed no rows,
+      // and the throttle's WHERE made the UPDATE a no-op — so the counter stays
+      // equal whether or not a write transaction was opened. query_only can
+      // see it: under it, ANY write statement throws.
+      db.exec("PRAGMA query_only = ON");
+      try {
+        const third = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+        expect(third.id).toBe(first.id);
+      } finally {
+        db.exec("PRAGMA query_only = OFF");
+      }
+
+      // A stale hit does write, and the timestamp advances.
+      now.mockReturnValue(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
+      const fourth = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      expect(fourth.lastSeenAt).toBe(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
+      const afterStale = db.query("SELECT total_changes() AS count").get() as {
+        count: number;
+      };
+      expect(afterStale.count).toBeGreaterThan(after.count);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("principal creation refuses a deleted passkey credential", () => {
+    expect(() =>
+      create({
+        authMethod: "passkey",
+        credentialId: "deleted-credential",
+      })
+    ).toThrow(/no longer exists/);
+    expect(db.query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
+      count: 0,
+    });
   });
 
   test("touchLastSeen writes only when the stored value is more than 60 seconds stale", () => {
@@ -256,10 +321,10 @@ describe("principal store", () => {
     setTimes(expiredRecent.id, { expiresAt: recent });
     setTimes(live.id, { expiresAt: BASE_NOW + 1 });
     setTimes(ambientOld.id, {
-      lastSeenAt: BASE_NOW - AMBIENT_PRINCIPAL_RETENTION_MS - 1,
+      lastSeenAt: BASE_NOW - PRINCIPAL_RETENTION_MS - 1,
     });
     setTimes(ambientRecent.id, {
-      lastSeenAt: BASE_NOW - AMBIENT_PRINCIPAL_RETENTION_MS + 1,
+      lastSeenAt: BASE_NOW - PRINCIPAL_RETENTION_MS + 1,
     });
 
     prunePrincipals(db, BASE_NOW);

@@ -13,7 +13,7 @@ import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createUiDb } from "../src/db/client";
 import {
-  AMBIENT_PRINCIPAL_RETENTION_MS,
+  PRINCIPAL_RETENTION_MS,
   resolveAmbientPrincipal,
   resolvePrincipal,
 } from "../src/db/principals";
@@ -391,7 +391,7 @@ describe("createApp principal retention", () => {
       "Inactive proxy user"
     );
     seed.prepare("UPDATE principals SET last_seen_at = ? WHERE id = ?").run(
-      Date.now() - AMBIENT_PRINCIPAL_RETENTION_MS - 1,
+      Date.now() - PRINCIPAL_RETENTION_MS - 1,
       inactive.id
     );
     seed.close();

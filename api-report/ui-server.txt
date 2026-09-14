@@ -62,7 +62,6 @@ export "." (./src/index.ts)
   assertBackendResolvable
   authGuard
   buildKeyterms
-  bumpSessionsEpoch
   createActivityStore
   createActivityStream
   createApp
@@ -82,7 +81,6 @@ export "." (./src/index.ts)
   createWsUpgrade
   generateActivityDigest
   handleClientMessage
-  hasValidSession
   ingestSpanSink
   isWsAuthorized
   latestActivityDigest
@@ -90,8 +88,10 @@ export "." (./src/index.ts)
   pruneShareStaging
   recordCronRun
   resolveAuthMode
+  resolveCookiePrincipal
   resolveServerConfig
   resolveTurnTarget
+  revokeAllSessions
   seriesKey
   severityRank
   shareStagingRoot

@@ -11,7 +11,9 @@ import { requireJson } from "./origin.js";
 import { setSetting } from "../db/settings.js";
 import {
   createPrincipal,
+  isCookieBearingPrincipal,
   isUsablePrincipal,
+  PrincipalCredentialNotFoundError,
   PrincipalLimitError,
   prunePrincipals,
   prunePrincipalsIfDue,
@@ -230,7 +232,7 @@ export function authGuard(
     case "password":
       return async (c, next) => {
         prunePrincipalsIfDue(db, Date.now());
-        const principal = await hasValidSession(c, auth, db);
+        const principal = await resolveCookiePrincipal(c, auth, db);
         if (principal) {
           c.set("principal", principal);
           await next();
@@ -264,6 +266,8 @@ export function authGuard(
  * automatically same-origin) is the credential, and no header-modifying
  * middleware may sit on the WS route (immutable-header errors). Mirrors
  * {@link authGuard} without emitting a response.
+ *
+ * @returns The resolved principal for an authorized upgrade, otherwise null.
  */
 export async function isWsAuthorized(
   c: Context<AppEnv>,
@@ -302,7 +306,7 @@ export async function isWsAuthorized(
         : null;
     }
     case "password":
-      return hasValidSession(c, auth, db);
+      return resolveCookiePrincipal(c, auth, db);
   }
 }
 
@@ -322,7 +326,11 @@ export async function issueSessionCookie(
   const secret = auth.cookieSecret ?? "";
   const principal = resolvePrincipal(db, principalId);
   const now = Date.now();
-  if (!principal || !isUsablePrincipal(principal, now)) {
+  if (
+    !principal ||
+    !isCookieBearingPrincipal(principal) ||
+    !isUsablePrincipal(principal, now)
+  ) {
     throw new Error(`Cannot issue a session cookie for unusable principal ${principalId}`);
   }
   const maxAge = Math.floor((principal.expiresAt - now) / 1_000);
@@ -371,7 +379,6 @@ export async function issueLoginSession(
 
   try {
     const principal = createPrincipal(db, {
-      kind: "owner",
       authMethod: lineage.authMethod,
       label: sanitizeLoginLabel(c.req.header("user-agent")),
       credentialId:
@@ -380,6 +387,9 @@ export async function issueLoginSession(
     });
     await issueSessionCookie(c, auth, db, principal.id);
   } catch (err) {
+    if (err instanceof PrincipalCredentialNotFoundError) {
+      return c.json({ error: "Passkey verification failed" }, 401);
+    }
     if (!(err instanceof PrincipalLimitError)) throw err;
     // 503: valid credentials reached a server-side capacity limit. This is
     // neither an authentication failure nor a request the client can repair
@@ -397,7 +407,7 @@ export async function issueLoginSession(
  * Resolve the principal named by a valid session cookie. Signature and payload
  * shape are checked before the principal store is queried.
  */
-export async function hasValidSession(
+export async function resolveCookiePrincipal(
   c: Context,
   auth: AuthRuntime,
   db: Database
@@ -419,13 +429,19 @@ export async function hasValidSession(
   // authoritative state fails only the principal whose signed cookie names it.
   const principal = resolvePrincipal(db, value);
   const now = Date.now();
-  if (!principal || !isUsablePrincipal(principal, now)) return null;
+  if (
+    !principal ||
+    !isCookieBearingPrincipal(principal) ||
+    !isUsablePrincipal(principal, now)
+  ) {
+    return null;
+  }
   touchLastSeen(db, principal.id, now);
   return principal;
 }
 
-/** Read the legacy downgrade epoch so {@link bumpSessionsEpoch} can advance it. */
-function sessionsEpoch(db: Database): number {
+/** Read the legacy downgrade epoch after durable session revocation completes. */
+function sessionsEpoch(db: Database, log?: Logger): number | null {
   const row = db
     .query("SELECT value FROM settings WHERE key = ?")
     .get(SESSIONS_EPOCH_KEY) as { value: string } | null;
@@ -435,23 +451,25 @@ function sessionsEpoch(db: Database): number {
   try {
     value = JSON.parse(row.value);
   } catch {
-    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a JSON integer`);
+    log?.emit({
+      severityText: "WARN",
+      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
+      attributes: { key: SESSIONS_EPOCH_KEY, reason: "expected a JSON integer" },
+    });
+    return null;
   }
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a non-negative integer`);
+    log?.emit({
+      severityText: "WARN",
+      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
+      attributes: { key: SESSIONS_EPOCH_KEY, reason: "expected a non-negative integer" },
+    });
+    return null;
   }
   return value as number;
 }
 
-/**
- * Revoke every principal, advance the legacy epoch, and disconnect every
- * attached client. This remains the sign-out-everywhere primitive in 0.35.0;
- * P5 narrows passkey deletion to revokeByCredential.
- *
- * The 0.35.0 session-principals verifier never reads this row. The write is a
- * downgrade guard so rolling back to v1 does not revive pre-upgrade cookies;
- * delete this compatibility helper and the epoch row in the 0.36.0 release.
- */
+/** Apply durable revocation to every live runtime authorization context. */
 export function applyPrincipalRevocation(
   revoker: Pick<WsHost, "revokePrincipals">,
   principalIds: readonly string[]
@@ -463,19 +481,29 @@ export function applyPrincipalRevocation(
   );
 }
 
-export function bumpSessionsEpoch(
+/**
+ * Revoke every cookie-bearing principal and disconnect its attached clients.
+ * The legacy epoch write happens last and is only a downgrade guard: this
+ * verifier never reads it, and corrupt legacy state cannot block revocation.
+ */
+export function revokeAllSessions(
   db: Database,
-  revoker: Pick<WsHost, "revokePrincipals">
-): number {
-  const current = sessionsEpoch(db);
-  if (current === Number.MAX_SAFE_INTEGER) {
-    throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
-  }
-  const next = current + 1;
+  revoker: Pick<WsHost, "revokePrincipals">,
+  log?: Logger
+): void {
   const revokedIds = revokeAllPrincipals(db, Date.now());
   applyPrincipalRevocation(revoker, revokedIds);
-  setSetting(db, SESSIONS_EPOCH_KEY, next);
-  return next;
+  const current = sessionsEpoch(db, log);
+  if (current === null) return;
+  if (current === Number.MAX_SAFE_INTEGER) {
+    log?.emit({
+      severityText: "WARN",
+      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
+      attributes: { key: SESSIONS_EPOCH_KEY, reason: "cannot advance safely" },
+    });
+    return;
+  }
+  setSetting(db, SESSIONS_EPOCH_KEY, current + 1);
 }
 
 // --- proxy mode helpers ---
@@ -668,7 +696,7 @@ export function authRoutes(
   deps: {
     /** Authoritative session state. */
     db: Database;
-    /** Runtime authorities invalidated whenever durable principals are revoked. */
+    /** Runtime connections and queued work invalidated by principal revocation. */
     clients: Pick<WsHost, "revokePrincipals">;
     /**
      * When provided and returning true, password login is refused (the app
@@ -809,12 +837,12 @@ export function authRoutes(
 
   app.post("/auth/logout", async (c) => {
     if (mode === "password") {
-      const principal = await hasValidSession(c, auth, deps.db);
+      const principal = await resolveCookiePrincipal(c, auth, deps.db);
       if (!principal) {
         return c.json({ error: "Authentication required", authRequired: true }, 401);
       }
       c.set("principal", principal);
-      bumpSessionsEpoch(deps.db, deps.clients);
+      revokeAllSessions(deps.db, deps.clients, deps.log);
     }
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });

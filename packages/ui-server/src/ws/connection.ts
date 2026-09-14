@@ -312,7 +312,11 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
 /** Build the Hono WebSocket upgrade handler bound to one host. */
 export function createWsUpgrade(host: WsHost): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const handlers = createWsHandlers(host, c.get("principal"));
+    const principal = c.get("principal");
+    if (!principal) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+    const handlers = createWsHandlers(host, principal);
     const upgrade = upgradeWebSocket(() => handlers);
     try {
       return await upgrade(c, async () => {

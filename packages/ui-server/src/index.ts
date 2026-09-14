@@ -41,10 +41,10 @@ export {
 } from "./agent/backend.js";
 export {
   authGuard,
-  bumpSessionsEpoch,
-  hasValidSession,
   isWsAuthorized,
+  resolveCookiePrincipal,
   resolveAuthMode,
+  revokeAllSessions,
   type AuthMode,
   type AuthRuntime,
 } from "./middleware/auth.js";
