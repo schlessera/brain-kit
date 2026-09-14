@@ -15,7 +15,7 @@ export interface EmbeddingProvider {
   id: string;
   dimensions: number;
   embed(texts: string[]): Promise<Float32Array[]>;
-  embedQuery(text: string): Promise<Float32Array>;
+  embedQuery(text: string, opts?: { signal?: AbortSignal }): Promise<Float32Array>;
   /** Optional multimodal support; absent → core embeds the text description instead. */
   embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
   embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
@@ -24,7 +24,13 @@ export interface EmbeddingProvider {
 
 `embed` vectorizes documents (batched); `embedQuery` vectorizes a search query
 (providers may treat the two asymmetrically). `embedImage` / `embedPdf` are
-optional multimodal hooks.
+optional multimodal hooks. Search gives query embedding three seconds before
+returning keyword results with a warning (or an empty result and warning in
+vector-only mode). Forward `opts.signal` to your provider's HTTP request to
+cancel abandoned work. Existing providers with a one-argument `embedQuery`
+remain compatible; search stops waiting even if they ignore cancellation.
+The built-in Gemini query path makes one attempt; batch indexing retains its
+longer retry schedule.
 
 Enrichment (chunk contexts, asset *descriptions*) is **not** here — it lives in
 `enrichment.ts` on top of a [`CompletionProvider`](completions.md). An embedding

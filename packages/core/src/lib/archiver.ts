@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from "fs";
-import { resolve, dirname } from "path";
+import { readFileSync, writeFileSync, existsSync, linkSync, unlinkSync, mkdirSync, mkdtempSync, rmSync, statSync } from "fs";
+import { resolve, dirname, join } from "path";
 import matter from "gray-matter";
 
 import { openDatabase, initVecSupport } from "./db.js";
@@ -56,10 +56,6 @@ export async function archiveDocument(
     ? relPath.replace("projects/active/", "projects/archive/")
     : relPath;
 
-  if (options?.dryRun) {
-    return { path: finalPath, status: "archived", moved: willMove, updated: today(), dryRun: true };
-  }
-
   // Validate the DESTINATION before mutating the source — a symlinked
   // projects/archive would otherwise rename the file out of the repo, and
   // failing after the rewrite would leave an active-path document marked
@@ -70,17 +66,43 @@ export async function archiveDocument(
     if (!archiveFullPath) {
       throw new Error("Archive destination escapes the brain root directory");
     }
+    if (existsSync(archiveFullPath)) {
+      throw new Error(`Archive destination already exists: ${finalPath}`);
+    }
+  }
+
+  if (options?.dryRun) {
+    return { path: finalPath, status: "archived", moved: willMove, updated: today(), dryRun: true };
   }
 
   const raw = readFileSync(fullPath, "utf-8");
   const parsed = matter(raw);
   parsed.data.status = "archived";
   parsed.data.updated = today();
-  writeFileSync(fullPath, stringifyDocument(parsed.content, parsed.data), "utf-8");
-
+  const output = stringifyDocument(parsed.content, parsed.data);
   if (archiveFullPath) {
     mkdirSync(dirname(archiveFullPath), { recursive: true });
-    renameSync(fullPath, archiveFullPath);
+    // Publish a complete file with an atomic no-clobber link. Unlike rename,
+    // link fails if a concurrent archive claimed the destination after our
+    // preflight. Keep the source untouched until publication succeeds.
+    const staging = mkdtempSync(join(dirname(archiveFullPath), ".brain-archive-"));
+    try {
+      const staged = join(staging, "document");
+      writeFileSync(staged, output, { encoding: "utf-8", mode: statSync(fullPath).mode });
+      try {
+        linkSync(staged, archiveFullPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`Archive destination already exists: ${finalPath}`);
+        }
+        throw error;
+      }
+      unlinkSync(fullPath);
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+  } else {
+    writeFileSync(fullPath, output, "utf-8");
   }
 
   // Reindex is injected (indexAll lives in the indexer, another module). The

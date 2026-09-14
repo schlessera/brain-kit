@@ -115,14 +115,13 @@ export function classifyContent(
 
 /**
  * Generate a URL-safe slug from a title.
- * Lowercase, replace non-alphanumeric with hyphens, trim hyphens, max 60 chars.
+ * Keep Unicode letters/numbers, normalize equivalent spellings, and bound the filename.
  */
 function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
+  const normalized = title.normalize("NFC").toLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, "-").replace(/^-+|-+$/g, "");
+  // 60 code points also stays below common filename byte limits for CJK.
+  return Array.from(normalized).slice(0, 60).join("").replace(/-+$/, "") || "untitled";
 }
 
 /**
@@ -192,61 +191,34 @@ export async function ingest(
   // 4. Generate slug
   const slug = slugify(title);
 
-  // 5. Determine file path
-  let relativePath: string;
+  const canonicalRoot = realpathSync(root);
+  const resolvePath = (path: string): string => {
+    const full = safeResolve(root, path);
+    if (full === null) throw new Error(`Path escapes the brain root: ${path}`);
+    return full;
+  };
 
-  if (input.path) {
-    // Explicit path provided
-    relativePath = input.path;
-  } else if (classification.path && !input.type) {
-    // Classified path (matched existing document) and no explicit type override
-    relativePath = classification.path;
-  } else {
-    // Generate from the type's canonical directory + slug. A type with no
-    // canonical dir (dir: null, e.g. index) lands at the root.
-    const dir = taxonomy.dirForType(type) ?? ".";
-    relativePath = `${dir}/${slug}.md`;
+  // A filename collision is never evidence of an append match. Revalidate
+  // the classified document on disk, since the index may be stale or the
+  // caller may have overridden its title/type.
+  if (classification.path && !input.path && !input.type && title.toLowerCase() === classification.title?.toLowerCase()) {
+    const fullPath = resolvePath(classification.path);
+    if (existsSync(fullPath)) {
+      const parsed = matter(readFileSync(fullPath, "utf-8"));
+      if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
+        parsed.data.updated = today();
+        const updatedContent = parsed.content + `\n\n## ${today()} Update\n\n` + content.trim() + "\n";
+        writeFileSync(fullPath, stringifyDocument(updatedContent, parsed.data), "utf-8");
+        return {
+          action: "appended",
+          path: relative(canonicalRoot, fullPath),
+          title: String(parsed.data.title),
+          type,
+          ...(await reindex(db, ctx)),
+        };
+      }
+    }
   }
-
-  // Containment: input.path (and classified paths) are caller-supplied — an
-  // absolute path or a `..` escape must never write outside the brain root.
-  const fullPath = safeResolve(root, relativePath);
-  if (fullPath === null) {
-    throw new Error(`Path escapes the brain root: ${relativePath}`);
-  }
-  // Report where the write actually lands: through an in-root symlinked dir
-  // the canonical path differs from the requested one. Relativize against the
-  // CANONICAL root — safeResolve returns a realpath, so comparing it to a
-  // symlinked BRAIN_ROOT would yield a "../real-brain/..." escape-looking path.
-  relativePath = relative(realpathSync(root), fullPath);
-
-  // 6. Check if file already exists
-  if (existsSync(fullPath) && !input.path) {
-    // Append content under a dated update heading
-    const raw = readFileSync(fullPath, "utf-8");
-    const parsed = matter(raw);
-
-    // Update the `updated` field
-    parsed.data.updated = today();
-
-    // Append new content under a dated heading
-    const dateHeading = `\n\n## ${today()} Update\n\n`;
-    const updatedContent = parsed.content + dateHeading + content.trim() + "\n";
-
-    const output = stringifyDocument(updatedContent, parsed.data);
-    writeFileSync(fullPath, output, "utf-8");
-
-    return {
-      action: "appended",
-      path: relativePath,
-      title: String(parsed.data.title || title),
-      type: type,
-      ...(await reindex(db, ctx)),
-    };
-  }
-
-  // 7. New file: generate frontmatter and write
-  mkdirSync(dirname(fullPath), { recursive: true });
 
   const frontmatter: Record<string, any> = {
     type,
@@ -260,9 +232,24 @@ export async function ingest(
 
   const body = "\n" + content.trim() + "\n";
   const output = stringifyDocument(body, frontmatter);
-  writeFileSync(fullPath, output, "utf-8");
+  const dir = taxonomy.dirForType(type) ?? ".";
+  let relativePath: string;
+  for (let suffix = 1; ; suffix++) {
+    const candidate = input.path || `${dir}/${slug}${suffix === 1 ? "" : `-${suffix}`}.md`;
+    const fullPath = resolvePath(candidate);
+    mkdirSync(dirname(fullPath), { recursive: true });
+    try {
+      // Exclusive creation also handles concurrent captures of the same title.
+      writeFileSync(fullPath, output, { encoding: "utf-8", flag: "wx" });
+      relativePath = relative(canonicalRoot, fullPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (input.path) throw new Error(`Capture destination already exists: ${input.path}`);
+    }
+  }
 
-  // 8. Re-index
+  // Re-index
   return {
     action: "created",
     path: relativePath,

@@ -18,6 +18,8 @@ export interface SearchResponse {
  */
 export interface SearchDeps {
   embeddings?: EmbeddingProvider;
+  /** Interactive vector budget; must finish before the UI CLI deadline. */
+  queryTimeoutMs?: number;
 }
 
 interface FilterResult {
@@ -161,6 +163,32 @@ function makeSnippet(content: string, targetLength = 200): string {
   return text.slice(0, lastSpace > 0 ? lastSpace : targetLength) + "…";
 }
 
+/** Bound even a third-party provider that ignores cancellation. Race only the
+ * embedding request, so a late completion cannot query a caller-closed DB. */
+async function embedSearchQuery(
+  embeddings: EmbeddingProvider,
+  query: string,
+  timeoutMs: number
+): Promise<Float32Array> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`query embedding timed out after ${timeoutMs}ms`);
+      reject(error);
+      controller.abort(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      embeddings.embedQuery(query, { signal: controller.signal }),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Vector similarity search using sqlite-vec KNN.
  */
@@ -168,19 +196,20 @@ async function vectorSearch(
   db: Database,
   query: string,
   opts: SearchOptions,
-  embeddings: EmbeddingProvider
+  embeddings: EmbeddingProvider,
+  queryTimeoutMs: number
 ): Promise<SearchResult[]> {
   const limit = opts.limit ?? 20;
   const filters = buildFilters(opts);
 
-  const queryEmbedding = await embeddings.embedQuery(query);
-  const queryBytes = new Uint8Array(queryEmbedding.buffer);
+  const queryEmbedding = await embedSearchQuery(embeddings, query, queryTimeoutMs);
+  const queryBytes = new Uint8Array(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
 
   // Only is_archived and doc_type are KNN-prefiltered; tag/relevance/status/
   // assets filters run post-KNN, so widen the candidate window when they are
   // present or filtering starves the result set.
   const hasPostFilters = !!(opts.tag || opts.relevance || opts.status || opts.assetsOnly);
-  const k = Math.min(limit * (hasPostFilters ? 10 : 3), 500);
+  let k = Math.min(Math.max(1, limit * (hasPostFilters ? 10 : 3)), 500);
 
   // KNN search on vec_chunks, pre-filtered on metadata columns so archived
   // chunks don't crowd active results out of the candidate window
@@ -195,81 +224,89 @@ async function vectorSearch(
   }
   const knnWhere = knnClauses.length > 0 ? " AND " + knnClauses.join(" AND ") : "";
 
-  let knnResults: { chunk_id: number; distance: number }[];
-  try {
-    knnResults = db
-      .prepare(
-        `SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?${knnWhere}`
-      )
-      .all(queryBytes, k, ...knnParams) as typeof knnResults;
-  } catch {
-    // Pre-v2 vec schema without metadata columns (read-only session before
-    // the next writable migration) — fall back to unfiltered KNN
-    knnResults = db
-      .prepare(
-        `SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?`
-      )
-      .all(queryBytes, k) as typeof knnResults;
-  }
-
-  if (knnResults.length === 0) return [];
-
-  // Map chunk results back to documents
-  const chunkIds = knnResults.map((r) => r.chunk_id);
-  const distanceMap = new Map(knnResults.map((r) => [r.chunk_id, r.distance]));
-
-  const placeholders = chunkIds.map(() => "?").join(",");
-  const sql = `
-    SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated,
-      (SELECT GROUP_CONCAT(t.name, ', ')
-       FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
-       WHERE dt.document_id = d.id) as tags,
-      c.id as chunk_id,
-      c.content as chunk_content
-    FROM chunks c
-    JOIN documents d ON d.id = c.document_id
-    WHERE c.id IN (${placeholders}) ${filters.where}
-  `;
-
-  const rows = db.prepare(sql).all(...chunkIds, ...filters.params) as {
-    path: string;
-    title: string;
-    type: string;
-    relevance: string;
-    status: string;
-    summary: string | null;
-    tags: string;
-    updated: string;
-    chunk_id: number;
-    chunk_content: string;
-  }[];
-
-  // Deduplicate by document path, keeping the best-scoring chunk per doc
-  const docMap = new Map<string, SearchResult>();
-  for (const row of rows) {
-    const distance = distanceMap.get(row.chunk_id) ?? Infinity;
-    // Convert distance to a score (lower distance = higher score)
-    const score = 1 / (1 + distance);
-    const existing = docMap.get(row.path);
-
-    if (!existing || score > existing.score) {
-      docMap.set(row.path, {
-        path: row.path,
-        title: row.title,
-        type: row.type,
-        relevance: row.relevance,
-        status: row.status,
-        summary: row.summary,
-        tags: row.tags,
-        updated: row.updated,
-        score,
-        snippet: makeSnippet(row.chunk_content),
-      });
+  // A long document may own most neighboring chunks. Widen after applying
+  // filters and deduplicating, reusing the same query embedding. Geometric
+  // growth bounds repeated work; 500 remains the hard candidate ceiling.
+  for (;;) {
+    let knnResults: { chunk_id: number; distance: number }[];
+    try {
+      knnResults = db
+        .prepare(
+          `SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?${knnWhere}`
+        )
+        .all(queryBytes, k, ...knnParams) as typeof knnResults;
+    } catch {
+      // Pre-v2 vec schema without metadata columns (read-only session before
+      // the next writable migration) — fall back to unfiltered KNN
+      knnResults = db
+        .prepare(
+          `SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?`
+        )
+        .all(queryBytes, k) as typeof knnResults;
     }
-  }
 
-  return Array.from(docMap.values()).sort((a, b) => b.score - a.score);
+    if (knnResults.length === 0) return [];
+
+    // Map chunk results back to documents
+    const chunkIds = knnResults.map((r) => r.chunk_id);
+    const distanceMap = new Map(knnResults.map((r) => [r.chunk_id, r.distance]));
+
+    const placeholders = chunkIds.map(() => "?").join(",");
+    const sql = `
+      SELECT
+        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated,
+        (SELECT GROUP_CONCAT(t.name, ', ')
+         FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+         WHERE dt.document_id = d.id) as tags,
+        c.id as chunk_id,
+        c.content as chunk_content
+      FROM chunks c
+      JOIN documents d ON d.id = c.document_id
+      WHERE c.id IN (${placeholders}) ${filters.where}
+    `;
+
+    const rows = db.prepare(sql).all(...chunkIds, ...filters.params) as {
+      path: string;
+      title: string;
+      type: string;
+      relevance: string;
+      status: string;
+      summary: string | null;
+      tags: string;
+      updated: string;
+      chunk_id: number;
+      chunk_content: string;
+    }[];
+
+    // Deduplicate by document path, keeping the best-scoring chunk per doc
+    const docMap = new Map<string, SearchResult>();
+    for (const row of rows) {
+      const distance = distanceMap.get(row.chunk_id) ?? Infinity;
+      // Convert distance to a score (lower distance = higher score)
+      const score = 1 / (1 + distance);
+      const existing = docMap.get(row.path);
+
+      if (!existing || score > existing.score) {
+        docMap.set(row.path, {
+          path: row.path,
+          title: row.title,
+          type: row.type,
+          relevance: row.relevance,
+          status: row.status,
+          summary: row.summary,
+          tags: row.tags,
+          updated: row.updated,
+          score,
+          snippet: makeSnippet(row.chunk_content),
+        });
+      }
+    }
+
+    if (docMap.size >= limit || knnResults.length < k || k === 500) {
+      return Array.from(docMap.values()).sort((a, b) => b.score - a.score);
+    }
+    k = Math.min(k * 2, 500);
+  }
 }
 
 /**
@@ -328,6 +365,10 @@ export async function hybridSearch(
   opts: SearchOptions,
   deps: SearchDeps = {}
 ): Promise<SearchResponse> {
+  const queryTimeoutMs = deps.queryTimeoutMs ?? 3_000;
+  if (!Number.isFinite(queryTimeoutMs) || queryTimeoutMs <= 0) {
+    throw new Error("queryTimeoutMs must be a positive finite number");
+  }
   const limit = opts.limit ?? 20;
   const mode = opts.mode ?? "hybrid";
   const warnings: string[] = [];
@@ -376,7 +417,7 @@ export async function hybridSearch(
       );
     } else {
       try {
-        const vecResults = await vectorSearch(db, query, opts, embeddings);
+        const vecResults = await vectorSearch(db, query, opts, embeddings, queryTimeoutMs);
         resultLists.push(vecResults);
       } catch (e) {
         warnings.push(`vector search failed: ${(e as Error).message}${degraded}`);

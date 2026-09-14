@@ -15,11 +15,11 @@ Usage: brain <command> [args] [flags]
 
 | Command | Does | Notes |
 |---|---|---|
-| `add "text"` | Quick capture: classify (heuristics + your classifier hints), title, tag, file into the taxonomy, reindex | content titled exactly after an existing doc of an `appendMatch` type appends to it; `--type/--title/--path/--tags` override; `--smart` routes through the configured agent runner |
+| `add "text"` | Quick capture: classify (heuristics + your classifier hints), title, tag, file into the taxonomy, reindex | content titled exactly after an existing doc of an `appendMatch` type appends to it; `--type/--title/--tags` override; `--smart` routes through the configured agent runner |
 | `read <path>` | Print a document | |
 | `list` | List/browse documents | `--type/--tag/--status`, `--json` = bare array |
 | `process` | Assimilate an inbox note into proper brain content | uses the configured completions provider; degrades keyless |
-| `archive <path>` | Set `status: archived`, move per convention, reindex | |
+| `archive <path>` | Set `status: archived`, move per convention, reindex | Refuses an occupied archive destination before modifying the source |
 | `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--as markdown\|html`, `--title`, `--width`, repeatable `--allow-host`; frontmatter is stripped |
 
 ### Rendering
@@ -119,3 +119,17 @@ Module packages add ONE namespaced top-level command each (`brain jobs …`,
 
 See also: [integration-contract.md](integration-contract.md) ·
 [quickstart.md](quickstart.md) · [concepts.md](concepts.md)
+
+### Capture collisions and search budgets
+
+Quick capture appends only to a confirmed title match of an `appendMatch` type,
+with no explicit type override. Otherwise it creates a new document: occupied
+filenames receive numeric suffixes (`c.md`, `c-2.md`, …), Unicode titles retain
+their letters, and titles made entirely of punctuation use `untitled`.
+An explicit title override must also match before capture appends.
+
+Hybrid search waits up to three seconds for query embedding, then returns
+keyword results with a degradation warning. Vector-only search returns an empty
+result and warning on timeout. Vector retrieval widens its candidate window
+when duplicate chunks or filters leave too few documents, up to 500 chunks;
+that bound can still produce fewer documents than `--limit` requests.

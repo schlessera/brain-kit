@@ -110,18 +110,20 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
     return results;
   }
 
-  async function embedQuery(text: string): Promise<Float32Array> {
+  async function embedQuery(text: string, opts?: { signal?: AbortSignal }): Promise<Float32Array> {
     const ai = await getClient();
 
-    const response: any = await withRetry(() =>
-      ai.models.embedContent({
-        model,
-        contents: queryPrompt(text),
-        config: {
-          outputDimensionality: dimensions,
-        },
-      })
-    );
+    opts?.signal?.throwIfAborted();
+    // Interactive queries must not inherit the indexing retry schedule. The
+    // search deadline cancels this request; transient failures degrade to FTS.
+    const response = await ai.models.embedContent({
+      model,
+      contents: queryPrompt(text),
+      config: {
+        outputDimensionality: dimensions,
+        abortSignal: opts?.signal,
+      },
+    });
 
     return new Float32Array(response.embeddings[0].values);
   }

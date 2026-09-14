@@ -56,7 +56,8 @@ export interface EmbeddingProvider {
   id: string;
   dimensions: number;
   embed(texts: string[]): Promise<Float32Array[]>;
-  embedQuery(text: string): Promise<Float32Array>;
+  /** Query cancellation is optional; search also bounds providers that ignore it. */
+  embedQuery(text: string, opts?: { signal?: AbortSignal }): Promise<Float32Array>;
   /** Optional multimodal support; absent → core embeds the text description instead. */
   embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
   embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
