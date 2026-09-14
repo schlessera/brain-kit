@@ -17,8 +17,7 @@ import type {
 import {
   type AuthMode,
   type AuthRuntime,
-  SESSION_TTL_SECONDS,
-  issueSessionCookie,
+  issueLoginSession,
   consumeLoginToken,
   isLoginBlocked,
   recordLoginFailure,
@@ -27,7 +26,6 @@ import {
   releasePasskeyVerification,
   bumpSessionsEpoch,
 } from "./auth.js";
-import { createPrincipal } from "../db/principals.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
@@ -38,7 +36,7 @@ import type { ClientSet } from "../ws/clients.js";
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
  * the first registration (and stays as recovery), passkeys are the day-to-day
  * login. A successful assertion mints the same session cookie as password login
- * (issueSessionCookie), so authGuard / isWsAuthorized / TTL are untouched.
+ * (issueLoginSession), so authGuard / isWsAuthorized / TTL are untouched.
  *
  * Everything environmental is injected as a {@link PasskeyContext} — the
  * resolved WebAuthn identity, the auth runtime (for trust/proxy semantics and
@@ -402,11 +400,14 @@ export function passkeyPublicRoutes(
           });
           return fail();
         }
+        const currentRow = credentialById(ctx.db, row.id);
+        if (!currentRow || currentRow.rp_id !== rp.rpID) return fail();
+
         ctx.db
           .prepare(
             "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
           )
-          .run(result.authenticationInfo.newCounter, now(), row.id);
+          .run(result.authenticationInfo.newCounter, now(), currentRow.id);
       } finally {
         releasePasskeyVerification(ip);
       }
@@ -435,15 +436,11 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    // TODO(P4/U4): centralize login principal lineage, labels, pruning, and cap
-    // handling. U2 creates the minimum owner principal needed by the new cookie.
-    const principal = createPrincipal(ctx.db, {
-      kind: "owner",
+    const capacityResponse = await issueLoginSession(c, ctx.auth, ctx.db, {
       authMethod: "passkey",
-      label: "Passkey login",
-      ttlSeconds: SESSION_TTL_SECONDS,
+      credentialId: row.id,
     });
-    await issueSessionCookie(c, ctx.auth, ctx.db, principal.id);
+    if (capacityResponse) return capacityResponse;
     return c.json({ ok: true });
   });
 

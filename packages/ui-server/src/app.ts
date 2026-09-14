@@ -36,7 +36,7 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
-import { prunePrincipalsIfDue } from "./db/principals.js";
+import { prunePrincipals } from "./db/principals.js";
 import {
   getAutoAllowedTools,
   getBillingOverrides,
@@ -183,7 +183,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   probeBrainCliVersion(config.brainPath, observability.logger("brain"));
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
-  prunePrincipalsIfDue(db, Date.now());
+  prunePrincipals(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
 

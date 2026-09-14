@@ -306,7 +306,7 @@ describe("app wiring — WebSocket origin check (CSWSH)", () => {
     const [record] = observability.logs.find({ scope: "http", body: "request" });
     expect(record.attributes.path).toBe("/ws");
     expect(record.attributes["auth.principal.id"]).toBeString();
-    expect(record.attributes["auth.principal.label"]).toBe("Password login");
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
     wired.close();
   });
 });
@@ -460,10 +460,10 @@ describe("app wiring — request logging", () => {
     const [record] = observability.logs.find({ scope: "http", body: "request" });
     const principalId = record.attributes["auth.principal.id"];
     expect(principalId).toBeString();
-    expect(record.attributes["auth.principal.label"]).toBe("Password login");
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
     expect(
       wired.db.prepare("SELECT label FROM principals WHERE id = ?").get(principalId)
-    ).toEqual({ label: "Password login" });
+    ).toEqual({ label: "Unknown device" });
     wired.close();
   });
 
@@ -491,7 +491,7 @@ describe("app wiring — request logging", () => {
     const [record] = observability.logs.find({ scope: "http", body: "request" });
     expect(record.attributes.path).toBe("/api/auth/logout");
     expect(record.attributes["auth.principal.id"]).toBeString();
-    expect(record.attributes["auth.principal.label"]).toBe("Password login");
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
     wired.close();
   });
 

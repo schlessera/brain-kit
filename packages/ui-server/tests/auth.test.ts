@@ -19,6 +19,7 @@ import {
   LOGIN_RATE_LIMIT,
   isWsAuthorized,
   resetLoginRateLimiter,
+  sanitizeLoginLabel,
   type AuthMode,
   type AuthRuntime,
 } from "../src/middleware/auth";
@@ -32,7 +33,10 @@ import { ClientSet } from "../src/ws/clients";
 import { clientIp } from "../src/middleware/tailscale";
 import {
   AMBIENT_PRINCIPAL_RETENTION_MS,
+  createPrincipal,
+  MAX_LIVE_PRINCIPALS,
   PRINCIPAL_PRUNE_INTERVAL_MS,
+  PRINCIPAL_RETENTION_MS,
   resolvePrincipal,
 } from "../src/db/principals";
 
@@ -197,7 +201,11 @@ describe("password login + guard", () => {
     const app = passwordApp();
     const login = await app.request("/api/auth/login", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.2" },
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "Test Browser/1.0",
+        "x-forwarded-for": "10.0.0.2",
+      },
       body: JSON.stringify({ password: PASSWORD }),
     });
     expect(login.status).toBe(200);
@@ -210,11 +218,106 @@ describe("password login + guard", () => {
     expect(ok.status).toBe(200);
     const guarded = await ok.json();
     expect(guarded.principal.kind).toBe("owner");
-    expect(guarded.principal.label).toBe("Password login");
+    expect(guarded.principal.authMethod).toBe("password");
+    expect(guarded.principal.credentialId).toBeNull();
+    expect(guarded.principal.label).toBe("Test Browser/1.0");
+    expect(
+      DB.query(
+        "SELECT kind, auth_method, credential_id FROM principals"
+      ).all()
+    ).toEqual([
+      { kind: "owner", auth_method: "password", credential_id: null },
+    ]);
 
     // The same cookie authorizes a WebSocket upgrade.
     const wsRes = await app.request("/wscheck", { headers: { cookie } });
     expect((await wsRes.json()).principal.id).toBe(guarded.principal.id);
+  });
+
+  test("login labels bound and sanitize the User-Agent with a non-empty fallback", async () => {
+    const app = passwordApp();
+    const cases = [
+      { userAgent: "x".repeat(300), expected: "x".repeat(64) },
+      { userAgent: undefined, expected: "Unknown device" },
+    ];
+
+    // Fetch rejects control-bearing header values before middleware sees them,
+    // so exercise the pure boundary with the same client-controlled string.
+    expect(sanitizeLoginLabel("Browser\u0000\tTest\u007f")).toBe("BrowserTest");
+    expect(sanitizeLoginLabel("\u0000\t\u007f")).toBe("Unknown device");
+    // A string with nothing alphanumeric is a useless device hint, so it takes
+    // the fallback rather than being shown as-is: a real probe with
+    // `User-Agent: (((` was otherwise labelled "(((".
+    expect(sanitizeLoginLabel("(((")).toBe("Unknown device");
+    expect(sanitizeLoginLabel("-- //")).toBe("Unknown device");
+    expect(sanitizeLoginLabel("Safari 18")).toBe("Safari 18");
+    expect(sanitizeLoginLabel(42)).toBe("Unknown device");
+
+    for (const [index, { userAgent, expected }] of cases.entries()) {
+      const requestHeaders: Record<string, string> = {
+        "content-type": "application/json",
+        "x-forwarded-for": `10.0.1.${index + 1}`,
+      };
+      if (userAgent !== undefined) requestHeaders["user-agent"] = userAgent;
+
+      const response = await app.request("/api/auth/login", {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({ password: PASSWORD }),
+      });
+      expect(response.status).toBe(200);
+      expect(
+        DB.prepare("SELECT label FROM principals ORDER BY created_at DESC LIMIT 1").get()
+      ).toEqual({ label: expected });
+      DB.exec("DELETE FROM principals");
+    }
+  });
+
+  test("repeated successful logins prune terminal principal rows", async () => {
+    const app = passwordApp();
+    const retainedPast = Date.now() - PRINCIPAL_RETENTION_MS - 1;
+
+    for (let index = 0; index < 5; index++) {
+      const response = await app.request("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": `10.0.2.${index + 1}`,
+        },
+        body: JSON.stringify({ password: PASSWORD }),
+      });
+      expect(response.status).toBe(200);
+      if (index < 4) {
+        DB.prepare(
+          "UPDATE principals SET revoked_at = ? WHERE revoked_at IS NULL"
+        ).run(retainedPast);
+      }
+    }
+
+    expect(DB.query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
+      count: 1,
+    });
+  });
+
+  test("the live-principal cap returns 503 without creating a session", async () => {
+    for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
+      createPrincipal(DB, {
+        kind: "owner",
+        authMethod: "password",
+        label: `Existing device ${index}`,
+        ttlSeconds: 3_600,
+      });
+    }
+
+    const response = await appLogin(passwordApp(), "10.0.3.1");
+    expect(response.status).toBe(503);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: "Session capacity reached. Sign out another device and try again.",
+    });
+    expect(DB.query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
+      count: MAX_LIVE_PRINCIPALS,
+    });
   });
 
   test("login is rate limited per client IP", async () => {
@@ -282,6 +385,14 @@ describe("password login + guard", () => {
     expect(statuses.filter((status) => status === 429)).toHaveLength(4);
   });
 });
+
+async function appLogin(app: Hono<AppEnv>, ip: string): Promise<Response> {
+  return app.request("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    body: JSON.stringify({ password: PASSWORD }),
+  });
+}
 
 describe("login limiter storage", () => {
   beforeEach(() => resetLoginRateLimiter());

@@ -19,6 +19,7 @@ import {
   type RecordingObservability,
 } from "../src/observability/index";
 import { ClientSet } from "../src/ws/clients";
+import { createPrincipal, MAX_LIVE_PRINCIPALS } from "../src/db/principals";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -412,7 +413,7 @@ describe("login-verify", () => {
 
     const res = await app.request("/api/auth/passkey/login-verify", {
       method: "POST",
-      headers: headers({}, "10.3.0.2"),
+      headers: headers({ "user-agent": "Passkey Browser/1.0" }, "10.3.0.2"),
       body: JSON.stringify(assertionResponse(challenge)),
     });
     expect(res.status).toBe(200);
@@ -431,6 +432,82 @@ describe("login-verify", () => {
       .get() as { counter: number; last_used_at: number };
     expect(row.counter).toBe(7);
     expect(row.last_used_at).toBe(5000);
+    expect(
+      getDb()
+        .query(
+          `SELECT kind, auth_method, credential_id, label
+           FROM principals`
+        )
+        .all()
+    ).toEqual([
+      {
+        kind: "owner",
+        auth_method: "passkey",
+        credential_id: "cred-1",
+        label: "Passkey Browser/1.0",
+      },
+    ]);
+  });
+
+  test("a credential deleted during assertion verification cannot mint a session", async () => {
+    let entered!: () => void;
+    const verificationEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const verificationGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const delayedVerification = (async () => {
+      entered();
+      await verificationGate;
+      return { verified: true, authenticationInfo: { newCounter: 7 } };
+    }) as unknown as NonNullable<PasskeyDeps["verifyAuthenticationResponse"]>;
+    const app = fullApp({ verifyAuthenticationResponse: delayedVerification });
+    seedCredential();
+    const challenge = await freshLoginChallenge(app, "10.3.0.20");
+
+    const pending = app.request("/api/auth/passkey/login-verify", {
+      method: "POST",
+      headers: headers({}, "10.3.0.21"),
+      body: JSON.stringify(assertionResponse(challenge)),
+    });
+    await verificationEntered;
+    getDb().prepare("DELETE FROM passkey_credentials WHERE id = ?").run("cred-1");
+    release();
+
+    const response = await pending;
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(getDb().query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
+      count: 0,
+    });
+  });
+
+  test("the live-principal cap returns 503 after valid passkey verification", async () => {
+    const app = fullApp({ verifyAuthenticationResponse: verifiedAuth() });
+    seedCredential();
+    for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
+      createPrincipal(getDb(), {
+        kind: "owner",
+        authMethod: "password",
+        label: `Existing device ${index}`,
+        ttlSeconds: 3_600,
+      });
+    }
+    const challenge = await freshLoginChallenge(app, "10.3.0.30");
+
+    const response = await app.request("/api/auth/passkey/login-verify", {
+      method: "POST",
+      headers: headers({}, "10.3.0.31"),
+      body: JSON.stringify(assertionResponse(challenge)),
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(getDb().query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
+      count: MAX_LIVE_PRINCIPALS,
+    });
   });
 
   test("unknown credential and foreign-RP credential are rejected", async () => {

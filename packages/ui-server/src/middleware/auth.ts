@@ -12,6 +12,8 @@ import { setSetting } from "../db/settings.js";
 import {
   createPrincipal,
   isUsablePrincipal,
+  PrincipalLimitError,
+  prunePrincipals,
   prunePrincipalsIfDue,
   resolveAmbientPrincipal,
   resolvePrincipal,
@@ -56,6 +58,9 @@ export interface AuthRuntime extends AuthConfig {
 
 const COOKIE_NAME = "brain_ui_session";
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+const LOGIN_LABEL_MAX_LENGTH = 64;
+const LOGIN_LABEL_FALLBACK = "Unknown device";
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
@@ -332,6 +337,61 @@ export async function issueSessionCookie(
   });
 }
 
+/** Turn the client-controlled User-Agent into a short, log-safe display hint. */
+export function sanitizeLoginLabel(userAgent: unknown): string {
+  if (typeof userAgent !== "string") return LOGIN_LABEL_FALLBACK;
+  const label = userAgent
+    .replace(CONTROL_CHARACTERS, "")
+    .trim()
+    .slice(0, LOGIN_LABEL_MAX_LENGTH)
+    .trim();
+  // A label exists to be recognised in a device list. A string with nothing
+  // alphanumeric in it ("(((") is technically a User-Agent and useless as a
+  // hint, so it takes the fallback rather than being shown as-is.
+  if (!/[\p{L}\p{N}]/u.test(label)) return LOGIN_LABEL_FALLBACK;
+  return label;
+}
+
+type LoginPrincipalLineage =
+  | { authMethod: "password" }
+  | { authMethod: "passkey"; credentialId: string };
+
+/**
+ * Create the durable owner principal for a verified login and issue its cookie.
+ * Returns a response only when the live-principal cap refuses the login.
+ */
+export async function issueLoginSession(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database,
+  lineage: LoginPrincipalLineage
+): Promise<Response | null> {
+  prunePrincipals(db, Date.now());
+
+  try {
+    const principal = createPrincipal(db, {
+      kind: "owner",
+      authMethod: lineage.authMethod,
+      label: sanitizeLoginLabel(c.req.header("user-agent")),
+      credentialId:
+        lineage.authMethod === "passkey" ? lineage.credentialId : undefined,
+      ttlSeconds: SESSION_TTL_SECONDS,
+    });
+    await issueSessionCookie(c, auth, db, principal.id);
+  } catch (err) {
+    if (!(err instanceof PrincipalLimitError)) throw err;
+    // 503: valid credentials reached a server-side capacity limit. This is
+    // neither an authentication failure nor a request the client can repair
+    // except by waiting for expiry or signing out another device.
+    return c.json(
+      { error: "Session capacity reached. Sign out another device and try again." },
+      503
+    );
+  }
+
+  return null;
+}
+
 /**
  * Resolve the principal named by a valid session cookie. Signature and payload
  * shape are checked before the principal store is queried.
@@ -406,7 +466,6 @@ export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
 // --- proxy mode helpers ---
 
 const AMBIENT_LABEL_MAX_LENGTH = 64;
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 
 function sanitizeAmbientLabel(identity: string): string {
   return identity
@@ -721,15 +780,10 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    // TODO(P4/U4): centralize login principal lineage, labels, pruning, and cap
-    // handling. U2 creates the minimum owner principal needed by the new cookie.
-    const principal = createPrincipal(deps.db, {
-      kind: "owner",
+    const capacityResponse = await issueLoginSession(c, auth, deps.db, {
       authMethod: "password",
-      label: "Password login",
-      ttlSeconds: SESSION_TTL_SECONDS,
     });
-    await issueSessionCookie(c, auth, deps.db, principal.id);
+    if (capacityResponse) return capacityResponse;
     log?.emit({
       severityText: "INFO",
       body: "login succeeded",
