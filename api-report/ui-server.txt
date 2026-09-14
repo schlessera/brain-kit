@@ -9,6 +9,7 @@ export "." (./src/index.ts)
   type ActivityStore
   type ActivityStream
   type AgentConfig
+  type AppEnv
   type AppRenderer
   type AuthConfig
   type AuthMode

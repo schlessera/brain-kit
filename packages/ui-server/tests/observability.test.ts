@@ -108,7 +108,9 @@ describe("console consumer", () => {
 
     reportDroppedFrame(obs, "parse_error", "chat_message");
 
-    expect(lines).toEqual(["[ws] frame dropped reason=parse_error frame.type=chat_message"]);
+    expect(lines).toEqual([
+      '[ws] frame dropped reason="parse_error" frame.type="chat_message"',
+    ]);
   });
 
   test("severity routes to the matching console channel", () => {
@@ -227,7 +229,7 @@ describe("primitives", () => {
       body: "nested",
       attributes: { detail: { a: 1 } as never, gone: null as never },
     });
-    expect(lines[0]).toBe('[ws] nested detail={"a":1}');
+    expect(lines[0]).toBe('[ws] nested detail="{\\"a\\":1}"');
   });
 
   test("a gauge is a level, a counter accumulates", () => {

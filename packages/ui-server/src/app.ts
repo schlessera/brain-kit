@@ -36,6 +36,7 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { createUiDb } from "./db/client.js";
+import { prunePrincipalsIfDue } from "./db/principals.js";
 import {
   getAutoAllowedTools,
   getBillingOverrides,
@@ -61,6 +62,7 @@ import { createSessionCatalog } from "./ws/session-catalog.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
 import { createObservability, type Observability } from "./observability/index.js";
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
+import type { AppEnv } from "./app-env.js";
 
 export type { AppRenderer };
 
@@ -160,7 +162,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     options.observability ?? createObservability({ minSeverity: config.logLevel });
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
   const authLog = observability.logger("auth");
   const authMode = resolveAuthMode(auth, authLog);
   // Validate inside the factory, not the bin entry: every consumer of the app
@@ -181,6 +183,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   probeBrainCliVersion(config.brainPath, observability.logger("brain"));
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
+  prunePrincipalsIfDue(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
 
@@ -268,6 +271,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     if (c.req.path === "/api/health") return next();
     const startedAt = Date.now();
     await next();
+    const principal = c.get("principal");
     httpLog.emit({
       severityText: "INFO",
       body: "request",
@@ -276,6 +280,12 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
         path: c.req.path,
         status: c.res.status,
         "duration.ms": Date.now() - startedAt,
+        ...(principal
+          ? {
+              "auth.principal.id": principal.id,
+              "auth.principal.label": principal.label,
+            }
+          : {}),
       },
     });
   });
@@ -414,9 +424,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     if (!isSameOriginRequest(c, allowedOrigins, auth.trustProxy)) {
       return c.json({ error: "Cross-origin WebSocket rejected" }, 403);
     }
-    if (!(await isWsAuthorized(c, authMode, auth, db))) {
+    const principal = await isWsAuthorized(c, authMode, auth, db);
+    if (!principal) {
       return c.json({ error: "Authentication required" }, 401);
     }
+    c.set("principal", principal);
     if (!host.clients.hasCapacity()) {
       host.reportRefusedConnection();
       return c.text("WebSocket connection limit reached", 503);

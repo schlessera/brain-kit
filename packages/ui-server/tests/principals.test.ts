@@ -7,12 +7,15 @@ import { join } from "path";
 
 import { createUiDb } from "../src/db/client";
 import {
+  AMBIENT_PRINCIPAL_RETENTION_MS,
+  countLivePrincipals,
   createPrincipal,
   isUsablePrincipal,
   MAX_LIVE_PRINCIPALS,
   PrincipalLimitError,
   PRINCIPAL_RETENTION_MS,
   prunePrincipals,
+  resolveAmbientPrincipal,
   resolvePrincipal,
   revokeAllPrincipals,
   revokeByCredential,
@@ -199,6 +202,22 @@ describe("principal store", () => {
     expect(revokeAllPrincipals(db, BASE_NOW + 1)).toEqual([]);
   });
 
+  test("ambient principals can only be resolved and cannot be revoked", () => {
+    expect(() =>
+      create({ kind: "ambient", authMethod: "ambient", label: "Not allowed" })
+    ).toThrow(/must be resolved/);
+
+    const ambient = resolveAmbientPrincipal(
+      db,
+      "none",
+      "No authentication",
+      "No authentication"
+    );
+    expect(revokePrincipal(db, ambient.id, BASE_NOW)).toEqual([]);
+    expect(revokeAllPrincipals(db, BASE_NOW)).toEqual([]);
+    expect(resolvePrincipal(db, ambient.id)?.revokedAt).toBeNull();
+  });
+
   test("touchLastSeen writes only when the stored value is more than 60 seconds stale", () => {
     const principal = create();
     touchLastSeen(db, principal.id, BASE_NOW);
@@ -217,6 +236,18 @@ describe("principal store", () => {
     const expiredOld = create({ label: "Expired old" });
     const expiredRecent = create({ label: "Expired recent" });
     const live = create({ label: "Live" });
+    const ambientOld = resolveAmbientPrincipal(
+      db,
+      "proxy",
+      "inactive@example.test",
+      "Inactive proxy user"
+    );
+    const ambientRecent = resolveAmbientPrincipal(
+      db,
+      "proxy",
+      "recent@example.test",
+      "Recent proxy user"
+    );
     const old = BASE_NOW - PRINCIPAL_RETENTION_MS - 1;
     const recent = BASE_NOW - PRINCIPAL_RETENTION_MS + 1;
     setTimes(revokedOld.id, { revokedAt: old, expiresAt: BASE_NOW + 1 });
@@ -224,6 +255,12 @@ describe("principal store", () => {
     setTimes(expiredOld.id, { expiresAt: old });
     setTimes(expiredRecent.id, { expiresAt: recent });
     setTimes(live.id, { expiresAt: BASE_NOW + 1 });
+    setTimes(ambientOld.id, {
+      lastSeenAt: BASE_NOW - AMBIENT_PRINCIPAL_RETENTION_MS - 1,
+    });
+    setTimes(ambientRecent.id, {
+      lastSeenAt: BASE_NOW - AMBIENT_PRINCIPAL_RETENTION_MS + 1,
+    });
 
     prunePrincipals(db, BASE_NOW);
 
@@ -232,6 +269,20 @@ describe("principal store", () => {
     expect(resolvePrincipal(db, revokedRecent.id)).not.toBeNull();
     expect(resolvePrincipal(db, expiredRecent.id)).not.toBeNull();
     expect(resolvePrincipal(db, live.id)).not.toBeNull();
+    expect(resolvePrincipal(db, ambientOld.id)).toBeNull();
+    expect(resolvePrincipal(db, ambientRecent.id)).not.toBeNull();
+  });
+
+  test("more than 100 historical ambient identities do not consume credential admission", () => {
+    for (let i = 0; i <= MAX_LIVE_PRINCIPALS; i++) {
+      resolveAmbientPrincipal(db, "proxy", `proxy-user-${i}`, `Proxy user ${i}`);
+    }
+
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM principals WHERE kind = 'ambient'").get()
+    ).toEqual({ count: MAX_LIVE_PRINCIPALS + 1 });
+    expect(countLivePrincipals(db, Date.now())).toBe(0);
+    expect(create({ label: "Credential after ambient history" })).toBeDefined();
   });
 
   test("the live-principal cap rejects overflow and revocation makes room", () => {

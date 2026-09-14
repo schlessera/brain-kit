@@ -1,12 +1,15 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Database } from "bun:sqlite";
 
 export const MAX_LIVE_PRINCIPALS = 100;
 export const PRINCIPAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+export const AMBIENT_PRINCIPAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+export const PRINCIPAL_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
 
 const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 const MAX_LABEL_LENGTH = 64;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/u;
+const lastPrincipalPruneByDb = new WeakMap<Database, number>();
 
 export type PrincipalKind = "owner" | "agent" | "ambient" | "system";
 export type PrincipalAuthMethod =
@@ -14,6 +17,8 @@ export type PrincipalAuthMethod =
   | "passkey"
   | "delegated"
   | "ambient";
+
+export type AmbientPrincipalSource = "none" | "proxy" | "tailscale";
 
 export interface Principal {
   id: string;
@@ -100,7 +105,24 @@ function generatePrincipalId(): string {
   return randomBytes(16).toString("base64url");
 }
 
+function ambientPrincipalId(
+  source: AmbientPrincipalSource,
+  identity: string
+): string {
+  return createHash("sha256")
+    .update("brain-ui:ambient-principal:v1\0")
+    .update(source)
+    .update("\0")
+    .update(identity)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+}
+
 export function createPrincipal(db: Database, input: CreatePrincipalInput): Principal {
+  if (input.kind === "ambient") {
+    throw new TypeError("ambient principals must be resolved from an auth identity");
+  }
   validateLabel(input.label);
   const now = Date.now();
   const expiresAt = expiryFromTtl(now, input.ttlSeconds);
@@ -130,6 +152,47 @@ export function createPrincipal(db: Database, input: CreatePrincipalInput): Prin
     );
 
     return resolvePrincipal(db, id)!;
+  }).immediate();
+}
+
+/**
+ * Resolve the durable attribution row for an ambient authorization identity.
+ * The id is deterministic per mode and full identity so repeated requests —
+ * including concurrent first requests — cannot grow one row per authorization
+ * check, while bounded display-label collisions remain distinct.
+ */
+export function resolveAmbientPrincipal(
+  db: Database,
+  source: AmbientPrincipalSource,
+  identity: string,
+  label: string
+): Principal {
+  validateLabel(label);
+  const id = ambientPrincipalId(source, identity);
+
+  return db.transaction(() => {
+    const existing = resolvePrincipal(db, id);
+    if (!existing) {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO principals
+           (id, kind, auth_method, label, credential_id, created_by,
+            created_at, expires_at, last_seen_at)
+         VALUES (?, 'ambient', 'ambient', ?, NULL, NULL, ?, ?, ?)`
+      ).run(id, label, now, Number.MAX_SAFE_INTEGER, now);
+    }
+
+    const principal = resolvePrincipal(db, id)!;
+    if (
+      principal.kind !== "ambient" ||
+      principal.authMethod !== "ambient" ||
+      principal.label !== label ||
+      !isUsablePrincipal(principal, Date.now())
+    ) {
+      throw new Error(`Corrupt ambient principal ${id}`);
+    }
+    touchLastSeen(db, id, Date.now());
+    return principal;
   }).immediate();
 }
 
@@ -169,7 +232,8 @@ export function revokePrincipal(db: Database, id: string, now: number): string[]
   return idsFromRows(
     db
       .prepare(
-        "UPDATE principals SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL RETURNING id"
+        `UPDATE principals SET revoked_at = ?
+         WHERE id = ? AND kind <> 'ambient' AND revoked_at IS NULL RETURNING id`
       )
       .all(now, id) as Array<{ id: string }>
   );
@@ -179,7 +243,8 @@ export function revokeAllPrincipals(db: Database, now: number): string[] {
   return idsFromRows(
     db
       .prepare(
-        "UPDATE principals SET revoked_at = ? WHERE revoked_at IS NULL RETURNING id"
+        `UPDATE principals SET revoked_at = ?
+         WHERE kind <> 'ambient' AND revoked_at IS NULL RETURNING id`
       )
       .all(now) as Array<{ id: string }>
   );
@@ -208,17 +273,40 @@ export function prunePrincipals(db: Database, now: number): void {
   // Thirty days preserves a useful audit/debug window after a principal stops
   // being usable while still placing a fixed bound on terminal-row growth.
   const cutoff = now - PRINCIPAL_RETENTION_MS;
+  const ambientCutoff = now - AMBIENT_PRINCIPAL_RETENTION_MS;
   db.prepare(
     `DELETE FROM principals
-     WHERE (revoked_at IS NOT NULL AND revoked_at < ?)
-        OR expires_at < ?`
-  ).run(cutoff, cutoff);
+     WHERE (kind = 'ambient' AND COALESCE(last_seen_at, created_at) < ?)
+        OR (kind <> 'ambient' AND (
+          (revoked_at IS NOT NULL AND revoked_at < ?)
+          OR expires_at < ?
+        ))`
+  ).run(ambientCutoff, cutoff, cutoff);
+}
+
+/**
+ * Run principal retention at most once per database per process interval.
+ * Authentication paths call this cheaply; only the due call reaches SQLite.
+ */
+export function prunePrincipalsIfDue(db: Database, now: number): boolean {
+  const lastPrunedAt = lastPrincipalPruneByDb.get(db);
+  if (
+    lastPrunedAt !== undefined &&
+    now >= lastPrunedAt &&
+    now - lastPrunedAt < PRINCIPAL_PRUNE_INTERVAL_MS
+  ) {
+    return false;
+  }
+  prunePrincipals(db, now);
+  lastPrincipalPruneByDb.set(db, now);
+  return true;
 }
 
 export function countLivePrincipals(db: Database, now: number): number {
   const row = db
     .prepare(
-      "SELECT COUNT(*) AS count FROM principals WHERE revoked_at IS NULL AND expires_at > ?"
+      `SELECT COUNT(*) AS count FROM principals
+       WHERE kind <> 'ambient' AND revoked_at IS NULL AND expires_at > ?`
     )
     .get(now) as { count: number };
   return row.count;

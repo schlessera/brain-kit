@@ -1,5 +1,14 @@
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
 import { Hono } from "hono";
+import type { AppEnv } from "../src/app-env";
 import {
   resolveAuthMode,
   assertAuthConfig,
@@ -21,6 +30,11 @@ import {
 import { createUiDb } from "../src/db/client";
 import { ClientSet } from "../src/ws/clients";
 import { clientIp } from "../src/middleware/tailscale";
+import {
+  AMBIENT_PRINCIPAL_RETENTION_MS,
+  PRINCIPAL_PRUNE_INTERVAL_MS,
+  resolvePrincipal,
+} from "../src/db/principals";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -144,16 +158,18 @@ function passwordAuth(): AuthRuntime {
 
 function passwordApp() {
   const runtime = passwordAuth();
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
   app.route(
     "/api",
     authRoutes("password", runtime, { db: DB, clients: new ClientSet() })
   );
   app.use("/api/*", authGuard("password", runtime, DB));
-  app.get("/api/secret", (c) => c.json({ ok: true }));
+  app.get("/api/secret", (c) =>
+    c.json({ ok: true, principal: c.get("principal") })
+  );
   // Un-guarded probe so isWsAuthorized can be tested with a real Hono context.
   app.get("/wscheck", async (c) =>
-    c.json({ ok: await isWsAuthorized(c, "password", runtime, DB) })
+    c.json({ principal: await isWsAuthorized(c, "password", runtime, DB) })
   );
   return app;
 }
@@ -192,10 +208,13 @@ describe("password login + guard", () => {
     const cookie = setCookie!.split(";")[0];
     const ok = await app.request("/api/secret", { headers: { cookie } });
     expect(ok.status).toBe(200);
+    const guarded = await ok.json();
+    expect(guarded.principal.kind).toBe("owner");
+    expect(guarded.principal.label).toBe("Password login");
 
     // The same cookie authorizes a WebSocket upgrade.
     const wsRes = await app.request("/wscheck", { headers: { cookie } });
-    expect((await wsRes.json()).ok).toBe(true);
+    expect((await wsRes.json()).principal.id).toBe(guarded.principal.id);
   });
 
   test("login is rate limited per client IP", async () => {
@@ -329,7 +348,9 @@ describe("login limiter storage", () => {
 describe("isWsAuthorized", () => {
   test("none mode always authorizes", async () => {
     const ctx = { req: { header: () => undefined } };
-    expect(await isWsAuthorized(ctx as never, "none", auth(), DB)).toBe(true);
+    const principal = await isWsAuthorized(ctx as never, "none", auth(), DB);
+    expect(principal?.kind).toBe("ambient");
+    expect(principal?.label).toBe("No authentication");
   });
 
   test("password mode rejects without a cookie", async () => {
@@ -341,7 +362,7 @@ describe("isWsAuthorized", () => {
         auth({ COOKIE_SECRET: SECRET }),
         DB
       )
-    ).toBe(false);
+    ).toBeNull();
   });
 
   test("proxy mode authorizes when the trusted header is present", async () => {
@@ -355,7 +376,7 @@ describe("isWsAuthorized", () => {
         auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" }),
         DB
       )
-    ).toBe(true);
+    ).toMatchObject({ kind: "ambient", label: "alex" });
   });
 
   test("proxy mode denies the header when TRUST_PROXY is not set", async () => {
@@ -369,7 +390,194 @@ describe("isWsAuthorized", () => {
         auth({ PROXY_AUTH_HEADER: "x-forwarded-user" }),
         DB
       )
-    ).toBe(false);
+    ).toBeNull();
+  });
+});
+
+describe("ambient principals", () => {
+  test("each ambient mode keeps its identity and reuses one row", async () => {
+    const cases: Array<{
+      mode: AuthMode;
+      runtime: AuthRuntime;
+      headers?: Record<string, string>;
+      label: string;
+    }> = [
+      {
+        mode: "none",
+        runtime: auth({ HOST: "127.0.0.1", AUTH_MODE: "none" }),
+        label: "No authentication",
+      },
+      {
+        mode: "tailscale",
+        runtime: auth({ TRUST_PROXY: "1" }),
+        headers: { "x-forwarded-for": "100.64.0.42" },
+        label: "100.64.0.42",
+      },
+      {
+        mode: "proxy",
+        runtime: auth({ TRUST_PROXY: "1", PROXY_AUTH_HEADER: "x-forwarded-user" }),
+        headers: { "x-forwarded-user": "Alex Example" },
+        label: "Alex Example",
+      },
+    ];
+
+    for (const { mode, runtime, headers, label } of cases) {
+      const app = new Hono<AppEnv>();
+      app.use("/api/*", authGuard(mode, runtime, DB));
+      app.get("/api/principal", (c) => c.json(c.get("principal")));
+
+      const first = await app.request("/api/principal", { headers });
+      const second = await app.request("/api/principal", { headers });
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const firstPrincipal = await first.json();
+      const secondPrincipal = await second.json();
+      expect(firstPrincipal).toMatchObject({ kind: "ambient", label });
+      expect(secondPrincipal.id).toBe(firstPrincipal.id);
+    }
+
+    const rows = DB.prepare(
+      "SELECT id, kind, label FROM principals ORDER BY label"
+    ).all() as Array<{ id: string; kind: string; label: string }>;
+    expect(rows).toHaveLength(cases.length);
+    expect(new Set(rows.map(({ id }) => id)).size).toBe(cases.length);
+    expect(rows.every(({ kind }) => kind === "ambient")).toBe(true);
+  });
+
+  test("proxy identities with the same bounded label remain distinct", async () => {
+    const runtime = auth({
+      TRUST_PROXY: "1",
+      PROXY_AUTH_HEADER: "x-forwarded-user",
+    });
+    const app = new Hono<AppEnv>();
+    app.use("/api/*", authGuard("proxy", runtime, DB));
+    app.get("/api/principal", (c) => c.json(c.get("principal")));
+    const prefix = "x".repeat(64);
+
+    const first = await app.request("/api/principal", {
+      headers: { "x-forwarded-user": `${prefix}A` },
+    });
+    const second = await app.request("/api/principal", {
+      headers: { "x-forwarded-user": `${prefix}B` },
+    });
+    const firstPrincipal = await first.json();
+    const secondPrincipal = await second.json();
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(firstPrincipal.label).toBe(prefix);
+    expect(secondPrincipal.label).toBe(prefix);
+    expect(secondPrincipal.id).not.toBe(firstPrincipal.id);
+    expect(
+      DB.prepare("SELECT COUNT(*) AS count FROM principals").get()
+    ).toEqual({ count: 2 });
+  });
+
+  test("proxy admission does not depend on the sanitized label being non-empty", async () => {
+    const runtime = auth({
+      TRUST_PROXY: "1",
+      PROXY_AUTH_HEADER: "x-forwarded-user",
+    });
+    const app = new Hono<AppEnv>();
+    app.use("/api/*", authGuard("proxy", runtime, DB));
+    app.get("/api/principal", (c) => c.json(c.get("principal")));
+
+    const response = await app.request("/api/principal", {
+      headers: { "x-forwarded-user": "\u0001" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ kind: "ambient", label: "" });
+  });
+
+  test("the auth boundary prunes ambient identities after the runtime interval", async () => {
+    const now = 2_000_000_000_000;
+    const clock = spyOn(Date, "now").mockReturnValue(now);
+    const runtime = auth({
+      TRUST_PROXY: "1",
+      PROXY_AUTH_HEADER: "x-forwarded-user",
+    });
+    const app = new Hono<AppEnv>();
+    app.use("/api/*", authGuard("proxy", runtime, DB));
+    app.get("/api/principal", (c) => c.json(c.get("principal")));
+
+    try {
+      const first = await app.request("/api/principal", {
+        headers: { "x-forwarded-user": "Inactive proxy user" },
+      });
+      const inactive = await first.json();
+      DB.prepare("UPDATE principals SET last_seen_at = ? WHERE id = ?").run(
+        now - AMBIENT_PRINCIPAL_RETENTION_MS - 1,
+        inactive.id
+      );
+
+      clock.mockReturnValue(now + PRINCIPAL_PRUNE_INTERVAL_MS + 1);
+      const nextAuthentication = await app.request("/api/principal", {
+        headers: { "x-forwarded-user": "Active proxy user" },
+      });
+
+      expect(nextAuthentication.status).toBe(200);
+      expect(resolvePrincipal(DB, inactive.id)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("tailscale keeps raw admitted identities for ids but sanitizes HTTP and WS labels", async () => {
+    const runtime = auth({ TRUST_PROXY: "1" });
+    const app = new Hono<AppEnv>();
+    app.use("/api/*", authGuard("tailscale", runtime, DB));
+    app.get("/api/principal", (c) => c.json(c.get("principal")));
+    const cases = [
+      {
+        identity: `100.64.${"x".repeat(300)}`,
+        label: `100.64.${"x".repeat(57)}`,
+      },
+      {
+        identity: "100.64.0.42\u0001",
+        label: "100.64.0.42",
+      },
+    ];
+
+    for (const { identity, label } of cases) {
+      const http = await app.request("/api/principal", {
+        headers: { "x-forwarded-for": identity },
+      });
+      expect(http.status).toBe(200);
+      const httpPrincipal = await http.json();
+      expect(httpPrincipal).toMatchObject({ kind: "ambient", label });
+      expect(httpPrincipal.label.length).toBeLessThanOrEqual(64);
+      expect(httpPrincipal.label).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
+
+      const ctx = {
+        req: {
+          header: (name: string) =>
+            name === "x-forwarded-for" ? identity : undefined,
+        },
+      };
+      const wsPrincipal = await isWsAuthorized(
+        ctx as never,
+        "tailscale",
+        runtime,
+        DB
+      );
+      expect(wsPrincipal).toMatchObject({
+        id: httpPrincipal.id,
+        kind: "ambient",
+        label,
+      });
+    }
+
+    const clean = await app.request("/api/principal", {
+      headers: { "x-forwarded-for": "100.64.0.42" },
+    });
+    const cleanPrincipal = await clean.json();
+    const controlled = DB.prepare(
+      "SELECT id FROM principals WHERE label = ? ORDER BY created_at, id"
+    ).all("100.64.0.42") as Array<{ id: string }>;
+    expect(controlled).toHaveLength(2);
+    expect(new Set(controlled.map(({ id }) => id)).size).toBe(2);
+    expect(controlled.some(({ id }) => id === cleanPrincipal.id)).toBe(true);
   });
 });
 

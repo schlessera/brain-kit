@@ -50,6 +50,7 @@ export {
 } from "./middleware/auth.js";
 
 export { type Principal } from "./db/principals.js";
+export { type AppEnv } from "./app-env.js";
 
 // The app's own SQLite database (sessions, passkeys, settings).
 export { createUiDb } from "./db/client.js";

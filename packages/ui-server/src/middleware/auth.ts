@@ -12,12 +12,15 @@ import { setSetting } from "../db/settings.js";
 import {
   createPrincipal,
   isUsablePrincipal,
+  prunePrincipalsIfDue,
+  resolveAmbientPrincipal,
   resolvePrincipal,
   revokeAllPrincipals,
   touchLastSeen,
   type Principal,
 } from "../db/principals.js";
 import type { ClientSet } from "../ws/clients.js";
+import type { AppEnv } from "../app-env.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -180,11 +183,17 @@ export function authGuard(
   mode: AuthMode,
   auth: AuthRuntime,
   db: Database
-): MiddlewareHandler {
+): MiddlewareHandler<AppEnv> {
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
+        prunePrincipalsIfDue(db, Date.now());
         if (isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) {
+          const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
+          c.set(
+            "principal",
+            resolveAmbientPrincipal(db, "tailscale", ip, sanitizeAmbientLabel(ip))
+          );
           await next();
         } else {
           return c.json({ error: "VPN access required" }, 403);
@@ -192,7 +201,18 @@ export function authGuard(
       };
     case "proxy":
       return async (c, next) => {
-        if (hasProxyAuth(c, auth)) {
+        prunePrincipalsIfDue(db, Date.now());
+        const proxyIdentity = resolveProxyIdentity(c, auth);
+        if (proxyIdentity) {
+          c.set(
+            "principal",
+            resolveAmbientPrincipal(
+              db,
+              "proxy",
+              proxyIdentity.identity,
+              proxyIdentity.label
+            )
+          );
           await next();
         } else {
           return c.json(
@@ -203,7 +223,10 @@ export function authGuard(
       };
     case "password":
       return async (c, next) => {
-        if (await hasValidSession(c, auth, db)) {
+        prunePrincipalsIfDue(db, Date.now());
+        const principal = await hasValidSession(c, auth, db);
+        if (principal) {
+          c.set("principal", principal);
           await next();
         } else {
           return c.json(
@@ -213,7 +236,17 @@ export function authGuard(
         }
       };
     case "none":
-      return async (_c, next) => {
+      return async (c, next) => {
+        prunePrincipalsIfDue(db, Date.now());
+        c.set(
+          "principal",
+          resolveAmbientPrincipal(
+            db,
+            "none",
+            "No authentication",
+            "No authentication"
+          )
+        );
         await next();
       };
   }
@@ -227,20 +260,43 @@ export function authGuard(
  * {@link authGuard} without emitting a response.
  */
 export async function isWsAuthorized(
-  c: Context,
+  c: Context<AppEnv>,
   mode: AuthMode,
   auth: AuthRuntime,
   db: Database
-): Promise<boolean> {
+): Promise<Principal | null> {
+  prunePrincipalsIfDue(db, Date.now());
   switch (mode) {
     case "none":
-      return true;
-    case "tailscale":
-      return isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops);
-    case "proxy":
-      return hasProxyAuth(c, auth);
+      return resolveAmbientPrincipal(
+        db,
+        "none",
+        "No authentication",
+        "No authentication"
+      );
+    case "tailscale": {
+      if (!isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) return null;
+      const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
+      return resolveAmbientPrincipal(
+        db,
+        "tailscale",
+        ip,
+        sanitizeAmbientLabel(ip)
+      );
+    }
+    case "proxy": {
+      const proxyIdentity = resolveProxyIdentity(c, auth);
+      return proxyIdentity
+        ? resolveAmbientPrincipal(
+            db,
+            "proxy",
+            proxyIdentity.identity,
+            proxyIdentity.label
+          )
+        : null;
+    }
     case "password":
-      return (await hasValidSession(c, auth, db)) !== null;
+      return hasValidSession(c, auth, db);
   }
 }
 
@@ -349,14 +405,28 @@ export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
 
 // --- proxy mode helpers ---
 
-function hasProxyAuth(c: Context, auth: AuthRuntime): boolean {
+const AMBIENT_LABEL_MAX_LENGTH = 64;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
+
+function sanitizeAmbientLabel(identity: string): string {
+  return identity
+    .replace(CONTROL_CHARACTERS, "")
+    .trim()
+    .slice(0, AMBIENT_LABEL_MAX_LENGTH);
+}
+
+function resolveProxyIdentity(
+  c: Context,
+  auth: AuthRuntime
+): { identity: string; label: string } | null {
   // The proxy-auth header is only meaningful when a trusted proxy fronts the app
   // and TRUST_PROXY says so; otherwise a client could set it directly. Gate on
   // trustProxy, consistent with tailscale-mode XFF trust. (assertAuthConfig
   // already refuses to boot proxy mode without it — this is belt-and-braces.)
-  if (!auth.trustProxy) return false;
+  if (!auth.trustProxy) return null;
   const user = c.req.header(auth.proxyAuthHeader);
-  return !!user && user.trim().length > 0;
+  if (!user || user.trim().length === 0) return null;
+  return { identity: user, label: sanitizeAmbientLabel(user) };
 }
 
 // --- login rate limiter (in-memory failure windows + verification reservations) ---
@@ -540,8 +610,8 @@ export function authRoutes(
     /** Test-only password verifier; production uses Bun.password.verify. */
     verifyPassword?: (password: string, hash: string) => Promise<boolean>;
   }
-): Hono {
-  const app = new Hono();
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
   const { log, failures } = deps;
   const verifyPassword = deps.verifyPassword ?? Bun.password.verify;
   let warnedUntrustedForwardedFor = false;
@@ -669,10 +739,12 @@ export function authRoutes(
   });
 
   app.post("/auth/logout", async (c) => {
-    if (mode === "password" && !(await hasValidSession(c, auth, deps.db))) {
-      return c.json({ error: "Authentication required", authRequired: true }, 401);
-    }
     if (mode === "password") {
+      const principal = await hasValidSession(c, auth, deps.db);
+      if (!principal) {
+        return c.json({ error: "Authentication required", authRequired: true }, 401);
+      }
+      c.set("principal", principal);
       bumpSessionsEpoch(deps.db, deps.clients);
     }
     deleteCookie(c, COOKIE_NAME, { path: "/" });
