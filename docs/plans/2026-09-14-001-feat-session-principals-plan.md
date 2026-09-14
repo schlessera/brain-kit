@@ -1,346 +1,343 @@
 # Give the session a principal
 
-Status: draft (revision 2) · Owner: maintainer · Target: `@schlessera/brain-ui-server`, `@schlessera/brain-ui-react`
+Status: draft (revision 3, review-complete) · Owner: maintainer · Target: `@schlessera/brain-ui-server`, `@schlessera/brain-ui-react`
 
 ## Summary
 
 A brain-ui session carries no identity. The signed cookie is
-`<issuedAt>.<epoch>` (`middleware/auth.ts:246`), validity is "the signature is
-ours, it is younger than 30 days, and its epoch equals the one global integer
-in `settings`" (`auth.ts:265`), and every passkey belongs to one logical user by
+`<issuedAt>.<epoch>` (`middleware/auth.ts:253`), validity is "the signature is
+ours, it is younger than 30 days, and its epoch equals the one global integer in
+`settings`" (`auth.ts:265-296`), and every passkey belongs to one logical user by
 construction (`migrations/005_passkey_credentials.sql`: *"single-user app: no
 user_id column"*).
 
 Two consequences, both felt the moment a second actor — a phone, a second
 laptop, an agent — holds a session:
 
-1. **Revocation is all-or-nothing.** `bumpSessionsEpoch()` (`auth.ts:321`) is
-   the only instrument. Logging out one device, or cutting off one agent, signs
-   out every session on every device. The only finer tool is rotating
-   `COOKIE_SECRET`, which is a deploy.
+1. **Revocation is all-or-nothing.** `bumpSessionsEpoch()` (`auth.ts:321`) is the
+   only instrument. Cutting off one agent signs out every device. The only finer
+   tool is rotating `COOKIE_SECRET`, which is a deploy.
 2. **Nothing is attributable.** The request log records method, path, status and
-   duration (`app.ts:267`); the activity record stamps sessions, jobs, models
-   and cost (`migrations/007_activity.sql:12`) — but no actor. Every action an
+   duration (`app.ts:267-281`); the activity record stamps sessions, jobs, models
+   and cost (`migrations/007_activity.sql:12-35`) — but no actor. Every action an
    agent takes reads exactly like the owner taking it.
 
-This plan gives a session a **principal**: a named, individually revocable,
-expiring identity carried inside the existing cookie. It is deliberately *not* a
-token system — same credential type, same transport, same WebSocket path —
-because the two things actually missing are per-actor revocation and
-attribution, and both are reachable without a second credential mechanism in
-the auth boundary.
+This plan replaces the epoch with a **principals table**: a named, individually
+revocable, expiring row per login, with the cookie carrying nothing but its
+signed id. No second credential type, no new header, no change to how the
+WebSocket upgrade authenticates.
 
-**What revision 2 changed, after review:** per-principal epochs are gone (the
-global epoch stays as the everywhere-switch, `revoked_at` handles the
-individual case); principals now carry a server-enforced `expires_at` and their
-credential lineage; passkey deletion keeps its global invalidation; revocation
-is defined as a boundary that survives *after* admission rather than a socket
-close; and the rollback story now includes secret rotation, because a format
-downgrade otherwise revives old cookies. See the review record.
+**It is not a containment boundary.** A principal that has run a turn has had
+code execution in the container and could have read `COOKIE_SECRET` or written
+`brain-ui.db`. Revocation is the control for a lost credential or a
+well-behaved agent; the control for a hostile one is rotating the secret and
+auditing. Every document this ships with must say so.
 
 ## Problem frame
 
-The deployment this serves is single-owner and private, fronted by auth. The
-threat model is not "many users with different rights"; it is "several clients
-hold a credential to one powerful surface, and the owner needs to cut one off
-and to know which one did what". A session that can start a turn can run
-arbitrary code in the container with its credentials — so **this plan does not
-create a containment boundary**, and must not be described as one. Scoping
-*below* "operate" is a separate, larger question (see Non-goals).
+Single-owner, private, auth in front. The threat model is not "many users with
+different rights"; it is "several clients hold a credential to one powerful
+surface, and the owner needs to cut one off and know which one did what".
 
-The immediate driver: agent access. Today the only ways to let an agent in are
-(a) hand it the owner's cookie, indistinguishable from the owner and revocable
-only by logging the owner out too, or (b) re-open password login as break-glass,
-which adds a public credential path for everyone. Both were used during the
-2026-09-09 incident; neither should be the standing answer.
+The immediate driver is agent access. Today the only options are handing an
+agent the owner's cookie — indistinguishable from the owner, revocable only by
+logging the owner out — or re-opening password login as break-glass, which adds
+a public credential path for everyone. Both were used during the 2026-09-09
+incident; neither should be the standing answer.
 
 ## Requirements
 
-R1. Every authenticated path resolves a principal — HTTP, the WebSocket
-upgrade, and every consequential frame on an open socket.
-R2. Revoking one principal stops that principal: its cookies fail, its sockets
-close, its queued-but-unstarted work is discarded, and its later frames are
-refused. Other principals are untouched.
-R3. "Sign out everywhere" still exists, still means everywhere, and stays the
-meaning of the existing `/api/auth/logout` endpoint that shipped clients call.
-R4. The request log and the activity record attribute work to a principal —
-including who answered an approval and who sent a follow-up, not only who
-started the turn.
-R5. The owner can mint a principal for an agent, see it listed with its last
-use and its expiry, and revoke it — from the UI, without a deploy or a shell.
-R6. No new credential type, no new header requirement, no change to how the
-WebSocket upgrade authenticates.
-R7. Fail closed: unknown, revoked, expired, malformed or stale-epoch cookies are
-rejected; a corrupt principal row refuses rather than degrading to "valid".
-R8. Nothing is attributed to the owner by default. An unattributable action is
-recorded as unattributed, never as the owner.
+R1. Every authenticated path resolves a principal: HTTP, the WebSocket upgrade,
+and every consequential frame on an open socket.
+R2. Revoking one principal stops it — cookie fails, sockets close, queued
+unstarted work is discarded, later frames refused — and touches no other.
+R3. "Sign out everywhere" still exists and stays the meaning of the existing
+`POST /api/auth/logout` that shipped clients already call.
+R4. The request log and activity record attribute work to a principal, including
+who answered an approval and who sent a follow-up — not only who started a turn.
+R5. The owner can mint a principal for an agent, see it listed with last use and
+expiry, and revoke it, from the UI.
+R6. No new credential type, no new header requirement, no change to the WS
+upgrade's authentication.
+R7. Fail closed: unknown, revoked, expired or malformed cookies rejected; a
+corrupt row refuses rather than degrading to valid.
+R8. Nothing is attributed to the owner by default; unattributable work is
+recorded as unattributed.
+R9. Only an **owner** principal can mint or revoke principals.
 
 ## Non-goals
 
-- **Scopes / least privilege per route.** Every valid principal can do what a
-  session does today. A half-enforced scope is worse than none: it buys false
-  confidence.
-- **Multi-user.** One owner, several principals. No per-user data separation.
-- **Bearer tokens.** Rejected: a non-browser client can already send `Cookie:`,
-  and the origin policy already admits requests carrying neither `Origin` nor
-  fetch metadata (`middleware/origin.ts:82`), so no exemption is needed.
-- **Containment of a compromised principal.** Revocation stops *new* work; it
-  does not claw back what a turn already did.
+- **Scopes / least privilege per route.** The one exception is R9's kind check on
+  the principal-management routes — a single check on a single route family, the
+  same shape as the existing password-disabled guard (`auth.ts:552`), not a
+  scope system.
+- **Multi-user.** One owner, several principals.
+- **Bearer tokens.** Additive later and cheap (see Q5); not in this plan.
+- **Containment of a compromised principal.** See the Summary.
 
 ## Context: what exists today
 
-Verified against the source; the rows below were re-checked in review.
+Both reviewers verified every row below against the source.
 
 | Thing | Where | Shape |
 | --- | --- | --- |
-| Cookie mint | `middleware/auth.ts:246` | `setSignedCookie(c, "brain_ui_session", \`${Date.now()}.${epoch}\`, secret, { httpOnly, sameSite: "Strict", secure: true, path: "/", maxAge: 30d })` |
-| Cookie verify | `auth.ts:265` | strict `^(\d+)\.(\d+)$`, safe-integer check, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
-| Global epoch | `auth.ts:302` | `settings` row `auth.sessionsEpoch`; missing = 0; anything not a non-negative safe integer **throws** |
-| Global revoke | `auth.ts:321` | `setSetting` (with an overflow guard) + `clients.closeAll(1008, "Sessions invalidated")` |
-| HTTP guard | `app.ts:349` | `app.use("/api/*", authGuard(...))`; the auth routes themselves mount **before** it (`app.ts:334`) |
-| WS guard | `app.ts:413` | origin → `isWsAuthorized` → capacity → upgrade-shape → upgrade |
+| Cookie mint | `middleware/auth.ts:253` | `setSignedCookie(..., \`${Date.now()}.${epoch}\`, secret, { httpOnly, sameSite: "Strict", secure: true, path: "/", maxAge: 30d })` |
+| Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
+| Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
+| Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
+| Auth routes | `app.ts:334` | mounted **before** the guard at `app.ts:349`; logout guards itself (`auth.ts:646`) |
+| Passkey management | `app.ts:353` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `app.ts:413-428` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
+| WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
+| Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |
+| Follow-up queue | `ws/turns.ts:15-20`, `run-session.ts:305` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `auth.ts:591` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
-| Passkey login | `passkeys.ts:436` | assertion verified, then the same `issueSessionCookie` |
-| Passkey **registration** | `passkeys.ts:505` | inserts a credential and returns its summary — calls **neither** `issueSessionCookie` nor `bumpSessionsEpoch` |
-| Logout | `auth.ts:645` | in password mode: verify caller, global bump, delete cookie. Other modes: delete the cookie only |
-| Passkey delete | `passkeys.ts:578` | delete the credential, then a **global** bump |
-| Sockets | `ws/clients.ts:33` | `ClientSet` keyed on `ws.raw` because hono mints a fresh `WSContext` per callback |
-| Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the `WSContext` wrapper, not `ws.raw` |
-| Activity spans | `migrations/007_activity.sql:12` | `origin` is `'session' \| 'cron'`; `session_id`, `job_name`, no actor |
+| Passkey login | `passkeys.ts:436` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
+| Passkey **registration** | `passkeys.ts:505` | inserts a credential; calls **neither** helper |
+| Passkey delete | `passkeys.ts:578-586` | deletes the credential, then a **global** bump |
+| Sockets | `ws/clients.ts:33` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
+| Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
+| Rollups | `migrations/007_activity.sql`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
+| Client logout | `ui-react/src/lib/api-client.ts:449`, `passkey-tab.tsx:166-175` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Unauthorized in the UI | `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
 
-Two things this table made visible that are true today, independent of this
-plan:
+Two findings that are true today, independent of this plan:
 
 - **The activity subscription registry leaks.** `subscribe` stores by the
-  message-callback wrapper (`stream.ts:326`) and `dropConnection` deletes by the
-  close-callback wrapper (`stream.ts:354`) — different objects, which is exactly
-  why `ClientSet` keys on `ws.raw`. Entries therefore survive the socket, and
-  `isWatched` keeps the poller alive. U5 fixes the keying; it is worth a
-  standalone fix if this plan slips.
-- **`docs/integration-contract.md` does cover the WebSocket protocol and
-  activity streaming** (`:122`, `:158`). "No new frames" is not the same as "no
-  contract change": how attribution reaches a client (an existing `attrs` key
-  versus new optional fields) is a contract decision, made in Key decision 8.
+  message-callback wrapper (`stream.ts:326`), `dropConnection` deletes by the
+  close-callback wrapper (`stream.ts:354`) — different objects, which is why
+  `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
+  awake. U5 fixes the keying; worth a standalone fix if this plan slips.
+- **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
+  (`:122`, `:158`), so how attribution reaches a client is a contract decision
+  (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
 
-**1. The principal id goes in the cookie payload, first.**
-`<principalId>.<issuedAt>.<epoch>`. Hono signs the whole value and splits on the
-*last* dot to take the signature (`hono/utils/cookie.js:47,75`), so extra dots
-are safe and any edit to the principal invalidates the signature. The id is
-server-generated, 22 characters of base64url, and can never contain a dot;
-ids are never accepted from a User-Agent, a label or a frame.
+**1. One authority: the `principals` table. The epoch goes.** Revision 2 kept
+the global epoch alongside per-row state; review killed that. With a row per
+login, a principal never has a second live cookie, so a per-principal epoch is
+dead weight — and a global epoch bumped *without* setting `revoked_at` produces
+rows the verifier treats as dead while the UI lists them as live and pruning
+never collects them. Two mechanisms for one concept is how that divergence
+ships. Validity becomes: **signature valid ∧ row exists ∧ `revoked_at IS NULL` ∧
+`now < expires_at`**.
 
-**2. The global epoch stays; individual revocation is `revoked_at`.**
-Revision 1 replaced the global integer with per-principal epochs. That traded an
-O(1) everywhere-switch with an overflow guard for an N-row mass update that has
-to re-validate every row, and left an unread settings key behind. Instead:
-`settings.auth.sessionsEpoch` keeps its current meaning and code path, and
-`session_principals.revoked_at` handles the individual case. Validity is
-**signature ∧ shape ∧ age < TTL ∧ cookieEpoch === globalEpoch ∧ principal exists
-∧ not revoked ∧ not expired**.
+This reverses the hardening plan's decision 3, *"Sessions epoch, not a session
+table"* (`docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md:359`) — said
+out loud, because that decision was correct for what it solved. The epoch bought
+global invalidation with no schema; it cannot buy per-actor revocation or
+attribution, which is what this plan is for.
 
-**3. Expiry is server state, not a cookie attribute.** A principal row carries
-`expires_at NOT NULL`. `maxAge` on the `Set-Cookie` binds only a browser; an
-agent holding the value verbatim ignores it entirely, so a 7-day agent
-credential that is only 7 days long in the browser is not 7 days long at all.
-Expiry is checked on HTTP admission, on WS upgrade, and again before
-consequential work on an open socket. `last_seen_at` never extends it; renewal
-is an explicit owner action that mints a new principal.
+**2. The cookie carries the signed id and nothing else.** `issuedAt` is
+redundant with `created_at`/`expires_at`, which are server state and therefore
+authoritative for an agent that holds the value verbatim and ignores `maxAge`.
+A v1 payload (`\d+\.\d+`) cannot match `^[A-Za-z0-9_-]{22}$` and would find no
+row, so the old format is rejected structurally. Hono signs the whole payload
+and splits on the last dot (`hono/utils/cookie.js:79-89`), so the id cannot be
+edited without breaking the signature.
 
-**4. Principals carry their lineage.** `auth_method` (`password` | `passkey` |
-`delegated` | `ambient`), `credential_id` for a passkey login, and
-`created_by_principal_id` for a delegated one. Without lineage, "revoke this
-passkey" cannot find the sessions it produced, and `kind: 'owner'` would be a
-claim derived from nothing — any authenticated session can register a passkey
-today (`app.ts:349` guards registration only as "a session"), so a label saying
-"owner" must never be read as "a human did this".
+**3. Verify the signature first, then read the row.** Unauthenticated traffic
+must not be able to drive database reads with arbitrary ids. The corrupt-row
+throw sits after signature verification and outside the cookie-parser catch,
+exactly as `auth.ts:293-295` does today — so a corrupt row 500s only that
+principal's requests instead of everyone's.
 
-**5. Passkey deletion keeps its global invalidation.** Selective
-credential-linked revocation lands only once lineage exists and is proven
-(U5); until then, deleting a credential continues to bump the global epoch
-exactly as it does now (`passkeys.ts:584`). Reopening a hardening decision
-without its replacement is how a regression ships. Additionally, the credential
-must be re-checked *after* the asynchronous assertion verification and before a
-principal is created — today the lookup precedes verification
-(`passkeys.ts:352`), so a ceremony already in flight can mint a session for a
-credential deleted meanwhile.
+**4. Principals carry their lineage, and passkey deletion uses it.**
+`credential_id` (passkey logins; NULL for password), `created_by` (delegation),
+`auth_method`. Deleting a passkey revokes `WHERE credential_id = ?` instead of
+bumping a global epoch — the narrower kill the 0.32.0 behaviour was standing in
+for. The credential must also be re-checked **after** the asynchronous assertion
+verification and before the principal is created: today's lookup precedes
+verification (`passkeys.ts:352`), so a ceremony in flight can mint a session for
+a credential deleted meanwhile.
 
-**6. Revocation is a boundary that outlives admission.** Closing a socket is not
-revocation: `onMessage` dispatches without re-checking authorization
-(`ws/connection.ts:162`), turn startup awaits routing and billing before
-`startTurn` (`ws/run-session.ts:43,129`), and queued follow-ups carry no actor
-and execute later (`ws/turns.ts:15`, `run-session.ts:194`). Each connection
-therefore holds a server-resolved **authorization context**; revocation marks it
-invalid synchronously, after which inbound frames are refused and sends are
-dropped; queued-but-unstarted work belonging to that principal is discarded;
-work already handed to a backend is left running and reported as such.
+**5. Revocation is a boundary that outlives admission.** Closing a socket is not
+revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:162`),
+turn startup awaits routing and billing before `startTurn`
+(`ws/run-session.ts:43,129`), and queued follow-ups execute later. Each
+connection holds a server-resolved authorization context; revocation marks it
+invalid synchronously, refuses later frames, drops that principal's queued
+unstarted follow-ups, and leaves running work running (cancelling a slot would
+take other principals' queued work with it — `ws/turns.ts:164`). The revocation
+itself is recorded in the activity record.
 
-**7. `/api/auth/logout` keeps meaning "everywhere".** The shipped client calls
-it with no arguments (`ui-react/src/lib/api-client.ts:448`, used by
-`passkey-tab.tsx:99`), and a cached client against a new server must not
-silently downgrade the owner's "sign out everywhere" to "sign out this tab".
-The caller-only operation is a **new** endpoint.
+**6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
+replacement labelled "Safari on iPhone" before it is revoked, or revoke the
+owner's devices — a revocation that leaves a door open. `kind` is derived from
+the authentication method, never from a User-Agent string, and any authenticated
+session can register a passkey today, so the UI describes principals as
+credentials, not people.
 
-**8. Attribution rides on explicit optional fields, and survives retention.**
-`activity_spans.principal_id` plus, on `activity_run_rollups`, the initiator id
-and an immutable display snapshot of its label — otherwise attribution vanishes
-when span detail is pruned (`activity/store.ts:508,803`) or when a principal row
-is pruned. Old rows are never backfilled: historical attribution is nullable and
-renders as "unattributed". The wire mapping enumerates its output fields
-explicitly (`activity/stream.ts:59,119`), so new fields are additive and
-`docs/integration-contract.md` is updated in the same commit.
+**7. Attribution rides on explicit optional fields and survives retention.**
+`activity_spans.principal_id`, plus `principal_id` on `activity_run_rollups`
+(`activity/sql.ts:19-24`) — the rollup is what survives span pruning, so
+cost-by-actor dies at prune time without it. The precedent is profile/billing:
+a root-span attr that the rollup reads (`activity/recorder.ts:96-107`). Nullable
+for cron (`activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for
+pre-migration rows; nothing is backfilled.
 
-**9. Ambient modes get a synthetic principal for logging only.** `tailscale`,
-`proxy` and `none` have no cookie and no revocation story
-(`auth.ts:175,227`). They resolve to a fixed `kind: 'ambient'` principal so
-every consumer can assume one exists; minting and revocation routes are
-**disabled** in those modes, and the UI says so. Cron opens the database
-directly with `origin: 'cron'` (`cron/run-job.ts:103`) and is attributed to an
-explicit system principal — never to the owner, never to ambient.
+**8. Ambient modes keep the identity they already have.** `proxy` mode reads an
+upstream user header (`auth.ts:340`) — that becomes the ambient principal's
+label, bounded like `sanitizeLabel` (`passkeys.ts:265-267`). `tailscale` carries
+the client IP; `none` is fixed. Minting and revocation are disabled in these
+modes. Cron is attributed to an explicit system principal, never to the owner.
 
 ## High-level design
 
 ```
 login (password | passkey)
-        │  create principal row: kind=owner, auth_method, credential_id?,
-        │  label from UA, expires_at = now + owner TTL
-        ▼
-issueSessionCookie(c, auth, db, principalId)      ── browser: Set-Cookie
-mintDelegatedCookie(db, { label, ttlDays })       ── agent: value in the BODY,
-        │                                            no Set-Cookie, no-store
-        ▼
-/api/* ──► authGuard ──► resolvePrincipal(db, cookie)
-                      │     unknown | revoked | expired | epoch drift → 401
-                      │     ok → c.set("principal"), throttled last_seen_at
-                      ▼
-                 request log: auth.principal.id / .label
-/ws upgrade ──► isWsAuthorized (same resolver) ──► ClientSet.add(ws.raw, principalId)
-                      │                            + connection authorization context
-                      ▼
-   every consequential frame (chat, follow-up, approval, cancel)
-        └─► context still valid? no → refuse + report; yes → record responder
+   └─ INSERT principals { id, kind: 'owner', auth_method, credential_id?,
+                          label (UA, ≤64 chars), expires_at, created_at }
+   └─ Set-Cookie: brain_ui_session = signed(id), maxAge derived from expires_at
+
+mint (owner only, router mounted AFTER the guard)
+   └─ INSERT principals { kind: 'agent', created_by, expires_at = now + ttl }
+   └─ value returned in the BODY via hono's generateSignedCookie —
+      no Set-Cookie (it would replace the owner's own session), no-store
+
+/api/*  ──► authGuard ──► verify signature ──► load row ──► revoked? expired?
+                       └─ 401 on any failure; c.set("principal"); touch
+                          last_seen_at only when >60s stale
+                       └─ request log: auth.principal.id / .label
+
+/ws     ──► route resolves the principal, c.set()s it
+        ──► upgradeWebSocket((c) => createWsHandlers(host, c.get("principal")))
+              (hono passes the context to createEvents:
+               hono/helper/websocket/index.js:34)
+        ──► ConnectionState.principal (ws/dispatch.ts:11-14)
+        ──► clients.add(ws, principalId)
+        ──► QueuedFollowUp.principalId / RunningTurn.principalId
+              (reset per queued follow-up, like lastResult)
+        ──► createTurnRecorder(..., { principalId }) ──► root span ──► rollup
+
+revoke  ──► revoked_at = now
+        ──► invalidate connection contexts, ClientSet.closeFor(id, 1008, …)
+        ──► drop that principal's queued follow-ups
+        ──► drop its activity subscriptions, unbind its push subscriptions
 ```
 
-Revocation:
-
-```
-POST   /api/auth/logout                 ── unchanged: global epoch bump (everywhere)
-POST   /api/auth/session/revoke         ── new: the caller's principal only
-DELETE /api/auth/principals/:id         ── new: that principal only
-        └─ revoked_at = now
-        └─ invalidate its connection contexts (refuse later frames)
-        └─ close its sockets (1008) + drop its activity subscriptions
-        └─ discard its queued, unstarted turns
-        └─ unbind its push subscriptions
-```
+`POST /api/auth/logout` keeps meaning **everywhere** (`UPDATE principals SET
+revoked_at = now WHERE revoked_at IS NULL`); the caller-only operation is a new
+endpoint, so the shipped button (`passkey-tab.tsx:166-175`) does not silently
+become "sign out this device".
 
 ## Implementation units
 
 | # | Unit | Package(s) | Size |
 | --- | --- | --- | --- |
-| U1 | `session_principals` migration + store (create, resolve, touch, revoke, prune, cap) with strict accessors | ui-server | S |
-| U2 | Cookie payload v2: mint with a principal, verify strictly (shape, epoch, existence, revoked, expired), reject v1 | ui-server | M |
+| U1 | Migration 011 `principals` + store (create, resolve, touch, revoke, revoke-all, revoke-by-credential, prune, cap) | ui-server | S |
+| U2 | Cookie = signed id: mint, verify (signature → row → revoked → expired), reject v1 | ui-server | S |
 | U3 | `authGuard` / `isWsAuthorized` resolve and expose the principal; request-log attribution; throttled `last_seen_at` | ui-server | S |
-| U4 | Login paths create principals with lineage; UA labels; credential re-check after verification; pruning and the active cap | ui-server | M |
-| U5 | Revocation boundary: connection authorization contexts, frame refusal after invalidation, selective socket close, queued-work discard, **activity-subscription re-keying on `ws.raw`** | ui-server | L |
-| U6 | `POST /api/auth/principals` mints a delegated principal and returns the value **once** (no `Set-Cookie`, `Cache-Control: no-store`); list + delete routes; audit log; disabled in ambient modes | ui-server | M |
-| U7 | Attribution: `activity_spans.principal_id`, rollup initiator + label snapshot, responder identity on approvals and follow-ups, wire mapping, contract note | ui-server | M |
-| U8 | Settings UI: sessions list (label, kind, created, last seen, expiry, "this device"), revoke, mint-an-agent form with a one-time copy view | ui-react | M |
-| U9 | Push subscriptions bound to a principal and unbound on revocation; documented residual for already-sent notifications | ui-server, ui-sdk | S |
-| U10 | Docs: hosting.md (agent access, revocation, the version-transition procedure), SECURITY.md (what a principal is and is **not**), ui-server README routes; changeset | ui-server, brain-ui | S |
+| U4 | Login paths create principals with lineage and bounded UA labels; credential re-check after verification; pruning and cap | ui-server | M |
+| U5 | Revocation boundary: the six-file plumbing chain above, `ClientSet.closeFor`, queued-follow-up discard, **activity-subscription re-keying on `ws.raw`** | ui-server | L |
+| U6 | Owner-only principal routes (mounted after the guard): mint returning the value once, list, delete; audit log; disabled in ambient modes | ui-server | M |
+| U7 | Attribution: span `principal_id`, rollup `principal_id` (migration 012), responder identity on approvals and follow-ups, wire mapping, contract note | ui-server | M |
+| U8 | UI "Devices & agents": list, revoke, mint form with one-time copy; migrate the existing "Sign out everywhere" button | ui-react | M |
+| U9 | Push subscriptions bound to a principal, unbound on revocation; documented residual for already-sent notifications | ui-server, ui-sdk | S |
+| U10 | Docs: `docs/hosting/README.md` (agent access, revocation, version-transition procedure), both SECURITY.md files (what a principal is **not**), ui-server README; changeset naming the exported-API change | ui-server, brain-ui | S |
 
-**U1 detail.** Migration 011 — `NOT NULL` on the primary key is load-bearing:
-SQLite accepts a NULL `TEXT PRIMARY KEY` (verified: `INSERT … VALUES (NULL,…)`
-succeeds on a bare `id TEXT PRIMARY KEY`).
+**U1 detail.** `NOT NULL` on the primary key is load-bearing: SQLite accepts a
+NULL `TEXT PRIMARY KEY` (verified — `INSERT … VALUES (NULL, …)` succeeds).
 
 ```sql
-CREATE TABLE session_principals (
+CREATE TABLE principals (
   id            TEXT PRIMARY KEY NOT NULL,  -- 22 chars base64url, server-generated
-  label         TEXT NOT NULL,
   kind          TEXT NOT NULL CHECK (kind IN ('owner','agent','ambient','system')),
   auth_method   TEXT NOT NULL CHECK (auth_method IN ('password','passkey','delegated','ambient')),
-  credential_id TEXT,                        -- passkey_credentials.id, when auth_method='passkey'
-  created_by_principal_id TEXT,              -- who delegated this one
+  label         TEXT NOT NULL,              -- ≤64 chars, never rendered as HTML
+  credential_id TEXT,                       -- passkey_credentials.id, else NULL
+  created_by    TEXT,                       -- minting principal, for delegation
   created_at    INTEGER NOT NULL,
   expires_at    INTEGER NOT NULL,
   last_seen_at  INTEGER,
   revoked_at    INTEGER
 );
-CREATE INDEX idx_session_principals_live ON session_principals(revoked_at, expires_at);
+CREATE INDEX idx_principals_live ON principals(revoked_at, expires_at);
 ```
 
-Never append later columns to this file: migrations are recorded by filename
-after applying (`db/client.ts:39`), so U7's column ships as its own migration.
+Migrations are recorded by filename after applying (`db/client.ts:39`), so U7's
+column ships as its own file (012) — never appended here.
 
-**U6 detail.** Requires a valid session, takes `{ label, ttlDays }` (bounded,
-default 7), returns `{ id, label, expiresAt, cookie }` where `cookie` is the
-signed value for a `Cookie: brain_ui_session=…` header — shown once, never
-stored, never logged, and delivered with `Cache-Control: no-store` and **no**
-`Set-Cookie`, so minting never replaces the owner browser's own session.
+**U6 detail.** Do not reimplement hono's HMAC: take the value from
+`generateSignedCookie`, read between `=` and `;`, `decodeURIComponent` it, and
+round-trip it through `getSignedCookie` in a test.
 
 ## System-wide impact
 
-- **Sessions:** one forced re-login on upgrade (v1 cookies have two fields).
-- **Wire protocol:** no new frames; attribution fields on activity payloads are
-  additive and documented in `docs/integration-contract.md` (Key decision 8).
+- **Sessions:** one forced re-login on upgrade.
+- **Wire protocol:** no new frames; additive attribution fields on activity
+  payloads, documented in `docs/integration-contract.md`.
 - **HTTP surface:** `/api/auth/principals` (GET, POST), `/api/auth/principals/:id`
-  (DELETE), `/api/auth/session/revoke` (POST) added; `/api/auth/logout` unchanged.
-- **DB:** one new table (011) and one new span column (012), both additive and
-  nullable so an older writer — including cron — keeps working.
-- **Per-request cost:** one indexed read, plus a throttled `last_seen_at` write
-  (not one write per request).
-- **Public API:** `bumpSessionsEpoch` is exported (`src/index.ts:42`); it keeps
-  its signature and meaning, so the api-report stays stable.
-- **Env contract:** unchanged.
+  (DELETE), a caller-only revoke; `/api/auth/logout` unchanged in meaning.
+- **Exported API:** `bumpSessionsEpoch` disappears and `isWsAuthorized` changes
+  shape; both are exported from the package root (`src/index.ts:44-45`). No
+  consumers in this repo — grep brain-ui before landing, and name the change in
+  the changeset.
+- **DB:** two additive migrations (011, 012), nullable for old writers including
+  cron.
+- **Per-request cost:** one primary-key read on local WAL SQLite, plus a
+  `last_seen_at` write only when >60s stale.
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| A verifier bug locks the owner out of a remote surface | Every rejection case asserted and shown red first: v1 cookie, unknown id, revoked, expired, epoch drift, malformed, corrupt row, encoded delimiters, duplicate cookie header. Recovery is **roll back to known-good code plus targeted repair of the auth row** — not secret rotation, which does not repair a broken verifier |
-| **Rollback across the format boundary revives credentials** | Reproducible: a stolen v1 cookie is rejected while upgraded, then valid again after a downgrade, because revocations recorded in the new tables never touched the old counter. The runbook makes `COOKIE_SECRET` rotation **mandatory** when crossing the format boundary in either direction, and a test covers upgrade → rollback → re-upgrade with a retained cookie |
-| Selective revocation looks complete but is not | U5's boundary cases are the unit's acceptance criteria: an already-dispatched frame, a queued follow-up, a pending approval, an in-flight turn start, an activity subscription |
-| A minted agent value leaks | Server-enforced `expires_at`, default 7 days; `last_seen_at` in the UI; single-row revocation; shown once, never logged |
-| Row growth | Prune by `expires_at` and `revoked_at` on login and boot, plus a cap on live principals — successful logins deliberately do not consume the limiter's failure budget (`auth.ts:624`), so nothing else bounds creation |
-| "Owner" becomes a misleading label | `kind` is derived from the authentication method, never from a UA string; any authenticated session can register a passkey, so the UI describes principals as credentials, not people |
-| Push notifications outlive revocation | U9 binds subscriptions to a principal; already-delivered notifications cannot be recalled, and the docs say so |
-| Attribution is lost to retention | Rollups keep the initiator id and a label snapshot; pruned spans lose detail, not the actor |
+| A verifier bug locks the owner out | Every rejection asserted and shown red first: v1 payload, unknown id, revoked, expired, malformed, corrupt row, encoded delimiters, duplicate cookie header. Recovery is roll back to known-good code plus targeted row repair — **not** secret rotation, which does not repair a broken verifier |
+| **Rollback revives pre-upgrade cookies** | A v1 cookie dead under v2 becomes valid again under v1 code, because v2's revocations never touch the old counter. For the one release the settings row is retained, sign-out-everywhere **also** bumps it; the runbook additionally repeats 0.32.0's instruction to rotate `COOKIE_SECRET` when crossing the format boundary, with an upgrade → rollback → re-upgrade test |
+| Selective revocation looks complete but is not | U5's acceptance criteria are the boundary cases: an already-dispatched frame, a queued follow-up, a pending approval, an in-flight turn start, an activity subscription, a push subscription |
+| An agent escalates through the mint route | R9's owner-only check, `created_by` recorded, and the SECURITY.md sentence that a hostile principal is a secret-rotation problem, not a revocation problem |
+| A minted value leaks | Server-enforced `expires_at` (7 days default), `last_seen_at` visible, single-row revocation, shown once, never logged |
+| Row growth | Prune by `expires_at`/`revoked_at` on login and boot plus a live-principal cap — successful logins do not consume the limiter's failure budget (`auth.ts:624`), so nothing else bounds creation |
+| Attribution lost to retention | Rollup `principal_id` (Key decision 7) |
+| Naming collision | "Session" already means chat session (`app.ts:369`, `activity_spans.session_id`, `SessionCatalog`, the ui-react sidebar). Table and routes are `principals`; the UI says "Devices & agents" |
 
-## Open questions — answered in review
+## Open questions — answered by review
 
-| Q | Answer (both reviewers, where they agree) |
+| Q | Answer |
 | --- | --- |
-| Q1 principal per login or per credential | **Per login, with credential lineage.** A synced passkey logs in from several devices; conflating them would make revocation coarse again. Describe it as a login session, not a physical device |
-| Q2 keep the global epoch | **Keep it.** It stays the everywhere-switch with its overflow guard; `revoked_at` covers the individual case. Per-principal epochs dropped |
-| Q3 agent TTL | **7 days**, server-enforced via `expires_at`, shorter allowed, renewal is an explicit new mint — no silent extension |
-| Q4 abort running turns on revocation | **No.** Refuse further input, discard the principal's queued unstarted work, leave running work running (the existing cancel path clears a whole session queue, which would take another principal's work with it — `ws/turns.ts:164`) |
-| Q5 bearer transport | **No.** Cookies already work for non-browser clients and the origin policy already admits header-less requests (`origin.ts:82`) |
-| Q6 cache the resolution | **No.** Read authoritative state at each admission and execution boundary; throttle only the `last_seen_at` write. Caching reintroduces the staleness window this plan exists to remove |
+| Q1 per login or per credential | **Per login, tagged with `credential_id`.** Revocation is reached for as "that phone / that agent"; per-credential identity is what passkey deletion gets from the tag |
+| Q2 keep the global epoch | **No — drop it as an authority** (Key decision 1). Keep writing the settings row for one release as a downgrade guard, then delete it |
+| Q3 agent TTL | **7 days** via `expires_at`, owner-settable at mint up to the 30-day owner TTL, no renewal endpoint — renewal is minting a new one, a human step by design |
+| Q4 abort running turns | **No.** Drop the revoked principal's queued follow-ups, record the revocation, leave running work running |
+| Q5 bearer transport | **Not now, and cheap later**: accept `Authorization: Bearer <same value>` only when no cookie is present, same verifier. No origin exemption is needed — `middleware/origin.ts:82` already admits header-less clients, which the plan previously got wrong |
+| Q6 cache the resolution | **No.** One primary-key read on local WAL SQLite is microseconds; a cache reintroduces exactly the staleness window this plan exists to close. Throttle the write instead |
 
 ## Review record
 
 - **2026-09-14, revision 1 drafted.**
-- **2026-09-14, revision 1 → 2, after a gpt-6-astra review** (read-only, against
-  the worktree; verdict SOUND WITH CHANGES). It verified all twelve
-  "what exists today" rows and corrected three claims: `ClientSet` lives in
-  ui-server rather than ui-sdk, passkey registration calls neither
-  `issueSessionCookie` nor `bumpSessionsEpoch`, and the integration contract
-  does cover the WebSocket and activity surfaces. Four blockers folded in:
-  agent TTL had no authoritative representation (now `expires_at`); dropping the
-  global bump from passkey deletion would have left that credential's sessions
-  alive (now kept, with the post-verification credential re-check); "close the
-  socket" is not a revocation boundary (now connection authorization contexts,
-  frame refusal, queued-work discard); and a rollback across the cookie format
-  revives old credentials (now mandatory `COOKIE_SECRET` rotation plus an
-  upgrade → rollback → re-upgrade test). Its should-fixes also produced: the
-  logout endpoint keeping its "everywhere" meaning for cached clients, the mint
-  route not setting a cookie, push subscriptions bound to a principal,
-  attribution surviving retention in rollups, responder identity on approvals
-  and follow-ups, pruning by expiry with an active cap, `NOT NULL` on the
-  primary key (SQLite accepts a NULL one — verified), and the correction that
-  secret rotation does not repair a broken verifier. It also surfaced a
-  pre-existing defect: the activity subscription registry is keyed on the hono
-  wrapper and leaks on close.
-- **2026-09-14, Claude Fable 5.1 review** — pending; findings fold into
-  revision 3.
+- **2026-09-14, revision 1 → 2, gpt-6-astra** (read-only; SOUND WITH CHANGES).
+  Verified all twelve context rows; corrected three claims (`ClientSet` is
+  ui-server, passkey registration calls neither helper, the integration contract
+  does cover WS/activity). Blockers folded: agent TTL had no authoritative
+  representation; dropping the passkey-delete global bump would strand that
+  credential's sessions; "close the socket" is not a revocation boundary; a
+  rollback across the cookie format revives credentials. Should-fixes folded:
+  logout keeps its "everywhere" meaning for cached clients, the mint route must
+  not `Set-Cookie`, push subscriptions bound to a principal, attribution
+  surviving retention, responder identity on approvals, pruning by expiry with a
+  cap, `NOT NULL` on the primary key (SQLite accepts a NULL one — verified), and
+  that secret rotation does not repair a broken verifier. It also surfaced the
+  pre-existing activity-subscription leak.
+- **2026-09-14, revision 2 → 3, Claude Fable 5.1** (SOUND WITH CHANGES).
+  Independently verified the same citations plus hono's signature format. Three
+  blockers: two revocation mechanisms for one concept (the epoch **and** a row
+  per login) leaving dead-but-unpruned rows and silently reversing hardening
+  decision 3; no plumbing named for per-actor socket close or turn attribution;
+  and any principal — including an agent — able to mint or revoke principals.
+  Should-fixes folded: mint router mounted after the guard and built on
+  `generateSignedCookie`, credential-scoped passkey revocation, rollup
+  `principal_id`, signature-before-row-lookup, proxy-mode identity as the
+  ambient label, the wrong origin-policy premise, the retained-epoch downgrade
+  guard, the existing "Sign out everywhere" button, no abort on revoke, and the
+  `principals` naming. Nits folded: throttled `last_seen_at`, bounded
+  non-HTML labels, the exported-API note, migration numbering, and that a
+  revoked device reaches the login screen through `/api/vpn-check`, not the
+  close code.
+- **Where the reviewers disagreed:** astra recommended keeping the global epoch
+  as an O(1) everywhere-switch; Fable recommended deleting it. Resolved in
+  Fable's favour on authority — two mechanisms for one concept is precisely how
+  the UI comes to show a live row the verifier treats as dead — while keeping
+  astra's rollback concern by writing (never reading) the settings row for one
+  release as a downgrade guard.
