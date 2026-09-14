@@ -1,6 +1,7 @@
 import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
-import type { AuthorizationContext, WSContext } from "./clients.js";
+import type { WSContext } from "./clients.js";
+import type { AuthorizationContext } from "./turns.js";
 import { locationErrorText } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
 import { validateAttachments } from "./attachments.js";

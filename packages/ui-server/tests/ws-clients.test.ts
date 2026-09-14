@@ -117,21 +117,6 @@ describe("ws client registry", () => {
     const closedA: string[] = [];
     const closedB: string[] = [];
     const sentB: string[] = [];
-    const authorizationA1 = {
-      principalId: "principal-a",
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      valid: true,
-    };
-    const authorizationA2 = {
-      principalId: "principal-a",
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      valid: true,
-    };
-    const authorizationB = {
-      principalId: "principal-b",
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      valid: true,
-    };
     const a1: WSContext = {
       send() {},
       close: (_code, reason) => closedA.push(`a1:${reason}`),
@@ -144,18 +129,15 @@ describe("ws client registry", () => {
       send: (data) => sentB.push(data),
       close: (_code, reason) => closedB.push(`b:${reason}`),
     };
-    clients.add(a1, "principal-a", authorizationA1);
-    clients.add(a2, "principal-a", authorizationA2);
-    clients.add(b, "principal-b", authorizationB);
+    clients.add(a1, "principal-a");
+    clients.add(a2, "principal-a");
+    clients.add(b, "principal-b");
 
     clients.closeFor("principal-a", 1008, "revoked");
     clients.broadcast(IDLE);
 
     expect(closedA).toEqual(["a1:revoked", "a2:revoked"]);
     expect(closedB).toEqual([]);
-    expect(authorizationA1.valid).toBe(false);
-    expect(authorizationA2.valid).toBe(false);
-    expect(authorizationB.valid).toBe(true);
     expect(sentB).toHaveLength(1);
     expect(clientCount()).toBe(1);
   });

@@ -5,12 +5,11 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
-import type { AuthorizationContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
-import type { QueuedFollowUp, RunningTurn } from "./turns.js";
+import type { AuthorizationContext, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
   MAX_SESSION_QUEUE,
@@ -63,22 +62,32 @@ function recordPendingCancellations(
   turn.pendingCancellationPrincipalIds.length = 0;
 }
 
-export async function runSession(
-  host: WsHost,
-  initial: {
-    authorization: AuthorizationContext;
-    text: string;
-    sessionId?: string;
-    attachments: ChatImageAttachment[];
-    providerId?: string;
-    client?: ClientEnvironment;
-    /** Client correlation id for a new conversation; echoed on session_info. */
-    draftId?: string;
+type RunSessionInput = {
+  authorization: AuthorizationContext;
+  text: string;
+  sessionId?: string;
+  attachments: ChatImageAttachment[];
+  providerId?: string;
+  client?: ClientEnvironment;
+  /** Client correlation id for a new conversation; echoed on session_info. */
+  draftId?: string;
+};
+
+export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
+  const releaseAuthorization = initial.authorization.retain();
+  try {
+    await runRetainedSession(host, initial);
+  } finally {
+    releaseAuthorization();
   }
+}
+
+async function runRetainedSession(
+  host: WsHost,
+  initial: RunSessionInput
 ): Promise<void> {
   const { coordinator } = host;
   coordinator.startingSessions += 1;
-  coordinator.registerStartingAuthorization(initial.authorization);
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
@@ -96,7 +105,6 @@ export async function runSession(
     return;
   } finally {
     coordinator.startingSessions = Math.max(0, coordinator.startingSessions - 1);
-    coordinator.finishStartingAuthorization(initial.authorization);
   }
 
   if (!initial.authorization.valid) return;
@@ -143,13 +151,18 @@ export async function runSession(
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.client ? { client: initial.client } : {}),
+    releaseAuthorization: () => {},
   };
+  let releaseActiveAuthorization: (() => void) | undefined;
 
   try {
     while (next && !turn.cancelled) {
+      releaseActiveAuthorization = next.releaseAuthorization;
       turn.principalId = next.principalId;
       turn.authorization = next.authorization;
       if (!turn.authorization.valid) {
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
         next = turn.queue.shift() ?? null;
         if (next) {
           turn.turnId = crypto.randomUUID();
@@ -200,6 +213,8 @@ export async function runSession(
       host.expireAuthorizationContexts();
       if (!turn.authorization.valid) {
         clearTimeout(timeoutHandle);
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
         // A cancellation accepted while billing was in flight is already a
         // decision someone made; losing it because the turn's own principal
         // was revoked a moment later would erase the actor, not the turn. Drain
@@ -276,6 +291,8 @@ export async function runSession(
       } finally {
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
       }
 
       // Subsequent (queued) turns resume the now-known session and keep its
@@ -294,6 +311,9 @@ export async function runSession(
       }
     }
   } finally {
+    releaseActiveAuthorization?.();
+    next?.releaseAuthorization();
+    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     if (turn.sessionId) coordinator.bySession.delete(turn.sessionId);
     coordinator.running.delete(turn);
     coordinator.drainPendingForTurn(turn, "Session ended");
@@ -369,15 +389,22 @@ export async function handleChatMessage(
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
       runningTurn.recorder?.recordFollowUp(authorization.principalId);
-      backend.followUp({ sessionId, prompt: text, attachments }).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
-        host.sendToClients(
-          withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
-        );
-      });
+      void (async () => {
+        const releaseFollowUp = authorization.retain();
+        try {
+          await backend.followUp!({ sessionId, prompt: text, attachments });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
+          host.sendToClients(
+            withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
+          );
+        } finally {
+          releaseFollowUp();
+        }
+      })();
     } else {
-      const entry: QueuedFollowUp = {
+      const entry = {
         principalId: authorization.principalId,
         authorization,
         text,
@@ -412,7 +439,7 @@ export async function handleChatMessage(
       }
 
       // Queue it as the session's next turn; report queued immediately.
-      runningTurn.queue.push(entry);
+      runningTurn.queue.push({ ...entry, releaseAuthorization: authorization.retain() });
       const total = parked + incoming;
       // Accepted, but heavy enough that the sender should know before they hit
       // the wall — every queued byte is held in this process until its turn runs.

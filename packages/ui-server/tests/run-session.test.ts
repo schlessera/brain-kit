@@ -109,7 +109,7 @@ function setupHost(
       : {}),
     turnTimeoutMs: options.turnTimeoutMs ?? 5_000,
   });
-  host.clients.add(ws, AUTHORIZATION.principalId, AUTHORIZATION);
+  host.clients.add(ws, AUTHORIZATION.principalId);
   return { host, observability, sent, ws };
 }
 
@@ -158,6 +158,7 @@ function queuedFollowUp(
     principalId: AUTHORIZATION.principalId,
     authorization: AUTHORIZATION,
     ...entry,
+    releaseAuthorization: () => {},
   };
 }
 

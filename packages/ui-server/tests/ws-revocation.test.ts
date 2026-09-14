@@ -21,7 +21,7 @@ import { handleChatMessage, runSession } from "../src/ws/run-session";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import type { RunningTurn } from "../src/ws/turns";
 import { makeFakeBackend } from "./helpers/fake-backend";
-import { testAuthorization, testPrincipal } from "./helpers/principal";
+import { testPrincipal } from "./helpers/principal";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -86,7 +86,14 @@ function activityHostFor(backend = makeFakeBackend({ id: "fake" })) {
 }
 
 afterEach(() => {
-  for (const host of hosts.splice(0)) host.close();
+  for (const host of hosts.splice(0)) {
+    // Construction registration plus scenario-specific revocation assertions
+    // catch missing retains; this empty-registry invariant catches missing
+    // releases. Together they replace every call site's old obligation to
+    // "remember to register" correctly.
+    expect(host.coordinator.authorizationRegistry.size).toBe(0);
+    host.close();
+  }
   for (const stream of activityStreams.splice(0)) stream.close();
   for (const db of databases.splice(0)) db.close();
 });
@@ -136,7 +143,7 @@ describe("principal revocation boundary", () => {
     const handlers = createWsHandlers(host, testPrincipal("revoked"));
     const socket = fakeSocket();
 
-    expect(host.coordinator.pendingAdmissions.size).toBe(1);
+    expect(host.coordinator.authorizationRegistry.size).toBe(1);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     await handlers.onOpen({} as Event, socket.ws);
     handlers.onMessage(
@@ -148,7 +155,7 @@ describe("principal revocation boundary", () => {
     expect(starts).toBe(0);
     expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
     expect(host.clients.count()).toBe(0);
-    expect(host.coordinator.pendingAdmissions.size).toBe(0);
+    expect(host.coordinator.authorizationRegistry.size).toBe(0);
   });
 
   test("revocation after authentication but before handler creation is rechecked on the real route", async () => {
@@ -254,7 +261,7 @@ describe("principal revocation boundary", () => {
       expect(starts).toBe(0);
       expect(closed).toEqual([[1008, "Sessions invalidated"]]);
       expect(app.wsHost.clients.count()).toBe(0);
-      expect(app.wsHost.coordinator.pendingAdmissions.size).toBe(0);
+      expect(app.wsHost.coordinator.authorizationRegistry.size).toBe(0);
     } finally {
       app.close();
     }
@@ -278,14 +285,81 @@ describe("principal revocation boundary", () => {
       { data: JSON.stringify({ type: "chat_message", text: "already parsed" }) } as MessageEvent,
       socket.ws
     );
-    expect(host.coordinator.startingAuthorizations.size).toBe(1);
+    expect(host.coordinator.authorizationRegistry.size).toBe(1);
     handlers.onClose({ code: 1000, reason: "" } as CloseEvent, socket.ws);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(starts).toBe(0);
     expect(host.clients.count()).toBe(0);
-    expect(host.coordinator.startingAuthorizations.size).toBe(0);
+    expect(host.coordinator.authorizationRegistry.size).toBe(0);
+  });
+
+  test("forced close-all invalidates a parsed frame before releasing its socket", async () => {
+    let starts = 0;
+    const { host } = hostFor(
+      makeFakeBackend({
+        id: "fake",
+        startTurn: async () => {
+          starts += 1;
+        },
+      })
+    );
+    const handlers = createWsHandlers(host, testPrincipal("forced-closed"));
+    const socket = fakeSocket();
+    await handlers.onOpen({} as Event, socket.ws);
+
+    handlers.onMessage(
+      { data: JSON.stringify({ type: "chat_message", text: "already parsed" }) } as MessageEvent,
+      socket.ws
+    );
+    host.clients.closeAll(1008, "Sessions invalidated");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(starts).toBe(0);
+    expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
+    expect(host.clients.count()).toBe(0);
+  });
+
+  test("forced close-for invalidates a parsed frame before releasing its socket", async () => {
+    // Same boundary as close-all, one method over: the registry is only useful
+    // if every forced-closure path invalidates through it before dropping its
+    // references. Measured without the fix: 0 starts became 1.
+    let starts = 0;
+    const { host } = hostFor(
+      makeFakeBackend({
+        id: "fake",
+        startTurn: async () => {
+          starts += 1;
+        },
+      })
+    );
+    const target = testPrincipal("forced-for");
+    const handlers = createWsHandlers(host, target);
+    const socket = fakeSocket();
+    await handlers.onOpen({} as Event, socket.ws);
+
+    const bystanderHandlers = createWsHandlers(host, testPrincipal("bystander"));
+    const bystanderSocket = fakeSocket();
+    await bystanderHandlers.onOpen({} as Event, bystanderSocket.ws);
+
+    handlers.onMessage(
+      { data: JSON.stringify({ type: "chat_message", text: "already parsed" }) } as MessageEvent,
+      socket.ws
+    );
+    host.clients.closeFor(target.id, 1008, "Sessions invalidated");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(starts).toBe(0);
+    expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
+    // The bystander is untouched: closeFor is per principal, invalidation
+    // included.
+    expect(bystanderSocket.closed).toEqual([]);
+    expect(host.clients.count()).toBe(1);
+
+    bystanderHandlers.onClose({ code: 1000 } as CloseEvent, bystanderSocket.ws);
+    handlers.onClose({ code: 1008 } as CloseEvent, socket.ws);
+    host.coordinator.reset();
   });
 
   test("revocation during asynchronous routing prevents startTurn", async () => {
@@ -302,13 +376,18 @@ describe("principal revocation boundary", () => {
       await routing.promise;
       return null;
     };
-    const authorization = testAuthorization("revoked");
+    const authorization = host.coordinator.openAuthorization({
+      principalId: "revoked",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
 
     const running = runSession(host, {
       authorization,
       text: "waiting in routing",
       attachments: [],
     });
+    authorization.release();
     await until(() => host.coordinator.startingSessions === 1);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     routing.resolve();
@@ -357,7 +436,7 @@ describe("principal revocation boundary", () => {
     await until(() => host.coordinator.startingSessions === 0);
 
     expect(starts).toBe(1);
-    expect(host.coordinator.startingAuthorizations.size).toBe(0);
+    expect(host.coordinator.authorizationRegistry.size).toBe(0);
   });
 
   test("revocation while billing is pending prevents startTurn", async () => {
@@ -376,7 +455,11 @@ describe("principal revocation boundary", () => {
       await billing.promise;
       return [];
     };
-    const authorization = testAuthorization("revoked");
+    const authorization = host.coordinator.openAuthorization({
+      principalId: "revoked",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
 
     const running = runSession(host, {
       authorization,
@@ -384,6 +467,7 @@ describe("principal revocation boundary", () => {
       sessionId: "session-billing",
       attachments: [],
     });
+    authorization.release();
     await until(() => billingCalls === 1);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     billing.resolve();
@@ -407,7 +491,11 @@ describe("principal revocation boundary", () => {
       await billing.promise;
       return [];
     };
-    const authorization = testAuthorization("owner-a");
+    const authorization = host.coordinator.openAuthorization({
+      principalId: "owner-a",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
 
     const running = runSession(host, {
       authorization,
@@ -415,6 +503,7 @@ describe("principal revocation boundary", () => {
       sessionId: "session-cancel",
       attachments: [],
     });
+    authorization.release();
     await until(() => billingCalls === 1);
 
     const turn = [...host.coordinator.running][0]!;
@@ -445,12 +534,20 @@ describe("principal revocation boundary", () => {
       },
     });
     const { host } = hostFor(backend);
-    const revoked = testAuthorization("revoked");
-    const survivor = testAuthorization("survivor");
+    const revoked = host.coordinator.openAuthorization({
+      principalId: "revoked",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
+    const survivor = host.coordinator.openAuthorization({
+      principalId: "survivor",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
     const revokedSocket = fakeSocket();
     const survivorSocket = fakeSocket();
-    host.clients.add(revokedSocket.ws, revoked.principalId, revoked);
-    host.clients.add(survivorSocket.ws, survivor.principalId, survivor);
+    host.clients.add(revokedSocket.ws, revoked.principalId, { onRemove: revoked.release });
+    host.clients.add(survivorSocket.ws, survivor.principalId, { onRemove: survivor.release });
 
     const running = runSession(host, {
       authorization: revoked,
@@ -488,7 +585,83 @@ describe("principal revocation boundary", () => {
 
     expect(prompts).toEqual(["running", "run me"]);
     expect(signals[0]!.aborted).toBe(false);
+    host.clients.closeAll(1000, "test complete");
   });
+
+  test.each([
+    ["resolves", false],
+    ["rejects", true],
+  ] as const)(
+    "a native backend follow-up that %s stays revocable after its sender disconnects",
+    async (_outcome, rejects) => {
+      const releaseOriginal = deferred();
+      let settleFollowUp!: () => void;
+      let rejectFollowUp!: (error: Error) => void;
+      const pendingFollowUp = new Promise<void>((resolve, reject) => {
+        settleFollowUp = resolve;
+        rejectFollowUp = reject;
+      });
+      let followUpCalls = 0;
+      const backend = makeFakeBackend({
+        id: "fake",
+        capabilities: { followUp: true },
+        startTurn: async () => {
+          await releaseOriginal.promise;
+        },
+        followUp: async () => {
+          followUpCalls += 1;
+          await pendingFollowUp;
+        },
+      });
+      const { host } = hostFor(backend);
+      const originalHandlers = createWsHandlers(host, testPrincipal("original-sender"));
+      const followUpHandlers = createWsHandlers(host, testPrincipal("follow-up-sender"));
+      const originalSocket = fakeSocket();
+      const followUpSocket = fakeSocket();
+      await originalHandlers.onOpen({} as Event, originalSocket.ws);
+      await followUpHandlers.onOpen({} as Event, followUpSocket.ws);
+
+      originalHandlers.onMessage(
+        {
+          data: JSON.stringify({
+            type: "chat_message",
+            text: "original",
+            sessionId: "session-native-follow-up",
+          }),
+        } as MessageEvent,
+        originalSocket.ws
+      );
+      await until(() => host.coordinator.bySession.has("session-native-follow-up"));
+      followUpHandlers.onMessage(
+        {
+          data: JSON.stringify({
+            type: "chat_message",
+            text: "native follow-up",
+            sessionId: "session-native-follow-up",
+          }),
+        } as MessageEvent,
+        followUpSocket.ws
+      );
+      await until(() => followUpCalls === 1);
+
+      const followUpAuthorization = [...host.coordinator.authorizationRegistry.keys()].find(
+        (authorization) => authorization.principalId === "follow-up-sender"
+      )!;
+      followUpHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, followUpSocket.ws);
+      releaseOriginal.resolve();
+      await until(() => host.coordinator.running.size === 0);
+
+      host.revokePrincipals(["follow-up-sender"], 1008, "Sessions invalidated");
+      expect(followUpAuthorization.valid).toBe(false);
+
+      if (rejects) rejectFollowUp(new Error("native follow-up failed"));
+      else settleFollowUp();
+      await until(() => !host.coordinator.authorizationRegistry.has(followUpAuthorization));
+
+      originalHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, originalSocket.ws);
+      expect(host.coordinator.authorizationRegistry.size).toBe(0);
+    }
+  );
 
   test("expiry closes an open socket and drops its queued follow-up", async () => {
     const releaseRunning = deferred();
@@ -629,6 +802,7 @@ describe("principal revocation boundary", () => {
     await until(() => host.coordinator.running.size === 0);
 
     expect(prompts).toEqual(["first"]);
+    firstHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, firstSocket.ws);
   });
 
   test("revocation is recorded on a running turn without changing its outcome", async () => {
@@ -642,13 +816,18 @@ describe("principal revocation boundary", () => {
       },
     });
     const { host, store } = activityHostFor(backend);
-    const authorization = testAuthorization("revoked");
+    const authorization = host.coordinator.openAuthorization({
+      principalId: "revoked",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
     const running = runSession(host, {
       authorization,
       text: "keep running",
       sessionId: "session-recording",
       attachments: [],
     });
+    authorization.release();
     await until(() => signals.length === 1);
     const turnId = host.coordinator.bySession.get("session-recording")!.turnId;
 
@@ -671,7 +850,11 @@ describe("principal revocation boundary", () => {
     const backend = makeFakeBackend({ id: "fake" });
     const { host } = hostFor(backend);
     const principal = testPrincipal("revoked");
-    const authorization = testAuthorization(principal.id);
+    const authorization = host.coordinator.openAuthorization({
+      principalId: principal.id,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    });
     const timeoutHandle = setTimeout(() => {}, 0);
     clearTimeout(timeoutHandle);
     const turn: RunningTurn = {
@@ -719,6 +902,7 @@ describe("principal revocation boundary", () => {
     expect(decision).toBeNull();
     expect(host.coordinator.pendingApprovals.has("tool-1")).toBe(true);
     host.coordinator.reset();
+    authorization.release();
   });
 });
 
@@ -785,7 +969,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
 
     // The admission registration is already released; this async work must
     // still be discoverable, or a revocation now finds nothing to invalidate.
-    expect(host.coordinator.startingAuthorizations.size).toBeGreaterThan(0);
+    expect([...host.coordinator.authorizationRegistry.values()]).toEqual([2]);
 
     host.revokePrincipals([principal.id], 1008, "Sessions invalidated");
     releaseHistory!();

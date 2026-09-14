@@ -12,17 +12,10 @@ export type WSContext = {
   raw?: unknown;
 };
 
-/** Mutable admission decision shared by every asynchronous path from one socket. */
-export interface AuthorizationContext {
-  readonly principalId: string;
-  readonly expiresAt: number;
-  valid: boolean;
-}
-
 interface AttachedClient {
   ws: WSContext;
   principalId: string;
-  authorization: AuthorizationContext;
+  onRemove?: () => void;
 }
 
 function canSendRaw(raw: unknown): raw is { send: (data: string) => unknown } {
@@ -49,25 +42,25 @@ export class ClientSet {
   // that admission and removal must share.
   private readonly clients = new Map<unknown, AttachedClient>();
 
-  constructor(readonly maxConnections = 32) {}
+  constructor(
+    readonly maxConnections = 32,
+    private readonly invalidateAuthorizations: (
+      principalIds: ReadonlySet<string>
+    ) => void = () => {}
+  ) {}
 
-  add(
-    ws: WSContext,
-    principalId: string,
-    authorization: AuthorizationContext = {
-      principalId,
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      valid: true,
-    }
-  ): boolean {
+  add(ws: WSContext, principalId: string, options?: { onRemove?: () => void }): boolean {
     const identity = ws.raw ?? ws;
     if (!this.clients.has(identity) && this.clients.size >= this.maxConnections) return false;
-    this.clients.set(identity, { ws, principalId, authorization });
+    this.clients.set(identity, { ws, principalId, ...options });
     return true;
   }
 
   remove(ws: WSContext): void {
-    this.clients.delete(ws.raw ?? ws);
+    const identity = ws.raw ?? ws;
+    const client = this.clients.get(identity);
+    this.clients.delete(identity);
+    client?.onRemove?.();
   }
 
   count(): number {
@@ -84,16 +77,20 @@ export class ClientSet {
   }
 
   /**
-   * Invalidate, close, and forget only sockets admitted for one principal.
-   * Contexts are invalidated before close callbacks can run, so a frame already
-   * queued by the adapter cannot cross the revocation boundary.
+   * Close and forget only sockets admitted for one principal.
    */
   closeFor(principalId: string, code: number, reason: string): void {
     const closing: AttachedClient[] = [];
+    // Same boundary as closeAll: invalidate through the coordinator FIRST,
+    // while the socket-owned references still make every pending dispatch
+    // discoverable. Releasing them first would let a frame parsed before this
+    // call start a turn after it — measured as 0 starts before this became a
+    // registry, 1 after.
+    this.invalidateAuthorizations(new Set([principalId]));
     for (const [identity, client] of this.clients) {
       if (client.principalId !== principalId) continue;
-      client.authorization.valid = false;
       this.clients.delete(identity);
+      client.onRemove?.();
       closing.push(client);
     }
     for (const { ws } of closing) {
@@ -105,15 +102,6 @@ export class ClientSet {
     }
   }
 
-  /** Add principals whose admitted socket authorization has expired. */
-  collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
-    for (const { authorization } of this.clients.values()) {
-      if (authorization.valid && authorization.expiresAt <= now) {
-        ids.add(authorization.principalId);
-      }
-    }
-  }
-
   /**
    * Close and forget every attached socket. The set is cleared before close
    * callbacks can run, and one broken socket cannot prevent the others from
@@ -121,8 +109,12 @@ export class ClientSet {
    */
   closeAll(code: number, reason: string): void {
     const clients = [...this.clients.values()];
+    // Forced closure is also an authorization boundary. Invalidate through
+    // the coordinator while socket-owned references still keep every pending
+    // dispatch discoverable; the loop below remains transport cleanup only.
+    this.invalidateAuthorizations(new Set(clients.map((client) => client.principalId)));
     this.clients.clear();
-    for (const client of clients) client.authorization.valid = false;
+    for (const client of clients) client.onRemove?.();
     for (const { ws } of clients) {
       try {
         ws.close?.(code, reason);

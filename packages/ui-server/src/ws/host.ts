@@ -174,7 +174,9 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
-    this.clients = new ClientSet(options.wsMaxConnections);
+    this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
+      this.coordinator.invalidateAuthorizations(principalIds);
+    });
     this.registry = options.registry;
     this.catalog = options.catalog;
     this.appName = options.appName ?? "Brain UI";
@@ -343,7 +345,6 @@ export class WsHost {
   /** Route expiry through the same full boundary as explicit revocation. */
   expireAuthorizationContexts(now = Date.now()): void {
     const expired = new Set<string>();
-    this.clients.collectExpiredPrincipalIds(now, expired);
     this.coordinator.collectExpiredPrincipalIds(now, expired);
     this.revokePrincipals(
       [...expired],

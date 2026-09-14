@@ -150,7 +150,8 @@ describe("approval persistence across disconnects", () => {
 
     // Reconnect: the card is re-delivered with its original identity.
     const c2 = fakeClient();
-    await handlers.onOpen(openEvt, c2.ws);
+    const reconnectedHandlers = createWsHandlers(host);
+    await reconnectedHandlers.onOpen(openEvt, c2.ws);
     const card = c2.sent.find((f) => f.type === "tool_approval_request") as
       | { toolUseId: string; toolName: string; turnId?: string }
       | undefined;
@@ -169,6 +170,7 @@ describe("approval persistence across disconnects", () => {
     expect(decision!.behavior).toBe("allow");
 
     controls[0]!.finish();
+    reconnectedHandlers.onClose(closeEvt, c2.ws);
   });
 
   test("an approval raised while NO client is attached parks and delivers on connect", async () => {
@@ -192,11 +194,13 @@ describe("approval persistence across disconnects", () => {
     expect(decision).toBeNull(); // parked, not denied
 
     const c2 = fakeClient();
-    await handlers.onOpen(openEvt, c2.ws);
+    const reconnectedHandlers = createWsHandlers(host);
+    await reconnectedHandlers.onOpen(openEvt, c2.ws);
     const card = c2.sent.find((f) => f.type === "tool_approval_request");
     expect(card).toBeDefined();
 
     controls[0]!.finish();
+    reconnectedHandlers.onClose(closeEvt, c2.ws);
   });
 
   test("a pending location request is REJECTED when the last client leaves", async () => {

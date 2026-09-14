@@ -11,8 +11,21 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/protocol";
-import type { AuthorizationContext } from "./clients.js";
 import type { TurnRecorder } from "../activity/recorder.js";
+
+const authorizationContextBrand: unique symbol = Symbol("AuthorizationContext");
+
+/** Mutable admission decision shared by every asynchronous path from one socket. */
+export interface AuthorizationContext {
+  readonly [authorizationContextBrand]: true;
+  readonly principalId: string;
+  readonly expiresAt: number;
+  valid: boolean;
+  /** Keep this context discoverable until the returned release is called. */
+  retain(): () => void;
+  /** Release the reference acquired when the coordinator opened this context. */
+  release(): void;
+}
 
 export interface QueuedFollowUp {
   principalId: string;
@@ -21,6 +34,8 @@ export interface QueuedFollowUp {
   attachments: ChatImageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
+  /** Queue-owned authorization lease, transferred to the runner on dequeue. */
+  releaseAuthorization: () => void;
 }
 
 /**
@@ -157,15 +172,8 @@ export class TurnCoordinator {
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
 
-  /** Socket authorities waiting between handler creation and WebSocket admission. */
-  readonly pendingAdmissions = new Set<AuthorizationContext>();
-  /**
-   * Parsed frames awaiting/inside asynchronous dispatch, plus turn startups
-   * whose routing or billing has not completed. One connection can have
-   * several at once, so registrations are reference-counted rather than
-   * deduplicated by the shared context.
-   */
-  readonly startingAuthorizations = new Map<AuthorizationContext, number>();
+  /** Every authorization context with at least one live owner or async lease. */
+  readonly authorizationRegistry = new Map<AuthorizationContext, number>();
 
   private locationCounter = 0;
   private maskCounter = 0;
@@ -183,40 +191,58 @@ export class TurnCoordinator {
     return this.running.size > 0;
   }
 
-  registerPendingAdmission(authorization: AuthorizationContext): void {
-    this.pendingAdmissions.add(authorization);
+  /** Construct and synchronously register a context with its initial reference. */
+  openAuthorization(input: {
+    principalId: string;
+    expiresAt: number;
+    valid: boolean;
+  }): AuthorizationContext {
+    let initialReleased = false;
+    const releaseReference = () => {
+      const count = this.authorizationRegistry.get(authorization);
+      if (count === undefined) return;
+      if (count === 1) this.authorizationRegistry.delete(authorization);
+      else this.authorizationRegistry.set(authorization, count - 1);
+    };
+    const authorization: AuthorizationContext = {
+      [authorizationContextBrand]: true,
+      ...input,
+      retain: () => {
+        const count = this.authorizationRegistry.get(authorization);
+        if (count === undefined) {
+          throw new Error("Cannot retain a released authorization context");
+        }
+        this.authorizationRegistry.set(authorization, count + 1);
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          releaseReference();
+        };
+      },
+      release: () => {
+        if (initialReleased) return;
+        initialReleased = true;
+        releaseReference();
+      },
+    };
+    this.authorizationRegistry.set(authorization, 1);
+    return authorization;
   }
 
-  finishPendingAdmission(authorization: AuthorizationContext): void {
-    this.pendingAdmissions.delete(authorization);
-  }
-
-  registerStartingAuthorization(authorization: AuthorizationContext): void {
-    this.startingAuthorizations.set(
-      authorization,
-      (this.startingAuthorizations.get(authorization) ?? 0) + 1
-    );
-  }
-
-  finishStartingAuthorization(authorization: AuthorizationContext): void {
-    const count = this.startingAuthorizations.get(authorization);
-    if (count === undefined) return;
-    if (count === 1) this.startingAuthorizations.delete(authorization);
-    else this.startingAuthorizations.set(authorization, count - 1);
-  }
-
-  /** Add principals with live or queued authorization contexts that expired. */
+  /** Add principals whose registered authorization context has expired. */
   collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
-    const collect = (authorization: AuthorizationContext) => {
+    for (const authorization of this.authorizationRegistry.keys()) {
       if (authorization.valid && authorization.expiresAt <= now) {
         ids.add(authorization.principalId);
       }
-    };
-    for (const authorization of this.pendingAdmissions) collect(authorization);
-    for (const authorization of this.startingAuthorizations.keys()) collect(authorization);
-    for (const turn of this.running) {
-      collect(turn.authorization);
-      for (const entry of turn.queue) collect(entry.authorization);
+    }
+  }
+
+  /** Invalidate every registered context belonging to one of these principals. */
+  invalidateAuthorizations(principalIds: ReadonlySet<string>): void {
+    for (const authorization of this.authorizationRegistry.keys()) {
+      if (principalIds.has(authorization.principalId)) authorization.valid = false;
     }
   }
 
@@ -226,20 +252,14 @@ export class TurnCoordinator {
    */
   revokePrincipals(principalIds: ReadonlySet<string>): RunningTurn[] {
     const affectedRunning: RunningTurn[] = [];
-    for (const authorization of this.pendingAdmissions) {
-      if (principalIds.has(authorization.principalId)) authorization.valid = false;
-    }
-    for (const authorization of this.startingAuthorizations.keys()) {
-      if (principalIds.has(authorization.principalId)) authorization.valid = false;
-    }
+    this.invalidateAuthorizations(principalIds);
     for (const turn of this.running) {
       if (principalIds.has(turn.principalId)) {
-        turn.authorization.valid = false;
         affectedRunning.push(turn);
       }
       turn.queue = turn.queue.filter((entry) => {
         if (!principalIds.has(entry.principalId)) return true;
-        entry.authorization.valid = false;
+        entry.releaseAuthorization();
         return false;
       });
     }
@@ -256,7 +276,7 @@ export class TurnCoordinator {
   /** Cancel a session's current turn and drop its queued follow-ups. */
   cancelTurn(turn: RunningTurn, reason: string): void {
     turn.cancelled = true;
-    turn.queue.length = 0;
+    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     clearTimeout(turn.timeoutHandle);
     turn.abortController.abort();
     this.drainPendingForTurn(turn, reason);
@@ -336,14 +356,13 @@ export class TurnCoordinator {
     for (const turn of [...this.running]) {
       clearTimeout(turn.timeoutHandle);
       turn.abortController.abort();
+      for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     }
     this.running.clear();
     this.bySession.clear();
     this.pendingApprovals.clear();
     this.pendingAskUser.clear();
     this.pendingLocation.clear();
-    this.pendingAdmissions.clear();
-    this.startingAuthorizations.clear();
     this.startingSessions = 0;
   }
 }

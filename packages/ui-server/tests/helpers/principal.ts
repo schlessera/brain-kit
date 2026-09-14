@@ -1,5 +1,5 @@
 import type { Principal } from "../../src/db/principals";
-import type { AuthorizationContext } from "../../src/ws/clients";
+import type { AuthorizationContext } from "../../src/ws/turns";
 
 export function testPrincipal(id = "test-principal"): Principal {
   return {
@@ -17,5 +17,11 @@ export function testPrincipal(id = "test-principal"): Principal {
 }
 
 export function testAuthorization(principalId = "test-principal"): AuthorizationContext {
-  return { principalId, expiresAt: Number.MAX_SAFE_INTEGER, valid: true };
+  return {
+    principalId,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    valid: true,
+    retain: () => () => {},
+    release: () => {},
+  } as unknown as AuthorizationContext;
 }

@@ -121,12 +121,14 @@ describe("queued follow-up byte accounting", () => {
       authorization: QUEUE_AUTHORIZATION,
       text: "ab",
       attachments: [attachmentOf(10)],
+      releaseAuthorization: () => {},
     });
     turn.queue.push({
       principalId: QUEUE_AUTHORIZATION.principalId,
       authorization: QUEUE_AUTHORIZATION,
       text: "cde",
       attachments: [],
+      releaseAuthorization: () => {},
     });
     expect(queuedBytes(turn)).toBe(2 + 10 + 3);
   });

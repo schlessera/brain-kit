@@ -113,7 +113,7 @@ describe("the /ws route at connection capacity", () => {
 
     expect(response.status).toBe(404);
     expect(upgradeCalled).toBe(true);
-    expect(app.wsHost.coordinator.pendingAdmissions.size).toBe(0);
+    expect(app.wsHost.coordinator.authorizationRegistry.size).toBe(0);
     expect(app.wsHost.clients.count()).toBe(0);
   });
 });

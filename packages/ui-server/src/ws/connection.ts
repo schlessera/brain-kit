@@ -71,34 +71,30 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
   // socket rather than in a map keyed by something a peer controls.
   const limiter = host.newRateLimiter();
   // Authentication can await before it reaches this handler. Re-read durable
-  // validity immediately before registration so a revocation in that earlier
-  // window cannot be lost. The check and registration are synchronous with
-  // each other; frames use this in-memory answer from here onward.
-  const authorization = {
+  // validity as the coordinator constructs and synchronously registers the
+  // context, so there is no unregistered authorization state to lose.
+  const authorization = host.coordinator.openAuthorization({
     principalId: principal.id,
     expiresAt: principal.expiresAt,
     valid: host.isPrincipalValid(principal),
-  };
+  });
   // Per-connection negotiation state: what revision this client declared.
   // Lives with the socket, like the limiter.
   const connection: ConnectionState = {
     principal,
     authorization,
   };
-  host.coordinator.registerPendingAdmission(authorization);
-
-  const finishPendingAdmission = () => {
-    host.coordinator.finishPendingAdmission(connection.authorization);
-  };
-
   return {
     async onOpen(_evt: Event, ws: WSContext) {
-      finishPendingAdmission();
       if (!connection.authorization.valid) {
+        connection.authorization.release();
         ws.close!(REVOKED_BEFORE_ADMISSION_CLOSE_CODE, REVOKED_BEFORE_ADMISSION_CLOSE_REASON);
         return;
       }
-      if (!host.clients.add(ws, principal.id, connection.authorization)) {
+      if (
+        !host.clients.add(ws, principal.id, { onRemove: connection.authorization.release })
+      ) {
+        connection.authorization.release();
         host.reportRefusedConnection();
         // Hono's WSContext always exposes close(); the local structural socket
         // type keeps it optional because send-only test/dispatch fakes never
@@ -148,12 +144,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
             turn
           )
         );
-        // Snapshot-on-connect is asynchronous, and the admission registration
-        // was already released at the top of onOpen. Without its own reference
-        // this work is undiscoverable to revocation: a socket that disconnects
-        // while history loads leaves nothing registered, so a revocation
-        // arriving before the load settles cannot invalidate it.
-        host.coordinator.registerStartingAuthorization(connection.authorization);
+        // Snapshot-on-connect owns a lease separate from the socket: a close
+        // while history loads must not make this work invisible to revocation.
+        const releaseAuthorization = connection.authorization.retain();
         try {
           const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
@@ -169,7 +162,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
         } finally {
-          host.coordinator.finishStartingAuthorization(connection.authorization);
+          releaseAuthorization();
           if (connection.authorization.valid) {
             host.sendMessage(
               ws,
@@ -250,7 +243,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // including after an ordinary disconnect removes the admitted client.
       // runSession adds its own reference before this one is released, so a
       // chat startup remains continuously revocable through routing/billing.
-      host.coordinator.registerStartingAuthorization(connection.authorization);
+      const releaseAuthorization = connection.authorization.retain();
       // handleClientMessage is async — a rejection must not escape as an
       // unhandled rejection with no frame sent.
       void Promise.resolve()
@@ -273,12 +266,11 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           });
         })
         .finally(() => {
-          host.coordinator.finishStartingAuthorization(connection.authorization);
+          releaseAuthorization();
         });
     },
 
     onClose(evt: CloseEvent, ws: WSContext) {
-      finishPendingAdmission();
       // Closure is not authorization: a frame parsed before this callback can
       // still be mid-dispatch, and an activity_subscribe landing after the
       // cleanup below would re-register the dead socket and keep the activity
@@ -296,6 +288,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         host.reportAbnormalClose(code);
       }
       host.clients.remove(ws);
+      connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
@@ -311,7 +304,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
 
     /** The HTTP upgrade failed, so no socket lifecycle callback will clean up. */
     onUpgradeFailed() {
-      finishPendingAdmission();
+      connection.authorization.release();
     },
   };
 }
