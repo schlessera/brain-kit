@@ -7,12 +7,15 @@ import { createSilentObservability, type Observability } from "../observability/
 import { FrameRateLimiter } from "./rate-limit.js";
 import type { ActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
+import type { PushSender } from "../activity/push-sender.js";
 import type { Principal } from "../db/principals.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
   store: ActivityStore;
   stream: ActivityStream;
+  /** Push bindings invalidated through the same principal-revocation boundary. */
+  pushSender?: Pick<PushSender, "unbindPrincipal">;
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
 }
@@ -321,6 +324,7 @@ export class WsHost {
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
+      this.activity?.pushSender?.unbindPrincipal(principalId);
     }
     for (const turn of affectedRunning) {
       turn.recorder?.recordPrincipalRevocation(turn.principalId);

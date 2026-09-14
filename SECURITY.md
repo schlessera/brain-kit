@@ -65,6 +65,14 @@ within a week, not hours.
    (restic/borg). True end-to-end encryption is incompatible with a
    server-side agent that must read plaintext to operate — any setup claiming
    otherwise is misrepresenting something.
+9. **Session-principal revocation stops future access, not effects already
+   delivered.** Revocation disconnects that principal, discards its queued
+   work, and makes its push subscriptions ineligible for future delivery. A
+   notification already handed to a device's push service or operating system
+   cannot be recalled and may remain visible there; push payloads are minimized
+   for that reason. A principal is also not a containment boundary for hostile
+   code that already ran in the server container: rotate exposed secrets and
+   audit the system in that case.
 
 ## What tool approvals are, and are not
 

@@ -241,6 +241,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     activity: {
       store: activity.store,
       stream: activity.stream,
+      pushSender: activity.pushSender,
       query: activity.query,
     },
   });

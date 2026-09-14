@@ -342,6 +342,103 @@ function LiveConnectionGate() {
   );
 }
 
+describe("push re-registration", () => {
+  test("a failed bind retries after backoff on a later successful probe", async () => {
+    const notificationDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "Notification"
+    );
+    const serviceWorkerDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "serviceWorker"
+    );
+    const timeouts = installControlledTimeouts();
+    let vpnChecks = 0;
+    let pushAttempts = 0;
+
+    Object.defineProperty(globalThis, "Notification", {
+      configurable: true,
+      value: { permission: "granted" },
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          pushManager: {
+            getSubscription: async () => ({
+              toJSON: () => ({
+                endpoint: "https://push.example/rebind",
+                keys: { p256dh: "p256dh", auth: "auth" },
+              }),
+            }),
+          },
+        }),
+      },
+    });
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/vpn-check")) {
+        vpnChecks++;
+        return new Response(null, { status: 200 });
+      }
+      if (url.includes("/api/push/subscribe")) {
+        pushAttempts++;
+        return pushAttempts === 1
+          ? Response.json({ error: "unavailable" }, { status: 503 })
+          : Response.json({ ok: true });
+      }
+      return Response.json({ error: "not_found" }, { status: 404 });
+    }) as typeof fetch;
+
+    const page = render(
+      <ConnectionGate>
+        <div>Authenticated app</div>
+      </ConnectionGate>
+    );
+    try {
+      await act(flushPromises);
+      expect(vpnChecks).toBe(1);
+      expect(pushAttempts).toBe(1);
+      expect(page.getByText("Authenticated app")).toBeTruthy();
+
+      // Another healthy probe before the backoff elapses does not hammer the
+      // registration route.
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+        await flushPromises();
+      });
+      expect(vpnChecks).toBe(2);
+      expect(pushAttempts).toBe(1);
+
+      // The failed bind becomes eligible after one second. The next
+      // foreground-like connectivity event completes another authenticated
+      // probe and retries without reloading or mounting the Activity page.
+      timeouts.run(1_000);
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+        await flushPromises();
+      });
+
+      expect(vpnChecks).toBe(3);
+      expect(pushAttempts).toBe(2);
+      expect(page.getByText("Authenticated app")).toBeTruthy();
+    } finally {
+      page.unmount();
+      timeouts.restore();
+      if (notificationDescriptor) {
+        Object.defineProperty(globalThis, "Notification", notificationDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "Notification");
+      }
+      if (serviceWorkerDescriptor) {
+        Object.defineProperty(navigator, "serviceWorker", serviceWorkerDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "serviceWorker");
+      }
+    }
+  });
+});
+
 describe("refused WebSocket state", () => {
   test("three failed handshakes plus a healthy probe show refusal copy and report the error", async () => {
     const { page, timeouts, vpnChecks } = await mountConnectionScenario([200, 200]);
