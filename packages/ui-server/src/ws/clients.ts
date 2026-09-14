@@ -15,6 +15,7 @@ export type WSContext = {
 /** Mutable admission decision shared by every asynchronous path from one socket. */
 export interface AuthorizationContext {
   readonly principalId: string;
+  readonly expiresAt: number;
   valid: boolean;
 }
 
@@ -53,7 +54,11 @@ export class ClientSet {
   add(
     ws: WSContext,
     principalId: string,
-    authorization: AuthorizationContext = { principalId, valid: true }
+    authorization: AuthorizationContext = {
+      principalId,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    }
   ): boolean {
     const identity = ws.raw ?? ws;
     if (!this.clients.has(identity) && this.clients.size >= this.maxConnections) return false;
@@ -100,9 +105,13 @@ export class ClientSet {
     }
   }
 
-  /** Apply a store result to this registry (used by auth-only embedders/tests). */
-  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
-    for (const principalId of principalIds) this.closeFor(principalId, code, reason);
+  /** Add principals whose admitted socket authorization has expired. */
+  collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
+    for (const { authorization } of this.clients.values()) {
+      if (authorization.valid && authorization.expiresAt <= now) {
+        ids.add(authorization.principalId);
+      }
+    }
   }
 
   /**

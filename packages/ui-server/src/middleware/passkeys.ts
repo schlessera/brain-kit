@@ -30,8 +30,10 @@ import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
+import type { AppEnv } from "../app-env.js";
 import { revokeByCredential } from "../db/principals.js";
 import type { WsHost } from "../ws/host.js";
+import { requireOwner } from "./require-owner.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
@@ -51,8 +53,8 @@ import type { WsHost } from "../ws/host.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
-  /** Live sockets invalidated when a credential is revoked. */
-  clients: Pick<WsHost, "revokePrincipals">;
+  /** Runtime authorization state invalidated when a credential is revoked. */
+  revoker: Pick<WsHost, "revokePrincipals">;
   /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
@@ -449,17 +451,24 @@ export function passkeyPublicRoutes(
 }
 
 /**
- * Session-gated passkey routes. Mount AFTER the auth guard — gating comes from
- * mount position, not per-route checks.
+ * Owner-only passkey management routes. Mount AFTER the auth guard: the
+ * family middleware below authorizes the resolved principal, it does not
+ * authenticate the request itself.
  */
 export function passkeyManagementRoutes(
   mode: AuthMode,
   ctx: PasskeyContext,
   deps: PasskeyDeps = {}
-): Hono {
+): Hono<AppEnv> {
   const verifyRegistration = deps.verifyRegistrationResponse ?? realVerifyRegistration;
   const now = deps.now ?? Date.now;
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
+
+  app.use("/auth/passkey/*", async (c, next) => {
+    if (mode !== "password") return notEnabled(c);
+    await next();
+  });
+  app.use("/auth/passkey/*", requireOwner());
 
   app.post("/auth/passkey/register-options", async (c) => {
     if (mode !== "password") return notEnabled(c);
@@ -591,7 +600,7 @@ export function passkeyManagementRoutes(
       .run(credentialId);
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
     applyPrincipalRevocation(
-      ctx.clients,
+      ctx.revoker,
       revokeByCredential(ctx.db, credentialId, Date.now())
     );
     return c.json({ ok: true });

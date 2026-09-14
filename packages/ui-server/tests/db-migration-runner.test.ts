@@ -1,6 +1,13 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import {
+  existsSync,
+  unlinkSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+} from "fs";
 import { join } from "path";
 
 const TEST_DB = `/tmp/brain-ui-migration-runner-test-${process.pid}.db`;
@@ -180,5 +187,57 @@ describe("migration runner", () => {
     const row = db.query("SELECT applied_at FROM _migrations LIMIT 1").get() as any;
     expect(row.applied_at).toBeGreaterThanOrEqual(before);
     expect(row.applied_at).toBeLessThanOrEqual(Date.now());
+  });
+
+  test("the legacy-session migration advances the epoch exactly once", () => {
+    db.exec(`
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO settings (key, value, updated_at)
+      VALUES ('auth.sessionsEpoch', '7', 1);
+    `);
+    writeFileSync(
+      join(TEST_MIGRATIONS_DIR, "014_invalidate_legacy_sessions.sql"),
+      readFileSync(
+        join(import.meta.dir, "../migrations/014_invalidate_legacy_sessions.sql"),
+        "utf8"
+      )
+    );
+
+    runMigrations(db, TEST_MIGRATIONS_DIR);
+    expect(
+      db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
+    ).toEqual({ value: "8" });
+
+    runMigrations(db, TEST_MIGRATIONS_DIR);
+    expect(
+      db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
+    ).toEqual({ value: "8" });
+  });
+
+  test("the legacy-session migration creates the downgrade guard when absent", () => {
+    db.exec(`
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    writeFileSync(
+      join(TEST_MIGRATIONS_DIR, "014_invalidate_legacy_sessions.sql"),
+      readFileSync(
+        join(import.meta.dir, "../migrations/014_invalidate_legacy_sessions.sql"),
+        "utf8"
+      )
+    );
+
+    runMigrations(db, TEST_MIGRATIONS_DIR);
+
+    expect(
+      db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
+    ).toEqual({ value: "1" });
   });
 });

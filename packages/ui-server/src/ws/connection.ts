@@ -76,6 +76,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
   // each other; frames use this in-memory answer from here onward.
   const authorization = {
     principalId: principal.id,
+    expiresAt: principal.expiresAt,
     valid: host.isPrincipalValid(principal),
   };
   // Per-connection negotiation state: what revision this client declared.
@@ -197,6 +198,12 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
     },
 
     onMessage(evt: MessageEvent, ws: WSContext) {
+      if (
+        connection.authorization.valid &&
+        connection.authorization.expiresAt <= Date.now()
+      ) {
+        host.expireAuthorizationContexts();
+      }
       if (!connection.authorization.valid) {
         host.reportDroppedFrame("revoked_principal");
         return;

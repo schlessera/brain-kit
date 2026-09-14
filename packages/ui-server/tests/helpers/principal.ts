@@ -17,5 +17,5 @@ export function testPrincipal(id = "test-principal"): Principal {
 }
 
 export function testAuthorization(principalId = "test-principal"): AuthorizationContext {
-  return { principalId, valid: true };
+  return { principalId, expiresAt: Number.MAX_SAFE_INTEGER, valid: true };
 }

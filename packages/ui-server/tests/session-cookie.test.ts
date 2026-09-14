@@ -23,7 +23,6 @@ import {
   type AuthRuntime,
 } from "../src/middleware/auth";
 import { ClientSet, type WSContext } from "../src/ws/clients";
-import { createRecordingObservability } from "../src/observability/index";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const COOKIE_NAME = "brain_ui_session";
@@ -294,7 +293,7 @@ describe("principal session cookie", () => {
     }
   });
 
-  test("logout revokes every principal and retains the v1 downgrade guard", async () => {
+  test("owner logout revokes every principal", async () => {
     const clients = new ClientSet();
     const closed: Array<[number | undefined, string | undefined]> = [];
     const socket: WSContext = {
@@ -309,7 +308,11 @@ describe("principal session cookie", () => {
       "/api",
       authRoutes("password", auth, {
         db,
-        clients,
+        revoker: {
+          revokePrincipals(ids, code, reason) {
+            for (const id of ids) clients.closeFor(id, code, reason);
+          },
+        },
         verifyPassword: async () => true,
       })
     );
@@ -325,8 +328,27 @@ describe("principal session cookie", () => {
     const principalId = (
       db.query("SELECT id FROM principals WHERE revoked_at IS NULL").get() as { id: string }
     ).id;
+    const agent = createPrincipal(db, {
+      authMethod: "delegated",
+      label: "Build agent",
+      createdBy: principalId,
+      ttlSeconds: 3_600,
+    });
+    const agentCookie = await signedCookie(agent.id);
     expect(clients.add(socket, principalId)).toBe(true);
+    expect(
+      clients.add(
+        {
+          send() {},
+          close(code, reason) {
+            closed.push([code, reason]);
+          },
+        },
+        agent.id
+      )
+    ).toBe(true);
     expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(200);
+    expect((await app.request("/api/secret", { headers: { cookie: agentCookie } })).status).toBe(200);
 
     const logout = await app.request("/api/auth/logout", {
       method: "POST",
@@ -334,13 +356,64 @@ describe("principal session cookie", () => {
     });
     expect(logout.status).toBe(200);
     expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(401);
+    expect((await app.request("/api/secret", { headers: { cookie: agentCookie } })).status).toBe(401);
     expect(
       db.query("SELECT COUNT(*) AS count FROM principals WHERE revoked_at IS NULL").get()
     ).toEqual({ count: 0 });
-    expect(
-      db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
-    ).toEqual({ value: "1" });
-    expect(closed).toEqual([[1008, "Sessions invalidated"]]);
+    expect(closed).toEqual([
+      [1008, "Sessions invalidated"],
+      [1008, "Sessions invalidated"],
+    ]);
+  });
+
+  test("agent logout revokes only itself", async () => {
+    const owner = create();
+    const agent = createPrincipal(db, {
+      authMethod: "delegated",
+      label: "Build agent",
+      createdBy: owner.id,
+      ttlSeconds: 3_600,
+    });
+    const ownerCookie = await signedCookie(owner.id);
+    const agentCookie = await signedCookie(agent.id);
+    const clients = new ClientSet();
+    const ownerClosed: Array<[number | undefined, string | undefined]> = [];
+    const agentClosed: Array<[number | undefined, string | undefined]> = [];
+    clients.add(
+      { send() {}, close: (code, reason) => ownerClosed.push([code, reason]) },
+      owner.id
+    );
+    clients.add(
+      { send() {}, close: (code, reason) => agentClosed.push([code, reason]) },
+      agent.id
+    );
+    const app = new Hono();
+    app.route(
+      "/api",
+      authRoutes("password", runtime(), {
+        db,
+        revoker: {
+          revokePrincipals(ids, code, reason) {
+            for (const id of ids) clients.closeFor(id, code, reason);
+          },
+        },
+      })
+    );
+    app.use("/api/*", authGuard("password", runtime(), db));
+    app.get("/api/secret", (c) => c.json({ ok: true }));
+
+    const logout = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: { cookie: agentCookie },
+    });
+
+    expect(logout.status).toBe(200);
+    expect(resolvePrincipal(db, agent.id)?.revokedAt).not.toBeNull();
+    expect(resolvePrincipal(db, owner.id)?.revokedAt).toBeNull();
+    expect((await app.request("/api/secret", { headers: { cookie: agentCookie } })).status).toBe(401);
+    expect((await app.request("/api/secret", { headers: { cookie: ownerCookie } })).status).toBe(200);
+    expect(agentClosed).toEqual([[1008, "Sessions invalidated"]]);
+    expect(ownerClosed).toEqual([]);
   });
 
   test("a rejected cookie cannot revoke principals through logout", async () => {
@@ -352,7 +425,11 @@ describe("principal session cookie", () => {
       "/api",
       authRoutes("password", auth, {
         db,
-        clients,
+        revoker: {
+          revokePrincipals(ids, code, reason) {
+            for (const id of ids) clients.closeFor(id, code, reason);
+          },
+        },
         verifyPassword: async () => false,
       })
     );
@@ -364,49 +441,5 @@ describe("principal session cookie", () => {
 
     expect(response.status).toBe(401);
     expect(resolvePrincipal(db, principal.id)?.revokedAt).toBeNull();
-    expect(
-      db.query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'").get()
-    ).toBeNull();
-  });
-
-  test("logout still revokes sessions when the legacy epoch row is corrupt", async () => {
-    const principal = create();
-    const cookie = await signedCookie(principal.id);
-    db.prepare(
-      `INSERT INTO settings (key, value, updated_at)
-       VALUES ('auth.sessionsEpoch', 'not-json', ?)`
-    ).run(Date.now());
-    const observability = createRecordingObservability();
-    const auth = runtime();
-    const app = new Hono();
-    app.route(
-      "/api",
-      authRoutes("password", auth, {
-        db,
-        clients: new ClientSet(),
-        log: observability.logger("auth"),
-      })
-    );
-    app.use("/api/*", authGuard("password", auth, db));
-    app.get("/api/secret", (c) => c.json({ ok: true }));
-
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(
-      200
-    );
-    const logout = await app.request("/api/auth/logout", {
-      method: "POST",
-      headers: { cookie },
-    });
-
-    expect(logout.status).toBe(200);
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(
-      401
-    );
-    expect(resolvePrincipal(db, principal.id)?.revokedAt).not.toBeNull();
-    expect(
-      observability.logs.count({
-        body: "legacy session epoch is corrupt; downgrade guard was not advanced",
-      })
-    ).toBe(1);
   });
 });

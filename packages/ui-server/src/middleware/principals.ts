@@ -21,6 +21,7 @@ import {
 } from "./auth.js";
 import { requireJson } from "./origin.js";
 import type { WsHost } from "../ws/host.js";
+import { requireOwner } from "./require-owner.js";
 
 const COOKIE_NAME = "brain_ui_session";
 const SECONDS_PER_DAY = 24 * 60 * 60;
@@ -31,7 +32,7 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 
 export interface PrincipalManagementContext {
   db: Database;
-  clients: Pick<WsHost, "revokePrincipals">;
+  revoker: Pick<WsHost, "revokePrincipals">;
   log?: Logger;
 }
 
@@ -71,11 +72,9 @@ export function principalManagementRoutes(
 
   app.use("/auth/principals/*", async (c, next) => {
     if (mode !== "password") return notEnabled(c);
-    if (c.get("principal")?.kind !== "owner") {
-      return c.json({ error: "Owner access required" }, 403);
-    }
     await next();
   });
+  app.use("/auth/principals/*", requireOwner());
 
   app.get("/auth/principals", (c) => {
     const caller = c.get("principal")!;
@@ -174,7 +173,7 @@ export function principalManagementRoutes(
       return c.json({ error: "Unknown principal" }, 404);
     }
 
-    applyPrincipalRevocation(ctx.clients, revokedIds);
+    applyPrincipalRevocation(ctx.revoker, revokedIds);
     ctx.log?.emit({
       severityText: "INFO",
       body: "principal revoked",

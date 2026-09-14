@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { Hono } from "hono";
+import { serializeSigned } from "hono/utils/cookie";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
@@ -28,6 +29,14 @@ const TEST_DB = join(tmpdir(), `passkeys-test-${process.pid}.db`);
 
 let db: Database;
 let clients: ClientSet;
+
+function revokerFor(clientSet: ClientSet) {
+  return {
+    revokePrincipals(ids: readonly string[], code: number, reason: string) {
+      for (const id of ids) clientSet.closeFor(id, code, reason);
+    },
+  };
+}
 
 beforeAll(async () => {
   HASH = await Bun.password.hash(PASSWORD);
@@ -68,7 +77,7 @@ function fullApp(
   const auth = { ...config.auth, host: config.host };
   const ctx: PasskeyContext = {
     db,
-    clients,
+    revoker: revokerFor(clients),
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
@@ -80,7 +89,7 @@ function fullApp(
     "/api",
     authRoutes("password", auth, {
       db,
-      clients,
+      revoker: revokerFor(clients),
       passwordDisabled: (c) => passwordLoginDisabled(c, ctx),
     })
   );
@@ -120,6 +129,27 @@ async function loginCookie(app: Hono, ip = "10.0.0.99"): Promise<string> {
   });
   expect(res.status).toBe(200);
   return res.headers.get("set-cookie")!.split(";")[0];
+}
+
+async function ownerAndAgentCookies(): Promise<{
+  ownerCookie: string;
+  agentCookie: string;
+}> {
+  const owner = createPrincipal(getDb(), {
+    authMethod: "password",
+    label: "Owner browser",
+    ttlSeconds: 3_600,
+  });
+  const agent = createPrincipal(getDb(), {
+    authMethod: "delegated",
+    label: "Build agent",
+    createdBy: owner.id,
+    ttlSeconds: 3_600,
+  });
+  return {
+    ownerCookie: await serializeSigned("brain_ui_session", owner.id, SECRET),
+    agentCookie: await serializeSigned("brain_ui_session", agent.id, SECRET),
+  };
 }
 
 function seedCredential(overrides: Partial<Record<string, unknown>> = {}) {
@@ -228,7 +258,7 @@ describe("mode gating", () => {
     const config = resolveServerConfig({});
     const ctx: PasskeyContext = {
       db,
-      clients,
+      revoker: revokerFor(clients),
       webauthn: config.webauthn,
       auth: { ...config.auth, host: config.host },
       allowedOrigins: config.allowedOrigins,
@@ -813,6 +843,98 @@ describe("registration + management", () => {
       });
       expect(res.status).toBe(401);
     }
+  });
+
+  test("an agent cannot reach register-options", async () => {
+    const app = fullApp();
+    const { agentCookie } = await ownerAndAgentCookies();
+
+    const response = await app.request("/api/auth/passkey/register-options", {
+      method: "POST",
+      headers: headers({ cookie: agentCookie }, "10.4.0.2"),
+      body: "{}",
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  test("an agent cannot list passkeys", async () => {
+    const app = fullApp();
+    const { agentCookie } = await ownerAndAgentCookies();
+    seedCredential();
+
+    const response = await app.request("/api/auth/passkey/list", {
+      headers: headers({ cookie: agentCookie }, "10.4.0.7"),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  test("an agent cannot reach register-verify or mint an owner login path", async () => {
+    const app = fullApp({
+      verifyRegistrationResponse: verifiedRegistration("agent-credential"),
+    });
+    const { ownerCookie, agentCookie } = await ownerAndAgentCookies();
+    const options = await app.request("/api/auth/passkey/register-options", {
+      method: "POST",
+      headers: headers({ cookie: ownerCookie }, "10.4.0.3"),
+      body: "{}",
+    });
+    expect(options.status).toBe(200);
+    const challenge = (await options.json()).challenge as string;
+
+    const response = await app.request("/api/auth/passkey/register-verify", {
+      method: "POST",
+      headers: headers({ cookie: agentCookie }, "10.4.0.4"),
+      body: JSON.stringify({
+        response: registrationResponse(challenge, "agent-credential"),
+        label: "Agent-owned passkey",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(
+      getDb().query("SELECT COUNT(*) AS count FROM passkey_credentials").get()
+    ).toEqual({ count: 0 });
+    expect(
+      getDb().query("SELECT kind, COUNT(*) AS count FROM principals GROUP BY kind ORDER BY kind").all()
+    ).toEqual([
+      { kind: "agent", count: 1 },
+      { kind: "owner", count: 1 },
+    ]);
+  });
+
+  test("an agent cannot rename a passkey", async () => {
+    const app = fullApp();
+    const { agentCookie } = await ownerAndAgentCookies();
+    seedCredential();
+
+    const response = await app.request("/api/auth/passkey/cred-1", {
+      method: "PUT",
+      headers: headers({ cookie: agentCookie }, "10.4.0.5"),
+      body: JSON.stringify({ label: "Taken over" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(
+      getDb().query("SELECT label FROM passkey_credentials WHERE id = 'cred-1'").get()
+    ).toEqual({ label: "Test key" });
+  });
+
+  test("an agent cannot delete a passkey", async () => {
+    const app = fullApp();
+    const { agentCookie } = await ownerAndAgentCookies();
+    seedCredential();
+
+    const response = await app.request("/api/auth/passkey/cred-1", {
+      method: "DELETE",
+      headers: headers({ cookie: agentCookie }, "10.4.0.6"),
+    });
+
+    expect(response.status).toBe(403);
+    expect(
+      getDb().query("SELECT COUNT(*) AS count FROM passkey_credentials").get()
+    ).toEqual({ count: 1 });
   });
 
   test("register-options excludes existing credentials for this RP only", async () => {

@@ -29,7 +29,6 @@ import {
   type RecordingObservability,
 } from "../src/observability/index";
 import { createUiDb } from "../src/db/client";
-import { ClientSet } from "../src/ws/clients";
 import { clientIp } from "../src/middleware/tailscale";
 import {
   PRINCIPAL_RETENTION_MS,
@@ -164,7 +163,7 @@ function passwordApp() {
   const app = new Hono<AppEnv>();
   app.route(
     "/api",
-    authRoutes("password", runtime, { db: DB, clients: new ClientSet() })
+    authRoutes("password", runtime, { db: DB, revoker: { revokePrincipals() {} } })
   );
   app.use("/api/*", authGuard("password", runtime, DB));
   app.get("/api/secret", (c) =>
@@ -352,7 +351,7 @@ describe("password login + guard", () => {
       "/api",
       authRoutes("password", runtime, {
         db: DB,
-        clients: new ClientSet(),
+        revoker: { revokePrincipals() {} },
         verifyPassword: async () => {
           entered++;
           active++;
@@ -411,7 +410,7 @@ describe("login limiter storage", () => {
       "/api",
       authRoutes("password", runtime, {
         db: DB,
-        clients: new ClientSet(),
+        revoker: { revokePrincipals() {} },
         verifyPassword: async (password) => {
           if (password === "delayed") {
             markDelayedEntered();
@@ -735,7 +734,7 @@ function observedPasswordApp(runtime: AuthRuntime = passwordAuth()): {
     "/api",
     authRoutes("password", runtime, {
       db: DB,
-      clients: new ClientSet(),
+      revoker: { revokePrincipals() {} },
       log: observability.logger("auth"),
       failures: observability.meter("auth").createCounter("auth.failures"),
     })
@@ -859,7 +858,7 @@ describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
       "/api",
       authRoutes("password", runtime, {
         db: DB,
-        clients: new ClientSet(),
+        revoker: { revokePrincipals() {} },
         verifyPassword: async () => false,
       })
     );
@@ -913,7 +912,7 @@ describe("password login admission", () => {
       "/api",
       authRoutes("password", runtime, {
         db: DB,
-        clients: new ClientSet(),
+        revoker: { revokePrincipals() {} },
         verifyPassword: async () => false,
       })
     );

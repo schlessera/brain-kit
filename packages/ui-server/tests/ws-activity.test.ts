@@ -708,6 +708,71 @@ describe("activity stream over the ws path", () => {
     expect(s.store.getSpan("t-always")!.principalId).toBe("principal-b");
   });
 
+  test("an ask-user answer records the responding principal", async () => {
+    let answers: Record<string, string> | null = null;
+    const s = setup(async ({ bridge }) => {
+      bridge.emit({ type: "session_info", sessionId: "sess-ask-user", isNew: true });
+      answers = (
+        await bridge.askUser!("ask-1", [
+          {
+            question: "Continue?",
+            header: "Continue",
+            multiSelect: false,
+            options: [
+              { label: "Yes", description: "Continue the turn." },
+              { label: "No", description: "Stop here." },
+            ],
+          },
+        ])
+      ).answers;
+      bridge.emit({
+        type: "result",
+        sessionId: "sess-ask-user",
+        outcome: "success",
+        durationMs: 1,
+        numTurns: 1,
+        isError: false,
+      });
+    });
+    cleanup = () => {
+      s.host.close();
+      s.stream.close();
+      s.db.close();
+    };
+    const initiator = fakeSocket();
+    const responder = fakeSocket();
+    const responderHandlers = createWsHandlers(s.host, testPrincipal("principal-b"));
+    await s.handlers.onOpen(undefined as never, initiator);
+    await responderHandlers.onOpen(undefined as never, responder);
+
+    s.handlers.onMessage(
+      { data: JSON.stringify({ type: "chat_message", text: "go" }) } as MessageEvent,
+      initiator
+    );
+    await until(() => initiator.frames().some((frame) => frame.type === "ask_user_request"));
+    const request = initiator.frames().find((frame) => frame.type === "ask_user_request");
+    responderHandlers.onMessage(
+      {
+        data: JSON.stringify({
+          type: "ask_user_response",
+          requestId: "ask-1",
+          answers: { "Continue?": "Yes" },
+          turnId: request.turnId,
+        }),
+      } as MessageEvent,
+      responder
+    );
+    await until(() => initiator.frames().some((frame) => frame.type === "result"));
+
+    expect(answers as Record<string, string> | null).toEqual({ "Continue?": "Yes" });
+    const row = s.db
+      .query(
+        "SELECT payload FROM activity_events WHERE event_type = 'ask_user_response'"
+      )
+      .get() as { payload: string };
+    expect(JSON.parse(row.payload).v).toEqual({ principalId: "principal-b" });
+  });
+
   test("a foreign writer's run surfaces through the pump while subscribed, and index view sees it", async () => {
     const s = setup(scriptedTurn());
     cleanup = () => {

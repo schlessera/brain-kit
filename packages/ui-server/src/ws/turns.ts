@@ -205,6 +205,21 @@ export class TurnCoordinator {
     else this.startingAuthorizations.set(authorization, count - 1);
   }
 
+  /** Add principals with live or queued authorization contexts that expired. */
+  collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
+    const collect = (authorization: AuthorizationContext) => {
+      if (authorization.valid && authorization.expiresAt <= now) {
+        ids.add(authorization.principalId);
+      }
+    };
+    for (const authorization of this.pendingAdmissions) collect(authorization);
+    for (const authorization of this.startingAuthorizations.keys()) collect(authorization);
+    for (const turn of this.running) {
+      collect(turn.authorization);
+      for (const entry of turn.queue) collect(entry.authorization);
+    }
+  }
+
   /**
    * Record revocation without aborting running work. Unstarted queued work is
    * removed per sender, while a current turn merely carries the invalid marker.

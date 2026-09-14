@@ -110,14 +110,11 @@ without signing out the rest.
    cookie also loses access; after signing in, mint it a delegated credential.
 2. If the deployment stays on the upgraded version, keep the existing
    `COOKIE_SECRET`; the forced login is the only transition step.
-3. If you roll back to a version that reads the old cookie format, generate a
-   new `COOKIE_SECRET` and update the deployment secret before starting the
-   rolled-back service. "Sign out everywhere" still advances the legacy epoch
-   the old verifier reads, but **individual** principal revocations recorded
-   after the upgrade do not reach it — so reusing the secret can revive a single
-   revoked cookie.
-4. Restart the rolled-back deployment with the new secret and sign in again on
-   every device that should retain access.
+3. A rollback needs no secret rotation: the upgrade migration advanced the
+   legacy session epoch once, invalidating every pre-upgrade cookie that the old
+   verifier could otherwise accept again.
+4. Start the rolled-back deployment and sign in again on every device that
+   should retain access.
 
 ## The honest cost picture
 

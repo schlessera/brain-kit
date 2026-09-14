@@ -54,6 +54,12 @@ export async function handleClientMessage(
   // The socket callback schedules dispatch on a microtask. Revocation may land
   // after parsing but before this function begins, so repeat the in-memory
   // check at the actual dispatch boundary.
+  if (
+    connection.authorization.valid &&
+    connection.authorization.expiresAt <= Date.now()
+  ) {
+    host.expireAuthorizationContexts();
+  }
   if (!connection.authorization.valid) {
     host.reportDroppedFrame("revoked_principal");
     return;
@@ -95,6 +101,9 @@ export async function handleClientMessage(
       const pending = coordinator.pendingAskUser.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
+        pending.turn.recorder?.recordAskUserResponse(
+          connection.authorization.principalId
+        );
         pending.resolve({ answers: msg.answers, annotations: msg.annotations });
       }
       break;

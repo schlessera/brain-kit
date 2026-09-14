@@ -86,7 +86,7 @@ function app(mode: AuthMode = "password") {
     "/api",
     principalManagementRoutes(mode, auth, {
       db,
-      clients: {
+      revoker: {
         revokePrincipals(ids, code, reason) {
           revocations.push({ ids: [...ids], code, reason });
         },

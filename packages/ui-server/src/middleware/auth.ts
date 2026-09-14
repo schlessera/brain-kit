@@ -8,7 +8,6 @@ import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
-import { setSetting } from "../db/settings.js";
 import {
   createPrincipal,
   isCookieBearingPrincipal,
@@ -19,6 +18,7 @@ import {
   prunePrincipalsIfDue,
   resolveAmbientPrincipal,
   resolvePrincipal,
+  revokePrincipal,
   revokeAllPrincipals,
   touchLastSeen,
   type Principal,
@@ -63,7 +63,6 @@ export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const LOGIN_LABEL_MAX_LENGTH = 64;
 const LOGIN_LABEL_FALLBACK = "Unknown device";
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
-const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
 
@@ -440,35 +439,6 @@ export async function resolveCookiePrincipal(
   return principal;
 }
 
-/** Read the legacy downgrade epoch after durable session revocation completes. */
-function sessionsEpoch(db: Database, log?: Logger): number | null {
-  const row = db
-    .query("SELECT value FROM settings WHERE key = ?")
-    .get(SESSIONS_EPOCH_KEY) as { value: string } | null;
-  if (!row) return 0;
-
-  let value: unknown;
-  try {
-    value = JSON.parse(row.value);
-  } catch {
-    log?.emit({
-      severityText: "WARN",
-      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
-      attributes: { key: SESSIONS_EPOCH_KEY, reason: "expected a JSON integer" },
-    });
-    return null;
-  }
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    log?.emit({
-      severityText: "WARN",
-      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
-      attributes: { key: SESSIONS_EPOCH_KEY, reason: "expected a non-negative integer" },
-    });
-    return null;
-  }
-  return value as number;
-}
-
 /** Apply durable revocation to every live runtime authorization context. */
 export function applyPrincipalRevocation(
   revoker: Pick<WsHost, "revokePrincipals">,
@@ -483,27 +453,13 @@ export function applyPrincipalRevocation(
 
 /**
  * Revoke every cookie-bearing principal and disconnect its attached clients.
- * The legacy epoch write happens last and is only a downgrade guard: this
- * verifier never reads it, and corrupt legacy state cannot block revocation.
  */
 export function revokeAllSessions(
   db: Database,
-  revoker: Pick<WsHost, "revokePrincipals">,
-  log?: Logger
+  revoker: Pick<WsHost, "revokePrincipals">
 ): void {
   const revokedIds = revokeAllPrincipals(db, Date.now());
   applyPrincipalRevocation(revoker, revokedIds);
-  const current = sessionsEpoch(db, log);
-  if (current === null) return;
-  if (current === Number.MAX_SAFE_INTEGER) {
-    log?.emit({
-      severityText: "WARN",
-      body: "legacy session epoch is corrupt; downgrade guard was not advanced",
-      attributes: { key: SESSIONS_EPOCH_KEY, reason: "cannot advance safely" },
-    });
-    return;
-  }
-  setSetting(db, SESSIONS_EPOCH_KEY, current + 1);
 }
 
 // --- proxy mode helpers ---
@@ -697,7 +653,7 @@ export function authRoutes(
     /** Authoritative session state. */
     db: Database;
     /** Runtime connections and queued work invalidated by principal revocation. */
-    clients: Pick<WsHost, "revokePrincipals">;
+    revoker: Pick<WsHost, "revokePrincipals">;
     /**
      * When provided and returning true, password login is refused (the app
      * injects passkeys' passwordLoginDisabled so the shared password dies
@@ -842,7 +798,14 @@ export function authRoutes(
         return c.json({ error: "Authentication required", authRequired: true }, 401);
       }
       c.set("principal", principal);
-      revokeAllSessions(deps.db, deps.clients, deps.log);
+      if (principal.kind === "owner") {
+        revokeAllSessions(deps.db, deps.revoker);
+      } else {
+        applyPrincipalRevocation(
+          deps.revoker,
+          revokePrincipal(deps.db, principal.id, Date.now())
+        );
+      }
     }
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });

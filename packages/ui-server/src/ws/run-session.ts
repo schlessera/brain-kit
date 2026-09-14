@@ -191,6 +191,13 @@ export async function runSession(
       // Revocation can land while routing or billing is in flight. This is the
       // final await boundary before startTurn, so an invalid principal never
       // reaches the backend while an already-running turn remains untouched.
+      // Expiry is authoritative, not advisory: the sweep that turns an expired
+      // principal into a revocation runs on a timer, and a follow-up dequeued
+      // inside that window would otherwise start — reviewer measured one
+      // starting 12ms past expiry — and then survive, because a started turn is
+      // deliberately never aborted. Enforce it at the same boundary that
+      // enforces revocation, so the timer only has to close the socket.
+      host.expireAuthorizationContexts();
       if (!turn.authorization.valid) {
         clearTimeout(timeoutHandle);
         // A cancellation accepted while billing was in flight is already a

@@ -117,9 +117,21 @@ describe("ws client registry", () => {
     const closedA: string[] = [];
     const closedB: string[] = [];
     const sentB: string[] = [];
-    const authorizationA1 = { principalId: "principal-a", valid: true };
-    const authorizationA2 = { principalId: "principal-a", valid: true };
-    const authorizationB = { principalId: "principal-b", valid: true };
+    const authorizationA1 = {
+      principalId: "principal-a",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    };
+    const authorizationA2 = {
+      principalId: "principal-a",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    };
+    const authorizationB = {
+      principalId: "principal-b",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      valid: true,
+    };
     const a1: WSContext = {
       send() {},
       close: (_code, reason) => closedA.push(`a1:${reason}`),

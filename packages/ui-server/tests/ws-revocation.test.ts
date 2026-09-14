@@ -31,8 +31,8 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-async function until(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+async function until(condition: () => boolean, attempts = 200): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
@@ -51,6 +51,7 @@ function fakeSocket() {
 
 const databases: ReturnType<typeof createUiDb>[] = [];
 const activityStreams: ActivityStream[] = [];
+const hosts: WsHost[] = [];
 
 function hostFor(backend = makeFakeBackend({ id: "fake" })) {
   const db = createUiDb(":memory:");
@@ -62,6 +63,7 @@ function hostFor(backend = makeFakeBackend({ id: "fake" })) {
     catalog: createSessionCatalog(() => db),
     observability,
   });
+  hosts.push(host);
   return { host, registry, observability };
 }
 
@@ -79,10 +81,12 @@ function activityHostFor(backend = makeFakeBackend({ id: "fake" })) {
     observability,
     activity: { store, stream },
   });
+  hosts.push(host);
   return { host, registry, observability, store };
 }
 
 afterEach(() => {
+  for (const host of hosts.splice(0)) host.close();
   for (const stream of activityStreams.splice(0)) stream.close();
   for (const db of databases.splice(0)) db.close();
 });
@@ -484,6 +488,84 @@ describe("principal revocation boundary", () => {
 
     expect(prompts).toEqual(["running", "run me"]);
     expect(signals[0]!.aborted).toBe(false);
+  });
+
+  test("expiry closes an open socket and drops its queued follow-up", async () => {
+    const releaseRunning = deferred();
+    const prompts: string[] = [];
+    const backend = makeFakeBackend({
+      id: "fake",
+      startTurn: async (request) => {
+        prompts.push(request.prompt);
+        if (request.prompt === "running") await releaseRunning.promise;
+      },
+    });
+    const { host } = hostFor(backend);
+    const principal = {
+      ...testPrincipal("expiring"),
+      expiresAt: Date.now() + 50,
+    };
+    const handlers = createWsHandlers(host, principal);
+    const socket = fakeSocket();
+    await handlers.onOpen({} as Event, socket.ws);
+
+    handlers.onMessage(
+      {
+        data: JSON.stringify({
+          type: "chat_message",
+          text: "running",
+          sessionId: "session-expiry",
+        }),
+      } as MessageEvent,
+      socket.ws
+    );
+    await until(() => prompts.length === 1);
+    handlers.onMessage(
+      {
+        data: JSON.stringify({
+          type: "chat_message",
+          text: "queued after running",
+          sessionId: "session-expiry",
+        }),
+      } as MessageEvent,
+      socket.ws
+    );
+    await until(
+      () => host.coordinator.bySession.get("session-expiry")?.queue.length === 1
+    );
+
+    // Release the running turn AFTER expiry but BEFORE the sweep: the dequeue
+    // then happens inside the window the timer has not reached yet, which is
+    // precisely where a follow-up could start past expiry and survive, since a
+    // started turn is never aborted.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(principal.expiresAt).toBeLessThan(Date.now());
+    expect(socket.closed).toEqual([]);
+    releaseRunning.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(prompts).toEqual(["running"]);
+
+    await until(() => socket.closed.length === 1, 1_500);
+    expect(socket.closed).toEqual([[1008, "Session expired"]]);
+    expect(prompts).toEqual(["running"]);
+    // The follow-up never ran, and the slot itself is gone once the running
+    // turn finished — a stronger outcome than an emptied queue.
+    expect(host.coordinator.bySession.get("session-expiry")?.queue ?? []).toEqual([]);
+
+    handlers.onMessage(
+      {
+        data: JSON.stringify({
+          type: "chat_message",
+          text: "after expiry",
+          sessionId: "session-expiry",
+        }),
+      } as MessageEvent,
+      socket.ws
+    );
+    releaseRunning.resolve();
+    await until(() => host.coordinator.running.size === 0);
+
+    expect(prompts).toEqual(["running"]);
   });
 
   test("a disconnected queued sender becomes the current authority when dequeued", async () => {

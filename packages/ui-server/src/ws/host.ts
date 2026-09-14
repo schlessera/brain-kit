@@ -25,6 +25,9 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Default cap on concurrently RUNNING sessions (MAX_CONCURRENT_SESSIONS). */
 const DEFAULT_MAX_CONCURRENT_SESSIONS = 3;
+const AUTHORIZATION_EXPIRY_SWEEP_MS = 1_000;
+const SESSION_EXPIRED_CLOSE_CODE = 1008;
+const SESSION_EXPIRED_CLOSE_REASON = "Session expired";
 
 /**
  * Budget for the host-side follow-up queue of ONE session (backends without a
@@ -168,6 +171,7 @@ export class WsHost {
   private readonly connectionsRefused: ReturnType<
     ReturnType<Observability["meter"]>["createCounter"]
   >;
+  private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
     this.clients = new ClientSet(options.wsMaxConnections);
@@ -204,6 +208,11 @@ export class WsHost {
       description: "WebSocket connections refused before admission",
     });
     this.coordinator.log = this.log;
+    this.authorizationExpiryTimer = setInterval(
+      () => this.expireAuthorizationContexts(),
+      AUTHORIZATION_EXPIRY_SWEEP_MS
+    );
+    this.authorizationExpiryTimer.unref?.();
   }
 
   /** A metering bucket for one new connection, or null when metering is off. */
@@ -329,6 +338,23 @@ export class WsHost {
     for (const turn of affectedRunning) {
       turn.recorder?.recordPrincipalRevocation(turn.principalId);
     }
+  }
+
+  /** Route expiry through the same full boundary as explicit revocation. */
+  expireAuthorizationContexts(now = Date.now()): void {
+    const expired = new Set<string>();
+    this.clients.collectExpiredPrincipalIds(now, expired);
+    this.coordinator.collectExpiredPrincipalIds(now, expired);
+    this.revokePrincipals(
+      [...expired],
+      SESSION_EXPIRED_CLOSE_CODE,
+      SESSION_EXPIRED_CLOSE_REASON
+    );
+  }
+
+  /** Stop host-owned timers during application/test teardown. */
+  close(): void {
+    clearInterval(this.authorizationExpiryTimer);
   }
 
   /** Send a frame to one specific socket (size-bounded). */

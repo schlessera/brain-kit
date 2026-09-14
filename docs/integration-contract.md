@@ -174,6 +174,8 @@ Each human tool response also appends an `approval_decision` event whose payload
 records `principalId`, `decision` (`allow` | `always_allow` | `deny`), and
 `requestKind` (`tool` | `command`), preserving every responder when one tool
 raises more than one approval.
+An answered `ask_user` interaction appends an `ask_user_response` event carrying
+the responder's `principalId`.
 Run summaries and rollups may additionally carry `principalId`,
 `principalLabel`, and `principalKind`. The label and kind are immutable
 historical snapshots taken when the rollup is first written, so consumers must

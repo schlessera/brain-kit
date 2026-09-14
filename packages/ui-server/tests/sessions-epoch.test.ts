@@ -25,6 +25,14 @@ const ORIGIN = "https://example.test";
 let hash = "";
 let db: Database;
 
+function revokerFor(clients: ClientSet) {
+  return {
+    revokePrincipals(ids: readonly string[], code: number, reason: string) {
+      for (const id of ids) clients.closeFor(id, code, reason);
+    },
+  };
+}
+
 beforeAll(async () => {
   hash = await Bun.password.hash(PASSWORD);
   db = createUiDb(DB_PATH);
@@ -61,7 +69,7 @@ function sessionApp(clients = new ClientSet()): Hono {
   });
   const passkeyContext: PasskeyContext = {
     db,
-    clients,
+    revoker: revokerFor(clients),
     webauthn: config.webauthn,
     auth,
     allowedOrigins: [],
@@ -71,7 +79,7 @@ function sessionApp(clients = new ClientSet()): Hono {
     "/api",
     authRoutes("password", auth, {
       db,
-      clients,
+      revoker: revokerFor(clients),
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyContext),
       verifyPassword: async (password) => password === PASSWORD,
     })

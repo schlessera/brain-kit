@@ -253,7 +253,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   });
   const passkeyCtx: PasskeyContext = {
     db,
-    clients: host,
+    revoker: host,
     webauthn: config.webauthn,
     auth,
     allowedOrigins: config.allowedOrigins,
@@ -351,7 +351,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     "/api",
     authRoutes(authMode, auth, {
       db,
-      clients: host,
+      revoker: host,
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
       log: authLog,
       failures: authFailures,
@@ -373,7 +373,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     "/api",
     principalManagementRoutes(authMode, auth, {
       db,
-      clients: host,
+      revoker: host,
       log: authLog,
     })
   );
@@ -490,6 +490,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {
+      host.close();
       activity.close();
       db.close();
     },

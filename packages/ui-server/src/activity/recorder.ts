@@ -52,6 +52,8 @@ export interface TurnRecorder {
   recordFollowUp(principalId: string): void;
   /** Record who cancelled this turn or an interactive prompt within it. */
   recordCancellation(principalId: string, kind?: "turn" | "ask_user"): void;
+  /** Record who answered an ask-user interaction. */
+  recordAskUserResponse(principalId: string): void;
   /** The user's approval decision arrived for a gated tool call. */
   onApprovalDecision(
     toolUseId: string,
@@ -292,6 +294,15 @@ export function createTurnRecorder(
         if (finished) return;
         ensureRoot();
         store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
+        onWrite?.();
+      });
+    },
+
+    recordAskUserResponse(principalId) {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, "ask_user_response", { principalId });
         onWrite?.();
       });
     },
