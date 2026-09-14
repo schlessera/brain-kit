@@ -71,6 +71,14 @@ Index warnings (including skipped files and failed enrichment) go to stderr
 even with `--json`; stdout retains the existing stats object. A successful
 exit can represent a partial index, so automation should retain stderr.
 
+Only one `index --embeddings` run can operate on a database at a time. A
+second exits with a retry message before indexing or making paid calls. The
+lock releases automatically if the process crashes; its empty
+`brain.db.embedding-lock.db` sidecar is disposable and covered by the
+template's `brain.db*` ignore rule. Plain `index` runs remain available during
+embedding calls. If they change a chunk, its pending embedding is discarded
+and a later `index --embeddings` run backfills it.
+
 The graph tables are a derived cache, rebuilt wholesale when inputs change —
 unchanged index runs preserve cached metrics and layout. The input fingerprint
 includes document metadata, tags, resolved links, the resolved entry root, and

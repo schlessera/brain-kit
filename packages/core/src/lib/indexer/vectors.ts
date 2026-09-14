@@ -1,10 +1,9 @@
 /**
  * The vector store's hygiene rules, kept apart from the code that fills it.
  *
- * `vec_chunks` is a sqlite-vec virtual table, which is why almost everything
- * in here runs OUTSIDE a transaction and inside a `try`: a virtual table
- * cannot be rolled back with the rest of a write, and it may not exist at all
- * (no extension, older database).
+ * The optional sqlite-vec table may not exist (no extension, older database).
+ * Provider calls happen outside transactions; completed batches validate and
+ * write together in a short immediate transaction.
  */
 import type { Database } from "bun:sqlite";
 
@@ -94,10 +93,16 @@ export async function prepareVectorStore(
 ): Promise<boolean> {
   const storedModel = getMeta(run.db, "embedding_model");
   const storedDims = getMeta(run.db, "embedding_dimensions");
+  // Metadata describes the last provider, not necessarily the physical table:
+  // --force can empty a markdown-only store before this phase is reached.
+  const table = run.db.query("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as { sql: string } | null;
+  const tableDims = table?.sql.match(/\bembedding\s+float\[(\d+)\]/i)?.[1];
+  if (table && !tableDims) throw new Error("Cannot determine vec_chunks dimensions");
+  const dimensionsChanged = tableDims !== String(provider.dimensions);
   const mismatch =
     vecStoreHasRows(run.db) &&
     (!embeddingIdentityMatches(storedModel, provider.id) ||
-      storedDims !== String(provider.dimensions));
+      storedDims !== String(provider.dimensions) || dimensionsChanged);
 
   if (mismatch && !run.force) {
     run.warn(
@@ -111,18 +116,14 @@ export async function prepareVectorStore(
     return false;
   }
 
-  if (mismatch) {
+  if (mismatch || dimensionsChanged) {
     run.report(
-      `  Embedding provider changed to '${provider.id}' — dropping stored vectors and re-embedding (--force)`
+      `  Preparing vector table for '${provider.id}' (dim ${provider.dimensions})`
     );
     // Drop the TABLE, not just its rows: vec0 tables are fixed-width, so a
     // cross-dimension provider swap must recreate it at the new width.
-    try {
-      run.db.run("DROP TABLE IF EXISTS vec_chunks");
-    } catch {
-      // vec_chunks may not exist
-    }
-    await initVecSupport(run.db, provider.dimensions);
+    run.db.run("DROP TABLE IF EXISTS vec_chunks");
+    if (!(await initVecSupport(run.db, provider.dimensions))) return false;
   }
 
   // Record the producing provider, so search-engine's mismatch check agrees
@@ -130,4 +131,33 @@ export async function prepareVectorStore(
   setMeta(run.db, "embedding_model", provider.id);
   setMeta(run.db, "embedding_dimensions", String(provider.dimensions));
   return true;
+}
+
+/** Commit only results whose inputs and vector space still exist after await. */
+export function createVectorWriter(run: IndexRun, provider: EmbeddingProvider) {
+  const current = run.db.prepare(`
+    SELECT c.content, d.status, d.type FROM chunks c
+    JOIN documents d ON d.id = c.document_id WHERE c.id = ?`);
+  const hasVector = run.db.prepare("SELECT chunk_id FROM vec_chunks WHERE chunk_id = ?");
+  const insert = run.db.prepare(
+    "INSERT INTO vec_chunks(chunk_id, embedding, is_archived, doc_type) VALUES (?, ?, ?, ?)"
+  );
+  const write = run.db.transaction((rows: Array<{ chunkId: number; content: string; embedding: Float32Array }>) => {
+    if (!embeddingIdentityMatches(getMeta(run.db, "embedding_model"), provider.id) ||
+        getMeta(run.db, "embedding_dimensions") !== String(provider.dimensions)) {
+      run.warn("  Skipping stale embedding results: vector provider changed during the request");
+      return 0;
+    }
+    let written = 0;
+    for (const row of rows) {
+      const chunk = current.get(row.chunkId) as { content: string; status: string; type: string } | null;
+      if (!chunk || chunk.content !== row.content || hasVector.get(row.chunkId)) continue;
+      if (row.embedding.length !== provider.dimensions) throw new Error("Embedding provider returned incorrect vector dimensions");
+      const bytes = new Uint8Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength);
+      insert.run(row.chunkId, bytes, chunk.status === "archived" ? 1 : 0, chunk.type);
+      written++;
+    }
+    return written;
+  });
+  return (rows: Parameters<typeof write>[0]) => write.immediate(rows);
 }

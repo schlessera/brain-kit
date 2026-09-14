@@ -194,7 +194,12 @@ function queuePlaceholderRetries(
  * and queue it for embedding.
  */
 function makeFinisher(run: IndexRun, st: Statements, embedQueue: AssetEmbedTask[]) {
+  const current = run.db.prepare("SELECT content_hash FROM documents WHERE id = ?");
   const finish = (task: AssetTask, description: string) => {
+    // A plain index run can delete this asset while the vision call is away.
+    // Do not resurrect its FTS row or enqueue an embedding for a missing doc.
+    const row = current.get(task.docId) as { content_hash: string } | null;
+    if (!row || row.content_hash !== task.hash) return;
     st.updateChunkContent.run(description, task.docId);
     st.updateDocContent.run(description, task.docId);
     st.deleteFts.run(task.docId);

@@ -19,9 +19,10 @@ import { chunkTextForEmbedding } from "../chunker.js";
 import { hasVecSupport } from "../db.js";
 import type { EmbeddingProvider } from "../seams.js";
 import { queueAssetsMissingVectors } from "./assets.js";
+import { loadContextCache } from "./caches.js";
 import { generateChunkContexts, type EmbeddableChunk } from "./contexts.js";
 import type { AssetEmbedTask, IndexRun } from "./types.js";
-import { dropVectorsForDocuments, prepareVectorStore } from "./vectors.js";
+import { createVectorWriter, dropVectorsForDocuments, prepareVectorStore } from "./vectors.js";
 
 /** Texts per provider call. */
 const BATCH_SIZE = 50;
@@ -29,66 +30,47 @@ const BATCH_SIZE = 50;
 const CONCURRENCY = 5;
 const ASSET_CONCURRENCY = 10;
 
-/**
- * Every markdown chunk that lacks a vector.
- *
- * See the module header for why this is not "chunks of documents changed this
- * run" — the changed documents' vectors were just deleted by the caller, so
- * they qualify under this rule too.
- */
-function chunksNeedingVectors(run: IndexRun): EmbeddableChunk[] {
-  return run.db
-    .prepare(
-      `SELECT c.id, c.document_id, c.heading, c.content, c.context,
-              d.title, d.summary, d.content AS doc_content,
-              d.status AS doc_status, d.type AS doc_type
-       FROM chunks c
-       JOIN documents d ON d.id = c.document_id
-       WHERE d.asset_type = 'markdown'
-         AND c.id NOT IN (SELECT chunk_id FROM vec_chunks)
-       ORDER BY c.id`
-    )
-    .all() as EmbeddableChunk[];
+/** One page of missing chunks; the parent body is fetched once per document later. */
+function chunksNeedingVectors(run: IndexRun, after: number, through: number): EmbeddableChunk[] {
+  return run.db.prepare(
+    `SELECT c.id, c.document_id, c.heading, c.content, c.context, d.title, d.summary
+     FROM chunks c JOIN documents d ON d.id = c.document_id
+     WHERE d.asset_type = 'markdown' AND c.id > ? AND c.id <= ?
+       AND NOT EXISTS (SELECT 1 FROM vec_chunks v WHERE v.chunk_id = c.id)
+     ORDER BY c.id LIMIT ?`
+  ).all(after, through, BATCH_SIZE * CONCURRENCY) as EmbeddableChunk[];
 }
 
-/** Generate contexts, then embed the chunks that got one. */
+/** Generate contexts and vectors for one bounded page at a time. */
 async function embedMarkdownChunks(
   run: IndexRun,
   provider: EmbeddingProvider,
   docIdsNeedingEmbedding: number[]
 ): Promise<void> {
   dropVectorsForDocuments(run.db, docIdsNeedingEmbedding);
-
-  const chunks = chunksNeedingVectors(run);
-  if (chunks.length === 0) return;
-
-  const failedContext = await generateChunkContexts(run, chunks);
-  const embeddable = chunks.filter((c) => !failedContext.has(c.id));
-  if (embeddable.length === 0) return;
-
-  const insertVec = run.db.prepare(
-    "INSERT INTO vec_chunks(chunk_id, embedding, is_archived, doc_type) VALUES (?, ?, ?, ?)"
-  );
-  // One transaction per completed batch, rather than one autocommit per row.
-  const insertBatch = run.db.transaction(
-    (rows: Array<{ chunkId: number; embedding: Uint8Array; isArchived: number; docType: string }>) => {
-      for (const row of rows) insertVec.run(row.chunkId, row.embedding, row.isArchived, row.docType);
-    }
-  );
-
-  const batches: Array<{ texts: string[]; chunks: EmbeddableChunk[] }> = [];
-  for (let i = 0; i < embeddable.length; i += BATCH_SIZE) {
-    const slice = embeddable.slice(i, i + BATCH_SIZE);
-    batches.push({
-      texts: slice.map((c) => chunkTextForEmbedding(c.title, c.heading, c.content, c.context)),
-      chunks: slice,
-    });
-  }
-
+  const writeVectors = createVectorWriter(run, provider);
+  // A finite high-water mark prevents an active editor from extending this run
+  // forever. Failed chunks are passed by the cursor and retried NEXT run.
+  const { last } = run.db.query("SELECT COALESCE(MAX(id), 0) AS last FROM chunks").get() as { last: number };
+  let after = 0;
   let skipped = 0;
-  for (let i = 0; i < batches.length; i += CONCURRENCY) {
-    const concurrent = batches.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(concurrent.map((b) => provider.embed(b.texts)));
+  let cache: Map<string, string> | undefined;
+  while (after < last) {
+    const chunks = chunksNeedingVectors(run, after, last);
+    if (chunks.length === 0) break;
+    after = chunks[chunks.length - 1].id;
+    cache ??= loadContextCache(run.root);
+    const failedContext = await generateChunkContexts(run, chunks, cache);
+    const embeddable = chunks.filter((c) => !failedContext.has(c.id));
+    const batches: Array<{ texts: string[]; chunks: EmbeddableChunk[] }> = [];
+    for (let i = 0; i < embeddable.length; i += BATCH_SIZE) {
+      const slice = embeddable.slice(i, i + BATCH_SIZE);
+      batches.push({
+        texts: slice.map((c) => chunkTextForEmbedding(c.title, c.heading, c.content, c.context)),
+        chunks: slice,
+      });
+    }
+    const results = await Promise.allSettled(batches.map((b) => provider.embed(b.texts)));
     for (let b = 0; b < results.length; b++) {
       const result = results[b];
       if (result.status === "rejected") {
@@ -96,18 +78,19 @@ async function embedMarkdownChunks(
         run.warn(`  SKIP embed batch: ${(result.reason as Error)?.message ?? result.reason}`);
         continue;
       }
-      const batchChunks = concurrent[b].chunks;
-      const rows = result.value.map((embedding, j) => ({
+      const batchChunks = batches[b].chunks;
+      if (result.value.length !== batchChunks.length) {
+        skipped++;
+        run.warn("  SKIP embed batch: provider returned an incorrect vector count");
+        continue;
+      }
+      run.stats.embeddings += writeVectors(result.value.map((embedding, j) => ({
         chunkId: batchChunks[j].id,
-        embedding: new Uint8Array(embedding.buffer),
-        isArchived: batchChunks[j].doc_status === "archived" ? 1 : 0,
-        docType: batchChunks[j].doc_type,
-      }));
-      insertBatch.immediate(rows);
-      run.stats.embeddings += rows.length;
+        content: batchChunks[j].content,
+        embedding,
+      })));
     }
   }
-
   run.report(`  Embedded ${run.stats.embeddings} text chunks`);
   if (skipped > 0) {
     run.warn(`  ${skipped} batch(es) skipped on errors — rerun with --embeddings to backfill`);
@@ -132,17 +115,15 @@ async function embedAssets(
     queue.map((a) => a.docId)
   );
 
-  const insertVec = run.db.prepare(
-    "INSERT INTO vec_chunks(chunk_id, embedding, is_archived, doc_type) VALUES (?, ?, 0, ?)"
-  );
+  const writeVectors = createVectorWriter(run, provider);
   const getChunkId = run.db.prepare(
-    "SELECT id FROM chunks WHERE document_id = ? AND chunk_index = 0"
+    "SELECT id, content FROM chunks WHERE document_id = ? AND chunk_index = 0"
   );
 
   const tasks = queue
     .map((asset) => {
-      const chunkRow = getChunkId.get(asset.docId) as { id: number } | null;
-      return { ...asset, chunkId: chunkRow?.id ?? null };
+      const chunkRow = getChunkId.get(asset.docId) as { id: number; content: string } | null;
+      return { ...asset, chunkId: chunkRow?.id ?? null, content: chunkRow?.content ?? "" };
     })
     .filter((a): a is typeof a & { chunkId: number } => a.chunkId !== null);
 
@@ -167,9 +148,9 @@ async function embedAssets(
       const asset = batch[j];
       const result = results[j];
       if (result.status === "fulfilled") {
-        insertVec.run(asset.chunkId, new Uint8Array(result.value.buffer), asset.docType);
-        run.stats.embeddings++;
-        run.report(`    Embedded: ${asset.path}`);
+        const written = writeVectors([{ chunkId: asset.chunkId, content: asset.content, embedding: result.value }]);
+        run.stats.embeddings += written;
+        if (written) run.report(`    Embedded: ${asset.path}`);
       } else {
         run.warn(
           `    SKIP embedding: ${asset.path} — ${(result.reason as Error)?.message || result.reason}`

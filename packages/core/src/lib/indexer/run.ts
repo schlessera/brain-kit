@@ -28,6 +28,7 @@ import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../graph/precom
 import { indexAssets } from "./assets.js";
 import { pruneSidecarCaches, saveAssetCache, saveContextCache } from "./caches.js";
 import { runEmbeddingPhase } from "./embeddings.js";
+import { acquireEmbeddingLock } from "./embedding-lock.js";
 import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
 import { getAssetFiles, getMarkdownFiles, loadExistingDocs } from "./scan.js";
@@ -115,6 +116,18 @@ function saveSidecarCaches(run: IndexRun): void {
 
 /** Incrementally index all markdown files (and assets) into the database. */
 export async function indexAll(db: Database, options: IndexOptions): Promise<IndexStats> {
+  // Claim before even the force wipe or asset descriptions. Plain FTS index
+  // runs can still update content while the provider is working; embedding
+  // writes revalidate their captured chunks before committing.
+  const release = options.embeddings ? acquireEmbeddingLock(db) : undefined;
+  try {
+    return await runIndex(db, options);
+  } finally {
+    release?.();
+  }
+}
+
+async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats> {
   const run = createRun(db, options);
 
   // --- scan ---------------------------------------------------------------
@@ -129,8 +142,8 @@ export async function indexAll(db: Database, options: IndexOptions): Promise<Ind
   // --- parse --------------------------------------------------------------
   const parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
 
-  // Before the write, not after: dropping markdown vectors is a virtual-table
-  // operation and cannot join the transaction below.
+  // Drop vectors while their old markdown chunk IDs still exist, before the
+  // persist phase replaces those chunks.
   if (run.force) dropMarkdownVectors(run.db);
 
   // --- persist ------------------------------------------------------------

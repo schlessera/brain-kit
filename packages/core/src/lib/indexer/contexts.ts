@@ -12,8 +12,6 @@
  * makes the next `--embeddings` run retry both. Persisting a fallback here
  * would look identical to a real context and never be revisited.
  */
-import type { Database } from "bun:sqlite";
-
 import { chunkContextKey, loadContextCache } from "./caches.js";
 import type { IndexRun } from "./types.js";
 
@@ -29,17 +27,6 @@ export interface EmbeddableChunk {
   context: string | null;
   title: string;
   summary: string | null;
-  doc_content: string;
-  doc_status: string;
-  doc_type: string;
-}
-
-/** How many chunks each document has — the single-chunk shortcut needs this. */
-function chunkCountsByDocument(db: Database): Map<number, number> {
-  const rows = db
-    .prepare("SELECT document_id, COUNT(*) AS n FROM chunks GROUP BY document_id")
-    .all() as { document_id: number; n: number }[];
-  return new Map(rows.map((r) => [r.document_id, r.n]));
 }
 
 /**
@@ -48,7 +35,8 @@ function chunkCountsByDocument(db: Database): Map<number, number> {
  */
 export async function generateChunkContexts(
   run: IndexRun,
-  chunks: EmbeddableChunk[]
+  chunks: EmbeddableChunk[],
+  cache: Map<string, string> = loadContextCache(run.root)
 ): Promise<Set<number>> {
   const failed = new Set<number>();
   let needsContext = chunks.filter((c) => c.context === null || c.context === undefined);
@@ -58,7 +46,6 @@ export async function generateChunkContexts(
 
   // Tier 1: the committed cache. Identical chunk text reuses its context with
   // no call at all — this is what makes a fresh clone cheap.
-  const cache = loadContextCache(run.root);
   let cacheHits = 0;
   needsContext = needsContext.filter((c) => {
     const cached = cache.get(chunkContextKey(c.title, c.heading, c.content));
@@ -70,8 +57,13 @@ export async function generateChunkContexts(
   });
   if (cacheHits > 0) run.report(`  Reused ${cacheHits} chunk contexts from cache`);
 
-  const counts = chunkCountsByDocument(run.db);
   const enrichment = run.enrichment;
+  // A page shares each parent body rather than joining (and copying) the whole
+  // document onto every chunk. Cached contexts need no parent body at all.
+  const documents = new Map<number, { content: string; n: number }>();
+  const getDocument = run.db.prepare(`SELECT content,
+    (SELECT COUNT(*) FROM chunks WHERE document_id = documents.id) AS n
+    FROM documents WHERE id = ?`);
   let generated = 0;
 
   for (let i = 0; i < needsContext.length; i += CONTEXT_CONCURRENCY) {
@@ -80,11 +72,19 @@ export async function generateChunkContexts(
       batch.map((c) => {
         // Tier 2: single-chunk documents, and any run without enrichment,
         // fall back to the frontmatter summary. Never blocks, never billed.
-        if ((counts.get(c.document_id) ?? 1) <= 1 || !enrichment) {
+        if (!enrichment) {
           return Promise.resolve(c.summary ?? "");
         }
+        let doc = documents.get(c.document_id);
+        if (!doc) {
+          const row = getDocument.get(c.document_id) as { content: string; n: number } | null;
+          if (!row) return Promise.reject(new Error("Document changed during context generation"));
+          doc = row;
+          documents.set(c.document_id, doc);
+        }
+        if (doc.n <= 1) return Promise.resolve(c.summary ?? "");
         // Tier 3: generate.
-        return enrichment.generateChunkContext(c.title, c.doc_content, c.heading, c.content);
+        return enrichment.generateChunkContext(c.title, doc.content, c.heading, c.content);
       })
     );
 
