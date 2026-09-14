@@ -50,6 +50,16 @@ forgotten bump is caught by `tests/release-manifest.test.ts`.
 bunx tsc --noEmit && bun test packages tests && bun run build
 ```
 
+## `bun run build` exits 133 with a V8 stack trace
+
+A build that dies with `error: script "build" exited with code 133` and a
+`V8_Fatal` / `ReduceStringAt` / `TurboshaftAssemblerOpInterface` stack is node's
+JIT crashing, not this repo. It is not deterministic: **re-run the build**. Seen
+once on node v22.18.0 while preparing 0.35.0, passing on the immediate retry
+with `check-dist-types` clean afterwards. If it repeats on the same package
+twice in a row, that is a different problem — bisect the package rather than
+retrying a third time.
+
 ## The version is wrong — usually a surprise major
 
 A release of minor changesets that lands on `1.0.0` instead of `0.10.0` means

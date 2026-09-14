@@ -17,6 +17,13 @@ raised is folded in below and the blockers were re-verified in code.
 
 ## Summary
 
+> **Numbering note (2026-09-15).** Every "0.35.0" below means the Least
+> privilege container milestone, which now ships as **0.36.0**: 0.35.0 was
+> released as session principals. The milestone's content and unit numbering are
+> unchanged, and the references are left as written rather than rewritten, so
+> the progress log keeps saying what it said at the time.
+
+
 Close every finding of the layer review in four tagged brain-kit releases,
 each with one *runtime* blast radius so a regression is attributable and
 revertible by redeploying the previous image: **0.32.0 Boundary** (the HTTP

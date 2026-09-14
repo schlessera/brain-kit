@@ -78,7 +78,8 @@ when it was made — not a preference.
 Roughly in order. Items move down as they land.
 
 - **Hardening roadmap (four releases: 0.32.0 Boundary, 0.33.0 Kit owns the
-  app, 0.34.0 One backend seam, 0.35.0 Least privilege container).** Closes
+  app, 0.34.0 One backend seam, and Least privilege container — which now ships
+  as 0.36.0, because 0.35.0 went to session principals).** Closes
   every finding of the 2026-09-06 layer review — CSRF on JSON POSTs outside
   password mode, stateless sessions, login lockout, the agent's inherited
   environment, cron and crontab logic living in the shell, the `claude | pi`
@@ -103,7 +104,10 @@ Roughly in order. Items move down as they land.
   both backends, one permission decision core, split factories, the four bridge
   tools defined once in the SDK, and self-describing backend descriptors the
   registry iterates; **0.34.1** carries the dispatcher, store and page splits.
-  0.35.0 Least privilege container is next, designed by the U24 spike.
+  Least privilege container is next, designed by the U24 spike; it ships as
+  **0.36.0** because 0.35.0 was taken by session principals (a named, revocable,
+  expiring identity per session — plan
+  [docs/plans/2026-09-14-001-feat-session-principals-plan.md](docs/plans/2026-09-14-001-feat-session-principals-plan.md)).
 - **A real `brain-template` repo.** `docs/quickstart.md`, `template/README.md`,
   and this repo's README all point users at `schlessera/brain-template`, which
   does not exist yet — `template/` here is its source. Publishing it (marked as
