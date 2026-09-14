@@ -4,6 +4,8 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  lstatSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -104,6 +106,27 @@ function selectPath(path: string, includes: string[], excludes: string[]): boole
   return included && !excludes.some((prefix) => matchesPrefix(path, prefix));
 }
 
+const EXPORT_MARKER = ".brain-okf-export";
+const EXPORT_MARKER_CONTENT = "brain-kit OKF export\n";
+const PROTECTED_OUTPUT_SEGMENTS = new Set([
+  ".git", ".agents", ".claude", ".brain-ui", "node_modules", "scripts", "workspaces", "logs",
+]);
+
+function assertDisposableOutput(absolute: string): void {
+  if (!existsSync(absolute)) return;
+  if (!lstatSync(absolute).isDirectory()) {
+    throw new OkfExportError("Output destination must be a directory");
+  }
+  if (readdirSync(absolute).length === 0) return;
+  const marker = resolve(absolute, EXPORT_MARKER);
+  try {
+    if (lstatSync(marker).isFile() && readFileSync(marker, "utf-8") === EXPORT_MARKER_CONTENT) return;
+  } catch { /* Missing or unreadable ownership marker: preserve the destination. */ }
+  throw new OkfExportError(
+    "Refusing to replace a nonempty directory not owned by the OKF exporter. Choose an empty output directory."
+  );
+}
+
 function outputLocation(root: string, requested: string, taxonomy: Taxonomy): {
   absolute: string;
   relative: string;
@@ -121,6 +144,9 @@ function outputLocation(root: string, requested: string, taxonomy: Taxonomy): {
   const rel = slash(relative(rootCanonical, absolute)).replace(/\/+$/, "");
   if (!rel || rel === "." || rel.startsWith("../")) {
     throw new OkfExportError("Refusing to use the brain root as the OKF output directory");
+  }
+  if (rel.split("/").some((segment) => PROTECTED_OUTPUT_SEGMENTS.has(segment.toLowerCase()))) {
+    throw new OkfExportError(`Refusing to export into a protected directory: ${rel}`);
   }
   if (!taxonomy.isExcludedPath(rel)) {
     throw new OkfExportError(
@@ -404,9 +430,12 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
     warnings: [],
   };
 
+  // Exclusion from indexing is not permission to delete unrelated data.
+  assertDisposableOutput(output.absolute);
   // All validation and parsing happens before this derived-artifact wipe.
   if (existsSync(output.absolute)) rmSync(output.absolute, { recursive: true, force: true });
   mkdirSync(output.absolute, { recursive: true });
+  writeFileSync(resolve(output.absolute, EXPORT_MARKER), EXPORT_MARKER_CONTENT, { flag: "wx" });
 
   const resolveLink = createWikiLinkResolver(fileMap, options.taxonomy.dirAnchors);
   for (const concept of concepts) {

@@ -55,6 +55,24 @@ The shipped allowlist includes the core CLI's `BRAIN_ROOT`,
 and `GEMINI_BASE_URL`. These capability settings are available to agents,
 direct brain CLI children, and scheduled jobs.
 
+## Recovery and partial availability
+
+The session drawer keeps available histories when another backend fails or
+exceeds its three-second listing deadline. It shows a warning and a Retry
+button; a failed refresh preserves sessions already loaded. The HTTP session
+list includes an optional `unavailableBackends` array of backend IDs when
+results are incomplete.
+
+Notification detection persists its cursor with inbox entries in the UI
+SQLite database. After restart it replays retained activity changes in batches,
+including failures recorded while the server was offline. Existing notifications
+are deduplicated, including acknowledged entries. Keep the UI database on its
+persisted volume to retain this progress.
+
+Share cleanup refuses staging paths that traverse symlinks, including links to
+other directories inside the brain. Accessing the brain root itself through a
+symlink is supported.
+
 ## The `/brain-host` skill
 
 `/brain-host` is the conversational way to set this up. It interviews you for

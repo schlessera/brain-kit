@@ -87,6 +87,13 @@ the [integration contract](integration-contract.md).
 | `okf check [dir]` ⚖ | Check any OKF bundle for concept and reserved-file conformance | defaults to `okf-dist/`; broken internal links are warnings; exits 1 on conformance errors |
 
 The export output directory must be inside the brain root and excluded from indexing.
+A nonempty output directory must carry the exporter's `.brain-okf-export`
+ownership marker. Existing bundles created before this safeguard need a new,
+empty destination (or you can move the old bundle aside). Do not add a marker
+to a directory containing other data: subsequent exports replace its contents.
+Repository infrastructure such as `.git`, `.agents`, `scripts`, and `workspaces`
+is always rejected, even when excluded from indexing.
+
 `okf-dist` is excluded by default. Wiki-links are resolved against only the exported
 file set, so links into excluded domains degrade to plain display text rather than
 leaking paths.

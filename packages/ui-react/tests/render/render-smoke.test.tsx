@@ -41,6 +41,7 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { useConnectionStore } from "../../src/stores/connection-store.js";
@@ -1805,4 +1806,43 @@ test("capture recovery preserves the saved note and retries indexing without res
   expect(view.getByText(/Saved and indexed/)).toBeTruthy();
   expect(calls.filter(url => url.endsWith("/brain/add"))).toHaveLength(1);
   expect(calls.filter(url => url.endsWith("/brain/index"))).toHaveLength(2);
+});
+
+
+describe("SessionDrawer recovery", () => {
+  test("shows partial histories with a warning and clears it after retry", async () => {
+    let calls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL) => {
+      calls++;
+      return Response.json({
+        sessions: [{ id: "saved", title: "Saved conversation", createdAt: 1, lastActiveAt: 2 }],
+        ...(calls === 1 ? { unavailableBackends: ["offline"] } : {}),
+      });
+    }) as typeof fetch;
+    const view = render(<SessionDrawer open onClose={() => {}} onResume={() => {}} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(view.getByText("Saved conversation")).toBeTruthy();
+    expect(view.getByRole("status").textContent).toContain("Some session histories are unavailable");
+    await act(async () => { fireEvent.click(view.getByText("Retry")); });
+    expect(calls).toBe(2);
+    expect(view.queryByRole("status")).toBeNull();
+    expect(view.getByText("Saved conversation")).toBeTruthy();
+  });
+
+  test("reports a failed refresh without hiding previously loaded sessions", async () => {
+    let fail = false;
+    globalThis.fetch = (async (_input: RequestInfo | URL) => {
+      if (fail) throw new Error("offline");
+      return Response.json({ sessions: [{ id: "saved", title: "Saved conversation", createdAt: 1, lastActiveAt: 2 }] });
+    }) as typeof fetch;
+    const props = { onClose: () => {}, onResume: () => {} };
+    const view = render(<SessionDrawer open {...props} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    view.rerender(<SessionDrawer open={false} {...props} />);
+    fail = true;
+    view.rerender(<SessionDrawer open {...props} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(view.getByText("Saved conversation")).toBeTruthy();
+    expect(view.getByRole("status").textContent).toContain("Could not refresh sessions");
+  });
 });

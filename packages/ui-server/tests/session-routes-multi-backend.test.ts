@@ -76,6 +76,39 @@ describe("multi-backend session routes", () => {
     )).toEqual(["gemini", "claude"]);
   });
 
+  test("keeps healthy histories when another backend throws, and recovers on retry", async () => {
+    const healthy = makeFakeBackend({ id: "healthy", sessions: [{ id: "saved", title: "Saved", createdAt: 1, lastActiveAt: 2, totalCostUsd: 0, numTurns: 1 }] });
+    const broken = makeFakeBackend({ id: "broken" });
+    broken.listSessions = () => { throw new Error("unavailable"); };
+    setBackendsForTests([healthy, broken]);
+    const response = await sessionRoutes.request("/sessions");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.sessions.map((s: { id: string }) => s.id)).toEqual(["saved"]);
+    expect(body.unavailableBackends).toEqual(["broken"]);
+    broken.listSessions = async () => [];
+    expect((await (await sessionRoutes.request("/sessions")).json()).unavailableBackends).toBeUndefined();
+  });
+
+  test("bounds stalled backends and coalesces scans across concurrent requests", async () => {
+    const stuck = makeFakeBackend({ id: "stuck" });
+    let calls = 0;
+    let release!: (sessions: Awaited<ReturnType<AgentBackend["listSessions"]>>) => void;
+    stuck.listSessions = () => { calls++; return new Promise((resolve) => { release = resolve; }); };
+    setBackendsForTests([stuck]);
+    try {
+      const responses = await Promise.all([sessionRoutes.request("/sessions"), sessionRoutes.request("/sessions")]);
+      expect(calls).toBe(1);
+      for (const response of responses) {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ sessions: [], unavailableBackends: ["stuck"] });
+      }
+    } finally { release([]); }
+    await Promise.resolve();
+    stuck.listSessions = async () => [];
+    expect(await (await sessionRoutes.request("/sessions")).json()).toEqual({ sessions: [] });
+  });
+
   test("GET /sessions/:id reads history from the persisted owner backend", async () => {
     const claudeCalls: string[] = [];
     const geminiCalls: string[] = [];

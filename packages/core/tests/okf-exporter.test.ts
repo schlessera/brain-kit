@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import matter from "gray-matter";
 import {
   mkdirSync,
+  symlinkSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -112,6 +113,35 @@ function snapshotTree(root: string): Record<string, string> {
 }
 
 describe("OKF exporter", () => {
+  test("preserves protected directories even with an exporter marker", async () => {
+    for (const outDir of [".git", ".agents", "scripts", "workspaces", ".brain-ui", "node_modules", ".git/nested"]) {
+      const root = makeBrain({
+        [`${outDir}/keep.txt`]: "valuable data",
+        [`${outDir}/.brain-okf-export`]: "brain-kit OKF export\n",
+      });
+      await expect(exportOkfBundle({ root, taxonomy: taxonomy(), outDir })).rejects.toThrow("protected");
+      expect(readFileSync(join(root, outDir, "keep.txt"), "utf8")).toBe("valuable data");
+    }
+  });
+
+  test("preserves unowned output and refuses a symlinked ownership marker", async () => {
+    const root = makeBrain({ "okf-dist/keep.txt": "valuable data", "marker.txt": "brain-kit OKF export\n" });
+    await expect(exportOkfBundle({ root, taxonomy: taxonomy() })).rejects.toThrow("nonempty directory");
+    symlinkSync(join(root, "marker.txt"), join(root, "okf-dist/.brain-okf-export"));
+    await expect(exportOkfBundle({ root, taxonomy: taxonomy() })).rejects.toThrow("nonempty directory");
+    expect(readFileSync(join(root, "okf-dist/keep.txt"), "utf8")).toBe("valuable data");
+  });
+
+  test("accepts an empty custom excluded destination and replaces owned output", async () => {
+    const root = makeBrain({ "note.md": document("Note", "First body") });
+    const custom = buildTaxonomy({ user: { exclude: { dirs: ["published"] } } });
+    mkdirSync(join(root, "published"));
+    await exportOkfBundle({ root, taxonomy: custom, outDir: "published" });
+    writeFileSync(join(root, "note.md"), document("Note", "Updated body"));
+    await exportOkfBundle({ root, taxonomy: custom, outDir: "published" });
+    expect(readFileSync(join(root, "published/note.md"), "utf8")).toContain("Updated body");
+  });
+
   test("converts every wiki-link form and leaves fenced/inline code untouched", async () => {
     const root = fullFixture();
     const report = await exportOkfBundle({ root, taxonomy: taxonomy() });

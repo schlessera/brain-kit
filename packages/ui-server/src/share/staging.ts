@@ -1,5 +1,5 @@
 import type { Logger } from "@opentelemetry/api-logs";
-import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   SHARE_MAX_FILES,
@@ -406,9 +406,15 @@ export async function pruneShareStaging(
   now = Date.now(),
   log?: Logger
 ): Promise<number> {
-  const root = shareStagingRoot(brainPath);
+  let root: string;
   let entries;
   try {
+    root = await safeResolve(SHARE_STAGING_DIR, brainPath);
+    // Even an internal symlink could point at unrelated content. Only prune
+    // the actual staging directory; the brain root itself may be a symlink.
+    if (await realpath(root) !== join(await realpath(brainPath), SHARE_STAGING_DIR)) {
+      throw new Error("Share staging directory must not traverse a symlink");
+    }
     entries = await readdir(root, { withFileTypes: true });
   } catch (err) {
     // Nothing staged yet is the ordinary case. Anything else — a permission
@@ -430,8 +436,9 @@ export async function pruneShareStaging(
     const path = join(root, entry.name);
     const ttl = entry.name.startsWith(".") ? PARTIAL_TTL_MS : SHARE_STAGING_TTL_MS;
     try {
-      const info = await stat(path);
-      if (now - info.mtimeMs <= ttl) continue;
+      await safeResolve(`${SHARE_STAGING_DIR}/${entry.name}`, brainPath);
+      const info = await lstat(path);
+      if (!info.isDirectory() || now - info.mtimeMs <= ttl) continue;
       await rm(path, { recursive: true, force: true });
       removed += 1;
     } catch {

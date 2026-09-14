@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
+import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
 
 export function createSessionRoutes(deps: {
@@ -7,6 +8,30 @@ export function createSessionRoutes(deps: {
   db: Database;
 }): Hono {
   const { registry, db } = deps;
+  const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
+
+  async function listSessions(backend: AgentBackend) {
+    let work = pending.get(backend);
+    if (!work) {
+      work = Promise.resolve().then(() => backend.listSessions());
+      pending.set(backend, work);
+      const clear = () => { if (pending.get(backend) === work) pending.delete(backend); };
+      void work.then(clear, clear);
+    }
+    // Backends have no cancellation API. Reuse unfinished work so retries
+    // cannot pile up scans behind a stalled backend.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Session listing timed out")), 3_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   function getStoredBackendId(sessionId: string): string | null {
     const row = db
@@ -30,28 +55,28 @@ export function createSessionRoutes(deps: {
             .all() as Array<{ id: string; cost: number | null; turns: number | null }>
         ).map((r) => [r.id, r])
       );
-      const sessions = (
-        await Promise.all(
-          backends.map(async (backend) =>
-            (await backend.listSessions()).map((session) => {
-              const stored = accounting.get(session.id);
-              return {
-                ...session,
-                ...(stored?.cost && session.totalCostUsd === 0
-                  ? { totalCostUsd: stored.cost }
-                  : {}),
-                ...(stored?.turns && session.numTurns === 0
-                  ? { numTurns: stored.turns }
-                  : {}),
-                backendId: backend.id,
-              };
-            })
-          )
+      const results = await Promise.allSettled(
+        backends.map(async (backend) =>
+          (await listSessions(backend)).map((session) => {
+            const stored = accounting.get(session.id);
+            return {
+              ...session,
+              ...(stored?.cost && session.totalCostUsd === 0
+                ? { totalCostUsd: stored.cost }
+                : {}),
+              ...(stored?.turns && session.numTurns === 0
+                ? { numTurns: stored.turns }
+                : {}),
+              backendId: backend.id,
+            };
+          })
         )
-      )
-        .flat()
+      );
+      const sessions = results.flatMap((result) => result.status === "fulfilled" ? result.value : [])
         .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-      return c.json({ sessions });
+      const unavailableBackends = results.flatMap((result, index) =>
+        result.status === "rejected" ? [backends[index]!.id] : []);
+      return c.json({ sessions, ...(unavailableBackends.length ? { unavailableBackends } : {}) });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to list sessions" },

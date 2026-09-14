@@ -58,11 +58,8 @@ export function createActivityRuntime(
   const store = createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
 
-  // The notifier is created BEFORE the boot sweep: its change cursor starts
-  // at the current head, so the terminal changes the sweep writes are above
-  // it and the first tick turns restart-interrupted runs into failure
-  // intents. Created after, the sweep's changes would sit below the cursor
-  // and a turn killed by a restart would never be notified.
+  // The notifier resumes its persisted cursor, including terminal changes
+  // committed while this server was down and interruptions from the boot sweep.
   const notifier = createActivityNotifier({
     db,
     store,

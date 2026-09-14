@@ -38,6 +38,51 @@ function failCron(store: ActivityStore, runId: string, jobName = "sync") {
 }
 
 describe("activity notifier", () => {
+  test("replays offline failures and never resurrects acknowledged intents on restart", () => {
+    const { db, store, notifier } = setup();
+    try {
+      failCron(store, "before-tick", "first");
+      const restarted = createActivityNotifier({ db, store, isWatched: () => false });
+      restarted.tick();
+      expect(restarted.inbox().map((i) => i.runId)).toEqual(["before-tick"]);
+      restarted.acknowledgeAll();
+      failCron(store, "offline", "second");
+      const next = createActivityNotifier({ db, store, isWatched: () => false });
+      next.tick();
+      notifier.tick(); // An older instance also reads the persisted checkpoint.
+      expect(next.inbox().map((i) => i.runId)).toEqual(["offline"]);
+      db.query("DELETE FROM settings WHERE key = 'activity.notify.cursor'").run();
+      next.tick(); // First upgrade replay with existing acknowledged intents.
+      expect(next.inbox().map((i) => i.runId)).toEqual(["offline"]);
+    } finally { db.close(); }
+  });
+
+  test("commits notification batches and their cursor atomically", () => {
+    const { db, store, notifier } = setup();
+    try {
+      failCron(store, "first", "first");
+      failCron(store, "second", "second");
+      db.exec(`CREATE TRIGGER fail_second BEFORE INSERT ON notification_intents
+        WHEN NEW.run_id = 'second' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
+      notifier.tick();
+      expect(notifier.inbox()).toHaveLength(0);
+      expect(db.query("SELECT value FROM settings WHERE key = 'activity.notify.cursor'").get()).toBeNull();
+      db.exec("DROP TRIGGER fail_second");
+      notifier.tick();
+      expect(notifier.inbox()).toHaveLength(2);
+    } finally { db.close(); }
+  });
+
+  test("drains more than one replay batch without losing failures", () => {
+    const { db, store } = setup();
+    try {
+      for (let i = 0; i < 510; i++) failCron(store, `run-${i}`, `job-${i}`);
+      const notifier = createActivityNotifier({ db, store, isWatched: () => false });
+      for (let i = 0; i < 5; i++) notifier.tick();
+      expect(notifier.inbox(1000)).toHaveLength(510);
+    } finally { db.close(); }
+  });
+
   test("an unwatched failure becomes a pending intent, delivered at-least-once", () => {
     const { store, notifier } = setup();
     failCron(store, "run-1");

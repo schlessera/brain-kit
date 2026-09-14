@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -545,6 +545,35 @@ describe("share staging", () => {
     await expect(
       stageShare(BRAIN_ROOT, { files: [liar("a.bin"), liar("b.bin"), liar("c.bin")] })
     ).rejects.toMatchObject({ reason: "share_too_large" });
+  });
+
+  test("pruning refuses external and internal symlinked staging roots", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "brain-share-prune-"));
+    try {
+      for (const target of [outside, join(BRAIN_ROOT, "notes")]) {
+        await mkdir(join(target, "valuable"), { recursive: true });
+        await writeFile(join(target, "valuable/keep.txt"), "preserve");
+        await mkdir(join(BRAIN_ROOT, ".brain-ui"), { recursive: true });
+        await symlink(target, shareStagingRoot(BRAIN_ROOT));
+        expect(await pruneShareStaging(BRAIN_ROOT, Date.now() + 365 * 86400000)).toBe(0);
+        expect(await readFile(join(target, "valuable/keep.txt"), "utf8")).toBe("preserve");
+        await rm(shareStagingRoot(BRAIN_ROOT));
+      }
+    } finally { await rm(outside, { recursive: true, force: true }); }
+  });
+
+  test("pruning accepts a symlinked brain root and preserves symlinked children", async () => {
+    const holder = await mkdtemp(join(tmpdir(), "brain-share-prune-"));
+    try {
+      const link = join(holder, "brain");
+      await symlink(BRAIN_ROOT, link);
+      await stageShare(BRAIN_ROOT, { text: "expired share", files: [] });
+      await mkdir(join(holder, "valuable"));
+      await writeFile(join(holder, "valuable/keep.txt"), "preserve");
+      await symlink(join(holder, "valuable"), join(shareStagingRoot(BRAIN_ROOT), "linked"));
+      expect(await pruneShareStaging(link, Date.now() + 365 * 86400000)).toBe(1);
+      expect(await readFile(join(holder, "valuable/keep.txt"), "utf8")).toBe("preserve");
+    } finally { await rm(holder, { recursive: true, force: true }); }
   });
 
   test("pruneShareStaging sweeps orphaned partial directories sooner", async () => {

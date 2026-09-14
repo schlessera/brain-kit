@@ -30,6 +30,8 @@ export function SessionDrawer({
 }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const currentSessionId = useChatStore((s) => s.activeSessionId);
   const runStates = useChatStore((s) => s.runStates);
@@ -42,15 +44,24 @@ export function SessionDrawer({
     Object.keys(runStates).find((id) => id !== currentSessionId) ?? null;
 
   useEffect(() => {
-    if (open) {
-      setLoading(true);
-      api
-        .sessions()
-        .then((data) => setSessions(data.sessions))
-        .catch(() => setSessions([]))
-        .finally(() => setLoading(false));
-    }
-  }, [open]);
+    if (!open) return;
+    let active = true;
+    setLoading(true);
+    setWarning(null);
+    api.sessions()
+      .then((data) => {
+        if (!active) return;
+        setSessions(data.sessions);
+        setWarning(data.unavailableBackends?.length
+          ? "Some session histories are unavailable. Showing available sessions."
+          : null);
+      })
+      .catch(() => {
+        if (active) setWarning("Could not refresh sessions. Please retry.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [open, retry]);
 
   const groups = groupSessionsByDate(sessions);
 
@@ -99,13 +110,21 @@ export function SessionDrawer({
             </div>
           )}
 
+          {warning && (
+            <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+              <p>{warning}</p>
+              <button className="mt-2 text-primary underline" onClick={() => setRetry((value) => value + 1)}>
+                Retry
+              </button>
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
           ) : sessions.length === 0 && !backgroundSessionId ? (
             <p className="py-12 text-center text-xs text-muted-foreground">
-              No sessions yet
+              {warning ? "No sessions available" : "No sessions yet"}
             </p>
           ) : (
             groups.map((group) => (

@@ -253,6 +253,7 @@ export const api = {
 
   sessions: () =>
     fetchJson<{
+      unavailableBackends?: string[];
       sessions: Array<{
         id: string;
         title: string | null;

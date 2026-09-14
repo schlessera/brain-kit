@@ -427,9 +427,12 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
 describe("activity query inbox scope", () => {
   test("returns the unacknowledged intents through the notifier", () => {
     const { db, store } = seeded();
-    // The notifier's change cursor starts at the log head, so it must exist
-    // BEFORE the failure it is expected to notice.
+    // Startup replays the seeded failure; acknowledge it before a new run
+    // of the same job so tag dedupe does not coalesce the new notification.
     const notifier = createActivityNotifier({ db, store, isWatched: () => false });
+    notifier.tick();
+    expect(notifier.inbox()[0]?.runId).toBe("cron-1");
+    notifier.acknowledgeAll();
     store.startSpan({
       spanId: "cron-2:root",
       runId: "cron-2",

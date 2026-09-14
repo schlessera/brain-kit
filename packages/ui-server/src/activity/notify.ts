@@ -23,7 +23,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
-import { getSetting } from "../db/settings.js";
+import { getSetting, setSetting } from "../db/settings.js";
 import type { ActivityStore, SpanRow } from "./store.js";
 
 export type IntentKind = "failure" | "completion" | "stuck";
@@ -76,7 +76,7 @@ const DEFAULT_STUCK_THRESHOLD_MS = 45 * 60 * 1000;
 
 export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNotifier {
   const { db, store, isWatched, log } = deps;
-  let cursor = latestCursor(db);
+  const cursorKey = "activity.notify.cursor";
   /** Runs already flagged as stuck this process lifetime (tag also guards). */
   const stuckFlagged = new Set<string>();
 
@@ -97,6 +97,9 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     suppressed?: boolean;
   }): void {
     const now = Date.now();
+    // Replay on first upgrade must not resurrect an acknowledged notification.
+    if (db.query("SELECT id FROM notification_intents WHERE run_id = ? AND kind = ? LIMIT 1")
+      .get(input.runId, input.kind)) return;
     // Tag dedupe: one live (unacknowledged) intent per tag — repeats coalesce.
     const existing = db
       .query(
@@ -180,11 +183,17 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
         // The head is read BEFORE the detection query so advancing past
         // non-terminal changes can never skip a terminal write committed
         // in between; a change seen twice is absorbed by the tag dedupe.
-        const head = latestCursor(db);
-        const rows = store.terminalRootChangesSince(cursor, 500);
-        for (const { span } of rows) intentForSpan(span);
-        const lastSeen = rows.length > 0 ? rows[rows.length - 1]!.changeId : cursor;
-        cursor = rows.length === 500 ? lastSeen : Math.max(head, lastSeen);
+        db.transaction(() => {
+          const saved = getSetting<unknown>(db, cursorKey, 0, log);
+          const cursor = typeof saved === "number" && Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
+          const head = latestCursor(db);
+          const rows = store.terminalRootChangesSince(cursor, 500);
+          for (const { span } of rows) intentForSpan(span);
+          const lastSeen = rows.length > 0 ? rows[rows.length - 1]!.changeId : cursor;
+          // Commit intents and progress together. A crash retries the entire
+          // batch; another notifier reads the committed cursor under this lock.
+          setSetting(db, cursorKey, rows.length === 500 ? lastSeen : Math.max(head, lastSeen));
+        }).immediate();
 
         // Watchdog: an over-threshold LIVE root run is stuck — a signal, not
         // an outcome. Threshold from settings, per-job override supported.
