@@ -1,5 +1,12 @@
 # @schlessera/brain-backend-claude
 
+## 0.35.0
+
+### Patch Changes
+
+- Updated dependencies [f89897b]
+  - @schlessera/brain-ui-sdk@0.35.0
+
 ## 0.34.1
 
 ### Patch Changes

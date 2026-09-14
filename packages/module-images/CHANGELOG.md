@@ -1,5 +1,18 @@
 # @schlessera/brain-module-images
 
+## 0.35.0
+
+### Patch Changes
+
+- Updated dependencies [545f2f9]
+- Updated dependencies [7a4b5af]
+- Updated dependencies [cc48069]
+- Updated dependencies [1ddc4bb]
+- Updated dependencies [60e05c6]
+- Updated dependencies [84b748c]
+- Updated dependencies [8adb53d]
+  - @schlessera/brain@0.35.0
+
 ## 0.34.1
 
 ### Patch Changes

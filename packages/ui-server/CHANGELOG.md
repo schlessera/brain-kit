@@ -1,5 +1,52 @@
 # @schlessera/brain-ui-server
 
+## 0.35.0
+
+### Minor Changes
+
+- ca6b0b2: Create bounded, attributable owner principals for password and passkey logins, preserving passkey credential lineage and refusing deleted credentials or excess live sessions.
+- f89897b: Attribute activity spans, append-only approval decisions, and durable run rollups to principals, with historical label and kind snapshots that survive retention pruning.
+- b9a924d: Make every WebSocket authorization context registered by construction and retain it across all asynchronous work through one refcounted registry.
+- 9b3411d: Add owner-only routes to list, mint, and individually revoke delegated agent principals.
+- 0de6ac9: Document principal routes and the operator procedure for agent credentials,
+  revocation, and cookie-format transitions. The public `isWsAuthorized` helper
+  now returns a resolved `Principal` or null, and `revokeAllSessions` replaces the
+  removed `bumpSessionsEpoch` export.
+- 0acd22d: Resolve authorized HTTP and WebSocket requests to stable principals and attribute authenticated request logs. Ambient identities are retained safely with boot-time and throttled pruning, without consuming credential admission; their display labels are bounded and sanitized independently from identity. Console string attributes are quoted and escaped. `isWsAuthorized` now returns the resolved principal or null.
+- 48348df: Make principal revocation race-safe across WebSocket admission and turn startup, discard only that principal's queued work and activity subscriptions, record revocation on continuing turns, and narrow passkey deletion to sessions created by that credential.
+- 23a99d0: Bind push subscriptions to the authenticated principal and stop future delivery after revocation or expiry. Legacy subscriptions are inert until the client re-registers them after login; notifications already delivered to a device cannot be recalled.
+- dd93981: Add persistent, individually revocable principals and their database store.
+- 5300960: Export `resolveCookiePrincipal` with its resolved `Principal`, replace epoch
+  session cookies with signed principal ids, and replace `bumpSessionsEpoch` with
+  the durable `revokeAllSessions` primitive.
+
+  Require an owner principal for passkey management, limit agent logout to its
+  own principal, and expire live WebSocket authorization through the complete
+  revocation boundary.
+
+  Rename route revocation dependencies from `clients` to `revoker`, remove the
+  partial `ClientSet.revokePrincipals` method, and add `expiresAt` to
+  `AuthorizationContext`.
+
+  Derive principal kinds in the store, reject non-cookie principals during cookie
+  authentication, tolerate stale ambient labels, close the passkey deletion race
+  inside principal creation, and move the rollback guard into the upgrade
+  migration.
+
+### Patch Changes
+
+- 3161d89: Cancel abandoned search subprocesses and return a clear timeout after 15 seconds.
+- 545f2f9: Preserve exact sync paths, prevent overlapping UI sync jobs, keep cron outcomes tied to child exit, and discard stale file-viewer responses.
+- 361407a: Replay long session histories without dropping messages. Frame sizing now
+  measures UTF-8 bytes rather than string length, each message is bounded once
+  against the chunk budget instead of twice against the whole frame, identity
+  fields survive shrinking, and a truncation can no longer split a surrogate pair.
+- 1ddc4bb: Protect export destinations and share cleanup paths, replay missed failure notifications after restart, and keep session histories usable when a backend is unavailable.
+- 714f45e: Serialize session startup, preserve draft correlation, expose capture indexing recovery, and deduplicate cyclic wikilink scans and concurrent refreshes.
+- Updated dependencies [f89897b]
+  - @schlessera/brain-ui-sdk@0.35.0
+  - @schlessera/brain-render-template@0.35.0
+
 ## 0.34.1
 
 ### Patch Changes

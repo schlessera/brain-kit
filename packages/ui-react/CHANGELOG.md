@@ -1,5 +1,21 @@
 # @schlessera/brain-ui-react
 
+## 0.35.0
+
+### Minor Changes
+
+- 23a99d0: Bind push subscriptions to the authenticated principal and stop future delivery after revocation or expiry. Legacy subscriptions are inert until the client re-registers them after login; notifications already delivered to a device cannot be recalled.
+- dd12f91: Add Devices & agents settings to list and revoke active access, mint expiring agent credentials, and preserve their one-time values across navigation until explicitly saved.
+
+### Patch Changes
+
+- 3aec83f: Prevent stale search results from opening and cancel superseded requests before debounce.
+- 545f2f9: Preserve exact sync paths, prevent overlapping UI sync jobs, keep cron outcomes tied to child exit, and discard stale file-viewer responses.
+- 1ddc4bb: Protect export destinations and share cleanup paths, replay missed failure notifications after restart, and keep session histories usable when a backend is unavailable.
+- 714f45e: Serialize session startup, preserve draft correlation, expose capture indexing recovery, and deduplicate cyclic wikilink scans and concurrent refreshes.
+- Updated dependencies [f89897b]
+  - @schlessera/brain-ui-sdk@0.35.0
+
 ## 0.34.1
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @schlessera/brain
 
+## 0.35.0
+
+### Patch Changes
+
+- 545f2f9: Preserve exact sync paths, prevent overlapping UI sync jobs, keep cron outcomes tied to child exit, and discard stale file-viewer responses.
+- 7a4b5af: Reuse graph metrics and layouts when their inputs are unchanged.
+- cc48069: Prevent archive overwrites and accidental capture merges; bound query embedding latency and widen vector candidates to recover distinct documents.
+- 1ddc4bb: Protect export destinations and share cleanup paths, replay missed failure notifications after restart, and keep session histories usable when a backend is unavailable.
+- 60e05c6: Make embedding runs safe to repeat and cheap to interrupt. Only one
+  `index --embeddings` run can operate on a database at a time — a second exits
+  with a retry message before making paid calls — and the lock releases itself if
+  the process crashes. Markdown backfills are paged rather than loaded whole, so a
+  large corpus no longer holds every pending chunk in memory, and a changed
+  embedding dimension is detected instead of writing vectors nothing can read.
+- 84b748c: Resolve wiki-links deterministically and build corpus lookups once per indexing, validation, and export run.
+- 8adb53d: Preserve indexing diagnostics on stderr in JSON mode without changing the stats envelope.
+  - @schlessera/brain-render-template@0.35.0
+
 ## 0.34.1
 
 ### Patch Changes

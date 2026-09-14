@@ -1,5 +1,11 @@
 # @schlessera/brain-ui-sdk
 
+## 0.35.0
+
+### Minor Changes
+
+- f89897b: Attribute activity spans, append-only approval decisions, and durable run rollups to principals, with historical label and kind snapshots that survive retention pruning.
+
 ## 0.34.1
 
 ### Patch Changes
