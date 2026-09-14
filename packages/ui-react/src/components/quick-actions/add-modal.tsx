@@ -27,6 +27,10 @@ export function AddPanel({
   const [tags, setTags] = useState("");
   const [state, setState] = useState<State>("editing");
   const [error, setError] = useState("");
+  const [savedPath, setSavedPath] = useState("");
+  const [indexed, setIndexed] = useState<boolean | undefined>();
+  const [indexing, setIndexing] = useState(false);
+  const operation = useRef({ epoch: 0 }).current;
   // Types already in the brain, offered as completions — `brain add` accepts
   // any string, so this is a hint list, not a closed set.
   const [knownTypes, setKnownTypes] = useState<string[]>([]);
@@ -35,6 +39,10 @@ export function AddPanel({
 
   useEffect(() => {
     if (!open) return;
+    operation.epoch++;
+    setSavedPath("");
+    setIndexed(undefined);
+    setIndexing(false);
     setContent("");
     setTitle("");
     setType("");
@@ -55,31 +63,57 @@ export function AddPanel({
       });
 
     return () => {
+      operation.epoch++;
       cancelled = true;
       clearTimeout(t);
     };
-  }, [open]);
+  }, [open, operation]);
 
   async function handleSave() {
     const body = content.trim();
-    if (!body || state === "saving") return;
+    if (!body || (state !== "editing" && state !== "error")) return;
+    const current = ++operation.epoch;
 
     setState("saving");
     setError("");
     try {
-      await api.brainAdd(body, {
+      const result = await api.brainAdd(body, {
         type: type.trim() || undefined,
         title: title.trim() || undefined,
         tags: parseTags(tags).length ? parseTags(tags) : undefined,
       });
+      if (current !== operation.epoch) return;
+      setSavedPath(result.path ?? "");
+      setIndexed(result.indexed);
+      setError(result.indexed === false ? result.indexError || "Indexing failed." : "");
       setState("saved");
     } catch (err: any) {
+      if (current !== operation.epoch) return;
       setError(err?.message || "Add failed");
       setState("error");
     }
   }
 
+  async function retryIndex() {
+    if (indexing) return;
+    const current = ++operation.epoch;
+    setIndexing(true);
+    setError("");
+    try {
+      await api.brainIndex();
+      if (current === operation.epoch) setIndexed(true);
+    } catch (err) {
+      if (current === operation.epoch) setError(err instanceof Error ? err.message : "Indexing failed.");
+    } finally {
+      if (current === operation.epoch) setIndexing(false);
+    }
+  }
+
   function handleAddAnother() {
+    operation.epoch++;
+    setSavedPath("");
+    setIndexed(undefined);
+    setIndexing(false);
     setContent("");
     setTitle("");
     setType("");
@@ -107,8 +141,19 @@ export function AddPanel({
             <CheckCircle2 className="h-8 w-8 text-primary" />
             <p className="text-sm text-foreground">Added to your brain.</p>
             <p className="text-xs text-muted-foreground">
-              Run a sync to index and push it.
+              {indexed === false ? "Saved, but not indexed. Your content is safe; search may not find it yet."
+                : indexed === true ? "Saved and indexed. Run a sync when you want to push it."
+                : "Saved. This server did not report whether indexing completed."}
             </p>
+            {savedPath && <p className="break-all text-xs text-muted-foreground">{savedPath}</p>}
+            {indexed === false && (
+              <div className="space-y-2" role="status">
+                {error && <p className="text-xs text-destructive">{error}</p>}
+                <button onClick={retryIndex} disabled={indexing} className="rounded-lg bg-primary px-4 py-1.5 text-xs text-primary-foreground disabled:opacity-40">
+                  {indexing ? "Indexing..." : "Retry indexing"}
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleAddAnother}

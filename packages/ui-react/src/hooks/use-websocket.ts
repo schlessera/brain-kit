@@ -37,9 +37,11 @@ function isOurDraftAnnouncement(
   state: ReturnType<typeof useChatStore.getState>,
   msg: ServerMessage
 ): boolean {
-  if (msg.type !== "session_info" && msg.type !== "result") return false;
+  // A terminal result has no draft correlation. Another client's turn may
+  // finish before our session_info arrives, so it can never claim our draft.
+  if (msg.type !== "session_info") return false;
   const pending = state.pendingDraftId;
-  if (msg.type === "session_info" && msg.draftId) return msg.draftId === pending;
+  if (msg.draftId) return msg.draftId === pending;
   // No echo to compare against.
   return true;
 }

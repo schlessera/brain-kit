@@ -42,3 +42,13 @@ export interface BrainSyncResult {
   conflicts: number;
   message: string;
 }
+
+/** Outcome of saving content, including a recoverable indexing failure. */
+export interface BrainAddResult {
+  action: "created" | "appended";
+  path: string;
+  title: string;
+  type: string;
+  indexed: boolean;
+  indexError?: string;
+}

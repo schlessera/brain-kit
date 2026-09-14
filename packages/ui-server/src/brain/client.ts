@@ -8,6 +8,7 @@ import type {
   BrainDocument,
   BrainStats,
   BrainSyncResult,
+  BrainAddResult,
 } from "./types.js";
 
 /**
@@ -36,7 +37,7 @@ export interface BrainClient {
   add(
     content: string,
     opts?: { type?: string; title?: string; tags?: string[] }
-  ): Promise<void>;
+  ): Promise<BrainAddResult>;
   index(opts?: { force?: boolean }): Promise<void>;
   validate(): Promise<string>;
   /** Run `brain skills sync` — re-materialize every agent's skill links. */
@@ -311,6 +312,14 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
       if (result.exitCode !== 0) {
         throw new Error(`brain add failed: ${result.stderr}`);
       }
+      const parsed = parseJsonOutput<BrainAddResult>(result);
+      if (!parsed || typeof parsed !== "object" || typeof parsed.path !== "string" ||
+          typeof parsed.indexed !== "boolean" || typeof parsed.title !== "string" ||
+          typeof parsed.type !== "string" || (parsed.indexError !== undefined && typeof parsed.indexError !== "string") ||
+          !["created", "appended"].includes(parsed.action)) {
+        throw new Error("Capture completed but its outcome could not be read. Check your files before adding it again.");
+      }
+      return parsed;
     },
 
     async index(opts) {

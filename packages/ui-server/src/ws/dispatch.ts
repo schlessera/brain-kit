@@ -69,6 +69,7 @@ export async function handleClientMessage(
         attachments: attachmentResult.attachments,
         providerId: msg.providerId,
         client: msg.client,
+        draftId: msg.draftId,
       });
       break;
     }
@@ -166,6 +167,12 @@ export async function handleClientMessage(
       if (msg.sessionId) {
         const turn = coordinator.bySession.get(msg.sessionId);
         if (turn) coordinator.cancelTurn(turn, "Cancelled by user");
+        const starting = coordinator.startingBySession.get(msg.sessionId);
+        if (starting) {
+          starting.cancelled = true;
+          starting.queue.length = 0;
+          host.sendToClients({ type: "status", status: "idle", sessionId: msg.sessionId, detail: "Cancelled before starting" });
+        }
         return;
       }
       // No sessionId: cancel the sole running session; ambiguous if several run.

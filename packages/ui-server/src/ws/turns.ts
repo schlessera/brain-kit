@@ -39,7 +39,7 @@ export function queuedFollowUpBytes(entry: QueuedFollowUp): number {
 }
 
 /** Total bytes currently parked in a session's follow-up queue. */
-export function queuedBytes(turn: RunningTurn): number {
+export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
   let bytes = 0;
   for (const entry of turn.queue) bytes += queuedFollowUpBytes(entry);
   return bytes;
@@ -132,6 +132,8 @@ export class TurnCoordinator {
   readonly running = new Set<RunningTurn>();
   readonly bySession = new Map<string, RunningTurn>();
   startingSessions = 0;
+  /** Reserve a known session before asynchronous backend routing. */
+  readonly startingBySession = new Map<string, { queue: QueuedFollowUp[]; cancelled: boolean }>();
 
   readonly pendingApprovals = new Map<string, PendingApproval>();
   readonly pendingAskUser = new Map<string, PendingAskUser>();
@@ -156,7 +158,12 @@ export class TurnCoordinator {
 
   /** Cancel every running turn (used on shutdown). */
   cancelAll(reason: string): boolean {
-    if (this.running.size === 0) return false;
+    const hadWork = this.running.size > 0 || this.startingBySession.size > 0;
+    for (const starting of this.startingBySession.values()) {
+      starting.cancelled = true;
+      starting.queue.length = 0;
+    }
+    if (!hadWork) return false;
     for (const turn of [...this.running]) this.cancelTurn(turn, reason);
     return true;
   }
@@ -239,6 +246,11 @@ export class TurnCoordinator {
       clearTimeout(turn.timeoutHandle);
       turn.abortController.abort();
     }
+    for (const starting of this.startingBySession.values()) {
+      starting.cancelled = true;
+      starting.queue.length = 0;
+    }
+    this.startingBySession.clear();
     this.running.clear();
     this.bySession.clear();
     this.pendingApprovals.clear();

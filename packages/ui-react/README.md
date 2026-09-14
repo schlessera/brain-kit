@@ -135,3 +135,10 @@ runtime plugin loading).
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.
+
+### Quick capture recovery
+
+The Add panel shows the saved path and whether indexing completed. If indexing
+failed, it keeps the saved confirmation visible and offers **Retry indexing**.
+That action updates the index without creating or appending the note again.
+Older servers that omit the indexing outcome are shown as unconfirmed.

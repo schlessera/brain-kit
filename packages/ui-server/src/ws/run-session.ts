@@ -37,6 +37,8 @@ export async function runSession(
   }
 ): Promise<void> {
   const { coordinator } = host;
+  const starting = { queue: [] as QueuedFollowUp[], cancelled: false };
+  if (initial.sessionId) coordinator.startingBySession.set(initial.sessionId, starting);
   coordinator.startingSessions += 1;
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
   try {
@@ -55,7 +57,12 @@ export async function runSession(
     return;
   } finally {
     coordinator.startingSessions = Math.max(0, coordinator.startingSessions - 1);
+    if (initial.sessionId && coordinator.startingBySession.get(initial.sessionId) === starting) {
+      coordinator.startingBySession.delete(initial.sessionId);
+    }
   }
+
+  if (starting.cancelled) return;
 
   const { backend, profileId: initialProfileId } = target;
   if (target.droppedPin) {
@@ -80,7 +87,7 @@ export async function runSession(
     backend,
     abortController: new AbortController(),
     timeoutHandle: setTimeout(() => {}, 0),
-    queue: [],
+    queue: starting.queue,
     cancelled: false,
     lastResult: null,
   };
@@ -200,7 +207,9 @@ export async function runSession(
       }
     }
   } finally {
-    if (turn.sessionId) coordinator.bySession.delete(turn.sessionId);
+    if (turn.sessionId && coordinator.bySession.get(turn.sessionId) === turn) {
+      coordinator.bySession.delete(turn.sessionId);
+    }
     coordinator.running.delete(turn);
     coordinator.drainPendingForTurn(turn, "Session ended");
   }
@@ -241,6 +250,60 @@ function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Apply the same queue budgets during routing and during a running turn. */
+function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp): void {
+  const parked = queuedBytes(slot);
+  const incoming = queuedFollowUpBytes(entry);
+  // A single message can never exceed the budget on its own: the frame cap
+  // is 12 MB and a message's attachments are capped well below that, so an
+  // empty queue always has room and this cannot wedge.
+  const overBudget = parked + incoming > QUEUE_MAX_BYTES;
+  const overDepth = slot.queue.length >= MAX_SESSION_QUEUE;
+
+  if (overBudget || overDepth) {
+    host.sendMessage(
+      ws,
+      // Session-scoped only: the rejected message would have become a
+      // FUTURE turn in this slot, not the one currently running.
+      withSessionId(
+        {
+          type: "error",
+          code: "SESSION_QUEUE_FULL",
+          message: overBudget
+            ? `This session's queue is full (${formatMb(parked)} of ${formatMb(QUEUE_MAX_BYTES)}; this message needs ${formatMb(incoming)}). Wait for it to catch up.`
+            : `This session's queue is full (${MAX_SESSION_QUEUE} messages). Wait for it to catch up.`,
+        },
+        sessionId
+      )
+    );
+    return;
+  }
+
+  // Queue it as the session's next turn; report queued immediately.
+  slot.queue.push(entry);
+  const total = parked + incoming;
+  // Accepted, but heavy enough that the sender should know before they hit
+  // the wall — every queued byte is held in this process until its turn runs.
+  const detail =
+    total >= QUEUE_WARN_BYTES
+      ? `Queue is holding ${formatMb(total)} across ${slot.queue.length} messages (limit ${formatMb(QUEUE_MAX_BYTES)}).`
+      : undefined;
+  if (detail) {
+    host.log.emit({
+      severityText: "WARN",
+      body: "session follow-up queue is heavy",
+      attributes: {
+        "session.id": sessionId,
+        size: formatMb(total),
+        queued: slot.queue.length,
+      },
+    });
+  }
+  host.sendToClients(
+    withSessionId({ type: "status", status: "queued", ...(detail ? { detail } : {}) }, sessionId)
+  );
+}
+
 /** Dispatch a chat_message: follow-up to a running session, or a new session. */
 export async function handleChatMessage(
   host: WsHost,
@@ -258,10 +321,21 @@ export async function handleChatMessage(
   const { coordinator } = host;
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
+  const starting = sessionId ? coordinator.startingBySession.get(sessionId) : undefined;
+  if (starting && sessionId) {
+    if (starting.cancelled) {
+      host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, message: "This session is cancelling. Wait before sending again." });
+    } else {
+      queueFollowUp(host, ws, sessionId, starting, { text, attachments, ...(client ? { client } : {}) });
+    }
+    return;
+  }
+
   if (runningTurn && sessionId) {
     const backend = runningTurn.backend;
-    // Message to a session whose turn is running = a follow-up.
-    if (backend.capabilities.followUp && backend.followUp) {
+    // Drain older messages queued during routing before allowing native
+    // injection to overtake them.
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.queue.length === 0) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
@@ -273,57 +347,7 @@ export async function handleChatMessage(
         );
       });
     } else {
-      const entry: QueuedFollowUp = { text, attachments, ...(client ? { client } : {}) };
-      const parked = queuedBytes(runningTurn);
-      const incoming = queuedFollowUpBytes(entry);
-      // A single message can never exceed the budget on its own: the frame cap
-      // is 12 MB and a message's attachments are capped well below that, so an
-      // empty queue always has room and this cannot wedge.
-      const overBudget = parked + incoming > QUEUE_MAX_BYTES;
-      const overDepth = runningTurn.queue.length >= MAX_SESSION_QUEUE;
-
-      if (overBudget || overDepth) {
-        host.sendMessage(
-          ws,
-          // Session-scoped only: the rejected message would have become a
-          // FUTURE turn in this slot, not the one currently running.
-          withSessionId(
-            {
-              type: "error",
-              code: "SESSION_QUEUE_FULL",
-              message: overBudget
-                ? `This session's queue is full (${formatMb(parked)} of ${formatMb(QUEUE_MAX_BYTES)}; this message needs ${formatMb(incoming)}). Wait for it to catch up.`
-                : `This session's queue is full (${MAX_SESSION_QUEUE} messages). Wait for it to catch up.`,
-            },
-            sessionId
-          )
-        );
-        return;
-      }
-
-      // Queue it as the session's next turn; report queued immediately.
-      runningTurn.queue.push(entry);
-      const total = parked + incoming;
-      // Accepted, but heavy enough that the sender should know before they hit
-      // the wall — every queued byte is held in this process until its turn runs.
-      const detail =
-        total >= QUEUE_WARN_BYTES
-          ? `Queue is holding ${formatMb(total)} across ${runningTurn.queue.length} messages (limit ${formatMb(QUEUE_MAX_BYTES)}).`
-          : undefined;
-      if (detail) {
-        host.log.emit({
-          severityText: "WARN",
-          body: "session follow-up queue is heavy",
-          attributes: {
-            "session.id": sessionId,
-            size: formatMb(total),
-            queued: runningTurn.queue.length,
-          },
-        });
-      }
-      host.sendToClients(
-        withSessionId({ type: "status", status: "queued", ...(detail ? { detail } : {}) }, sessionId)
-      );
+      queueFollowUp(host, ws, sessionId, runningTurn, { text, attachments, ...(client ? { client } : {}) });
     }
     return;
   }

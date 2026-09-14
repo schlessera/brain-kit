@@ -41,6 +41,7 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { useConnectionStore } from "../../src/stores/connection-store.js";
 import { useProviderStore } from "../../src/stores/provider-store.js";
@@ -262,7 +263,7 @@ describe("SearchPanel query ownership", () => {
   });
 });
 
-function changeControlledInput(input: HTMLInputElement, value: string): void {
+function changeControlledInput(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   // happy-dom's input value tracker does not drive React's synthetic onChange
   // in this shared-process harness. Invoke the mounted element's current prop
   // so the component still owns the state transition and effects under test.
@@ -1774,4 +1775,34 @@ describe("ZoomViewer", () => {
     fireEvent.click(getByTitle("Close"));
     expect(closed).toBe(1);
   });
+});
+
+
+test("capture recovery preserves the saved note and retries indexing without resubmitting", async () => {
+  const calls: string[] = [];
+  let retries = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/brain/stats")) return Response.json({ byType: {} });
+    calls.push(url);
+    if (url.endsWith("/brain/add")) return Response.json({ success: true, path: "notes/topic.md", indexed: false, indexError: "database is locked" });
+    if (url.endsWith("/brain/index")) {
+      retries++;
+      return retries === 1 ? Response.json({ error: "still locked" }, { status: 500 }) : Response.json({ success: true });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+  const view = render(<AddPanel open onClose={() => {}} />);
+  changeControlledInput(view.getByPlaceholderText("What do you want to remember?") as HTMLTextAreaElement, "Topic");
+  await act(async () => { fireEvent.click(view.getByRole("button", { name: /^Add$/ })); });
+  expect(view.getByText(/Saved, but not indexed/)).toBeTruthy();
+  expect(view.getByText("notes/topic.md")).toBeTruthy();
+  // The old keyboard shortcut could submit the already-saved note again.
+  await act(async () => { fireEvent.keyDown(view.getByText("Added to your brain."), { key: "Enter", ctrlKey: true }); });
+  await act(async () => { fireEvent.click(view.getByRole("button", { name: "Retry indexing" })); });
+  expect(view.getByText("still locked")).toBeTruthy();
+  await act(async () => { fireEvent.click(view.getByRole("button", { name: "Retry indexing" })); });
+  expect(view.getByText(/Saved and indexed/)).toBeTruthy();
+  expect(calls.filter(url => url.endsWith("/brain/add"))).toHaveLength(1);
+  expect(calls.filter(url => url.endsWith("/brain/index"))).toHaveLength(2);
 });

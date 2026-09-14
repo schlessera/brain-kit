@@ -248,3 +248,19 @@ don't depend on network access; set the var explicitly to opt in.
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.
+
+### Capture recovery and concurrent requests
+
+`POST /api/brain/add` preserves the CLI capture outcome alongside `success`:
+`action`, `path`, `title`, `type`, `indexed`, and optional `indexError`.
+A saved file with `indexed: false` is a partial success; retry indexing with
+`POST /api/brain/index` (JSON media type) instead of submitting the content
+again. Concurrent index retries share one run.
+
+WebSocket session starts reserve their session id before backend routing.
+Messages received during routing join the bounded follow-up queue; cancellation
+before routing completes drops that queue and prevents the backend from starting.
+New-conversation frames retain the client's `draftId` for reply correlation.
+
+Wikilink scans visit each canonical directory once, including when directories
+have symlink aliases or cycles. Concurrent refresh requests share a rebuild.

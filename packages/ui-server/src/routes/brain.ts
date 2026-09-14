@@ -39,6 +39,7 @@ function findWhatsupScript(brainPath: string): string | null {
 
 export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
   const { brain, brainPath, keyterms } = deps;
+  let indexing: Promise<void> | null = null;
 
   return new Hono()
   .get("/brain/search", async (c) => {
@@ -291,6 +292,18 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     });
   })
 
+  // Recovery after a successful capture whose indexing failed. Coalesce
+  // concurrent retries and never submit the captured content a second time.
+  .post("/brain/index", requireJson(), async (c) => {
+    try {
+      if (!indexing) indexing = brain.index().finally(() => { indexing = null; });
+      await indexing;
+      return c.json({ success: true });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Indexing failed" }, 500);
+    }
+  })
+
   .post("/brain/add", requireJson(), async (c) => {
     const result = await readJsonBody<{
       content: string;
@@ -304,12 +317,12 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
       return c.json({ error: "Field 'content' is required" }, 400);
     }
     try {
-      await brain.add(body.content, {
+      const outcome = await brain.add(body.content, {
         type: body.type,
         title: body.title,
         tags: body.tags,
       });
-      return c.json({ success: true });
+      return c.json({ success: true, ...outcome });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Add failed" },

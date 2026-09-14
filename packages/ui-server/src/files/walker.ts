@@ -383,12 +383,16 @@ export async function resolveForRaw(rel: string, root: string): Promise<{ abs: s
  */
 export async function buildWikilinkMap(root: string): Promise<Record<string, string>> {
   const matcher = await loadIgnore(root);
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
+  const visited = new Set<string>();
 
   async function walk(rel: string): Promise<void> {
     const abs = await safeResolve(rel, root);
     let dirents;
     try {
+      const canonical = await realpath(abs);
+      if (visited.has(canonical)) return;
+      visited.add(canonical);
       dirents = await readdir(abs, { withFileTypes: true });
     } catch {
       return;

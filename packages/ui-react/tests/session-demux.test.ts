@@ -10,6 +10,7 @@ function reset() {
   useChatStore.setState({
     buffers: {},
     draft: null,
+    pendingDraftId: null,
     activeSessionId: null,
     runStates: {},
   });
@@ -28,6 +29,19 @@ describe("runStateForFrame", () => {
 
 describe("session demux (handleServerMessage)", () => {
   beforeEach(reset);
+
+  test("a pending draft binds only to its own announcement, never another session's result", () => {
+    const store = useChatStore.getState();
+    const draftId = store.startDraftTurn();
+    store.addUserMessage(null, "My new topic");
+    handleServerMessage({ type: "session_info", sessionId: "other", isNew: true, draftId: "foreign-draft" });
+    handleServerMessage({ type: "result", sessionId: "other", costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
+    expect(useChatStore.getState().pendingDraftId).toBe(draftId);
+    expect(useChatStore.getState().buffers.other).toBeUndefined();
+    handleServerMessage({ type: "session_info", sessionId: "mine", isNew: true, draftId });
+    expect(useChatStore.getState().buffers.mine.messages.some(message => message.content === "My new topic")).toBe(true);
+    expect(useChatStore.getState().pendingDraftId).toBeNull();
+  });
 
   test("a background session's deltas accumulate in its own buffer, not the active transcript", () => {
     const store = useChatStore.getState();

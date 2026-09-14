@@ -242,10 +242,14 @@ export const api = {
     }),
 
   brainAdd: (content: string, opts?: { type?: string; title?: string; tags?: string[] }) =>
-    fetchJson<{ success: boolean }>("/brain/add", {
+    fetchJson<{ success: boolean; path?: string; indexed?: boolean; indexError?: string }>("/brain/add", {
       method: "POST",
       body: JSON.stringify({ content, ...opts }),
     }),
+
+  brainIndex: () => fetchJson<{ success: boolean }>("/brain/index", {
+    method: "POST", body: "{}",
+  }),
 
   sessions: () =>
     fetchJson<{

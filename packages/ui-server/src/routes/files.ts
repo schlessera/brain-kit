@@ -29,6 +29,7 @@ function errorResponse(err: unknown, log?: Logger): { body: { error: string; siz
 
 export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
   const { brainRoot, log } = deps;
+  let wikilinkBuild: Promise<void> | null = null;
   let wikilinkCache: { generatedAt: number; map: Record<string, string> } | null = null;
   return new Hono()
   .get("/files/tree", async (c) => {
@@ -87,13 +88,17 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
     const now = Date.now();
     try {
       if (refresh || !wikilinkCache || now - wikilinkCache.generatedAt > WIKILINK_TTL_MS) {
-        const map = await buildWikilinkMap(brainRoot);
-        wikilinkCache = { generatedAt: now, map };
+        if (!wikilinkBuild) {
+          wikilinkBuild = buildWikilinkMap(brainRoot).then((map) => {
+            wikilinkCache = { generatedAt: Date.now(), map };
+          }).finally(() => { wikilinkBuild = null; });
+        }
+        await wikilinkBuild;
       }
       return c.json({
-        generatedAt: wikilinkCache.generatedAt,
-        count: Object.keys(wikilinkCache.map).length,
-        slugs: wikilinkCache.map,
+        generatedAt: wikilinkCache!.generatedAt,
+        count: Object.keys(wikilinkCache!.map).length,
+        slugs: wikilinkCache!.map,
       });
     } catch (err) {
       const { body, status } = errorResponse(err, log);
