@@ -88,10 +88,11 @@ function setTimes(
 describe("principal store", () => {
   test("kind is derived from auth method and a principal round-trips as usable", () => {
     const ttlSeconds = 3_600;
+    const creator = create({ label: "Owner browser" });
     const principal = create({
       authMethod: "delegated",
       label: "Build agent",
-      createdBy: "owner-1",
+      createdBy: creator.id,
       ttlSeconds,
     });
 
@@ -107,7 +108,7 @@ describe("principal store", () => {
     expect(resolved!.authMethod).toBe("delegated");
     expect(resolved!.label).toBe("Build agent");
     expect(resolved!.credentialId).toBeNull();
-    expect(resolved!.createdBy).toBe("owner-1");
+    expect(resolved!.createdBy).toBe(creator.id);
     expect(resolved!.lastSeenAt).toBeNull();
     expect(resolved!.revokedAt).toBeNull();
     expect(resolved!.expiresAt - resolved!.createdAt).toBe(ttlSeconds * 1_000);

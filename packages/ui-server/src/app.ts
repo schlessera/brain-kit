@@ -35,6 +35,7 @@ import {
   assertPasskeyConfig,
   type PasskeyContext,
 } from "./middleware/passkeys.js";
+import { principalManagementRoutes } from "./middleware/principals.js";
 import { createUiDb } from "./db/client.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
@@ -365,6 +366,16 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
   app.route("/api", passkeyManagementRoutes(authMode, passkeyCtx));
+  // Principal management: also after the guard. Its router adds the narrower
+  // owner-only check after authentication has resolved the caller principal.
+  app.route(
+    "/api",
+    principalManagementRoutes(authMode, auth, {
+      db,
+      clients: host,
+      log: authLog,
+    })
+  );
   app.route(
     "/api",
     createStatusRoutes({

@@ -84,6 +84,71 @@ describe("app wiring — auth guard ordering", () => {
     expect(res.status).toBe(401);
   });
 
+  test("principal management routes are mounted behind the auth guard", async () => {
+    const instance = app();
+    try {
+      expect(
+        (
+          await instance.fetch(
+            new Request("http://localhost/api/auth/principals")
+          )
+        ).status
+      ).toBe(401);
+
+      const login = await instance.fetch(
+        new Request("http://localhost/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: PASSWORD }),
+        })
+      );
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get("set-cookie")!.split(";")[0];
+
+      const list = await instance.fetch(
+        new Request("http://localhost/api/auth/principals", {
+          headers: { cookie },
+        })
+      );
+      expect(list.status).toBe(200);
+      const listed = (await list.json()) as {
+        principals: Array<{ id: string; kind: string; is_own: boolean }>;
+      };
+      expect(
+        listed.principals.some(
+          ({ kind, is_own }) => kind === "owner" && is_own
+        )
+      ).toBe(true);
+
+      const mint = await instance.fetch(
+        new Request("http://localhost/api/auth/principals", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ label: "Wiring agent" }),
+        })
+      );
+      expect(mint.status).toBe(200);
+      const minted = (await mint.json()) as {
+        id: string;
+        label: string;
+        cookie: string;
+      };
+      expect(minted.label).toBe("Wiring agent");
+      expect(minted.cookie).toBeString();
+
+      const deleted = await instance.fetch(
+        new Request(`http://localhost/api/auth/principals/${minted.id}`, {
+          method: "DELETE",
+          headers: { cookie },
+        })
+      );
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ ok: true });
+    } finally {
+      instance.close();
+    }
+  });
+
   test("the activity routes are behind the auth guard", async () => {
     // The activity record leaks strictly more than /api/status (session
     // activity, errors, spend) — same boundary, same reason.

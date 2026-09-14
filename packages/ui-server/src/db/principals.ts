@@ -59,6 +59,13 @@ export class PrincipalCredentialNotFoundError extends Error {
   }
 }
 
+export class PrincipalCreatorNotUsableError extends Error {
+  constructor(createdBy: string | undefined) {
+    super(`principal creator ${createdBy ?? "(missing)"} is not a usable owner`);
+    this.name = "PrincipalCreatorNotUsableError";
+  }
+}
+
 interface PrincipalDbRow {
   id: string;
   kind: PrincipalKind;
@@ -154,10 +161,25 @@ function kindFromAuthMethod(
 
 export function createPrincipal(db: Database, input: CreatePrincipalInput): Principal {
   validateLabel(input.label);
-  const now = Date.now();
-  const expiresAt = expiryFromTtl(now, input.ttlSeconds);
 
   return db.transaction(() => {
+    const now = Date.now();
+    const expiresAt = expiryFromTtl(now, input.ttlSeconds);
+    if (input.authMethod === "delegated") {
+      // Request authentication may precede an awaited body read. Re-check the
+      // creator only after taking the write lock, in the transaction that
+      // inserts the delegated row, so revocation cannot race this authority.
+      const creator = input.createdBy
+        ? resolvePrincipal(db, input.createdBy)
+        : null;
+      if (
+        !creator ||
+        creator.kind !== "owner" ||
+        !isUsablePrincipal(creator, now)
+      ) {
+        throw new PrincipalCreatorNotUsableError(input.createdBy);
+      }
+    }
     if (
       input.credentialId !== undefined &&
       !db.prepare("SELECT 1 FROM passkey_credentials WHERE id = ?").get(input.credentialId)
@@ -290,6 +312,20 @@ export function resolvePrincipal(db: Database, id: string): Principal | null {
     .prepare(`SELECT ${PRINCIPAL_COLUMNS} FROM principals WHERE id = ?`)
     .get(id) as PrincipalDbRow | null;
   return row ? rowToPrincipal(row) : null;
+}
+
+/** List currently usable cookie-bearing principals, newest first. */
+export function listLivePrincipals(db: Database, now: number): Principal[] {
+  return (
+    db
+      .prepare(
+        `SELECT ${PRINCIPAL_COLUMNS} FROM principals
+         WHERE kind IN ('owner', 'agent')
+           AND revoked_at IS NULL AND expires_at > ?
+         ORDER BY created_at DESC, id ASC`
+      )
+      .all(now) as PrincipalDbRow[]
+  ).map(rowToPrincipal);
 }
 
 export function isUsablePrincipal(row: Principal, now: number): boolean {
