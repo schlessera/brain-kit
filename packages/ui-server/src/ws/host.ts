@@ -7,11 +7,15 @@ import { createSilentObservability, type Observability } from "../observability/
 import { FrameRateLimiter } from "./rate-limit.js";
 import type { ActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
+import type { PushSender } from "../activity/push-sender.js";
+import type { Principal } from "../db/principals.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
   store: ActivityStore;
   stream: ActivityStream;
+  /** Push bindings invalidated through the same principal-revocation boundary. */
+  pushSender?: Pick<PushSender, "unbindPrincipal">;
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
 }
@@ -21,6 +25,9 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Default cap on concurrently RUNNING sessions (MAX_CONCURRENT_SESSIONS). */
 const DEFAULT_MAX_CONCURRENT_SESSIONS = 3;
+const AUTHORIZATION_EXPIRY_SWEEP_MS = 1_000;
+const SESSION_EXPIRED_CLOSE_CODE = 1008;
+const SESSION_EXPIRED_CLOSE_REASON = "Session expired";
 
 /**
  * Budget for the host-side follow-up queue of ONE session (backends without a
@@ -78,6 +85,13 @@ export interface WsHostOptions {
   /** Maximum WebSocket connections accepted by this host (default 32). */
   wsMaxConnections?: number;
   /**
+   * Final synchronous check before a resolved principal becomes discoverable
+   * to in-memory revocation. Production re-reads the principal row here; a
+   * host without durable authentication (including focused tests) accepts the
+   * already-resolved principal.
+   */
+  isPrincipalValid?: (principal: Principal) => boolean;
+  /**
    * Activity recording (span store + live stream). Optional: a host without
    * one records nothing and never sends activity frames — which is also what
    * most existing tests want.
@@ -134,6 +148,7 @@ export class WsHost {
   maxConcurrentSessions: () => number;
   readonly observability: Observability;
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
+  readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
   readonly toolPermissions: ToolPermissions | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
@@ -156,9 +171,12 @@ export class WsHost {
   private readonly connectionsRefused: ReturnType<
     ReturnType<Observability["meter"]>["createCounter"]
   >;
+  private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
-    this.clients = new ClientSet(options.wsMaxConnections);
+    this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
+      this.coordinator.invalidateAuthorizations(principalIds);
+    });
     this.registry = options.registry;
     this.catalog = options.catalog;
     this.appName = options.appName ?? "Brain UI";
@@ -168,6 +186,7 @@ export class WsHost {
     this.observability = options.observability ?? createSilentObservability();
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
+    this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     this.log = this.observability.logger("ws");
@@ -191,6 +210,11 @@ export class WsHost {
       description: "WebSocket connections refused before admission",
     });
     this.coordinator.log = this.log;
+    this.authorizationExpiryTimer = setInterval(
+      () => this.expireAuthorizationContexts(),
+      AUTHORIZATION_EXPIRY_SWEEP_MS
+    );
+    this.authorizationExpiryTimer.unref?.();
   }
 
   /** A metering bucket for one new connection, or null when metering is off. */
@@ -298,6 +322,40 @@ export class WsHost {
         direction: "outbound",
       });
     });
+  }
+
+  /**
+   * Apply principal-store revocation to every in-memory authority boundary.
+   * Running turns are marked but deliberately not aborted.
+   */
+  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
+    const revoked = new Set(principalIds);
+    if (revoked.size === 0) return;
+    const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    for (const principalId of revoked) {
+      this.clients.closeFor(principalId, code, reason);
+      this.activity?.stream.dropFor(principalId);
+      this.activity?.pushSender?.unbindPrincipal(principalId);
+    }
+    for (const turn of affectedRunning) {
+      turn.recorder?.recordPrincipalRevocation(turn.principalId);
+    }
+  }
+
+  /** Route expiry through the same full boundary as explicit revocation. */
+  expireAuthorizationContexts(now = Date.now()): void {
+    const expired = new Set<string>();
+    this.coordinator.collectExpiredPrincipalIds(now, expired);
+    this.revokePrincipals(
+      [...expired],
+      SESSION_EXPIRED_CLOSE_CODE,
+      SESSION_EXPIRED_CLOSE_REASON
+    );
+  }
+
+  /** Stop host-owned timers during application/test teardown. */
+  close(): void {
+    clearInterval(this.authorizationExpiryTimer);
   }
 
   /** Send a frame to one specific socket (size-bounded). */

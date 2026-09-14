@@ -22,9 +22,11 @@ import { MarkdownContent } from "./markdown-content.js";
 import { isInternalRepoPath } from "../../stores/file-store.js";
 import { GET_LOCATION_TOOL_NAME, normalizeToolName } from "../../lib/tool-names.js";
 import { computeDiffRows, type WordToken } from "../../lib/diff.js";
+import { formatRelativeTime } from "../../lib/format-time.js";
 
 // Re-exported so existing imports of the diff engine from this module keep working.
 export { computeDiffRows };
+export { formatRelativeTime };
 
 // ============================================================
 // Shared helpers
@@ -82,19 +84,6 @@ export function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
   return String(n);
-}
-
-/** Relative timestamp for list rows ("3m ago"); dates beyond a week. */
-export function formatRelativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(ms).toLocaleDateString();
 }
 
 export function countLines(text: string): number {

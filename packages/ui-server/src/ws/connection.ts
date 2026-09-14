@@ -1,8 +1,11 @@
 import { upgradeWebSocket, websocket } from "hono/bun";
+import type { MiddlewareHandler } from "hono";
 import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import type { WSContext as WSContextType } from "./clients.js";
+import type { Principal } from "../db/principals.js";
+import type { AppEnv } from "../app-env.js";
 
 /**
  * Re-send every pending approval and ask-user card to a client that just
@@ -51,6 +54,8 @@ export { websocket };
 
 const CONNECTION_LIMIT_CLOSE_CODE = 4008;
 const CONNECTION_LIMIT_CLOSE_REASON = "Connection limit reached";
+const REVOKED_BEFORE_ADMISSION_CLOSE_CODE = 1008;
+const REVOKED_BEFORE_ADMISSION_CLOSE_REASON = "Sessions invalidated";
 
 /**
  * The socket lifecycle handlers for one host, separate from the Hono upgrade
@@ -61,17 +66,35 @@ const CONNECTION_LIMIT_CLOSE_REASON = "Connection limit reached";
  * production runs, which is what makes an assertion about a dropped frame an
  * assertion about the shipped code rather than about a re-implementation.
  */
-export function createWsHandlers(host: WsHost) {
+export function createWsHandlers(host: WsHost, principal: Principal) {
   // One bucket per connection, created here so it lives and dies with the
   // socket rather than in a map keyed by something a peer controls.
   const limiter = host.newRateLimiter();
+  // Authentication can await before it reaches this handler. Re-read durable
+  // validity as the coordinator constructs and synchronously registers the
+  // context, so there is no unregistered authorization state to lose.
+  const authorization = host.coordinator.openAuthorization({
+    principalId: principal.id,
+    expiresAt: principal.expiresAt,
+    valid: host.isPrincipalValid(principal),
+  });
   // Per-connection negotiation state: what revision this client declared.
   // Lives with the socket, like the limiter.
-  const connection: ConnectionState = {};
-
+  const connection: ConnectionState = {
+    principal,
+    authorization,
+  };
   return {
     async onOpen(_evt: Event, ws: WSContext) {
-      if (!host.clients.add(ws)) {
+      if (!connection.authorization.valid) {
+        connection.authorization.release();
+        ws.close!(REVOKED_BEFORE_ADMISSION_CLOSE_CODE, REVOKED_BEFORE_ADMISSION_CLOSE_REASON);
+        return;
+      }
+      if (
+        !host.clients.add(ws, principal.id, { onRemove: connection.authorization.release })
+      ) {
+        connection.authorization.release();
         host.reportRefusedConnection();
         // Hono's WSContext always exposes close(); the local structural socket
         // type keeps it optional because send-only test/dispatch fakes never
@@ -121,12 +144,17 @@ export function createWsHandlers(host: WsHost) {
             turn
           )
         );
+        // Snapshot-on-connect owns a lease separate from the socket: a close
+        // while history loads must not make this work invisible to revocation.
+        const releaseAuthorization = connection.authorization.retain();
         try {
           const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
           );
           const history = await backend.getHistory(sid);
-          if (history.length > 0) sendSessionHistory(ws, sid, history);
+          if (connection.authorization.valid && history.length > 0) {
+            sendSessionHistory(ws, sid, history);
+          }
         } catch (err) {
           host.log.emit({
             severityText: "ERROR",
@@ -134,19 +162,22 @@ export function createWsHandlers(host: WsHost) {
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
         } finally {
-          host.sendMessage(
-            ws,
-            withTurnScope(
-              {
-                type: "status",
-                status: "thinking",
-                detail: "Session in progress",
-                sessionId: sid,
-              },
-              turn
-            )
-          );
-          resendPendingInteractive(host, ws);
+          releaseAuthorization();
+          if (connection.authorization.valid) {
+            host.sendMessage(
+              ws,
+              withTurnScope(
+                {
+                  type: "status",
+                  status: "thinking",
+                  detail: "Session in progress",
+                  sessionId: sid,
+                },
+                turn
+              )
+            );
+            resendPendingInteractive(host, ws);
+          }
         }
         return;
       }
@@ -160,6 +191,16 @@ export function createWsHandlers(host: WsHost) {
     },
 
     onMessage(evt: MessageEvent, ws: WSContext) {
+      if (
+        connection.authorization.valid &&
+        connection.authorization.expiresAt <= Date.now()
+      ) {
+        host.expireAuthorizationContexts();
+      }
+      if (!connection.authorization.valid) {
+        host.reportDroppedFrame("revoked_principal");
+        return;
+      }
       // Boundary validation (rev 2): byte cap + JSON decode + schema, in one
       // place. No more casting client JSON to ClientMessage.
       //
@@ -197,6 +238,12 @@ export function createWsHandlers(host: WsHost) {
         host.sendMessage(ws, { type: "error", code: "PARSE_ERROR", message: parsed.error });
         return;
       }
+      // Parsing is synchronous, but dispatch deliberately starts on a
+      // microtask. Keep this shared authority discoverable across that gap —
+      // including after an ordinary disconnect removes the admitted client.
+      // runSession adds its own reference before this one is released, so a
+      // chat startup remains continuously revocable through routing/billing.
+      const releaseAuthorization = connection.authorization.retain();
       // handleClientMessage is async — a rejection must not escape as an
       // unhandled rejection with no frame sent.
       void Promise.resolve()
@@ -217,10 +264,19 @@ export function createWsHandlers(host: WsHost) {
             code: "INTERNAL_ERROR",
             message: "Failed to handle message",
           });
+        })
+        .finally(() => {
+          releaseAuthorization();
         });
     },
 
     onClose(evt: CloseEvent, ws: WSContext) {
+      // Closure is not authorization: a frame parsed before this callback can
+      // still be mid-dispatch, and an activity_subscribe landing after the
+      // cleanup below would re-register the dead socket and keep the activity
+      // poller awake. Authorization stays whatever it is; this says the
+      // transport is gone.
+      connection.closed = true;
       host.log.emit({ severityText: "INFO", body: "client disconnected" });
       // No onError here on purpose: hono's Bun adapter never dispatches it
       // (only open/message/close reach these handlers), so a transport failure
@@ -232,6 +288,7 @@ export function createWsHandlers(host: WsHost) {
         host.reportAbnormalClose(code);
       }
       host.clients.remove(ws);
+      connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
@@ -244,10 +301,31 @@ export function createWsHandlers(host: WsHost) {
         host.coordinator.drainClientBoundForTurn(turn, "Client disconnected");
       }
     },
+
+    /** The HTTP upgrade failed, so no socket lifecycle callback will clean up. */
+    onUpgradeFailed() {
+      connection.authorization.release();
+    },
   };
 }
 
 /** Build the Hono WebSocket upgrade handler bound to one host. */
-export function createWsUpgrade(host: WsHost) {
-  return upgradeWebSocket(() => createWsHandlers(host));
+export function createWsUpgrade(host: WsHost): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const principal = c.get("principal");
+    if (!principal) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+    const handlers = createWsHandlers(host, principal);
+    const upgrade = upgradeWebSocket(() => handlers);
+    try {
+      return await upgrade(c, async () => {
+        handlers.onUpgradeFailed();
+        await next();
+      });
+    } catch (err) {
+      handlers.onUpgradeFailed();
+      throw err;
+    }
+  };
 }

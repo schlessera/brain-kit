@@ -38,6 +38,7 @@ import {
   resolveStandalonePricingConfig,
 } from "../config/env.js";
 import { createModelPricing, type PricingRates } from "../pricing/model-pricing.js";
+import type { PrincipalKind } from "../db/principals.js";
 import { ACTIVITY_SQL } from "./sql.js";
 
 export const SPAN_OUTCOMES = [
@@ -52,6 +53,12 @@ export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
 
 export type SpanKind = "turn" | "tool" | "subagent" | "cron";
 export type SpanOrigin = "session" | "cron";
+
+function isPrincipalKind(value: unknown): value is PrincipalKind {
+  return (
+    value === "owner" || value === "agent" || value === "ambient" || value === "system"
+  );
+}
 
 /** Token usage as spans carry it — OTel GenAI attribute semantics. */
 export interface SpanUsage {
@@ -72,6 +79,7 @@ export interface SpanRow {
   origin: SpanOrigin;
   sessionId: string | null;
   jobName: string | null;
+  principalId: string | null;
   attrs: Record<string, unknown>;
   startedAt: number;
   waitUntil: number | null;
@@ -99,6 +107,9 @@ export interface RunRollupRow {
   name: string;
   sessionId: string | null;
   jobName: string | null;
+  principalId: string | null;
+  principalLabel: string | null;
+  principalKind: PrincipalKind | null;
   startedAt: number;
   endedAt: number | null;
   outcome: SpanOutcome | null;
@@ -131,6 +142,9 @@ export function rowToRunRollup(r: any): RunRollupRow {
     name: r.name,
     sessionId: r.session_id,
     jobName: r.job_name,
+    principalId: r.principal_id ?? null,
+    principalLabel: r.principal_label ?? null,
+    principalKind: isPrincipalKind(r.principal_kind) ? r.principal_kind : null,
     startedAt: r.started_at,
     endedAt: r.ended_at,
     outcome: r.outcome,
@@ -183,6 +197,7 @@ export interface StartSpanInput {
   origin: SpanOrigin;
   sessionId?: string;
   jobName?: string;
+  principalId?: string;
   attrs?: Record<string, unknown>;
   startedAt?: number;
 }
@@ -237,7 +252,12 @@ export interface ActivityStore {
   /** Non-terminal field updates (usage enrichment, wait boundary, attrs). */
   patchSpan(
     spanId: string,
-    patch: { attrs?: Record<string, unknown>; usage?: SpanUsage; waitUntil?: number }
+    patch: {
+      principalId?: string;
+      attrs?: Record<string, unknown>;
+      usage?: SpanUsage;
+      waitUntil?: number;
+    }
   ): boolean;
   /**
    * Append one event; null (nothing written) for an unknown span. `cap`
@@ -347,6 +367,7 @@ export function createActivityStore(
       origin: r.origin,
       sessionId: r.session_id,
       jobName: r.job_name,
+      principalId: r.principal_id ?? null,
       attrs: safeParse(r.attrs) ?? {},
       startedAt: r.started_at,
       waitUntil: r.wait_until,
@@ -492,6 +513,11 @@ export function createActivityStore(
             ? (priced.estimate ? 1 : 0)
             : null;
     const costUsd = root.usage.costUsd ?? priced?.costUsd ?? null;
+    const principal = root.principalId
+      ? (db
+          .query("SELECT label, kind FROM principals WHERE id = ?")
+          .get(root.principalId) as { label: string; kind: PrincipalKind } | null)
+      : null;
 
     db.query(
       ACTIVITY_SQL.upsertRollup
@@ -511,6 +537,9 @@ export function createActivityStore(
       root.name,
       root.sessionId,
       root.jobName,
+      root.principalId,
+      principal?.label ?? null,
+      principal?.kind ?? null,
       root.startedAt,
       root.endedAt,
       root.outcome,
@@ -543,6 +572,7 @@ export function createActivityStore(
           input.origin,
           input.sessionId ?? null,
           input.jobName ?? null,
+          input.principalId ?? null,
           input.attrs ? JSON.stringify(input.attrs) : null,
           startedAt,
           writer,
@@ -568,6 +598,7 @@ export function createActivityStore(
           : existing.attrs;
         const u = patch.usage ?? {};
         db.query(ACTIVITY_SQL.patchSpan).run(
+          patch.principalId ?? null,
           attrs,
           patch.waitUntil ?? null,
           u.inputTokens ?? null,

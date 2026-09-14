@@ -11,12 +11,31 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/protocol";
+import type { TurnRecorder } from "../activity/recorder.js";
+
+const authorizationContextBrand: unique symbol = Symbol("AuthorizationContext");
+
+/** Mutable admission decision shared by every asynchronous path from one socket. */
+export interface AuthorizationContext {
+  readonly [authorizationContextBrand]: true;
+  readonly principalId: string;
+  readonly expiresAt: number;
+  valid: boolean;
+  /** Keep this context discoverable until the returned release is called. */
+  retain(): () => void;
+  /** Release the reference acquired when the coordinator opened this context. */
+  release(): void;
+}
 
 export interface QueuedFollowUp {
+  principalId: string;
+  authorization: AuthorizationContext;
   text: string;
   attachments: ChatImageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
+  /** Queue-owned authorization lease, transferred to the runner on dequeue. */
+  releaseAuthorization: () => void;
 }
 
 /**
@@ -30,7 +49,9 @@ export interface QueuedFollowUp {
  * on the wire.) The client snapshot is a handful of short fields and is not
  * worth walking.
  */
-export function queuedFollowUpBytes(entry: QueuedFollowUp): number {
+export function queuedFollowUpBytes(
+  entry: Pick<QueuedFollowUp, "text" | "attachments">
+): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
     bytes += attachment.data.length;
@@ -51,6 +72,16 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
  * same slot (same sessionId) after the current one resolves.
  */
 export interface RunningTurn {
+  /** Principal responsible for the CURRENT turn in this session slot. */
+  principalId: string;
+  authorization: AuthorizationContext;
+  /** Activity recorder for the CURRENT turn, once startup reaches the backend. */
+  recorder?: TurnRecorder;
+  /**
+   * Cancelling actors accepted before the recorder exists (while billing is
+   * resolving). Drained into immutable activity events at recorder creation.
+   */
+  pendingCancellationPrincipalIds: string[];
   sessionId: string | null; // null until session_info resolves it (new session)
   /** Host-minted id of the CURRENT turn in this slot; re-minted per queued follow-up. */
   turnId: string;
@@ -88,7 +119,10 @@ export interface PendingApproval {
    * locks; an approval must survive that and reappear, not silently die.
    */
   request: PermissionRequest;
-  resolve: (decision: PermissionDecision) => void;
+  resolve: (
+    decision: PermissionDecision,
+    response?: { principalId: string; always?: boolean }
+  ) => void;
 }
 
 export interface PendingAskUser {
@@ -140,6 +174,9 @@ export class TurnCoordinator {
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
 
+  /** Every authorization context with at least one live owner or async lease. */
+  readonly authorizationRegistry = new Map<AuthorizationContext, number>();
+
   private locationCounter = 0;
   private maskCounter = 0;
 
@@ -154,6 +191,81 @@ export class TurnCoordinator {
   /** True while any session has a running turn. */
   isTurnActive(): boolean {
     return this.running.size > 0;
+  }
+
+  /** Construct and synchronously register a context with its initial reference. */
+  openAuthorization(input: {
+    principalId: string;
+    expiresAt: number;
+    valid: boolean;
+  }): AuthorizationContext {
+    let initialReleased = false;
+    const releaseReference = () => {
+      const count = this.authorizationRegistry.get(authorization);
+      if (count === undefined) return;
+      if (count === 1) this.authorizationRegistry.delete(authorization);
+      else this.authorizationRegistry.set(authorization, count - 1);
+    };
+    const authorization: AuthorizationContext = {
+      [authorizationContextBrand]: true,
+      ...input,
+      retain: () => {
+        const count = this.authorizationRegistry.get(authorization);
+        if (count === undefined) {
+          throw new Error("Cannot retain a released authorization context");
+        }
+        this.authorizationRegistry.set(authorization, count + 1);
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          releaseReference();
+        };
+      },
+      release: () => {
+        if (initialReleased) return;
+        initialReleased = true;
+        releaseReference();
+      },
+    };
+    this.authorizationRegistry.set(authorization, 1);
+    return authorization;
+  }
+
+  /** Add principals whose registered authorization context has expired. */
+  collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
+    for (const authorization of this.authorizationRegistry.keys()) {
+      if (authorization.valid && authorization.expiresAt <= now) {
+        ids.add(authorization.principalId);
+      }
+    }
+  }
+
+  /** Invalidate every registered context belonging to one of these principals. */
+  invalidateAuthorizations(principalIds: ReadonlySet<string>): void {
+    for (const authorization of this.authorizationRegistry.keys()) {
+      if (principalIds.has(authorization.principalId)) authorization.valid = false;
+    }
+  }
+
+  /**
+   * Record revocation without aborting running work. Unstarted queued work is
+   * removed per sender, while a current turn merely carries the invalid marker.
+   */
+  revokePrincipals(principalIds: ReadonlySet<string>): RunningTurn[] {
+    const affectedRunning: RunningTurn[] = [];
+    this.invalidateAuthorizations(principalIds);
+    for (const turn of this.running) {
+      if (principalIds.has(turn.principalId)) {
+        affectedRunning.push(turn);
+      }
+      turn.queue = turn.queue.filter((entry) => {
+        if (!principalIds.has(entry.principalId)) return true;
+        entry.releaseAuthorization();
+        return false;
+      });
+    }
+    return affectedRunning;
   }
 
   /** Cancel every running turn (used on shutdown). */
@@ -171,10 +283,16 @@ export class TurnCoordinator {
   /** Cancel a session's current turn and drop its queued follow-ups. */
   cancelTurn(turn: RunningTurn, reason: string): void {
     turn.cancelled = true;
-    turn.queue.length = 0;
+    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     clearTimeout(turn.timeoutHandle);
     turn.abortController.abort();
     this.drainPendingForTurn(turn, reason);
+  }
+
+  /** Record now, or retain the actor across the pre-recorder startup window. */
+  recordCancellation(turn: RunningTurn, principalId: string): void {
+    if (turn.recorder) turn.recorder.recordCancellation(principalId);
+    else turn.pendingCancellationPrincipalIds.push(principalId);
   }
 
   /** Resolve/reject every pending interactive request belonging to one turn. */
@@ -245,6 +363,7 @@ export class TurnCoordinator {
     for (const turn of [...this.running]) {
       clearTimeout(turn.timeoutHandle);
       turn.abortController.abort();
+      for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     }
     for (const starting of this.startingBySession.values()) {
       starting.cancelled = true;

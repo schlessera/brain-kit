@@ -692,6 +692,7 @@ const activitySpanSchema = z.looseObject({
   origin: z.enum(["session", "cron"]),
   sessionId: id.optional(),
   jobName: z.string().optional(),
+  principalId: id.optional(),
   startedAt: z.number(),
   waitUntil: z.number().optional(),
   endedAt: z.number().optional(),

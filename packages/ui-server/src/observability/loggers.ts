@@ -54,7 +54,7 @@ export interface ConsoleLoggerProviderOptions {
 function formatLine(record: CapturedLog): string {
   const attrs = Object.entries(record.attributes)
     .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => `${k}=${String(v)}`);
+    .map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : String(v)}`);
   return `[${record.scope}] ${record.body}${attrs.length ? ` ${attrs.join(" ")}` : ""}`;
 }
 

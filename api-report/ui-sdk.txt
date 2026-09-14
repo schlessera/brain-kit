@@ -8,6 +8,7 @@ export "." (./src/index.ts)
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
+  type ActivityPrincipalKind
   type ActivityRollups
   type ActivityRunDetail
   type ActivityRunRollup
@@ -143,6 +144,7 @@ export "./client" (./src/client/index.ts)
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
+  type ActivityPrincipalKind
   type ActivityRollups
   type ActivityRunDetail
   type ActivityRunRollup
@@ -301,6 +303,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
+  type ActivityPrincipalKind
   type ActivityRollups
   type ActivityRunDetail
   type ActivityRunRollup
@@ -487,6 +490,7 @@ export "./server" (./src/server/index.ts)
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
+  type ActivityPrincipalKind
   type ActivityQuery
   type ActivityQueryResult
   type ActivityRollups

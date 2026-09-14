@@ -8,8 +8,23 @@ import { isTailscaleAllowed, clientIp } from "./tailscale.js";
 import type { AuthConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
-import { setSetting } from "../db/settings.js";
-import type { ClientSet } from "../ws/clients.js";
+import {
+  createPrincipal,
+  isCookieBearingPrincipal,
+  isUsablePrincipal,
+  PrincipalCredentialNotFoundError,
+  PrincipalLimitError,
+  prunePrincipals,
+  prunePrincipalsIfDue,
+  resolveAmbientPrincipal,
+  resolvePrincipal,
+  revokePrincipal,
+  revokeAllPrincipals,
+  touchLastSeen,
+  type Principal,
+} from "../db/principals.js";
+import type { AppEnv } from "../app-env.js";
+import type { WsHost } from "../ws/host.js";
 
 /**
  * Authentication for a remote surface to an agent with write access to the
@@ -44,10 +59,13 @@ export interface AuthRuntime extends AuthConfig {
 }
 
 const COOKIE_NAME = "brain_ui_session";
-const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
-const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
+export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+const LOGIN_LABEL_MAX_LENGTH = 64;
+const LOGIN_LABEL_FALLBACK = "Unknown device";
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
+
 export const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
 const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // A global cap in addition to the per-IP one: the per-IP key is derived from
@@ -172,11 +190,17 @@ export function authGuard(
   mode: AuthMode,
   auth: AuthRuntime,
   db: Database
-): MiddlewareHandler {
+): MiddlewareHandler<AppEnv> {
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
+        prunePrincipalsIfDue(db, Date.now());
         if (isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) {
+          const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
+          c.set(
+            "principal",
+            resolveAmbientPrincipal(db, "tailscale", ip, sanitizeAmbientLabel(ip))
+          );
           await next();
         } else {
           return c.json({ error: "VPN access required" }, 403);
@@ -184,7 +208,18 @@ export function authGuard(
       };
     case "proxy":
       return async (c, next) => {
-        if (hasProxyAuth(c, auth)) {
+        prunePrincipalsIfDue(db, Date.now());
+        const proxyIdentity = resolveProxyIdentity(c, auth);
+        if (proxyIdentity) {
+          c.set(
+            "principal",
+            resolveAmbientPrincipal(
+              db,
+              "proxy",
+              proxyIdentity.identity,
+              proxyIdentity.label
+            )
+          );
           await next();
         } else {
           return c.json(
@@ -195,7 +230,10 @@ export function authGuard(
       };
     case "password":
       return async (c, next) => {
-        if (await hasValidSession(c, auth, db)) {
+        prunePrincipalsIfDue(db, Date.now());
+        const principal = await resolveCookiePrincipal(c, auth, db);
+        if (principal) {
+          c.set("principal", principal);
           await next();
         } else {
           return c.json(
@@ -205,7 +243,17 @@ export function authGuard(
         }
       };
     case "none":
-      return async (_c, next) => {
+      return async (c, next) => {
+        prunePrincipalsIfDue(db, Date.now());
+        c.set(
+          "principal",
+          resolveAmbientPrincipal(
+            db,
+            "none",
+            "No authentication",
+            "No authentication"
+          )
+        );
         await next();
       };
   }
@@ -217,22 +265,47 @@ export function authGuard(
  * automatically same-origin) is the credential, and no header-modifying
  * middleware may sit on the WS route (immutable-header errors). Mirrors
  * {@link authGuard} without emitting a response.
+ *
+ * @returns The resolved principal for an authorized upgrade, otherwise null.
  */
 export async function isWsAuthorized(
-  c: Context,
+  c: Context<AppEnv>,
   mode: AuthMode,
   auth: AuthRuntime,
   db: Database
-): Promise<boolean> {
+): Promise<Principal | null> {
+  prunePrincipalsIfDue(db, Date.now());
   switch (mode) {
     case "none":
-      return true;
-    case "tailscale":
-      return isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops);
-    case "proxy":
-      return hasProxyAuth(c, auth);
+      return resolveAmbientPrincipal(
+        db,
+        "none",
+        "No authentication",
+        "No authentication"
+      );
+    case "tailscale": {
+      if (!isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) return null;
+      const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
+      return resolveAmbientPrincipal(
+        db,
+        "tailscale",
+        ip,
+        sanitizeAmbientLabel(ip)
+      );
+    }
+    case "proxy": {
+      const proxyIdentity = resolveProxyIdentity(c, auth);
+      return proxyIdentity
+        ? resolveAmbientPrincipal(
+            db,
+            "proxy",
+            proxyIdentity.identity,
+            proxyIdentity.label
+          )
+        : null;
+    }
     case "password":
-      return hasValidSession(c, auth, db);
+      return resolveCookiePrincipal(c, auth, db);
   }
 }
 
@@ -246,11 +319,21 @@ export async function isWsAuthorized(
 export async function issueSessionCookie(
   c: Context,
   auth: AuthRuntime,
-  db: Database
+  db: Database,
+  principalId: string
 ): Promise<void> {
   const secret = auth.cookieSecret ?? "";
-  const epoch = sessionsEpoch(db);
-  await setSignedCookie(c, COOKIE_NAME, `${Date.now()}.${epoch}`, secret, {
+  const principal = resolvePrincipal(db, principalId);
+  const now = Date.now();
+  if (
+    !principal ||
+    !isCookieBearingPrincipal(principal) ||
+    !isUsablePrincipal(principal, now)
+  ) {
+    throw new Error(`Cannot issue a session cookie for unusable principal ${principalId}`);
+  }
+  const maxAge = Math.floor((principal.expiresAt - now) / 1_000);
+  await setSignedCookie(c, COOKIE_NAME, principal.id, secret, {
     httpOnly: true,
     sameSite: "Strict",
     // Always Secure — every real deployment serves over HTTPS, and we do not
@@ -258,87 +341,150 @@ export async function issueSessionCookie(
     // over plaintext. (Local password testing must use https/localhost.)
     secure: true,
     path: "/",
-    maxAge: SESSION_TTL_SECONDS,
+    maxAge,
   });
 }
 
-async function hasValidSession(
+/** Turn the client-controlled User-Agent into a short, log-safe display hint. */
+export function sanitizeLoginLabel(userAgent: unknown): string {
+  if (typeof userAgent !== "string") return LOGIN_LABEL_FALLBACK;
+  const label = userAgent
+    .replace(CONTROL_CHARACTERS, "")
+    .trim()
+    .slice(0, LOGIN_LABEL_MAX_LENGTH)
+    .trim();
+  // A label exists to be recognised in a device list. A string with nothing
+  // alphanumeric in it ("(((") is technically a User-Agent and useless as a
+  // hint, so it takes the fallback rather than being shown as-is.
+  if (!/[\p{L}\p{N}]/u.test(label)) return LOGIN_LABEL_FALLBACK;
+  return label;
+}
+
+type LoginPrincipalLineage =
+  | { authMethod: "password" }
+  | { authMethod: "passkey"; credentialId: string };
+
+/**
+ * Create the durable owner principal for a verified login and issue its cookie.
+ * Returns a response only when the live-principal cap refuses the login.
+ */
+export async function issueLoginSession(
+  c: Context,
+  auth: AuthRuntime,
+  db: Database,
+  lineage: LoginPrincipalLineage
+): Promise<Response | null> {
+  prunePrincipals(db, Date.now());
+
+  try {
+    const principal = createPrincipal(db, {
+      authMethod: lineage.authMethod,
+      label: sanitizeLoginLabel(c.req.header("user-agent")),
+      credentialId:
+        lineage.authMethod === "passkey" ? lineage.credentialId : undefined,
+      ttlSeconds: SESSION_TTL_SECONDS,
+    });
+    await issueSessionCookie(c, auth, db, principal.id);
+  } catch (err) {
+    if (err instanceof PrincipalCredentialNotFoundError) {
+      return c.json({ error: "Passkey verification failed" }, 401);
+    }
+    if (!(err instanceof PrincipalLimitError)) throw err;
+    // 503: valid credentials reached a server-side capacity limit. This is
+    // neither an authentication failure nor a request the client can repair
+    // except by waiting for expiry or signing out another device.
+    return c.json(
+      { error: "Session capacity reached. Sign out another device and try again." },
+      503
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the principal named by a valid session cookie. Signature and payload
+ * shape are checked before the principal store is queried.
+ */
+export async function resolveCookiePrincipal(
   c: Context,
   auth: AuthRuntime,
   db: Database
-): Promise<boolean> {
+): Promise<Principal | null> {
   const secret = auth.cookieSecret ?? "";
-  if (!secret) return false;
+  if (!secret) return null;
   let value: string | false | undefined;
   try {
     value = await getSignedCookie(c, secret, COOKIE_NAME);
   } catch {
-    return false;
+    return null;
   }
-  if (typeof value !== "string" || value.length === 0) return false;
-
-  // Both fields are decimal integers. Requiring the exact shape rejects every
-  // pre-epoch cookie instead of accidentally interpreting its timestamp as a
-  // current session.
-  const match = /^(\d+)\.(\d+)$/.exec(value);
-  if (!match) return false;
-  const issuedAt = Number(match[1]);
-  const cookieEpoch = Number(match[2]);
-  if (!Number.isSafeInteger(issuedAt) || !Number.isSafeInteger(cookieEpoch)) {
-    return false;
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(value)) {
+    return null;
   }
-  const ageSeconds = (Date.now() - issuedAt) / 1000;
-  if (ageSeconds < 0 || ageSeconds >= SESSION_TTL_SECONDS) return false;
 
-  // Deliberately outside the cookie-parser catch: corrupt authoritative auth
-  // state refuses loudly and must never degrade to epoch zero.
-  return cookieEpoch === sessionsEpoch(db);
+  // Deliberately after signature and shape verification, and outside the
+  // cookie-parser catch: arbitrary ids cannot drive reads, while corrupt
+  // authoritative state fails only the principal whose signed cookie names it.
+  const principal = resolvePrincipal(db, value);
+  const now = Date.now();
+  if (
+    !principal ||
+    !isCookieBearingPrincipal(principal) ||
+    !isUsablePrincipal(principal, now)
+  ) {
+    return null;
+  }
+  touchLastSeen(db, principal.id, now);
+  return principal;
+}
+
+/** Apply durable revocation to every live runtime authorization context. */
+export function applyPrincipalRevocation(
+  revoker: Pick<WsHost, "revokePrincipals">,
+  principalIds: readonly string[]
+): void {
+  revoker.revokePrincipals(
+    principalIds,
+    SESSION_REVOKED_CLOSE_CODE,
+    SESSION_REVOKED_CLOSE_REASON
+  );
 }
 
 /**
- * Read authoritative session state. A missing row is first-run epoch zero;
- * any present row that is not a non-negative safe integer is corruption.
+ * Revoke every cookie-bearing principal and disconnect its attached clients.
  */
-function sessionsEpoch(db: Database): number {
-  const row = db
-    .query("SELECT value FROM settings WHERE key = ?")
-    .get(SESSIONS_EPOCH_KEY) as { value: string } | null;
-  if (!row) return 0;
-
-  let value: unknown;
-  try {
-    value = JSON.parse(row.value);
-  } catch {
-    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a JSON integer`);
-  }
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new Error(`Corrupt ${SESSIONS_EPOCH_KEY}: expected a non-negative integer`);
-  }
-  return value as number;
-}
-
-/** Invalidate every issued session and disconnect every attached client. */
-export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
-  const current = sessionsEpoch(db);
-  if (current === Number.MAX_SAFE_INTEGER) {
-    throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
-  }
-  const next = current + 1;
-  setSetting(db, SESSIONS_EPOCH_KEY, next);
-  clients.closeAll(SESSION_REVOKED_CLOSE_CODE, SESSION_REVOKED_CLOSE_REASON);
-  return next;
+export function revokeAllSessions(
+  db: Database,
+  revoker: Pick<WsHost, "revokePrincipals">
+): void {
+  const revokedIds = revokeAllPrincipals(db, Date.now());
+  applyPrincipalRevocation(revoker, revokedIds);
 }
 
 // --- proxy mode helpers ---
 
-function hasProxyAuth(c: Context, auth: AuthRuntime): boolean {
+const AMBIENT_LABEL_MAX_LENGTH = 64;
+
+function sanitizeAmbientLabel(identity: string): string {
+  return identity
+    .replace(CONTROL_CHARACTERS, "")
+    .trim()
+    .slice(0, AMBIENT_LABEL_MAX_LENGTH);
+}
+
+function resolveProxyIdentity(
+  c: Context,
+  auth: AuthRuntime
+): { identity: string; label: string } | null {
   // The proxy-auth header is only meaningful when a trusted proxy fronts the app
   // and TRUST_PROXY says so; otherwise a client could set it directly. Gate on
   // trustProxy, consistent with tailscale-mode XFF trust. (assertAuthConfig
   // already refuses to boot proxy mode without it — this is belt-and-braces.)
-  if (!auth.trustProxy) return false;
+  if (!auth.trustProxy) return null;
   const user = c.req.header(auth.proxyAuthHeader);
-  return !!user && user.trim().length > 0;
+  if (!user || user.trim().length === 0) return null;
+  return { identity: user, label: sanitizeAmbientLabel(user) };
 }
 
 // --- login rate limiter (in-memory failure windows + verification reservations) ---
@@ -506,8 +652,8 @@ export function authRoutes(
   deps: {
     /** Authoritative session state. */
     db: Database;
-    /** Live sockets closed whenever the global session epoch advances. */
-    clients: ClientSet;
+    /** Runtime connections and queued work invalidated by principal revocation. */
+    revoker: Pick<WsHost, "revokePrincipals">;
     /**
      * When provided and returning true, password login is refused (the app
      * injects passkeys' passwordLoginDisabled so the shared password dies
@@ -522,8 +668,8 @@ export function authRoutes(
     /** Test-only password verifier; production uses Bun.password.verify. */
     verifyPassword?: (password: string, hash: string) => Promise<boolean>;
   }
-): Hono {
-  const app = new Hono();
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
   const { log, failures } = deps;
   const verifyPassword = deps.verifyPassword ?? Bun.password.verify;
   let warnedUntrustedForwardedFor = false;
@@ -633,7 +779,10 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    await issueSessionCookie(c, auth, deps.db);
+    const capacityResponse = await issueLoginSession(c, auth, deps.db, {
+      authMethod: "password",
+    });
+    if (capacityResponse) return capacityResponse;
     log?.emit({
       severityText: "INFO",
       body: "login succeeded",
@@ -643,10 +792,21 @@ export function authRoutes(
   });
 
   app.post("/auth/logout", async (c) => {
-    if (mode === "password" && !(await hasValidSession(c, auth, deps.db))) {
-      return c.json({ error: "Authentication required", authRequired: true }, 401);
+    if (mode === "password") {
+      const principal = await resolveCookiePrincipal(c, auth, deps.db);
+      if (!principal) {
+        return c.json({ error: "Authentication required", authRequired: true }, 401);
+      }
+      c.set("principal", principal);
+      if (principal.kind === "owner") {
+        revokeAllSessions(deps.db, deps.revoker);
+      } else {
+        applyPrincipalRevocation(
+          deps.revoker,
+          revokePrincipal(deps.db, principal.id, Date.now())
+        );
+      }
     }
-    if (mode === "password") bumpSessionsEpoch(deps.db, deps.clients);
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });
   });

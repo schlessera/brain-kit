@@ -3,6 +3,7 @@
  * preservation, and rejection of malformed subscriptions.
  */
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 
 import { parseClientMessage, parseServerMessage } from "../src/schemas.js";
 
@@ -54,7 +55,7 @@ describe("activity server frames", () => {
         type: "activity_snapshot",
         view: "run",
         runId: "r1",
-        spans: [span],
+        spans: [{ ...span, principalId: "principal-a" }],
         events: [{ spanId: "s1", eventIndex: 0, ts: 2, eventType: "text", payload: "hi" }],
         highWaterSeq: { r1: 4 },
       })
@@ -63,8 +64,45 @@ describe("activity server frames", () => {
     if (res.ok && res.message.type === "activity_snapshot") {
       expect(res.message.highWaterSeq.r1).toBe(4);
       expect(res.message.spans[0]!.kind).toBe("turn");
+      expect(res.message.spans[0]!.principalId).toBe("principal-a");
       expect(res.message.events[0]!.payload).toBe("hi");
     }
+  });
+
+  test("a pre-attribution span without principalId still parses", () => {
+    const res = parseServerMessage(
+      JSON.stringify({ type: "activity_delta", runId: "r1", seq: 1, span })
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok && res.message.type === "activity_delta") {
+      expect(res.message.span!.principalId).toBeUndefined();
+    }
+  });
+
+  test("an invalid principalId is rejected", () => {
+    const res = parseServerMessage(
+      JSON.stringify({
+        type: "activity_delta",
+        runId: "r1",
+        seq: 1,
+        span: { ...span, principalId: 42 },
+      })
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  test("the legacy loose span schema ignores the additive principal field", () => {
+    const legacySpanSchema = z.looseObject({
+      spanId: z.string(),
+      runId: z.string(),
+      name: z.string(),
+      kind: z.enum(["turn", "tool", "subagent", "cron"]),
+      origin: z.enum(["session", "cron"]),
+      startedAt: z.number(),
+    });
+    expect(
+      legacySpanSchema.safeParse({ ...span, principalId: "principal-a" }).success
+    ).toBe(true);
   });
 
   test("delta carries span or event with seq", () => {

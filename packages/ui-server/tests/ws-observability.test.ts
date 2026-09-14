@@ -21,10 +21,14 @@ import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
-import { createWsHandlers } from "../src/ws/connection";
+import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { testPrincipal } from "./helpers/principal";
+
+const createWsHandlers = (host: WsHost) =>
+  createAuthorizedWsHandlers(host, testPrincipal());
 
 /** A socket that records what the server sent it. */
 interface FakeSocket extends WSContext {
@@ -520,8 +524,8 @@ describe("socket-level failures are observable", () => {
     dead.raw = { send: () => 0 };
     const congested = fakeSocket();
     congested.raw = { send: () => -1 };
-    host.clients.add(dead);
-    host.clients.add(congested);
+    host.clients.add(dead, "test-principal");
+    host.clients.add(congested, "test-principal");
 
     host.sendToClients({ type: "status", status: "idle" });
 
@@ -541,8 +545,8 @@ describe("socket-level failures are observable", () => {
       throw new Error("socket is gone");
     };
     const live = fakeSocket();
-    host.clients.add(dead);
-    host.clients.add(live);
+    host.clients.add(dead, "test-principal");
+    host.clients.add(live, "test-principal");
 
     host.sendToClients({ type: "status", status: "idle" });
 

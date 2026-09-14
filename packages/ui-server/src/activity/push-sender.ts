@@ -27,13 +27,21 @@ export interface PushSubscriptionRow {
   label: string | null;
   createdAt: number;
   lastUsedAt: number | null;
+  principalId: string | null;
 }
 
 export interface PushSender {
   publicKey(): string;
-  subscribe(sub: { endpoint: string; keys: { p256dh: string; auth: string } }, label?: string): void;
-  unsubscribe(endpoint: string): boolean;
-  subscriptions(): PushSubscriptionRow[];
+  /** Bind (or re-bind) an endpoint only while the registering principal is live. */
+  subscribe(
+    sub: { endpoint: string; keys: { p256dh: string; auth: string } },
+    principalId: string,
+    label?: string
+  ): boolean;
+  unsubscribe(endpoint: string, principalId: string): boolean;
+  subscriptions(principalId?: string): PushSubscriptionRow[];
+  /** Make one revoked principal's endpoints inert without deleting browser state. */
+  unbindPrincipal(principalId: string): number;
   /** Deliver pending intents to every subscription. Returns sends attempted. */
   deliverPending(notifier: ActivityNotifier): Promise<number>;
 }
@@ -86,9 +94,9 @@ export function createPushSender(
     return vapid();
   }
 
-  function rows(): PushSubscriptionRow[] {
+  function mapRows(dbRows: any[]): PushSubscriptionRow[] {
     return (
-      db.query("SELECT * FROM push_subscriptions ORDER BY created_at").all() as any[]
+      dbRows
     ).map((r) => ({
       endpoint: r.endpoint,
       p256dh: r.p256dh,
@@ -96,7 +104,35 @@ export function createPushSender(
       label: r.label,
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
+      principalId: r.principal_id,
     }));
+  }
+
+  function rows(principalId?: string): PushSubscriptionRow[] {
+    const dbRows = principalId === undefined
+      ? db.query("SELECT * FROM push_subscriptions ORDER BY created_at").all()
+      : db
+          .query(
+            `SELECT * FROM push_subscriptions
+             WHERE principal_id = ? ORDER BY created_at`
+          )
+          .all(principalId);
+    return mapRows(dbRows as any[]);
+  }
+
+  function deliverableRows(now: number): PushSubscriptionRow[] {
+    return mapRows(
+      db
+        .query(
+          `SELECT s.* FROM push_subscriptions s
+           JOIN principals p ON p.id = s.principal_id
+           WHERE p.revoked_at IS NULL
+             AND typeof(p.expires_at) = 'integer'
+             AND p.expires_at > ?
+           ORDER BY s.created_at`
+        )
+        .all(now) as any[]
+    );
   }
 
   return {
@@ -104,25 +140,52 @@ export function createPushSender(
       return vapid().publicKey;
     },
 
-    subscribe(sub, label) {
-      db.query(
-        `INSERT INTO push_subscriptions (endpoint, p256dh, auth, label, created_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`
-      ).run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, label ?? null, Date.now());
+    subscribe(sub, principalId, label) {
+      const now = Date.now();
+      return db.query(
+        `INSERT INTO push_subscriptions
+           (endpoint, p256dh, auth, label, created_at, principal_id)
+         SELECT ?, ?, ?, ?, ?, id FROM principals
+         WHERE id = ? AND revoked_at IS NULL
+           AND typeof(expires_at) = 'integer' AND expires_at > ?
+         ON CONFLICT(endpoint) DO UPDATE SET
+           p256dh = excluded.p256dh,
+           auth = excluded.auth,
+           label = excluded.label,
+           principal_id = excluded.principal_id`
+      ).run(
+        sub.endpoint,
+        sub.keys.p256dh,
+        sub.keys.auth,
+        label ?? null,
+        now,
+        principalId,
+        now
+      ).changes > 0;
     },
 
-    unsubscribe(endpoint) {
-      return db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint)
-        .changes > 0;
+    unsubscribe(endpoint, principalId) {
+      return db
+        .query(
+          "DELETE FROM push_subscriptions WHERE endpoint = ? AND principal_id = ?"
+        )
+        .run(endpoint, principalId).changes > 0;
     },
 
     subscriptions: rows,
 
+    unbindPrincipal(principalId) {
+      return db
+        .query(
+          "UPDATE push_subscriptions SET principal_id = NULL WHERE principal_id = ?"
+        )
+        .run(principalId).changes;
+    },
+
     async deliverPending(notifier) {
       const pending = notifier.pending();
       if (pending.length === 0) return 0;
-      if (rows().length === 0) {
+      if (deliverableRows(Date.now()).length === 0) {
         // No devices: the inbox already has it; nothing to deliver. Leave
         // the intents pending so a device subscribing later still gets them
         // if they are fresh, and the boot sweep can retry.
@@ -134,7 +197,7 @@ export function createPushSender(
       for (const intent of pending) {
         // Re-read per intent: an endpoint pruned as dead during the previous
         // intent's pass must not be attempted again in this one.
-        const subs = rows();
+        const subs = deliverableRows(Date.now());
         if (subs.length === 0) break;
         // Minimized payload; the tag coalesces repeats per run across devices.
         const payload = JSON.stringify({

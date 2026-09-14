@@ -11,6 +11,9 @@ import {
 } from "./helpers/test-host";
 import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
 import { queuedBytes, queuedFollowUpBytes } from "../src/ws/turns";
+import { testAuthorization } from "./helpers/principal";
+
+const QUEUE_AUTHORIZATION = testAuthorization();
 
 /**
  * The follow-up queue is bounded by BYTES, not by message count: a queued entry
@@ -113,8 +116,20 @@ describe("queued follow-up byte accounting", () => {
   test("an empty queue is zero, and a queue sums its entries", () => {
     const turn = { queue: [] } as unknown as Parameters<typeof queuedBytes>[0];
     expect(queuedBytes(turn)).toBe(0);
-    turn.queue.push({ text: "ab", attachments: [attachmentOf(10)] });
-    turn.queue.push({ text: "cde", attachments: [] });
+    turn.queue.push({
+      principalId: QUEUE_AUTHORIZATION.principalId,
+      authorization: QUEUE_AUTHORIZATION,
+      text: "ab",
+      attachments: [attachmentOf(10)],
+      releaseAuthorization: () => {},
+    });
+    turn.queue.push({
+      principalId: QUEUE_AUTHORIZATION.principalId,
+      authorization: QUEUE_AUTHORIZATION,
+      text: "cde",
+      attachments: [],
+      releaseAuthorization: () => {},
+    });
     expect(queuedBytes(turn)).toBe(2 + 10 + 3);
   });
 });

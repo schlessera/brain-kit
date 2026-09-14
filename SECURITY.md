@@ -65,6 +65,16 @@ within a week, not hours.
    (restic/borg). True end-to-end encryption is incompatible with a
    server-side agent that must read plaintext to operate — any setup claiming
    otherwise is misrepresenting something.
+9. **A principal is not a containment boundary.** A principal that has run a
+   turn has had code execution in the container and could have read
+   `COOKIE_SECRET` or written `brain-ui.db`. Revocation is the control for a
+   lost or leaked credential and for a well-behaved agent; the control for a
+   hostile one is rotating `COOKIE_SECRET` and auditing the system. Revocation
+   disconnects that principal, discards its queued work, and makes its push
+   subscriptions ineligible for future delivery, but work already running
+   keeps running. A notification already handed to a device's push service or
+   operating system cannot be recalled and may remain visible there; push
+   payloads are minimized for that reason.
 
 ## What tool approvals are, and are not
 

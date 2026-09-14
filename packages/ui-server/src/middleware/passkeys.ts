@@ -17,26 +17,29 @@ import type {
 import {
   type AuthMode,
   type AuthRuntime,
-  issueSessionCookie,
+  issueLoginSession,
   consumeLoginToken,
   isLoginBlocked,
   recordLoginFailure,
   PASSKEY_LOGIN_RATE_LIMIT,
   acquirePasskeyVerification,
   releasePasskeyVerification,
-  bumpSessionsEpoch,
+  applyPrincipalRevocation,
 } from "./auth.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
-import type { ClientSet } from "../ws/clients.js";
+import type { AppEnv } from "../app-env.js";
+import { revokeByCredential } from "../db/principals.js";
+import type { WsHost } from "../ws/host.js";
+import { requireOwner } from "./require-owner.js";
 
 /**
  * WebAuthn passkeys as an extension of `password` mode: the password bootstraps
  * the first registration (and stays as recovery), passkeys are the day-to-day
  * login. A successful assertion mints the same session cookie as password login
- * (issueSessionCookie), so authGuard / isWsAuthorized / TTL are untouched.
+ * (issueLoginSession), so authGuard / isWsAuthorized / TTL are untouched.
  *
  * Everything environmental is injected as a {@link PasskeyContext} — the
  * resolved WebAuthn identity, the auth runtime (for trust/proxy semantics and
@@ -50,8 +53,8 @@ import type { ClientSet } from "../ws/clients.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
-  /** Live sockets invalidated when a credential is revoked. */
-  clients: ClientSet;
+  /** Runtime authorization state invalidated when a credential is revoked. */
+  revoker: Pick<WsHost, "revokePrincipals">;
   /** WebAuthn identity plus ceremony-only origin and RP overrides. */
   webauthn: WebAuthnConfig;
   auth: AuthRuntime;
@@ -400,11 +403,14 @@ export function passkeyPublicRoutes(
           });
           return fail();
         }
+        const currentRow = credentialById(ctx.db, row.id);
+        if (!currentRow || currentRow.rp_id !== rp.rpID) return fail();
+
         ctx.db
           .prepare(
             "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
           )
-          .run(result.authenticationInfo.newCounter, now(), row.id);
+          .run(result.authenticationInfo.newCounter, now(), currentRow.id);
       } finally {
         releasePasskeyVerification(ip);
       }
@@ -433,7 +439,11 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    await issueSessionCookie(c, ctx.auth, ctx.db);
+    const capacityResponse = await issueLoginSession(c, ctx.auth, ctx.db, {
+      authMethod: "passkey",
+      credentialId: row.id,
+    });
+    if (capacityResponse) return capacityResponse;
     return c.json({ ok: true });
   });
 
@@ -441,17 +451,24 @@ export function passkeyPublicRoutes(
 }
 
 /**
- * Session-gated passkey routes. Mount AFTER the auth guard — gating comes from
- * mount position, not per-route checks.
+ * Owner-only passkey management routes. Mount AFTER the auth guard: the
+ * family middleware below authorizes the resolved principal, it does not
+ * authenticate the request itself.
  */
 export function passkeyManagementRoutes(
   mode: AuthMode,
   ctx: PasskeyContext,
   deps: PasskeyDeps = {}
-): Hono {
+): Hono<AppEnv> {
   const verifyRegistration = deps.verifyRegistrationResponse ?? realVerifyRegistration;
   const now = deps.now ?? Date.now;
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
+
+  app.use("/auth/passkey/*", async (c, next) => {
+    if (mode !== "password") return notEnabled(c);
+    await next();
+  });
+  app.use("/auth/passkey/*", requireOwner());
 
   app.post("/auth/passkey/register-options", async (c) => {
     if (mode !== "password") return notEnabled(c);
@@ -577,11 +594,15 @@ export function passkeyManagementRoutes(
 
   app.delete("/auth/passkey/:id", (c) => {
     if (mode !== "password") return notEnabled(c);
+    const credentialId = c.req.param("id");
     const result = ctx.db
       .prepare("DELETE FROM passkey_credentials WHERE id = ?")
-      .run(c.req.param("id"));
+      .run(credentialId);
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
-    bumpSessionsEpoch(ctx.db, ctx.clients);
+    applyPrincipalRevocation(
+      ctx.revoker,
+      revokeByCredential(ctx.db, credentialId, Date.now())
+    );
     return c.json({ ok: true });
   });
 

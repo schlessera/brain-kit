@@ -737,6 +737,11 @@ describe("activity store: effective cost (migration 010)", () => {
           duration_ms, span_count, input_tokens, output_tokens, cost_usd, detail_pruned)
        VALUES ('pre', 'cron', 'cron sync', 'sync', 1, 2, 'success', 1, 1, 10, 5, 0.5, 0)`
     ).run();
+    db.query(
+      `INSERT INTO activity_spans
+         (span_id, run_id, name, kind, origin, started_at, writer)
+       VALUES ('pre-root', 'pre', 'invoke_agent', 'turn', 'session', 1, 'old-server')`
+    ).run();
     const tenAndLater = files.filter((f) => !(f < "010"));
     expect(tenAndLater[0]).toBe("010_effective_cost.sql");
     for (const file of tenAndLater) {
@@ -750,6 +755,10 @@ describe("activity store: effective cost (migration 010)", () => {
     expect(mapped.billingMode).toBeNull();
     expect(mapped.pricingEstimate).toBeNull();
     expect(mapped.costUsd).toBe(0.5);
+    expect(mapped.principalId).toBeNull();
+    expect(mapped.principalLabel).toBeNull();
+    expect(mapped.principalKind).toBeNull();
+    expect(createActivityStore(db).getSpan("pre-root")!.principalId).toBeNull();
 
     // The CHECKs reject wrong non-NULL values at the door...
     expect(() =>

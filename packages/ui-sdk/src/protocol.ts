@@ -1238,6 +1238,7 @@ export interface ClientActivityUnsubscribe {
 
 export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
 export type ActivitySpanOrigin = "session" | "cron";
+export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
 /**
  * Terminal dispositions. `denied` is an approval declined by the user —
  * distinct from `error` by design. `interrupted` means a process died with
@@ -1289,6 +1290,8 @@ export interface ActivitySpan {
   origin: ActivitySpanOrigin;
   sessionId?: string;
   jobName?: string;
+  /** Principal responsible for this span; absent means unattributed. */
+  principalId?: string;
   startedAt: number;
   /** Approval-wait boundary: time before this was waiting, not executing. */
   waitUntil?: number;
@@ -1374,6 +1377,12 @@ export interface ActivityRunSummary {
   name: string;
   sessionId: string | null;
   jobName: string | null;
+  /** Root-span actor; null means unattributed. */
+  principalId?: string | null;
+  /** Historical snapshot retained after the principal row is pruned. */
+  principalLabel?: string | null;
+  /** Historical snapshot retained after the principal row is pruned. */
+  principalKind?: ActivityPrincipalKind | null;
   startedAt: number;
   endedAt: number | null;
   outcome: ActivitySpanOutcome | null;
@@ -1400,6 +1409,9 @@ export interface ActivityRunRollup {
   name: string;
   sessionId: string | null;
   jobName: string | null;
+  principalId?: string | null;
+  principalLabel?: string | null;
+  principalKind?: ActivityPrincipalKind | null;
   startedAt: number;
   endedAt: number | null;
   outcome: ActivitySpanOutcome | null;

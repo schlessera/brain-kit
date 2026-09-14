@@ -1,6 +1,7 @@
 import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
+import type { AuthorizationContext } from "./turns.js";
 import { locationErrorText } from "./frames.js";
 import { sendSessionHistory } from "./history.js";
 import { validateAttachments } from "./attachments.js";
@@ -9,6 +10,16 @@ import type { WsHost } from "./host.js";
 
 /** Per-connection negotiation state, owned by the socket handler. */
 export interface ConnectionState {
+  /**
+   * The transport is gone. Set by onClose, and separate from `authorization`
+   * because a disconnect is not a revocation: work already underway keeps its
+   * authority, but nothing may register new per-connection state afterwards.
+   */
+  closed?: boolean;
+  /** Principal resolved once at the WebSocket upgrade boundary. */
+  principal: import("../db/principals.js").Principal;
+  /** Mutable in-memory decision invalidated synchronously by revocation. */
+  authorization: AuthorizationContext;
   /** Revision the client declared via `client_hello`; absent means rev 2. */
   protocolRev?: number;
 }
@@ -39,8 +50,21 @@ export async function handleClientMessage(
   host: WsHost,
   ws: WSContext,
   msg: ClientMessage,
-  connection: ConnectionState = {}
+  connection: ConnectionState
 ): Promise<void> {
+  // The socket callback schedules dispatch on a microtask. Revocation may land
+  // after parsing but before this function begins, so repeat the in-memory
+  // check at the actual dispatch boundary.
+  if (
+    connection.authorization.valid &&
+    connection.authorization.expiresAt <= Date.now()
+  ) {
+    host.expireAuthorizationContexts();
+  }
+  if (!connection.authorization.valid) {
+    host.reportDroppedFrame("revoked_principal");
+    return;
+  }
   const { coordinator, catalog } = host;
   const requireEcho = (connection.protocolRev ?? 2) >= PROTOCOL_REV_CLIENT_ECHO;
   switch (msg.type) {
@@ -64,6 +88,7 @@ export async function handleClientMessage(
         return;
       }
       await handleChatMessage(host, ws, {
+        authorization: connection.authorization,
         text: msg.text,
         sessionId: msg.sessionId,
         attachments: attachmentResult.attachments,
@@ -78,6 +103,9 @@ export async function handleClientMessage(
       const pending = coordinator.pendingAskUser.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
+        pending.turn.recorder?.recordAskUserResponse(
+          connection.authorization.principalId
+        );
         pending.resolve({ answers: msg.answers, annotations: msg.annotations });
       }
       break;
@@ -87,6 +115,10 @@ export async function handleClientMessage(
       const pending = coordinator.pendingAskUser.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
+        pending.turn.recorder?.recordCancellation(
+          connection.authorization.principalId,
+          "ask_user"
+        );
         pending.reject(new Error(msg.reason || "User cancelled the question"));
       }
       break;
@@ -148,7 +180,11 @@ export async function handleClientMessage(
         pending.resolve(
           msg.updatedInput
             ? { behavior: "allow", updatedInput: msg.updatedInput }
-            : { behavior: "allow" }
+            : { behavior: "allow" },
+          {
+            principalId: connection.authorization.principalId,
+            ...(msg.always && pending.request.kind !== "command" ? { always: true } : {}),
+          }
         );
       }
       break;
@@ -158,7 +194,10 @@ export async function handleClientMessage(
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingApprovals.delete(msg.toolUseId);
-        pending.resolve({ behavior: "deny", message: msg.message });
+        pending.resolve(
+          { behavior: "deny", message: msg.message },
+          { principalId: connection.authorization.principalId }
+        );
       }
       break;
     }
@@ -166,11 +205,16 @@ export async function handleClientMessage(
     case "cancel": {
       if (msg.sessionId) {
         const turn = coordinator.bySession.get(msg.sessionId);
-        if (turn) coordinator.cancelTurn(turn, "Cancelled by user");
+        if (turn) {
+          coordinator.recordCancellation(turn, connection.authorization.principalId);
+          coordinator.cancelTurn(turn, "Cancelled by user");
+        }
         const starting = coordinator.startingBySession.get(msg.sessionId);
         if (starting) {
           starting.cancelled = true;
-          starting.queue.length = 0;
+          // Releasing here, not in runSession: a start cancelled before it
+          // becomes a turn never reaches the loop that would drain its queue.
+          for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
           host.sendToClients({ type: "status", status: "idle", sessionId: msg.sessionId, detail: "Cancelled before starting" });
         }
         return;
@@ -185,7 +229,9 @@ export async function handleClientMessage(
         });
         return;
       }
-      coordinator.cancelTurn([...coordinator.running][0], "Cancelled by user");
+      const turn = [...coordinator.running][0]!;
+      coordinator.recordCancellation(turn, connection.authorization.principalId);
+      coordinator.cancelTurn(turn, "Cancelled by user");
       break;
     }
 
@@ -193,7 +239,13 @@ export async function handleClientMessage(
       // View-scoped opt-in: without a subscription this connection never
       // receives an activity frame. No turn correlation — subscriptions are
       // connection state, not turn state.
-      host.activity?.stream.handleSubscribe(ws, msg);
+      //
+      // Dispatch starts on a microtask, so this can run after onClose already
+      // dropped the connection's subscriptions. Registering here would resurrect
+      // a dead socket in the registry and keep the activity poller alive for the
+      // life of the process.
+      if (connection.closed) break;
+      host.activity?.stream.handleSubscribe(ws, msg, connection.authorization.principalId);
       break;
     }
 
@@ -214,6 +266,7 @@ export async function handleClientMessage(
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         const messages = await backend.getHistory(msg.sessionId);
+        if (!connection.authorization.valid) return;
         sendSessionHistory(ws, msg.sessionId, messages);
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming

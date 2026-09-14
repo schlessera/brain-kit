@@ -46,8 +46,21 @@ export interface TurnRecorder {
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
   observeActivity(event: BackendActivityEvent): void;
+  /** Record that this turn's principal was revoked while work kept running. */
+  recordPrincipalRevocation(principalId: string): void;
+  /** Record a live follow-up that joined this already-running turn. */
+  recordFollowUp(principalId: string): void;
+  /** Record who cancelled this turn or an interactive prompt within it. */
+  recordCancellation(principalId: string, kind?: "turn" | "ask_user"): void;
+  /** Record who answered an ask-user interaction. */
+  recordAskUserResponse(principalId: string): void;
   /** The user's approval decision arrived for a gated tool call. */
-  onApprovalDecision(toolUseId: string, allowed: boolean): void;
+  onApprovalDecision(
+    toolUseId: string,
+    decision: "allow" | "always_allow" | "deny",
+    requestKind: "tool" | "command",
+    principalId?: string
+  ): void;
   /**
    * Close the turn: merge the buffered result enrichment into the root's
    * single terminal write, cascade-cancel anything left open, roll up.
@@ -64,6 +77,8 @@ export function createTurnRecorder(
     profileId?: string;
     /** Billing classification of that profile, resolved at run start (U3). */
     billingMode?: BillingMode;
+    /** Principal that initiated this turn; absent means unattributed. */
+    principalId?: string;
   }
 ): TurnRecorder {
   const { store, onWrite, log } = deps;
@@ -76,6 +91,7 @@ export function createTurnRecorder(
   let resultOutcome: SpanOutcome | null = null;
   let resultUsage: SpanUsage | undefined;
   let resultAttrs: Record<string, unknown> | undefined;
+  let principalRevocationRecorded = false;
 
   const guard = (fn: () => void) => {
     try {
@@ -99,6 +115,7 @@ export function createTurnRecorder(
       kind: "turn",
       origin: "session",
       sessionId,
+      principalId: turn.principalId,
       // Profile + billing ride the ROOT span so the rollup can price the run
       // without any registry or env lookup of its own (a root missing the
       // billing attr falls back to env classification at rollup time).
@@ -253,9 +270,57 @@ export function createTurnRecorder(
       });
     },
 
-    onApprovalDecision(toolUseId, allowed) {
+    recordPrincipalRevocation(principalId) {
       guard(() => {
-        if (allowed) {
+        if (finished || principalRevocationRecorded) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, "principal_revoked", { principalId });
+        principalRevocationRecorded = true;
+        onWrite?.();
+      });
+    },
+
+    recordFollowUp(principalId) {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, "follow_up", { principalId });
+        onWrite?.();
+      });
+    },
+
+    recordCancellation(principalId, kind = "turn") {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
+        onWrite?.();
+      });
+    },
+
+    recordAskUserResponse(principalId) {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        store.appendEvent(rootSpanId, "ask_user_response", { principalId });
+        onWrite?.();
+      });
+    },
+
+    onApprovalDecision(toolUseId, decision, requestKind, principalId) {
+      guard(() => {
+        if (principalId) {
+          // One tool can raise several approval requests. The span-level actor
+          // remains the latest responder for compact views, while this
+          // append-only event preserves every decision and actor in order.
+          store.appendEvent(toolUseId, "approval_decision", {
+            principalId,
+            decision,
+            requestKind,
+          });
+          store.patchSpan(toolUseId, { principalId });
+        }
+        if (decision !== "deny") {
           // Everything before this moment was approval wait, not execution.
           store.patchSpan(toolUseId, { waitUntil: Date.now() });
         } else {

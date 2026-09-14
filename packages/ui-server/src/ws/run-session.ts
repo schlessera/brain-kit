@@ -9,7 +9,7 @@ import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
-import type { QueuedFollowUp, RunningTurn } from "./turns.js";
+import type { AuthorizationContext, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
   MAX_SESSION_QUEUE,
@@ -24,17 +24,67 @@ import {
  * order. The host owns per-turn cancellation (AbortController + timeout). Never
  * throws — runtime failures are emitted as error frames.
  */
-export async function runSession(
+/**
+ * Write out cancellations that were accepted before a recorder existed.
+ *
+ * A cancel can land while routing or billing is still in flight, when there is
+ * nothing to record it on yet, so the actor is buffered on the turn. Both exits
+ * from that window have to drain it — the ordinary one, which then has a
+ * recorder, and the revoked one, which must build a throwaway recorder rather
+ * than drop a decision someone actually made.
+ */
+function recordPendingCancellations(
   host: WsHost,
-  initial: {
-    text: string;
-    sessionId?: string;
-    attachments: ChatImageAttachment[];
-    providerId?: string;
-    client?: ClientEnvironment;
-    /** Client correlation id for a new conversation; echoed on session_info. */
-    draftId?: string;
+  turn: RunningTurn,
+  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined
+): void {
+  if (turn.pendingCancellationPrincipalIds.length === 0) return;
+  const recorder =
+    turn.recorder ??
+    (host.activity
+      ? createTurnRecorder(
+          {
+            store: host.activity.store,
+            onWrite: () => host.activity!.stream.pump(),
+            log: host.log,
+          },
+          {
+            turnId: turn.turnId,
+            sessionId: turn.sessionId,
+            principalId: turn.principalId,
+            ...billing,
+          }
+        )
+      : undefined);
+  for (const principalId of turn.pendingCancellationPrincipalIds) {
+    recorder?.recordCancellation(principalId);
   }
+  turn.pendingCancellationPrincipalIds.length = 0;
+}
+
+type RunSessionInput = {
+  authorization: AuthorizationContext;
+  text: string;
+  sessionId?: string;
+  attachments: ChatImageAttachment[];
+  providerId?: string;
+  client?: ClientEnvironment;
+  /** Client correlation id for a new conversation; echoed on session_info. */
+  draftId?: string;
+};
+
+export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
+  const releaseAuthorization = initial.authorization.retain();
+  try {
+    await runRetainedSession(host, initial);
+  } finally {
+    releaseAuthorization();
+  }
+}
+
+async function runRetainedSession(
+  host: WsHost,
+  initial: RunSessionInput
 ): Promise<void> {
   const { coordinator } = host;
   const starting = { queue: [] as QueuedFollowUp[], cancelled: false };
@@ -63,6 +113,7 @@ export async function runSession(
   }
 
   if (starting.cancelled) return;
+  if (!initial.authorization.valid) return;
 
   const { backend, profileId: initialProfileId } = target;
   if (target.droppedPin) {
@@ -79,6 +130,8 @@ export async function runSession(
     });
   }
   const turn: RunningTurn = {
+    principalId: initial.authorization.principalId,
+    authorization: initial.authorization,
     sessionId: initial.sessionId ?? null,
     turnId: crypto.randomUUID(),
     // Only meaningful when the client had no session id to send.
@@ -88,6 +141,7 @@ export async function runSession(
     abortController: new AbortController(),
     timeoutHandle: setTimeout(() => {}, 0),
     queue: starting.queue,
+    pendingCancellationPrincipalIds: [],
     cancelled: false,
     lastResult: null,
   };
@@ -98,13 +152,30 @@ export async function runSession(
   let profileId = initialProfileId;
   let resumeId = initial.sessionId;
   let next: QueuedFollowUp | null = {
+    principalId: initial.authorization.principalId,
+    authorization: initial.authorization,
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.client ? { client: initial.client } : {}),
+    releaseAuthorization: () => {},
   };
+  let releaseActiveAuthorization: (() => void) | undefined;
 
   try {
     while (next && !turn.cancelled) {
+      releaseActiveAuthorization = next.releaseAuthorization;
+      turn.principalId = next.principalId;
+      turn.authorization = next.authorization;
+      if (!turn.authorization.valid) {
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
+        next = turn.queue.shift() ?? null;
+        if (next) {
+          turn.turnId = crypto.randomUUID();
+          turn.lastResult = null;
+        }
+        continue;
+      }
       const { text, attachments, client } = next;
       next = null;
 
@@ -136,6 +207,32 @@ export async function runSession(
       const billing = host.activity
         ? await resolveRunBilling(host.registry, backend.id, profileId)
         : undefined;
+      // Revocation can land while routing or billing is in flight. This is the
+      // final await boundary before startTurn, so an invalid principal never
+      // reaches the backend while an already-running turn remains untouched.
+      // Expiry is authoritative, not advisory: the sweep that turns an expired
+      // principal into a revocation runs on a timer, and a follow-up dequeued
+      // inside that window would otherwise start — reviewer measured one
+      // starting 12ms past expiry — and then survive, because a started turn is
+      // deliberately never aborted. Enforce it at the same boundary that
+      // enforces revocation, so the timer only has to close the socket.
+      host.expireAuthorizationContexts();
+      if (!turn.authorization.valid) {
+        clearTimeout(timeoutHandle);
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
+        // A cancellation accepted while billing was in flight is already a
+        // decision someone made; losing it because the turn's own principal
+        // was revoked a moment later would erase the actor, not the turn. Drain
+        // the buffer before leaving.
+        recordPendingCancellations(host, turn, billing);
+        if (turn.queue.length > 0) {
+          next = turn.queue.shift()!;
+          turn.turnId = crypto.randomUUID();
+          turn.lastResult = null;
+        }
+        continue;
+      }
       const recorder: TurnRecorder | undefined = host.activity
         ? createTurnRecorder(
             {
@@ -143,9 +240,19 @@ export async function runSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },
-            { turnId: turn.turnId, sessionId: turn.sessionId, ...billing }
+            {
+              turnId: turn.turnId,
+              sessionId: turn.sessionId,
+              principalId: turn.principalId,
+              ...billing,
+            }
           )
         : undefined;
+      turn.recorder = recorder;
+      for (const principalId of turn.pendingCancellationPrincipalIds) {
+        recorder?.recordCancellation(principalId);
+      }
+      turn.pendingCancellationPrincipalIds.length = 0;
       const bridge = makeBridge(host, turn, text, backend.id, recorder);
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
@@ -189,6 +296,9 @@ export async function runSession(
         );
       } finally {
         clearTimeout(timeoutHandle);
+        turn.recorder = undefined;
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
       }
 
       // Subsequent (queued) turns resume the now-known session and keep its
@@ -207,6 +317,9 @@ export async function runSession(
       }
     }
   } finally {
+    releaseActiveAuthorization?.();
+    next?.releaseAuthorization();
+    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
     if (turn.sessionId && coordinator.bySession.get(turn.sessionId) === turn) {
       coordinator.bySession.delete(turn.sessionId);
     }
@@ -276,6 +389,10 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
         sessionId
       )
     );
+    // The entry never joins a queue, so nothing else will ever release its
+    // lease: a refused follow-up would otherwise hold its principal
+    // discoverable forever and the registry would never empty.
+    entry.releaseAuthorization();
     return;
   }
 
@@ -309,6 +426,7 @@ export async function handleChatMessage(
   host: WsHost,
   ws: WSContext,
   msg: {
+    authorization: AuthorizationContext;
     text: string;
     sessionId?: string;
     attachments: ChatImageAttachment[];
@@ -317,7 +435,15 @@ export async function handleChatMessage(
     draftId?: string;
   }
 ): Promise<void> {
-  const { text, attachments, sessionId, providerId: requestedProviderId, client, draftId } = msg;
+  const {
+    authorization,
+    text,
+    attachments,
+    sessionId,
+    providerId: requestedProviderId,
+    client,
+    draftId,
+  } = msg;
   const { coordinator } = host;
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
@@ -326,7 +452,14 @@ export async function handleChatMessage(
     if (starting.cancelled) {
       host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, message: "This session is cancelling. Wait before sending again." });
     } else {
-      queueFollowUp(host, ws, sessionId, starting, { text, attachments, ...(client ? { client } : {}) });
+      queueFollowUp(host, ws, sessionId, starting, {
+        principalId: authorization.principalId,
+        authorization,
+        text,
+        attachments,
+        ...(client ? { client } : {}),
+        releaseAuthorization: authorization.retain(),
+      });
     }
     return;
   }
@@ -339,15 +472,30 @@ export async function handleChatMessage(
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
-      backend.followUp({ sessionId, prompt: text, attachments }).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
-        host.sendToClients(
-          withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
-        );
-      });
+      runningTurn.recorder?.recordFollowUp(authorization.principalId);
+      void (async () => {
+        const releaseFollowUp = authorization.retain();
+        try {
+          await backend.followUp!({ sessionId, prompt: text, attachments });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
+          host.sendToClients(
+            withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
+          );
+        } finally {
+          releaseFollowUp();
+        }
+      })();
     } else {
-      queueFollowUp(host, ws, sessionId, runningTurn, { text, attachments, ...(client ? { client } : {}) });
+      queueFollowUp(host, ws, sessionId, runningTurn, {
+        principalId: authorization.principalId,
+        authorization,
+        text,
+        attachments,
+        ...(client ? { client } : {}),
+        releaseAuthorization: authorization.retain(),
+      });
     }
     return;
   }
@@ -368,6 +516,7 @@ export async function handleChatMessage(
     host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
   }
   void runSession(host, {
+    authorization,
     text,
     sessionId,
     attachments,

@@ -8,6 +8,7 @@ import { unlinkSync } from "fs";
 import { ingestSpanSink } from "../activity/span-sink.js";
 import { createActivityStore } from "../activity/store.js";
 import { createUiDb } from "../db/client.js";
+import { resolveSystemPrincipal } from "../db/principals.js";
 import { recordCronRun } from "./scheduler.js";
 
 /** Tail of stderr retained for the cron_runs error row. */
@@ -111,6 +112,10 @@ async function startRecord(
     const openedDb = db;
     const record = recordCronRun(db, name);
     const store = createActivityStore(db, { writer: `cron:${process.pid}` });
+    const principal = resolveSystemPrincipal(db, {
+      identity: "scheduled-jobs",
+      label: "Scheduled jobs",
+    });
     const runId = `cron-${name}-${Date.now()}`;
     const rootSpanId = `${runId}:root`;
     store.startSpan({
@@ -120,6 +125,7 @@ async function startRecord(
       kind: "cron",
       origin: "cron",
       jobName: name,
+      principalId: principal.id,
     });
 
     let sinkOffset = 0;

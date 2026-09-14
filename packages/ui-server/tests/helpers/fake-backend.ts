@@ -26,6 +26,8 @@ export function makeFakeBackend(options: {
   histories?: Record<string, SessionHistoryMessage[]>;
   capabilities?: Partial<BackendCapabilities>;
   historyCalls?: string[];
+  /** Replace the history read entirely — e.g. to hold it open mid-connect. */
+  getHistory?: (sessionId: string) => Promise<SessionHistoryMessage[]>;
   startTurn?: AgentBackend["startTurn"];
   followUp?: AgentBackend["followUp"];
 }): AgentBackend {
@@ -46,6 +48,7 @@ export function makeFakeBackend(options: {
     },
     async getHistory(sessionId) {
       options.historyCalls?.push(sessionId);
+      if (options.getHistory) return await options.getHistory(sessionId);
       return options.histories?.[sessionId] ?? [];
     },
   };

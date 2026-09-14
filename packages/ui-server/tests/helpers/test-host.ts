@@ -18,6 +18,7 @@ import { WsHost, type ToolPermissions } from "../../src/ws/host";
 import { createSessionCatalog } from "../../src/ws/session-catalog";
 import { handleClientMessage as dispatch } from "../../src/ws/dispatch";
 import type { WSContext } from "../../src/ws/clients";
+import { testAuthorization, testPrincipal } from "./principal";
 
 let db: Database | null = null;
 let dbPath: string | null = null;
@@ -81,6 +82,7 @@ export function setToolPermissionsForTests(tp: ToolPermissions | null): void {
 /** Drop host, registry and cap back to pristine (db handled separately). */
 export function resetForTests(): void {
   host?.coordinator.reset();
+  host?.close();
   host = null;
   registry = null;
   maxConcurrent = 3;
@@ -110,7 +112,7 @@ export function testRegistry(): BackendRegistry {
 }
 
 export function addClient(ws: WSContext): void {
-  testHost().clients.add(ws);
+  testHost().clients.add(ws, "test-principal");
 }
 
 export function isTurnActive(): boolean {
@@ -121,5 +123,8 @@ export async function handleClientMessage(
   ws: WSContext,
   msg: ClientMessage
 ): Promise<void> {
-  return dispatch(testHost(), ws, msg);
+  return dispatch(testHost(), ws, msg, {
+    principal: testPrincipal(),
+    authorization: testAuthorization(),
+  });
 }

@@ -3,7 +3,20 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
 import { createApp } from "../src/app";
-import { createRecordingObservability } from "../src/observability/index";
+import {
+  createConsoleLoggerProvider,
+  createObservability,
+  createRecordingObservability,
+} from "../src/observability/index";
+import { resolveServerConfig } from "../src/config/env";
+import { createStaticBackendRegistry } from "../src/agent/backend";
+import { makeFakeBackend } from "./helpers/fake-backend";
+import { createUiDb } from "../src/db/client";
+import {
+  PRINCIPAL_RETENTION_MS,
+  resolveAmbientPrincipal,
+  resolvePrincipal,
+} from "../src/db/principals";
 
 // Hermetic wiring test: boots the real app in a deployed-like config and asserts
 // the wiring that the three prod lockouts (auth-guard ordering, CORS, WS origin)
@@ -69,6 +82,71 @@ describe("app wiring — auth guard ordering", () => {
   test("/api/vpn-check is behind the auth guard", async () => {
     const res = await get("/api/vpn-check");
     expect(res.status).toBe(401);
+  });
+
+  test("principal management routes are mounted behind the auth guard", async () => {
+    const instance = app();
+    try {
+      expect(
+        (
+          await instance.fetch(
+            new Request("http://localhost/api/auth/principals")
+          )
+        ).status
+      ).toBe(401);
+
+      const login = await instance.fetch(
+        new Request("http://localhost/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: PASSWORD }),
+        })
+      );
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get("set-cookie")!.split(";")[0];
+
+      const list = await instance.fetch(
+        new Request("http://localhost/api/auth/principals", {
+          headers: { cookie },
+        })
+      );
+      expect(list.status).toBe(200);
+      const listed = (await list.json()) as {
+        principals: Array<{ id: string; kind: string; is_own: boolean }>;
+      };
+      expect(
+        listed.principals.some(
+          ({ kind, is_own }) => kind === "owner" && is_own
+        )
+      ).toBe(true);
+
+      const mint = await instance.fetch(
+        new Request("http://localhost/api/auth/principals", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ label: "Wiring agent" }),
+        })
+      );
+      expect(mint.status).toBe(200);
+      const minted = (await mint.json()) as {
+        id: string;
+        label: string;
+        cookie: string;
+      };
+      expect(minted.label).toBe("Wiring agent");
+      expect(minted.cookie).toBeString();
+
+      const deleted = await instance.fetch(
+        new Request(`http://localhost/api/auth/principals/${minted.id}`, {
+          method: "DELETE",
+          headers: { cookie },
+        })
+      );
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ ok: true });
+    } finally {
+      instance.close();
+    }
   });
 
   test("the activity routes are behind the auth guard", async () => {
@@ -252,6 +330,50 @@ describe("app wiring — WebSocket origin check (CSWSH)", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  test("an authorized upgrade keeps its status and attributes the request", async () => {
+    const observability = createRecordingObservability();
+    const wired = createApp({ observability });
+    const login = await wired.fetch(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: PASSWORD }),
+      })
+    );
+    const cookie = login.headers.get("set-cookie")!.split(";")[0];
+    observability.reset();
+
+    let upgraded = false;
+    const response = await wired.fetch(
+      new Request("http://localhost/ws", {
+        headers: {
+          connection: "Upgrade",
+          cookie,
+          host: "localhost",
+          origin: "http://localhost",
+          "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+          upgrade: "websocket",
+        },
+      }),
+      {
+        server: {
+          upgrade() {
+            upgraded = true;
+            return true;
+          },
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(upgraded).toBe(true);
+    const [record] = observability.logs.find({ scope: "http", body: "request" });
+    expect(record.attributes.path).toBe("/ws");
+    expect(record.attributes["auth.principal.id"]).toBeString();
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
+    wired.close();
+  });
 });
 
 describe("app wiring — CORS (split topology)", () => {
@@ -320,6 +442,42 @@ describe("createApp refuses unsafe configuration", () => {
   });
 });
 
+describe("createApp principal retention", () => {
+  test("boot prunes an inactive ambient principal through the production path", () => {
+    const dbPath = join(
+      tmpdir(),
+      `app-wiring-principal-retention-${process.pid}-${Date.now()}.db`
+    );
+    const seed = createUiDb(dbPath);
+    const inactive = resolveAmbientPrincipal(
+      seed,
+      "proxy",
+      "inactive@example.test",
+      "Inactive proxy user"
+    );
+    seed.prepare("UPDATE principals SET last_seen_at = ? WHERE id = ?").run(
+      Date.now() - PRINCIPAL_RETENTION_MS - 1,
+      inactive.id
+    );
+    seed.close();
+
+    let wired: ReturnType<typeof createApp> | undefined;
+    try {
+      const backend = makeFakeBackend({ id: "fake" });
+      wired = createApp({
+        dbPath,
+        registry: createStaticBackendRegistry([backend], backend.id),
+      });
+      expect(resolvePrincipal(wired.db, inactive.id)).toBeNull();
+    } finally {
+      wired?.close();
+      for (const suffix of ["", "-shm", "-wal"]) {
+        rmSync(dbPath + suffix, { force: true });
+      }
+    }
+  });
+});
+
 describe("app wiring — request logging", () => {
   test("requests are logged through the observability layer, /api/health excepted", async () => {
     const observability = createRecordingObservability();
@@ -340,7 +498,141 @@ describe("app wiring — request logging", () => {
     expect(record.attributes.status).toBe(401);
     expect(record.attributes["duration.ms"]).toBeNumber();
     expect(JSON.stringify(record.attributes)).not.toContain("secret");
+    expect("auth.principal.id" in record.attributes).toBe(false);
+    expect("auth.principal.label" in record.attributes).toBe(false);
 
+    wired.close();
+  });
+
+  test("an authenticated request log carries the resolved principal", async () => {
+    const observability = createRecordingObservability();
+    const wired = createApp({ observability });
+    const login = await wired.fetch(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: PASSWORD }),
+      })
+    );
+    const cookie = login.headers.get("set-cookie")!.split(";")[0];
+    observability.reset();
+
+    const response = await wired.fetch(
+      new Request("http://localhost/api/vpn-check", { headers: { cookie } })
+    );
+    expect(response.status).toBe(200);
+
+    const [record] = observability.logs.find({ scope: "http", body: "request" });
+    const principalId = record.attributes["auth.principal.id"];
+    expect(principalId).toBeString();
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
+    expect(
+      wired.db.prepare("SELECT label FROM principals WHERE id = ?").get(principalId)
+    ).toEqual({ label: "Unknown device" });
+    wired.close();
+  });
+
+  test("a successful logout log retains the principal that revoked the sessions", async () => {
+    const observability = createRecordingObservability();
+    const wired = createApp({ observability });
+    const login = await wired.fetch(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: PASSWORD }),
+      })
+    );
+    const cookie = login.headers.get("set-cookie")!.split(";")[0];
+    observability.reset();
+
+    const response = await wired.fetch(
+      new Request("http://localhost/api/auth/logout", {
+        method: "POST",
+        headers: { cookie },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const [record] = observability.logs.find({ scope: "http", body: "request" });
+    expect(record.attributes.path).toBe("/api/auth/logout");
+    expect(record.attributes["auth.principal.id"]).toBeString();
+    expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
+    wired.close();
+  });
+
+  test("a proxy identity is sanitized and bounded before storage and logging", async () => {
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({ id: "fake" });
+    const wired = createApp({
+      config: resolveServerConfig({
+        AUTH_MODE: "proxy",
+        TRUST_PROXY: "1",
+        PROXY_AUTH_HEADER: "x-forwarded-user",
+        HOST: "127.0.0.1",
+        DB_PATH: ":memory:",
+        BRAIN_PATH: join(tmpdir(), `app-wiring-proxy-brain-${process.pid}`),
+        BRAIN_UI_MODEL_DISCOVERY: "0",
+        BRAIN_UI_PRICING_DISCOVERY: "0",
+      }),
+      observability,
+      registry: createStaticBackendRegistry([backend], backend.id),
+    });
+    const unsafeLabel = `\u0001 Alex\u007f ${"x".repeat(300)}`;
+    const expectedLabel = `Alex ${"x".repeat(59)}`;
+
+    const response = await wired.fetch(
+      new Request("http://localhost/api/vpn-check", {
+        headers: { "x-forwarded-user": unsafeLabel },
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const row = wired.db
+      .prepare("SELECT kind, label FROM principals")
+      .get() as { kind: string; label: string };
+    expect(row).toEqual({ kind: "ambient", label: expectedLabel });
+    expect(row.label).toHaveLength(64);
+    const [record] = observability.logs.find({ scope: "http", body: "request" });
+    expect(record.attributes["auth.principal.label"]).toBe(expectedLabel);
+    expect(record.attributes["auth.principal.label"]).not.toMatch(
+      /[\u0000-\u001f\u007f-\u009f]/u
+    );
+    wired.close();
+  });
+
+  test("a proxy label cannot forge fields in the rendered request log", async () => {
+    const lines: string[] = [];
+    const loggerProvider = createConsoleLoggerProvider({
+      write: (_severity, line) => lines.push(line),
+    });
+    const backend = makeFakeBackend({ id: "fake" });
+    const wired = createApp({
+      config: resolveServerConfig({
+        AUTH_MODE: "proxy",
+        TRUST_PROXY: "1",
+        PROXY_AUTH_HEADER: "x-forwarded-user",
+        HOST: "127.0.0.1",
+        DB_PATH: ":memory:",
+        BRAIN_PATH: join(tmpdir(), `app-wiring-proxy-log-brain-${process.pid}`),
+        BRAIN_UI_MODEL_DISCOVERY: "0",
+        BRAIN_UI_PRICING_DISCOVERY: "0",
+      }),
+      observability: createObservability({ loggerProvider }),
+      registry: createStaticBackendRegistry([backend], backend.id),
+    });
+    const label = "Alex status=200 auth.principal.id=forged";
+
+    const response = await wired.fetch(
+      new Request("http://localhost/api/vpn-check", {
+        headers: { "x-forwarded-user": label },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const requestLine = lines.find((line) => line.startsWith("[http] request "));
+    expect(requestLine).toMatch(
+      /^\[http\] request method="GET" path="\/api\/vpn-check" status=200 duration\.ms=\d+ auth\.principal\.id="[A-Za-z0-9_-]{22}" auth\.principal\.label="Alex status=200 auth\.principal\.id=forged"$/
+    );
     wired.close();
   });
 });

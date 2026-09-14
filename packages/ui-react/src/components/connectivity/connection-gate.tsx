@@ -9,11 +9,15 @@ import {
   deriveConnectionIssue,
   type ConnectionIssue,
 } from "./connection-state.js";
+import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js";
+
+const INITIAL_PUSH_REBIND_BACKOFF_MS = 1_000;
+const MAX_PUSH_REBIND_BACKOFF_MS = 60_000;
 
 export function ConnectionGate({ children }: { children: ReactNode }) {
   // The gate owns its connectivity probe — composing <ConnectionGate> is all
   // an embedder needs; the store would otherwise sit on "checking" forever.
-  useVpnStatus();
+  const successfulProbeCount = useVpnStatus();
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
@@ -30,6 +34,65 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (vpnStatus === "connected") setEverConnected(true);
   }, [vpnStatus]);
+
+  const pushRebind = useRef({
+    pending: true,
+    inFlight: false,
+    retryReady: true,
+    backoffMs: INITIAL_PUSH_REBIND_BACKOFF_MS,
+    retryTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+    disposed: false,
+  });
+
+  useEffect(() => {
+    const state = pushRebind.current;
+    state.disposed = false;
+    return () => {
+      state.disposed = true;
+      clearTimeout(state.retryTimer);
+    };
+  }, []);
+
+  // A successful authenticated probe follows a login reload (and is also the
+  // boot path for ambient auth modes). Re-assert any browser-held subscription
+  // so legacy/unbound rows acquire the current principal. A failed request
+  // stays pending: later successful probes, including foreground-triggered
+  // probes, retry it once the exponential backoff has elapsed.
+  useEffect(() => {
+    const state = pushRebind.current;
+    if (
+      successfulProbeCount === 0 ||
+      vpnStatus !== "connected" ||
+      !state.pending ||
+      state.inFlight ||
+      !state.retryReady
+    ) {
+      return;
+    }
+
+    state.inFlight = true;
+    void rebindPushSubscriptionAfterLogin().then(
+      () => {
+        if (state.disposed) return;
+        state.inFlight = false;
+        state.pending = false;
+      },
+      () => {
+        if (state.disposed) return;
+        state.inFlight = false;
+        state.retryReady = false;
+        const delay = state.backoffMs;
+        state.backoffMs = Math.min(
+          state.backoffMs * 2,
+          MAX_PUSH_REBIND_BACKOFF_MS
+        );
+        state.retryTimer = setTimeout(() => {
+          state.retryReady = true;
+          state.retryTimer = undefined;
+        }, delay);
+      }
+    );
+  }, [successfulProbeCount, vpnStatus]);
 
   const refused = issue === "refused" || issue === "capacity";
   const wasRefused = useRef(false);

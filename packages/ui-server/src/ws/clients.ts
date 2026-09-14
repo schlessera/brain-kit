@@ -12,6 +12,12 @@ export type WSContext = {
   raw?: unknown;
 };
 
+interface AttachedClient {
+  ws: WSContext;
+  principalId: string;
+  onRemove?: () => void;
+}
+
 function canSendRaw(raw: unknown): raw is { send: (data: string) => unknown } {
   return (
     typeof raw === "object" && raw !== null && "send" in raw && typeof raw.send === "function"
@@ -34,19 +40,27 @@ export class ClientSet {
   // Hono creates a new WSContext for every Bun open/message/close callback.
   // The raw socket remains stable across those wrappers, so it is the identity
   // that admission and removal must share.
-  private readonly clients = new Map<unknown, WSContext>();
+  private readonly clients = new Map<unknown, AttachedClient>();
 
-  constructor(readonly maxConnections = 32) {}
+  constructor(
+    readonly maxConnections = 32,
+    private readonly invalidateAuthorizations: (
+      principalIds: ReadonlySet<string>
+    ) => void = () => {}
+  ) {}
 
-  add(ws: WSContext): boolean {
+  add(ws: WSContext, principalId: string, options?: { onRemove?: () => void }): boolean {
     const identity = ws.raw ?? ws;
     if (!this.clients.has(identity) && this.clients.size >= this.maxConnections) return false;
-    this.clients.set(identity, ws);
+    this.clients.set(identity, { ws, principalId, ...options });
     return true;
   }
 
   remove(ws: WSContext): void {
-    this.clients.delete(ws.raw ?? ws);
+    const identity = ws.raw ?? ws;
+    const client = this.clients.get(identity);
+    this.clients.delete(identity);
+    client?.onRemove?.();
   }
 
   count(): number {
@@ -63,14 +77,45 @@ export class ClientSet {
   }
 
   /**
+   * Close and forget only sockets admitted for one principal.
+   */
+  closeFor(principalId: string, code: number, reason: string): void {
+    const closing: AttachedClient[] = [];
+    // Same boundary as closeAll: invalidate through the coordinator FIRST,
+    // while the socket-owned references still make every pending dispatch
+    // discoverable. Releasing them first would let a frame parsed before this
+    // call start a turn after it — measured as 0 starts before this became a
+    // registry, 1 after.
+    this.invalidateAuthorizations(new Set([principalId]));
+    for (const [identity, client] of this.clients) {
+      if (client.principalId !== principalId) continue;
+      this.clients.delete(identity);
+      client.onRemove?.();
+      closing.push(client);
+    }
+    for (const { ws } of closing) {
+      try {
+        ws.close?.(code, reason);
+      } catch {
+        // Best effort per socket; revocation of sibling sockets must continue.
+      }
+    }
+  }
+
+  /**
    * Close and forget every attached socket. The set is cleared before close
    * callbacks can run, and one broken socket cannot prevent the others from
    * being invalidated.
    */
   closeAll(code: number, reason: string): void {
     const clients = [...this.clients.values()];
+    // Forced closure is also an authorization boundary. Invalidate through
+    // the coordinator while socket-owned references still keep every pending
+    // dispatch discoverable; the loop below remains transport cleanup only.
+    this.invalidateAuthorizations(new Set(clients.map((client) => client.principalId)));
     this.clients.clear();
-    for (const ws of clients) {
+    for (const client of clients) client.onRemove?.();
+    for (const { ws } of clients) {
       try {
         ws.close?.(code, reason);
       } catch {
@@ -88,7 +133,7 @@ export class ClientSet {
   broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
-    for (const ws of this.clients.values()) {
+    for (const { ws } of this.clients.values()) {
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed
         // connection) rather than throwing, and hono's WSContext.send discards

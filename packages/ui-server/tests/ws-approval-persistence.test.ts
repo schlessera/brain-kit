@@ -12,7 +12,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, LocationFix } from "@schlessera/brain-ui-sdk/server";
-import { createWsHandlers } from "../src/ws/connection";
+import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
 import type { WSContext } from "../src/ws/clients";
 import {
   closeDb,
@@ -21,6 +21,10 @@ import {
   setBackendForTests,
   testHost,
 } from "./helpers/test-host";
+import { testPrincipal } from "./helpers/principal";
+
+const createWsHandlers = (host: ReturnType<typeof testHost>) =>
+  createAuthorizedWsHandlers(host, testPrincipal());
 
 interface TurnControl {
   toolUseId: string;
@@ -146,7 +150,8 @@ describe("approval persistence across disconnects", () => {
 
     // Reconnect: the card is re-delivered with its original identity.
     const c2 = fakeClient();
-    await handlers.onOpen(openEvt, c2.ws);
+    const reconnectedHandlers = createWsHandlers(host);
+    await reconnectedHandlers.onOpen(openEvt, c2.ws);
     const card = c2.sent.find((f) => f.type === "tool_approval_request") as
       | { toolUseId: string; toolName: string; turnId?: string }
       | undefined;
@@ -165,6 +170,7 @@ describe("approval persistence across disconnects", () => {
     expect(decision!.behavior).toBe("allow");
 
     controls[0]!.finish();
+    reconnectedHandlers.onClose(closeEvt, c2.ws);
   });
 
   test("an approval raised while NO client is attached parks and delivers on connect", async () => {
@@ -188,11 +194,13 @@ describe("approval persistence across disconnects", () => {
     expect(decision).toBeNull(); // parked, not denied
 
     const c2 = fakeClient();
-    await handlers.onOpen(openEvt, c2.ws);
+    const reconnectedHandlers = createWsHandlers(host);
+    await reconnectedHandlers.onOpen(openEvt, c2.ws);
     const card = c2.sent.find((f) => f.type === "tool_approval_request");
     expect(card).toBeDefined();
 
     controls[0]!.finish();
+    reconnectedHandlers.onClose(closeEvt, c2.ws);
   });
 
   test("a pending location request is REJECTED when the last client leaves", async () => {

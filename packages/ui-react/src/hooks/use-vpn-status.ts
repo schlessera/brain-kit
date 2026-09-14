@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   useConnectionStore,
   type VpnStatus,
@@ -39,6 +39,8 @@ export function recheckVpnStatus(): void {
 }
 
 export function useVpnStatus() {
+  const [successfulProbeCount, setSuccessfulProbeCount] = useState(0);
+
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
@@ -64,6 +66,9 @@ export function useVpnStatus() {
           useConnectionStore.getState().socketOpens !== opensAtStart;
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
           useConnectionStore.getState().setVpnStatus(status);
+          if (status === "connected") {
+            setSuccessfulProbeCount((count) => count + 1);
+          }
         }
       } finally {
         inFlight = false;
@@ -105,4 +110,6 @@ export function useVpnStatus() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
+
+  return successfulProbeCount;
 }

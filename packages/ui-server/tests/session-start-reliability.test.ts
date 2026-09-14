@@ -4,6 +4,7 @@ import { createWsHandlers } from "../src/ws/connection";
 import { handleClientMessage } from "../src/ws/dispatch";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { testAuthorization, testPrincipal } from "./helpers/principal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -14,6 +15,9 @@ async function until(check: () => boolean) {
 }
 const hosts: WsHost[] = [];
 afterEach(() => { for (const host of hosts.splice(0)) host.coordinator.reset(); });
+const principal = testPrincipal();
+const connection = { principal, authorization: testAuthorization(principal.id) };
+
 function setup(start: (req: StartTurnRequest) => Promise<void>, routing = Promise.resolve()) {
   const backend = makeFakeBackend({ id: "fake", startTurn: start });
   backend.listProfiles = async () => { await routing; return [{ id: "fake", label: "Fake" }]; };
@@ -24,7 +28,7 @@ function setup(start: (req: StartTurnRequest) => Promise<void>, routing = Promis
   hosts.push(host);
   const sent: ServerMessage[] = [];
   const ws = { send(raw: string) { sent.push(JSON.parse(raw)); } };
-  host.clients.add(ws);
+  host.clients.add(ws, principal.id);
   return { host, sent, ws, backend };
 }
 
@@ -34,8 +38,8 @@ test("wire dispatch echoes the correct draft ids to both clients", async () => {
   });
   const other: ServerMessage[] = [];
   const second = { send(raw: string) { other.push(JSON.parse(raw)); } };
-  host.clients.add(second);
-  const handlers = createWsHandlers(host);
+  host.clients.add(second, principal.id);
+  const handlers = createWsHandlers(host, principal);
   handlers.onMessage(new MessageEvent("message", { data: JSON.stringify({ type: "chat_message", text: "one", draftId: "draft-one" }) }), ws);
   handlers.onMessage(new MessageEvent("message", { data: JSON.stringify({ type: "chat_message", text: "two", draftId: "draft-two" }) }), second);
   await until(() => sent.filter(f => f.type === "session_info").length === 2);
@@ -51,8 +55,8 @@ test("messages arriving during routing become ordered turns in one reserved sess
     started.push(req);
     await (started.length === 1 ? first.promise : second.promise);
   }, routing.promise);
-  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" });
-  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same", client: { formFactor: "phone" } });
+  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" }, connection);
+  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same", client: { formFactor: "phone" } }, connection);
   expect(host.coordinator.startingSessions).toBe(1);
   expect(host.coordinator.startingBySession.get("same")?.queue).toHaveLength(1);
   expect(sent.some(f => f.type === "status" && f.status === "queued")).toBe(true);
@@ -63,7 +67,7 @@ test("messages arriving during routing become ordered turns in one reserved sess
   expect(started.map(req => req.prompt)).toEqual(["first", "second"]);
   expect(started[1].client?.formFactor).toBe("phone");
   expect(host.coordinator.bySession.has("same")).toBe(true);
-  await handleClientMessage(host, ws, { type: "cancel", sessionId: "same" });
+  await handleClientMessage(host, ws, { type: "cancel", sessionId: "same" }, connection);
   expect(started[1].signal.aborted).toBe(true);
   second.release(); await until(() => host.coordinator.running.size === 0);
   expect(host.coordinator.bySession.size).toBe(0);
@@ -72,9 +76,9 @@ test("messages arriving during routing become ordered turns in one reserved sess
 test("cancelling a routing reservation drops queued work and never starts the backend", async () => {
   const routing = gate(); let starts = 0;
   const { host, ws } = setup(async () => { starts++; }, routing.promise);
-  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" });
-  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same" });
-  await handleClientMessage(host, ws, { type: "cancel", sessionId: "same" });
+  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" }, connection);
+  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same" }, connection);
+  await handleClientMessage(host, ws, { type: "cancel", sessionId: "same" }, connection);
   routing.release(); await until(() => host.coordinator.startingSessions === 0);
   expect(starts).toBe(0);
   expect(host.coordinator.startingBySession.size).toBe(0);
@@ -83,8 +87,8 @@ test("cancelling a routing reservation drops queued work and never starts the ba
 test("routing queues enforce the same depth cap and release a failed reservation", async () => {
   const routing = gate();
   const { host, ws, sent } = setup(async () => {}, routing.promise.then(() => { throw new Error("routing unavailable"); }));
-  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" });
-  for (let i = 0; i < 51; i++) await handleClientMessage(host, ws, { type: "chat_message", text: `queued ${i}`, sessionId: "same" });
+  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" }, connection);
+  for (let i = 0; i < 51; i++) await handleClientMessage(host, ws, { type: "chat_message", text: `queued ${i}`, sessionId: "same" }, connection);
   expect(host.coordinator.startingBySession.get("same")?.queue).toHaveLength(50);
   expect(sent.some(f => f.type === "error" && f.code === "SESSION_QUEUE_FULL")).toBe(true);
   routing.release(); await until(() => host.coordinator.startingSessions === 0);
@@ -102,10 +106,10 @@ test("native follow-ups cannot overtake messages queued during routing", async (
   }, routing.promise);
   backend.capabilities.followUp = true;
   backend.followUp = async () => { injected++; };
-  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" });
-  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same" });
+  await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" }, connection);
+  await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same" }, connection);
   routing.release(); await until(() => prompts.length === 1);
-  await handleClientMessage(host, ws, { type: "chat_message", text: "third", sessionId: "same" });
+  await handleClientMessage(host, ws, { type: "chat_message", text: "third", sessionId: "same" }, connection);
   first.release(); await until(() => host.coordinator.running.size === 0);
   expect(prompts).toEqual(["first", "second", "third"]);
   expect(injected).toBe(0);

@@ -114,8 +114,20 @@ export function makeBridge(
         // The decision stamps the wait/execution boundary on the tool span
         // (grant) or lands the denied outcome (deny) before the backend's
         // own error tool_result can mislabel it — write-once protects it.
-        const recorded = (decision: PermissionDecision) => {
-          recorder?.onApprovalDecision(req.toolUseId, decision.behavior === "allow");
+        const recorded = (
+          decision: PermissionDecision,
+          response?: { principalId: string; always?: boolean }
+        ) => {
+          recorder?.onApprovalDecision(
+            req.toolUseId,
+            decision.behavior === "deny"
+              ? "deny"
+              : response?.always
+                ? "always_allow"
+                : "allow",
+            req.kind ?? "tool",
+            response?.principalId
+          );
           resolve(decision);
         };
         coordinator.pendingApprovals.set(req.toolUseId, {

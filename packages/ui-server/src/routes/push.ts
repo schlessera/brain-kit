@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
+import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
@@ -26,10 +27,10 @@ const unsubscribeSchema = z.object({
   endpoint: z.url().max(2048),
 });
 
-export function createPushRoutes(deps: { sender: PushSender }): Hono {
+export function createPushRoutes(deps: { sender: PushSender }) {
   const { sender } = deps;
 
-  return new Hono()
+  return new Hono<AppEnv>()
     .get("/push/public-key", (c) => {
       try {
         return c.json({ publicKey: sender.publicKey() });
@@ -45,7 +46,7 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
       try {
         // Endpoints are capability URLs — list only metadata.
         return c.json({
-          subscriptions: sender.subscriptions().map((s) => ({
+          subscriptions: sender.subscriptions(c.get("principal")!.id).map((s) => ({
             label: s.label,
             createdAt: s.createdAt,
             lastUsedAt: s.lastUsedAt,
@@ -66,7 +67,10 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
         const result = await readJsonBody(c);
         if (result instanceof Response) return result;
         const body = subscribeSchema.parse(result);
-        sender.subscribe(body.subscription, body.label);
+        const principal = c.get("principal")!;
+        if (!sender.subscribe(body.subscription, principal.id, body.label)) {
+          return c.json({ error: "Authentication required" }, 401);
+        }
         return c.json({ ok: true });
       } catch (err) {
         return c.json(
@@ -81,7 +85,9 @@ export function createPushRoutes(deps: { sender: PushSender }): Hono {
         const result = await readJsonBody(c);
         if (result instanceof Response) return result;
         const body = unsubscribeSchema.parse(result);
-        return c.json({ removed: sender.unsubscribe(body.endpoint) });
+        return c.json({
+          removed: sender.unsubscribe(body.endpoint, c.get("principal")!.id),
+        });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Bad request" },
