@@ -1,8 +1,9 @@
 import { Suspense, lazy } from "react";
-import { KeyRound, Puzzle, SlidersHorizontal } from "lucide-react";
+import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
+import { usePrincipalStore } from "../../stores/principal-store.js";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -13,12 +14,14 @@ import { cn } from "../../lib/utils.js";
  */
 const ModelsTab = lazy(() => import("./models-tab.js").then((m) => ({ default: m.ModelsTab })));
 const PasskeyTab = lazy(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
+const DevicesAgentsTab = lazy(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
 const SkillsTab = lazy(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof KeyRound }> = [
   { id: "models", label: "Models", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", icon: Puzzle },
   { id: "security", label: "Security", icon: KeyRound },
+  { id: "devices", label: "Devices & agents", icon: Laptop },
 ];
 
 /**
@@ -35,19 +38,29 @@ export function SettingsPanel({
 }) {
   const tab = useUIStore((s) => s.settingsTab);
   const setTab = useUIStore((s) => s.setSettingsTab);
+  const mintPending = usePrincipalStore((s) => s.mintPending);
+  const oneTimeCredential = usePrincipalStore((s) => s.oneTimeCredential);
+  const credentialProtected = mintPending || oneTimeCredential !== null;
+
+  function closeIfSafe() {
+    if (!credentialProtected) onClose();
+  }
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Settings">
+    <SlidePanel open={open} onClose={closeIfSafe} title="Settings" wide>
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 gap-1 border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => {
+                if (!credentialProtected) setTab(id);
+              }}
+              disabled={credentialProtected && tab !== id}
               aria-selected={tab === id}
               role="tab"
               className={cn(
-                "flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors",
+                "flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 tab === id
                   ? "border-b-2 border-primary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -65,8 +78,10 @@ export function SettingsPanel({
               <ModelsTab active={open && tab === "models"} />
             ) : tab === "skills" ? (
               <SkillsTab active={open && tab === "skills"} />
-            ) : (
+            ) : tab === "security" ? (
               <PasskeyTab active={open && tab === "security"} />
+            ) : (
+              <DevicesAgentsTab active={open && tab === "devices"} />
             )}
           </Suspense>
         </div>

@@ -8,8 +8,8 @@
 import { unregisterDom } from "./dom.js";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
-import { createElement, forwardRef, type ReactNode } from "react";
+import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
+import { createElement, forwardRef, useState, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
   ActivityRunRollup,
@@ -41,8 +41,12 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
+import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
+import { AppShell } from "../../src/components/layout/app-shell.js";
 import { useConnectionStore } from "../../src/stores/connection-store.js";
 import { useProviderStore } from "../../src/stores/provider-store.js";
+import { usePrincipalStore } from "../../src/stores/principal-store.js";
 
 // happy-dom rejects an animation's `finished` promise when a mounted gate
 // changes branches. These tests exercise the rendered state transitions, not
@@ -103,12 +107,22 @@ afterAll(async () => {
 
 const realFetch = globalThis.fetch;
 const RealWebSocket = globalThis.WebSocket;
+const realConfirm = window.confirm;
+const realClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+const realDateNow = Date.now;
 const realGraphFetchMeta = useGraphStore.getInitialState().fetchMeta;
 const realGraphFetchScene = useGraphStore.getInitialState().fetchScene;
 
 afterEach(() => {
   globalThis.fetch = realFetch;
   globalThis.WebSocket = RealWebSocket;
+  window.confirm = realConfirm;
+  Date.now = realDateNow;
+  if (realClipboard) {
+    Object.defineProperty(navigator, "clipboard", realClipboard);
+  } else {
+    Reflect.deleteProperty(navigator, "clipboard");
+  }
   history.replaceState(null, "", "/");
   clearGraphSceneCache();
   useActivityStore.setState({
@@ -144,6 +158,7 @@ afterEach(() => {
     activeView: "chat",
     filePanelOpen: false,
     settingsPanelOpen: false,
+    settingsTab: "models",
   });
   useConnectionStore.setState({
     wsStatus: "disconnected",
@@ -159,6 +174,11 @@ afterEach(() => {
     pinnedId: null,
     backends: {},
     loaded: false,
+  });
+  usePrincipalStore.setState({
+    mintPending: false,
+    mintError: null,
+    oneTimeCredential: null,
   });
 });
 
@@ -1784,5 +1804,405 @@ describe("ZoomViewer", () => {
     expect(getByText("zoomed content")).toBeTruthy();
     fireEvent.click(getByTitle("Close"));
     expect(closed).toBe(1);
+  });
+});
+
+function principalResponse(principals: unknown[]): Response {
+  return Response.json({ principals });
+}
+
+function SettingsHarness() {
+  const [open, setOpen] = useState(true);
+  return (
+    <AppShell>
+      <SettingsPanel open={open} onClose={() => setOpen(false)} />
+    </AppShell>
+  );
+}
+
+function StoreSettingsHarness() {
+  const open = useUIStore((state) => state.settingsPanelOpen);
+  const setOpen = useUIStore((state) => state.setSettingsPanelOpen);
+  return (
+    <AppShell>
+      <SettingsPanel open={open} onClose={() => setOpen(false)} />
+    </AppShell>
+  );
+}
+
+describe("DevicesAgentsTab", () => {
+  test("renders active rows with every timestamp, marks this device, and has an empty state", async () => {
+    const now = Date.UTC(2026, 8, 14, 12);
+    Date.now = () => now;
+    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+      principalResponse([
+        {
+          id: "owner-principal",
+          kind: "owner",
+          auth_method: "password",
+          label: "Firefox on laptop",
+          created_at: now - 2 * 60 * 60 * 1000,
+          last_seen_at: now - 5 * 60 * 1000,
+          expires_at: now + 6 * 24 * 60 * 60 * 1000,
+          is_own: true,
+        },
+        {
+          id: "agent-principal",
+          kind: "agent",
+          auth_method: "delegated",
+          label: "Build agent",
+          created_at: now - 60 * 1000,
+          last_seen_at: null,
+          expires_at: now + 24 * 60 * 60 * 1000,
+          is_own: false,
+        },
+      ])) as typeof fetch;
+
+    const page = render(
+      <AppShell>
+        <DevicesAgentsTab active />
+      </AppShell>
+    );
+    await act(flushPromises);
+
+    expect(page.getByText("Firefox on laptop")).toBeTruthy();
+    expect(page.getByText("Build agent")).toBeTruthy();
+    expect(page.getByText("This device")).toBeTruthy();
+    expect(page.getByText("Agent")).toBeTruthy();
+    // Searching the whole page for each string passes even when Created and
+    // Expires are swapped, which is exactly the mis-mapping this is for. Read
+    // each value from its own <dt>'s sibling, per row.
+    const valueFor = (rowLabel: string, field: string): string | null => {
+      const row = page.getByText(rowLabel).closest("li, div[data-principal-row]");
+      const terms = [...(row?.querySelectorAll("dt") ?? [])];
+      const dt = terms.find((node) => node.textContent?.trim() === field);
+      return dt?.nextElementSibling?.textContent?.trim() ?? null;
+    };
+
+    expect(valueFor("Firefox on laptop", "Created")).toBe("2h ago");
+    expect(valueFor("Firefox on laptop", "Last seen")).toBe("5m ago");
+    expect(valueFor("Firefox on laptop", "Expires")).toBe("in 6d");
+    expect(valueFor("Build agent", "Created")).toBe("1m ago");
+    expect(valueFor("Build agent", "Last seen")).toBe("Never");
+    expect(valueFor("Build agent", "Expires")).toBe("in 1d");
+    expect(page.queryByText("No active devices or agents.")).toBeNull();
+
+    cleanup();
+    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+      principalResponse([])) as typeof fetch;
+    const emptyPage = render(<DevicesAgentsTab active />);
+    await act(flushPromises);
+    expect(emptyPage.getByText("No active devices or agents.")).toBeTruthy();
+  });
+
+  test("shows a minted credential once and never restores it after dismissal or refetch", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    let listRequests = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init });
+      if (init?.method === "POST") {
+        return Response.json({
+          id: "new-agent",
+          label: "Release helper",
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          cookie: "one-time-secret-value",
+        });
+      }
+      listRequests++;
+      return principalResponse(
+        listRequests === 1
+          ? []
+          : [
+              {
+                id: "new-agent",
+                kind: "agent",
+                auth_method: "delegated",
+                label: "Release helper",
+                created_at: Date.now(),
+                expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000,
+                last_seen_at: null,
+                is_own: false,
+              },
+            ]
+      );
+    }) as typeof fetch;
+    const copied: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => void copied.push(value) },
+    });
+
+    const page = render(
+      <AppShell>
+        <DevicesAgentsTab active />
+      </AppShell>
+    );
+    await act(flushPromises);
+    changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Release helper");
+    fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
+    await act(flushPromises);
+
+    expect(page.getByRole("dialog")).toBeTruthy();
+    expect(page.getByText("This is the only time you will see this value.")).toBeTruthy();
+    expect(page.getByText("one-time-secret-value")).toBeTruthy();
+    expect(page.getByRole("button", { name: "Done" }).hasAttribute("disabled")).toBe(true);
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(page.getByText("one-time-secret-value")).toBeTruthy();
+
+    fireEvent.click(page.getByRole("button", { name: "Copy credential" }));
+    await act(flushPromises);
+    expect(copied).toEqual(["one-time-secret-value"]);
+    fireEvent.click(page.getByRole("checkbox"));
+    fireEvent.click(page.getByRole("button", { name: "Done" }));
+    expect(page.queryByText("one-time-secret-value")).toBeNull();
+    expect(page.getByText("Release helper")).toBeTruthy();
+
+    page.rerender(
+      <AppShell>
+        <DevicesAgentsTab active={false} />
+      </AppShell>
+    );
+    page.rerender(
+      <AppShell>
+        <DevicesAgentsTab active />
+      </AppShell>
+    );
+    await act(flushPromises);
+    expect(page.queryByText("one-time-secret-value")).toBeNull();
+    expect(requests.some(({ init }) => init?.body === JSON.stringify({ label: "Release helper", ttlDays: 7 }))).toBe(true);
+  });
+
+  test("portals the one-time value and blocks panel dismissal until acknowledgement", async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Response.json({
+          id: "protected-agent",
+          label: "Protected agent",
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          cookie: "protected-one-time-value",
+        });
+      }
+      return principalResponse([]);
+    }) as typeof fetch;
+    useUIStore.setState({ settingsTab: "devices" });
+
+    const page = render(<SettingsHarness />);
+    await act(flushPromises);
+    changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Protected agent");
+    fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
+    await act(flushPromises);
+
+    const dialog = page.getByRole("dialog");
+    expect(dialog.parentElement).toBe(document.body);
+    expect(page.getByText("protected-one-time-value")).toBeTruthy();
+    const backdrop = page.baseElement.querySelector(".fixed.inset-0.z-40");
+    expect(backdrop).toBeTruthy();
+    fireEvent.click(backdrop!);
+    expect(page.getByText("protected-one-time-value")).toBeTruthy();
+
+    fireEvent.click(page.getByRole("checkbox"));
+    fireEvent.click(page.getByRole("button", { name: "Done" }));
+    fireEvent.click(backdrop!);
+    expect(page.baseElement.querySelector(".fixed.inset-0.z-40")).toBeNull();
+  });
+
+  test("keeps a delayed mint response after its tab unmounts", async () => {
+    const mint = deferred<Response>();
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return mint.promise;
+      if (String(input).endsWith("/auth/passkey/list")) {
+        return Response.json({ credentials: [] });
+      }
+      return principalResponse([]);
+    }) as typeof fetch;
+    useUIStore.setState({ settingsTab: "devices" });
+
+    const page = render(<SettingsHarness />);
+    await act(flushPromises);
+    changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Delayed agent");
+    fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
+
+    const securityTab = page.getByRole("tab", { name: "Security" });
+    expect(securityTab.hasAttribute("disabled")).toBe(true);
+    act(() => useUIStore.getState().setSettingsTab("security"));
+    expect(useUIStore.getState().settingsTab).toBe("security");
+    // Suspense hides the old tab while the lazy Security tab loads, so an
+    // absent heading does NOT prove the devices tab unmounted — and this test
+    // only means something if it did. Wait for the new tab's own content, and
+    // for the mint form to be gone, before resolving.
+    await act(flushPromises);
+    await waitFor(() => {
+      expect(page.queryByLabelText("Label")).toBeNull();
+    });
+
+    await act(async () => {
+      mint.resolve(
+        Response.json({
+          id: "delayed-agent",
+          label: "Delayed agent",
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          cookie: "delayed-one-time-value",
+        })
+      );
+      await flushPromises();
+    });
+
+    expect(page.getByText("delayed-one-time-value")).toBeTruthy();
+
+    fireEvent.click(page.getByRole("checkbox"));
+    fireEvent.click(page.getByRole("button", { name: "Done" }));
+    expect(page.queryByText("delayed-one-time-value")).toBeNull();
+  });
+
+  test("keeps a delayed mint response after the real Settings button closes the panel", async () => {
+    const mint = deferred<Response>();
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return mint.promise;
+      return principalResponse([]);
+    }) as typeof fetch;
+    useUIStore.setState({ settingsPanelOpen: true, settingsTab: "devices" });
+
+    const page = render(<StoreSettingsHarness />);
+    await act(flushPromises);
+    changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Sidebar agent");
+    fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
+
+    const settingsButton = page.getByTitle("Settings");
+    settingsButton.focus();
+    expect(document.activeElement).toBe(settingsButton);
+    fireEvent.click(settingsButton);
+    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    expect(page.queryByLabelText("Label")).toBeNull();
+
+    await act(async () => {
+      mint.resolve(
+        Response.json({
+          id: "sidebar-agent",
+          label: "Sidebar agent",
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          cookie: "sidebar-one-time-value",
+        })
+      );
+      await flushPromises();
+    });
+
+    expect(page.getByRole("dialog")).toBeTruthy();
+    expect(page.getByText("sidebar-one-time-value")).toBeTruthy();
+    fireEvent.click(page.getByRole("checkbox"));
+    fireEvent.click(page.getByRole("button", { name: "Done" }));
+    expect(page.queryByText("sidebar-one-time-value")).toBeNull();
+  });
+
+  test("revokes the selected row and warns before revoking this device", async () => {
+    const now = Date.now();
+    const requests: Array<{ url: string; method: string | undefined }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, method: init?.method });
+      if (init?.method === "DELETE") return Response.json({ ok: true });
+      return principalResponse([
+        {
+          id: "own/id",
+          kind: "owner",
+          auth_method: "password",
+          label: "Current laptop",
+          created_at: now,
+          expires_at: now + 60_000,
+          last_seen_at: now,
+          is_own: true,
+        },
+        {
+          id: "phone/id",
+          kind: "owner",
+          auth_method: "passkey",
+          label: "Phone",
+          created_at: now,
+          expires_at: now + 60_000,
+          last_seen_at: now,
+          is_own: false,
+        },
+      ]);
+    }) as typeof fetch;
+    const confirmations: string[] = [];
+    window.confirm = (message?: string) => {
+      confirmations.push(message ?? "");
+      return message?.startsWith("That device") ?? false;
+    };
+
+    const page = render(<DevicesAgentsTab active />);
+    await act(flushPromises);
+    fireEvent.click(page.getByRole("button", { name: "Revoke Phone" }));
+    await act(flushPromises);
+    expect(confirmations[0]).toContain("That device will be signed out immediately");
+    expect(requests).toContainEqual({
+      url: "/api/auth/principals/phone%2Fid",
+      method: "DELETE",
+    });
+    expect(page.queryByText("Phone")).toBeNull();
+
+    const deletesBeforeOwn = requests.filter(({ method }) => method === "DELETE").length;
+    fireEvent.click(page.getByRole("button", { name: "Revoke Current laptop" }));
+    expect(confirmations[1]).toContain(
+      "This device will be signed out immediately, and you will return to sign in"
+    );
+    expect(requests.filter(({ method }) => method === "DELETE")).toHaveLength(deletesBeforeOwn);
+  });
+
+  test("renders an HTML-shaped label as bounded text, never markup", async () => {
+    const malicious = '<img src=x onerror="alert(1)">' + "x".repeat(80);
+    const displayed = Array.from(malicious).slice(0, 64).join("");
+    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+      principalResponse([
+        {
+          id: "html-label",
+          kind: "agent",
+          auth_method: "delegated",
+          label: malicious,
+          created_at: Date.now(),
+          expires_at: Date.now() + 60_000,
+          last_seen_at: null,
+          is_own: false,
+        },
+      ])) as typeof fetch;
+
+    const page = render(<DevicesAgentsTab active />);
+    await act(flushPromises);
+    expect(page.getByText(displayed).textContent).toBe(displayed);
+    expect(page.baseElement.textContent).not.toContain(malicious);
+    expect(page.baseElement.querySelector("img")).toBeNull();
+  });
+
+  test("explains ambient auth instead of showing a broken or empty list", async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+      Response.json({ error: "Principal management is not enabled" }, { status: 400 })) as typeof fetch;
+
+    const page = render(<DevicesAgentsTab active />);
+    await act(flushPromises);
+    expect(
+      page.getByText(
+        "Devices and agents can only be managed when password authentication is enabled."
+      )
+    ).toBeTruthy();
+    expect(page.queryByText("No active devices or agents.")).toBeNull();
+  });
+
+  test("surfaces a failed request as an error rather than an empty list", async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+      Response.json({ error: "Database unavailable" }, { status: 500 })) as typeof fetch;
+
+    const page = render(<DevicesAgentsTab active />);
+    await act(flushPromises);
+    expect(page.getByRole("alert").textContent).toBe("Database unavailable");
+    expect(page.queryByText("No active devices or agents.")).toBeNull();
   });
 });

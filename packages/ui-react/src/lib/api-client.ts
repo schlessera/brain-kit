@@ -81,6 +81,26 @@ export interface BackendInfo {
   };
 }
 
+/** One active browser/device or delegated agent credential. */
+export interface PrincipalSummary {
+  id: string;
+  kind: "owner" | "agent" | "ambient" | "system";
+  auth_method: "password" | "passkey" | "delegated" | "ambient";
+  label: string;
+  created_at: number;
+  expires_at: number;
+  last_seen_at: number | null;
+  is_own: boolean;
+}
+
+/** The response to minting an agent. `cookie` is intentionally returned once. */
+export interface MintedAgent {
+  id: string;
+  label: string;
+  expiresAt: number;
+  cookie: string;
+}
+
 /** Auth status of one configured pi provider (mirror of the server view). */
 export interface PiAuthProviderStatus {
   providerId: string;
@@ -447,6 +467,20 @@ export const api = {
 
   logout: () =>
     fetchJson<{ ok: true }>("/auth/logout", { method: "POST" }),
+
+  principals: () =>
+    fetchJson<{ principals: PrincipalSummary[] }>("/auth/principals"),
+
+  principalMint: (label: string, ttlDays: number) =>
+    fetchJson<MintedAgent>("/auth/principals", {
+      method: "POST",
+      body: JSON.stringify({ label, ttlDays }),
+    }),
+
+  principalRevoke: (id: string) =>
+    fetchJson<{ ok: true }>(`/auth/principals/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 
   /** Which login methods the server offers (public; drives the login screen). */
   authMethods: () =>

@@ -3,6 +3,7 @@ import { SideRail } from "./side-rail.js";
 import { MobileTabBar } from "./mobile-tab-bar.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
+import { OneTimeAgentCredentialDialog } from "../settings/one-time-agent-credential.js";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <MobileTabBar />
+      <OneTimeAgentCredentialDialog />
     </div>
   );
 }

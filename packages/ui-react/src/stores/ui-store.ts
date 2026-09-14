@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /** Which tab the settings panel opens on. */
-export type SettingsTab = "models" | "skills" | "security";
+export type SettingsTab = "models" | "skills" | "security" | "devices";
 
 /** Full-screen surface currently shown inside the AppShell. */
 export type ActiveView = "chat" | "graph" | "activity";
