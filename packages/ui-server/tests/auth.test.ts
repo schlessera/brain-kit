@@ -43,6 +43,10 @@ beforeAll(async () => {
 
 afterAll(() => DB.close());
 
+beforeEach(() => {
+  DB.exec("DELETE FROM principals");
+});
+
 const CAN_BIND_LOOPBACK = (() => {
   try {
     const server = Bun.serve({

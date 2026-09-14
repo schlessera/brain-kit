@@ -42,11 +42,14 @@ export {
 export {
   authGuard,
   bumpSessionsEpoch,
+  hasValidSession,
   isWsAuthorized,
   resolveAuthMode,
   type AuthMode,
   type AuthRuntime,
 } from "./middleware/auth.js";
+
+export { type Principal } from "./db/principals.js";
 
 // The app's own SQLite database (sessions, passkeys, settings).
 export { createUiDb } from "./db/client.js";

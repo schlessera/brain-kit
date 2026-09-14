@@ -9,6 +9,14 @@ import type { AuthConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
 import { setSetting } from "../db/settings.js";
+import {
+  createPrincipal,
+  isUsablePrincipal,
+  resolvePrincipal,
+  revokeAllPrincipals,
+  touchLastSeen,
+  type Principal,
+} from "../db/principals.js";
 import type { ClientSet } from "../ws/clients.js";
 
 /**
@@ -44,7 +52,7 @@ export interface AuthRuntime extends AuthConfig {
 }
 
 const COOKIE_NAME = "brain_ui_session";
-const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const SESSIONS_EPOCH_KEY = "auth.sessionsEpoch";
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
@@ -232,7 +240,7 @@ export async function isWsAuthorized(
     case "proxy":
       return hasProxyAuth(c, auth);
     case "password":
-      return hasValidSession(c, auth, db);
+      return (await hasValidSession(c, auth, db)) !== null;
   }
 }
 
@@ -246,11 +254,17 @@ export async function isWsAuthorized(
 export async function issueSessionCookie(
   c: Context,
   auth: AuthRuntime,
-  db: Database
+  db: Database,
+  principalId: string
 ): Promise<void> {
   const secret = auth.cookieSecret ?? "";
-  const epoch = sessionsEpoch(db);
-  await setSignedCookie(c, COOKIE_NAME, `${Date.now()}.${epoch}`, secret, {
+  const principal = resolvePrincipal(db, principalId);
+  const now = Date.now();
+  if (!principal || !isUsablePrincipal(principal, now)) {
+    throw new Error(`Cannot issue a session cookie for unusable principal ${principalId}`);
+  }
+  const maxAge = Math.floor((principal.expiresAt - now) / 1_000);
+  await setSignedCookie(c, COOKIE_NAME, principal.id, secret, {
     httpOnly: true,
     sameSite: "Strict",
     // Always Secure — every real deployment serves over HTTPS, and we do not
@@ -258,47 +272,42 @@ export async function issueSessionCookie(
     // over plaintext. (Local password testing must use https/localhost.)
     secure: true,
     path: "/",
-    maxAge: SESSION_TTL_SECONDS,
+    maxAge,
   });
 }
 
-async function hasValidSession(
+/**
+ * Resolve the principal named by a valid session cookie. Signature and payload
+ * shape are checked before the principal store is queried.
+ */
+export async function hasValidSession(
   c: Context,
   auth: AuthRuntime,
   db: Database
-): Promise<boolean> {
+): Promise<Principal | null> {
   const secret = auth.cookieSecret ?? "";
-  if (!secret) return false;
+  if (!secret) return null;
   let value: string | false | undefined;
   try {
     value = await getSignedCookie(c, secret, COOKIE_NAME);
   } catch {
-    return false;
+    return null;
   }
-  if (typeof value !== "string" || value.length === 0) return false;
-
-  // Both fields are decimal integers. Requiring the exact shape rejects every
-  // pre-epoch cookie instead of accidentally interpreting its timestamp as a
-  // current session.
-  const match = /^(\d+)\.(\d+)$/.exec(value);
-  if (!match) return false;
-  const issuedAt = Number(match[1]);
-  const cookieEpoch = Number(match[2]);
-  if (!Number.isSafeInteger(issuedAt) || !Number.isSafeInteger(cookieEpoch)) {
-    return false;
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(value)) {
+    return null;
   }
-  const ageSeconds = (Date.now() - issuedAt) / 1000;
-  if (ageSeconds < 0 || ageSeconds >= SESSION_TTL_SECONDS) return false;
 
-  // Deliberately outside the cookie-parser catch: corrupt authoritative auth
-  // state refuses loudly and must never degrade to epoch zero.
-  return cookieEpoch === sessionsEpoch(db);
+  // Deliberately after signature and shape verification, and outside the
+  // cookie-parser catch: arbitrary ids cannot drive reads, while corrupt
+  // authoritative state fails only the principal whose signed cookie names it.
+  const principal = resolvePrincipal(db, value);
+  const now = Date.now();
+  if (!principal || !isUsablePrincipal(principal, now)) return null;
+  touchLastSeen(db, principal.id, now);
+  return principal;
 }
 
-/**
- * Read authoritative session state. A missing row is first-run epoch zero;
- * any present row that is not a non-negative safe integer is corruption.
- */
+/** Read the legacy downgrade epoch so {@link bumpSessionsEpoch} can advance it. */
 function sessionsEpoch(db: Database): number {
   const row = db
     .query("SELECT value FROM settings WHERE key = ?")
@@ -317,13 +326,22 @@ function sessionsEpoch(db: Database): number {
   return value as number;
 }
 
-/** Invalidate every issued session and disconnect every attached client. */
+/**
+ * Revoke every principal, advance the legacy epoch, and disconnect every
+ * attached client. This remains the sign-out-everywhere primitive in 0.35.0;
+ * P5 narrows passkey deletion to revokeByCredential.
+ *
+ * The 0.35.0 session-principals verifier never reads this row. The write is a
+ * downgrade guard so rolling back to v1 does not revive pre-upgrade cookies;
+ * delete this compatibility helper and the epoch row in the 0.36.0 release.
+ */
 export function bumpSessionsEpoch(db: Database, clients: ClientSet): number {
   const current = sessionsEpoch(db);
   if (current === Number.MAX_SAFE_INTEGER) {
     throw new Error(`${SESSIONS_EPOCH_KEY} cannot be advanced safely`);
   }
   const next = current + 1;
+  revokeAllPrincipals(db, Date.now());
   setSetting(db, SESSIONS_EPOCH_KEY, next);
   clients.closeAll(SESSION_REVOKED_CLOSE_CODE, SESSION_REVOKED_CLOSE_REASON);
   return next;
@@ -633,7 +651,15 @@ export function authRoutes(
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    await issueSessionCookie(c, auth, deps.db);
+    // TODO(P4/U4): centralize login principal lineage, labels, pruning, and cap
+    // handling. U2 creates the minimum owner principal needed by the new cookie.
+    const principal = createPrincipal(deps.db, {
+      kind: "owner",
+      authMethod: "password",
+      label: "Password login",
+      ttlSeconds: SESSION_TTL_SECONDS,
+    });
+    await issueSessionCookie(c, auth, deps.db, principal.id);
     log?.emit({
       severityText: "INFO",
       body: "login succeeded",
@@ -646,7 +672,9 @@ export function authRoutes(
     if (mode === "password" && !(await hasValidSession(c, auth, deps.db))) {
       return c.json({ error: "Authentication required", authRequired: true }, 401);
     }
-    if (mode === "password") bumpSessionsEpoch(deps.db, deps.clients);
+    if (mode === "password") {
+      bumpSessionsEpoch(deps.db, deps.clients);
+    }
     deleteCookie(c, COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });
   });

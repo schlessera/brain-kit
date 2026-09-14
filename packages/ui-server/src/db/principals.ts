@@ -141,7 +141,21 @@ export function resolvePrincipal(db: Database, id: string): Principal | null {
 }
 
 export function isUsablePrincipal(row: Principal, now: number): boolean {
+  assertPrincipalTimestamp(row, "created_at", row.createdAt, false);
+  assertPrincipalTimestamp(row, "expires_at", row.expiresAt, false);
+  assertPrincipalTimestamp(row, "last_seen_at", row.lastSeenAt, true);
+  assertPrincipalTimestamp(row, "revoked_at", row.revokedAt, true);
   return row.revokedAt === null && now < row.expiresAt;
+}
+
+function assertPrincipalTimestamp(
+  row: Principal,
+  column: string,
+  value: number | null,
+  nullable: boolean
+): void {
+  if ((nullable && value === null) || Number.isSafeInteger(value)) return;
+  throw new Error(`Corrupt principal ${row.id}: ${column} must be an integer`);
 }
 
 export function touchLastSeen(db: Database, id: string, now: number): void {

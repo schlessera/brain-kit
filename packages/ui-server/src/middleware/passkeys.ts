@@ -17,6 +17,7 @@ import type {
 import {
   type AuthMode,
   type AuthRuntime,
+  SESSION_TTL_SECONDS,
   issueSessionCookie,
   consumeLoginToken,
   isLoginBlocked,
@@ -26,6 +27,7 @@ import {
   releasePasskeyVerification,
   bumpSessionsEpoch,
 } from "./auth.js";
+import { createPrincipal } from "../db/principals.js";
 import { clientIp } from "./tailscale.js";
 import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
@@ -433,7 +435,15 @@ export function passkeyPublicRoutes(
       return fail();
     }
 
-    await issueSessionCookie(c, ctx.auth, ctx.db);
+    // TODO(P4/U4): centralize login principal lineage, labels, pruning, and cap
+    // handling. U2 creates the minimum owner principal needed by the new cookie.
+    const principal = createPrincipal(ctx.db, {
+      kind: "owner",
+      authMethod: "passkey",
+      label: "Passkey login",
+      ttlSeconds: SESSION_TTL_SECONDS,
+    });
+    await issueSessionCookie(c, ctx.auth, ctx.db, principal.id);
     return c.json({ ok: true });
   });
 

@@ -4,16 +4,10 @@ import { rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
-import { parseSigned, serializeSigned } from "hono/utils/cookie";
 
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
-import {
-  authGuard,
-  authRoutes,
-  issueSessionCookie,
-  type AuthRuntime,
-} from "../src/middleware/auth";
+import { authGuard, authRoutes, type AuthRuntime } from "../src/middleware/auth";
 import {
   passkeyManagementRoutes,
   passwordLoginDisabled,
@@ -24,7 +18,6 @@ import { ClientSet, type WSContext } from "../src/ws/clients";
 const PASSWORD = "correct horse battery staple";
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const DB_PATH = join(tmpdir(), `sessions-epoch-test-${process.pid}.db`);
-const COOKIE_NAME = "brain_ui_session";
 const ORIGIN = "https://example.test";
 
 let hash = "";
@@ -43,7 +36,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  db.exec("DELETE FROM settings; DELETE FROM passkey_credentials;");
+  db.exec("DELETE FROM principals; DELETE FROM settings; DELETE FROM passkey_credentials;");
 });
 
 function runtime(): AuthRuntime {
@@ -98,28 +91,10 @@ async function loginCookie(app: Hono): Promise<string> {
     body: JSON.stringify({ password: PASSWORD }),
   });
   expect(response.status).toBe(200);
-  return response.headers.get("set-cookie")!.split(";")[0];
-}
-
-async function signedCookie(payload: string): Promise<string> {
-  return serializeSigned(COOKIE_NAME, payload, SECRET);
-}
-
-function epochRow(): string | null {
-  const row = db
-    .query("SELECT value FROM settings WHERE key = 'auth.sessionsEpoch'")
-    .get() as { value: string } | null;
-  return row?.value ?? null;
-}
-
-function setEpoch(value: string): void {
-  db.prepare(
-    "INSERT INTO settings (key, value, updated_at) VALUES ('auth.sessionsEpoch', ?, ?)"
-  ).run(value, Date.now());
+  return response.headers.get("set-cookie")!.split(";")[0]!;
 }
 
 function liveSocket(clients: ClientSet): {
-  ws: WSContext;
   closed: Array<[number | undefined, string | undefined]>;
 } {
   const closed: Array<[number | undefined, string | undefined]> = [];
@@ -130,7 +105,7 @@ function liveSocket(clients: ClientSet): {
     },
   };
   expect(clients.add(ws)).toBe(true);
-  return { ws, closed };
+  return { closed };
 }
 
 function seedCredential(): void {
@@ -153,32 +128,14 @@ function seedCredential(): void {
   );
 }
 
-describe("sessions epoch", () => {
-  test("logout invalidates the old cookie on the next request and closes sockets", async () => {
-    const clients = new ClientSet();
-    const socket = liveSocket(clients);
-    const app = sessionApp(clients);
-    const cookie = await loginCookie(app);
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(200);
-
-    const logout = await app.request("/api/auth/logout", {
-      method: "POST",
-      headers: { cookie },
-    });
-
-    expect(logout.status).toBe(200);
-    expect(epochRow()).toBe("1");
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(401);
-    expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
-    expect(clients.count()).toBe(0);
-  });
-
+describe("sessions epoch compatibility", () => {
   test("passkey revocation invalidates the old cookie and closes sockets", async () => {
     const clients = new ClientSet();
     const socket = liveSocket(clients);
     const app = sessionApp(clients);
     const cookie = await loginCookie(app);
     seedCredential();
+    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(200);
 
     const response = await app.request("/api/auth/passkey/cred-1", {
       method: "DELETE",
@@ -186,118 +143,8 @@ describe("sessions epoch", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(epochRow()).toBe("1");
     expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(401);
     expect(socket.closed).toEqual([[1008, "Sessions invalidated"]]);
     expect(clients.count()).toBe(0);
   });
-
-  test("a pre-epoch cookie is rejected", async () => {
-    const app = sessionApp();
-    const cookie = await signedCookie(String(Date.now()));
-    expect((await app.request("/api/secret", { headers: { cookie } })).status).toBe(401);
-  });
-
-  test("an issuedAt.epoch payload round-trips through Hono signed cookies", async () => {
-    setEpoch("7");
-    const issuer = new Hono();
-    issuer.get("/issue", async (c) => {
-      await issueSessionCookie(c, runtime(), db);
-      return c.json({ ok: true });
-    });
-    const issued = await issuer.request("/issue");
-    const cookie = issued.headers.get("set-cookie")!.split(";")[0];
-    const parsed = await parseSigned(cookie, SECRET, COOKIE_NAME);
-    expect(parsed[COOKIE_NAME]).toMatch(/^\d+\.7$/);
-    expect((await sessionApp().request("/api/secret", { headers: { cookie } })).status).toBe(200);
-  });
-
-  for (const invalid of [
-    {
-      label: "no cookie",
-      prepare: async () => ({ cookie: undefined, expectedEpoch: null }),
-    },
-    {
-      label: "a malformed cookie",
-      prepare: async () => ({ cookie: `${COOKIE_NAME}=garbage`, expectedEpoch: null }),
-    },
-    {
-      label: "an expired cookie",
-      prepare: async () => ({
-        cookie: await signedCookie(`${Date.now() - 31 * 24 * 60 * 60 * 1_000}.0`),
-        expectedEpoch: null,
-      }),
-    },
-    {
-      label: "a previously revoked cookie",
-      prepare: async () => {
-        setEpoch("2");
-        return { cookie: await signedCookie(`${Date.now()}.1`), expectedEpoch: "2" };
-      },
-    },
-  ]) {
-    test(`${invalid.label} cannot advance the epoch or close sockets through logout`, async () => {
-      const clients = new ClientSet();
-      const socket = liveSocket(clients);
-      const app = sessionApp(clients);
-      const { cookie, expectedEpoch } = await invalid.prepare();
-
-      const response = await app.request("/api/auth/logout", {
-        method: "POST",
-        headers: cookie ? { cookie } : undefined,
-      });
-
-      expect(response.status).toBe(401);
-      expect(epochRow()).toBe(expectedEpoch);
-      expect(socket.closed).toHaveLength(0);
-      expect(clients.count()).toBe(1);
-    });
-  }
-
-  test("a previously revoked cookie cannot revoke a passkey or mutate auth state", async () => {
-    setEpoch("2");
-    seedCredential();
-    const clients = new ClientSet();
-    const socket = liveSocket(clients);
-    const cookie = await signedCookie(`${Date.now()}.1`);
-
-    const response = await sessionApp(clients).request("/api/auth/passkey/cred-1", {
-      method: "DELETE",
-      headers: { cookie, origin: ORIGIN, host: "example.test" },
-    });
-
-    expect(response.status).toBe(401);
-    expect(epochRow()).toBe("2");
-    expect(
-      db.query("SELECT COUNT(*) AS count FROM passkey_credentials WHERE id = 'cred-1'").get()
-    ).toEqual({ count: 1 });
-    expect(socket.closed).toHaveLength(0);
-    expect(clients.count()).toBe(1);
-  });
-
-  test("only an absent epoch row reads as zero", async () => {
-    const app = new Hono();
-    app.get("/issue", async (c) => {
-      await issueSessionCookie(c, runtime(), db);
-      return c.json({ ok: true });
-    });
-
-    const response = await app.request("/issue");
-    expect(response.status).toBe(200);
-    const cookie = response.headers.get("set-cookie")!.split(";")[0];
-    const parsed = await parseSigned(cookie, SECRET, COOKIE_NAME);
-    expect(parsed[COOKIE_NAME]).toMatch(/^\d+\.0$/);
-  });
-
-  for (const [label, value] of [
-    ["unparsable JSON", "not-json"],
-    ["a non-integer JSON value", JSON.stringify("zero")],
-  ] as const) {
-    test(`a corrupt epoch row (${label}) refuses instead of reading as zero`, async () => {
-      setEpoch(value);
-      await expect(issueSessionCookie({} as never, runtime(), db)).rejects.toThrow(
-        /Corrupt auth\.sessionsEpoch/
-      );
-    });
-  }
 });

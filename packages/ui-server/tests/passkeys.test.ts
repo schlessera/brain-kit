@@ -45,6 +45,7 @@ beforeEach(() => {
   clients = new ClientSet();
   getDb().exec("DELETE FROM passkey_credentials");
   getDb().exec("DELETE FROM settings");
+  getDb().exec("DELETE FROM principals");
 });
 
 const getDb = () => db;
