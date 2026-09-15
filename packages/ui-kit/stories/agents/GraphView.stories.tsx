@@ -1,0 +1,102 @@
+import preview from "#.storybook/preview";
+import { expect } from "storybook/test";
+
+import { graphEdges, graphLegend, graphMeta, graphNodes } from "../../fixtures/search.js";
+import { GraphView } from "../../src/agents/GraphView.js";
+import { overflowing, stage, wide } from "../_stage.js";
+
+const meta = preview.meta({
+  title: "Agents/GraphView",
+  component: GraphView,
+  decorators: [stage],
+  args: {
+    nodes: graphNodes,
+    edges: graphEdges,
+    legend: graphLegend,
+    label: "Neighbourhood",
+    meta: graphMeta,
+    minHeight: 240,
+  },
+  argTypes: { minHeight: { control: { type: "range", min: 160, max: 420, step: 10 } } },
+});
+
+/**
+ * The second of the search screen's three views, and an answer to the same
+ * question the result list answers. The focus node is the thing that was asked
+ * about; everything else is one or two hops from it.
+ */
+export const Default = meta.story({});
+
+/** Tall enough to spread out. `minHeight` is the only sizing knob — the width
+ * is always the container's, because a graph in a column is a column wide. */
+export const Tall = Default.extend({ args: { minHeight: 380 } });
+
+export const Wide = Default.extend({ parameters: wide });
+
+/** No explicit pairs: every node is joined to the focus node and nothing else,
+ * which is the shape a 1-hop neighbourhood actually has. */
+export const OneHop = Default.extend({ args: { edges: [], meta: "1-hop · 8 nodes" } });
+
+/** The chrome is optional. Without a legend the box is just the graph, which is
+ * what an inline answer block wants. */
+export const NoChrome = Default.extend({ args: { label: "", legend: [], meta: "" } });
+
+/**
+ * Two edge weights, and the difference is load-bearing. Every node gets a
+ * brighter edge to the focus node; `edges` adds the dimmer hairline between
+ * pairs. So "related to what you asked" and "related to each other" are
+ * distinguishable without reading a key.
+ */
+export const EdgesComeInTwoWeights = meta.story({
+  play: async ({ canvasElement }) => {
+    const lines = [...canvasElement.querySelectorAll<SVGLineElement>("line")];
+    // 7 spokes from the focus node + 10 explicit pairs.
+    await expect(lines).toHaveLength(graphNodes.length - 1 + graphEdges.length);
+    const strokes = new Set(lines.map((l) => getComputedStyle(l).stroke));
+    await expect(strokes.size).toBe(2);
+  },
+});
+
+/** The focus node is the only tinted one, and it is bigger and heavier. Node
+ * colour is entity type; the focus treatment is on top of that, not instead. */
+export const FocusIsDistinct = meta.story({
+  play: async ({ canvas }) => {
+    const focus = await canvas.findByText(graphNodes[0].label);
+    const other = await canvas.findByText(graphNodes[1].label);
+    await expect(getComputedStyle(focus).fontWeight).toBe("600");
+    await expect(getComputedStyle(other).fontWeight).toBe("500");
+    await expect(getComputedStyle(focus).backgroundColor).not.toBe(getComputedStyle(other).backgroundColor);
+  },
+});
+
+/**
+ * The box clips, so nothing can escape it — but a node at `x: 100` would sit
+ * half outside and be silently cut. `overflowing()` cannot see through
+ * `overflow: hidden`, so this asserts the node rectangles against the box
+ * directly.
+ */
+export const NodesStayInside = meta.story({
+  play: async ({ canvasElement }) => {
+    const box = canvasElement.querySelector<HTMLElement>("div > div")!;
+    await expect(overflowing(box)).toEqual([]);
+    const bounds = box.getBoundingClientRect();
+    const escaped: string[] = [];
+    for (const label of graphNodes.map((n) => n.label)) {
+      const el = [...box.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent === label);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.left < bounds.left - 1 || r.right > bounds.right + 1) escaped.push(`${label} is clipped horizontally`);
+      if (r.top < bounds.top - 1 || r.bottom > bounds.bottom + 1) escaped.push(`${label} is clipped vertically`);
+    }
+    await expect(escaped).toEqual([]);
+  },
+});
+
+/** A graph is a view, not a menu: no roles and no tab stops. Making nodes
+ * navigable is the Files/Search wave's, and it needs a design first. */
+export const Static = meta.story({
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector("[role]")).toBeNull();
+    await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+  },
+});
