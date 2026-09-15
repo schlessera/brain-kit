@@ -1,0 +1,49 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Introduction" />
+
+# brain-kit design kit
+
+Presentational components only: props in, callbacks out. No stores, no
+`fetch`, no ambient configuration, no browser globals — `bun run lint` enforces
+that through `scripts/check-kit-purity.ts` rather than leaving it to review.
+
+## Foundations
+
+The token set is in `packages/ui-kit/src/theme.css`, reproduced from the design
+catalog rather than reinvented. Three things about it are deliberate and easy to
+"tidy" into a bug:
+
+- **The spacing set is irregular.** 2 · 4 · 6 · 8 · 10 · 12 · 14 · 16 · 18 · 20 ·
+  26, and the gap rule is stated as ranges — 7-9 inside cards, 10-12 between
+  cards, 14-18 between groups. It is not a 4px grid and must not be rounded into
+  one.
+- **Three radius steps are ranges** whose ends both ship: option 11-12, card
+  13-14, panel 16-18. The `-tight` token is the low end of each.
+- **Ink never comes from alpha.** Hierarchy is weight and size. `ink`, `ink-dim`
+  and `ink-mute` are the only source of ink; alpha-muted ink drops 9-12px type
+  below 4.5:1. Accent tints (4-10%) and accent borders (30-50%) are tokens for
+  the same reason — so no component hand-rolls one.
+
+One keyframe, `breathe`, declared once. "The only ambient motion. Nothing else
+moves on its own."
+
+## Accessibility
+
+`parameters.a11y.test` is currently `'todo'`: violations warn here and fail
+nothing in CI. The design ships no focus or hover states, so they are designed
+in a dedicated wave instead of being invented during the port. Until that wave
+flips the parameter to `'error'`, a green pipeline is not an accessibility
+claim.
+
+## Status
+
+Wave 1 has landed: the eleven primitives plus `Placeholder`, ported from the
+design's `.dc.html` sources. `Icon` is the one component whose DC behaviour was
+deliberately not ported — the original mutated the DOM outside React through
+`window.lucide.createIcons()`; this one renders `lucide-react` components, so
+the glyph follows from the prop.
+
+Fixture content is the Odyssey (D19): Odysseus's second brain, played straight.
+Ancient problems, modern organisational tools. It is deliberately, obviously
+fictional, which is the property that makes real data leaking in obvious.
