@@ -1,0 +1,145 @@
+import type { CSSProperties } from "react";
+
+import { Button } from "../primitives/Button.js";
+import { Chip } from "../primitives/Chip.js";
+import { DiffBlock } from "../primitives/DiffBlock.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
+import { accent, color, font, token } from "../tokens.js";
+
+/**
+ * Confirm-before-action, inline in the transcript.
+ *
+ * Amber means the agent is asking permission. It always shows the real tool,
+ * the real target and the real diff, and the risk line states the blast radius
+ * in plain words. **Never use this for anything that is not actually
+ * blocking** — the design is explicit, and a card that asks for permission it
+ * does not need teaches people to tap through the ones that matter.
+ *
+ * The shell is `Surface`'s `bold` emphasis in amber, to the value: a 2px 40%
+ * border over a 5% tint. It reads those tokens rather than minting its own,
+ * because "needs a decision" is one thing in this kit and not two.
+ *
+ * `allowEffect` is not decoration. The design's non-negotiable rule: a control
+ * that writes exposes its effect chip as part of its accessible name —
+ * "Fetch once, enqueue" — which is what `Button`'s `effect` renders.
+ *
+ * No interaction states on the card itself: the card is not pressable, the two
+ * buttons inside it are, and each brings wave 1's.
+ *
+ * THE TWO BUTTONS SPLIT THE ROW, and they have to be told to. `Button` defaults
+ * to `block`, which is `width: 100%` plus `flex: none` — full width, and
+ * refuses to shrink — so two of them in a flex row each demand the whole row
+ * and the second overflows the card.
+ *
+ * This card shipped with that bug, and the reason it was invisible is the
+ * `sc-host` decision rather than anything about Buttons. Under the DC runtime
+ * the flex items were the wrapper divs and each Button was a block child
+ * INSIDE one, so `width: 100%` resolved against a shrink-to-fit box and came
+ * out content-sized — measured at 155px and 65px, in a row that did not
+ * overflow. Dropping the wrapper made `width: 100%` live for the first time.
+ * (It is NOT the deleted `hint-size="50%,36px"`: that is dead on a settled
+ * render, in the source and on the page.)
+ *
+ * `flex: 1 1 0` is a deliberate divergence from what DC actually drew. Its
+ * content-sized render was an accident of the wrapper; the 50%/50% the author
+ * saw in their editor is the only statement of intent there is, and a wide
+ * Allow beside a narrow Deny is the worse of the two.
+ */
+export interface ApprovalCardProps {
+  /** The real tool name. */
+  tool?: string;
+  /** The real target: a path, a host, an identifier. */
+  target?: string;
+  toolIcon?: IconName;
+  badge?: string;
+  /** The real diff, rendered inset. */
+  diff?: string;
+  /** The blast radius, in plain words. */
+  risk?: string;
+  allowLabel?: string;
+  denyLabel?: string;
+  /** The effect chip on the allow button. */
+  allowEffect?: string;
+  onAllow?: () => void;
+  onDeny?: () => void;
+}
+
+export function ApprovalCard(p: ApprovalCardProps) {
+  const box: CSSProperties = {
+    border: `2px solid ${token("surface-border-amber")}`,
+    background: token("surface-tint-amber"),
+    borderRadius: 14,
+    padding: 12,
+    boxSizing: "border-box",
+    width: "100%",
+  };
+  const head: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    font: `500 11.5px/1.3 ${font.mono}`,
+    color: color.ink,
+  };
+  const toolStyle: CSSProperties = { flex: "none", fontWeight: 600 };
+  const targetStyle: CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    color: color.inkMute,
+    fontWeight: 400,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  const badgeWrap: CSSProperties = { flex: "none", display: "flex" };
+  const diffWrap: CSSProperties = { margin: "9px 0 8px" };
+  const riskRow: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 9,
+    font: `400 10.5px/1.5 ${font.mono}`,
+    color: accent.gold.ink,
+  };
+  const actions: CSSProperties = { display: "flex", gap: 8 };
+  /** An even split, which is what the source's two 50% hints meant. */
+  const half: CSSProperties = { flex: "1 1 0", width: "auto" };
+
+  const diff = p.diff ?? "- seats: 40\n+ seats: 24\n- format: talk (45 min)\n+ format: workshop (90 min)";
+  const risk = p.risk ?? "overwrites a field referenced by 2 other docs";
+
+  return (
+    <div style={box}>
+      <div style={head}>
+        <Icon icon={p.toolIcon || "edit"} size={14} color={accent.amber.ink} />
+        <span style={toolStyle}>{p.tool ?? "Edit"}</span>
+        <span style={targetStyle}>{p.target ?? "talks/lisbon-2026.md"}</span>
+        <span style={badgeWrap}>
+          <Chip label={p.badge || "Approval needed"} tone="amber" variant="soft" mono={false} />
+        </span>
+      </div>
+      {diff ? (
+        <div style={diffWrap}>
+          <DiffBlock text={diff} variant="inset" />
+        </div>
+      ) : null}
+      {risk ? (
+        <div style={riskRow}>
+          <Icon icon="failed" size={12} color={accent.gold.ink} />
+          {risk}
+        </div>
+      ) : null}
+      <div style={actions}>
+        <Button
+          label={p.allowLabel || "Allow"}
+          tone="primary"
+          size="md"
+          center
+          effect={p.allowEffect}
+          style={half}
+          onClick={p.onAllow}
+        />
+        <Button label={p.denyLabel || "Deny"} tone="danger" size="md" center style={half} onClick={p.onDeny} />
+      </div>
+    </div>
+  );
+}
