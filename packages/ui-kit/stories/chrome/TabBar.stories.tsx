@@ -226,3 +226,66 @@ export const MixedGating = meta.story({
     await expect(await canvas.findAllByRole("tab")).toHaveLength(1);
   },
 });
+
+/**
+ * ONE TAB STOP, NOT FIVE.
+ *
+ * The bar is a `tablist`, and a `tablist` is a single stop in the page's tab
+ * order with the arrow keys moving inside it. Until this landed every slot was
+ * `tabIndex={0}`, so a screen carrying this and a `SideRail` cost **ten tab
+ * presses before any content** and the ←→ keys were redundant with Tab rather
+ * than being the way you move (`.plan/design-feedback.md` §11).
+ *
+ * The stop is the ACTIVE slot, so tabbing in puts you where you already are.
+ */
+export const OneTabStop = meta.story({
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(5);
+    await expect(canvasElement.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
+    await expect(tabs[1]).toHaveAttribute("tabindex", "0");
+    for (const i of [0, 2, 3, 4]) await expect(tabs[i]).toHaveAttribute("tabindex", "-1");
+
+    // Tab in lands on the active slot; Tab again leaves the bar entirely.
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(tabs[1]);
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/**
+ * The stop FOLLOWS THE CARET, which is the half of the pattern that is easy to
+ * miss: after arrowing to Files, leaving and coming back returns you to Files
+ * rather than to the active slot. Without it the arrow keys move focus and then
+ * the next Tab silently undoes them.
+ */
+export const TheStopFollowsTheCaret = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    tabs[1].focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    await expect(document.activeElement).toBe(tabs[3]);
+    await expect(tabs[3]).toHaveAttribute("tabindex", "0");
+    await expect(tabs[1]).toHaveAttribute("tabindex", "-1");
+  },
+});
+
+/**
+ * THE HAZARD, and why the stop is not simply the active slot.
+ *
+ * A group whose items are all `tabIndex={-1}` is not harder to reach, it is
+ * unreachable — and that is exactly what "the active item is the stop" gives
+ * you the moment the active item has no handler. Here slot 1 is the amber one
+ * and carries no callback, so the stop falls to the first slot that does.
+ */
+export const AnUnreachableActiveSlotDoesNotStrandTheBar = meta.story({
+  args: { items: [ITEMS[0], { ...ITEMS[1] }, { ...ITEMS[2], onClick: fn() }], active: 1 },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(1);
+    await expect(tabs[0]).toHaveAttribute("tabindex", "0");
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(true);
+  },
+});

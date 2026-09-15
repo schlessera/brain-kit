@@ -180,3 +180,52 @@ export const Static = meta.story({
     await expect(await canvas.findByText("6")).toBeTruthy();
   },
 });
+
+/**
+ * ONE TAB STOP, NOT FIVE — the vertical half of §11.
+ *
+ * The rail and the `TabBar` used to cost five tab presses each, which is where
+ * the ten in `Rules/Keyboard reachability` came from. Tab reaches the rail once
+ * and lands on the active destination; ↑↓ move inside it; Tab leaves. The
+ * wordmark, the spend meter and the ⌘K cap are not controls and were never
+ * stops, so the whole rail is one.
+ */
+export const OneTabStop = meta.story({
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(5);
+    await expect(canvasElement.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    await expect(tabs[1]).toHaveAttribute("tabindex", "0");
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(tabs[1]);
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/** The stop follows the caret, so leaving the rail and coming back returns you
+ * to the destination you had arrowed to rather than to the active one. */
+export const TheStopFollowsTheCaret = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    tabs[1].focus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await expect(document.activeElement).toBe(tabs[3]);
+    await expect(tabs[3]).toHaveAttribute("tabindex", "0");
+    await expect(tabs[1]).toHaveAttribute("tabindex", "-1");
+  },
+});
+
+/** The hazard: the amber destination carries no callback, so the stop falls to
+ * the first one that does rather than leaving the rail unreachable. */
+export const AnUnreachableActiveRowDoesNotStrandTheRail = meta.story({
+  args: { items: [ITEMS[0], { ...ITEMS[1] }, { ...ITEMS[2], onClick: fn() }], active: 1 },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(1);
+    await expect(tabs[0]).toHaveAttribute("tabindex", "0");
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(true);
+  },
+});

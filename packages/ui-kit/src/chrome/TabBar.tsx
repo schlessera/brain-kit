@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { focusSibling, useRoving } from "../internal/roving.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 
@@ -54,6 +55,20 @@ import { accent, color, font, token } from "../tokens.js";
  * expanded box and can sit on an interactive neighbour's label; the
  * `MixedGating` story measures that the clear gap at phone width leaves room
  * for it, and `NarrowBarStealsTheClick` is what happens when it does not.
+ *
+ * ## One tab stop, not five
+ *
+ * The bar is a `tablist` and takes a roving tabindex ({@link useRoving}): Tab
+ * reaches the bar once and lands on the active slot, ←→ move inside it, and Tab
+ * again leaves for the next thing on the screen. Selection does not follow
+ * focus — a tab bar is a NAVIGATION, and arrowing onto Files must not navigate
+ * to Files — so ⏎ / space stay the activation, which is the manual-activation
+ * half of the pattern. `FilterRow` is the other half and takes the opposite
+ * answer, for the reason its own doc gives.
+ *
+ * In a mixed bar the stop is the active slot only if the active slot has a
+ * handler; otherwise it is the first slot that does, so a bar whose amber item
+ * is decorative is still reachable.
  */
 export interface TabItem {
   icon: IconName;
@@ -80,7 +95,9 @@ const FALLBACK: TabItem[] = [
 export function TabBar(p: TabBarProps) {
   const src = p.items || FALLBACK;
   const active = Number(p.active ?? 1);
-  const anyInteractive = src.some((it) => Boolean(it.onClick));
+  const eligible = src.map((it) => Boolean(it.onClick));
+  const anyInteractive = eligible.includes(true);
+  const roving = useRoving(eligible, active);
 
   function onKeyDown(event: KeyboardEvent<HTMLSpanElement>, index: number) {
     if (event.key === "Enter" || event.key === " ") {
@@ -91,10 +108,7 @@ export function TabBar(p: TabBarProps) {
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const tabs = [...(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"][tabindex]') ?? [])];
-    const here = tabs.indexOf(event.currentTarget);
-    if (here === -1 || tabs.length < 2) return;
-    tabs[(here + delta + tabs.length) % tabs.length].focus();
+    focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
   }
 
   const bar: CSSProperties = {
@@ -150,8 +164,9 @@ export function TabBar(p: TabBarProps) {
             className={act ? "bk-row bk-row-fg" : undefined}
             role={act ? "tab" : undefined}
             aria-selected={act ? on : undefined}
-            tabIndex={act ? 0 : undefined}
+            tabIndex={act ? roving.tabIndexFor(i) : undefined}
             onClick={it.onClick}
+            onFocus={act ? () => roving.onItemFocus(i) : undefined}
             onKeyDown={act ? (event) => onKeyDown(event, i) : undefined}
           >
             <Icon icon={it.icon} size={20} />

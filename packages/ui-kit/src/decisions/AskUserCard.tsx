@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import { useRoving } from "../internal/roving.js";
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
 import { Icon } from "../primitives/Icon.js";
@@ -19,6 +20,14 @@ import { accent, color, font, token } from "../tokens.js";
  * group is announced by what it is asking. The group appears only when the
  * options are interactive — a list of options with no callbacks is a record of
  * a choice already made, and reads as one.
+ *
+ * **It also owns the group's roving tabindex.** A `radiogroup` is one tab stop
+ * with ↑↓ inside it, and `ChoiceOption` cannot decide which option holds that
+ * stop because it cannot see its siblings — so the card computes it and passes
+ * `tabStop`. The stop is the selected option, or the last one focused, or the
+ * first interactive one when nothing is selected, which is the clause that
+ * keeps an unanswered question reachable. {@link useRoving} carries the
+ * reasoning.
  *
  * No interaction states of its own. It is a container; the things inside it are
  * the controls, and each brings its own.
@@ -79,8 +88,13 @@ export function AskUserCard(p: AskUserCardProps) {
   const tone = p.tone || "teal";
   const hue = ACCENTS[tone] || ACCENTS.teal;
   const options = p.options || FALLBACK;
-  const interactive = options.some((o) => Boolean(o.onClick));
+  const eligible = options.map((o) => Boolean(o.onClick));
+  const interactive = eligible.includes(true);
   const questionId = `${p.id ?? "ask"}-question`;
+  // `selected` is a per-option flag rather than an index, and a caller can set
+  // it on none of them — which is the common case for a question nobody has
+  // answered yet. `-1` then falls through to `useRoving`'s first-eligible rule.
+  const roving = useRoving(eligible, options.findIndex((o) => o.selected === true));
 
   const box: CSSProperties = {
     border: `1px solid ${BORDERS[tone] || BORDERS.teal}`,
@@ -136,7 +150,9 @@ export function AskUserCard(p: AskUserCardProps) {
             mono={o.mono}
             italic={o.italic}
             dim={o.dim}
+            tabStop={interactive ? roving.stop === i : undefined}
             onClick={o.onClick}
+            onFocus={o.onClick ? () => roving.onItemFocus(i) : undefined}
           />
         ))}
       </div>

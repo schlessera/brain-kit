@@ -123,3 +123,64 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },
 });
+
+/**
+ * ONE TAB STOP FOR THE WHOLE QUESTION.
+ *
+ * The card owns the `radiogroup`, so it owns the roving tabindex too: Tab lands
+ * on the selected option, ↑↓ move between the three, Tab leaves for the Dismiss
+ * and Submit buttons. `ChoiceOption` cannot decide this for itself — it is one
+ * option and cannot see its siblings — so the card computes it and passes
+ * `tabStop`.
+ */
+export const OneTabStopForTheGroup = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const group = await canvas.findByRole("radiogroup");
+    const radios = [...group.querySelectorAll<HTMLElement>('[role="radio"]')];
+    await expect(radios).toHaveLength(3);
+    await expect(group.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    // The selected option is the stop, so tabbing in puts you on your answer.
+    await expect(radios[0]).toHaveAttribute("tabindex", "0");
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(radios[0]);
+    // Out of the group in one press, into the card's own buttons.
+    await userEvent.tab();
+    await expect(group.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/** The stop follows the caret: arrow down, leave, come back, and you are where
+ * you left off rather than back on the selected option. */
+export const TheStopFollowsTheCaret = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const group = await canvas.findByRole("radiogroup");
+    const radios = [...group.querySelectorAll<HTMLElement>('[role="radio"]')];
+    radios[0].focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(document.activeElement).toBe(radios[1]);
+    await expect(radios[1]).toHaveAttribute("tabindex", "0");
+    await expect(radios[0]).toHaveAttribute("tabindex", "-1");
+  },
+});
+
+/**
+ * THE HAZARD, and the reason the stop is not just "the selected option".
+ *
+ * A question nobody has answered yet has NO selected option — which is the
+ * common case, not an edge one — and "the selected option is the stop" would
+ * leave every option at `tabIndex={-1}` and the whole question unreachable from
+ * the keyboard. The stop falls to the first interactive option instead.
+ */
+export const AnUnansweredQuestionIsStillReachable = meta.story({
+  args: { options: askOptions.map((o) => ({ ...o, selected: false, onClick: fn() })) },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const group = await canvas.findByRole("radiogroup");
+    await expect(group.querySelectorAll('[aria-checked="true"]')).toHaveLength(0);
+    await expect(group.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(true);
+    await expect(document.activeElement).toBe(group.querySelector('[role="radio"]'));
+  },
+});

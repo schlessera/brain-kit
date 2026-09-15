@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { focusSibling, useRoving } from "../internal/roving.js";
 import { accent, color, font, token } from "../tokens.js";
 
 /**
@@ -21,6 +22,20 @@ import { accent, color, font, token } from "../tokens.js";
  *
  * Gating is per item, not per row: a row of decorative pills has no tablist, no
  * roles and no tab stops.
+ *
+ * ## One tab stop, not one per pill
+ *
+ * The row takes a roving tabindex ({@link useRoving}): Tab reaches the row once
+ * and lands on the selected pill, ←→ move inside it, Tab leaves. This is the
+ * component where **automatic activation is right** and {@link TabBar}'s manual
+ * activation would be wrong — arrowing through filters IS filtering, and the
+ * pattern's own rule is that automatic activation is for a group whose items
+ * are cheap and instant to apply.
+ *
+ * Because activation follows focus, the arrow handler acts on the ELEMENT it
+ * just focused rather than on a positional guess into `items`: the DOM walk
+ * skips decorative pills, so in a mixed row the two indexes diverge and firing
+ * `items[n]` would filter by the wrong pill.
  */
 export interface FilterItem {
   label: string;
@@ -46,7 +61,9 @@ export function FilterRow(p: FilterRowProps) {
   const mono = p.mono !== false;
   const src = p.items || FALLBACK;
   const active = Number(p.active ?? 0);
-  const anyInteractive = src.some((item) => Boolean(item.onClick));
+  const eligible = src.map((item) => Boolean(item.onClick));
+  const anyInteractive = eligible.includes(true);
+  const roving = useRoving(eligible, active);
 
   const row: CSSProperties = {
     display: "flex",
@@ -65,13 +82,10 @@ export function FilterRow(p: FilterRowProps) {
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const tabs = [...(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"][tabindex]') ?? [])];
-    const here = tabs.indexOf(event.currentTarget);
-    if (here === -1 || tabs.length < 2) return;
-    const next = (here + delta + tabs.length) % tabs.length;
-    tabs[next].focus();
-    // Activation follows focus: arrowing through filters is filtering.
-    src[next]?.onClick?.();
+    const next = focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
+    // Activation follows focus: arrowing through filters is filtering. Driven
+    // off the element, not off an index into `items` — see the class doc.
+    next?.click();
   }
 
   return (
@@ -110,8 +124,9 @@ export function FilterRow(p: FilterRowProps) {
             className={act ? "bk-control" : undefined}
             role={act ? "tab" : undefined}
             aria-selected={act ? on : undefined}
-            tabIndex={act ? 0 : undefined}
+            tabIndex={act ? roving.tabIndexFor(i) : undefined}
             onClick={item.onClick}
+            onFocus={act ? () => roving.onItemFocus(i) : undefined}
             onKeyDown={act ? (event) => onKeyDown(event, i) : undefined}
           >
             {item.label}

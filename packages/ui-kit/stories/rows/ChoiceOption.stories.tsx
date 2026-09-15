@@ -115,3 +115,48 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector("[aria-checked]")).toBeNull();
   },
 });
+
+/**
+ * THE ROVING TABINDEX IS THE CALLER'S, AND THIS IS THE ESCAPE HATCH.
+ *
+ * `FilterRow`, `TabBar` and `SideRail` own their whole group and hold the
+ * roving state themselves. This component cannot: it is a single option, the
+ * `radiogroup` is its caller's markup, and it cannot see its siblings to know
+ * whether one of them is already the stop. So the group owner passes `tabStop`
+ * — `AskUserCard` does, and this is the hand-rolled equivalent.
+ *
+ * Omitting it leaves the option a stop, which is deliberate and is the only
+ * safe default: a component that cannot see its siblings must not assume one of
+ * them is reachable, and the failure that assumption causes is a group at
+ * `tabIndex={-1}` throughout, which is not harder to reach but unreachable.
+ */
+export const RovingGroup = meta.story({
+  render: (args) => (
+    <div
+      role="radiogroup"
+      aria-label="Where should the eagle omen live?"
+      style={{ display: "flex", flexDirection: "column", gap: 7, width: "100%" }}
+    >
+      {askOptions.map((o, i) => (
+        <ChoiceOption {...args} key={o.title} {...o} tabStop={o.selected === true || (i === 0 && !askOptions.some((x) => x.selected))} />
+      ))}
+    </div>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const options = await canvas.findAllByRole("radio");
+    await expect(canvasElement.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    await expect(options[0]).toHaveAttribute("tabindex", "0");
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(options[0]);
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(false);
+
+    // ↑↓ still reach every option: focus() does not consult tabIndex. A caller
+    // passing a STATIC tabStop gets one stop but not a caret-following one —
+    // that half needs the group's own state, which is what `AskUserCard` adds.
+    options[0].focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(document.activeElement).toBe(options[1]);
+  },
+});

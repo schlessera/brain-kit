@@ -21,6 +21,7 @@ it and reshapes the state architecture.
 | 2 | Rows, evidence, decision surfaces (14) | done |
 | 3 | In-chat blocks + conversation lifecycle (20) | done |
 | 4 | Agent views, chrome, desktop nav (12 + ScreenBody) | done |
+| 4b | Roving tabindex on the four composite widgets | done |
 | 5 | The four assembled screens — the acceptance test | not started |
 | 6 | D3 in-chat tool contracts | not started |
 | 6b | MapView coastline geometry (D25) | not started |
@@ -75,7 +76,9 @@ skill. It is not your change.
   every hit-target expansion on a bordered element is short by its border;
   `ContactCard` cannot express severity in a fact; `neutral` means four
   different things across four components; `AgentRunCard` has a fallback that
-  can never fire.
+  can never fire. §10's three unlanded key bindings need a WCAG 2.1.4 answer,
+  and §11 closed with one new question: whether `Home` / `End` should join the
+  role-and-keys table now that the groups are composite widgets.
 - The light theme is specified with a full token contract but **not wired** —
   the tokens exist with dark values and a `[data-theme="light"]` stub.
 - Whether the even 50/50 split on `ApprovalCard`'s buttons stands, or reverts to
@@ -100,16 +103,26 @@ renders that combination. `packages/ui-kit/tests/contrast.test.ts` exists for
 exactly this: it recomputes every figure from the tokens rather than waiting for
 a rendered pixel.
 
+## Roving tabindex, done — what it left behind
+
+`src/internal/roving.ts` holds `useRoving` and `focusSibling`. `TabBar`,
+`SideRail` and `FilterRow` each own their group and hold the state; `ChoiceOption`
+cannot — it is one option inside its caller's `radiogroup` — so it takes a
+`tabStop` prop and `AskUserCard` drives it. The navigation now costs **two tab
+presses, not ten**, and `stories/rules/Keyboard.stories.tsx` still asserts a list
+of names rather than a count.
+
+**The clause to not lose in a refactor:** the stop falls back to the FIRST
+ELIGIBLE item. Without it a group with nothing selected — an unanswered
+`AskUserCard`, which is its common state — is not harder to reach but completely
+unreachable. Four stories exist only to hold that clause down, and all four were
+proven by seeding the naive implementation. `design-feedback.md` §11 is now the
+record of the fix rather than of the defect.
+
+A real bug fell out: `FilterRow` fired `items[n]` with `n` from the DOM walk,
+which only visits interactive pills, so a mixed row filtered by the wrong one.
+
 ## What to do next
-
-Two candidates, in this order.
-
-**Roving tabindex** is the one wave 1b deliberately left and would do next:
-every `tab` and `radio` is currently its own tab stop where the ARIA pattern
-wants one stop per group — **ten tab presses past the navigation**, asserted as
-a literal list in `stories/rules/Keyboard.stories.tsx`. It was left alone on
-purpose: half-right makes a group with nothing selected completely unreachable,
-and each of the four components needs its own answer. `design-feedback.md` §11.
 
 **Wave 5** is the highest-value feature step: rebuild the catalog's four assembled
 screens from `ui-kit` alone. The design calls them "the test that a new surface

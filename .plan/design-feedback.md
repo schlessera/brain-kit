@@ -401,28 +401,99 @@ act on the focused card — but it needs saying, because the other reading (glob
 shortcuts on the screen) makes every one of these a conformance failure the
 moment a text field exists on the same screen. And a `Composer` always does.
 
-## 11. Every `tab` and `radio` in the kit is its own tab stop
+## 11. Every `tab` and `radio` in the kit was its own tab stop
 
-**Status:** not changed this wave. Implementation decision, flagged with its
-hazard. **This is the finding I would fix next.**
+**Status:** FIXED. Four components changed, one shared helper, and the two
+failure modes it could have caused are each asserted by their own story. No
+design answer needed — this was the implementation decision wave 1b deferred,
+not a question for the designer.
 
-`FilterRow`, `TabBar`, `SideRail` and `ChoiceOption` each render `tabIndex={0}`
+`FilterRow`, `TabBar`, `SideRail` and `ChoiceOption` each rendered `tabIndex={0}`
 on every item. The ARIA pattern for a `tablist` and a `radiogroup` is a **roving
-tabindex**: the group is ONE tab stop and the arrow keys move within it.
-
-The cost is visible in `stories/rules/Keyboard.stories.tsx`, which walks a screen
+tabindex**: the group is ONE tab stop and the arrow keys move within it. The cost
+was visible in `stories/rules/Keyboard.stories.tsx`, which walks a screen
 carrying both nav components: **ten tab presses to get past the navigation**
-before reaching any content. The arrow keys the design's table specifies are
-already wired and already move focus — so today they are redundant with Tab
-rather than being the way you move.
+before reaching any content. **It is two now**, and that story's expectation is
+still a list of names rather than a count, so it says which stops went.
 
-It was not changed in this wave because getting it half-right is worse than the
-current state: a group where nothing is selected, and whose items are all
-`tabIndex={-1}`, becomes **completely unreachable from the keyboard**. `FilterRow`
-can have several pills active at once and `ChoiceOption` can have none selected,
-so each of the four needs its own answer to "which item is the tab stop when the
-obvious one does not exist". That is a contained, reviewable change; it is not a
-thing to bolt onto the end of the wave whose job was the gate.
+### The shape of the fix
+
+`src/internal/roving.ts` holds `useRoving(eligible, selected)` and
+`focusSibling(from, delta, item, group?)`. The second one replaced four
+near-identical copies of the same DOM walk.
+
+The stop is resolved in three clauses, and the third is the one that matters:
+
+1. the last item inside the group that took focus, if it is still eligible —
+   this is what makes Tab return you to where you were rather than silently
+   undoing the arrow keys you just pressed;
+2. otherwise the selected item, if IT is eligible;
+3. otherwise **the first eligible item.**
+
+Eligibility is the kit's existing per-item gate. When nothing is eligible there
+is no stop at all, which is correct rather than a fallback failure — a group of
+decorative items has no tab stops, and `NothingIsReachableWithoutAHandler` still
+asserts it.
+
+### Why clause 3 is the whole finding
+
+Getting this half-right is worse than not doing it: a group where nothing is
+selected, and whose items are therefore all `tabIndex={-1}`, is not harder to
+reach — it is **unreachable from the keyboard entirely**. That is not an edge
+case. An `AskUserCard` whose question nobody has answered yet has no selected
+option, and it is the common state of the component.
+
+Each of the four has its own story for it, and each was proven by seeding the
+naive implementation and watching only those four fail:
+
+| Component | The unreachable case |
+|---|---|
+| `TabBar` | `AnUnreachableActiveSlotDoesNotStrandTheBar` — the amber slot has no handler |
+| `SideRail` | `AnUnreachableActiveRowDoesNotStrandTheRail` — same, vertically |
+| `FilterRow` | `AnUnreachableSelectedPillDoesNotStrandTheRow` |
+| `AskUserCard` | `AnUnansweredQuestionIsStillReachable` — no option selected |
+
+### `ChoiceOption` needed a different answer, because it is not a group
+
+The other three own their whole group and can hold the state. `ChoiceOption`
+cannot: it is a single option and the `radiogroup` is its caller's markup —
+the same fact that already stops it rendering the group role. It cannot see its
+siblings, so it cannot know whether one of them is already the stop.
+
+So the group owner passes `tabStop`, and `AskUserCard` does. **Omitting it leaves
+the option a tab stop**, which is the status quo and is the only safe default: a
+component that cannot see its siblings must not assume one of them is reachable.
+A hand-rolled group that never passes `tabStop` keeps every key the design's
+table specifies — arrow navigation uses `focus()`, which does not consult
+`tabIndex` — and pays only the extra stops. `ChoiceOption.stories`' `RovingGroup`
+is the hand-rolled equivalent, and says in its own body that a static `tabStop`
+buys one stop but not a caret-following one.
+
+`onFocus` was added alongside it, for the same reason: the group owner needs to
+know which option the caret is on to keep the stop there.
+
+### Activation: two components, two opposite answers, both already right
+
+`FilterRow` activates on focus — arrowing through filters *is* filtering — and
+`TabBar` / `SideRail` do not, because arrowing onto Files must not navigate to
+Files. Both were already implemented that way and neither changed.
+
+### One real bug fell out of it
+
+`FilterRow`'s arrow handler fired `items[n]` where `n` was an index into the
+**DOM walk**, and the walk only visits items that carry a role — the interactive
+ones. In a mixed row the two indexes diverge and arrowing filtered by the wrong
+pill. Activation now goes through the element the walk actually focused
+(`next.click()`), so there is no index to get wrong.
+`ActivationFollowsTheElementNotTheIndex` is the story, and it fails against the
+old handler.
+
+### What was deliberately not added
+
+`Home` / `End`, which the ARIA authoring practices recommend for a composite
+widget. They are not in the design's role-and-keys table, and D4 makes "no more
+than the design" a scope rule. Worth raising with the designer as an addition
+rather than shipping as a port.
 
 ## 12. A switch has no name, because the design draws it as pure geometry
 

@@ -73,10 +73,13 @@ export const TheWholeTable = meta.story({
       {/* Toggle — role=switch, space */}
       <Toggle label="Watch this folder" onClick={fn()} />
 
-      {/* ChoiceOption — role=radio inside a radiogroup, ↑↓ then space */}
+      {/* ChoiceOption — role=radio inside a radiogroup, ↑↓ then space. The
+          group is hand-rolled here, so the roving tabindex is hand-rolled too:
+          `tabStop` is the caller's to set, because one option cannot see its
+          siblings. `AskUserCard` is the component that does this for you. */}
       <div role="radiogroup" aria-label="Where should it go">
-        <ChoiceOption title="omens/day-3651-eagle.md" selected mono mark onClick={fn()} />
-        <ChoiceOption title="people/penelope.md" mono mark onClick={fn()} />
+        <ChoiceOption title="omens/day-3651-eagle.md" selected mono mark tabStop onClick={fn()} />
+        <ChoiceOption title="people/penelope.md" mono mark tabStop={false} onClick={fn()} />
       </div>
 
       {/* FilterRow — role=tab in a tablist, ←→ */}
@@ -131,34 +134,27 @@ export const TheWholeTable = meta.story({
     await expect(reached).toEqual([
       "button:Approve this editenque",
       "switch:Watch this folder",
+      // ONE radio, not two: a radiogroup is a single tab stop and ↑↓ move
+      // inside it. `ChoiceOption.stories`' RovingGroup is where that is shown.
       "radio:omens/day-3651-eagle.m",
-      "radio:people/penelope.md",
+      // ONE tab, not three: same rule, and here the component owns its own
+      // group so it holds the roving state itself.
       "tab:All",
-      "tab:Waiting",
-      "tab:Failed",
       "button:First light tomorrow05",
       "treeitem:omens86",
       "button:ApprovalRename the eag",
       "button:Why this answer",
-      // SideRail: five stops.
-      "tab:Chat",
+      // SideRail: ONE stop, on the active destination, and ↑↓ from there.
       "tab:Actions",
-      "tab:Files",
-      "tab:Activity",
-      "tab:Settings",
-      // TabBar: five more. A screen carrying both nav components costs ten tab
-      // presses before the content — because every item is `tabIndex={0}`
-      // rather than the roving tabindex a `tablist` is supposed to use. The
-      // arrow keys the design's table specifies are already wired and already
-      // move focus, so today they are redundant with Tab rather than the way
-      // you move. Recorded in `.plan/design-feedback.md`; the expectation
-      // stays honest about the current cost rather than hiding it behind a
-      // count.
-      "tab:Chat",
+      // TabBar: one more. This pair is the whole point of the roving pass —
+      // a screen carrying both nav components used to cost TEN tab presses
+      // before any content, because every item was `tabIndex={0}` rather than
+      // the roving tabindex a `tablist` is supposed to use, which made the
+      // design's arrow keys redundant with Tab rather than the way you move.
+      // Two presses now, and the list is what proves it: a count would have
+      // said something changed, this says what. (`.plan/design-feedback.md`
+      // §11; `useRoving` carries the reasoning and the hazard.)
       "tab:Actions",
-      "tab:Files",
-      "tab:Activity",
-      "tab:Settings",
       // Composer is two stops, not one: the field and its send button.
       "textarea:Ask your brain anythin",
       "button:Send",

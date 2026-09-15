@@ -303,6 +303,26 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] PhoneFrame **as a Storybook decorator, not a shipped component** (D16)
 - [x] `AgentOrbit`'s polar placement verified numerically, not eyeballed
 
+### Wave 4b — roving tabindex (design-feedback §11)
+- [x] `src/internal/roving.ts`: `useRoving` + `focusSibling`, the latter
+      replacing four copies of the same DOM walk
+- [x] `TabBar`, `SideRail`, `FilterRow` hold their own group's state; the stop
+      is last-focused → selected → **first eligible**, and the third clause is
+      the one that keeps a group with nothing selected reachable at all
+- [x] `ChoiceOption` takes a `tabStop` prop instead, because it is one option
+      inside its caller's `radiogroup` and cannot see its siblings.
+      `AskUserCard` computes it. Omitting it leaves the option a stop — the
+      only safe default for a component that cannot see its group
+- [x] Ten tab presses past the navigation became **two**, asserted as a list of
+      names in `stories/rules/Keyboard.stories.tsx`
+- [x] Four "does not strand the group" stories, each proven by seeding the naive
+      implementation
+- [x] Fixes a real bug: `FilterRow` fired `items[n]` with an index from the DOM
+      walk, which only visits interactive pills
+- [ ] `Home` / `End` deliberately NOT added — ARIA recommends them, the design's
+      role-and-keys table does not list them, D4 says no more than the design.
+      A question for the designer
+
 ### Wave 5 — assembly (the acceptance test)
 - [ ] The **four** assembled screens from catalog §11 rebuilt from `ui-kit`
       alone — Morning digest, Chat answer fully structured, Weekly review, Run

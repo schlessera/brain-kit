@@ -108,3 +108,65 @@ export const MixedGating = meta.story({
     await expect(await canvas.findAllByRole("tab")).toHaveLength(1);
   },
 });
+
+/**
+ * ONE TAB STOP, NOT ONE PER PILL. The row is a `tablist`, Tab lands on the
+ * selected pill, ←→ move inside it, Tab leaves for the content below.
+ */
+export const OneTabStop = meta.story({
+  args: { active: 1 },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(canvasElement.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    await expect(tabs[1]).toHaveAttribute("tabindex", "0");
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(tabs[1]);
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/**
+ * THE MIXED-ROW BUG THE ROVING PASS FOUND, and it was never about tab stops.
+ *
+ * The arrow walk is over the DOM, and only interactive pills carry a role — so
+ * in a row where the FIRST pill is decorative, the walk's index and the index
+ * into `items` diverge, and the old handler fired `items[n]` on the wrong pill.
+ * Activation now goes through the element the walk actually focused.
+ *
+ * Here "all 9" is decorative and the two wired pills are "ready 3" (items[1])
+ * and "blocked 1" (items[2]). Arrowing from the first wired pill must fire the
+ * second one's callback, not `items[1]`'s a second time.
+ */
+export const ActivationFollowsTheElementNotTheIndex = meta.story({
+  args: {
+    items: [{ label: "all 9" }, { label: "ready 3", onClick: fn() }, { label: "blocked 1", onClick: fn() }],
+    active: 1,
+  },
+  play: async ({ canvas, userEvent, args }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(2);
+    tabs[0].focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(document.activeElement).toBe(tabs[1]);
+    await expect(args.items?.[2].onClick).toHaveBeenCalledTimes(1);
+    await expect(args.items?.[1].onClick).not.toHaveBeenCalled();
+  },
+});
+
+/** The hazard: the selected pill carries no callback, so the stop falls to the
+ * first pill that does rather than leaving the row unreachable. */
+export const AnUnreachableSelectedPillDoesNotStrandTheRow = meta.story({
+  args: {
+    items: [{ label: "all 9" }, { label: "ready 3" }, { label: "blocked 1", onClick: fn() }],
+    active: 1,
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    await expect(tabs).toHaveLength(1);
+    await expect(tabs[0]).toHaveAttribute("tabindex", "0");
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(true);
+  },
+});

@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { focusSibling, useRoving } from "../internal/roving.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Meter } from "../primitives/Meter.js";
 import { accent, color, font, token } from "../tokens.js";
@@ -26,6 +27,19 @@ import { accent, color, font, token } from "../tokens.js";
  * rather than `width: 100%`, so the pane beside it takes the remainder — but
  * that is a property to verify rather than assume, and `SideRail.stories.tsx`
  * does it with `overflowing()` in a real two-pane story.
+ *
+ * ## One tab stop, not five
+ *
+ * The destination list is a vertical `tablist` with a roving tabindex
+ * ({@link useRoving}): Tab reaches the rail once and lands on the active
+ * destination, ↑↓ move inside it, ⏎ / space navigate. Manual activation, for
+ * the same reason as {@link TabBar} — arrowing onto Files must not navigate to
+ * Files. Before this the rail cost five tab presses and the mobile bar cost
+ * five more, which is the ten a screen carrying both used to spend before any
+ * content (`.plan/design-feedback.md` §11).
+ *
+ * The wordmark, the spend meter and the ⌘K cap are not controls and were never
+ * tab stops, so the rail is one stop in total.
  */
 export interface RailItem {
   icon: IconName;
@@ -67,7 +81,9 @@ export function SideRail(p: SideRailProps) {
   const expanded = p.expanded !== false;
   const src = p.items || FALLBACK;
   const active = Number(p.active ?? 1);
-  const anyInteractive = src.some((it) => Boolean(it.onClick));
+  const eligible = src.map((it) => Boolean(it.onClick));
+  const anyInteractive = eligible.includes(true);
+  const roving = useRoving(eligible, active);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
     if (event.key === "Enter" || event.key === " ") {
@@ -78,10 +94,7 @@ export function SideRail(p: SideRailProps) {
     const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const tabs = [...(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"][tabindex]') ?? [])];
-    const here = tabs.indexOf(event.currentTarget);
-    if (here === -1 || tabs.length < 2) return;
-    tabs[(here + delta + tabs.length) % tabs.length].focus();
+    focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
   }
 
   const rail: CSSProperties = {
@@ -187,8 +200,9 @@ export function SideRail(p: SideRailProps) {
               role={act ? "tab" : undefined}
               aria-selected={act ? on : undefined}
               aria-label={act && !expanded ? it.label : undefined}
-              tabIndex={act ? 0 : undefined}
+              tabIndex={act ? roving.tabIndexFor(i) : undefined}
               onClick={it.onClick}
+              onFocus={act ? () => roving.onItemFocus(i) : undefined}
               onKeyDown={act ? (event) => onKeyDown(event, i) : undefined}
             >
               <Icon icon={it.icon} size={17} />
