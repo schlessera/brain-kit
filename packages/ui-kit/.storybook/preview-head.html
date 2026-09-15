@@ -1,0 +1,26 @@
+<!--
+  Storybook has no deployment shell, so it loads the three families itself.
+  The design's components assume all three are present: DM Serif Text for
+  titles only, Plus Jakarta Sans for body and labels, JetBrains Mono for
+  paths, states, effects and money.
+
+  The body rule lives here rather than in the shipped stylesheet on purpose:
+  every one of the 56 source components carries `body{margin:0;background:#0c0e12}`
+  in its own helmet, so rendering any single one repaints the whole page. A
+  published library must not do that to its host, so the global side effect
+  stops at the Storybook preview.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=DM+Serif+Text:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+/>
+<style>
+  body {
+    margin: 0;
+    background: #0c0e12;
+    color: #e8e4df;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  }
+</style>

@@ -1,0 +1,7 @@
+/* Precompiled-stylesheet entry: `bunx @tailwindcss/cli -i src/styles.css -o dist/styles.css`.
+ *
+ * Also the stylesheet `.storybook/preview.ts` imports, so the Storybook and
+ * the published CSS are generated from the same entry and cannot drift. */
+@import "tailwindcss" source(none);
+@source "./";
+@import "./theme.css";

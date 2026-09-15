@@ -1,0 +1,91 @@
+{
+  "name": "@schlessera/brain-ui-kit",
+  "version": "0.35.0",
+  "description": "brain-kit design kit: presentational React components, design tokens, and the Storybook that documents them",
+  "license": "MIT",
+  "keywords": [
+    "brain-kit",
+    "react",
+    "design-system",
+    "storybook",
+    "ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schlessera/brain-kit.git",
+    "directory": "packages/ui-kit"
+  },
+  "homepage": "https://github.com/schlessera/brain-kit",
+  "bugs": {
+    "url": "https://github.com/schlessera/brain-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./theme.css": "./dist/theme.css",
+    "./package.json": "./package.json"
+  },
+  "imports": {
+    "#*": [
+      "./*",
+      "./*.ts",
+      "./*.tsx"
+    ]
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test tests --timeout 30000",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "test-storybook": "vitest --project=storybook",
+    "test-storybook:ci": "vitest run --project=storybook",
+    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+  },
+  "dependencies": {
+    "lucide-react": "^0.460"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.6.0",
+    "@storybook/addon-docs": "10.6.0",
+    "@storybook/addon-mcp": "10.6.0",
+    "@storybook/addon-themes": "10.6.0",
+    "@storybook/addon-vitest": "10.6.0",
+    "@storybook/react-vite": "10.6.0",
+    "@tailwindcss/cli": "^4",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/bun": "^1.3.14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/browser": "4.1.11",
+    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/coverage-v8": "4.1.11",
+    "playwright": "1.63.0",
+    "react": "^19",
+    "react-dom": "^19",
+    "storybook": "10.6.0",
+    "tailwindcss": "^4",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0",
+    "vitest": "4.1.11"
+  }
+}
