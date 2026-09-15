@@ -55,6 +55,11 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
     dependencies: ["@schlessera/brain", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
+  // The design kit is presentational and prop-driven (D13): it holds no
+  // store, does no I/O and knows nothing about the protocol, so it has no
+  // internal edges at all. An edge here would mean the kit had started
+  // reaching for state, which is the one thing it exists not to do.
+  "@schlessera/brain-ui-kit": { dependencies: [], optionalPeers: [] },
   "@schlessera/brain-ui-react": {
     dependencies: ["@schlessera/brain-ui-sdk"],
     optionalPeers: [],

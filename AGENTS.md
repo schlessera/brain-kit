@@ -16,8 +16,12 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
-  Fixtures and examples use the fictional persona "Alex Example". CI enforces a
-  leakage gate over the whole tree; it has no exempt directories.
+  Fixtures and examples use a fictional persona, and there are exactly two:
+  "Alex Example" owns `packages/core/fixtures/corpus/`, and Odysseus owns the
+  `packages/ui-kit/fixtures/` design world (D19) that Storybook, screenshots
+  and website copy render against. The two sets share a reference date and
+  nothing else. CI enforces a leakage gate over the whole tree; it has no
+  exempt directories.
 - **Contract stability.** The CLI `--json` shapes, MCP tool names and schemas,
   `schema_version`, and frontmatter semantics are the compatibility contract
   (`docs/integration-contract.md`). Changing one means updating that doc in the

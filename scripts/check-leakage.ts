@@ -41,7 +41,15 @@ const PATTERNS: string[] = [
 // whether it is the metadata DIRECTORY or a worktree gitlink FILE — both are
 // git plumbing, and the file form holds an absolute local path that names the
 // machine's user, which never exists in CI's fresh clone anyway.
-const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist"]);
+// `storybook-static` joins node_modules and dist as BUILD OUTPUT, which is a
+// different thing from the authored directories the public cut deliberately
+// stopped exempting. It has to be here rather than merely gitignored (this
+// scan covers untracked files): Storybook's components manifest records each
+// component's `definedInFile` as an ABSOLUTE path, so on any machine whose
+// home directory is named after its owner, one local `storybook build` turns
+// every subsequent `bun run lint` and `bun run test` red. Worth knowing before
+// the Storybook is ever deployed anywhere public.
+const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist", "storybook-static"]);
 const EXCLUDED_FILES = new Set(["LICENSE", ".git"]);
 
 export interface Finding {

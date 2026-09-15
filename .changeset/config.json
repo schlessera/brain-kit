@@ -12,6 +12,7 @@
       "@schlessera/brain-render-puppeteer",
       "@schlessera/brain-scrape",
       "@schlessera/brain-ui-server",
+      "@schlessera/brain-ui-kit",
       "@schlessera/brain-ui-react",
       "@schlessera/brain-module-finance",
       "@schlessera/brain-module-images",

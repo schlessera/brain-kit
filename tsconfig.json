@@ -20,6 +20,10 @@
     "packages/*/src/**/*.tsx",
     "packages/*/tests/**/*.ts",
     "packages/*/tests/**/*.tsx",
+    "packages/ui-kit/fixtures/**/*.ts",
+    "packages/*/stories/**/*.ts",
+    "packages/*/stories/**/*.tsx",
+    "packages/*/tools/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts"
   ],

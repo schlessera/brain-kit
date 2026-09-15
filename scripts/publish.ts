@@ -16,6 +16,8 @@ const packages = [
   // Ahead of module-jobs, which depends on it.
   "scrape",
   "ui-server",
+  // Ahead of ui-react, which consumes the kit from step 2 onward.
+  "ui-kit",
   "ui-react",
   "module-finance",
   "module-images",

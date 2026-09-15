@@ -78,6 +78,7 @@ jobs:
             scrape \
             render-template \
             ui-server \
+            ui-kit \
             ui-react \
             module-finance \
             module-images \
@@ -118,6 +119,7 @@ jobs:
                 "@schlessera/brain-scrape": `file:${tarballs}/scrape.tgz`,
                 "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
+                "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
                 "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
                 "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
@@ -137,6 +139,7 @@ jobs:
               "@schlessera/brain-render-template",
               "@schlessera/brain-scrape",
               "@schlessera/brain-ui-server",
+              "@schlessera/brain-ui-kit",
               "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
               "@schlessera/brain-module-images",
@@ -166,6 +169,7 @@ jobs:
             "@schlessera/brain-render-puppeteer",
             "@schlessera/brain-render-template",
             "@schlessera/brain-scrape",
+            "@schlessera/brain-ui-kit",
             "@schlessera/brain-ui-react",
           ];
           for (const name of nodePackages) {

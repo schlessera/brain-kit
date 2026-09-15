@@ -50,6 +50,8 @@ packages/scrape              @schlessera/brain-scrape — scraping base: polite 
                              per-host pacing), optional headless Chrome, site-adapter seam
 packages/ui-server           @schlessera/brain-ui-server — Hono app factory: WS turn coordinator,
                              auth (password/passkeys/tailscale/proxy), session catalog, routes
+packages/ui-kit              @schlessera/brain-ui-kit — presentational design kit: components,
+                             design tokens, and the Storybook that documents them
 packages/ui-react            @schlessera/brain-ui-react — React chat/files/voice components,
                              stores, WS transport; prebuilt JS + precompiled CSS
 template/                    source for the brain-template repo (user starting point)

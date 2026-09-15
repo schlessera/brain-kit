@@ -16,6 +16,8 @@ const packages = [
   "ui-render-puppeteer",
   "scrape",
   "ui-server",
+  // Ahead of ui-react, which consumes the kit from step 2 onward.
+  "ui-kit",
   "ui-react",
   "module-finance",
   "module-images",
@@ -54,7 +56,7 @@ for (const packageName of packages) {
   const exitCode = await subprocess.exited;
   if (exitCode !== 0) process.exit(exitCode);
 
-  if (packageName === "ui-react") {
+  if (packageName === "ui-react" || packageName === "ui-kit") {
     // Precompiled stylesheet for consumers without a Tailwind build. The
     // entry pins its scan root to the package src via @source, so the output
     // is identical no matter where the CLI runs from.

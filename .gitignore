@@ -12,3 +12,7 @@ tmp/
 okf-dist/
 .DS_Store
 .claude/worktrees/
+
+# Storybook build output and its init log.
+storybook-static/
+debug-storybook.log
