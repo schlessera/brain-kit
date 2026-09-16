@@ -64,6 +64,7 @@
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@schlessera/brain-ui-sdk": "workspace:*",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/addon-docs": "10.6.0",
     "@storybook/addon-mcp": "10.6.0",

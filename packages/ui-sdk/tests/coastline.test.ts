@@ -19,6 +19,8 @@ import { describe, expect, test } from "bun:test";
 import {
   OSM_ATTRIBUTION,
   clipLine,
+  closedRings,
+  prepareLand,
   fetchCoastline,
   prepare,
   simplify,
@@ -322,5 +324,138 @@ describe("fetchCoastline", () => {
     );
     expect(called).toBe(false);
     expect(result.coastline).toEqual([]);
+  });
+});
+
+describe("closedRings", () => {
+  /** A square island, stored the way OSM does: several ways sharing endpoints. */
+  const ISLAND: Coord[][] = [
+    [
+      [15.6, 38.2],
+      [15.7, 38.2],
+    ],
+    [
+      [15.7, 38.2],
+      [15.7, 38.3],
+    ],
+    [
+      [15.7, 38.3],
+      [15.6, 38.3],
+    ],
+    [
+      [15.6, 38.3],
+      [15.6, 38.2],
+    ],
+  ];
+
+  test("stitches ways that share endpoints into one loop", () => {
+    // An island is only a closed shape once its ways are joined; OSM never
+    // stores it as one.
+    const rings = closedRings(ISLAND);
+    expect(rings).toHaveLength(1);
+    expect(rings[0]![0]).toEqual(rings[0]![rings[0]!.length - 1]);
+  });
+
+  test("stitches them in any order", () => {
+    // Overpass does not promise an order, and an implementation that only
+    // walked forwards from the first way would work by luck.
+    const shuffled = [ISLAND[2]!, ISLAND[0]!, ISLAND[3]!, ISLAND[1]!];
+    expect(closedRings(shuffled)).toHaveLength(1);
+  });
+
+  test("drops a chain that does not close", () => {
+    // A mainland shore enters the box on one edge and leaves by another.
+    // Closing it means deciding which side is land against the viewport, which
+    // is the decision that inverted land and sea in D25's measurements.
+    const mainland: Coord[][] = [
+      [
+        [15.6, 38.2],
+        [15.65, 38.25],
+      ],
+      [
+        [15.65, 38.25],
+        [15.7, 38.3],
+      ],
+    ];
+    expect(closedRings(mainland)).toEqual([]);
+  });
+
+  test("keeps an island and drops the mainland beside it", () => {
+    expect(closedRings([...ISLAND, [[15.9, 38.2], [15.95, 38.3]]])).toHaveLength(1);
+  });
+
+  test("joins only on an exact shared node", () => {
+    // OSM ways that continue each other share a node, so the coordinates are
+    // identical. A tolerance would invent a join between a shore and a pier
+    // that nearly touches it.
+    const nearlyTouching: Coord[][] = [
+      [
+        [15.6, 38.2],
+        [15.7, 38.2],
+      ],
+      [
+        [15.70001, 38.2],
+        [15.7, 38.3],
+      ],
+    ];
+    expect(closedRings(nearlyTouching)).toEqual([]);
+  });
+
+  test("a ring of three points or fewer encloses nothing", () => {
+    const degenerate: Coord[][] = [
+      [
+        [15.6, 38.2],
+        [15.7, 38.2],
+        [15.6, 38.2],
+      ],
+    ];
+    expect(closedRings(degenerate)).toEqual([]);
+  });
+});
+
+describe("prepareLand", () => {
+  test("simplifies a ring without opening it", () => {
+    // Douglas-Peucker moves endpoints, and a ring whose ends stopped meeting is
+    // a line. This is the property the fill depends on completely.
+    const circle: Coord[] = Array.from({ length: 200 }, (_, i) => {
+      const t = (i / 199) * Math.PI * 2;
+      return [15.7 + 0.05 * Math.cos(t), 38.26 + 0.05 * Math.sin(t)] as Coord;
+    });
+    circle[circle.length - 1] = circle[0]!;
+
+    const [ring] = prepareLand([circle], { bbox: STRAIT, widthPx: 330 });
+    expect(ring).toBeDefined();
+    expect(ring![0]).toEqual(ring![ring!.length - 1]);
+    expect(ring!.length).toBeLessThan(circle.length);
+    expect(ring!.length).toBeGreaterThan(3);
+  });
+
+  test("does not clip rings to the bbox", () => {
+    // Clipping a ring against the viewport is the operation that inverts land
+    // and sea. The SVG clips the DRAWING instead, which it does correctly and
+    // without deciding anything — so a ring may legitimately extend past the
+    // box it was requested for.
+    const straddling: Coord[] = [
+      [15.5, 38.15],
+      [15.9, 38.15],
+      [15.9, 38.4],
+      [15.5, 38.4],
+      [15.5, 38.15],
+    ];
+    const [ring] = prepareLand([straddling], { bbox: STRAIT, widthPx: 330 });
+    expect(ring).toBeDefined();
+    const lons = ring!.map((c) => c[0]);
+    expect(Math.min(...lons)).toBeLessThan(STRAIT[0]);
+    expect(Math.max(...lons)).toBeGreaterThan(STRAIT[2]);
+  });
+
+  test("an open shore yields no land at all", () => {
+    const shore: Coord[][] = [
+      [
+        [15.5, 38.25],
+        [15.9, 38.26],
+      ],
+    ];
+    expect(prepareLand(shore, { bbox: STRAIT, widthPx: 330 })).toEqual([]);
   });
 });

@@ -86,14 +86,23 @@ describe("the geometry is geometry", () => {
     }
   });
 
-  test("the whole set stays smaller than a single raster tile", () => {
+  test("the whole set stays in the same league as a single raster tile", () => {
     // The argument for vectors over tiles was a size argument as much as a
-    // licence one, and this is the number it rested on: one map tile is ~16 KB.
+    // licence one. Stroke-only came to 11.6 KB gzipped for all five, against
+    // ~16 KB for ONE raster tile; adding closed land for the fill took it to
+    // about 16.5 KB, which is worth the bytes — a stroke does not say which
+    // side is water, and that is the first thing a reader needs.
+    //
+    // The bound is 24 KB rather than the old 16, and the honest comparison is
+    // not tile-for-tile anyway: a raster map needs a SET of tiles per theme,
+    // which D25 measured at 400-700 KB across two asset sets. What this guards
+    // is a blow-up — an unfiltered regeneration put Corfu alone at 17.7 KB by
+    // keeping 467 rings, most of them outside the view or smaller than a pixel.
     const bytes = geoIds.reduce(
       (total, id) => total + gzipSync(new TextEncoder().encode(JSON.stringify(geo[id]))).length,
       0,
     );
-    expect(bytes).toBeLessThan(16 * 1024);
+    expect(bytes).toBeLessThan(24 * 1024);
   });
 });
 

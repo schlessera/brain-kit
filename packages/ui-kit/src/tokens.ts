@@ -222,6 +222,7 @@ export const TOKENS = {
   "map-halo": "rgba(12,14,18,0.8)",
   "map-scale-bar": "rgba(232,228,223,0.5)",
   "map-scale-cap": "rgba(232,228,223,0.8)",
+  "map-land": "rgba(232,228,223,0.06)",
   "map-pin-ring-amber": "rgba(224,159,62,0.2)",
   "map-pin-ring-gold": "rgba(234,179,84,0.2)",
   "map-pin-ring-teal": "rgba(91,181,162,0.2)",

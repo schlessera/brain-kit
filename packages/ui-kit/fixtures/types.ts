@@ -45,7 +45,7 @@ import type { IconName } from "../src/primitives/Icon.js";
 // Shapes the kit now owns. Re-exported under the fixtures' own names so no
 // fixture file has to change its imports, and so the two vocabularies stay one.
 import type { ContactAction, ContactFact } from "../src/blocks/ContactCard.js";
-import type { MapPath, MapPin } from "../src/blocks/MapView.js";
+import type { MapLand, MapPath, MapPin } from "../src/blocks/MapView.js";
 import type { ScheduleGroup, ScheduleItem } from "../src/blocks/ScheduleList.js";
 import type { StatTile } from "../src/blocks/StatTiles.js";
 import type { Step } from "../src/blocks/StepList.js";
@@ -348,4 +348,6 @@ export interface MapScene {
    * world's own invented route has nothing to credit and leaves it unset.
    */
   attribution?: string;
+  /** Closed land, filled under the strokes. Islands only; see `geoLand`. */
+  land?: MapLand;
 }

@@ -733,3 +733,77 @@ space is short, or a rule that two pins within some distance share one label.
 The port picks none of them; the collision is visible in `Blocks/MapView` →
 `Default` and `Troy has roads`.
 
+## 17. The map was being stretched, and the fill that made it obvious
+
+**Status:** both FIXED. The distortion was mine, introduced in §16's fix; the
+maintainer spotted it in Storybook, which is twice now that a person looking at
+the design surface found what the suite could not.
+
+### Land has a fill, and it is deliberately barely there
+
+A coastline stroke says where the edge is and **not which side of it is water**,
+which is the first thing a reader needs before anything else on the map means
+anything. `MapView` takes a `land` prop — separate from `paths`, because a route
+is a line somebody travelled and land is the ground it was travelled over — and
+draws it as one `<path>` with `fill-rule: evenodd`, so a lagoon inside an island
+comes out as a hole without anyone saying so.
+
+`--bk-map-land` is 6% white. It was set at 3.5% first and that really was
+invisible: present in the DOM, correct in the computed style, indistinguishable
+from the sky on screen. 6% takes `#101318` to about `#1d1f24` — enough to see an
+island, not enough to compete with a 2px amber route across it.
+
+**Islands only.** An island's coastline stitches head-to-tail into a closed loop
+and is land beyond argument. A mainland shore enters the bbox on one edge and
+leaves by another, and closing that against the viewport is what D25 measured
+going wrong on three of five locations. Verified before building: **486 of 486
+closed rings across Gozo, Corfu and Ithaca are counter-clockwise**, so OSM's
+land-on-the-left convention holds and viewport closure is tractable — but it is
+still a second step, and an island filled correctly beside a mainland left as a
+stroke beats five maps of which three lie about which side is water.
+
+### The projection was stretching to fill the card
+
+`px()` mapped longitude across the full width and `py()` mapped latitude across
+the full height, independently, with different margins per axis. §16 added
+`preserveAspectRatio="none"` on the grounds that this was what the arithmetic
+already assumed — which was true, and made the drawing faithful to code that was
+itself wrong. **A degree of longitude and a degree of latitude stopped being the
+same distance on screen**, an island got wider as the window did, and the scale
+bar was only ever true east-west.
+
+The fix is that the projection is built for the width the card actually is
+(measured, with `width` as the first-paint and server-render fallback), and the
+bbox is then **expanded on its short axis** until one pixel is the same distance
+in both directions. Expanded, never cropped: cropping to fit would push out a
+pin that was the reason for the view. A wider card therefore shows more ground
+at the same scale, which is what filling by panning rather than by stretching
+means.
+
+Two things fell out of it:
+
+- **`spanKm` now means the span across the WIDTH.** It used to be applied to
+  both axes, harmless while each was stretched independently — but with one
+  scale, a minimum on the short axis meant the long one showed roughly twice it,
+  and a card captioned "18 km" was drawing forty. The caption is the contract.
+- **The graticule read stale bounds.** The correction moves the view in mercator
+  y, and `step()` was still choosing its interval from the latitude bounds that
+  correction was derived from. The span looked like almost nothing and the
+  labels piled on top of one another.
+
+### And a unit bug on the way, which is the useful part
+
+The first attempt compared longitude in DEGREES against a mercator y in RADIANS
+— out by a factor of 57, and it widened the wrong axis by two orders of
+magnitude: 0.05 degrees of latitude drawn 2.9px tall beside 0.05 degrees of
+longitude drawn 129px wide. It typechecked and every existing test passed,
+because every one of them renders at exactly `width`, where pixels and
+percentages coincide and nothing compares the two axes to each other.
+
+`ONE SCALE FOR BOTH AXES` in `tests/mapview-projection.test.tsx` is the gate
+that now catches both the original distortion and that unit bug, and it was
+proven by seeding each. It recovers metres-per-pixel from the RENDER — across
+from the two pins' longitudes and their x positions, down from the same two
+pins' latitudes and their y — because the inputs are exactly what was being
+computed wrongly.
+

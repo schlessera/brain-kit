@@ -143,14 +143,48 @@ describe("the rendered projection", () => {
   );
 
   test("puts both pins where the projection says they go", () => {
+    // The x values are the same as before the projection was corrected, and
+    // that is the point: `spanKm` is the span across the WIDTH, so the
+    // longitude range is unchanged and the LATITUDE range grew to match the
+    // card. The two pins are 1.5 km apart north-south and now read that way
+    // against a 6 km strait. The metres-per-pixel check below is what says
+    // these numbers are right rather than merely stable.
     const pins = pinPositions(strait, 330, 170);
     expect(pins).toHaveLength(2);
     // Scylla is the eastern of the two, so it sits further right.
-    expect(pins[0].left).toBeCloseTo(252.8873, 3);
-    expect(pins[0].top).toBeCloseTo(96.4959, 3);
+    expect(pins[0].left).toBeCloseTo(252.8872, 3);
+    expect(pins[0].top).toBeCloseTo(107.9765, 3);
     // Charybdis is west and NORTH, so: further left and higher up the card.
-    expect(pins[1].left).toBeCloseTo(77.1127, 3);
-    expect(pins[1].top).toBeCloseTo(73.5637, 3);
+    expect(pins[1].left).toBeCloseTo(77.1128, 3);
+    expect(pins[1].top).toBeCloseTo(62.0248, 3);
+  });
+
+  test("ONE SCALE FOR BOTH AXES: a map is never stretched to fill its card", () => {
+    // The property the numbers above are an instance of, and the one that
+    // matters: a degree of longitude and a degree of latitude have to come out
+    // as the same distance on screen. Otherwise an island gets wider as the
+    // window does, and the scale bar is only true east-west.
+    //
+    // Recovered from the RENDER rather than the inputs: the pins give
+    // metres-per-pixel across, the graticule gives it down. Both were wrong in
+    // opposite directions at different times — the projection mapped each axis
+    // across the whole box independently, and the first attempt at fixing it
+    // compared longitude in degrees against a mercator y in radians, which is
+    // out by a factor of 57.
+    const pins = pinPositions(strait, 330, 170);
+    const midLat = (SCYLLA.lat + CHARYBDIS.lat) / 2;
+    const across =
+      ((SCYLLA.lon - CHARYBDIS.lon) / (pins[0].left - pins[1].left)) *
+      111320 *
+      Math.cos((midLat * Math.PI) / 180);
+
+    // Down comes from the same two pins. Over 0.014 degrees the mercator warp
+    // is far below the tolerance, and it needs no graticule label — the strait
+    // only renders one, because the collision guard suppresses the other.
+    const down =
+      ((CHARYBDIS.lat - SCYLLA.lat) / (pins[0].top - pins[1].top)) * 111320;
+
+    expect(down / across).toBeCloseTo(1, 2);
   });
 
   test("the scale bar measures the distance it claims", () => {
@@ -220,7 +254,7 @@ describe("the rendered projection", () => {
       />,
     );
     // The polyline's two points are the two pins' own positions, to 1dp.
-    expect(html).toContain('points="252.9,96.5 77.1,73.6"');
+    expect(html).toContain('points="252.9,108.0 77.1,62.0"');
   });
 
   test("a fifteen-point route is projected in order, every point kept", () => {

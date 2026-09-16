@@ -392,8 +392,19 @@ Sequenced after the component waves but **before** step 2. Not optional.
       (30% of the box out on a 232px card); the SVG was letterboxing while the
       projection assumed it filled the box; and `translate(-50%,-50%)` put the
       pin's DOT half a label away from its own coordinate. `.plan/design-feedback.md` §16
-- [ ] Fill (closed land polygons) still deferred — needs a real clipper, not our
-      own; hand-rolled viewport closure got 3 of 5 wrong
+- [x] **Fill, for islands.** `MapView` takes a `land` prop drawn as one
+      even-odd `<path>` at 6% white. Closed rings only — verified first that
+      OSM's land-on-the-left winding holds (**486 of 486 rings CCW** across
+      Gozo, Corfu and Ithaca), so viewport closure is tractable rather than the
+      inherent trap D25 read it as
+- [ ] Fill for MAINLAND still deferred: closing an open shore against the
+      viewport is the operation that got 3 of 5 wrong. The winding rule makes it
+      a determinate problem now, so this is a contained second step rather than
+      a research one
+- [ ] `troy` and `messina` were generated before `land` existed and carry no
+      `land` key; the loader treats that as "no fill", which is also the right
+      answer for a mainland bbox. Regenerate when Overpass is healthy — it was
+      returning 504s throughout
 - [ ] Pin-label collision needs a design answer: two pins 6 km apart at a 9 km
       span overlap, and a long label clips at phone width
 

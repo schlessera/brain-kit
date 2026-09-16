@@ -366,6 +366,22 @@
   --bk-map-scale-bar: rgba(232,228,223,0.5);
   --bk-map-scale-cap: rgba(232,228,223,0.8);
 
+  /* Land, and the reason it is barely there.
+   *
+   * A coastline stroke says where the edge is and NOT which side of it is
+   * water, which is the one thing a reader needs before anything else on the
+   * map means anything. A fill answers it in a way no label can.
+   *
+   * It has to answer it without becoming the subject. The map already carries
+   * a route, pins, labels, a graticule and a scale bar, and land is the ground
+   * all of those sit on — so this is the smallest lift off the sky that still
+   * reads as a different surface: 6% white, which takes #101318 to about
+   * #1d1f24. It was measured at 3.5% first and that really was invisible —
+   * present in the DOM, correct in the computed style, and indistinguishable
+   * from the sky on screen. Enough to see an island; not enough to compete with
+   * a 2px amber route drawn across it. */
+  --bk-map-land: rgba(232,228,223,0.06);
+
   /* A pin is a 10px mark with two rings: the near-black halo above, which
    * separates it from whatever it sits on, and a wider ring of its own accent
    * at 20%. The label beside it takes the same accent at 35%. */

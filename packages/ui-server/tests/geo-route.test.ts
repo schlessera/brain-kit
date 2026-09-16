@@ -31,11 +31,18 @@ const GEOMETRY: CoastlineResult = {
     ],
   ],
   roads: [],
+  land: [],
   toleranceM: 53,
   attribution: "© OpenStreetMap contributors",
 };
 
-const EMPTY: CoastlineResult = { coastline: [], roads: [], toleranceM: 53, attribution: "© OpenStreetMap contributors" };
+const EMPTY: CoastlineResult = {
+  coastline: [],
+  roads: [],
+  land: [],
+  toleranceM: 53,
+  attribution: "© OpenStreetMap contributors",
+};
 
 async function config(): Promise<CoastlineConfig> {
   return {
@@ -200,6 +207,7 @@ describe("the route", () => {
     expect(await res.json()).toEqual({
       coastline: [],
       roads: [],
+      land: [],
       toleranceM: 0,
       attribution: "© OpenStreetMap contributors",
     });

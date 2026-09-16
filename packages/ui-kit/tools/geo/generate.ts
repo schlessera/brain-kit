@@ -49,7 +49,17 @@
  * and got **three of five wrong**: a diagonal seam on Corfu, inverted land and
  * sea on Ithaca. The concept is sound; ad-hoc clipping is where it breaks. Fill
  * arrives via already-assembled land polygons and a real clipper, or not at all.
+ *
+ * ## Fill: the half that IS safe
+ *
+ * An island's coastline stitches head-to-tail into a closed loop and is land
+ * beyond argument, so those rings are emitted and filled. A mainland shore that
+ * enters the bbox on one edge and leaves by another is not, and is left as a
+ * stroke. Assembly, ring-safe simplification and the ordering rule all live in
+ * `@schlessera/brain-ui-sdk/server` — the same code the server runs, so the
+ * fixtures cannot drift from what production produces.
  */
+import { prepareLand, type Coord } from "@schlessera/brain-ui-sdk/server";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,18 +160,21 @@ interface OverpassResponse {
   elements?: { type?: string; geometry?: { lat: number; lon: number }[] }[];
 }
 
-function toGeoJson(response: OverpassResponse): GeoJson {
-  const features = (response.elements ?? [])
+function overpassLines(response: OverpassResponse): Coord[][] {
+  return (response.elements ?? [])
     .filter((element) => element.type === "way" && (element.geometry?.length ?? 0) > 1)
-    .map((element) => ({
+    .map((element) => element.geometry!.map((point) => [point.lon, point.lat] as Coord));
+}
+
+function toGeoJson(lines: Coord[][]): GeoJson {
+  return {
+    type: "FeatureCollection",
+    features: lines.map((coordinates) => ({
       type: "Feature" as const,
       properties: {},
-      geometry: {
-        type: "LineString" as const,
-        coordinates: element.geometry!.map((point) => [point.lon, point.lat] as [number, number]),
-      },
-    }));
-  return { type: "FeatureCollection", features };
+      geometry: { type: "LineString" as const, coordinates },
+    })),
+  };
 }
 
 interface Geometry {
@@ -216,13 +229,14 @@ async function harvest(
   selector: string,
   work: string,
   name: string,
-): Promise<[number, number][][]> {
+): Promise<{ lines: [number, number][][]; raw: Coord[][] }> {
   const box = bbox(location);
   const raw = await overpass(
     `[out:json][timeout:90];way${selector}(${overpassBbox(box)});out geom;`,
   );
+  const rawLines = overpassLines(JSON.parse(raw) as OverpassResponse);
   const rawPath = join(work, `${location.id}-${name}.raw.json`);
-  await writeFile(rawPath, JSON.stringify(toGeoJson(JSON.parse(raw) as OverpassResponse)));
+  await writeFile(rawPath, JSON.stringify(toGeoJson(rawLines)));
 
   const outPath = join(work, `${location.id}-${name}.geo.json`);
   await mapshaper(
@@ -241,7 +255,7 @@ async function harvest(
     work,
   );
 
-  return lines(JSON.parse(await readFile(outPath, "utf8")) as GeoJson);
+  return { lines: lines(JSON.parse(await readFile(outPath, "utf8")) as GeoJson), raw: rawLines };
 }
 
 async function main() {
@@ -259,11 +273,16 @@ async function main() {
     if (!first) await Bun.sleep(POLITE_DELAY_MS);
     first = false;
 
-    const coastline = await harvest(location, '["natural"="coastline"]', work, "coastline");
+    const coast = await harvest(location, '["natural"="coastline"]', work, "coastline");
+    const coastline = coast.lines;
+    // Land comes from the RAW ways, never the clipped and simplified ones: both
+    // operations move or cut endpoints, and a way whose endpoint has moved no
+    // longer meets its neighbour, so every island would come apart into lines.
+    const land = prepareLand(coast.raw, { bbox: bbox(location), widthPx: RENDER_WIDTH });
     let roads: [number, number][][] = [];
     if (location.roads) {
       await Bun.sleep(POLITE_DELAY_MS);
-      roads = await harvest(location, '["highway"~"^(motorway|trunk|primary)$"]', work, "roads");
+      roads = (await harvest(location, '["highway"~"^(motorway|trunk|primary)$"]', work, "roads")).lines;
     }
 
     const fixture = {
@@ -277,6 +296,7 @@ async function main() {
       attribution: "© OpenStreetMap contributors",
       coastline,
       roads,
+      land,
     };
 
     const file = join(outDir, `${location.id}.json`);
@@ -285,7 +305,7 @@ async function main() {
     const vertices = [...coastline, ...roads].reduce((n, l) => n + l.length, 0);
     const bytes = Bun.gzipSync(new TextEncoder().encode(JSON.stringify(fixture))).length;
     console.log(
-      `${location.id.padEnd(8)} ${String(coastline.length).padStart(3)} coast + ${String(roads.length).padStart(3)} road lines · ` +
+      `${location.id.padEnd(8)} ${String(coastline.length).padStart(3)} coast + ${String(roads.length).padStart(3)} road + ${String(land.length).padStart(3)} land · ` +
         `${String(vertices).padStart(5)} verts · ${(bytes / 1024).toFixed(1)} KB gz · tolerance ${interval(location)} m`,
     );
   }

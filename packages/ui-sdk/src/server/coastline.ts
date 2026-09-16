@@ -94,6 +94,19 @@ export interface CoastlineRequest {
 export interface CoastlineResult {
   coastline: Coord[][];
   roads: Coord[][];
+  /**
+   * Closed rings of land, for a subtle fill under the stroke.
+   *
+   * ONLY rings that close on their own. An island's coastline stitches
+   * head-to-tail into a loop and is land beyond argument; a mainland shore
+   * enters the bounding box on one edge and leaves by another, and turning that
+   * into a polygon means closing it against the viewport rectangle — which D25
+   * measured a hand-rolled attempt getting **three of five locations wrong**,
+   * with diagonal seams and inverted land and sea. An island filled correctly
+   * and a mainland left as a stroke is a strictly better map than five maps of
+   * which three lie about which side is water.
+   */
+  land: Coord[][];
   /** The simplification tolerance actually used, in metres. */
   toleranceM: number;
   /** Non-optional: the caller is distributing a Derivative Database. */
@@ -113,6 +126,7 @@ const METRES_PER_DEGREE_LAT = 111_320;
 const EMPTY: CoastlineResult = {
   coastline: [],
   roads: [],
+  land: [],
   toleranceM: 0,
   attribution: OSM_ATTRIBUTION,
 };
@@ -311,6 +325,111 @@ export function prepare(lines: Coord[][], request: CoastlineRequest): Coord[][] 
   return round(clipped.map((line) => simplify(line, toleranceM, midLat)));
 }
 
+/**
+ * Stitch ways head-to-tail and keep the loops.
+ *
+ * OSM stores a coastline as many `way`s that share endpoints, so an island is
+ * only a closed shape once its ways are joined. Joining is exact-endpoint
+ * matching — OSM ways that continue each other share a node, so the
+ * coordinates are identical rather than merely close, and a tolerance here
+ * would invent joins between a shore and a pier that nearly touch it.
+ *
+ * Ways are simplified AFTER this, never before: simplification moves the
+ * endpoints of a line, and a way whose endpoint has moved no longer matches its
+ * neighbour. Doing it the other way round turns every island into an open line.
+ *
+ * Open chains are dropped rather than closed. See `CoastlineResult.land`.
+ */
+export function closedRings(lines: Coord[][]): Coord[][] {
+  const key = (c: Coord) => `${c[0].toFixed(7)},${c[1].toFixed(7)}`;
+
+  const byStart = new Map<string, Coord[][]>();
+  for (const line of lines) {
+    const k = key(line[0]!);
+    const bucket = byStart.get(k);
+    if (bucket) bucket.push(line);
+    else byStart.set(k, [line]);
+  }
+
+  const used = new Set<Coord[]>();
+  const rings: Coord[][] = [];
+
+  for (const line of lines) {
+    if (used.has(line)) continue;
+    used.add(line);
+    const chain = [...line];
+    for (;;) {
+      if (key(chain[0]!) === key(chain[chain.length - 1]!)) break;
+      const next = (byStart.get(key(chain[chain.length - 1]!)) ?? []).find((l) => !used.has(l));
+      if (!next) break;
+      used.add(next);
+      chain.push(...next.slice(1));
+    }
+    // A loop needs three distinct points to enclose anything.
+    if (chain.length > 3 && key(chain[0]!) === key(chain[chain.length - 1]!)) rings.push(chain);
+  }
+
+  return rings;
+}
+
+/**
+ * Simplify a RING without opening it.
+ *
+ * Douglas-Peucker pins the first and last point of a line, which for a ring is
+ * the same point — so the loop survives, but the one vertex the algorithm is
+ * not allowed to move is arbitrary, and a ring simplified from an arbitrary
+ * start can keep a spurious spike there. Splitting the ring at its two most
+ * distant points and simplifying each half pins two opposite vertices instead,
+ * which is the standard fix and costs one extra pass.
+ */
+function simplifyRing(ring: Coord[], toleranceM: number, atLat: number): Coord[] {
+  if (ring.length < 8) return ring;
+  const half = Math.floor((ring.length - 1) / 2);
+  const a = simplify(ring.slice(0, half + 1), toleranceM, atLat);
+  const b = simplify(ring.slice(half), toleranceM, atLat);
+  const joined = [...a, ...b.slice(1)];
+  // Still a loop, or it is not land.
+  return joined.length > 3 ? joined : ring;
+}
+
+/**
+ * Closed land, simplified and rounded but NOT clipped.
+ *
+ * Clipping a ring against the viewport is the operation that inverts land and
+ * sea, so rings are left whole and the SVG clips the drawing instead — which it
+ * does correctly, for free, and without deciding anything.
+ */
+export function prepareLand(lines: Coord[][], request: CoastlineRequest): Coord[][] {
+  const toleranceM = toleranceMetres(request.bbox, request.widthPx);
+  const midLat = (request.bbox[1] + request.bbox[3]) / 2;
+  const { dLat, dLon } = degreesFor(toleranceM, midLat);
+  const [west, south, east, north] = request.bbox;
+
+  const kept = closedRings(lines).filter((ring) => {
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const [lon, lat] of ring) {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    // Wholly outside the view. This is a bbox TEST, not a clip: the ring is
+    // either drawn whole or not at all, so nothing here can decide which side
+    // of a cut edge is land. A ring nobody can see costs only bytes, and Corfu
+    // alone brought 467 of them at 17.7 KB gzipped against 4.2 for the stroke.
+    if (maxLon < west || minLon > east || maxLat < south || minLat > north) return false;
+    // Smaller than a pixel of the render. The same one-pixel rule the
+    // simplification tolerance uses, applied to whole shapes: an islet drawn
+    // sub-pixel is a smudge that costs a ring.
+    return maxLon - minLon >= dLon || maxLat - minLat >= dLat;
+  });
+
+  return round(kept.map((ring) => simplifyRing(ring, toleranceM, midLat)));
+}
+
 /* ---------------------------------------------------------------- network */
 
 /** Overpass takes `(south,west,north,east)`; everything else here is
@@ -375,6 +494,10 @@ export async function fetchCoastline(
     return {
       coastline: prepare(coastRaw, request),
       roads: prepare(roadsRaw, request),
+      // From the RAW ways, not the clipped-and-simplified ones: both operations
+      // move or cut endpoints, and a way whose endpoint moved no longer meets
+      // its neighbour, so every island would come apart into open lines.
+      land: prepareLand(coastRaw, request),
       toleranceM,
       attribution: OSM_ATTRIBUTION,
     };

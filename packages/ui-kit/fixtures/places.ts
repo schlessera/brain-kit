@@ -19,7 +19,7 @@
 // today, day 3,652). Everything between is ordered and plausible, not a
 // reconciliation of Homer's arithmetic, which does not close.
 
-import { OSM_ATTRIBUTION, geoPaths } from "./geo/index.js";
+import { OSM_ATTRIBUTION, geoLand, geoPaths } from "./geo/index.js";
 import type { MapPath, MapPin, MapScene, Place, PlaceId } from "./types.js";
 
 export const places: Place[] = [
@@ -357,6 +357,7 @@ export const straitMap: MapScene = {
     { lat: 38.2647, lon: 15.6508, label: "Charybdis", meta: "all, possible", tone: "red" },
   ],
   attribution: OSM_ATTRIBUTION,
+  land: geoLand("messina"),
   paths: [
     ...geoPaths("messina"),
     {
@@ -383,6 +384,7 @@ export const ithacaMap: MapScene = {
   icon: "resolved",
   pins: [{ lat: 38.3647, lon: 20.7202, label: "Vathy", meta: "the hall", tone: "teal" }],
   paths: geoPaths("ithaca"),
+  land: geoLand("ithaca"),
   spanKm: 12,
   height: 128,
   attribution: OSM_ATTRIBUTION,
@@ -403,6 +405,7 @@ export const gozoMap: MapScene = {
     { lat: 36.062, lon: 14.283, label: "The cave", meta: "Ramla Bay", tone: "neutral" },
   ],
   paths: geoPaths("gozo"),
+  land: geoLand("gozo"),
   spanKm: 18,
   height: 148,
   attribution: OSM_ATTRIBUTION,
@@ -416,6 +419,7 @@ export const corfuMap: MapScene = {
   icon: "resolved",
   pins: [{ lat: 39.6, lon: 19.87, label: "Scheria", meta: "the harbour", tone: "teal" }],
   paths: geoPaths("corfu"),
+  land: geoLand("corfu"),
   spanKm: 52,
   height: 148,
   attribution: OSM_ATTRIBUTION,
@@ -433,6 +437,7 @@ export const troyMap: MapScene = {
   icon: "history",
   pins: [{ lat: 39.9575, lon: 26.2389, label: "Troy", meta: "where it started", tone: "red" }],
   paths: geoPaths("troy"),
+  land: geoLand("troy"),
   spanKm: 30,
   height: 148,
   attribution: OSM_ATTRIBUTION,

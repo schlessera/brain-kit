@@ -41,8 +41,10 @@ export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 export {
   OSM_ATTRIBUTION,
   clipLine,
+  closedRings,
   fetchCoastline,
   prepare,
+  prepareLand,
   simplify,
   toleranceMetres,
 } from "./coastline.js";

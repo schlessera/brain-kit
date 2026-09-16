@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import { warnOnce } from "../internal/dev.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -31,6 +31,25 @@ export interface MapPin {
   label?: string;
   meta?: string;
   tone?: Tone;
+}
+
+/**
+ * Closed rings of land, filled so a reader can tell water from shore.
+ *
+ * Separate from `paths` rather than a flag on it, because they are different
+ * things and D25 called this before it was built: a route is a line somebody
+ * travelled and land is the ground it was travelled over. Conflating them would
+ * make "is this filled" a property of every polyline the caller passes.
+ *
+ * Rendered as ONE path with `fill-rule: evenodd`, which is what makes a lagoon
+ * inside an island come out as a hole without anyone having to say so. Even-odd
+ * ignores winding, and that matters here: every coastal ring OSM returns is
+ * counter-clockwise — 486 of 486 across three of the fixture locations — so a
+ * non-zero rule would fill an inner lagoon solid.
+ */
+export interface MapLand {
+  /** Each ring is a closed `[lon, lat]` loop; the first and last coincide. */
+  rings: [number, number][][];
 }
 
 export interface MapPath {
@@ -75,6 +94,15 @@ export interface MapViewProps {
    * Pass it on the map that carries the credit and omit it on the rest.
    */
   attribution?: string;
+  /**
+   * Filled land. A coastline stroke says where the edge is and not which side
+   * of it is water, and that is the first thing a reader needs.
+   *
+   * Optional and separate, so a caller with open coastline and no closed rings
+   * — which is what a mainland bbox gives you — draws the stroke and no fill
+   * rather than guessing at a shape.
+   */
+  land?: MapLand;
 }
 
 /** A pin is a 10px disc: the `mark` role, which is the step a darkened accent
@@ -117,6 +145,10 @@ const LABEL_BORDERS: Record<Tone, string> = {
  * φ/2)` goes to infinity at 90°, and a map that renders `Infinity` renders
  * nothing at all.
  */
+/** Degrees to radians. Mercator's x IS longitude in radians, which is the unit
+ * the aspect correction has to reason in. */
+const DEG = Math.PI / 180;
+
 export function mercY(lat: number): number {
   const r = (Math.max(-85, Math.min(85, lat)) * Math.PI) / 180;
   return Math.log(Math.tan(Math.PI / 4 + r / 2));
@@ -141,7 +173,41 @@ const DOT = 10;
 const NICE_METRES = [50, 100, 200, 250, 500, 1000, 2000, 5000];
 
 export function MapView(p: MapViewProps) {
-  const W = Number(p.width) || 330;
+  /**
+   * THE PROJECTION IS BUILT FOR THE WIDTH THE CARD ACTUALLY IS.
+   *
+   * The card is fluid and the drawing is not: a viewBox sized to a fixed
+   * `width` either letterboxes inside a wider card (`meet`, the SVG default) or
+   * stretches to fill it (`none`). Stretching is the one a map may never do —
+   * a degree of longitude and a degree of latitude stop being the same distance
+   * on screen, the scale bar stops being true in every direction, and an island
+   * gets wider as the window does.
+   *
+   * Measuring is what removes the choice. With the viewBox at the element's own
+   * width, its aspect and the box's are identical, `preserveAspectRatio` has
+   * nothing to decide, and the percentage-positioned overlays land exactly
+   * where the geometry does. The bbox is then EXPANDED to that aspect below —
+   * so a wider card shows more ground rather than the same ground stretched,
+   * which is what "fill by panning, never by distorting" means in practice.
+   *
+   * `width` remains the fallback for the first paint and for server rendering,
+   * where there is nothing to measure.
+   */
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [measured, setMeasured] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const node = viewportRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const next = Math.round(entry?.contentRect.width ?? 0);
+      // Sub-pixel churn would re-project on every scroll on some browsers.
+      if (next > 0) setMeasured((current) => (current !== null && Math.abs(current - next) < 1 ? current : next));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const W = measured ?? (Number(p.width) || 330);
   const H = Number(p.height) || 170;
 
   if (p.pins && !Array.isArray(p.pins)) warnOnce("MapView: `pins` is not an array; the single-pin fallback will draw instead.");
@@ -176,9 +242,16 @@ export function MapView(p: MapViewProps) {
 
   // 111 km per degree of latitude. Longitude shrinks by cos(lat), floored at
   // 0.2 so a high-latitude view does not blow the box up to a hemisphere.
-  const degLat = spanKm / 111;
   const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  const degLon = degLat / Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
+  // `spanKm` is the span across the WIDTH. It used to be applied to both axes,
+  // which was harmless while the projection stretched each axis to fill the box
+  // independently — but once one pixel is the same distance in both directions,
+  // a minimum on the short axis means the long one shows roughly twice it, and
+  // a card captioned "18 km" was drawing forty. The caption is the contract.
+  const degLon = spanKm / 111 / Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
+  // Latitude gets no minimum of its own: the aspect correction below grows
+  // whichever axis is short, so the height follows from the width and the card.
+  const degLat = 0;
 
   let west = Math.min(...lons);
   let east = Math.max(...lons);
@@ -198,13 +271,56 @@ export function MapView(p: MapViewProps) {
   }
   // 12% margin east-west, 14% north-south, so a pin at the edge of the bounding
   // box is never at the edge of the drawing.
-  const mw = west - (east - west) * 0.12;
-  const me = east + (east - west) * 0.12;
+  let mw = west - (east - west) * 0.12;
+  let me = east + (east - west) * 0.12;
   const ms = south - (north - south) * 0.14;
   const mn = north + (north - south) * 0.14;
 
-  const yTop = mercY(mn);
-  const yBot = mercY(ms);
+  /**
+   * ONE SCALE FOR BOTH AXES, and this is where that is made true.
+   *
+   * Web Mercator is conformal: at any point, a step in longitude degrees and
+   * the same step in mercator-y cover the same distance on the ground. So the
+   * drawing is undistorted exactly when the bbox's longitude range and its
+   * mercator-y range are in the same ratio as the box they are drawn into.
+   *
+   * They are not, in general — the bbox comes from the pins, plus a minimum
+   * span, plus margins that differ per axis — so the short axis is WIDENED
+   * until it matches. Widened, never cropped: cropping to fit would push a pin
+   * out of the view it was the reason for. A wider card therefore shows more
+   * ground at the same scale, which is the difference between panning and
+   * stretching.
+   */
+  let yTop = mercY(mn);
+  let yBot = mercY(ms);
+  const wantRatio = W / H;
+  // `mercY` is the conformal y in RADIANS (`ln tan`), and the bbox holds
+  // longitude in DEGREES. Comparing them directly is out by a factor of 57 and
+  // widens the wrong axis by two orders of magnitude — 0.05 degrees of latitude
+  // drawn 2.9px tall beside 0.05 degrees of longitude drawn 129px wide. In
+  // Mercator, longitude-in-radians and y are the same units by construction, so
+  // that is what the ratio has to be taken in.
+  const lonRad = (me - mw) * DEG;
+  const yRad = yTop - yBot;
+  if (lonRad / yRad < wantRatio) {
+    const grow = ((yRad * wantRatio) / DEG - (me - mw)) / 2;
+    mw -= grow;
+    me += grow;
+  } else {
+    const grow = (lonRad / wantRatio - yRad) / 2;
+    yTop += grow;
+    yBot -= grow;
+  }
+
+  // The correction moved the view in MERCATOR y, so the latitude bounds it was
+  // derived from are now stale — and `step()` reads them to choose the
+  // graticule interval. Left stale, the latitude span looks like almost
+  // nothing and the interval comes out so fine that the labels pile on top of
+  // one another. Invert the mercator back to degrees and use that.
+  const unmercY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) / DEG;
+  const latTop = unmercY(yTop);
+  const latBot = unmercY(yBot);
+
   const px = (lon: number) => ((lon - mw) / (me - mw)) * W;
   const py = (lat: number) => ((yTop - mercY(lat)) / (yTop - yBot)) * H;
 
@@ -219,7 +335,7 @@ export function MapView(p: MapViewProps) {
   const pctY = (y: number) => `${((y / H) * 100).toFixed(4)}%`;
 
   const lonStep = step(me - mw);
-  const latStep = step(mn - ms);
+  const latStep = step(latTop - latBot);
 
   const labelStyle: CSSProperties = {
     position: "absolute",
@@ -248,7 +364,7 @@ export function MapView(p: MapViewProps) {
       });
     }
   }
-  for (let lat = Math.ceil(ms / latStep) * latStep; lat <= mn; lat += latStep) {
+  for (let lat = Math.ceil(latBot / latStep) * latStep; lat <= latTop; lat += latStep) {
     const y = py(lat);
     grid.push({ x1: 0, y1: y, x2: W, y2: y });
     if (y > 26 && y < labelBandY - 12) {
@@ -258,6 +374,17 @@ export function MapView(p: MapViewProps) {
       });
     }
   }
+
+  // One `d` for every ring, so the even-odd rule can see them together: a
+  // lagoon is only a hole relative to the island around it, and two separate
+  // <path> elements cannot know about each other.
+  const land = (p.land?.rings ?? [])
+    .filter((ring) => ring.length > 2)
+    .map(
+      (ring) =>
+        `M${ring.map((c) => `${px(Number(c[0])).toFixed(1)},${py(Number(c[1])).toFixed(1)}`).join("L")}Z`,
+    )
+    .join("") || null;
 
   const paths = (p.paths || []).map((path) => ({
     points: (path.coords || [])
@@ -306,7 +433,7 @@ export function MapView(p: MapViewProps) {
 
   return (
     <div style={box}>
-      <div style={viewport}>
+      <div ref={viewportRef} style={viewport}>
         {/* `preserveAspectRatio="none"` is not a style choice, it is what the
          * projection already assumes: `px()` maps the bbox's longitude range
          * across the FULL width and `py()` maps its latitude range across the
@@ -333,6 +460,18 @@ export function MapView(p: MapViewProps) {
               vectorEffect="non-scaling-stroke"
             />
           ))}
+          {/* Under everything: the graticule reads THROUGH land, and the route
+           * and the coastline read over it. A fill drawn after the coastline
+           * would swallow its own outline. */}
+          {land ? (
+            <path
+              d={land}
+              fill={token("map-land")}
+              // Even-odd, so a ring inside a ring is a hole. See `MapLand`.
+              fillRule="evenodd"
+              stroke="none"
+            />
+          ) : null}
           {paths.map((path, i) => (
             <polyline
               key={`p${i}`}

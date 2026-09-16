@@ -150,7 +150,9 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
           // Only a result with geometry in it is worth keeping: an empty one is
           // usually an outage, and caching that forever would make a transient
           // failure permanent.
-          if (result.coastline.length || result.roads.length) await writeCache(file, result);
+          if (result.coastline.length || result.roads.length || result.land.length) {
+            await writeCache(file, result);
+          }
           return result;
         } catch (err) {
           // `fetchCoastline` already swallows its own failures, so this is the
@@ -163,7 +165,7 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
             body: "coastline fetch failed",
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
-          return { coastline: [], roads: [], toleranceM: 0, attribution: OSM_ATTRIBUTION };
+          return { coastline: [], roads: [], land: [], toleranceM: 0, attribution: OSM_ATTRIBUTION };
         }
       })().finally(() => inFlight.delete(key));
       inFlight.set(key, pending);

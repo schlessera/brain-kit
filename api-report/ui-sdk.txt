@@ -703,6 +703,7 @@ export "./server" (./src/server/index.ts)
   claudeMaskFilename
   claudeReportedMaskPath
   clipLine
+  closedRings
   compileConfirmPatterns
   createKeyedLock
   createToolPermissionRequest
@@ -725,6 +726,7 @@ export "./server" (./src/server/index.ts)
   piMaskFilename
   piReportedMaskPath
   prepare
+  prepareLand
   readWebSearchOverride
   readWebSearchRouting
   requestToolPermission
