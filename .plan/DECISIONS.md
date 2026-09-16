@@ -1656,3 +1656,40 @@ S1 fixes that package's renderer registry first. With no compatibility burden
 the ordering is a matter of engineering convenience rather than of exposure, so
 **wave 6 may fix the registry as part of itself** instead of waiting for S1.
 
+
+## 2026-09-16 — four decisions wave 6 made while building the contract layer
+
+**1. A contract with no payload is a first-class shape, and `query_activity` is
+one.** The obvious design gives every tool a payload schema. `query_activity`
+must not have one: its result is free text from past runs, wrapped in a
+nonce-suffixed delimiter precisely so the model reads it as data rather than as
+instructions. A payload schema is an invitation to hand that text to a
+component, which is a separate decision with its own threat model. So
+`ToolContract` and `ToolComponentContract` are two types, `bind()` accepts only
+the second, and the refusal is structural rather than a comment.
+
+**2. Bound renderers register GLOBALLY, and the backend-scoped entry had to
+go.** The registry resolves backend-scoped exact names before global ones. The
+Claude pack listed `mcp__brain-ui__get_current_location`, so a global
+contract-bound renderer for the same tool would never have been reached — it
+would have looked like `bind()` was broken. The rule that falls out: a tool that
+belongs to the CHAT UI is registered under every spelling of its name and scoped
+to no backend, and only a tool that genuinely belongs to one backend is scoped.
+
+**3. The payload convention is now followed, not just declared.** pi's
+`request_image_mask` reported a sentence while ask_user and
+get_current_location serialised payloads, which is the "convention we are
+establishing, not following" the plan flagged. Establishing it meant changing
+what the model sees for that tool and moving a characterization fixture that
+exists to pin pre-refactor behaviour. That is allowed under D31, and the drift
+test now states in words that this one result is expected to move — a
+characterization test that is silently re-baselined stops being one.
+
+**4. Idempotence belongs to a registry, never to the module that fills it.**
+Both `registerBuiltinRenderers` and `registerAsrClients` guarded themselves with
+a module-level `registered` boolean that the matching `reset*` could not clear,
+so the first reset anywhere permanently un-registered them. The renderer
+registry dedupes by pack identity and the ASR registry is keyed by provider id,
+so both latches bought nothing and cost the ability to reset. The general
+form: **a latch outside the thing being reset is a bug waiting for a reset to
+exist.**

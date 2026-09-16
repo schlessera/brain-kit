@@ -356,19 +356,44 @@ Sequenced after the component waves but **before** step 2. Not optional.
       is still open, and is design iteration rather than port work
 
 ### Wave 6 — D3 tool contracts
-- [ ] `ToolComponentContract { name, description, input, payload }` in `ui-sdk`,
-      React-free and server-importable
-- [ ] Components typed `z.infer<contract["payload"]>`; `bind(contract, Component)`
-      in `ui-react` makes drift a `tsc` error
-- [ ] `z.toJSONSchema(schema, { io: "input" })` for the LLM-facing tool schema —
-      already the house idiom in `ui-backend-pi/src/bridge-tools.ts`
-- [ ] `BRAIN_UI_SYSTEM_PROMPT_APPEND` generated from the contract list, so
-      "schema'd but never described to the model" is unreachable
-- [ ] `CONTRACT:` commit + `docs/integration-contract.md` in the same commit
-- [ ] Note: payload rides as JSON inside the existing `ServerToolResult.output`
-      string — no `PROTOCOL_REV` bump. But only 2 of 4 bridge tools do this
-      today and the Pi adapter drops `details`, so this is a convention we are
-      **establishing**, not following.
+- [x] `ToolComponentContract { name, description, input, payload }` in
+      `ui-sdk/src/tool-contracts/`, React-free and server-importable, on its own
+      `./tool-contracts` export path and re-exported from `/server` and
+      `/client`. The four bridge tools are declared there; the handlers stayed
+      in `/server`, so no backend import site moved
+- [x] Components typed `z.infer<contract["payload"]>`; `bind(contract, Component)`
+      in `ui-react` makes drift a `tsc` error — BOTH directions seeded: a
+      component bound to the wrong contract, and a component reading a field
+      the payload does not carry
+- [x] `z.toJSONSchema(schema, { io: "input" })` moved into the SDK
+      (`toolInputJsonSchema`), so both backends advertise the same JSON Schema
+      for the same tool rather than each converting its own copy
+- [x] `BRAIN_UI_SYSTEM_PROMPT_APPEND` generated from the contract list. The
+      contract-to-`SurfaceTools` map is keyed by `BridgeToolName`, so adding a
+      contract without deciding how a backend declares it is a `tsc` error —
+      seeded and confirmed. Prompt text is byte-identical to before
+- [x] `CONTRACT:` commit + `docs/integration-contract.md` in the same commit,
+      with the payload table and the rules a consumer may rely on
+- [x] The convention is now FOLLOWED, not just described: pi's
+      `request_image_mask` serialises its payload into `output` like the other
+      payload tools instead of reporting a sentence (and stops dropping `note`).
+      `tests/bridge-tools.test.ts` parses every payload tool's real output
+      through its contract, on both adapters — seeded by restoring the sentence
+- [x] The renderer registry bug D13's verification found: `registerBuiltinRenderers`
+      latched behind a module boolean `resetToolRenderers()` could not clear.
+      Idempotence moved into the registry (pack identity), which reset clears;
+      the registry is also instance-scoped now with a module default. The ASR
+      registration had the identical latch and lost it too
+- [x] First binding: `get_current_location` → a location card. It closes a real
+      gap — the result had a renderer only under Claude's MCP-prefixed name, so
+      the same tool on pi rendered as raw JSON, as did a resumed transcript
+      carrying the pre-rename prefix. A bound contract registers every spelling,
+      globally
+- [ ] Nothing renders `ask_user` or `request_image_mask` through their contracts
+      yet. `ask_user` is special-cased out of the timeline by `message-bubble`
+      and needs the exchange UI rather than a tool card; the mask result is a
+      one-line path today. Both are bindings waiting for a component, not for
+      machinery
 
 ### Wave 6b — MapView coastline geometry (D25)
 - [x] Generation script: Overpass → `mapshaper -clip -simplify dp` at 1 px of
