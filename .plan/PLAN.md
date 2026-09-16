@@ -387,15 +387,41 @@ Additive; does not block the wave-3 port, which stands as-is.
       hand-rolled viewport closure got 3 of 5 wrong
 
 ### Wave 7 — visual regression (D10)
-- [ ] `toMatchScreenshot` from play functions, baselines generated and verified
-      inside `mcr.microsoft.com/playwright:v1.63.0-noble` both locally and in CI
-- [ ] Deliberately last: baselines churn while the design is still moving.
-      **But the case for it got much stronger.** Two components were visibly
-      broken in Storybook and passed every test: `GraphView` rendered a 2px
-      vertical line (all six of its stories passed — percentages of zero are all
-      zero, so nothing overflowed and no node escaped) and `LaneChart` drew one
-      run as two. Both were found by a person looking at the design surface.
-      `.plan/design-feedback.md` §15
+- [x] `toMatchScreenshot` against 16 committed baselines, generated and compared
+      **only** inside `mcr.microsoft.com/playwright:v1.63.0-noble`. Not a
+      precaution: a host-generated baseline compared inside the container did
+      not merely differ, it made the matcher retry until the test timed out, so
+      the failure did not even look like a visual diff
+- [x] **A second Vitest project, not a call inside `play`.** `toMatchScreenshot`
+      comes from `@vitest/browser`'s `expect.element`, and the `expect` a story
+      imports is `storybook/test`'s, which does not have it; importing `vitest`
+      into a story would break `storybook dev`. The visual project imports the
+      REAL stories and renders them through CSF Next's `run()`, so a baseline is
+      of the story rather than of a copy of it that can drift
+- [x] **`expect(...)`, not `expect.element(...)`.** The latter polls, so a
+      screenshot that will never match is re-captured until the TEST times out.
+      Measured on the same seeded defect: **15.1s reported as "Test timed out"
+      with no mismatch count and no diff image, versus 232ms reported as "408
+      pixels (ratio 0.01) differ"** naming the expected, actual and diff files
+- [x] Subjects are CURATED, and that is a decision: the four screens, the
+      components that paint, two dense cards. 536 baselines would be
+      unreviewable and would churn on every spacing change, which is how a
+      visual suite becomes a rubber stamp
+- [x] **A baseline only catches what its story renders** — the same blind spot
+      the a11y gate has. Proved on this suite: reintroducing the `GraphView`
+      collapse did NOT fail `paints: graph view`, because `Default` now renders
+      in a stated-width wrapper. The subject that catches it is the story that
+      reproduces the condition, and it is in the set separately
+- [x] `scripts/visual.mjs` — ONE file for the local `docker run` and the CI
+      step, so they cannot drift. Plain node ESM, the one exception to this
+      repo's bun-TypeScript scripts, because the image has no bun and putting
+      one in would make the image's pin a lie about what produced the pixels
+- [x] **The 536 Storybook tests now run in CI at all.** They did not before:
+      only `bun test` ran, so the accessibility gate wave 1b proved with a
+      seeded violation was, from the moment it landed, enforced by nobody. The
+      same CI job carries both projects
+- [x] Both original wave-4 defects re-seeded against the finished suite and
+      caught, in under 250ms each, with diff images
 
 ### Step 2 — rewire `ui-react` (from `.plan/architecture/state.md`, as amended by D15)
 - [ ] S1 registry instancing — **also fixes the real bug**: `registered` in

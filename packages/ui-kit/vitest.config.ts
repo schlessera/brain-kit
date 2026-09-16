@@ -41,6 +41,23 @@ export default mergeConfig(
             },
           },
         },
+        {
+          extends: true,
+          test: {
+            name: "visual",
+            // `.visual.tsx`, deliberately NOT `.test.tsx`: the repo's `bun run test`
+            // globs `packages/**` for `*.test.ts(x)` and would claim these, then
+            // fail on the first story import because bun's runner has no Vite and
+            // cannot resolve `#.storybook/preview`. Two runners, two extensions.
+            include: ["tests/visual/**/*.visual.tsx"],
+            browser: {
+              enabled: true,
+              provider: playwright({}),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
       ],
     },
   })

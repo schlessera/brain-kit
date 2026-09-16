@@ -25,7 +25,7 @@ it and reshapes the state architecture.
 | 5 | The four assembled screens — the acceptance test | done |
 | 6 | D3 in-chat tool contracts | not started |
 | 6b | MapView coastline geometry (D25) | not started |
-| 7 | Visual regression (D10) | not started |
+| 7 | Visual regression (D10) | done |
 | Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | not started |
 
 Fixtures: the Odyssey world under `packages/ui-kit/fixtures/`, 16 people, 20
@@ -38,9 +38,17 @@ bun run test            # whole suite
 bun run lint            # six gates, including the leakage gate
 bunx tsc --noEmit       # typecheck
 cd packages/ui-kit && bunx storybook dev      # the design surface
-cd packages/ui-kit && bunx vitest run --project=storybook   # browser tests
+cd packages/ui-kit && bunx vitest run --project=storybook   # browser tests, fast
+bun run test:browser    # BOTH browser projects, in the pinned image — what CI runs
+bun run visual          # visual regression only
+bun run visual:update   # rewrite the baselines, after a deliberate visual change
 bun packages/ui-kit/tools/dc-parity/compare.ts              # DC parity harness
 ```
+
+**Never commit a baseline from a host run.** `bun run visual:update` goes
+through the container; a bare `vitest --project=visual --update` does not, and a
+host-generated baseline does not merely differ — it makes the matcher retry
+until the test times out, so the next failure does not even look visual.
 
 If `tsc` or a test dies with `SIGTRAP` or exit 133 and a V8 stack, **re-run it**
 — that is a known non-deterministic node JIT crash, documented in the release
@@ -144,7 +152,7 @@ Two of those are worth carrying forward as rules:
   `stories/_stage.tsx`. `overflow: hidden` is right for a specimen and is a trap
   on a screen: the clip looks like the end of the content.
 
-## The new trap, and it is the biggest one
+## The trap wave 7 was built for
 
 **Two components were visibly broken in Storybook and passed every test.**
 `GraphView` rendered a 2px vertical line for a whole wave — everything inside it
@@ -156,12 +164,38 @@ component makes. Both were found by a person looking at the design surface.
 
 `.plan/design-feedback.md` §15. The practical rule: **assertions about props,
 roles, counts and computed styles cannot see a component that has vanished.**
-Wave 7 is still scheduled last because baselines churn, but that is a scheduling
-call, not a statement about its value.
+
+Wave 7 now covers it — both defects were re-seeded against the finished suite
+and caught in under 250ms each. Two things about it are worth knowing before
+touching it:
+
+- **A baseline only catches what its story renders**, which is the same blind
+  spot the a11y gate has. Reintroducing the `GraphView` collapse did NOT fail
+  `paints: graph view`, because `Default` renders in a stated-width wrapper now.
+  The subject that catches it is the story that reproduces the condition, and it
+  is in the set separately.
+- **The subjects are curated on purpose** — the four screens, the components
+  that paint, two dense cards. Snapshotting all 536 stories would produce PNGs
+  nobody can review that churn on every spacing change, which is how a visual
+  suite becomes a rubber stamp.
 
 ## What to do next
 
-**Wave 6 — D3 tool contracts** is the next feature step, and it is the one with
-a `CONTRACT:` commit attached. **Wave 6b** (MapView coastline geometry) is
-additive and independent. **Wave 7** is now better motivated than the plan
-originally argued; see above.
+**Wave 6 — D3 tool contracts**, and it needs two answers from the maintainer
+before any code moves:
+
+1. **Where it sits.** `PLAN.md` lists it inside step 1; `DECISIONS.md` sequences
+   the same work as **S9**, after the `ui-react` rewire — and `bind(contract,
+   Component)` lives in `ui-react`, whose renderer registry S1 is meant to fix
+   first (`registered` is never cleared by `resetToolRenderers()`).
+2. **Minor or major.** The payload rides as JSON inside the existing
+   `ServerToolResult.output` string, so no `PROTOCOL_REV` bump — but new in-chat
+   MCP tools are compatibility surface, which AGENTS.md attaches a `CONTRACT:`
+   commit and a major-version discussion to.
+
+**Wave 6b** (MapView coastline geometry, D25) is additive, independent of both,
+and would also fix the Charybdis marker sitting on the map's left edge on the
+chat-answer screen.
+
+Two design questions are still open in `design-feedback.md` §14 and will move
+screens — and therefore baselines — when they are answered.

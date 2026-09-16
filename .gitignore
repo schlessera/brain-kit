@@ -16,3 +16,7 @@ okf-dist/
 # Storybook build output and its init log.
 storybook-static/
 debug-storybook.log
+
+# Vitest browser-mode failure artefacts: the actual and diff images a visual
+# test writes beside its baseline. The BASELINES are committed; these are not.
+.vitest-attachments/
