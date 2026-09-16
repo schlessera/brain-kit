@@ -72,8 +72,41 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
-The four bridge tools are defined once in `@schlessera/brain-ui-sdk/server`;
-their names and Claude-side input schemas are unchanged.
+The four bridge tools are declared once as **tool contracts** in
+`@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
+`/client`); their names and Claude-side input schemas are unchanged.
+
+### Tool component contracts
+
+A contract is `{ name, description, input, brief }`, plus `payload` when the
+tool's result is meant to be rendered as a component rather than read as text:
+
+| Contract | Payload in `output` | Rendered as |
+|---|---|---|
+| `ask_user` | `{ questions, answers, annotations? }` | the picker's answered state |
+| `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a location card |
+| `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
+| `query_activity` | **none** | prose in a nonce-delimited data block |
+
+Rules a consumer may rely on:
+
+- **The payload rides as JSON inside `ServerToolResult.output`**, which is
+  already a string, so this needs no `PROTOCOL_REV` bump. Every tool with a
+  `payload` schema serialises it there — `query_activity` has no payload
+  because its result is untrusted text from past runs, and handing that to a
+  component is a separate decision with its own threat model.
+- **Payload schemas are additive and parsed loosely.** Unknown keys survive, so
+  a newer server may add fields; a consumer that cannot parse a payload falls
+  back to the generic tool view rather than failing the message.
+- **The name the model sees is adapter-derived**, not a second constant:
+  `visibleToolName(name, "claude")` prefixes `mcp__brain-ui__`, `"pi"` uses the
+  bare name. `bridgeContractForToolName()` resolves either spelling.
+- **`BRAIN_UI_SYSTEM_PROMPT_APPEND`'s tool paragraph is generated** from the
+  contract list: every contract carries its own `brief`, so a tool cannot be
+  schema'd without being described to the model.
+- **The input JSON Schema is `z.toJSONSchema(input, { io: "input" })` with
+  `$schema` removed**, identical across both backends for the same tool.
+
 Result fields are additive (treat unknown fields as such). Cost fields are
 dual: `costUsd` is the list-price reference, `effectiveCostUsd` the actual
 out-of-pocket cost ($0 for subscription-billed runs); `null` means unknown,

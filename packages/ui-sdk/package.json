@@ -40,6 +40,11 @@
       "types": "./dist/schemas.d.ts",
       "default": "./dist/schemas.js"
     },
+    "./tool-contracts": {
+      "bun": "./src/tool-contracts/index.ts",
+      "types": "./dist/tool-contracts/index.d.ts",
+      "default": "./dist/tool-contracts/index.js"
+    },
     "./server": {
       "bun": "./src/server/index.ts",
       "types": "./dist/server/index.d.ts",

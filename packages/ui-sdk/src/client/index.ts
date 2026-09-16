@@ -33,4 +33,8 @@ export type {
   WebSocketClose,
 } from "./ws-client.js";
 
+// Tool component contracts (D3): the browser binds renderers and parses tool
+// payloads from the same objects the server builds its tool definitions from.
+export * from "../tool-contracts/index.js";
+
 export * from "../protocol.js";

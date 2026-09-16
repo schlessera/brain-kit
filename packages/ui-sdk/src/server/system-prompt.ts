@@ -1,4 +1,13 @@
 import type { ClientEnvironment } from "../protocol.js";
+import {
+  ASK_USER_CONTRACT,
+  BRIDGE_TOOL_CONTRACTS,
+  GET_CURRENT_LOCATION_CONTRACT,
+  QUERY_ACTIVITY_CONTRACT,
+  REQUEST_IMAGE_MASK_CONTRACT,
+  toolBriefLines,
+  type BridgeToolName,
+} from "../tool-contracts/index.js";
 import type { WebSearchBrief } from "./web-search.js";
 
 /**
@@ -167,41 +176,29 @@ export interface SurfaceTools {
   activity?: string | false;
 }
 
+/**
+ * Which `SurfaceTools` key names each contract. Keyed by `BridgeToolName`, so
+ * adding a contract without deciding how a backend declares it is a `tsc`
+ * error rather than a tool that silently never reaches the prompt.
+ */
+const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
+  [ASK_USER_CONTRACT.name]: "askUser",
+  [GET_CURRENT_LOCATION_CONTRACT.name]: "location",
+  [REQUEST_IMAGE_MASK_CONTRACT.name]: "mask",
+  [QUERY_ACTIVITY_CONTRACT.name]: "activity",
+};
+
+/**
+ * The tool paragraph, GENERATED from the contract list rather than written
+ * out here. A tool that is schema'd but never described to the model was a
+ * standing hazard while the two lists were maintained by hand; now a contract
+ * carries its own brief and this function cannot skip one. `tests/` asserts
+ * that every contract in `BRIDGE_TOOL_CONTRACTS` reaches the prompt.
+ */
 function toolSection(tools: SurfaceTools, webSearch?: WebSearchBrief): string {
-  const lines: string[] = [];
-  if (tools.askUser) {
-    lines.push(
-      `- **Ask with the picker, not with prose.** When the answer is one of a
-  small set of options, call \`${tools.askUser}\` — it renders tappable
-  choices, where a prose question forces the reader to type. Open-ended
-  questions stay prose.`
-    );
-  }
-  if (tools.location) {
-    lines.push(
-      `- **Location is a tool, not a question.** \`${tools.location}\` reads the
-  browser's own geolocation (the browser handles consent, so there is no
-  approval card). Use it for "here", "nearby", "on my way" instead of asking
-  the reader where they are.`
-    );
-  }
-  if (tools.mask) {
-    lines.push(
-      `- **Let the reader point at the region.** When an edit applies to part of
-  an image rather than all of it, call \`${tools.mask}\` — they paint over the
-  area and you get a mask back. Guessing coordinates from a description is
-  worse than asking, and describing the whole change in words is the fallback
-  when they decline.`
-    );
-  }
-  if (tools.activity) {
-    lines.push(
-      `- **Answer "what ran?" from the record.** \`${tools.activity}\` reads this
-  deployment's own activity record — running work, recent runs, one run's
-  steps, cost rollups. Use it for "what happened while I was away", "is the
-  sync still running", "what did that cost" instead of guessing from logs.`
-    );
-  }
+  const lines = toolBriefLines(BRIDGE_TOOL_CONTRACTS, (contract) =>
+    tools[SURFACE_TOOL_KEYS[contract.name as BridgeToolName]]
+  );
   if (webSearch) lines.push(webSearchLine(webSearch));
   return lines.length ? `\n${lines.join("\n")}` : "";
 }

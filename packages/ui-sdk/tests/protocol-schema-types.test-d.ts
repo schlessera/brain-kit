@@ -1,5 +1,3 @@
-import type { z } from "zod";
-
 import type {
   ClientActivitySubscribe,
   ClientActivityUnsubscribe,
@@ -69,49 +67,11 @@ import {
   serverToolUseStartSchema,
 } from "../src/schemas.js";
 
-/** Remove z.looseObject's catch-all index signature without losing named keys. */
-type StripIndexSignature<T> = {
-  [K in keyof T as string extends K
-    ? never
-    : number extends K
-      ? never
-      : symbol extends K
-        ? never
-        : K]: T[K];
-};
+import type {
+  Assert,
+  SchemaEqualsProtocol,
+} from "./type-equality.js";
 
-/**
- * Canonical recursive shape used for comparison. Arrays recurse through their
- * elements. Objects with named keys lose z.looseObject's catch-all signature;
- * pure record types retain their index signature and value type.
- */
-type DeepShape<T> = T extends readonly unknown[]
-  ? // Homomorphic for tuples AND variable-length arrays, which is what keeps
-    // the readonly modifier: rewriting an array as `Array<DeepShape<...>>`
-    // would erase it, and `readonly AskUserOption[]` versus `AskUserOption[]`
-    // would then compare equal.
-    { [K in keyof T]: DeepShape<T[K]> }
-  : T extends object
-    ? keyof StripIndexSignature<T> extends never
-      ? { [K in keyof T]: DeepShape<T[K]> }
-      : {
-          [K in keyof StripIndexSignature<T>]: DeepShape<StripIndexSignature<T>[K]>;
-        }
-    : T;
-
-type Equal<Left, Right> =
-  (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2
-    ? (<T>() => T extends Right ? 1 : 2) extends <T>() => T extends Left ? 1 : 2
-      ? true
-      : false
-    : false;
-
-type SchemaEqualsProtocol<Schema extends z.ZodType, Protocol> = Equal<
-  DeepShape<z.infer<Schema>>,
-  DeepShape<Protocol>
->;
-
-type Assert<Condition extends true> = Condition;
 
 // Client -> server: all 14 frames.
 type ClientHelloMatches = Assert<SchemaEqualsProtocol<typeof clientHelloSchema, ClientHello>>;

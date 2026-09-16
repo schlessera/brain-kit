@@ -1,14 +1,42 @@
 {
   "claude": {
-    "ask_user": { "definitionSha256": "8b15505627229ad5671f5a00d07776002e4662024e87165fcae5c89ecc10b22f", "resultSha256": "51747bef2c42fc83d27bc18583aea873b5193f23c6d1984b114a7133dd9f3761" },
-    "get_current_location": { "definitionSha256": "b4ce2172fed0c07105a6371090323b1993b4743c89269794c0f144aab81b882d", "resultSha256": "5d79ffe0d9f4910d70d22bf7129c28b21c91ef2fa3a4e845a59bfde3fb2c2ec8" },
-    "request_image_mask": { "definitionSha256": "792a9991ef704b829b4fa4137cee65c2481c0c43f01c136ee9289ea46676d271", "resultSha256": "de608613847303e2a2b5fd48ede3be912ed65e7b263767bba1577930bc308513", "symlinkResultSha256": "87f0f1610cdad49589b7c3a81af60f4f1a4c28689d411cf4db4ecd810f28c08e", "rootSymlinkResultSha256": "de608613847303e2a2b5fd48ede3be912ed65e7b263767bba1577930bc308513" },
-    "query_activity": { "definitionSha256": "d68770b7be42982b6f5112eb1a223f50168b8bf41e903aeb8adc9aace331c77b", "resultSha256": "1b00ed051a07f010014a7e1ae4b0aa218dc009066c708a0c29641908f74cf6b9" }
+    "ask_user": {
+      "definitionSha256": "8b15505627229ad5671f5a00d07776002e4662024e87165fcae5c89ecc10b22f",
+      "resultSha256": "51747bef2c42fc83d27bc18583aea873b5193f23c6d1984b114a7133dd9f3761"
+    },
+    "get_current_location": {
+      "definitionSha256": "b4ce2172fed0c07105a6371090323b1993b4743c89269794c0f144aab81b882d",
+      "resultSha256": "5d79ffe0d9f4910d70d22bf7129c28b21c91ef2fa3a4e845a59bfde3fb2c2ec8"
+    },
+    "request_image_mask": {
+      "definitionSha256": "792a9991ef704b829b4fa4137cee65c2481c0c43f01c136ee9289ea46676d271",
+      "resultSha256": "de608613847303e2a2b5fd48ede3be912ed65e7b263767bba1577930bc308513",
+      "symlinkResultSha256": "87f0f1610cdad49589b7c3a81af60f4f1a4c28689d411cf4db4ecd810f28c08e",
+      "rootSymlinkResultSha256": "de608613847303e2a2b5fd48ede3be912ed65e7b263767bba1577930bc308513"
+    },
+    "query_activity": {
+      "definitionSha256": "d68770b7be42982b6f5112eb1a223f50168b8bf41e903aeb8adc9aace331c77b",
+      "resultSha256": "1b00ed051a07f010014a7e1ae4b0aa218dc009066c708a0c29641908f74cf6b9"
+    }
   },
   "pi": {
-    "ask_user": { "definitionSha256": "0fffe242f808eff223998ab1e25677b63c4bd90233c3ea33de3b405957bf9a3b", "resultSha256": "c05d7e680a2b34d448ebeb3bf142bdd79c4c6698ff398b1ead45090547912ca7" },
-    "get_current_location": { "definitionSha256": "e68c8e1858fac98926cf36b7357c896101638a092dba8717c81e1395b1da636a", "resultSha256": "00eef8aa74d5ad267dfee70e2a4cee910e2dde2e7d1977a4cb3425a2528791d3" },
-    "request_image_mask": { "definitionSha256": "712b70f54f64d675e163b9a4a711fc2fe394c22bb5dfb9e4d7f87457542ef570", "resultSha256": "8280b8584ec9f3ecb45b0fc515a8d29707ae810b53b2e1809935d8ebe355eb92", "symlinkResultSha256": "4be2b1de8c1fe47696adbc8bba0d03413156c7fd990e815cc8d2d8015301f7f6", "rootSymlinkResultSha256": "49171f540d28ba21c4f1050a1d58d96e16b3af109922e88c65fc7acebe07444c" },
-    "query_activity": { "definitionSha256": "b3bd605400db6640e28f7d714ee0694a33a0877f0b12b26e5854774711841ec3", "resultSha256": "78d8e4c778d4261ed9bb09197a728f44566bd3ca99858834211ee2384f5f52bb" }
+    "ask_user": {
+      "definitionSha256": "0fffe242f808eff223998ab1e25677b63c4bd90233c3ea33de3b405957bf9a3b",
+      "resultSha256": "c05d7e680a2b34d448ebeb3bf142bdd79c4c6698ff398b1ead45090547912ca7"
+    },
+    "get_current_location": {
+      "definitionSha256": "e68c8e1858fac98926cf36b7357c896101638a092dba8717c81e1395b1da636a",
+      "resultSha256": "00eef8aa74d5ad267dfee70e2a4cee910e2dde2e7d1977a4cb3425a2528791d3"
+    },
+    "request_image_mask": {
+      "definitionSha256": "712b70f54f64d675e163b9a4a711fc2fe394c22bb5dfb9e4d7f87457542ef570",
+      "resultSha256": "b477025e30434d46acc65855f1e86cb09bde1bb3d7697bb6d515e89e5ae2a72a",
+      "symlinkResultSha256": "4cdf90dc5da51345566eb99326a81e87fed57e555fc46f243f65940b9b509e7a",
+      "rootSymlinkResultSha256": "e07c772f128b25862c280a212f62e16c87d48b0ed94244b24e480a1e2a01165c"
+    },
+    "query_activity": {
+      "definitionSha256": "b3bd605400db6640e28f7d714ee0694a33a0877f0b12b26e5854774711841ec3",
+      "resultSha256": "78d8e4c778d4261ed9bb09197a728f44566bd3ca99858834211ee2384f5f52bb"
+    }
   }
 }

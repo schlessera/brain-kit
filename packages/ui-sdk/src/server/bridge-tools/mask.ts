@@ -1,43 +1,12 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, extname, relative, resolve, sep } from "path";
-import { z } from "zod";
 
+import type {
+  ImageMaskPayload,
+  RequestImageMaskInput,
+} from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
 import { resolveInRepo } from "./resolve-in-repo.js";
-
-export const REQUEST_IMAGE_MASK_TOOL_NAME = "request_image_mask";
-
-export const REQUEST_IMAGE_MASK_DESCRIPTION = [
-  "Ask the user to mark the region of an image that should change, by painting over it in their browser.",
-  "Use before editing part of an image — replacing an object, changing a background, removing something — when which region is meant is the user's call rather than yours. Writes a mask PNG next to the image and returns its path, which you then pass to `brain image --mask <path>` along with the image as `--ref`.",
-  "The user may decline, in which case this returns an error: fall back to describing the change in words instead of retrying.",
-  "Only mask-capable models accept it (OpenAI's image models); `brain image` routes there automatically when a mask is present.",
-].join("\n");
-
-export const REQUEST_IMAGE_MASK_INPUT_SCHEMA = z.object({
-  imagePath: z
-    .string()
-    .describe(
-      "Repo-relative path of the image to mark up, e.g. assets/images/house.png"
-    ),
-  instruction: z
-    .string()
-    .optional()
-    .describe(
-      "What you intend to change, shown to the user as guidance while they paint, e.g. 'mark the sky'"
-    ),
-});
-
-export type RequestImageMaskInput = z.infer<
-  typeof REQUEST_IMAGE_MASK_INPUT_SCHEMA
->;
-
-export interface ImageMaskPayload {
-  maskPath: string;
-  imagePath: string;
-  bytes: number;
-  note: string;
-}
 
 export interface ImageMaskHandlerOptions {
   brainPath: string;

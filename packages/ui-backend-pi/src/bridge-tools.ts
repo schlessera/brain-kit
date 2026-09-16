@@ -18,6 +18,8 @@ import {
   handleRequestImageMask,
   piMaskFilename,
   piReportedMaskPath,
+  toolInputJsonSchema,
+  type ToolContract,
   type AskUserResult,
   type LocationHandlerOptions,
   type ReverseGeocodeConfig,
@@ -31,11 +33,16 @@ function textResult(text: string, details: unknown = null) {
   return { content: [{ type: "text" as const, text }], details };
 }
 
-export function toPiParameters(schema: z.ZodObject): ToolDefinition["parameters"] {
-  const { $schema: _schema, ...parameters } = z.toJSONSchema(schema, {
-    io: "input",
-  });
-  return parameters;
+/**
+ * pi's parameter shape from a contract's input schema. The conversion itself
+ * lives in the SDK (`toolInputJsonSchema`) so both backends advertise the same
+ * JSON Schema for the same tool; this wrapper only narrows the return type to
+ * pi's.
+ */
+export function toPiParameters(
+  schema: z.ZodObject | ToolContract
+): ToolDefinition["parameters"] {
+  return toolInputJsonSchema(schema) as ToolDefinition["parameters"];
 }
 
 export function resolveLocationReverseGeocodeConfig(): ReverseGeocodeConfig {
@@ -147,7 +154,11 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
           reportMaskPath: piReportedMaskPath,
         }
       );
-      return textResult(`Mask written to ${payload.maskPath}.`, {
+      // JSON in `output`, the same convention ask_user and
+      // get_current_location follow, so one renderer can parse any payload
+      // tool's result. `details` keeps the pre-contract shape for hosts that
+      // read it; the pi adapter drops details on the wire either way.
+      return textResult(JSON.stringify(payload), {
         maskPath: payload.maskPath,
       });
     },

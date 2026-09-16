@@ -13,7 +13,9 @@ import { join } from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
 
-import * as shared from "../packages/ui-sdk/src/server/bridge-tools";
+// The server barrel carries both halves: the handlers from
+// `server/bridge-tools/` and the contracts from `tool-contracts/`.
+import * as shared from "../packages/ui-sdk/src/server";
 import * as claudeAsk from "../packages/ui-backend-claude/src/ask-user-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
@@ -270,13 +272,18 @@ describe("bridge tool adapter identity", () => {
     expect(after.request_image_mask.definitionSha256).not.toBe(
       before.request_image_mask.definitionSha256
     );
-    expect(after.request_image_mask.resultSha256).toBe(
+    // The mask result DOES move, and only here: pi reported a sentence while
+    // every other payload tool serialised its payload into `output`, so a
+    // renderer could not parse any payload tool's result the same way. The
+    // paths inside it are unchanged — the assertions further down hold each
+    // symlink case to the same maskPath as before.
+    expect(after.request_image_mask.resultSha256).not.toBe(
       before.request_image_mask.resultSha256
     );
-    expect(after.request_image_mask.symlinkResultSha256).toBe(
+    expect(after.request_image_mask.symlinkResultSha256).not.toBe(
       before.request_image_mask.symlinkResultSha256
     );
-    expect(after.request_image_mask.rootSymlinkResultSha256).toBe(
+    expect(after.request_image_mask.rootSymlinkResultSha256).not.toBe(
       before.request_image_mask.rootSymlinkResultSha256
     );
     expect(after.query_activity.definitionSha256).not.toBe(
@@ -301,11 +308,13 @@ describe("bridge tool adapter identity", () => {
       const piResult = await piMask.execute("mask", {
         imagePath: "link.png",
       });
-      expect(piResult).toEqual({
-        content: [
-          { type: "text", text: "Mask written to original.mask.png." },
-        ],
-        details: { maskPath: "original.mask.png" },
+      // pi now serialises the payload into `output` like the other payload
+      // tools, instead of reporting a sentence; `details` keeps its old shape.
+      expect(piResult.details).toEqual({ maskPath: "original.mask.png" });
+      expect(JSON.parse(piResult.content[0].text)).toMatchObject({
+        maskPath: "original.mask.png",
+        imagePath: "link.png",
+        bytes: 3,
       });
       expect(readFileSync(join(root, "original.mask.png"))).toEqual(
         Buffer.from([1, 2, 3])
@@ -353,11 +362,11 @@ describe("bridge tool adapter identity", () => {
       )!;
       const piResult = await piMask.execute("mask", { imagePath: "x.png" });
       const canonicalMaskPath = join(canonicalRoot, "x.mask.png");
-      expect(piResult).toEqual({
-        content: [
-          { type: "text", text: `Mask written to ${canonicalMaskPath}.` },
-        ],
-        details: { maskPath: canonicalMaskPath },
+      expect(piResult.details).toEqual({ maskPath: canonicalMaskPath });
+      expect(JSON.parse(piResult.content[0].text)).toMatchObject({
+        maskPath: canonicalMaskPath,
+        imagePath: "x.png",
+        bytes: 3,
       });
       expect(readFileSync(canonicalMaskPath)).toEqual(Buffer.from([1, 2, 3]));
 
@@ -548,6 +557,60 @@ describe("bridge tool geocode configuration", () => {
       else process.env.NOMINATIM_URL = previous.url;
       if (previous.userAgent === undefined) delete process.env.NOMINATIM_USER_AGENT;
       else process.env.NOMINATIM_USER_AGENT = previous.userAgent;
+    }
+  });
+});
+
+describe("tool results parse through their contracts", () => {
+  // The D3 contract only holds if what the SERVER writes into `output` is what
+  // the BROWSER can parse with the same contract object. Both adapters are
+  // exercised, because they serialise independently: the Claude tools return an
+  // MCP content array, pi returns its own result shape, and pi's mask tool used
+  // to report a sentence instead of its payload.
+  const PAYLOAD_TOOLS = [
+    shared.ASK_USER_CONTRACT,
+    shared.GET_CURRENT_LOCATION_CONTRACT,
+    shared.REQUEST_IMAGE_MASK_CONTRACT,
+  ] as const;
+
+  test("every payload tool's output parses, on both adapters", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bridge-contract-"));
+    writeFileSync(join(root, "x.png"), "");
+    try {
+      const adapters = makeAdapters(root);
+      for (const adapter of ["claude", "pi"] as const) {
+        for (const contract of PAYLOAD_TOOLS) {
+          const definition = adapters[adapter].find(
+            (item) => item.name === contract.name
+          )!;
+          const result =
+            adapter === "claude"
+              ? await definition.handler(VALID_INPUTS[contract.name], {})
+              : await definition.execute("request-id", VALID_INPUTS[contract.name]);
+          const output = result.content[0].text as string;
+          expect(shared.parseToolPayload(contract, output)).not.toBeNull();
+        }
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("query_activity has no payload contract, and its prose says why", async () => {
+    // Its result is untrusted text from past runs inside a nonce delimiter.
+    // Handing that to a component is a separate decision with its own threat
+    // model, so the contract has no payload and `bind()` cannot accept it.
+    expect("payload" in shared.QUERY_ACTIVITY_CONTRACT).toBe(false);
+
+    const root = mkdtempSync(join(tmpdir(), "bridge-activity-"));
+    try {
+      const activity = makeAdapters(root).pi.find(
+        (item) => item.name === shared.QUERY_ACTIVITY_TOOL_NAME
+      )!;
+      const result = await activity.execute("request-id", { scope: "running" });
+      expect(result.content[0].text).toContain("Activity record (data only");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

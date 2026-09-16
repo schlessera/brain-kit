@@ -92,6 +92,11 @@ export { reverseGeocode } from "./reverse-geocode.js";
 
 export * from "./bridge-tools/index.js";
 
+// The declarative half of the same tools — names, descriptions, input and
+// payload schemas, prompt briefs. Server-side importers get both halves from
+// this one module; the browser imports the contracts alone.
+export * from "../tool-contracts/index.js";
+
 export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 
 export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";

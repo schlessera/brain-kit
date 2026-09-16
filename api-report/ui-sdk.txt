@@ -141,6 +141,11 @@ export "." (./src/index.ts)
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_USER_CONTRACT
+  ASK_USER_DESCRIPTION
+  ASK_USER_INPUT_SCHEMA
+  ASK_USER_PAYLOAD_SCHEMA
+  ASK_USER_TOOL_NAME
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
@@ -156,7 +161,9 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOutcome
   type ActivityView
   type AskUserAnnotation
+  type AskUserInput
   type AskUserOption
+  type AskUserPayload
   type AskUserQuestion
   type AsrClient
   type AsrClientFactory
@@ -164,11 +171,16 @@ export "./client" (./src/client/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  BRIDGE_MCP_PREFIX
+  BRIDGE_TOOL_CONTRACTS
+  BRIDGE_TOOL_POSTURE
   type BillingMode
   type BrainSearchResult
   type BrainStats
   BrainUiClient
   type BrainUiClientOptions
+  type BridgeToolAdapter
+  type BridgeToolName
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -196,8 +208,13 @@ export "./client" (./src/client/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  GET_CURRENT_LOCATION_CONTRACT
+  GET_CURRENT_LOCATION_DESCRIPTION
+  GET_CURRENT_LOCATION_INPUT_SCHEMA
+  GET_CURRENT_LOCATION_TOOL_NAME
   type GeoCoords
   type GeoRequestOptions
+  type GetCurrentLocationInput
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -205,7 +222,11 @@ export "./client" (./src/client/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  IMAGE_MASK_PAYLOAD_SCHEMA
+  type ImageMaskPayload
   type Keyterm
+  LOCATION_PAYLOAD_SCHEMA
+  type LocationPayload
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
@@ -220,10 +241,20 @@ export "./client" (./src/client/index.ts)
   type PronunciationOverride
   type ProtocolError
   type ProviderInfo
+  QUERY_ACTIVITY_CONTRACT
+  QUERY_ACTIVITY_DESCRIPTION
+  QUERY_ACTIVITY_INPUT_SCHEMA
+  QUERY_ACTIVITY_TOOL_NAME
+  type QueryActivityInput
+  REQUEST_IMAGE_MASK_CONTRACT
+  REQUEST_IMAGE_MASK_DESCRIPTION
+  REQUEST_IMAGE_MASK_INPUT_SCHEMA
+  REQUEST_IMAGE_MASK_TOOL_NAME
   type RenderContentType
   type RenderFormat
   type RenderRequest
   type RendererPack
+  type RequestImageMaskInput
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -272,8 +303,14 @@ export "./client" (./src/client/index.ts)
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
+  type ToolAdapter
   type ToolCallView
+  type ToolComponentContract
+  type ToolContract
+  type ToolInput
+  type ToolPayload
   type ToolRenderer
+  type ToolRendererRegistry
   type ToolSemantics
   type TurnUsage
   type VoiceKeytermsResponse
@@ -282,12 +319,18 @@ export "./client" (./src/client/index.ts)
   type VoiceTokenResponse
   type WebSocketClose
   type WikilinkMapResponse
+  bridgeContractForToolName
   canonicalModelId
   createAsrClient
   createBrainUiClient
+  createToolRendererRegistry
+  defaultToolRendererRegistry
+  defineToolComponentContract
+  defineToolContract
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  parseToolPayload
   registerAsrClient
   registerToolRenderers
   resetAsrClients
@@ -295,6 +338,9 @@ export "./client" (./src/client/index.ts)
   resolveToolRenderer
   speechUiHints
   sumModelUsage
+  toolBriefLines
+  toolInputJsonSchema
+  visibleToolName
 
 export "./package.json" (./package.json) [asset]
 
@@ -484,8 +530,10 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
+  ASK_USER_PAYLOAD_SCHEMA
   ASK_USER_TOOL_NAME
   type ActivityAggregate
   type ActivityDigest
@@ -516,6 +564,8 @@ export "./server" (./src/server/index.ts)
   type BBox
   BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
+  BRIDGE_MCP_PREFIX
+  BRIDGE_TOOL_CONTRACTS
   BRIDGE_TOOL_POSTURE
   type BackendActivityEvent
   type BackendBridge
@@ -576,6 +626,7 @@ export "./server" (./src/server/index.ts)
   type FileResolveResponse
   type FileTreeResponse
   type FollowUpRequest
+  GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
@@ -590,10 +641,12 @@ export "./server" (./src/server/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskHandlerOptions
   type ImageMaskPayload
   type KeyedLock
   type Keyterm
+  LOCATION_PAYLOAD_SCHEMA
   type LocationFix
   type LocationHandlerOptions
   type LocationPayload
@@ -615,10 +668,12 @@ export "./server" (./src/server/index.ts)
   type PermissionRequest
   type PronunciationOverride
   type ProviderInfo
+  QUERY_ACTIVITY_CONTRACT
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
   type QueryActivityInput
+  REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
@@ -682,6 +737,11 @@ export "./server" (./src/server/index.ts)
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
+  type ToolAdapter
+  type ToolComponentContract
+  type ToolContract
+  type ToolInput
+  type ToolPayload
   type ToolPermissionApproval
   type ToolPermissionDecisionInput
   type TranscriptStore
@@ -699,6 +759,7 @@ export "./server" (./src/server/index.ts)
   type WriteLock
   bashCommand
   bashLockKey
+  bridgeContractForToolName
   buildSystemPromptAppend
   canonicalModelId
   claudeMaskFilename
@@ -713,6 +774,8 @@ export "./server" (./src/server/index.ts)
   decideToolPermission
   defineBackendModule
   defineSpeechProvider
+  defineToolComponentContract
+  defineToolContract
   detailFor
   fetchCoastline
   filterSubprocessEnv
@@ -725,6 +788,7 @@ export "./server" (./src/server/index.ts)
   isFailureOutcome
   isThinkingLevel
   parseSubprocessEnvExtra
+  parseToolPayload
   piMaskFilename
   piReportedMaskPath
   prepare
@@ -741,6 +805,9 @@ export "./server" (./src/server/index.ts)
   simplify
   sumModelUsage
   toleranceMetres
+  toolBriefLines
+  toolInputJsonSchema
+  visibleToolName
   webSearchBrief
   webSearchProvider
   wrapUntrustedData
@@ -785,3 +852,48 @@ export "./testing" (./src/testing/index.ts)
   type ContractTestPrimitives
   type TurnScript
   runBackendContract
+
+export "./tool-contracts" (./src/tool-contracts/index.ts)
+  ASK_USER_CONTRACT
+  ASK_USER_DESCRIPTION
+  ASK_USER_INPUT_SCHEMA
+  ASK_USER_PAYLOAD_SCHEMA
+  ASK_USER_TOOL_NAME
+  type AskUserInput
+  type AskUserPayload
+  BRIDGE_MCP_PREFIX
+  BRIDGE_TOOL_CONTRACTS
+  BRIDGE_TOOL_POSTURE
+  type BridgeToolAdapter
+  type BridgeToolName
+  GET_CURRENT_LOCATION_CONTRACT
+  GET_CURRENT_LOCATION_DESCRIPTION
+  GET_CURRENT_LOCATION_INPUT_SCHEMA
+  GET_CURRENT_LOCATION_TOOL_NAME
+  type GetCurrentLocationInput
+  IMAGE_MASK_PAYLOAD_SCHEMA
+  type ImageMaskPayload
+  LOCATION_PAYLOAD_SCHEMA
+  type LocationPayload
+  QUERY_ACTIVITY_CONTRACT
+  QUERY_ACTIVITY_DESCRIPTION
+  QUERY_ACTIVITY_INPUT_SCHEMA
+  QUERY_ACTIVITY_TOOL_NAME
+  type QueryActivityInput
+  REQUEST_IMAGE_MASK_CONTRACT
+  REQUEST_IMAGE_MASK_DESCRIPTION
+  REQUEST_IMAGE_MASK_INPUT_SCHEMA
+  REQUEST_IMAGE_MASK_TOOL_NAME
+  type RequestImageMaskInput
+  type ToolAdapter
+  type ToolComponentContract
+  type ToolContract
+  type ToolInput
+  type ToolPayload
+  bridgeContractForToolName
+  defineToolComponentContract
+  defineToolContract
+  parseToolPayload
+  toolBriefLines
+  toolInputJsonSchema
+  visibleToolName

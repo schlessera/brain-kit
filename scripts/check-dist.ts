@@ -19,6 +19,8 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
       "protocol.js",
       "schemas.js",
       "server/index.js",
+      // React-free tool contracts, imported by server bundles and browsers alike.
+      "tool-contracts/index.js",
       "testing/index.js",
       "client/index.js",
       // Its own export subpath: a service worker must import it without
