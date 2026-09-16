@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  createToolRendererRegistry,
   registerToolRenderers,
   resolveToolRenderer,
   resetToolRenderers,
+  type RendererPack,
   type ToolCallView,
 } from "../src/client/renderers";
 import {
@@ -67,6 +69,51 @@ describe("tool-renderer resolution order", () => {
     });
     expect(resolveToolRenderer(edit, "pi")).toBe(diffish);
     expect(resolveToolRenderer(call("unknown", {}), "pi")).toBeNull();
+  });
+});
+
+describe("registry instancing and pack identity", () => {
+  test("registering the same pack twice does not stack its predicates", () => {
+    const registry = createToolRendererRegistry();
+    let calls = 0;
+    const pack: RendererPack = {
+      renderers: [
+        {
+          match: () => {
+            calls += 1;
+            return 1;
+          },
+        },
+      ],
+    };
+    registry.register(pack);
+    registry.register(pack);
+    registry.resolve(call("anything"), "pi");
+    expect(calls).toBe(1);
+    expect(registry.has(pack)).toBe(true);
+  });
+
+  test("reset clears the registered-pack set, so the same pack registers again", () => {
+    const registry = createToolRendererRegistry();
+    const pack: RendererPack = { renderers: [{ match: "bash" }] };
+    registry.register(pack);
+    registry.reset();
+    expect(registry.has(pack)).toBe(false);
+    expect(registry.resolve(call("bash"), "pi")).toBeNull();
+
+    registry.register(pack);
+    expect(registry.resolve(call("bash"), "pi")).toBe(pack.renderers[0]!);
+  });
+
+  test("two registries do not see each other, nor the module default", () => {
+    const a = createToolRendererRegistry();
+    const b = createToolRendererRegistry();
+    const only = { match: "bash" };
+    a.register({ renderers: [only] });
+
+    expect(a.resolve(call("bash"), "pi")).toBe(only);
+    expect(b.resolve(call("bash"), "pi")).toBeNull();
+    expect(resolveToolRenderer(call("bash"), "pi")).toBeNull();
   });
 });
 

@@ -75,31 +75,95 @@ interface RegistryState {
   scoped: Map<string, Map<string, ToolRenderer>>; // backendId -> name -> renderer
   global: Map<string, ToolRenderer>;
   predicates: { renderer: ToolRenderer; fn: (tool: ToolCallView, backendId: string) => number }[];
+  /** Packs already registered, so a second call with the same pack is a no-op. */
+  packs: Set<RendererPack>;
 }
 
-const state: RegistryState = {
-  scoped: new Map(),
-  global: new Map(),
-  predicates: [],
-};
+/**
+ * One isolated registry. The module-level functions below drive a default
+ * instance; a caller that renders two surfaces with different packs (or a test
+ * that must not disturb the default) makes its own.
+ */
+export interface ToolRendererRegistry {
+  /**
+   * Register a pack. Registering the SAME pack object twice is a no-op, which
+   * is what lets `registerBuiltinRenderers()`-style helpers be idempotent
+   * without a module-level latch of their own — a latch survives `reset()` and
+   * silently leaves the registry empty for everyone else.
+   */
+  register(pack: RendererPack): void;
+  /** True when this exact pack object is currently registered. */
+  has(pack: RendererPack): boolean;
+  resolve(tool: ToolCallView, backendId: string): ToolRenderer | null;
+  /** Clear every registration, including the registered-pack set. */
+  reset(): void;
+}
+
+export function createToolRendererRegistry(): ToolRendererRegistry {
+  const state: RegistryState = {
+    scoped: new Map(),
+    global: new Map(),
+    predicates: [],
+    packs: new Set(),
+  };
+
+  return {
+    register(pack: RendererPack): void {
+      if (state.packs.has(pack)) return;
+      state.packs.add(pack);
+      for (const renderer of pack.renderers) {
+        if (typeof renderer.match === "string") {
+          if (pack.backend) {
+            let byName = state.scoped.get(pack.backend);
+            if (!byName) {
+              byName = new Map();
+              state.scoped.set(pack.backend, byName);
+            }
+            byName.set(renderer.match, renderer);
+          } else {
+            state.global.set(renderer.match, renderer);
+          }
+        } else {
+          state.predicates.push({ renderer, fn: renderer.match });
+        }
+      }
+    },
+
+    has(pack: RendererPack): boolean {
+      return state.packs.has(pack);
+    },
+
+    resolve(tool: ToolCallView, backendId: string): ToolRenderer | null {
+      const scoped = state.scoped.get(backendId)?.get(tool.name);
+      if (scoped) return scoped;
+
+      const global = state.global.get(tool.name);
+      if (global) return global;
+
+      let best: { renderer: ToolRenderer; score: number } | null = null;
+      for (const { renderer, fn } of state.predicates) {
+        const score = fn(tool, backendId);
+        if (score > 0 && (!best || score > best.score)) {
+          best = { renderer, score };
+        }
+      }
+      return best?.renderer ?? null;
+    },
+
+    reset(): void {
+      state.scoped.clear();
+      state.global.clear();
+      state.predicates.length = 0;
+      state.packs.clear();
+    },
+  };
+}
+
+/** The registry the module-level functions drive. */
+export const defaultToolRendererRegistry = createToolRendererRegistry();
 
 export function registerToolRenderers(pack: RendererPack): void {
-  for (const renderer of pack.renderers) {
-    if (typeof renderer.match === "string") {
-      if (pack.backend) {
-        let byName = state.scoped.get(pack.backend);
-        if (!byName) {
-          byName = new Map();
-          state.scoped.set(pack.backend, byName);
-        }
-        byName.set(renderer.match, renderer);
-      } else {
-        state.global.set(renderer.match, renderer);
-      }
-    } else {
-      state.predicates.push({ renderer, fn: renderer.match });
-    }
-  }
+  defaultToolRendererRegistry.register(pack);
 }
 
 /** Resolve the renderer for a tool call, or null (caller renders generic). */
@@ -107,25 +171,10 @@ export function resolveToolRenderer(
   tool: ToolCallView,
   backendId: string
 ): ToolRenderer | null {
-  const scoped = state.scoped.get(backendId)?.get(tool.name);
-  if (scoped) return scoped;
-
-  const global = state.global.get(tool.name);
-  if (global) return global;
-
-  let best: { renderer: ToolRenderer; score: number } | null = null;
-  for (const { renderer, fn } of state.predicates) {
-    const score = fn(tool, backendId);
-    if (score > 0 && (!best || score > best.score)) {
-      best = { renderer, score };
-    }
-  }
-  return best?.renderer ?? null;
+  return defaultToolRendererRegistry.resolve(tool, backendId);
 }
 
 /** Test helper — clears all registrations. */
 export function resetToolRenderers(): void {
-  state.scoped.clear();
-  state.global.clear();
-  state.predicates.length = 0;
+  defaultToolRendererRegistry.reset();
 }

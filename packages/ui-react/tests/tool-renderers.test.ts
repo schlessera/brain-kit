@@ -1,5 +1,9 @@
-import { describe, test, expect, beforeAll } from "bun:test";
-import { resolveToolRenderer, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import {
+  resetToolRenderers,
+  resolveToolRenderer,
+  type ToolCallView,
+} from "@schlessera/brain-ui-sdk/client";
 import {
   registerBuiltinRenderers,
   GENERIC_RENDERER,
@@ -56,5 +60,38 @@ describe("tool-renderer resolution", () => {
   test("the generic renderer always matches (predicate never returns 0)", () => {
     const renderer = resolveToolRenderer(toolCall("x", { input: { foo: 1 } }), "");
     expect(renderer).toBe(GENERIC_RENDERER);
+  });
+});
+
+describe("registration survives a reset", () => {
+  // The registry used to be latched behind a module-level `registered` boolean
+  // that `resetToolRenderers()` could not clear, so ONE reset anywhere — a
+  // story, a test — permanently un-registered the builtins for everything that
+  // ran afterwards. Idempotence now belongs to the registry (pack identity),
+  // which reset clears along with everything else.
+  afterAll(() => {
+    resetToolRenderers();
+    registerBuiltinRenderers();
+  });
+
+  test("re-registering after a reset restores the builtins", () => {
+    registerBuiltinRenderers();
+    resetToolRenderers();
+    expect(resolveToolRenderer(toolCall("Bash"), "claude")).toBeNull();
+
+    registerBuiltinRenderers();
+    const renderer = resolveToolRenderer(toolCall("Bash"), "claude");
+    expect(renderer).not.toBeNull();
+    expect(renderer).not.toBe(GENERIC_RENDERER);
+  });
+
+  test("calling it twice without a reset registers each pack once", () => {
+    resetToolRenderers();
+    registerBuiltinRenderers();
+    registerBuiltinRenderers();
+    // A duplicated generic pack would stack a second predicate; resolution
+    // would still work, so the observable is that the SAME object wins.
+    expect(resolveToolRenderer(toolCall("mystery"), "nobody")).toBe(GENERIC_RENDERER);
+    expect(resolveToolRenderer(toolCall("Bash"), "claude")).not.toBe(GENERIC_RENDERER);
   });
 });

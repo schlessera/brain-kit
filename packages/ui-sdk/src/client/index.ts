@@ -1,5 +1,13 @@
-export type { ToolRenderer, ToolCallView, ToolSemantics, RendererPack } from "./renderers.js";
+export type {
+  ToolRenderer,
+  ToolCallView,
+  ToolSemantics,
+  RendererPack,
+  ToolRendererRegistry,
+} from "./renderers.js";
 export {
+  createToolRendererRegistry,
+  defaultToolRendererRegistry,
   registerToolRenderers,
   resolveToolRenderer,
   resetToolRenderers,

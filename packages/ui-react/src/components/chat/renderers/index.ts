@@ -7,12 +7,15 @@ import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
 
-let registered = false;
-
-/** Register the built-in packs once (idempotent). */
+/**
+ * Register the built-in packs (idempotent).
+ *
+ * Idempotence belongs to the REGISTRY, which dedupes by pack identity, not to
+ * a module-level `registered` latch here: a latch survives
+ * `resetToolRenderers()`, so the first reset anywhere — one story, one test —
+ * permanently un-registered the builtins for everything that ran after it.
+ */
 export function registerBuiltinRenderers(): void {
-  if (registered) return;
-  registered = true;
   registerToolRenderers(claudeToolPack);
   registerToolRenderers(piToolPack);
   registerToolRenderers(genericToolPack);
