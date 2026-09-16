@@ -1,9 +1,10 @@
 import preview from "#.storybook/preview";
 import { expect } from "storybook/test";
 
-import { queueItems } from "../../fixtures/actions.js";
+import { queueFilters, queueItems } from "../../fixtures/actions.js";
 import { ScreenBody } from "../../src/chrome/ScreenBody.js";
 import { ScreenHeader } from "../../src/chrome/ScreenHeader.js";
+import { FilterRow } from "../../src/rows/FilterRow.js";
 import { QueueItemRow } from "../../src/rows/QueueItemRow.js";
 import { TabBar } from "../../src/chrome/TabBar.js";
 import { stage } from "../_stage.js";
@@ -74,5 +75,60 @@ export const Static = meta.story({
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelector("[role]")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+  },
+});
+
+/**
+ * THE FOURTH DECLARATION, AND THE FAILURE IT PREVENTS.
+ *
+ * A flex column's children default to `flex-shrink: 1`, so a body holding more
+ * than it has room for does not overflow — every child gives up height at once
+ * and the content is squeezed rather than scrolled. It fails quietly, and it
+ * fails as SOMEBODY ELSE'S BUG: the shortest child loses the largest share of
+ * itself, so a `FilterRow` compresses from its natural 22px to 14px and clips
+ * the descenders off its own labels while nothing in `FilterRow` has changed.
+ *
+ * Wave 5 found this on the weekly review with three components looking broken
+ * at once. `.bk-screen-body > * { flex-shrink: 0 }` is the whole fix.
+ *
+ * The measurement is the point: the same row is rendered in a body that has
+ * room and in one that does not, and the two heights must match. Asserting a
+ * computed `flex-shrink` would only prove the rule was written.
+ */
+export const ChildrenKeepTheirHeightWhenTheBodyOverflows = meta.story({
+  render: () => {
+    const filters = queueFilters.map((label) => ({ label }));
+    const body = (height: number, id: string) => (
+      <div style={{ height, width: "100%", display: "flex", flexDirection: "column" }}>
+        <ScreenBody overflow="auto" gap={11}>
+          <div data-testid={id} style={{ display: "flex", flexDirection: "column" }}>
+            <FilterRow items={filters} active={0} mono />
+          </div>
+          {/* Five, not six: the sixth is `superseded`, whose whole-row opacity
+              is a known contrast gap (design-feedback §4) and would fail the
+              a11y gate for a reason that has nothing to do with this story. */}
+          {queueItems.slice(0, 5).map((item, i) => (
+            <QueueItemRow key={`${id}-${i}`} state={item.state} subject={item.subject} meta={item.meta} note={item.note} />
+          ))}
+        </ScreenBody>
+      </div>
+    );
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%" }}>
+        {body(700, "roomy")}
+        {body(200, "cramped")}
+      </div>
+    );
+  },
+  play: async ({ canvas }) => {
+    const roomy = (await canvas.findByTestId("roomy")).getBoundingClientRect().height;
+    const cramped = (await canvas.findByTestId("cramped")).getBoundingClientRect().height;
+    // The cramped body holds ~3x what it can show. Its filter row is the same
+    // height as the roomy one's, to the pixel.
+    await expect({ roomy: Math.round(roomy), cramped: Math.round(cramped) }).toEqual({
+      roomy: Math.round(roomy),
+      cramped: Math.round(roomy),
+    });
+    await expect(roomy).toBeGreaterThan(18);
   },
 });

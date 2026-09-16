@@ -22,7 +22,7 @@ it and reshapes the state architecture.
 | 3 | In-chat blocks + conversation lifecycle (20) | done |
 | 4 | Agent views, chrome, desktop nav (12 + ScreenBody) | done |
 | 4b | Roving tabindex on the four composite widgets | done |
-| 5 | The four assembled screens — the acceptance test | not started |
+| 5 | The four assembled screens — the acceptance test | done |
 | 6 | D3 in-chat tool contracts | not started |
 | 6b | MapView coastline geometry (D25) | not started |
 | 7 | Visual regression (D10) | not started |
@@ -122,10 +122,46 @@ record of the fix rather than of the defect.
 A real bug fell out: `FilterRow` fired `items[n]` with `n` from the DOM walk,
 which only visits interactive pills, so a mixed row filtered by the wrong one.
 
+## Wave 5, done — and what it changed about the traps above
+
+**The component set held.** All four screens are assembly; none needed a new
+component. `tests/screens-are-assembly.test.ts` now enforces that over the
+source — every capitalised JSX tag imported from `src/`, every inline style
+layout-only, no colour literal — so screens 2-4 inherited the rule by existing.
+
+What assembly surfaced was **six defects in components that each passed their
+own stories**, because a component's own stories put it in a container built for
+it and a screen does not. Four were kit bugs and are fixed; two need the
+designer. `.plan/design-feedback.md` §14.
+
+Two of those are worth carrying forward as rules:
+
+- **`ScreenBody` children must not shrink** (`.bk-screen-body > *`). Without it
+  an over-full screen squeezes every child instead of scrolling, and it fails as
+  somebody else's bug — a `FilterRow` clipping its own labels, an `ActionCard`
+  eating its last line, a `margin-top: auto` that silently stops spacing.
+- **A screen may not render more than it can reach.** `unreachable()` in
+  `stories/_stage.tsx`. `overflow: hidden` is right for a specimen and is a trap
+  on a screen: the clip looks like the end of the content.
+
+## The new trap, and it is the biggest one
+
+**Two components were visibly broken in Storybook and passed every test.**
+`GraphView` rendered a 2px vertical line for a whole wave — everything inside it
+is absolutely positioned, so its intrinsic width is zero and `width: 100%`
+against Storybook's shrink-to-fit centred root resolved to nothing. All six of
+its stories passed, and none of them *could* have failed: percentages of zero
+are all zero. `LaneChart` drew one run as two, against the only argument the
+component makes. Both were found by a person looking at the design surface.
+
+`.plan/design-feedback.md` §15. The practical rule: **assertions about props,
+roles, counts and computed styles cannot see a component that has vanished.**
+Wave 7 is still scheduled last because baselines churn, but that is a scheduling
+call, not a statement about its value.
+
 ## What to do next
 
-**Wave 5** is the highest-value feature step: rebuild the catalog's four assembled
-screens from `ui-kit` alone. The design calls them "the test that a new surface
-is assembly work, not design work" — if any needs a new component or a one-off
-style, **the component set is wrong and we fix the set, not the screen.** Start
-with Weekly review; it nests deepest and will exercise trap 7 hardest.
+**Wave 6 — D3 tool contracts** is the next feature step, and it is the one with
+a `CONTRACT:` commit attached. **Wave 6b** (MapView coastline geometry) is
+additive and independent. **Wave 7** is now better motivated than the plan
+originally argued; see above.

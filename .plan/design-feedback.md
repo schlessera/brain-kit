@@ -530,3 +530,135 @@ to step and resolves to `raised`, which is D20's literal value.
 
 These are the only invented numbers in the wave. If the design has its own, they
 are a seven-line change in `theme.css`.
+
+## 14. What wave 5 found by assembling the four screens
+
+**Status:** six findings. Four were kit defects and are FIXED; two need the
+designer. All six were found by looking at Storybook — none of them failed a
+test, and three of them could not have.
+
+§11 says its four screens are the acceptance test for the component set: *"pure
+composition: no new colours, no new type sizes, no bespoke markup beyond
+layout."* They are, and the set held — no screen needed a new component. What
+assembly surfaced instead were defects in components that each passed their own
+stories, because **a component's own stories put it in a container built for
+it**, and a screen does not.
+
+### Fixed: `ScreenBody` was crushing its children
+
+A flex column's children default to `flex-shrink: 1`, so the moment a screen
+held more than the phone, every child gave up height at once instead of the body
+scrolling. It failed as somebody else's bug: a `FilterRow` compressed from 22px
+to 14px and clipped the descenders off its own labels, an `ActionCard` swallowed
+the last line of its body, and a `margin-top: auto` spacer stopped spacing
+because there was no free space to distribute. Three components looked broken;
+the container was. `.bk-screen-body > * { flex-shrink: 0 }`.
+
+### Fixed: a screen could render content nobody could reach
+
+`ScreenBody` defaults to `overflow: hidden` because that is what a mockup does,
+and on a real screen the clip looks like the end of the content. The morning
+digest rendered 420px of schedule, a card and its closing banner below the fold
+with no way to scroll to any of it. `unreachable()` in `stories/_stage.tsx` is
+the gate: **a screen may not render more than it can reach** — either the
+content fits or the body scrolls.
+
+That fix surfaced a second one. A scrolling region with no focusable content is
+a region a keyboard cannot scroll, and this kit gates every tab stop on a
+handler — so a replayed transcript or a read-only list would strand whatever is
+below the fold. axe's `scrollable-region-focusable` caught it. A scrolling
+`ScreenBody` now takes `tabIndex={0}`; the wave that removed ten redundant tab
+stops does not get to pretend this one is free, and it is still the right trade.
+
+### Fixed: a centred `Button` spilled its own content
+
+`labelWrap` carried `flex: none` when centred, so a Button narrower than its
+label plus its effect chip painted the content outside its own box on both
+sides. `0 1 auto` — content-sized when there is room, shrinkable when there is
+not. `minWidth: 0` was already there and was being overridden.
+
+### Fixed: `ActionCard`'s children had no band of their own
+
+`body` sets `margin-top: 7` and `foot` sets 9; `children` had nothing, so a
+button row passed in by a caller sat flush against the last line of the body and
+read as part of the sentence above it. The caller could not fix it without a
+one-off margin in a screen, which is the thing §11 says a screen must never
+need — so it is the card's.
+
+### For the designer: a four-tile `StatTiles` row breaks 3 + 1
+
+§11.1 gives `digestStats` four tiles at `minTile=96`, and at phone width that
+wraps to three tiles and then one tile alone on a second row, stretched to full
+width. It is the component's documented behaviour ("three up at a phone width,
+four past ~1100px") meeting a four-tile fixture, and the lone wide tile does not
+read as a peer of the three above it. Either the digest carries three tiles, or
+`StatTiles` needs an answer for the remainder.
+
+Second, smaller: `waiting on you` wraps to two lines, which pushes its value
+~9px below the other two on its row. Nothing collides, but the row's baselines
+stop agreeing.
+
+### For the designer: `Label` + `ScheduleList` say "Today · 3 items" twice
+
+§11.1 puts a `Label text="Today" meta="2 items"` directly above a `ScheduleList`
+whose group renders its own `day` and `meta` — so the assembled screen shows the
+heading twice, one line apart, and the catalog's count disagrees with the
+group's. The port reads the group (three items, not two) because the data is
+right and the mockup is stale, but the doubling is a composition the design has
+to resolve: either the section label goes, or the group heading does.
+
+### Noted: an effect chip plus a label does not fit a half-width button
+
+§11.3's suggestion card puts `effect="write_policy"` on a `size="md"` centred
+Button sharing a row at phone width — about 136px of content box, of which the
+chip claims more than half. The chip is the half that must not be abbreviated,
+so the label wraps to two lines. It is legible and both buttons match height,
+but it is a constraint worth knowing: a labelled effect button in a half row has
+roughly ten characters to work with.
+
+## 15. Two components that were broken in Storybook and passed every test
+
+**Status:** both FIXED, both found by a person looking at the design surface.
+Recorded together because they make the same argument.
+
+### `GraphView` rendered a 2px vertical line
+
+Every element inside it — the label, the SVG, all eight nodes, the legend — is
+absolutely positioned, which makes its intrinsic width **zero**. `width: 100%`
+then resolves against a container that sizes to its content, and Storybook's
+`layout: "centered"` root does exactly that: the box was waiting for the
+container's width and the container was waiting for the box's, and both landed
+on nothing. The graph collapsed to a sliver of its own border at full height.
+
+**All six of its stories passed.** Percentages of zero are all zero, so nothing
+overflowed, no node escaped its box, the two edge weights were still distinct
+and the focus node was still heavier than the rest. There was no assertion that
+could have failed, because every assertion was relative to a box that had
+vanished.
+
+Two fixes, because there are two mistakes. The component gets a `minWidth` floor
+— below it eight labelled nodes pile into an unreadable heap, so a narrow graph
+is the correct failure and an invisible one never is. The stories get an
+explicit width, which is D28 again: a story about a component that fills its
+container owes that container a width. `MapView` has the same all-absolute
+interior and is safe only because its footer row is in flow, which is worth
+knowing before that row is ever made optional.
+
+### `LaneChart` drew one run as two
+
+A lane whose segments touch — `{start: 0, width: 58}` then `{start: 58, …}` — is
+one piece of work that stopped being able to continue. Ported as written, every
+segment carried a radius on all four corners, so the solid bar's right cap and
+the hatched bar's left cap rounded away from each other and left a notch: two
+runs butted together rather than one that started waiting on you. Since the
+hatch means *waiting on the user* and that distinction is the whole reason the
+chart exists, the seam was reading against the component's only argument.
+
+A continuation now drops its left rounding, reaches back under its predecessor
+by exactly one corner radius, and paints behind it. All three are needed: square
+corners alone still leave the predecessor's own cap rounding into bare track.
+
+**The shared lesson.** Both defects are invisible to assertions about props,
+roles, counts and computed styles, and both are obvious in a screenshot. This is
+the argument for wave 7 stated twice, and it is why wave 7 being last is a
+scheduling decision rather than a priority one.

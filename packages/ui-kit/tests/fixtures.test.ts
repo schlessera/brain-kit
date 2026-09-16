@@ -19,6 +19,7 @@ import * as places from "../fixtures/places.js";
 import * as projects from "../fixtures/projects.js";
 import * as runs from "../fixtures/runs.js";
 import * as search from "../fixtures/search.js";
+import * as week from "../fixtures/week.js";
 import {
   DAYS_ON_AEAEA,
   DAYS_ON_OGYGIA,
@@ -263,6 +264,34 @@ describe("the ledgers balance", () => {
 
   test("the journal holds one entry per day since Troy", () => {
     expect(files.folderCounts.journal).toBe(DAYS_SINCE_TROY);
+  });
+
+  // The weekly review reports on the week rather than inventing one, so every
+  // figure on that screen has to be derivable from another. A review whose
+  // header says 41 runs and whose filter pills sum to something else is the
+  // exact failure a screenshot cannot show you.
+  test("the weekly review closes on itself", () => {
+    expect(week.weekDecisionsOffered + week.weekDays).toBe(week.weekRuns);
+    expect(week.weekDecisionsAnswered + week.weekDecisionsCarried).toBe(week.weekDecisionsOffered);
+    expect(week.weekCarried).toHaveLength(week.weekCarriedCount);
+    // Two of the three carried items are the two unanswered decisions; the
+    // third is a stale premise, which was never a decision to begin with.
+    expect(week.weekCarriedCount).toBe(week.weekDecisionsCarried + 1);
+  });
+
+  test("the weekly review's percentage is computed, not typed", () => {
+    expect(week.weekAnsweredPct).toBe(
+      Math.round((week.weekDecisionsAnswered / week.weekDecisionsOffered) * 100),
+    );
+    // Every filter pill's count is one of the figures above, so a pill cannot
+    // drift from the header.
+    const counts = week.weekFilters.map((f) => Number(f.split(" ").pop()));
+    expect(counts).toEqual([
+      week.weekRuns,
+      week.weekDecisionsOffered,
+      week.weekDays,
+      week.weekFailedFetches,
+    ]);
   });
 });
 

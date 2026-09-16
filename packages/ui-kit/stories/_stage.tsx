@@ -150,3 +150,26 @@ export const CONTROL_RING = { width: "2px", offset: "2px", style: "solid" };
 
 /** The ring a `.bk-row` should have: drawn inside, so nothing clips it. */
 export const ROW_RING = { width: "2px", offset: "-2px", style: "solid" };
+
+/**
+ * Content a screen renders and no one can reach.
+ *
+ * `ScreenBody` defaults to `overflow: hidden` because that is what the design's
+ * mockups do — a static mockup has nothing to scroll — and the default is
+ * right for a specimen. On an assembled SCREEN it is a trap: the body clips,
+ * the clip looks like the end of the content, and the screen quietly loses
+ * everything below the fold. Wave 5 shipped exactly that on the morning digest
+ * — 420px of schedule, one card and the closing banner, rendered and
+ * unreachable — and nothing in the suite could see it, because clipped content
+ * overflows nothing and measures fine.
+ *
+ * So the rule is not "screens must scroll", it is **a screen may not render
+ * more than it can reach**: either the content fits, or the body scrolls.
+ */
+export function unreachable(body: HTMLElement): string[] {
+  const hidden = body.scrollHeight - body.clientHeight;
+  if (hidden <= 1) return [];
+  const overflowY = getComputedStyle(body).overflowY;
+  if (overflowY === "auto" || overflowY === "scroll") return [];
+  return [`${hidden}px of content below the fold, and overflow-y is ${overflowY}`];
+}

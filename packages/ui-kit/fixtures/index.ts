@@ -18,6 +18,7 @@ export * as actions from "./actions.js";
 export * as files from "./files.js";
 export * as money from "./money.js";
 export * as search from "./search.js";
+export * as week from "./week.js";
 
 import * as actionsNs from "./actions.js";
 import * as eventsNs from "./events.js";
@@ -29,6 +30,7 @@ import * as placesNs from "./places.js";
 import * as projectsNs from "./projects.js";
 import * as runsNs from "./runs.js";
 import * as searchNs from "./search.js";
+import * as weekNs from "./week.js";
 
 /**
  * The whole world under one name, for a story that composes a screen out of
@@ -45,4 +47,5 @@ export const odyssey = {
   files: filesNs,
   money: moneyNs,
   search: searchNs,
+  week: weekNs,
 } as const;

@@ -172,7 +172,15 @@ export function Button(p: ButtonProps) {
     ...(disabled ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" } : null),
     ...p.style,
   };
-  const labelWrap: CSSProperties = { flex: centred ? "none" : 1, minWidth: 0 };
+  // `0 1 auto` rather than `none` for the centred case. Both are content-sized
+  // when there is room, and they differ only under pressure -- which is exactly
+  // when it matters: a centred Button sharing a row (`{ flex: "1 1 0" }`, the
+  // even-split seam) is narrower than its own label plus its effect chip at
+  // phone width, and `none` made the content spill out of the button's paint on
+  // both sides rather than wrap inside it. Wave 5's suggestion card is where
+  // that showed up; `minWidth: 0` was already here and was being overridden by
+  // the refusal to shrink.
+  const labelWrap: CSSProperties = { flex: centred ? "0 1 auto" : 1, minWidth: 0 };
   const subStyle: CSSProperties = {
     display: "block",
     font: `400 10.5px/1.4 ${font.body}`,

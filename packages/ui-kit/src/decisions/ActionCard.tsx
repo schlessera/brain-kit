@@ -243,7 +243,14 @@ export function ActionCard(p: ActionCardProps) {
       </div>
       <div style={titleStyle}>{p.title ?? "Write the corrected seat count into talks/lisbon-2026.md?"}</div>
       {p.body ? <div style={bodyStyle}>{p.body}</div> : null}
-      {p.children ?? null}
+      {/* Children get their own band. `body` sets `margin-top: 7` and `foot`
+       * sets 9; children were the one slot with nothing, so a button row passed
+       * in by a caller sat flush against the last line of the body and read as
+       * part of the sentence above it. Wave 5's suggestion card is where that
+       * showed up, and the caller could not fix it without putting a one-off
+       * margin in a screen — which is the thing §11 says a screen must never
+       * need. */}
+      {p.children ? <div style={{ marginTop: 10 }}>{p.children}</div> : null}
       {p.footMeta ? (
         <div style={foot}>
           {p.footDot ? <StatusDot tone={p.footDot} pulse={p.footPulse === true} size={6} /> : null}

@@ -978,3 +978,25 @@
   color: var(--bk-color-ink-mute);
   opacity: 1;
 }
+
+/* A screen body's children keep their height.
+ *
+ * `ScreenBody` is a flex COLUMN with a definite height, and a flex item's
+ * default `flex-shrink: 1` means that the moment a screen's content is taller
+ * than the phone, every child gives up height at once rather than the body
+ * scrolling. It does not fail loudly: a `FilterRow` compresses from 22px to
+ * 14px and clips the descenders off its own labels, an `ActionCard` swallows
+ * the last line of its body, and a `margin-top: auto` spacer silently stops
+ * spacing because there is no free space left to distribute. Every one of those
+ * reads as a component bug in whichever component happened to be shortest.
+ *
+ * Wave 5 found all three on one screen. The fix is one declaration and it
+ * belongs here rather than on each child, because the constraint comes from the
+ * container: a screen body is a SCROLLING column, and a scrolling column's job
+ * is to overflow, not to squeeze.
+ *
+ * Whether the overflow then clips or scrolls is still `ScreenBody`'s `overflow`
+ * prop -- `hidden` for a mockup, `auto` for a real screen. */
+.bk-screen-body > * {
+  flex-shrink: 0;
+}

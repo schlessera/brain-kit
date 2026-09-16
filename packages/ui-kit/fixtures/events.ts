@@ -5,6 +5,7 @@
 // "06:40" in one locale and "6:40 AM" in another, and a visual-regression
 // baseline cannot survive that.
 
+import { usd } from "./runs.js";
 import { TIMEZONE_FOOTNOTE, YEARS_AWAY, daysAfter } from "./time.js";
 import type {
   DigestGroup,
@@ -16,11 +17,19 @@ import type {
 } from "./types.js";
 
 /** The four tiles above the morning digest. */
+/**
+ * What the night cost, in cents. The digest's spend tile and the "Overnight"
+ * section label are the same figure in two places on one screen, so there is
+ * one figure.
+ */
+export const overnightSpendCents = 40;
+export const overnightSpend = usd(overnightSpendCents);
+
 export const digestStats: StatTile[] = [
   { label: "waiting on you", value: "3", meta: "1 approval", icon: "approval", tone: "amber" },
   { label: "days out", value: "3,652", meta: "since Troy", icon: "history", tone: "neutral" },
   { label: "crew", value: "0", meta: "of 600", icon: "failed", tone: "red" },
-  { label: "spend", value: "$0.40", meta: "overnight", icon: "wallet", tone: "teal" },
+  { label: "spend", value: overnightSpend, meta: "overnight", icon: "wallet", tone: "teal" },
 ];
 
 /** Overnight, 23:00 to 06:40. The work stated as fact before anything asks. */

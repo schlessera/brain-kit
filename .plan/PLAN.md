@@ -324,7 +324,24 @@ Sequenced after the component waves but **before** step 2. Not optional.
       A question for the designer
 
 ### Wave 5 — assembly (the acceptance test)
-- [ ] The **four** assembled screens from catalog §11 rebuilt from `ui-kit`
+- [x] **Done.** All four screens rebuilt from `ui-kit` alone; the component set
+      held — no screen needed a new component. What assembly DID surface was six
+      defects in components that each passed their own stories, because a
+      component's own stories put it in a container built for it and a screen
+      does not. Four were kit bugs and are fixed (`ScreenBody` crushing its
+      children; a screen rendering content nobody could reach, and the
+      keyboard-unscrollable region that fix exposed; a centred `Button` spilling
+      its content; `ActionCard`'s children having no band). Two need the
+      designer. `.plan/design-feedback.md` §14
+- [x] `tests/screens-are-assembly.test.ts` — the acceptance test as a GATE, over
+      the source rather than the DOM: every capitalised JSX tag imported from
+      `src/`, every inline style layout-only, no colour literal. Screens 2-4
+      inherited it by existing
+- [x] `unreachable()` in `stories/_stage.tsx`: a screen may not render more than
+      it can reach
+- [x] `fixtures/week.ts` for the weekly review, with its own invariants
+- [ ] The twenty source screens as stories, grouped by flow
+- [x] The **four** assembled screens from catalog §11 rebuilt from `ui-kit`
       alone — Morning digest, Chat answer fully structured, Weekly review, Run
       detail stalled mid-flight. (The kit README says two; the catalog has four.
       Compositions in `.plan/design/catalog.md`.) The design calls these "the
@@ -335,10 +352,8 @@ Sequenced after the component waves but **before** step 2. Not optional.
       Meter/BarList`, `PhoneFrame > ActionCard > Button`), so it exercises the
       `sc-host` layout risk hardest
 - [ ] §11 predates §10, so none of the four use `SuggestionChips` or
-      `InlineToast`. Rebuild them as designed, then note where §10 components
-      should now appear — that is design iteration, which is what the Storybook
-      is for
-- [ ] The twenty source screens as stories, grouped by flow
+      `InlineToast`. Rebuilt as designed; where §10 components should now appear
+      is still open, and is design iteration rather than port work
 
 ### Wave 6 — D3 tool contracts
 - [ ] `ToolComponentContract { name, description, input, payload }` in `ui-sdk`,
@@ -374,7 +389,13 @@ Additive; does not block the wave-3 port, which stands as-is.
 ### Wave 7 — visual regression (D10)
 - [ ] `toMatchScreenshot` from play functions, baselines generated and verified
       inside `mcr.microsoft.com/playwright:v1.63.0-noble` both locally and in CI
-- [ ] Deliberately last: baselines churn while the design is still moving
+- [ ] Deliberately last: baselines churn while the design is still moving.
+      **But the case for it got much stronger.** Two components were visibly
+      broken in Storybook and passed every test: `GraphView` rendered a 2px
+      vertical line (all six of its stories passed — percentages of zero are all
+      zero, so nothing overflowed and no node escaped) and `LaneChart` drew one
+      run as two. Both were found by a person looking at the design surface.
+      `.plan/design-feedback.md` §15
 
 ### Step 2 — rewire `ui-react` (from `.plan/architecture/state.md`, as amended by D15)
 - [ ] S1 registry instancing — **also fixes the real bug**: `registered` in

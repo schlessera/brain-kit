@@ -208,5 +208,17 @@ export const blockedQueue: { state: "blocked" | "ready" | "failed"; subject: str
   },
 ];
 
+/**
+ * The run-detail header's second line: which run, how far in, what it has cost.
+ * Derived from the run itself so it cannot drift from the card beneath it.
+ */
+export const runDetailMeta = `run #${runs[0]!.id.split(":")[1]} · turn ${runs[0]!.steps} · ~${usd(runs[0]!.cents)}`;
+
+/**
+ * The closing banner on the run detail. A stalled run is holding work, and the
+ * screen says what it is allowed to do rather than only what it is waiting on.
+ */
+export const runScopeFootnote = "this run may read the corpus and fetch once · it may not write without you";
+
 /** The footer under the activity screen. */
 export const activityFooter = `${runs.length} runs · 74k tok · ${usd(runSpendCents)} spent`;

@@ -77,6 +77,7 @@ Homer's arithmetic**, which does not close either.
 | `files.ts` | the tree, the attachments, the tab bar, the launchers | `FileRow`, `AttachmentRow`, `TabBar`, `LinkPreviewCard` |
 | `money.ts` | three ledgers: agent spend, the crew, the estate | `Meter`, `BarList`, `TrendChart`, `DataTable` |
 | `search.ts` | one query, three tabs: results, graph, timeline | `SearchResultCard`, `GraphView`, `TimelineList`, `SuggestionChips` |
+| `week.ts` | the weekly review: run counts, what changed, what carried | the §11.3 screen — `FilterRow`, `ListRow`, `ActionCard`, `Callout` |
 | `index.ts` | namespace re-exports and the `odyssey` aggregate | a story that composes four modules |
 
 `types.ts` imports `Tone`, `ButtonTone` and `IconName` from `../src` rather
@@ -192,6 +193,9 @@ is the kind of thing that decays silently.
   survivor; 0 ships returned.
 - The weekly spend bars and the seven daily totals both sum to
   `weekSpendTotalCents`.
+- The weekly review closes on itself: decisions offered plus digests is the run
+  count, answered plus carried is the decisions offered, the carried list has
+  `weekCarriedCount` rows, and `weekAnsweredPct` is computed rather than typed.
 - `runSpendCents` is the sum of the runs' `cents` (`$0.22`).
 - `folderCounts` sums to 4,812 — the document count the first-run screen and
   the orbit core both quote — and `journal/` holds exactly one entry per day

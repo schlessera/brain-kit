@@ -27,6 +27,39 @@ import type { CSSProperties, ReactNode } from "react";
  * screen (2-20px of padding, 4-14px of gap) and that variation is editorial.
  * What does not vary — the three declarations that make it scroll — is not a
  * prop at all.
+ *
+ * ## The fourth declaration, which wave 5 had to find the hard way
+ *
+ * A flex column's children default to `flex-shrink: 1`, so the moment a
+ * screen's content is taller than the phone, EVERY child gives up height at
+ * once instead of the body scrolling. It fails quietly and it fails as somebody
+ * else's bug: on the weekly review a `FilterRow` compressed from 22px to 14px
+ * and clipped the descenders off its own labels, an `ActionCard` swallowed the
+ * last line of its body, and a `margin-top: auto` spacer stopped spacing
+ * because there was no free space left to distribute. Three components looked
+ * broken; the container was.
+ *
+ * `.bk-screen-body > * { flex-shrink: 0 }` is the whole fix, and it lives in
+ * `theme.css` because it applies to the children — which is the reason it
+ * belongs to this component rather than to each of the fifty-eight that might
+ * be put inside one.
+ *
+ * ## A scrolling body is a tab stop, and it has to be
+ *
+ * `overflow: auto` makes this a scrollable region, and axe's
+ * `scrollable-region-focusable` is right about what that costs: a region you
+ * can scroll with a wheel and cannot reach with a keyboard is content some
+ * people simply cannot read. The usual escape — "its children are focusable, so
+ * Tab scrolls it" — holds only while the body HAS focusable children, and this
+ * kit gates every role and every tab stop on a handler. A replayed transcript,
+ * a read-only list, a static screen: all of them render exactly the same
+ * markup with nothing focusable in it, and all of them would strand whatever is
+ * below the fold.
+ *
+ * So a scrolling body takes `tabIndex={0}` and a clipping one does not. The
+ * cost is one tab stop at the top of a scrolling screen — the wave that removed
+ * ten redundant ones does not get to pretend this one is free — and it buys the
+ * static case, which is the case that was broken.
  */
 export interface ScreenBodyProps {
   children?: ReactNode;
@@ -44,13 +77,14 @@ export interface ScreenBodyProps {
 }
 
 export function ScreenBody(p: ScreenBodyProps) {
+  const scrolls = (p.overflow ?? "hidden") === "auto";
   const body: CSSProperties = {
     flex: 1,
     // Not optional, and not a style choice. Without it a flex item's
     // `min-height: auto` floors this box at its content height and the screen
     // grows instead of scrolling.
     minHeight: 0,
-    overflow: p.overflow ?? "hidden",
+    overflow: scrolls ? "auto" : "hidden",
     boxSizing: "border-box",
     width: "100%",
     display: "flex",
@@ -59,5 +93,20 @@ export function ScreenBody(p: ScreenBodyProps) {
     gap: p.gap ?? 10,
     ...p.style,
   };
-  return <div style={body}>{p.children}</div>;
+  // `.bk-screen-body` is one declaration -- `> * { flex-shrink: 0 }` -- and it
+  // is the difference between a screen that scrolls and a screen whose children
+  // all give up height at once. It cannot be an inline style because it applies
+  // to the CHILDREN, which is exactly why it belongs to the container rather
+  // than to each component that might be put inside one. See `theme.css`.
+  return (
+    <div
+      className="bk-screen-body"
+      style={body}
+      // Only when it scrolls. A clipping body is not a scrollable region and a
+      // tab stop on it would be a stop that does nothing.
+      tabIndex={scrolls ? 0 : undefined}
+    >
+      {p.children}
+    </div>
+  );
 }
