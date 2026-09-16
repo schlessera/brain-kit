@@ -513,6 +513,7 @@ export "./server" (./src/server/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type BBox
   BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
   BRIDGE_TOOL_POSTURE
@@ -558,12 +559,17 @@ export "./server" (./src/server/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type CoastlineConfig
+  type CoastlineRequest
+  type CoastlineResult
+  type Coord
   type CreateToolPermissionRequestInput
   type CronJobStatus
   DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
   type ExecutionBrief
   FILE_SIZE_CAP_BYTES
+  type FetchLike
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -600,6 +606,7 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  OSM_ATTRIBUTION
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
@@ -695,6 +702,7 @@ export "./server" (./src/server/index.ts)
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
+  clipLine
   compileConfirmPatterns
   createKeyedLock
   createToolPermissionRequest
@@ -703,6 +711,7 @@ export "./server" (./src/server/index.ts)
   decideToolPermission
   defineBackendModule
   defineSpeechProvider
+  fetchCoastline
   filterSubprocessEnv
   handleAskUser
   handleGetCurrentLocation
@@ -715,6 +724,7 @@ export "./server" (./src/server/index.ts)
   parseSubprocessEnvExtra
   piMaskFilename
   piReportedMaskPath
+  prepare
   readWebSearchOverride
   readWebSearchRouting
   requestToolPermission
@@ -724,7 +734,9 @@ export "./server" (./src/server/index.ts)
   reverseGeocode
   rtkAvailable
   rtkRewriteCommand
+  simplify
   sumModelUsage
+  toleranceMetres
   webSearchBrief
   webSearchProvider
   wrapUntrustedData

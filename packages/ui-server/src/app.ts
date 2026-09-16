@@ -18,6 +18,7 @@ import { createPiAuthRoutes } from "./routes/pi-auth.js";
 import { createWebSearchRoutes } from "./routes/web-search.js";
 import { createToolPermissionRoutes } from "./routes/tool-permissions.js";
 import { createSkillRoutes } from "./routes/skills.js";
+import { createGeoRoutes } from "./routes/geo.js";
 import { createGraphRoutes } from "./routes/graph.js";
 import {
   resolveAuthMode,
@@ -431,6 +432,11 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   app.route(
     "/api",
     createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })
+  );
+
+  app.route(
+    "/api",
+    createGeoRoutes({ config: config.coastline, log: observability.logger("geo") })
   );
 
   // WebSocket endpoint. Browsers can't set headers on the WS handshake, so the

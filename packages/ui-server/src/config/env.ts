@@ -407,6 +407,33 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "$BRAIN_PATH/.brain-ui",
     required: false,
   },
+  {
+    name: "BRAIN_UI_COASTLINE",
+    description:
+      '"0"/"off"/"false" stops the server fetching map geometry. Maps then draw ' +
+      "their graticule, pins and scale bar with no coastline, which is still an " +
+      "accurate locator.",
+    default: "enabled",
+    required: false,
+  },
+  {
+    name: "OVERPASS_URL",
+    description: "Overpass endpoint the map geometry is fetched from.",
+    default: "https://overpass-api.de/api/interpreter",
+    required: false,
+  },
+  {
+    name: "OVERPASS_USER_AGENT",
+    description: "Identifying User-Agent for Overpass (usage-policy requirement).",
+    default: "brain-kit-ui/1.0",
+    required: false,
+  },
+  {
+    name: "COASTLINE_CACHE_DIR",
+    description: "Directory holding fetched map geometry. Cached forever; coastlines do not move.",
+    default: "$BRAIN_PATH/.brain-ui/geo",
+    required: false,
+  },
 ] as const;
 
 // --- resolved configuration --------------------------------------------------
@@ -468,6 +495,22 @@ export interface AgentConfig {
   ambientBilling: BillingMode;
 }
 
+/**
+ * Map geometry. Fetched on demand and cached permanently, because a coastline
+ * does not move and the cache is the whole reason a free shared service can be
+ * used politely: one request per place, ever.
+ */
+export interface CoastlineConfig {
+  /** BRAIN_UI_COASTLINE is not falsy (0/false/off/no, case-insensitive). */
+  enabled: boolean;
+  /** OVERPASS_URL with the public default applied. */
+  url: string;
+  /** OVERPASS_USER_AGENT with the default applied. */
+  userAgent: string;
+  /** Resolved geometry cache directory. */
+  cacheDir: string;
+}
+
 export interface VoiceConfig {
   /** Trimmed, lowercased VOICE_PROVIDER; null when unset (auto-detect). */
   provider: string | null;
@@ -501,6 +544,7 @@ export interface ServerConfig {
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
   voice: VoiceConfig;
+  coastline: CoastlineConfig;
   /** Model-pricing service (BRAIN_UI_PRICING_*); inline like wsRate. */
   pricing: { enabled: boolean; ttlMs: number };
 }
@@ -683,6 +727,12 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
       keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
+    },
+    coastline: {
+      enabled: envFlag(env.BRAIN_UI_COASTLINE, true),
+      url: env.OVERPASS_URL || "https://overpass-api.de/api/interpreter",
+      userAgent: env.OVERPASS_USER_AGENT || "brain-kit-ui/1.0",
+      cacheDir: env.COASTLINE_CACHE_DIR || join(brainPath, ".brain-ui", "geo"),
     },
     pricing: {
       enabled: pricingEnabled,

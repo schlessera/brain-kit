@@ -38,6 +38,16 @@ export { createWriteLock } from "./write-lock.js";
 export type { KeyedLock } from "./keyed-lock.js";
 export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 
+export {
+  OSM_ATTRIBUTION,
+  clipLine,
+  fetchCoastline,
+  prepare,
+  simplify,
+  toleranceMetres,
+} from "./coastline.js";
+export type { BBox, Coord, CoastlineConfig, CoastlineRequest, CoastlineResult, FetchLike } from "./coastline.js";
+
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
 

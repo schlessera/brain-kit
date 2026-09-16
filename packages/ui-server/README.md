@@ -198,6 +198,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-sonnet-4-6 |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
+| `BRAIN_UI_COASTLINE` | "0"/"off"/"false" stops the server fetching map geometry. Maps then draw their graticule, pins and scale bar with no coastline, which is still an accurate locator. | enabled |
 | `BRAIN_UI_CONFIRM_BASH` | JSON array of regex sources; a Bash command matching any of them raises a confirmation card before it runs. Unset uses the shipped defaults (brain archive, rm -r, git push --force, git reset --hard, git clean -f, git checkout -- ). An empty array [] disables the confirmation. Not a security boundary — an agent with Bash can reach the same effect another way; it stops a destructive command you did not intend, not one that is trying to get past you. | the shipped pattern set |
 | `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH` | Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access. | 0 |
 | `BRAIN_UI_LOG_LEVEL` | Minimum severity the console log consumer emits: TRACE, DEBUG, INFO, WARN, ERROR or FATAL. Case-insensitive; an unrecognised value falls back to the default rather than silencing the server. | INFO |
@@ -215,6 +216,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Consulted for PRESENCE only, to classify billing: with it set and no ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in default and discovered models) count as subscription-billed. The token itself is consumed by the Claude backend / Agent SDK, not this package. | — |
 | `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |
+| `COASTLINE_CACHE_DIR` | Directory holding fetched map geometry. Cached forever; coastlines do not move. | $BRAIN_PATH/.brain-ui/geo |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). The server factory defaults to ./brain-ui.db; brain-ui-cron defaults to the container path /data/db/brain-ui.db. | ./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron) |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
@@ -223,6 +225,8 @@ Every variable this package reads, and what happens when it is unset.
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
 | `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior. | (unset) |
+| `OVERPASS_URL` | Overpass endpoint the map geometry is fetched from. | https://overpass-api.de/api/interpreter |
+| `OVERPASS_USER_AGENT` | Identifying User-Agent for Overpass (usage-policy requirement). | brain-kit-ui/1.0 |
 | `PI_CODING_AGENT_DIR` | pi config dir override — where the web-search settings write the pi-web-access extension's web-search.json (same precedence the extension itself uses). | $XDG_CONFIG_HOME/pi, else $HOME/.pi |
 | `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
