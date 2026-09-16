@@ -6,6 +6,7 @@ import { registerToolRenderers } from "@schlessera/brain-ui-sdk/client";
 import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
+import { brainUiToolPack } from "./brain-ui-tools.js";
 
 /**
  * Register the built-in packs (idempotent).
@@ -16,6 +17,7 @@ import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
  * permanently un-registered the builtins for everything that ran after it.
  */
 export function registerBuiltinRenderers(): void {
+  registerToolRenderers(brainUiToolPack);
   registerToolRenderers(claudeToolPack);
   registerToolRenderers(piToolPack);
   registerToolRenderers(genericToolPack);

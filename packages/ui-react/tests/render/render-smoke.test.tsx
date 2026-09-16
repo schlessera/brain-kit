@@ -1835,6 +1835,79 @@ describe("ToolCallTimeline", () => {
   });
 });
 
+describe("contract-bound tool renderers", () => {
+  // The whole D3 path, through the real timeline: a tool result whose output
+  // is a JSON payload resolves to the renderer bound to its contract, and the
+  // component is handed the PARSED payload rather than the raw string.
+  const fix = {
+    latitude: 38.3653,
+    longitude: 20.7169,
+    accuracyMeters: 42,
+    place: "Vathy",
+    address: "Vathy, Ithaca, Greece",
+    retrievedAt: "2026-07-12T09:15:00.000Z",
+  };
+
+  function locationCall(output: string, isError = false): ToolCall {
+    return {
+      id: "tool-loc",
+      name: "mcp__brain-ui__get_current_location",
+      input: {},
+      inputJson: "{}",
+      status: "complete",
+      output,
+      ...(isError ? { isError: true } : {}),
+    } as ToolCall;
+  }
+
+  function expandAll(result: ReturnType<typeof render>) {
+    fireEvent.click(result.getByRole("button"));
+    const header = result
+      .getAllByRole("button")
+      .find((button) => button.textContent?.includes("Location"))!;
+    fireEvent.click(header);
+  }
+
+  test("a JSON payload renders as the location card, not as JSON", () => {
+    const result = render(
+      <ToolCallTimeline toolCalls={[locationCall(JSON.stringify(fix))]} onApproval={() => {}} />
+    );
+    expandAll(result);
+    const text = result.baseElement.textContent ?? "";
+    expect(text).toContain("Vathy");
+    expect(text).toContain("38.3653, 20.7169");
+    expect(text).toContain("\u00b142 m");
+    // The raw JSON is gone: the reader sees the card, not the wire format.
+    expect(text).not.toContain('"accuracyMeters"');
+  });
+
+  test("a denial keeps its message instead of blanking the row", () => {
+    const result = render(
+      <ToolCallTimeline
+        toolCalls={[locationCall("User denied the geolocation request.", true)]}
+        onApproval={() => {}}
+      />
+    );
+    expandAll(result);
+    expect(result.baseElement.textContent).toContain(
+      "User denied the geolocation request."
+    );
+  });
+
+  test("a payload the schema rejects falls back to the raw output", () => {
+    // A server that changed the payload shape must not blank the row — the
+    // call still happened, and its output is the only thing left to show.
+    const result = render(
+      <ToolCallTimeline
+        toolCalls={[locationCall(JSON.stringify({ ...fix, latitude: "38.3653" }))]}
+        onApproval={() => {}}
+      />
+    );
+    expandAll(result);
+    expect(result.baseElement.textContent).toContain('"latitude"');
+  });
+});
+
 describe("AskUserCard", () => {
   const questions: AskUserQuestion[] = [
     {

@@ -10,7 +10,6 @@ import type {
   ToolSemantics,
 } from "@schlessera/brain-ui-sdk/client";
 import type { ToolCall } from "../../../stores/chat-store.js";
-import { GET_LOCATION_TOOL_NAME } from "../../../lib/tool-names.js";
 import {
   getToolIcon,
   getToolSummary,
@@ -34,7 +33,9 @@ const CLAUDE_TOOL_NAMES = [
   "Skill",
   "NotebookEdit",
   "LSP",
-  GET_LOCATION_TOOL_NAME,
+  // `mcp__brain-ui__get_current_location` is deliberately NOT here: it is one
+  // of the chat UI's own contract-bound tools (`brain-ui-tools.tsx`), and a
+  // backend-scoped entry would beat that global renderer.
 ];
 
 // The shared views read brain-ui's richer ToolCall (status, inputJson, timing).

@@ -1,10 +1,21 @@
 /**
- * MCP-prefixed names of brain-ui's own in-process tools, as they appear in the
- * tool-call stream. Kept in one place so the timeline, history reconstruction,
- * and per-tool rendering all agree on the identifiers.
+ * Names of brain-ui's own in-process tools, as they appear in the tool-call
+ * stream. The names themselves come from the SDK's tool contracts — this
+ * module only derives the per-backend spellings the client has to match, so
+ * the timeline, history reconstruction and per-tool rendering all agree.
  */
-export const ASK_USER_TOOL_NAME = "mcp__brain-ui__ask_user";
-export const GET_LOCATION_TOOL_NAME = "mcp__brain-ui__get_current_location";
+
+import {
+  ASK_USER_CONTRACT,
+  GET_CURRENT_LOCATION_CONTRACT,
+  visibleToolName,
+} from "@schlessera/brain-ui-sdk/client";
+
+export const ASK_USER_TOOL_NAME = visibleToolName(ASK_USER_CONTRACT.name, "claude");
+export const GET_LOCATION_TOOL_NAME = visibleToolName(
+  GET_CURRENT_LOCATION_CONTRACT.name,
+  "claude"
+);
 
 const LEGACY_MCP_PREFIX = "mcp__brain_ui__";
 const MCP_PREFIX = "mcp__brain-ui__";
@@ -22,11 +33,13 @@ export function normalizeToolName(name: string): string {
 }
 
 // The pi backend registers its ask-user tool under the bare name.
-const PI_ASK_USER_TOOL_NAME = "ask_user";
+const PI_ASK_USER_TOOL_NAME = visibleToolName(ASK_USER_CONTRACT.name, "pi");
 
 export const isAskUserTool = (name: string | undefined): boolean =>
   !!name &&
   (normalizeToolName(name) === ASK_USER_TOOL_NAME ||
     name === PI_ASK_USER_TOOL_NAME);
-export const isLocationTool = (name: string | undefined): boolean =>
-  !!name && normalizeToolName(name) === GET_LOCATION_TOOL_NAME;
+
+// `isLocationTool` used to live here and was never called: the location result
+// is rendered by the contract-bound renderer now, which matches every spelling
+// of the name rather than the MCP-prefixed one alone.
