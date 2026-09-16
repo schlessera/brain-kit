@@ -89,11 +89,41 @@ describe("step", () => {
   });
 });
 
-/** Every `left:`/`top:` pair on an absolutely-positioned pin wrapper. */
-function pinPositions(html: string): { left: number; top: number }[] {
-  return [...html.matchAll(/left:([\d.]+)px;top:([\d.]+)px;transform:translate\(-50%,-50%\)/g)].map(
-    (m) => ({ left: Number(m[1]), top: Number(m[2]) }),
+/**
+ * Every `left:`/`top:` pair on an absolutely-positioned pin wrapper, converted
+ * back to the projected pixel.
+ *
+ * The component places pins as PERCENTAGES of the box rather than at the
+ * projected SVG pixel, because the SVG scales to the card's fluid width and an
+ * absolutely-positioned overlay does not: at the pixel, a pin sat 30% of the box
+ * away from the coastline it marks the moment the card was not exactly `width`
+ * wide. Multiplying back by the box is the same number in a different unit, so
+ * every expectation below is the projection's own arithmetic, unchanged.
+ */
+function pinPositions(html: string, width: number, height: number): { left: number; top: number }[] {
+  // The transform is no longer a fixed `translate(-50%,-50%)`: the row is
+  // offset by half a dot so that THE DOT sits on the coordinate rather than the
+  // row's centre, and the offset differs when the row is reversed. `left`/`top`
+  // are the projected anchor either way, which is what these tests check.
+  return [...html.matchAll(/left:([\d.]+)%;top:([\d.]+)%;transform:translate\(/g)].map(
+    (m) => ({ left: (Number(m[1]) / 100) * width, top: (Number(m[2]) / 100) * height }),
   );
+}
+
+/**
+ * The scale bar's drawn length, as a projected pixel.
+ *
+ * Like the pins, the bar is an HTML overlay on a drawing that scales to the
+ * card's fluid width, so it is written as a percentage of the box: a fixed
+ * pixel length claims a distance the map is not drawn at the moment the card is
+ * not exactly `width` wide, and a scale bar that is wrong is worse than none.
+ */
+function scaleBarPx(html: string, width: number): number | null {
+  // Order-tolerant on purpose: the bar also declares `flex:none` between the
+  // two, and a regex that assumed adjacency silently returned null — which read
+  // as "there is no scale bar" rather than as "the parser is stale".
+  const match = html.match(/width:([\d.]+)%;[^"]*?height:3px/);
+  return match ? (Number(match[1]) / 100) * width : null;
 }
 
 describe("the rendered projection", () => {
@@ -113,7 +143,7 @@ describe("the rendered projection", () => {
   );
 
   test("puts both pins where the projection says they go", () => {
-    const pins = pinPositions(strait);
+    const pins = pinPositions(strait, 330, 170);
     expect(pins).toHaveLength(2);
     // Scylla is the eastern of the two, so it sits further right.
     expect(pins[0].left).toBeCloseTo(252.8873, 3);
@@ -128,19 +158,18 @@ describe("the rendered projection", () => {
     // it is that 59px, converted back through metres-per-degree of longitude
     // at this latitude, really is 2 km.
     expect(strait).toContain(">2 km<");
-    const bar = strait.match(/width:(\d+)px;height:3px/);
-    expect(bar).not.toBeNull();
-    const barPx = Number(bar![1]);
-    expect(barPx).toBe(59);
+    const barPx = scaleBarPx(strait, 330);
+    expect(barPx).not.toBeNull();
+    expect(Math.round(barPx!)).toBe(59);
 
     // Independently: the rendered bbox spans (me - mw) degrees over 330px.
     // Recover it from the two pin x-positions, whose longitudes we know.
-    const pins = pinPositions(strait);
+    const pins = pinPositions(strait, 330, 170);
     const degPerPx =
       (SCYLLA.lon - CHARYBDIS.lon) / (pins[0].left - pins[1].left);
     const midLat = (SCYLLA.lat + CHARYBDIS.lat) / 2;
     const metresPerPx = degPerPx * 111320 * Math.cos((midLat * Math.PI) / 180);
-    expect(barPx * metresPerPx).toBeCloseTo(2000, -1.5);
+    expect(barPx! * metresPerPx).toBeCloseTo(2000, -1.5);
   });
 
   test("a pin past 62% of the width flips its label to the left of its dot", () => {
@@ -170,7 +199,7 @@ describe("the rendered projection", () => {
         paths={[]}
       />,
     );
-    const [ithaca, troy] = pinPositions(html);
+    const [ithaca, troy] = pinPositions(html, 330, 170);
     expect(troy.left).toBeGreaterThan(ithaca.left);
     expect(troy.top).toBeLessThan(ithaca.top);
   });
@@ -232,7 +261,7 @@ describe("the rendered projection", () => {
     const html = renderToStaticMarkup(
       <MapView width={330} height={170} spanKm={12} pins={[{ ...ITHACA, label: "Vathy" }]} />,
     );
-    const [only] = pinPositions(html);
+    const [only] = pinPositions(html, 330, 170);
     // Dead centre of a box built symmetrically around it, to within the 12%/14%
     // margins — which are symmetric, so the pin stays centred.
     expect(only.left).toBeCloseTo(165, 6);
@@ -242,6 +271,6 @@ describe("the rendered projection", () => {
     // round number and the LENGTH is whatever that number really measures,
     // which is the whole point of snapping one and not the other.
     expect(html).toContain(">2 km<");
-    expect(html).toContain("width:44px;height:3px");
+    expect(Math.round(scaleBarPx(html, 330)!)).toBe(44);
   });
 });

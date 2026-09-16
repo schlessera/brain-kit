@@ -371,20 +371,31 @@ Sequenced after the component waves but **before** step 2. Not optional.
       **establishing**, not following.
 
 ### Wave 6b — MapView coastline geometry (D25)
-Additive; does not block the wave-3 port, which stands as-is.
-- [ ] Generation script: Overpass → `mapshaper -clip -simplify dp` at 1 px of
+- [x] Generation script: Overpass → `mapshaper -clip -simplify dp` at 1 px of
       the target render → `[lon,lat]` arrays at 4 dp. Committed and re-runnable,
-      so the data can be regenerated rather than hand-maintained
-- [ ] `packages/ui-kit/fixtures/geo/` with the five Mediterranean locations
-      (~12.6 KB gzipped total) **and a `LICENSE` naming OSM + ODbL** — the
-      geometry is a Derivative Database, unlike the rendered output
-- [ ] Attribution line (`© OpenStreetMap contributors`) in MapView's existing
-      `foot` row, shown when geometry is present; one instance per document
-- [ ] Roads for Troy, where coastline alone is ambiguous
-- [ ] Verify the npm tarball still contains zero fixture files, so the published
-      package stays pure MIT
-- [ ] Fill (closed land polygons) deferred — needs a real clipper, not our own;
-      hand-rolled viewport closure got 3 of 5 wrong
+      run by hand, never in CI. Two traps it hit: Overpass returns its OWN JSON
+      and mapshaper rejects it as invalid GeoJSON, and mapshaper writes a bare
+      `GeometryCollection` back when the features carry no properties — reading
+      only `features` yields zero vertices, silently
+- [x] `packages/ui-kit/fixtures/geo/` with the five Mediterranean locations —
+      **2,611 vertices, 11.6 KB gzipped**, against D25's predicted 12.6 — and a
+      `LICENSE` naming OSM + ODbL
+- [x] Attribution in `MapView`'s foot row, as a PROP: the component cannot know
+      where a caller's paths came from, so the check that makes forgetting loud
+      is in `tests/geo-fixtures.test.ts`
+- [x] Roads for Troy, where coastline alone is ambiguous — 134 road lines, drawn
+      a step quieter than the coast
+- [x] `bun pm pack --dry-run` shows zero fixture files, asserted rather than
+      trusted, so the published package stays pure MIT
+- [x] **Three MapView bugs the coastline made visible**, all fixed: every
+      overlay was positioned at the projected SVG pixel on a drawing that scales
+      (30% of the box out on a 232px card); the SVG was letterboxing while the
+      projection assumed it filled the box; and `translate(-50%,-50%)` put the
+      pin's DOT half a label away from its own coordinate. `.plan/design-feedback.md` §16
+- [ ] Fill (closed land polygons) still deferred — needs a real clipper, not our
+      own; hand-rolled viewport closure got 3 of 5 wrong
+- [ ] Pin-label collision needs a design answer: two pins 6 km apart at a 9 km
+      span overlap, and a long label clips at phone width
 
 ### Wave 7 — visual regression (D10)
 - [x] `toMatchScreenshot` against 16 committed baselines, generated and compared

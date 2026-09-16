@@ -19,6 +19,7 @@
 // today, day 3,652). Everything between is ordered and plausible, not a
 // reconciliation of Homer's arithmetic, which does not close.
 
+import { OSM_ATTRIBUTION, geoPaths } from "./geo/index.js";
 import type { MapPath, MapPin, MapScene, Place, PlaceId } from "./types.js";
 
 export const places: Place[] = [
@@ -355,7 +356,9 @@ export const straitMap: MapScene = {
     { lat: 38.2507, lon: 15.719, label: "Scylla", meta: "six, certain", tone: "red" },
     { lat: 38.2647, lon: 15.6508, label: "Charybdis", meta: "all, possible", tone: "red" },
   ],
+  attribution: OSM_ATTRIBUTION,
   paths: [
+    ...geoPaths("messina"),
     {
       // The passage as steered: hard against the Calabrian shore.
       coords: [
@@ -379,13 +382,64 @@ export const ithacaMap: MapScene = {
   meta: "12 km",
   icon: "resolved",
   pins: [{ lat: 38.3647, lon: 20.7202, label: "Vathy", meta: "the hall", tone: "teal" }],
-  paths: [],
+  paths: geoPaths("ithaca"),
   spanKm: 12,
   height: 128,
+  attribution: OSM_ATTRIBUTION,
+};
+
+/**
+ * Ogygia. Seven years here, and the island is the one shape in this world the
+ * owner could draw from memory -- which is exactly what coastline buys that a
+ * graticule cannot.
+ */
+export const gozoMap: MapScene = {
+  title: "Ogygia",
+  subtitle: "Gozo · day 1,095 to day 3,652",
+  meta: "18 km",
+  icon: "history",
+  pins: [
+    { lat: 36.05, lon: 14.25, label: "Ogygia", meta: "here", tone: "amber" },
+    { lat: 36.062, lon: 14.283, label: "The cave", meta: "Ramla Bay", tone: "neutral" },
+  ],
+  paths: geoPaths("gozo"),
+  spanKm: 18,
+  height: 148,
+  attribution: OSM_ATTRIBUTION,
+};
+
+/** Scheria, the last landfall before Ithaca and the only welcome in ten years. */
+export const corfuMap: MapScene = {
+  title: "Scheria",
+  subtitle: "Corfu · the Phaeacians, and a ship home",
+  meta: "52 km",
+  icon: "resolved",
+  pins: [{ lat: 39.6, lon: 19.87, label: "Scheria", meta: "the harbour", tone: "teal" }],
+  paths: geoPaths("corfu"),
+  spanKm: 52,
+  height: 148,
+  attribution: OSM_ATTRIBUTION,
+};
+
+/**
+ * Troy, and **the one scene that needs roads**. A single shoreline curve does
+ * not locate you -- D25 measured it as the weak case of the five -- so the road
+ * network goes in a step quieter than the coast and turns a line into a place.
+ */
+export const troyMap: MapScene = {
+  title: "Troy",
+  subtitle: "Hisarlik · day 0 of 3,652",
+  meta: "30 km",
+  icon: "history",
+  pins: [{ lat: 39.9575, lon: 26.2389, label: "Troy", meta: "where it started", tone: "red" }],
+  paths: geoPaths("troy"),
+  spanKm: 30,
+  height: 148,
+  attribution: OSM_ATTRIBUTION,
 };
 
 /** Every map scene the world offers, for the story that iterates them. */
-export const mapScenes: MapScene[] = [voyageMap, straitMap, ithacaMap];
+export const mapScenes: MapScene[] = [voyageMap, straitMap, ithacaMap, gozoMap, corfuMap, troyMap];
 
 /** Convenience: only the pins, for a story that wants one flat list. */
 export const allPins: MapPin[] = mapScenes.flatMap((s) => s.pins);

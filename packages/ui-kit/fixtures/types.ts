@@ -342,4 +342,10 @@ export interface MapScene {
   /** Minimum span, in kilometres. MapView widens to fit the pins. */
   spanKm: number;
   height: number;
+  /**
+   * The source credit for `paths`, when they carry real geometry. ODbL requires
+   * it for anything derived from OpenStreetMap; a scene whose paths are the
+   * world's own invented route has nothing to credit and leaves it unset.
+   */
+  attribution?: string;
 }

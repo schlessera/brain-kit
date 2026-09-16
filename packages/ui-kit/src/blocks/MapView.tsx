@@ -57,6 +57,24 @@ export interface MapViewProps {
   /** The projection's pixel width. The rendered card is fluid; this is the
    * SVG's coordinate space and the divisor in metres-per-pixel. */
   width?: number;
+  /**
+   * The source credit for `paths`, rendered under the foot row.
+   *
+   * **Required by the licence, not by the design**, whenever the geometry came
+   * from OpenStreetMap: the drawn map is a Produced Work and carries no
+   * share-alike, but it must still say where the shape came from. The kit
+   * fixtures export the exact string as `OSM_ATTRIBUTION`.
+   *
+   * It is a prop rather than something this component infers because the
+   * component cannot know where a caller's `paths` came from — a consumer
+   * drawing their own survey has nothing to credit, and inventing a credit for
+   * them would be worse than omitting one.
+   *
+   * A document showing several maps from one source only has to say so once;
+   * that is the caller's call, because only the caller can see the document.
+   * Pass it on the map that carries the credit and omit it on the rest.
+   */
+  attribution?: string;
 }
 
 /** A pin is a 10px disc: the `mark` role, which is the step a darkened accent
@@ -117,6 +135,9 @@ export function step(span: number): number {
 }
 
 /** The distances the scale bar is allowed to claim, in metres. */
+/** The pin marker's diameter. Named because the row's offset is half of it. */
+const DOT = 10;
+
 const NICE_METRES = [50, 100, 200, 250, 500, 1000, 2000, 5000];
 
 export function MapView(p: MapViewProps) {
@@ -187,6 +208,16 @@ export function MapView(p: MapViewProps) {
   const px = (lon: number) => ((lon - mw) / (me - mw)) * W;
   const py = (lat: number) => ((yTop - mercY(lat)) / (yTop - yBot)) * H;
 
+  // The SVG scales to the card's width; these absolutely-positioned overlays do
+  // not. Placing them at the projected SVG pixel puts a pin at CSS x=99 while
+  // the coastline it marks is drawn at CSS x=70 — 30% of the box out, and
+  // invisible until the card renders at a width other than `W`. Percentages of
+  // the same box scale with the drawing, which is the only thing that keeps a
+  // pin on its own shoreline at every width. Measured in
+  // `tests/mapview-projection.test.tsx`, which reads these very strings.
+  const pctX = (x: number) => `${((x / W) * 100).toFixed(4)}%`;
+  const pctY = (y: number) => `${((y / H) * 100).toFixed(4)}%`;
+
   const lonStep = step(me - mw);
   const latStep = step(mn - ms);
 
@@ -213,7 +244,7 @@ export function MapView(p: MapViewProps) {
     if (x < scaleBandX - 34 && x > 40) {
       gridLabels.push({
         text: `${lon.toFixed(lonStep < 0.01 ? 3 : 2)}°`,
-        style: { ...labelStyle, left: x + 4, top: labelBandY },
+        style: { ...labelStyle, left: `calc(${pctX(x)} + 4px)`, top: pctY(labelBandY) },
       });
     }
   }
@@ -223,7 +254,7 @@ export function MapView(p: MapViewProps) {
     if (y > 26 && y < labelBandY - 12) {
       gridLabels.push({
         text: `${lat.toFixed(latStep < 0.01 ? 3 : 2)}°`,
-        style: { ...labelStyle, left: 6, top: y + 3 },
+        style: { ...labelStyle, left: 6, top: `calc(${pctY(y)} + 3px)` },
       });
     }
   }
@@ -276,6 +307,15 @@ export function MapView(p: MapViewProps) {
   return (
     <div style={box}>
       <div style={viewport}>
+        {/* `preserveAspectRatio="none"` is not a style choice, it is what the
+         * projection already assumes: `px()` maps the bbox's longitude range
+         * across the FULL width and `py()` maps its latitude range across the
+         * full height, independently, with different margins on each axis. The
+         * mapping is already anisotropic, so letting the SVG letterbox its
+         * content — the default `xMidYMid meet` — scaled the drawing uniformly
+         * and centred it, which put the geometry somewhere the component's own
+         * arithmetic says it is not. The strokes keep their width through
+         * `vector-effect`, the same pairing `GraphView` uses. */}
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
@@ -321,9 +361,26 @@ export function MapView(p: MapViewProps) {
               key={`pin${i}`}
               style={{
                 position: "absolute",
-                left: x,
-                top: py(pin.lat),
-                transform: "translate(-50%,-50%)",
+                left: pctX(x),
+                top: pctY(py(pin.lat)),
+                // THE DOT marks the coordinate, not the row.
+                //
+                // `translate(-50%, -50%)` centres the whole flex row — dot, gap
+                // and label — on the projected point, which puts the dot itself
+                // half a label to one side of the place it is marking: measured
+                // at 44px in a 238px card, about 19% of the width. Two pins
+                // with labels of different lengths are then displaced by
+                // different amounts, so the distance BETWEEN them is wrong too,
+                // under a scale bar that claims to measure it. Nothing caught
+                // it because `tests/mapview-projection.test.tsx` reads `left`,
+                // which is the row's anchor and was always correct.
+                //
+                // So the row is shifted by half a dot instead: leftwards when
+                // the dot leads, and by its own width less half a dot when the
+                // row is reversed and the dot trails.
+                transform: flip
+                  ? `translate(calc(-100% + ${DOT / 2}px), -50%)`
+                  : `translate(-${DOT / 2}px, -50%)`,
                 zIndex: 3,
                 display: "flex",
                 flexDirection: flip ? "row-reverse" : "row",
@@ -334,8 +391,8 @@ export function MapView(p: MapViewProps) {
             >
               <span
                 style={{
-                  width: 10,
-                  height: 10,
+                  width: DOT,
+                  height: DOT,
                   borderRadius: "50%",
                   flex: "none",
                   background: c,
@@ -362,13 +419,23 @@ export function MapView(p: MapViewProps) {
             </div>
           );
         })}
+        {/* The scale row spans the WHOLE viewport rather than shrink-wrapping
+         * at the right edge, because the bar's length is a percentage and a
+         * percentage resolves against its containing block: inside a
+         * shrink-to-fit flex box that is circular, and the bar collapsed to a
+         * few pixels. `left: 0; right: 0` with no horizontal padding makes the
+         * containing block exactly the drawing, so the percentage is exactly
+         * the fraction of the map the bar claims to measure. The 10px inset
+         * moves to the LABEL's margin, where it cannot change the basis. */}
         <div
           style={{
             position: "absolute",
-            right: 10,
+            left: 0,
+            right: 0,
             bottom: 8,
             zIndex: 4,
             display: "flex",
+            justifyContent: "flex-end",
             alignItems: "center",
             gap: 6,
           }}
@@ -376,7 +443,16 @@ export function MapView(p: MapViewProps) {
           <span
             style={{
               display: "block",
-              width: Math.round(niceM / mPerPx),
+              // A PERCENTAGE of the box, not the projected pixel. The bar is an
+              // HTML overlay on a drawing that scales to the card's fluid
+              // width, so a fixed pixel length claims a distance the map is not
+              // drawn at the moment the card is not exactly `width` wide — and
+              // a scale bar that is wrong is worse than no scale bar, because
+              // it is the thing a reader trusts to measure with.
+              width: `${((niceM / mPerPx / W) * 100).toFixed(4)}%`,
+              // A flex item shrinks; a scale bar must not. Its length IS the
+              // claim it makes.
+              flex: "none",
               height: 3,
               borderRadius: 2,
               background: token("map-scale-bar"),
@@ -390,6 +466,7 @@ export function MapView(p: MapViewProps) {
               color: color.inkDim,
               whiteSpace: "nowrap",
               flex: "none",
+              marginRight: 10,
             }}
           >
             {niceM >= 1000 ? `${niceM / 1000} km` : `${niceM} m`}
@@ -411,21 +488,27 @@ export function MapView(p: MapViewProps) {
           {`${src[0].lat.toFixed(4)}, ${src[0].lon.toFixed(4)}`}
         </div>
       </div>
-      {title ? (
+      {title || p.attribution ? (
         <div
           style={{
             display: "flex",
             alignItems: "center",
             gap: 9,
-            padding: "10px 12px",
+            // A map with geometry and no title still owes its credit, so the
+            // foot row is no longer gated on the title alone. The padding drops
+            // when the row carries only the credit: a lone 9px line in a 10px
+            // band reads as an empty row rather than as a footnote.
+            padding: title ? "10px 12px" : "6px 12px",
             borderTop: `1px solid ${color.line}`,
           }}
         >
-          <Icon icon={p.icon || "graph"} size={14} color={accent.teal.ink} />
+          {title ? <Icon icon={p.icon || "graph"} size={14} color={accent.teal.ink} /> : null}
           <span style={{ flex: 1, minWidth: 0 }}>
-            <b style={{ display: "block", font: `600 12.5px/1.35 ${font.body}`, color: color.ink }}>
-              {title}
-            </b>
+            {title ? (
+              <b style={{ display: "block", font: `600 12.5px/1.35 ${font.body}`, color: color.ink }}>
+                {title}
+              </b>
+            ) : null}
             {subtitle ? (
               <span
                 style={{
@@ -436,6 +519,22 @@ export function MapView(p: MapViewProps) {
                 }}
               >
                 {subtitle}
+              </span>
+            ) : null}
+            {p.attribution ? (
+              // The quietest text in the component, deliberately: a credit is an
+              // obligation to state the source, not an invitation to read it.
+              // `ink-mute` on the card ground is the kit's floor for small text
+              // and is measured in `tests/contrast.test.ts`.
+              <span
+                style={{
+                  display: "block",
+                  marginTop: title ? 3 : 0,
+                  font: `400 9px/1.3 ${font.mono}`,
+                  color: color.inkMute,
+                }}
+              >
+                {p.attribution}
               </span>
             ) : null}
           </span>

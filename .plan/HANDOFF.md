@@ -24,7 +24,7 @@ it and reshapes the state architecture.
 | 4b | Roving tabindex on the four composite widgets | done |
 | 5 | The four assembled screens — the acceptance test | done |
 | 6 | D3 in-chat tool contracts | not started |
-| 6b | MapView coastline geometry (D25) | not started |
+| 6b | MapView coastline geometry (D25) | done |
 | 7 | Visual regression (D10) | done |
 | Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | not started |
 
@@ -179,23 +179,39 @@ touching it:
   nobody can review that churn on every spacing change, which is how a visual
   suite becomes a rubber stamp.
 
+## D31: there is no backwards-compatibility burden
+
+The maintainer is the only user and the OSS portion has never been public, so a
+contract change needs no major-version discussion, no deprecation window and no
+shim — **D15's "remove the shim at 1.0" is free to happen whenever convenient**,
+and step 2's S10 stops being a separate step. The `CONTRACT:` prefix and the
+`docs/integration-contract.md` update still stand, because they keep the
+contract documented rather than protected.
+
+What replaces the old bar, and it is not nothing: there is **one real
+deployment** and it must survive a deploy. Server and client ship together; a
+stale PWA must fail loudly rather than render a half-broken screen; a forced
+refresh or reinstall is acceptable. Lockstep versioning and the release guards
+are untouched — they guard a different hazard. Full text in `DECISIONS.md` D31.
+
+This also settles wave 6's sequencing: with no exposure, the ordering is
+engineering convenience, so **wave 6 may fix `ui-react`'s renderer registry as
+part of itself** rather than waiting for step 2's S1.
+
 ## What to do next
 
-**Wave 6 — D3 tool contracts**, and it needs two answers from the maintainer
-before any code moves:
+**Wave 6 — D3 tool contracts** is unblocked. `ToolComponentContract` in
+`ui-sdk` (React-free, server-importable), components typed
+`z.infer<contract["payload"]>`, `bind(contract, Component)` in `ui-react`, the
+system-prompt append generated from the contract list, and a `CONTRACT:` commit
+with `docs/integration-contract.md` in it. It also gets to fix the real bug S1
+was going to: `registered` in `components/chat/renderers/index.ts` is never
+cleared by `resetToolRenderers()`, so one reset permanently un-registers the
+builtins.
 
-1. **Where it sits.** `PLAN.md` lists it inside step 1; `DECISIONS.md` sequences
-   the same work as **S9**, after the `ui-react` rewire — and `bind(contract,
-   Component)` lives in `ui-react`, whose renderer registry S1 is meant to fix
-   first (`registered` is never cleared by `resetToolRenderers()`).
-2. **Minor or major.** The payload rides as JSON inside the existing
-   `ServerToolResult.output` string, so no `PROTOCOL_REV` bump — but new in-chat
-   MCP tools are compatibility surface, which AGENTS.md attaches a `CONTRACT:`
-   commit and a major-version discussion to.
+Then **step 2** — rewire `ui-react`, reshape the stores (D13/D15).
 
-**Wave 6b** (MapView coastline geometry, D25) is additive, independent of both,
-and would also fix the Charybdis marker sitting on the map's left edge on the
-chat-answer screen.
-
-Two design questions are still open in `design-feedback.md` §14 and will move
-screens — and therefore baselines — when they are answered.
+Three design questions are open and will move screens, and therefore baselines:
+two in `design-feedback.md` §14 (a four-tile `StatTiles` row breaking 3 + 1; the
+digest saying "Today · 3 items" twice) and one in §16 (pin labels colliding when
+two pins are close, and clipping when long).

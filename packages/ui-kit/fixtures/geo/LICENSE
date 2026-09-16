@@ -1,0 +1,45 @@
+Map geometry in this directory — Open Database License (ODbL) 1.0
+=================================================================
+
+The `*.json` files in this directory contain coastline and road geometry
+derived from OpenStreetMap.
+
+    © OpenStreetMap contributors
+
+OpenStreetMap data is made available under the Open Database License:
+https://opendatacommons.org/licenses/odbl/1-0/
+Any rights in individual contents of the database are licensed under the
+Database Contents License: https://opendatacommons.org/licenses/dbcl/1-0/
+
+Why this file exists, and what it does and does not cover
+--------------------------------------------------------
+
+The OSMF's licence guidance draws a line this directory sits on both sides of:
+
+  * A **Produced Work** — a rendered image, an SVG, a screenshot of a map — may
+    carry any licence. The maps `MapView` draws from this data are Produced
+    Works, so nothing share-alike attaches to them or to a page that shows one.
+
+  * A **Derivative Database** — data shipped to be read as data — stays under
+    ODbL. These JSON files are exactly that: simplified geometry, in the shape a
+    component reads. **The share-alike obligation attaches to these files**, and
+    that is why this LICENSE is here rather than in the repository root.
+
+The rest of this repository is MIT, and the published npm package is unaffected:
+`packages/ui-kit` declares `files: ["src", "dist", "README.md"]`, so no fixture
+reaches the tarball. `tests/geo-fixtures.test.ts` asserts that rather than
+trusting it. The obligation attaches to this repository and to any deployed
+Storybook, both of which carry this file and the attribution line the component
+renders.
+
+If you redistribute these files, or a database derived from them, keep this
+notice and the attribution with them.
+
+How the data was made
+---------------------
+
+`tools/geo/generate.ts`, which is committed and re-runnable. Overpass for the
+source ways, mapshaper for the clip and a Douglas-Peucker simplification at one
+pixel of the target render, coordinates rounded to four decimal places. The
+reasoning is D25 in `.plan/DECISIONS.md`; the measurements are in
+`.plan/research/map-tiles.md`.

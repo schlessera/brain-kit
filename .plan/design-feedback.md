@@ -662,3 +662,74 @@ corners alone still leave the predecessor's own cap rounding into bare track.
 roles, counts and computed styles, and both are obvious in a screenshot. This is
 the argument for wave 7 stated twice, and it is why wave 7 being last is a
 scheduling decision rather than a priority one.
+
+## 16. Wave 6b: real coastline, and three MapView bugs it made visible
+
+**Status:** the geometry shipped; three bugs FIXED; one finding needs the
+designer. Every one of the three was invisible until there was a coastline to be
+wrong about — a pin in an empty graticule is wherever you put it.
+
+### What shipped
+
+Simplified OpenStreetMap coastline for five locations, plus roads for Troy,
+through `MapView`'s existing `paths` prop. **2,611 vertices, 11.6 KB gzipped for
+all five** — D25 predicted 12.6 KB, and one raster map tile is about 16 KB.
+`tools/geo/generate.ts` is committed and re-runnable; the data is committed and
+never fetched at test time. `fixtures/geo/LICENSE` carries the ODbL obligation,
+which attaches to the JSON and not to the rendered map, and
+`tests/geo-fixtures.test.ts` asserts that the npm tarball still contains zero
+fixtures rather than trusting it.
+
+The component gained one prop, `attribution`, and it is a prop rather than
+something the component infers because `MapView` cannot know where a caller's
+`paths` came from. A consumer drawing their own survey has nothing to credit,
+and inventing a credit for them would be worse than omitting one. The check that
+makes forgetting loud lives in the fixtures test, not in the component.
+
+### Fixed: every overlay was positioned in the wrong unit
+
+The SVG scales to the card's fluid width. The pins, the graticule labels and the
+scale bar are absolutely-positioned HTML **placed at the projected SVG pixel**,
+which is only correct when the card happens to be exactly `width` wide.
+Measured on a 232px card against a 330-unit viewBox: a pin sat 30% of the box
+away from the coastline it marked.
+
+It also meant the SVG was letterboxing — the default `xMidYMid meet` scales the
+drawing uniformly and centres it, while `px()` and `py()` map longitude and
+latitude across the full width and height *independently*, with different
+margins on each axis. The projection was already anisotropic; the SVG was not
+being told. `preserveAspectRatio="none"` is what the arithmetic already assumed.
+
+And the scale bar, being a fixed pixel length on a drawing that scales, **claimed
+a distance the map was not drawn at** on every card that was not exactly 330px
+wide. A scale bar that is wrong is worse than no scale bar, because it is the
+thing a reader trusts to measure with.
+
+### Fixed: the dot was not on the coordinate
+
+`transform: translate(-50%, -50%)` centred the whole flex row — dot, gap and
+label — on the projected point, so **the dot sat half a label away from the
+place it marks**: 44px in a 238px card, about 19% of the width. Worse, two pins
+with labels of different lengths are displaced by different amounts, so the
+distance *between* them was wrong, under a scale bar claiming to measure it.
+
+Nothing caught it because `tests/mapview-projection.test.tsx` reads the `left`
+value, which is the row's anchor and was always correct. The gate that catches
+it now renders the same scene at two widths and compares the DOT's fractional
+position — which is the one thing a single-width render cannot check, and every
+existing test rendered at exactly `width`.
+
+### For the designer: two pins close together collide, and long labels clip
+
+The strait puts Scylla and Charybdis 6 km apart at a 9 km span, and their labels
+overlap in the middle of the card. Troy's label — `Troy` plus `where it started`
+— reaches the right edge at a phone width. The component flips a label to the
+left of its dot past 62% of the width, which handles the edge but not the
+crowding, and it cannot measure text at render time to do better.
+
+Three possible answers and they are design decisions, not implementation ones:
+a label that truncates (the design never does this), a `meta` that drops when
+space is short, or a rule that two pins within some distance share one label.
+The port picks none of them; the collision is visible in `Blocks/MapView` →
+`Default` and `Troy has roads`.
+

@@ -1611,3 +1611,48 @@ invalid at computed-value time and resets the border to `currentColor`.
 move its border on hover — it has to restate it. `Placeholder`'s retry sets
 `--hv-bd` to its own rest border for exactly this reason, and the reason is
 written next to it, because the code looks like a redundant no-op and is not.
+
+## 2026-09-16 — D31: there is no backwards-compatibility burden (maintainer)
+
+Asked before starting wave 6, because `AGENTS.md` attaches "a major-version
+discussion" to any change to the compatibility contract and that is not a call
+to make alone. The answer removes the question rather than answering it:
+
+> "Do not be bothered with backwards compatibility — I personally am the only
+> user right now, the OSS portion has never been made public so far. The only
+> thing that is important is that my personal implementation I run on
+> [the maintainer's host] (using the brain-ui implementation) does not break
+> between deployments and remains usable to me on my phone via the PWA (a
+> forced refresh or reinstallation is okay)."
+
+**What this changes.** The `CONTRACT:` commit prefix and the
+`docs/integration-contract.md` update still stand — they are how the contract
+stays *documented*, which is worth having whether or not anyone is depending on
+it. What does not stand is the veto: a contract change no longer needs a
+major-version discussion, no longer needs a deprecation window, and no longer
+needs a shim. **D15's "the shim is removed at 1.0" is now free to happen
+whenever it is convenient**, and step 2's S10 stops being a separate step.
+
+**What it does not change.** There is exactly one real deployment and it must
+keep working across a deploy. So the bar is not "no breaking changes", it is:
+
+1. **Server and client ship together.** A protocol change is fine; a protocol
+   change that leaves a running server talking to a stale client is not. Both
+   halves land in one release.
+2. **A stale PWA must fail LOUDLY, not subtly.** A forced refresh or a
+   reinstall is acceptable; a phone that renders a half-broken screen because
+   its cached bundle predates the change is not. If a change can strand a
+   cached client, it needs a version check that says so.
+3. **Nothing about lockstep versioning changes.** All `@schlessera/brain-*`
+   packages still version together, and the release guards in
+   `tests/release-manifest.test.ts` still apply — those exist to stop a package
+   shipping pinned to a version nobody published, which is a different hazard
+   entirely and is not about compatibility.
+
+This also settles the sequencing question wave 6 was blocked on. `PLAN.md` put
+D3's tool contracts in step 1 and `DECISIONS.md` sequenced them as S9, after the
+`ui-react` rewire, because `bind(contract, Component)` lives in `ui-react` and
+S1 fixes that package's renderer registry first. With no compatibility burden
+the ordering is a matter of engineering convenience rather than of exposure, so
+**wave 6 may fix the registry as part of itself** instead of waiting for S1.
+
