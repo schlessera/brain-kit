@@ -74,6 +74,40 @@ export interface CoastlineConfig {
   fetchImpl?: FetchLike;
 }
 
+/**
+ * How much of the world to draw, chosen by how much of it fits on screen.
+ *
+ * A coastline is the right answer for a region and the wrong one for a street:
+ * at a kilometre across, a shoreline is one curve at the edge and the map is
+ * empty except for its own pins. At fifty kilometres the reverse — every
+ * residential street collapses into a grey smear that hides the shape.
+ *
+ * The thresholds are the same one-pixel reasoning the simplification tolerance
+ * uses, applied to the SPACING of a feature class rather than to its detail:
+ *
+ *   - Major roads sit roughly a kilometre apart. Below ~40 m/px that is about
+ *     25px between them, which reads as a network.
+ *   - Minor streets sit roughly a hundred metres apart. They need ~8 m/px
+ *     before they are 12px apart and legible as separate streets.
+ *
+ * So the tier is a function of metres-per-pixel, and metres-per-pixel is a
+ * function of the bbox and the width it is drawn at — both of which the caller
+ * already has to know.
+ */
+export type MapDetail = "coast" | "roads" | "streets";
+
+/** Above this, a minor street is too close to its neighbour to read. */
+const STREETS_MAX_M_PER_PX = 8;
+/** Above this, even a major road network is a smear. */
+const ROADS_MAX_M_PER_PX = 40;
+
+export function detailFor(bbox: BBox, widthPx: number): MapDetail {
+  const mPerPx = toleranceMetres(bbox, widthPx);
+  if (mPerPx <= STREETS_MAX_M_PER_PX) return "streets";
+  if (mPerPx <= ROADS_MAX_M_PER_PX) return "roads";
+  return "coast";
+}
+
 export interface CoastlineRequest {
   bbox: BBox;
   /**
@@ -84,16 +118,38 @@ export interface CoastlineRequest {
    */
   widthPx: number;
   /**
-   * Roads as well as coastline. Worth it only where the coastline alone does
-   * not locate you — an inland place has no coastline at all, and a single
-   * shoreline curve is ambiguous.
+   * Override the tier `detailFor` would choose.
+   *
+   * The automatic answer is right for a map whose span was chosen to frame its
+   * pins. It is wrong for the one case D25 measured: Troy is a single shoreline
+   * curve at a span where the rule says coastline is enough, and it is not —
+   * the road network is what turns a line into a place. So the override exists
+   * for "this particular view needs more than its size suggests", not as the
+   * normal way to ask.
    */
-  roads?: boolean;
+  detail?: MapDetail;
 }
 
 export interface CoastlineResult {
   coastline: Coord[][];
+  /** Motorway through secondary: the network that locates a town. */
   roads: Coord[][];
+  /** Tertiary through residential: only drawn when a block is legible. */
+  streets: Coord[][];
+  /** Which tier was actually drawn, so a caller can say so. */
+  detail: MapDetail;
+  /**
+   * True when at least one of the tier's queries failed and its geometry is
+   * missing from an otherwise usable result.
+   *
+   * The street tier is three sequential requests, and a free service under load
+   * refuses them individually — so "all or nothing" throws away a perfectly
+   * good coastline because the minor streets timed out. Each query degrades on
+   * its own instead, and this says so, because a PARTIAL result must not be
+   * cached forever: the cache has no TTL, and a bad afternoon would otherwise
+   * become a street map that never has streets.
+   */
+  partial: boolean;
   /**
    * Closed rings of land, for a subtle fill under the stroke.
    *
@@ -126,7 +182,10 @@ const METRES_PER_DEGREE_LAT = 111_320;
 const EMPTY: CoastlineResult = {
   coastline: [],
   roads: [],
+  streets: [],
   land: [],
+  detail: "coast",
+  partial: false,
   toleranceM: 0,
   attribution: OSM_ATTRIBUTION,
 };
@@ -450,6 +509,12 @@ function toLines(response: OverpassResponse): Coord[][] {
     .map((element) => element.geometry!.map((point) => [point.lon, point.lat] as Coord));
 }
 
+/** Overpass way filters per tier. Regexes are anchored: an unanchored
+ * `highway~primary` also matches `primary_link`, which is a slip road and
+ * doubles the geometry for nothing at these spans. */
+const MAJOR_ROADS = '["highway"~"^(motorway|trunk|primary|secondary)$"]';
+const MINOR_STREETS = '["highway"~"^(tertiary|unclassified|residential|living_street|pedestrian)$"]';
+
 async function query(selector: string, request: CoastlineRequest, config: CoastlineConfig): Promise<Coord[][]> {
   const doFetch: FetchLike = config.fetchImpl ?? fetch;
   const body = new URLSearchParams({
@@ -486,24 +551,35 @@ export async function fetchCoastline(
   if (!config.enabled) return EMPTY;
 
   const toleranceM = toleranceMetres(request.bbox, request.widthPx);
-  try {
-    const coastRaw = await query('["natural"="coastline"]', request, config);
-    const roadsRaw = request.roads
-      ? await query('["highway"~"^(motorway|trunk|primary)$"]', request, config)
-      : [];
-    return {
-      coastline: prepare(coastRaw, request),
-      roads: prepare(roadsRaw, request),
-      // From the RAW ways, not the clipped-and-simplified ones: both operations
-      // move or cut endpoints, and a way whose endpoint moved no longer meets
-      // its neighbour, so every island would come apart into open lines.
-      land: prepareLand(coastRaw, request),
-      toleranceM,
-      attribution: OSM_ATTRIBUTION,
-    };
-  } catch {
-    // A graticule with a correct pin and a correct scale bar is a good locator.
-    // A message that will not render is not.
-    return { ...EMPTY, toleranceM };
-  }
+  const detail = request.detail ?? detailFor(request.bbox, request.widthPx);
+
+  // Each query degrades on its own. A coastline that arrived is worth drawing
+  // even when the streets over it did not.
+  let partial = false;
+  const ask = async (selector: string): Promise<Coord[][]> => {
+    try {
+      return await query(selector, request, config);
+    } catch {
+      partial = true;
+      return [];
+    }
+  };
+
+  const coastRaw = await ask('["natural"="coastline"]');
+  const roadsRaw = detail === "coast" ? [] : await ask(MAJOR_ROADS);
+  const streetsRaw = detail === "streets" ? await ask(MINOR_STREETS) : [];
+
+  return {
+    coastline: prepare(coastRaw, request),
+    roads: prepare(roadsRaw, request),
+    streets: prepare(streetsRaw, request),
+    // From the RAW ways, not the clipped-and-simplified ones: both operations
+    // move or cut endpoints, and a way whose endpoint moved no longer meets its
+    // neighbour, so every island would come apart into open lines.
+    land: prepareLand(coastRaw, request),
+    detail,
+    partial,
+    toleranceM,
+    attribution: OSM_ATTRIBUTION,
+  };
 }

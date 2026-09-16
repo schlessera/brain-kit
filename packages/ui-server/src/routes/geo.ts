@@ -1,5 +1,11 @@
 import type { Logger } from "@opentelemetry/api-logs";
-import { OSM_ATTRIBUTION, fetchCoastline, type BBox, type CoastlineResult } from "@schlessera/brain-ui-sdk/server";
+import {
+  OSM_ATTRIBUTION,
+  detailFor,
+  fetchCoastline,
+  type BBox,
+  type CoastlineResult,
+} from "@schlessera/brain-ui-sdk/server";
 import { Hono } from "hono";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -86,10 +92,12 @@ export function parseBBox(raw: string | undefined): BBox | null {
   return [west, south, east, north];
 }
 
-/** Stable, quantised, and safe as a filename. */
-export function cacheKey(bbox: BBox, width: number, roads: boolean): string {
+/** Stable, quantised, and safe as a filename. The TIER is part of the key: the
+ * same box at the same width can legitimately be fetched at two levels of
+ * detail, and serving the coarse one for the fine request draws an empty map. */
+export function cacheKey(bbox: BBox, width: number, detail: string): string {
   const box = bbox.map((n) => n.toFixed(KEY_PRECISION)).join("_").replace(/-/g, "m");
-  return `${box}-w${bucketWidth(width)}${roads ? "-roads" : ""}.json`;
+  return `${box}-w${bucketWidth(width)}-${detail}.json`;
 }
 
 export function createGeoRoutes(deps: GeoRouteDeps): Hono {
@@ -127,8 +135,15 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
     if (!bbox) return c.json({ error: "invalid_bbox" }, 400);
 
     const width = Number(c.req.query("width") ?? DEFAULT_WIDTH);
-    const roads = c.req.query("roads") === "1";
-    const key = cacheKey(bbox, Number.isFinite(width) && width > 0 ? width : DEFAULT_WIDTH, roads);
+    // The tier is a function of how much ground fits on screen, so the caller
+    // does not ask for it and cannot get it wrong. `detail=` forces one only
+    // for the case the rule cannot see: a view whose own size says coastline is
+    // enough, where it is not.
+    const px = bucketWidth(Number.isFinite(width) && width > 0 ? width : DEFAULT_WIDTH);
+    const forced = c.req.query("detail");
+    const detail =
+      forced === "coast" || forced === "roads" || forced === "streets" ? forced : detailFor(bbox, px);
+    const key = cacheKey(bbox, px, detail);
     const file = join(config.cacheDir, key);
 
     const cached = await readCache(file);
@@ -144,15 +159,20 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
       pending = (async () => {
         try {
           const result = await fetchGeometry(
-            { bbox, widthPx: bucketWidth(width), roads },
+            { bbox, widthPx: px, detail },
             { enabled: config.enabled, url: config.url, userAgent: config.userAgent },
           );
           // Only a result with geometry in it is worth keeping: an empty one is
           // usually an outage, and caching that forever would make a transient
           // failure permanent.
-          if (result.coastline.length || result.roads.length || result.land.length) {
-            await writeCache(file, result);
-          }
+          // Only a COMPLETE result with geometry in it is worth keeping. An
+          // empty one is usually an outage; a partial one is a tier that timed
+          // out. The cache has no TTL, so writing either would make a bad
+          // afternoon permanent — a street map that never has streets.
+          const worthKeeping =
+            !result.partial &&
+            (result.coastline.length || result.roads.length || result.streets.length || result.land.length);
+          if (worthKeeping) await writeCache(file, result);
           return result;
         } catch (err) {
           // `fetchCoastline` already swallows its own failures, so this is the
@@ -165,7 +185,16 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
             body: "coastline fetch failed",
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
-          return { coastline: [], roads: [], land: [], toleranceM: 0, attribution: OSM_ATTRIBUTION };
+          return {
+            coastline: [],
+            roads: [],
+            streets: [],
+            land: [],
+            detail,
+            partial: true,
+            toleranceM: 0,
+            attribution: OSM_ATTRIBUTION,
+          };
         }
       })().finally(() => inFlight.delete(key));
       inFlight.set(key, pending);

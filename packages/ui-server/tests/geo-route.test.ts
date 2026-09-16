@@ -31,7 +31,10 @@ const GEOMETRY: CoastlineResult = {
     ],
   ],
   roads: [],
+  streets: [],
   land: [],
+  detail: "coast",
+  partial: false,
   toleranceM: 53,
   attribution: "© OpenStreetMap contributors",
 };
@@ -39,7 +42,10 @@ const GEOMETRY: CoastlineResult = {
 const EMPTY: CoastlineResult = {
   coastline: [],
   roads: [],
+  streets: [],
   land: [],
+  detail: "coast",
+  partial: false,
   toleranceM: 53,
   attribution: "© OpenStreetMap contributors",
 };
@@ -54,8 +60,8 @@ async function config(): Promise<CoastlineConfig> {
 }
 
 function counting(result: CoastlineResult = GEOMETRY) {
-  const calls: { bbox: number[]; widthPx: number; roads?: boolean }[] = [];
-  const fetchGeometry = async (request: { bbox: number[]; widthPx: number; roads?: boolean }) => {
+  const calls: { bbox: number[]; widthPx: number; detail?: string }[] = [];
+  const fetchGeometry = async (request: { bbox: number[]; widthPx: number; detail?: string }) => {
     calls.push(request);
     return result;
   };
@@ -98,31 +104,34 @@ describe("cacheKey", () => {
     // every time the model phrases the query differently. 3 dp is ~110 m.
     const a = parseBBox("15.6001,38.2001,15.8001,38.3201")!;
     const b = parseBBox("15.6002,38.2002,15.8002,38.3202")!;
-    expect(cacheKey(a, 330, false)).toBe(cacheKey(b, 330, false));
+    expect(cacheKey(a, 330, "coast")).toBe(cacheKey(b, 330, "coast"));
   });
 
   test("a different place does not", () => {
     const a = parseBBox(STRAIT)!;
     const b = parseBBox("14.1,35.9,14.4,36.2")!;
-    expect(cacheKey(a, 330, false)).not.toBe(cacheKey(b, 330, false));
+    expect(cacheKey(a, 330, "coast")).not.toBe(cacheKey(b, 330, "coast"));
   });
 
   test("width is bucketed, so a phone and a slightly wider phone agree", () => {
     const bbox = parseBBox(STRAIT)!;
-    expect(cacheKey(bbox, 320, false)).toBe(cacheKey(bbox, 330, false));
+    expect(cacheKey(bbox, 320, "coast")).toBe(cacheKey(bbox, 330, "coast"));
     // But a desktop pane gets its own, finer geometry.
-    expect(cacheKey(bbox, 330, false)).not.toBe(cacheKey(bbox, 1000, false));
+    expect(cacheKey(bbox, 330, "coast")).not.toBe(cacheKey(bbox, 1000, "coast"));
   });
 
-  test("roads are a different entry", () => {
+  test("a different tier is a different entry", () => {
+    // The same box at the same width can legitimately be asked for at two
+    // levels of detail, and serving the coarse one for the fine request draws
+    // an empty street map.
     const bbox = parseBBox(STRAIT)!;
-    expect(cacheKey(bbox, 330, true)).not.toBe(cacheKey(bbox, 330, false));
+    expect(cacheKey(bbox, 330, "streets")).not.toBe(cacheKey(bbox, 330, "coast"));
   });
 
   test("is safe as a filename", () => {
     // Negative longitudes are the trap: a leading "-" is fine but a path
     // separator is not, and coordinates west of Greenwich are common.
-    const key = cacheKey(parseBBox("-9.2,38.6,-9.0,38.8")!, 330, false);
+    const key = cacheKey(parseBBox("-9.2,38.6,-9.0,38.8")!, 330, "coast");
     expect(key).not.toContain("/");
     expect(key).toMatch(/^[\w.-]+$/);
   });
@@ -207,7 +216,10 @@ describe("the route", () => {
     expect(await res.json()).toEqual({
       coastline: [],
       roads: [],
+      streets: [],
       land: [],
+      detail: "coast",
+      partial: true,
       toleranceM: 0,
       attribution: "© OpenStreetMap contributors",
     });
@@ -228,18 +240,49 @@ describe("the route", () => {
     const { calls, fetchGeometry } = counting();
     const app = createGeoRoutes({ config: cfg, fetchGeometry });
     const bbox = parseBBox(STRAIT)!;
-    await writeFile(join(cfg.cacheDir, cacheKey(bbox, 330, false)), "{ this is not json");
+    await writeFile(join(cfg.cacheDir, cacheKey(bbox, 330, "coast")), "{ this is not json");
 
     const res = await app.request(`/geo/coastline?bbox=${STRAIT}`);
     expect(await res.json()).toEqual(GEOMETRY);
     expect(calls).toHaveLength(1);
   });
 
-  test("roads are asked for only when requested", async () => {
+  test("the tier comes from how much ground fits on screen", async () => {
+    // The caller does not ask and cannot get it wrong. Three boxes over the
+    // same water, each an order of magnitude smaller, at a phone width:
+    // 17.5 km is 53 m/px and gets the shape only; 4.4 km is 13 m/px and gets
+    // the road network; 1.8 km is 5 m/px and gets every street.
     const { calls, fetchGeometry } = counting();
     const app = createGeoRoutes({ config: await config(), fetchGeometry });
     await app.request(`/geo/coastline?bbox=${STRAIT}`);
-    await app.request(`/geo/coastline?bbox=${STRAIT}&roads=1`);
-    expect(calls.map((call) => call.roads === true)).toEqual([false, true]);
+    await app.request("/geo/coastline?bbox=15.70,38.25,15.75,38.28");
+    await app.request("/geo/coastline?bbox=15.70,38.25,15.72,38.262");
+    expect(calls.map((call) => call.detail)).toEqual(["coast", "roads", "streets"]);
+  });
+
+  test("a view can force a finer tier than its size suggests", async () => {
+    // Troy is the case: a single shoreline curve at a span where the rule says
+    // coastline is enough, and it is not.
+    const { calls, fetchGeometry } = counting();
+    const app = createGeoRoutes({ config: await config(), fetchGeometry });
+    await app.request(`/geo/coastline?bbox=${STRAIT}&detail=streets`);
+    expect(calls[0]!.detail).toBe("streets");
+  });
+
+  test("a partial result is served but never cached", async () => {
+    // The street tier is three requests and a busy service refuses them one at
+    // a time. Serving the coastline that did arrive is right; keeping it
+    // forever under a cache with no TTL is not — the street map would never
+    // get its streets.
+    const cfg = await config();
+    const { calls, fetchGeometry } = counting({ ...GEOMETRY, partial: true });
+    const app = createGeoRoutes({ config: cfg, fetchGeometry });
+
+    const res = await app.request(`/geo/coastline?bbox=${STRAIT}`);
+    expect((await res.json()).coastline).toHaveLength(1);
+    expect(await readdir(cfg.cacheDir).catch(() => [])).toHaveLength(0);
+
+    await app.request(`/geo/coastline?bbox=${STRAIT}`);
+    expect(calls).toHaveLength(2);
   });
 });

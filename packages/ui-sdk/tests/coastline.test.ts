@@ -20,6 +20,7 @@ import {
   OSM_ATTRIBUTION,
   clipLine,
   closedRings,
+  detailFor,
   prepareLand,
   fetchCoastline,
   prepare,
@@ -70,6 +71,44 @@ describe("the simplification tolerance", () => {
     // 100x-over-detailed raw data the whole pipeline exists to avoid.
     expect(toleranceMetres(STRAIT, 100_000)).toBeGreaterThan(0);
     expect(toleranceMetres(STRAIT, 0)).toBeGreaterThan(0);
+  });
+});
+
+describe("detailFor", () => {
+  // The threshold the whole tier system rests on, and it is the same one-pixel
+  // reasoning the simplification tolerance uses — applied to the SPACING of a
+  // feature class rather than to its detail. A map is empty if it draws only
+  // shorelines at a kilometre across, and illegible if it draws every
+  // residential street at fifty.
+  const across = (km: number): BBox => {
+    const dLon = km / 111 / Math.cos((38.26 * Math.PI) / 180);
+    return [15.6, 38.2, 15.6 + dLon, 38.26];
+  };
+
+  test("a region gets its shape and nothing else", () => {
+    // 50 km across a phone is 150 m/px; a residential street is invisible and a
+    // motorway network is a smear.
+    expect(detailFor(across(50), 330)).toBe("coast");
+    expect(detailFor(across(14), 330)).toBe("coast");
+  });
+
+  test("a town-sized view gets the road network", () => {
+    // Major roads sit ~1 km apart, so at 13 m/px they are ~75px apart.
+    expect(detailFor(across(4), 330)).toBe("roads");
+  });
+
+  test("a walkable view gets every street", () => {
+    // Minor streets sit ~100 m apart and need ~8 m/px to be 12px apart.
+    expect(detailFor(across(2), 330)).toBe("streets");
+    expect(detailFor(across(0.5), 330)).toBe("streets");
+  });
+
+  test("the tier follows the WIDTH, not just the ground", () => {
+    // The same ground on a desktop pane can afford detail a phone cannot, which
+    // is the whole reason the rule is metres-per-pixel and not kilometres.
+    const bbox = across(6);
+    expect(detailFor(bbox, 330)).toBe("roads");
+    expect(detailFor(bbox, 1320)).toBe("streets");
   });
 });
 
@@ -260,7 +299,7 @@ describe("fetchCoastline", () => {
     expect(queries[0]).toContain("coastline");
 
     queries.length = 0;
-    await fetchCoastline({ bbox: STRAIT, widthPx: 330, roads: true }, CONFIG(spy));
+    await fetchCoastline({ bbox: STRAIT, widthPx: 330, detail: "roads" }, CONFIG(spy));
     expect(queries).toHaveLength(2);
     expect(queries[1]).toContain("highway");
   });

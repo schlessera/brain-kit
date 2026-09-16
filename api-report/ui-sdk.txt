@@ -601,6 +601,7 @@ export "./server" (./src/server/index.ts)
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
+  type MapDetail
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -712,6 +713,7 @@ export "./server" (./src/server/index.ts)
   decideToolPermission
   defineBackendModule
   defineSpeechProvider
+  detailFor
   fetchCoastline
   filterSubprocessEnv
   handleAskUser

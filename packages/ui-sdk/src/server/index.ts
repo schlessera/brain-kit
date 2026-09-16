@@ -42,13 +42,14 @@ export {
   OSM_ATTRIBUTION,
   clipLine,
   closedRings,
+  detailFor,
   fetchCoastline,
   prepare,
   prepareLand,
   simplify,
   toleranceMetres,
 } from "./coastline.js";
-export type { BBox, Coord, CoastlineConfig, CoastlineRequest, CoastlineResult, FetchLike } from "./coastline.js";
+export type { BBox, Coord, CoastlineConfig, CoastlineRequest, CoastlineResult, FetchLike, MapDetail } from "./coastline.js";
 
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
