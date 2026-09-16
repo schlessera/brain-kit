@@ -167,6 +167,12 @@ if (!childMode) {
   const harness = await import("./registration-on-mount-harness.js");
 
   test("StrictMode renders and explicit repeats register each built-in once", () => {
+    // "Once" is a property of the REGISTRIES, not of a module latch: renderer
+    // packs dedupe by object identity and ASR factories by providerId, so
+    // repeat calls are harmless AND a reset can undo them. What must hold is
+    // that each repeat passes the SAME pack objects and provider ids — a
+    // helper that built a fresh pack per call would stack duplicate predicates
+    // in the real registry, and this is the only place that would catch it.
     const strictTimeline = render(
       <React.StrictMode>
         <harness.ToolCallTimeline toolCalls={[]} onApproval={() => {}} />
@@ -181,16 +187,25 @@ if (!childMode) {
     harness.registerAsrClients();
     harness.registerAsrClients();
 
-    expect(
-      registerToolRenderers.mock.calls.map(([pack]: [RendererPack]) =>
-        pack.backend ?? "generic"
-      )
-    ).toEqual(["claude", "pi", "generic"]);
-    expect(
-      registerAsrClient.mock.calls.map(
-        ([providerId]: [string, AsrClientFactory]) => providerId
-      )
-    ).toEqual(["deepgram", "webspeech"]);
+    const packs = registerToolRenderers.mock.calls.map(
+      ([pack]: [RendererPack]) => pack
+    );
+    const distinct = [...new Set(packs)];
+    expect(distinct.map((pack) => pack.backend ?? "generic")).toEqual([
+      "claude",
+      "pi",
+      "generic",
+    ]);
+    expect(distinct[0]).toBe(harness.claudeToolPack);
+    expect(distinct[1]).toBe(harness.piToolPack);
+    // Every repeat passed one of those same three objects; a pack rebuilt per
+    // call would show up as a fourth distinct object above.
+    expect(packs.every((pack) => distinct.includes(pack))).toBe(true);
+
+    const providers = registerAsrClient.mock.calls.map(
+      ([providerId]: [string, AsrClientFactory]) => providerId
+    );
+    expect([...new Set(providers)]).toEqual(["deepgram", "webspeech"]);
 
     strictDictation.unmount();
     strictTimeline.unmount();

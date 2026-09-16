@@ -1,14 +1,16 @@
 // Register the built-in ASR clients into the @schlessera/brain-ui-sdk registry.
-// Registration is idempotent and wires the store-side extras (audio-level
-// meter, end-of-stream -> idle) that fall outside the neutral AsrClient
-// interface. use-dictation then resolves a client via createAsrClient().
+// Registration wires the store-side extras (audio-level meter, end-of-stream ->
+// idle) that fall outside the neutral AsrClient interface. use-dictation then
+// resolves a client via createAsrClient().
+//
+// Idempotent because the registry is keyed by providerId, NOT because this
+// module latches: a latch survives `resetAsrClients()`, which would leave the
+// registry permanently empty for everything that ran after the first reset.
 
 import { registerAsrClient } from "@schlessera/brain-ui-sdk/client";
 import { DeepgramClient } from "./asr-deepgram.js";
 import { WebSpeechClient } from "./asr-webspeech.js";
 import { useVoiceStore } from "./voice-store.js";
-
-let registered = false;
 
 function endToIdle() {
   if (useVoiceStore.getState().mode === "dictate") {
@@ -17,9 +19,6 @@ function endToIdle() {
 }
 
 export function registerAsrClients(): void {
-  if (registered) return;
-  registered = true;
-
   registerAsrClient(
     "deepgram",
     (opts) =>
