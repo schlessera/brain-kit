@@ -75,3 +75,62 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },
 });
+
+/**
+ * A LANE THAT CHANGES STATE IS ONE BAR, NOT TWO.
+ *
+ * `researcher` runs 0-58% and then waits on you 58-78%. That is one piece of
+ * work that stopped being able to continue, and the chart has to say so —
+ * ported as written, both segments carried a radius on all four corners, so the
+ * solid cap and the hatched cap rounded away from each other and left a notch
+ * that read as two separate runs butted together.
+ *
+ * Three things fix it and all three are load-bearing, so all three are
+ * asserted: the continuation drops its LEFT rounding, it reaches back UNDER its
+ * predecessor by one corner radius, and it paints BEHIND so the solid cap
+ * covers the overlap. Square corners alone would still leave the predecessor's
+ * own cap rounding into bare track.
+ *
+ * `source-watch` is the control: a lane with one segment is not a continuation
+ * of anything and keeps its rounding on all four corners.
+ */
+export const SegmentsThatMeetReadAsOne = meta.story({
+  args: {
+    lanes: [
+      { name: "researcher", tone: "amber", segments: [{ start: 0, width: 58 }, { start: 58, width: 20, hatch: true }] },
+      // A real GAP: this lane stopped and started again, and the second run
+      // must NOT be drawn as a continuation.
+      { name: "note-filer", tone: "teal", segments: [{ start: 4, width: 20 }, { start: 44, width: 18, hatch: true }] },
+      { name: "source-watch", tone: "red", segments: [{ start: 2, width: 12 }] },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const tracks = [...canvasElement.querySelectorAll<HTMLElement>("span")].filter(
+      (el) => el.children.length > 0 && el.firstElementChild instanceof HTMLElement
+        && getComputedStyle(el.firstElementChild).position === "absolute",
+    );
+    const segs = (i: number) => [...tracks[i]!.children] as HTMLElement[];
+
+    /* researcher — the continuation */
+    const [solid, waiting] = segs(0);
+    const solidBox = solid!.getBoundingClientRect();
+    const waitBox = waiting!.getBoundingClientRect();
+    await expect({
+      squareOnTheLeft: getComputedStyle(waiting!).borderTopLeftRadius,
+      roundOnTheRight: getComputedStyle(waiting!).borderTopRightRadius,
+      // Reaches back under the solid bar rather than starting after it.
+      underlaps: waitBox.left < solidBox.right - 1,
+      // And paints behind it.
+      behind: Number(getComputedStyle(waiting!).zIndex) < Number(getComputedStyle(solid!).zIndex),
+    }).toEqual({ squareOnTheLeft: "0px", roundOnTheRight: "4px", underlaps: true, behind: true });
+
+    /* note-filer — a real gap, so NOT a continuation */
+    const [first, second] = segs(1);
+    await expect(getComputedStyle(second!).borderTopLeftRadius).toBe("4px");
+    await expect(second!.getBoundingClientRect().left).toBeGreaterThan(first!.getBoundingClientRect().right);
+
+    /* source-watch — a lone segment is rounded all round */
+    const [only] = segs(2);
+    await expect(getComputedStyle(only!).borderTopLeftRadius).toBe("4px");
+  },
+});

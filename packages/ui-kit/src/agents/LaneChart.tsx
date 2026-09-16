@@ -15,6 +15,20 @@ import type { Tone } from "../types.js";
  *
  * Segment `start` and `width` are percentages of the lane, so the caller owns
  * the time axis and the component never guesses at one.
+ *
+ * ## Segments that meet are ONE bar, not two
+ *
+ * A lane whose segments touch -- `{start: 0, width: 58}` then `{start: 58, …}`
+ * -- is one piece of work changing state, and it has to read that way. Ported
+ * as written, every segment carried a radius on all four corners, so the solid
+ * bar's right cap and the hatched bar's left cap rounded away from each other
+ * and left a notch: two runs butted together rather than one that started
+ * waiting.
+ *
+ * A continuation therefore drops its left rounding, reaches back under its
+ * predecessor by exactly one corner radius, and paints behind it. All three are
+ * needed -- square corners alone still leave the predecessor's own cap rounding
+ * into empty track.
  */
 export interface LaneSegment {
   /** 0-100, the left edge as a percentage of the lane. */
@@ -166,24 +180,44 @@ export function LaneChart(p: LaneChartProps) {
                 {lane.name}
               </span>
               <span style={track}>
-                {(lane.segments || []).map((seg, j) => (
-                  <span
-                    key={j}
-                    style={{
-                      position: "absolute",
-                      left: `${seg.start}%`,
-                      width: `${seg.width}%`,
-                      top: 0,
-                      bottom: 0,
-                      borderRadius: 4,
-                      background: seg.hatch
-                        ? `repeating-linear-gradient(45deg,${HATCH[tone] || HATCH.teal} 0 4px,transparent 4px 8px)`
-                        : seg.fade
-                          ? `linear-gradient(to right,${ink},${FADE[tone] || FADE.teal})`
-                          : ink,
-                    }}
-                  />
-                ))}
+                {(lane.segments || []).map((seg, j) => {
+                  // Does this segment CONTINUE the one before it, or start a
+                  // new run? Two segments that meet at a number are one lane of
+                  // work changing state -- running, then waiting on you -- and
+                  // the chart's job is to say the work did not stop.
+                  const prev = (lane.segments || [])[j - 1];
+                  const joins = prev !== undefined && seg.start <= prev.start + prev.width + 0.01;
+                  return (
+                    <span
+                      key={j}
+                      style={{
+                        position: "absolute",
+                        // A continuation reaches back UNDER its predecessor by
+                        // exactly one corner radius and drops its own left
+                        // rounding. Without both, the two ends round away from
+                        // each other and leave a notch that reads as a gap --
+                        // two pieces of work butted together rather than one
+                        // that changed state. The 4px is `borderRadius`, not a
+                        // tuned number: it is the width of the notch.
+                        left: joins ? `calc(${seg.start}% - 4px)` : `${seg.start}%`,
+                        width: joins ? `calc(${seg.width}% + 4px)` : `${seg.width}%`,
+                        borderRadius: joins ? "0 4px 4px 0" : 4,
+                        // And it paints BEHIND, so the solid segment's own cap
+                        // covers the overlap rather than the hatch drawing over
+                        // it. Later siblings win ties, so this cannot be left to
+                        // document order.
+                        zIndex: joins ? 0 : 1,
+                        top: 0,
+                        bottom: 0,
+                        background: seg.hatch
+                          ? `repeating-linear-gradient(45deg,${HATCH[tone] || HATCH.teal} 0 4px,transparent 4px 8px)`
+                          : seg.fade
+                            ? `linear-gradient(to right,${ink},${FADE[tone] || FADE.teal})`
+                            : ink,
+                      }}
+                    />
+                  );
+                })}
               </span>
             </div>
           );

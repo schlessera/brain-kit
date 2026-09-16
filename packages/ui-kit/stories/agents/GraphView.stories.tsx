@@ -2,13 +2,39 @@ import preview from "#.storybook/preview";
 import { expect } from "storybook/test";
 
 import { graphEdges, graphLegend, graphMeta, graphNodes } from "../../fixtures/search.js";
-import { GraphView } from "../../src/agents/GraphView.js";
+import { GraphView, type GraphViewProps } from "../../src/agents/GraphView.js";
 import { overflowing, stage, wide } from "../_stage.js";
+
+/**
+ * A STATED WIDTH, not the stage's — D28, and this component is the reason the
+ * rule has teeth.
+ *
+ * Every element inside `GraphView` is absolutely positioned, so the box has no
+ * intrinsic width to offer a container that sizes itself to its content. Under
+ * the preview's `layout: "centered"` the story root does exactly that, so a
+ * bare `<GraphView />` rendered a 2px vertical sliver here for a whole wave
+ * while all six of these stories passed: percentages of zero are all zero, so
+ * nothing overflowed, no node escaped, and the edge count was right.
+ *
+ * The component now carries a `minWidth` floor so the failure is a narrow graph
+ * rather than an invisible one. This wrapper is the other half — a story about
+ * a component that fills its container owes that container a width.
+ */
+function boxed(width: number | string) {
+  return function render(args: GraphViewProps) {
+    return (
+      <div style={{ width, boxSizing: "border-box" }}>
+        <GraphView {...args} />
+      </div>
+    );
+  };
+}
 
 const meta = preview.meta({
   title: "Agents/GraphView",
   component: GraphView,
   decorators: [stage],
+  render: boxed(360),
   args: {
     nodes: graphNodes,
     edges: graphEdges,
@@ -31,7 +57,7 @@ export const Default = meta.story({});
  * is always the container's, because a graph in a column is a column wide. */
 export const Tall = Default.extend({ args: { minHeight: 380 } });
 
-export const Wide = Default.extend({ parameters: wide });
+export const Wide = Default.extend({ parameters: wide, render: boxed(760) });
 
 /** No explicit pairs: every node is joined to the focus node and nothing else,
  * which is the shape a 1-hop neighbourhood actually has. */
@@ -98,5 +124,42 @@ export const Static = meta.story({
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelector("[role]")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+  },
+});
+
+/**
+ * THE COLLAPSE, AND THE FLOOR THAT STOPS IT.
+ *
+ * `GraphView` is the only component in the kit whose entire interior is
+ * absolutely positioned, so its intrinsic width is zero and `width: 100%` in a
+ * shrink-to-fit container resolves against a container that was waiting for
+ * this box to supply the number. Both land on nothing and the graph becomes a
+ * 2px sliver of its own border at full height.
+ *
+ * `inline-flex` here is the smallest honest reproduction of the condition —
+ * Storybook's own centred root is another, and is where this actually shipped.
+ *
+ * The assertion is the NODE SPREAD rather than the box width, because that is
+ * the thing a reader would notice: collapsed, every node sits at `left: 0` and
+ * eight labels pile on one another. A box width alone would pass on a box that
+ * is wide and empty.
+ */
+export const ItCannotCollapseInAShrinkToFitContainer = meta.story({
+  render: (args) => (
+    <div style={{ display: "inline-flex" }}>
+      <GraphView {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const box = canvasElement.querySelector<HTMLElement>("div > div > div")!;
+    await expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(220);
+
+    const xs = graphNodes.map((n) => {
+      const el = [...box.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent === n.label);
+      return el ? el.getBoundingClientRect().left : 0;
+    });
+    // Eight nodes spread across 12-84% of the box. Collapsed, every one of them
+    // is at the same pixel.
+    await expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(100);
   },
 });

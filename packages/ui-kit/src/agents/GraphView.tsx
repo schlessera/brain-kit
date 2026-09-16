@@ -20,6 +20,29 @@ import type { Tone } from "../types.js";
  * joined to the focus node with the brighter `edge` colour, and `edges` adds
  * explicit pairs with the dimmer hairline. So "connected to what you asked
  * about" and "connected to each other" are distinguishable without a legend.
+ *
+ * ## The one component in the kit with NO in-flow content, and what that cost
+ *
+ * The label, the SVG, every node and the legend are all `position: absolute`,
+ * which means this box's intrinsic width is **zero**. `width: 100%` then
+ * resolves against whatever the container is, and a container that sizes itself
+ * to its content -- Storybook's `layout: "centered"` root, an `inline-flex`
+ * anything, a shrink-to-fit table cell -- has no width of its own to give,
+ * because this box was supposed to supply it. The two reference each other and
+ * both land on zero.
+ *
+ * It does not degrade, it disappears: the whole graph collapses to a 2px
+ * vertical sliver of its own border, at full height, and every assertion in
+ * `GraphView.stories` still passes -- percentages of zero are all zero, so
+ * nothing overflows, no node escapes, and the edge count is right. It shipped in
+ * wave 4 and was found by a person looking at Storybook, which is the argument
+ * for wave 7's screenshots in one sentence.
+ *
+ * `minWidth` is the floor. It is not a layout preference: below it the nodes
+ * overlap into an unreadable pile, so if a container cannot give this component
+ * a width, a small graph is the correct failure and an invisible one is not.
+ * `MapView` has the same all-absolute interior and is safe only because its
+ * footer row is in flow -- worth knowing before making that row optional.
  */
 export interface GraphNode {
   label: string;
@@ -49,6 +72,12 @@ export interface GraphViewProps {
   /** Hop count and node total, bottom right. */
   meta?: string;
   minHeight?: number;
+  /**
+   * The floor that keeps the box from collapsing in a shrink-to-fit container.
+   * See the note above — this is not a sizing preference, it is the difference
+   * between a narrow graph and an invisible one.
+   */
+  minWidth?: number;
 }
 
 const INKS: Record<Tone, string> = {
@@ -107,6 +136,10 @@ export function GraphView(p: GraphViewProps) {
     flex: "none",
     alignSelf: "stretch",
     minHeight: Number(p.minHeight) || 240,
+    // Everything inside this box is absolutely positioned, so its intrinsic
+    // width is zero and `width: 100%` against a shrink-to-fit container
+    // resolves to nothing at all. See the class doc.
+    minWidth: Number(p.minWidth) || 220,
     boxSizing: "border-box",
     width: "100%",
     border: `1px solid ${color.line}`,
