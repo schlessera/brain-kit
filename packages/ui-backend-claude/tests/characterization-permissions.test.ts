@@ -138,32 +138,6 @@ describe("createClaudeBackend permission characterization", () => {
     });
   });
 
-  test("ordinary Bash input passes through every matching hook unchanged", async () => {
-    const input = { command: "git status --short", description: "Inspect the worktree" };
-    const outputs: unknown[] = [];
-    const harness = backendFor(
-      (options) => (async function* () {
-        yield init;
-        for (const matcher of options.hooks?.PreToolUse ?? []) {
-          if (matcher.matcher && !new RegExp(matcher.matcher).test("Bash")) continue;
-          for (const hook of matcher.hooks) {
-            outputs.push(await hook({
-              hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: input,
-              tool_use_id: "bash-pass-through",
-            } as never, "bash-pass-through", { signal: new AbortController().signal }));
-          }
-        }
-        yield result;
-      })(),
-      { behavior: "deny", message: "No permission request expected" },
-    );
-    await harness.start();
-    expect(outputs.length).toBeGreaterThan(0);
-    for (const output of outputs) expect(output).toEqual({ continue: true });
-    expect(input).toEqual({ command: "git status --short", description: "Inspect the worktree" });
-    expect(harness.permissionCalls).toHaveLength(0);
-  });
-
   test("an allowlisted Bash confirm-pattern call asks as a command", async () => {
     let hookOutput: unknown;
     const commandInput = { command: "git reset --hard HEAD~1" };

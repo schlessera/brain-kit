@@ -101,8 +101,10 @@ policy mirrors the Claude backend:
 A denial blocks the call with the host's message; pi feeds the block back to
 the model as an `isError` tool result, so a denial never crashes the turn. An
 approval may carry `updatedInput`, which patches the tool arguments in place
-before execution. `bash` executes the admitted command directly and returns
-its output. Agent-side command wrappers belong to the agent's tooling.
+before execution. `bash` commands are additionally routed through
+[rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
+token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
+the gate, so confirm patterns always see the command as the model wrote it.
 
 | Tool | Risk | Gate | Containment |
 |---|---|---|---|

@@ -63,8 +63,10 @@ export function createClaudeSdkTurn(options: {
     },
     req.turnBudgetMs
   );
-  // The SDK subprocess receives the agent audience, including the profile's
-  // declared credentials, rather than inheriting the server's environment.
+  // One environment for everything this turn spawns: the profile's declared
+  // credential names are part of the agent audience (config/env.ts), and the
+  // rtk hook shells out before the SDK does, so both must see the same filtered
+  // set rather than the server's own.
   const childEnv = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
   const sdkOptions: Options = {
     cwd: backend.brainPath,
@@ -95,6 +97,7 @@ export function createClaudeSdkTurn(options: {
       confirmPatterns,
       brainPath: backend.brainPath,
       turnLock,
+      childEnv,
     }),
   };
 

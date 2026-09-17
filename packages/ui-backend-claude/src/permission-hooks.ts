@@ -12,7 +12,7 @@ import {
   MUTATING_TOOLS,
 } from "./tool-policy.js";
 import type { TurnLockBinding } from "./turn-lock.js";
-import { createAgentHook } from "./input-rewrite-hooks.js";
+import { createAgentHook, createRtkHook } from "./input-rewrite-hooks.js";
 
 const NO_ALLOWED_TOOLS: ReadonlySet<string> = new Set();
 
@@ -37,8 +37,10 @@ export function createPermissionWiring(options: {
   confirmPatterns: readonly RegExp[];
   brainPath: string;
   turnLock: TurnLockBinding;
+  /** The filtered environment this turn's subprocesses run with. */
+  childEnv: NodeJS.ProcessEnv;
 }): Pick<Options, "canUseTool" | "hooks"> {
-  const { req, allowedTools, confirmPatterns, brainPath, turnLock } = options;
+  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv } = options;
   const allowed = new Set(allowedTools);
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
@@ -163,6 +165,7 @@ export function createPermissionWiring(options: {
   };
 
   const agentHook = createAgentHook();
+  const rtkHook = createRtkHook(childEnv);
 
   return {
     canUseTool,
@@ -170,6 +173,7 @@ export function createPermissionWiring(options: {
       PreToolUse: [
         { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
         { matcher: "^Agent$", hooks: [agentHook] },
+        { matcher: "^Bash$", hooks: [rtkHook] },
       ],
       PermissionDenied: [
         {

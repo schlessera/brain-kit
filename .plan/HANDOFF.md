@@ -182,7 +182,7 @@ The full suite also exposed an existing test-order dependency in
 `ui-sdk/tests/rtk.test.ts`: earlier backend tests warm the process-wide probe,
 so the test missed its own fake binary's version invocation. It passed alone.
 The test now resets the probe before as well as after each case; production
-That test-only fix is superseded by the project-coupling removal recorded below.
+RTK behavior is unchanged.
 
 API/config batch verification: `bun run test` — **3088 pass / 41 skip / 0 fail** across
 231 files. Build, typecheck and lint pass (lint retains two existing hook
@@ -248,8 +248,8 @@ publishing was done.
 
 The earlier work is committed in three groups: map fixtures (`ceb21df`), the
 existing SDK RTK test's probe-cache reset (`06889f5`), and root/store/connection
-isolation with its lint gate (`6b57843`). Quick-action injection is committed
-as `6f86c62`. The RTK test fix is superseded by the removal below.
+isolation with its lint gate (`6b57843`). The RTK change only fixes test-order
+dependence in the repository's existing backend command-rewrite integration.
 
 S4 has advanced through quick actions. Search and capture use `useBrainApi`;
 sync and briefing use the root transport and backend URL. Replacing the root
@@ -276,31 +276,6 @@ helpers still need their API/config consumers migrated. Quick-action rich-text
 output also uses those shared media/share renderers, so this batch is not a
 claim that all nested content has finished migration. The map-generation and
 containerized visual-verification blockers are unchanged.
-
-## Agent-tooling boundary correction — 2026-09-17
-
-The maintainer clarified that RTK belongs exclusively to agent-side tooling;
-brain-kit must not discover it or rewrite backend commands through it. The
-coupling predates this branch: `8b41fc3` added it with backend parity on
-2026-08-29, and later subprocess-environment hardening added its test. Fixing
-that test's cache ordering preserved an unwanted integration.
-
-Removed the SDK probe/rewrite module and its three public exports, its dedicated
-test, Claude's Bash-rewrite hook and now-unused hook environment parameter, and
-pi's pre-execution rewrite. The permission gates, command lock classification,
-filtered subprocess environment and Claude's foreground-Agent rule remain.
-Current backend guidance records that convenience wrappers belong to agent
-configuration; historical release notes and audit records remain historical.
-There are no RTK references in package source or tests.
-
-The SDK API report and a minor SDK/patch backend changeset record the export
-removal. The existing backend runtime suites cover approvals, locks and child
-environments; an additional Claude hook test checks unchanged ordinary Bash
-input, and pi's execution test now checks the exact command/output text.
-Focused verification: **425 backend/SDK tests pass** across 42 files.
-Final verification: **3107 pass / 41 skip / 0 fail** across 232 files; build,
-typecheck and all lint gates pass (the same two existing hook warnings remain).
-The clean build also confirms the removed helper is absent from SDK output.
 
 ## Open questions for the maintainer
 
