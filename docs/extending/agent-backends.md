@@ -23,6 +23,10 @@ Two first-party implementations are the reference material:
   pi coding-agent SDK, with its own curated brain tool set
   (`packages/ui-backend-pi/src/tools.ts`) and risk classes.
 
+Agent-side shell wrappers and output-compression tools belong to the agent's
+own tooling. Backends execute the command admitted by their permission gate;
+they do not discover or inject convenience wrappers from the host PATH.
+
 ## The two interfaces
 
 Every backend package exports one descriptor with exactly this top-level

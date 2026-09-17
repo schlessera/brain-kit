@@ -799,12 +799,9 @@ export "./server" (./src/server/index.ts)
   readWebSearchOverride
   readWebSearchRouting
   requestToolPermission
-  resetRtkProbe
   resolveInRepo
   resolveWebSearchConfigPath
   reverseGeocode
-  rtkAvailable
-  rtkRewriteCommand
   simplify
   sumModelUsage
   toleranceMetres

@@ -97,8 +97,6 @@ export * from "./bridge-tools/index.js";
 // this one module; the browser imports the contracts alone.
 export * from "../tool-contracts/index.js";
 
-export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
-
 export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
 
 export type { SubprocessEnvAudience } from "./subprocess-env.js";

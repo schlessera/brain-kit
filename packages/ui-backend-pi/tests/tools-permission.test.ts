@@ -222,7 +222,7 @@ describe("curated tools execute without in-tool gating", () => {
 
       const res = await tools.bash.execute("t2", { command: "echo brain-kit-ok" }, undefined, undefined, CTX);
       expect(mock.permissionCalls).toHaveLength(0);
-      expect(resultText(res)).toContain("brain-kit-ok");
+      expect(resultText(res)).toBe("$ echo brain-kit-ok\nbrain-kit-ok");
     } finally {
       brain.cleanup();
     }

@@ -34,7 +34,6 @@ import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
   BRAIN_LOCK_KEY,
-  rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
@@ -355,12 +354,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       command: Type.String({ description: "The bash command line to execute." }),
     }),
     async execute(_id: string, params: { command: string }, signal?: AbortSignal) {
-      // The tool_call gate has already confirmed a destructive-pattern match
-      // by now (and may have edited the command via updatedInput). The rtk
-      // rewrite runs AFTER the gate, so confirm patterns see the command as
-      // the model wrote it; when rtk is absent or declines, it is untouched.
+      // Execute the input admitted by the tool_call gate, including any
+      // updatedInput supplied by the approval.
       const childEnv = subprocessEnv(resolveEnabledWebSearchEnvNames());
-      const cmd = await rtkRewriteCommand(params.command, childEnv);
+      const cmd = params.command;
       // Only commands that touch git staging/history or the brain CLI's
       // write path take a lock (shared bashLockKey policy) — builds, greps,
       // curls and other reads run in parallel, across sessions and across
