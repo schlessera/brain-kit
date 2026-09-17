@@ -7,6 +7,8 @@
 // render test lives in this one file and why `screen` must not be used.
 import { unregisterDom } from "./dom.js";
 
+import { ModelsTab } from "../../src/components/settings/models-tab.js";
+import { PiAccountsSection } from "../../src/components/settings/pi-accounts.js";
 import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
@@ -2965,6 +2967,181 @@ describe("skill and web-search root ownership", () => {
       expect(view.getByText("Beta search")).toBeTruthy();
       await reply(b.requests[1], webConfig("Beta search"));
       expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("");
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+
+describe("model and pi account root ownership", () => {
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example` },
+      request: (url, init) => {
+        const response = deferred<Response>();
+        requests.push({ url, init, response });
+        return response.promise;
+      },
+    });
+    return { root, requests, matching: (path: string, method = "GET") => requests.filter(r => new URL(r.url).pathname === `/api${path}` && (r.init?.method ?? "GET") === method) };
+  }
+  const catalog = (label: string, hidden: string[] = []) => ({
+    models: ["one", "two"].map(id => ({ id, label: `${label} ${id}`, hidden: hidden.includes(id) })),
+    discovery: { enabled: true }, refreshedAt: null, customModels: [],
+  });
+  const accounts = (name: string, configured = false) => ({ providers: [{ providerId: "vendor", name, oauth: true, configured, source: configured ? "stored" : null }] });
+  const loginFlow = (id: string, status = "pending") => ({ id, providerId: "vendor", status, userCode: `${id}-code`, intervalSeconds: 0.001 });
+  const modelsPanel = (root: BrainUiRoot) => <BrainUiProvider root={root}><ModelsTab active /></BrainUiProvider>;
+  const accountsPanel = (root: BrainUiRoot, active = true) => <BrainUiProvider root={root}><PiAccountsSection active={active} /></BrainUiProvider>;
+  async function reply(request: ReturnType<typeof transport>["requests"][number], body: unknown) {
+    await act(async () => { request.response.resolve(Response.json(body)); await flushPromises(); });
+  }
+
+  test("model writes stay ordered per root and returning waits for its accepted writes", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(modelsPanel(a.root));
+    try {
+      await act(flushPromises);
+      await reply(a.matching("/models")[0], catalog("Alpha"));
+      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
+      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
+      expect(a.matching("/models/hidden", "PUT")).toHaveLength(1);
+      view.rerender(modelsPanel(b.root));
+      await act(flushPromises);
+      await reply(b.matching("/models")[0], catalog("Beta"));
+      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
+      expect(b.matching("/models/hidden", "PUT")).toHaveLength(1);
+      expect(b.matching("/models/hidden", "PUT")[0].url).toBe("https://beta.example/api/models/hidden");
+      await reply(a.matching("/models/hidden", "PUT")[0], catalog("Alpha", ["one"]));
+      expect(a.matching("/models/hidden", "PUT")).toHaveLength(2);
+      expect(JSON.parse(String(a.matching("/models/hidden", "PUT")[1].init?.body))).toEqual({ hidden: ["one", "two"] });
+      expect(view.getByLabelText("Billing for Beta one")).toBeTruthy();
+      expect(view.queryByLabelText("Billing for Alpha one")).toBeNull();
+      view.rerender(modelsPanel(a.root));
+      await act(flushPromises);
+      expect(a.matching("/models")).toHaveLength(1);
+      await reply(a.matching("/models/hidden", "PUT")[1], catalog("Alpha", ["one", "two"]));
+      expect(a.matching("/models")).toHaveLength(2);
+      await reply(a.matching("/models")[1], catalog("Alpha", ["one", "two"]));
+      expect(view.getAllByTitle("Show in picker")).toHaveLength(2);
+      await act(async () => {
+        b.matching("/models/hidden", "PUT")[0].response.resolve(Response.json({ error: "obsolete rollback" }, { status: 500 }));
+        await flushPromises();
+      });
+      expect(view.queryByText("obsolete rollback")).toBeNull();
+      expect(view.getAllByTitle("Show in picker")).toHaveLength(2);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("old model discovery responses cannot replace a new root's catalog or refresh state", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(modelsPanel(a.root));
+    try {
+      await act(flushPromises);
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Refresh" })); await flushPromises(); });
+      view.rerender(modelsPanel(b.root));
+      await act(flushPromises);
+      await reply(b.matching("/models")[0], catalog("Beta"));
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Refresh" })); await flushPromises(); });
+      await reply(a.matching("/models")[0], catalog("Obsolete load"));
+      await reply(a.matching("/models/refresh", "POST")[0], catalog("Obsolete refresh"));
+      expect(view.getByLabelText("Billing for Beta one")).toBeTruthy();
+      expect((view.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
+      await reply(b.matching("/models/refresh", "POST")[0], catalog("New beta"));
+      expect(view.getByLabelText("Billing for New beta one")).toBeTruthy();
+      expect((view.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a delayed pi login start cannot display or poll its flow under another root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(accountsPanel(a.root));
+    try {
+      await reply(a.requests[0], accounts("Alpha account"));
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      expect(a.matching("/pi-auth/login", "POST")[0].url).toBe("https://alpha.example/api/pi-auth/login");
+      view.rerender(accountsPanel(b.root));
+      await reply(b.requests[0], accounts("Beta account"));
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      await reply(b.matching("/pi-auth/login", "POST")[0], { flow: { ...loginFlow("beta"), intervalSeconds: 60 } });
+      await reply(a.matching("/pi-auth/login", "POST")[0], { flow: loginFlow("alpha") });
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(view.queryByText("alpha-code")).toBeNull();
+      expect(b.requests).toHaveLength(2);
+      expect(view.getByText("beta-code")).toBeTruthy();
+      expect(a.matching("/pi-auth/login/alpha")).toHaveLength(0);
+      expect((view.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("in-flight pi polls stop on root replacement and successful polling refreshes only its root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(accountsPanel(a.root));
+    try {
+      await reply(a.requests[0], accounts("Alpha account"));
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      await reply(a.matching("/pi-auth/login", "POST")[0], { flow: loginFlow("alpha") });
+      await waitFor(() => expect(a.matching("/pi-auth/login/alpha")).toHaveLength(1));
+      view.rerender(accountsPanel(b.root));
+      expect(view.queryByText("alpha-code")).toBeNull();
+      await reply(b.requests[0], accounts("Beta account"));
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      await reply(b.matching("/pi-auth/login", "POST")[0], { flow: loginFlow("beta") });
+      await reply(a.matching("/pi-auth/login/alpha")[0], { flow: loginFlow("alpha", "success") });
+      expect(view.getByText("beta-code")).toBeTruthy();
+      expect(a.matching("/pi-auth/providers")).toHaveLength(1);
+      expect(b.matching("/pi-auth/login/alpha")).toHaveLength(0);
+      await waitFor(() => expect(b.matching("/pi-auth/login/beta")).toHaveLength(1));
+      await reply(b.matching("/pi-auth/login/beta")[0], { flow: loginFlow("beta", "success") });
+      expect(view.getByText("Connected.")).toBeTruthy();
+      expect(b.matching("/pi-auth/providers")).toHaveLength(2);
+      expect(b.matching("/providers")).toHaveLength(1);
+      expect(a.matching("/providers")).toHaveLength(0);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("cancelling a pi flow invalidates an outstanding poll without clearing a newer login", async () => {
+    const a = transport("alpha");
+    const view = render(accountsPanel(a.root));
+    try {
+      await reply(a.requests[0], accounts("Alpha account"));
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      await reply(a.matching("/pi-auth/login", "POST")[0], { flow: loginFlow("old") });
+      await waitFor(() => expect(a.matching("/pi-auth/login/old")).toHaveLength(1));
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      expect(view.queryByText("old-code")).toBeNull();
+      expect(a.matching("/pi-auth/login/old", "DELETE")).toHaveLength(1);
+      fireEvent.click(view.getByRole("button", { name: "Connect" }));
+      await reply(a.matching("/pi-auth/login", "POST")[1], { flow: loginFlow("new") });
+      await reply(a.matching("/pi-auth/login/old")[0], { flow: loginFlow("old", "success") });
+      await reply(a.matching("/pi-auth/login/old", "DELETE")[0], { ok: true });
+      expect(view.getByText("new-code")).toBeTruthy();
+      expect(a.matching("/pi-auth/providers")).toHaveLength(1);
+      const pollsBeforeClose = a.matching("/pi-auth/login/new").length;
+      view.rerender(accountsPanel(a.root, false));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(a.matching("/pi-auth/login/new")).toHaveLength(pollsBeforeClose);
+      expect(view.queryByText("new-code")).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); }
+  });
+
+  test("late pi account loads and logout failures cannot overwrite a replacement root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(accountsPanel(a.root));
+    try {
+      view.rerender(accountsPanel(b.root));
+      await reply(b.requests[0], accounts("Beta account", true));
+      await reply(a.requests[0], accounts("Obsolete account", true));
+      expect(view.queryByText("Obsolete account")).toBeNull();
+      fireEvent.click(view.getByTitle("Disconnect"));
+      expect(b.matching("/pi-auth/logout", "POST")).toHaveLength(1);
+      view.rerender(accountsPanel(a.root));
+      await reply(a.matching("/pi-auth/providers")[1], accounts("Alpha account"));
+      await act(async () => {
+        b.matching("/pi-auth/logout", "POST")[0].response.resolve(Response.json({ error: "obsolete logout failure" }, { status: 500 }));
+        await flushPromises();
+      });
+      expect(view.getByText("Alpha account")).toBeTruthy();
+      expect(view.queryByRole("alert")).toBeNull();
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 });

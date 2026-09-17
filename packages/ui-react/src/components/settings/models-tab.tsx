@@ -7,7 +7,8 @@ import {
   type ModelCatalogResponse,
   type ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { api } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
+import type { BrainUiRoot } from "../../root.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { cn } from "../../lib/utils.js";
 import { PiAccountsSection } from "./pi-accounts.js";
@@ -22,6 +23,9 @@ import { ToolPermissionsSection } from "./tool-permissions.js";
  * presentation only — a session already pinned to a hidden model keeps running.
  */
 export function ModelsTab({ active }: { active: boolean }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(0);
   const [catalog, setCatalog] = useState<ModelCatalogResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,30 +33,29 @@ export function ModelsTab({ active }: { active: boolean }) {
   const loadProviders = useProviderStore((s) => s.loadProviders);
   const commitGate = useRef(createRequestGate());
   /** Serializes full-record PUTs — see commitCatalog. */
-  const commitQueue = useRef<Promise<void>>(Promise.resolve());
+  const commitQueues = useRef(new WeakMap<BrainUiRoot, Promise<void>>());
 
   useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    setLoading(true);
+    const generation = ++lifetime.current;
+    const latest = commitGate.current.begin();
+    const current = () => generation === lifetime.current && latest();
+    setCatalog(null);
+    setLoading(active);
+    setRefreshing(false);
     setError(null);
-    api
-      .models()
-      .then((data) => {
-        if (!cancelled) setCatalog(data);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not load models");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active]);
+    if (active) {
+      // Returning to a root waits for its accepted writes before reading.
+      void (commitQueues.current.get(root) ?? Promise.resolve())
+        .then(() => current() ? api.models() : null)
+        .then((data) => { if (data && current()) setCatalog(data); })
+        .catch((err: unknown) => {
+          if (current()) setError(err instanceof Error ? err.message : "Could not load models");
+        })
+        .finally(() => { if (generation === lifetime.current) setLoading(false); });
+    }
+    const invalidate = () => { lifetime.current++; };
+    return invalidate;
+  }, [active, root, api]);
 
   /**
    * Optimistic-update skeleton shared by the hidden toggle and the billing
@@ -72,7 +75,9 @@ export function ModelsTab({ active }: { active: boolean }) {
     optimistic: ModelCatalogResponse,
     commit: () => Promise<ModelCatalogResponse>
   ) {
-    const isCurrent = commitGate.current.begin();
+    const generation = lifetime.current;
+    const latest = commitGate.current.begin();
+    const isCurrent = () => generation === lifetime.current && latest();
     const previous = catalog;
     setCatalog(optimistic);
     setError(null);
@@ -82,7 +87,7 @@ export function ModelsTab({ active }: { active: boolean }) {
     // even while the client looked right. Each commit waits for the previous
     // one to settle; payloads are built on optimistic state, so the newest
     // write already carries every earlier edit.
-    const run = commitQueue.current.then(async () => {
+    const run = (commitQueues.current.get(root) ?? Promise.resolve()).then(async () => {
       try {
         const confirmed = await commit();
         if (isCurrent()) setCatalog(confirmed);
@@ -94,7 +99,7 @@ export function ModelsTab({ active }: { active: boolean }) {
         }
       }
     });
-    commitQueue.current = run;
+    commitQueues.current.set(root, run);
     await run;
   }
 
@@ -171,17 +176,23 @@ export function ModelsTab({ active }: { active: boolean }) {
 
   async function onRefresh() {
     if (refreshing) return;
+    const generation = lifetime.current;
+    const latest = commitGate.current.begin();
+    const current = () => generation === lifetime.current && latest();
     setRefreshing(true);
     setError(null);
     try {
-      setCatalog(await api.refreshModels());
+      await (commitQueues.current.get(root) ?? Promise.resolve());
+      if (generation !== lifetime.current) return;
+      const next = await api.refreshModels();
+      if (current()) setCatalog(next);
       // A refresh can surface newly released models — put them in the picker
       // now, not on next load.
       void loadProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Refresh failed");
+      if (current()) setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
-      setRefreshing(false);
+      if (generation === lifetime.current) setRefreshing(false);
     }
   }
 

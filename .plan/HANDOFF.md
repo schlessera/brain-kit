@@ -343,6 +343,35 @@ use a queue that must retain write ordering within a root; pi login polling must
 never follow an old flow ID through a replacement root's API. UI-kit component
 integration (S5/S6/S7/S9) still follows this migration.
 
+## Model and pi account injection progress — 2026-09-17
+
+S4 now includes model catalog settings and pi account flows. The model tab keeps
+its accepted writes in separate queues for each root, preserving full-record PUT
+ordering without making another backend wait. Switching back waits for the old
+root's writes before reloading. Loads, optimistic confirmations/rollbacks and
+discovery refreshes cannot replace another root's catalog or pending state.
+
+Pi login state records its owning root, so even the first render after a root
+switch cannot poll an old flow through a new API. Late starts, polls, account
+loads and logout responses are ignored. Closing the tab stops polling; cancelling
+clears the flow and invalidates in-flight polls immediately, so neither an old
+poll nor a delayed cancellation response can clear a newer login. Successful
+polls reload accounts and the composer roster through the matching root.
+
+Six mounted regression tests cover queue ordering, switching away and back,
+discovery responses, overlapping login starts, in-flight polling, cancellation
+and logout failures. The first stale-login test missed a seeded failure because
+the root tag already hid the old code. Strengthening it to keep a second root's
+login visible catches the missing callback guard; the seed was removed.
+
+Verification: **554 UI React tests pass** across 40 files. The UI React package
+build, repository typecheck and all seven lint gates pass, with only the existing
+dictation cleanup-ref warning.
+
+Remaining S4 work: passkeys/authentication, push registration, branding and
+media/share helpers. UI-kit component integration (S5/S6/S7/S9) follows this
+migration; full application isolation is not yet claimed.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -469,7 +498,7 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining model/pi settings, auth/push/media `api`, branding `uiConfig`, and
+remaining auth/push/media `api`, branding `uiConfig`, and
 `apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when

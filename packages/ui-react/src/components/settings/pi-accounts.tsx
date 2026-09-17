@@ -1,7 +1,8 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Loader2, LogOut, X } from "lucide-react";
-import { api, type PiAuthProviderStatus, type PiLoginFlow } from "../../lib/api-client.js";
+import type { PiAuthProviderStatus, PiLoginFlow } from "../../lib/api-client.js";
+import type { BrainUiRoot } from "../../root.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -15,10 +16,20 @@ import { cn } from "../../lib/utils.js";
  */
 export function PiAccountsSection({ active }: { active: boolean }) {
   const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(0);
+  const listRequest = useRef(0);
+  const flowRequest = useRef(0);
   const [providers, setProviders] = useState<PiAuthProviderStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [flow, setFlow] = useState<PiLoginFlow | null>(null);
+  const [ownedFlow, setOwnedFlow] = useState<{ root: BrainUiRoot; flow: PiLoginFlow } | null>(null);
+  // The first render after root replacement must not poll the previous flow
+  // through the new API, even before the reset effect has run.
+  const flow = ownedFlow?.root === root ? ownedFlow.flow : null;
+  const setFlow = useCallback((flow: PiLoginFlow | null) => {
+    setOwnedFlow(flow ? { root, flow } : null);
+  }, [root]);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function stopPolling() {
@@ -28,42 +39,46 @@ export function PiAccountsSection({ active }: { active: boolean }) {
     }
   }
 
-  async function reload() {
+  const reload = useCallback(async (quiet = false) => {
+    const generation = lifetime.current;
+    const request = ++listRequest.current;
+    const current = () => generation === lifetime.current && request === listRequest.current;
     try {
       const { providers } = await api.piAuthProviders();
-      setProviders(providers);
+      if (current()) setProviders(providers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load accounts");
+      if (!current()) return;
+      // Older servers without this endpoint simply hide the initial card.
+      if (quiet) setProviders([]);
+      else setError(err instanceof Error ? err.message : "Could not load accounts");
     }
-  }
+  }, [api]);
 
   useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    api
-      .piAuthProviders()
-      .then(({ providers }) => {
-        if (!cancelled) setProviders(providers);
-      })
-      .catch(() => {
-        // A server without the endpoint (older release) just hides the card.
-        if (!cancelled) setProviders([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active]);
+    lifetime.current++;
+    setProviders([]);
+    setError(null);
+    setBusy(null);
+    setFlow(null);
+    if (active) void reload(true);
+    const invalidate = () => { lifetime.current++; };
+    return invalidate;
+  }, [active, root, reload, setFlow]);
 
   // Poll the pending flow until it settles. Chained timeouts rather than an
   // interval, so a slow response never stacks requests.
   useEffect(() => {
-    if (!flow || flow.status !== "pending") return;
+    if (!active || !flow || flow.status !== "pending") return;
+    const generation = lifetime.current;
+    const request = flowRequest.current;
     let disposed = false;
+    const current = () => !disposed && generation === lifetime.current && request === flowRequest.current;
     const delayMs = (flow.intervalSeconds ?? 5) * 1000;
     const tick = async () => {
       try {
+        if (!current()) return;
         const { flow: next } = await api.piAuthFlow(flow.id);
-        if (disposed) return;
+        if (!current()) return;
         setFlow(next);
         if (next.status === "success") {
           void reload();
@@ -72,7 +87,7 @@ export function PiAccountsSection({ active }: { active: boolean }) {
           void root.stores.provider.getState().loadProviders();
         }
       } catch {
-        if (disposed) return;
+        if (!current()) return;
         // Transient poll failure: keep trying until the flow expires.
         pollTimer.current = setTimeout(tick, delayMs);
         return;
@@ -83,43 +98,51 @@ export function PiAccountsSection({ active }: { active: boolean }) {
       disposed = true;
       stopPolling();
     };
-  }, [flow, root]);
+  }, [active, flow, root, api, reload, setFlow]);
 
   async function connect(providerId: string) {
+    const generation = lifetime.current;
+    const request = ++flowRequest.current;
+    const current = () => generation === lifetime.current && request === flowRequest.current;
     setBusy(providerId);
     setError(null);
     try {
       const { flow } = await api.piAuthStart(providerId);
+      if (!current()) return;
       setFlow(flow);
       if (flow.status === "error") setError(flow.error ?? "Login failed");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start login");
+      if (current()) setError(err instanceof Error ? err.message : "Could not start login");
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   }
 
   async function cancel() {
     if (!flow) return;
+    flowRequest.current++;
     stopPolling();
+    setFlow(null);
     try {
       await api.piAuthCancel(flow.id);
     } catch {
       // The flow record may already be gone; clearing locally is enough.
     }
-    setFlow(null);
   }
 
   async function disconnect(providerId: string) {
+    const generation = lifetime.current;
+    const current = () => generation === lifetime.current;
     setBusy(providerId);
     setError(null);
     try {
       await api.piAuthLogout(providerId);
+      if (!current()) return;
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not disconnect");
+      if (current()) setError(err instanceof Error ? err.message : "Could not disconnect");
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   }
 
