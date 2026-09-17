@@ -612,9 +612,9 @@ part of itself** rather than waiting for step 2's S1.
 ## What to do next
 
 **Step 2** — S1/S2/S3/S4/S8 are complete. S5 dependency and stylesheet
-wiring is next. S6/S7/S9 remain open: preserve request cancellation and store
-ownership when adapting views, and use the imported design rather than inventing
-replacement presentation. See the current scope below.
+wiring remain open pending the first kit consumer. S6/S7/S9 remain open:
+preserve request cancellation and store ownership when adapting views, and use the imported design rather than inventing
+replacement presentation. See "Current scope and deferred design work" above.
 
 Three design questions are open and will move screens, and therefore baselines:
 two in `design-feedback.md` §14 (a four-tile `StatTiles` row breaking 3 + 1; the
@@ -689,3 +689,27 @@ could not — a graph rendered as a line, a lane drawn as two runs, a map being
 stretched. **Assertions about props, roles, counts and computed styles cannot
 see a component that has vanished or a projection that is wrong in both axes at
 once.** Wave 7 covers some of that now; the habit of looking still matters.
+
+## Kit integration boundary — 2026-09-17
+
+S5 stays open. The dependency gate requires each declared internal package to
+have a real source consumer, so add the kit dependency alongside the first
+component adapter. Build/publish ordering already places the kit before React.
+No dependency, component presentation or stylesheet imports changed in this pass.
+
+Both themes define global Tailwind names: the kit's `--spacing-2: 2px` differs
+from the existing app's Tailwind spacing scale. A combined Tailwind build could
+silently change legacy layouts. Resolve that composition as part of the design
+integration, then verify emitted CSS and both consumer modes. S6/S7/S9 remain
+open until the component mapping and presentation are reconciled with the
+updated design; request ownership and cancellation prerequisites are implemented
+and tested. Do not add speculative kit views outside the design inventory.
+
+Docker socket access was checked again and is still denied. The existing
+Overpass fixture blockers remain open; no map fixtures or visual baselines
+were changed in this non-design pass.
+
+Final non-design verification: `bun run test` — **3142 pass / 41 skip /
+0 fail** across 234 files. Typecheck, UI React package build and all seven lint
+gates pass; the existing dictation cleanup-ref warning remains. No versioning
+or publishing was performed.

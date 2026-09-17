@@ -491,7 +491,9 @@ Sequenced after the component waves but **before** step 2. Not optional.
       steps; gate retry/probe state resets per instance. Media/share uploads,
       exports, URLs and branding now use the root; session/graph lookups
       reject stale results and mask/share UI resets per root
-- [ ] S5 ui-kit dependency wired in
+- [ ] S5 kit dependency and stylesheet wiring: add the dependency together
+      with its first real consumer (the dependency gate rejects unused edges).
+      Resolve kit/app Tailwind spacing overlap before composing styles.
 - [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
       flatten `AddPanel`'s epoch guard)
 - [ ] S7 store-coupled component splits
