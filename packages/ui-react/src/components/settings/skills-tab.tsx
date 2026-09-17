@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Download, Loader2, Pencil, Plus, Power, Trash2, Upload, X } from "lucide-react";
-import { api, type SkillDetail, type SkillEntry, type SkillInstallOutcome } from "../../lib/api-client.js";
+import type { SkillDetail, SkillEntry, SkillInstallOutcome } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -26,6 +27,10 @@ Instructions for the agent. Keep them imperative and specific.
 `;
 
 export function SkillsTab({ active }: { active: boolean }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(0);
+  const listRequest = useRef(0);
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -42,39 +47,60 @@ export function SkillsTab({ active }: { active: boolean }) {
   const [installing, setInstalling] = useState(false);
   const [outcomes, setOutcomes] = useState<SkillInstallOutcome[] | null>(null);
 
-  async function reload() {
+  const reload = useCallback(async () => {
+    const generation = lifetime.current;
+    const request = ++listRequest.current;
+    const current = () => generation === lifetime.current && request === listRequest.current;
     try {
       const { skills } = await api.skillsList();
+      if (!current()) return;
       setSkills(skills);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load skills");
+      if (current()) setError(err instanceof Error ? err.message : "Could not load skills");
     }
-  }
+  }, [api]);
 
   useEffect(() => {
+    lifetime.current++;
+    setSkills([]);
+    setError(null);
+    setWarning(null);
+    setBusy(null);
+    setEditing(null);
+    setNewName("");
+    setGithubSource("");
+    setOverwrite(false);
+    setInstalling(false);
+    setOutcomes(null);
     if (active) void reload();
-  }, [active]);
+    const invalidate = () => { lifetime.current++; };
+    return invalidate;
+  }, [active, root, reload]);
 
   async function run(name: string, fn: () => Promise<{ warning?: string } | void>) {
+    const generation = lifetime.current;
     setBusy(name);
     setError(null);
     setWarning(null);
     try {
       const result = await fn();
+      if (generation !== lifetime.current) return;
       if (result && "warning" in result && result.warning) setWarning(result.warning);
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Skill operation failed");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Skill operation failed");
     } finally {
-      setBusy(null);
+      if (generation === lifetime.current) setBusy(null);
     }
   }
 
   async function openEditor(entry: SkillEntry) {
+    const generation = lifetime.current;
     setBusy(entry.name);
     try {
       const detail: SkillDetail = await api.skillGet(entry.name);
+      if (generation !== lifetime.current) return;
       setEditing({
         name: entry.name,
         content: detail.content,
@@ -83,9 +109,9 @@ export function SkillsTab({ active }: { active: boolean }) {
       });
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load skill");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Could not load skill");
     } finally {
-      setBusy(null);
+      if (generation === lifetime.current) setBusy(null);
     }
   }
 
@@ -98,30 +124,33 @@ export function SkillsTab({ active }: { active: boolean }) {
 
   async function saveEditor() {
     if (!editing || editing.readOnly) return;
+    const generation = lifetime.current;
     const { name, content, isNew } = editing;
     await run(name, async () => {
       const result = isNew
         ? await api.skillCreate(name, content)
         : await api.skillUpdate(name, content);
-      setEditing(null);
+      if (generation === lifetime.current) setEditing(null);
       return result;
     });
   }
 
   async function install(fn: () => Promise<{ outcomes: SkillInstallOutcome[]; warning?: string }>) {
+    const generation = lifetime.current;
     setInstalling(true);
     setError(null);
     setWarning(null);
     setOutcomes(null);
     try {
       const result = await fn();
+      if (generation !== lifetime.current) return;
       setOutcomes(result.outcomes);
       if (result.warning) setWarning(result.warning);
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Install failed");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Install failed");
     } finally {
-      setInstalling(false);
+      if (generation === lifetime.current) setInstalling(false);
     }
   }
 

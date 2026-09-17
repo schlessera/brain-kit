@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
-import { api, type WebSearchConfig, type WebSearchProvider } from "../../lib/api-client.js";
+import type { WebSearchConfig, WebSearchProvider } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -22,6 +23,10 @@ import { cn } from "../../lib/utils.js";
  * so the Models tab is unchanged for Claude-only deployments.
  */
 export function WebSearchSection({ active }: { active: boolean }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(0);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [config, setConfig] = useState<WebSearchConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,39 +34,58 @@ export function WebSearchSection({ active }: { active: boolean }) {
   const [keyDraft, setKeyDraft] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
 
-  async function reload() {
+  const reload = useCallback(async () => {
+    const generation = lifetime.current;
     try {
       const next = await api.webSearchConfig();
+      if (generation !== lifetime.current) return;
       setConfig(next);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load web-search settings");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Could not load web-search settings");
     }
-  }
+  }, [api]);
 
   useEffect(() => {
+    lifetime.current++;
+    setConfig(null);
+    setError(null);
+    setBusy(false);
+    setOpenKey(null);
+    setKeyDraft("");
+    setSavedFlash(false);
     if (active) void reload();
-  }, [active]);
+    const invalidate = () => {
+      lifetime.current++;
+      if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    };
+    return invalidate;
+  }, [active, root, reload]);
 
   async function update(change: {
     enabled?: Record<string, boolean>;
     apiKeys?: Record<string, string | null>;
     clearOverride?: boolean;
   }) {
+    const generation = lifetime.current;
     setBusy(true);
     setError(null);
     try {
       const next = await api.webSearchUpdate(change);
+      if (generation !== lifetime.current) return;
       setConfig(next);
       if (change.apiKeys) {
         setKeyDraft("");
         setSavedFlash(true);
-        setTimeout(() => setSavedFlash(false), 2000);
+        if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+        flashTimer.current = setTimeout(() => {
+          if (generation === lifetime.current) setSavedFlash(false);
+        }, 2000);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save web-search settings");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Could not save web-search settings");
     } finally {
-      setBusy(false);
+      if (generation === lifetime.current) setBusy(false);
     }
   }
 

@@ -483,8 +483,9 @@ Sequenced after the component waves but **before** step 2. Not optional.
       connection callers migrated. Search, capture, sync and briefing now use
       root services and reject stale completions after root replacement.
       Activity lists/details/digests, device management and tool grants also
-      use root services and reject late responses. Remaining: model/skill/pi
-      settings, passkeys/auth/push, media/share and branding callers
+      use root services and reject late responses. Skill management and web-search
+      settings now isolate drafts and async completions as well. Remaining:
+      model/pi settings, passkeys/auth/push, media/share and branding callers
 - [ ] S5 ui-kit dependency wired in
 - [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
       flatten `AddPanel`'s epoch guard)

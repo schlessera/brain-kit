@@ -319,6 +319,30 @@ registration, branding and media/share helpers. Push and passkeys require
 migrating their browser-facing helpers with the components, not just replacing
 an API import. UI-kit component integration (S5/S6/S7/S9) follows this migration.
 
+## Skill and web-search injection progress — 2026-09-17
+
+S4 now includes skill management and web-search settings. Both use the current
+root's API, clear drafts and status when the root changes or the tab deactivates,
+and invalidate callbacks on cleanup. Old skill lists, editor loads, saves,
+installs and mutation failures cannot replace the current view or trigger a
+follow-up list reload. List requests also reject superseded responses.
+Web-search saves cannot clear another root's key draft or busy state; success
+flash timers are cleared on cleanup.
+
+Verification: **548 UI React tests pass** across 40 files. Five new mounted tests
+exercise root replacement during skill loading/editing/saving/installing and
+web-search loading/key saves, plus late mutation failures after tab reactivation.
+Removing the skill-save ownership check made its regression test fail; the guard
+was restored before the full suite ran.
+The UI React package build, repository typecheck and all seven lint gates pass;
+lint retains only the pre-existing dictation cleanup-ref warning.
+
+S4 remains open for model catalog settings and pi account flows, passkeys and
+authentication, push registration, branding and media/share helpers. Model writes
+use a queue that must retain write ordering within a root; pi login polling must
+never follow an old flow ID through a replacement root's API. UI-kit component
+integration (S5/S6/S7/S9) still follows this migration.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -445,7 +469,7 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining model/skill/pi settings, auth/push/media `api`, branding `uiConfig`, and
+remaining model/pi settings, auth/push/media `api`, branding `uiConfig`, and
 `apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when

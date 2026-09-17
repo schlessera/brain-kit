@@ -7,6 +7,8 @@
 // render test lives in this one file and why `screen` must not be used.
 import { unregisterDom } from "./dom.js";
 
+import { SkillsTab } from "../../src/components/settings/skills-tab.js";
+import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
@@ -2821,6 +2823,148 @@ describe("activity and device root ownership", () => {
       expect(view.getByText("Beta device")).toBeTruthy();
       expect(view.queryByText("Obsolete device")).toBeNull();
       expect(view.getByText("same-tool")).toBeTruthy();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+
+describe("skill and web-search root ownership", () => {
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example` },
+      request: (url, init) => {
+        const response = deferred<Response>();
+        requests.push({ url, init, response });
+        return response.promise;
+      },
+    });
+    return { root, requests };
+  }
+  const skill = (name: string) => ({ name, description: `${name} description`, source: "custom", enabled: true });
+  const list = (name: string) => Response.json({ skills: [skill(name)] });
+  const skillsPanel = (root: BrainUiRoot, active = true) => <BrainUiProvider root={root}><SkillsTab active={active} /></BrainUiProvider>;
+  const webPanel = (root: BrainUiRoot) => <BrainUiProvider root={root}><WebSearchSection active /></BrainUiProvider>;
+  const webConfig = (label: string) => ({ configured: true, order: [], overriddenBy: null, appliesTo: [], providers: [{
+    id: "search", label, enabled: false, hasKeyField: true, keyConfigured: false, keyFromEnv: false,
+    keyless: true, costNote: "Free", blurb: "Search provider",
+  }] });
+  async function reply(request: ReturnType<typeof transport>["requests"][number], body: unknown) {
+    await act(async () => { request.response.resolve(Response.json(body)); await flushPromises(); });
+  }
+  function createDraft(view: ReturnType<typeof render>, name: string) {
+    changeControlledInput(view.getByPlaceholderText("new-skill-name (kebab-case)") as HTMLInputElement, name);
+    fireEvent.click(view.getByRole("button", { name: "Create" }));
+  }
+
+  test("late skill lists and editor responses cannot replace a new root's draft", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(skillsPanel(a.root));
+    try {
+      view.rerender(skillsPanel(b.root));
+      await act(async () => {
+        b.requests[0].response.resolve(list("beta-skill"));
+        a.requests[0].response.resolve(list("obsolete-skill"));
+        await flushPromises();
+      });
+      expect(view.getByText("beta-skill")).toBeTruthy();
+      expect(view.queryByText("obsolete-skill")).toBeNull();
+      fireEvent.click(view.getByTitle("Edit SKILL.md"));
+      expect(b.requests[1].url).toBe("https://beta.example/api/skills/beta-skill");
+      view.rerender(skillsPanel(a.root));
+      createDraft(view, "alpha-draft");
+      await reply(b.requests[1], { ...skill("beta-skill"), content: "obsolete content", files: [] });
+      expect((view.getByRole("textbox") as HTMLTextAreaElement).value).toContain("alpha-draft");
+      expect(view.queryByText("obsolete content")).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a delayed skill save neither closes another root's editor nor reloads its list", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(skillsPanel(a.root));
+    try {
+      createDraft(view, "alpha-draft");
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      expect(a.requests[1].url).toBe("https://alpha.example/api/skills");
+      expect(a.requests[1].init?.method).toBe("POST");
+      expect(JSON.parse(String(a.requests[1].init?.body)).name).toBe("alpha-draft");
+      view.rerender(skillsPanel(b.root));
+      expect(view.queryByRole("button", { name: "Save" })).toBeNull();
+      createDraft(view, "beta-draft");
+      await reply(a.requests[1], { skill: skill("alpha-draft"), warning: "obsolete warning" });
+      expect((view.getByRole("textbox") as HTMLTextAreaElement).value).toContain("beta-draft");
+      expect(view.queryByText("obsolete warning")).toBeNull();
+      expect(a.requests).toHaveLength(2);
+      expect(b.requests).toHaveLength(1);
+      expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late install results and errors stay out of a replacement skills tab", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(skillsPanel(a.root));
+    try {
+      changeControlledInput(view.getByPlaceholderText(/^GitHub:/) as HTMLInputElement, "example/skills");
+      fireEvent.click(view.getByRole("button", { name: "Install" }));
+      expect(a.requests[1].url).toBe("https://alpha.example/api/skills/install/github");
+      view.rerender(skillsPanel(b.root));
+      await reply(a.requests[1], { outcomes: [{ name: "obsolete-install", status: "installed", files: 1 }], warning: "obsolete warning" });
+      expect(view.queryByText(/obsolete-install/)).toBeNull();
+      expect(view.queryByText("obsolete warning")).toBeNull();
+      expect(a.requests).toHaveLength(2);
+      await reply(b.requests[0], { skills: [skill("beta-skill")] });
+      fireEvent.click(view.getByTitle("Disable (all backends)"));
+      expect(b.requests[1].url).toBe("https://beta.example/api/skills/beta-skill/enabled");
+      view.rerender(skillsPanel(b.root, false));
+      view.rerender(skillsPanel(b.root));
+      await act(async () => {
+        b.requests[1].response.resolve(Response.json({ error: "obsolete mutation failure" }, { status: 500 }));
+        await flushPromises();
+      });
+      expect(view.queryByText(/obsolete mutation failure/)).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("web-search settings discard old loads and clear key drafts on root replacement", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(webPanel(a.root));
+    try {
+      view.rerender(webPanel(b.root));
+      await reply(b.requests[0], webConfig("Beta search"));
+      await reply(a.requests[0], webConfig("Obsolete search"));
+      expect(view.getByText("Beta search")).toBeTruthy();
+      expect(view.queryByText("Obsolete search")).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "Needs key" }));
+      changeControlledInput(view.getByPlaceholderText("Paste API key") as HTMLInputElement, "beta-test-key");
+      view.rerender(webPanel(a.root));
+      await reply(a.requests[1], webConfig("Alpha search"));
+      expect(view.queryByPlaceholderText("Paste API key")).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "Needs key" }));
+      expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("");
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a delayed web-search key save cannot clear another root's draft or busy state", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(webPanel(a.root));
+    try {
+      await reply(a.requests[0], webConfig("Alpha search"));
+      fireEvent.click(view.getByRole("button", { name: "Needs key" }));
+      changeControlledInput(view.getByPlaceholderText("Paste API key") as HTMLInputElement, "alpha-test-key");
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      expect(a.requests[1].url).toBe("https://alpha.example/api/web-search");
+      expect(a.requests[1].init?.method).toBe("PUT");
+      expect(JSON.parse(String(a.requests[1].init?.body))).toEqual({ apiKeys: { search: "alpha-test-key" } });
+      view.rerender(webPanel(b.root));
+      await reply(b.requests[0], webConfig("Beta search"));
+      fireEvent.click(view.getByRole("button", { name: "Needs key" }));
+      changeControlledInput(view.getByPlaceholderText("Paste API key") as HTMLInputElement, "beta-test-key");
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+      await reply(a.requests[1], webConfig("Obsolete search"));
+      expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("beta-test-key");
+      expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByText("Beta search")).toBeTruthy();
+      await reply(b.requests[1], webConfig("Beta search"));
+      expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("");
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 });
