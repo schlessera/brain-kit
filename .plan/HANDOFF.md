@@ -277,6 +277,20 @@ output also uses those shared media/share renderers, so this batch is not a
 claim that all nested content has finished migration. The map-generation and
 containerized visual-verification blockers are unchanged.
 
+## RTK integration restored — 2026-09-17
+
+The maintainer clarified that brain-kit's own RTK integration is intentional:
+it reduces token use inside the application's agent runtime and is separate
+from the development agent's shell wrapper. Removal commit `a0aa02f` was
+reverted by `b7de5c4`. Keep the SDK probe/rewrite exports, both backend bindings,
+and the subprocess-environment test, including its probe-cache reset.
+
+The removal changeset and guidance excluding this integration are withdrawn.
+Quick-action migration (`6f86c62`) and the earlier UI root work remain in place.
+S4's remaining API/config consumers are still the next implementation step.
+Verification after restoration: **425 backend/SDK tests and 15 API-surface
+checks pass**, the full package build passes, and the leakage gate is clean.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
