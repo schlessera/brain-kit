@@ -3,13 +3,14 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
-import { api, type ActivityRunRollup } from "../../lib/api-client.js";
+import type { ActivityRunRollup } from "../../lib/api-client.js";
 import {
   useActivityStore,
   narrativeEventsFor,
   runEvents,
   runSpans,
 } from "../../stores/activity-store.js";
+import { useBrainApi } from "../../root-context.js";
 import { cn } from "../../lib/utils.js";
 import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
 import {
@@ -28,6 +29,7 @@ import {
  * the rendered view does not have an opinion about.
  */
 export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
+  const api = useBrainApi();
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const events = useActivityStore(useShallow((s) => runEvents(s, runId)));
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
@@ -38,6 +40,10 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
 
   useEffect(() => {
     let active = true;
+    setPruned(null);
+    setRollup(null);
+    setMissing(false);
+    setRawOpen(false);
     api
       // Payload bodies are excluded from run detail by default; this view's
       // rows expand to them, so opt in.
@@ -64,7 +70,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
     return () => {
       active = false;
     };
-  }, [runId, applySnapshot]);
+  }, [runId, applySnapshot, api]);
 
   const root = streamed.find((s) => !s.parentSpanId);
   const title = rollup?.jobName ?? rollup?.name ?? (root ? spanToolLabel(root) : runId);

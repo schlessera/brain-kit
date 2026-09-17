@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, Laptop, Loader2, Plus, Trash2 } from "lucide-react";
-import { api, type PrincipalSummary } from "../../lib/api-client.js";
+import type { PrincipalSummary } from "../../lib/api-client.js";
+import { useBrainApi } from "../../root-context.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
@@ -14,6 +15,9 @@ function displayLabel(label: string): string {
 
 /** Active devices and delegated agents, with owner-only mint and revoke controls. */
 export function DevicesAgentsTab({ active }: { active: boolean }) {
+  const api = useBrainApi();
+  const lifetime = useRef(0);
+  const request = useRef(0);
   const [principals, setPrincipals] = useState<PrincipalSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -28,15 +32,20 @@ export function DevicesAgentsTab({ active }: { active: boolean }) {
   );
   const mintAgent = usePrincipalStore((state) => state.mintAgent);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    const generation = lifetime.current;
+    const token = ++request.current;
+    const current = () => generation === lifetime.current && token === request.current;
     setLoading(true);
     setLoadFailed(false);
     setError(null);
     try {
       const data = await api.principals();
+      if (!current()) return;
       setPrincipals(data.principals);
       setEnabled(true);
     } catch (err) {
+      if (!current()) return;
       setPrincipals([]);
       if (err instanceof Error && err.message === NOT_ENABLED) {
         setEnabled(false);
@@ -46,19 +55,29 @@ export function DevicesAgentsTab({ active }: { active: boolean }) {
         setError(err instanceof Error ? err.message : "Could not load devices and agents");
       }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }
+  }, [api]);
 
   useEffect(() => {
+    lifetime.current++;
+    setPrincipals([]);
+    setLoading(false);
+    setEnabled(true);
+    setLoadFailed(false);
+    setError(null);
+    setLabel("");
+    setTtlDays(7);
     if (active) void refresh();
-  }, [active]);
+    const invalidate = () => { lifetime.current++; };
+    return invalidate;
+  }, [active, refresh]);
 
   useEffect(() => {
     if (!oneTimeCredential) return;
     setLabel("");
     if (active) void refresh();
-  }, [active, oneTimeCredential]);
+  }, [active, oneTimeCredential, refresh]);
 
   function onMint(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,12 +95,15 @@ export function DevicesAgentsTab({ active }: { active: boolean }) {
         : "That device will be signed out immediately.";
     if (!window.confirm(`${consequence} You can't undo this.`)) return;
 
+    const generation = lifetime.current;
     setError(null);
     try {
       await api.principalRevoke(principal.id);
+      if (generation !== lifetime.current) return;
       setPrincipals((rows) => rows.filter((row) => row.id !== principal.id));
       if (principal.is_own) window.location.reload();
     } catch (err) {
+      if (generation !== lifetime.current) return;
       setError(err instanceof Error ? err.message : "Could not revoke access");
     }
   }

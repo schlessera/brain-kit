@@ -291,6 +291,34 @@ S4's remaining API/config consumers are still the next implementation step.
 Verification after restoration: **425 backend/SDK tests and 15 API-surface
 checks pass**, the full package build passes, and the leakage gate is clean.
 
+## Activity and device injection progress — 2026-09-17
+
+S4 now covers activity lists, rollups/pricing state, run details, digests,
+device/agent management and remembered tool grants. Each uses the provider's
+API. Replacing roots clears old lists/detail metadata and invalidates outstanding
+callbacks; repeated activity refreshes apply only the newest result. Digest
+dismissals and revocations go to the displayed root. The activity refresh is now
+a stable callback with complete effect dependencies, removing its lint warning.
+
+Device creation still belongs to the root's principal store: a delayed one-time
+credential remains available in its issuing root after its tab unmounts or the
+provider switches, and never appears in the replacement root. Local list and
+revoke callbacks have separate lifecycle guards so they cannot mutate another
+root's rows or reload its page.
+
+Verification: **543 UI React tests pass** across 40 files. Six new mounted tests
+cover stale activity success/error/pricing responses, repeated refreshes,
+same-ID detail metadata, digest loading/dismissal, same-ID device revocation,
+one-time credentials, and grant/list responses across roots. Removing the revoke
+ownership check made its regression test fail; the seed was removed.
+The UI React package build, repository typecheck and all seven lint gates pass;
+lint retains only the pre-existing dictation cleanup-ref warning.
+
+S4 remains open for model/skill/pi settings, passkeys and authentication, push
+registration, branding and media/share helpers. Push and passkeys require
+migrating their browser-facing helpers with the components, not just replacing
+an API import. UI-kit component integration (S5/S6/S7/S9) follows this migration.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -417,7 +445,7 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining settings/activity/auth/media `api`, branding `uiConfig`, and
+remaining model/skill/pi settings, auth/push/media `api`, branding `uiConfig`, and
 `apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when

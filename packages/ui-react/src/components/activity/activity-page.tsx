@@ -1,5 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity as ActivityIcon,
   AlertTriangle,
@@ -8,11 +8,10 @@ import {
 } from "lucide-react";
 import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
-import {
-  api,
-  type ActivityIntent,
-  type ActivityRollups,
-  type ActivityRunSummary,
+import type {
+  ActivityIntent,
+  ActivityRollups,
+  ActivityRunSummary,
 } from "../../lib/api-client.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -36,6 +35,8 @@ import { SettingsPanel } from "../settings/settings-panel.js";
  */
 export function ActivityPage() {
   const root = useBrainUiRoot();
+  const api = root.api;
+  const request = useRef(0);
   const supported = useActivityStore((s) => s.supported);
   const connectionEpoch = useActivityStore((s) => s.connectionEpoch);
   const liveSpans = useActivityStore((s) => s.spans);
@@ -55,35 +56,43 @@ export function ActivityPage() {
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
   const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
 
-  const refresh = () => {
-    api
-      .activityRuns({ limit: 100 })
-      .then(setRuns)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-    api.activityRollups(7).then(setRollups).catch(() => {});
-    // Surface the pricing warning only when the table is stale AND refreshes
-    // are failing — a merely-aging table heals itself. A rejection (including
-    // 404 from a server that predates the route) means no signal: stay quiet.
-    api
-      .pricingState()
-      .then((s) => setPricingStale(Boolean(s.stale && s.error)))
-      .catch(() => setPricingStale(false));
+  const refresh = useCallback(() => {
+    const token = ++request.current;
+    const current = () => token === request.current;
+    setError(null);
+    api.activityRuns({ limit: 100 })
+      .then((runs) => { if (current()) setRuns(runs); })
+      .catch((err) => { if (current()) setError(err instanceof Error ? err.message : String(err)); });
+    api.activityRollups(7)
+      .then((rollups) => { if (current()) setRollups(rollups); })
+      .catch(() => {});
+    // A stale table is only a warning while refreshes are failing. Older
+    // servers have no pricing route, so a rejection remains a quiet state.
+    api.pricingState()
+      .then((s) => { if (current()) setPricingStale(Boolean(s.stale && s.error)); })
+      .catch(() => { if (current()) setPricingStale(false); });
     void loadInbox();
-  };
+  }, [api, loadInbox]);
 
-  // Re-runs on every reconnect (connectionEpoch): the new socket has no
-  // server-side subscriptions, and the REST refresh heals whatever finished
-  // while disconnected.
+  useEffect(() => {
+    setRuns(null);
+    setRollups(null);
+    setError(null);
+    setPricingStale(false);
+    setDetailRunId(null);
+  }, [root]);
+
+  // Reconnects heal the REST snapshot and establish a new subscription.
+  // Cleanup also invalidates responses from the old root or request generation.
   useEffect(() => {
     refresh();
-    if (supported) {
-      root.connection.send({ type: "activity_subscribe", view: "index" });
-      return () => {
-        root.connection.send({ type: "activity_unsubscribe", view: "index" });
-      };
-    }
-    return undefined;
-  }, [supported, connectionEpoch, root]);
+    if (supported) root.connection.send({ type: "activity_subscribe", view: "index" });
+    const invalidate = () => { request.current++; };
+    return () => {
+      invalidate();
+      if (supported) root.connection.send({ type: "activity_unsubscribe", view: "index" });
+    };
+  }, [supported, connectionEpoch, root, refresh]);
 
   // Deep-link consumer: `#/activity/<runId>` (the push notification landing
   // spot — the shell routes it here but leaves the hash intact) opens that

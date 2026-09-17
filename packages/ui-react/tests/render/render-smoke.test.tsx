@@ -18,6 +18,9 @@ import type {
   GraphNodePayload,
 } from "@schlessera/brain-ui-sdk/protocol";
 
+import { RunDetail } from "../../src/components/activity/activity-run-detail.js";
+import { DigestCard } from "../../src/components/activity/digest-card.js";
+import { ToolPermissionsSection } from "../../src/components/settings/tool-permissions.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { MarkdownContent } from "../../src/components/chat/markdown-content.js";
@@ -2674,4 +2677,150 @@ describe("quick-action root ownership", () => {
       } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
     });
   }
+});
+
+describe("activity and device root ownership", () => {
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example` },
+      request: (url, init) => {
+        const response = deferred<Response>();
+        requests.push({ url, init, response });
+        return response.promise;
+      },
+    });
+    return { root, requests, matching: (path: string) => requests.filter((r) => new URL(r.url).pathname === `/api${path}`) };
+  }
+  function replyActivity(owner: ReturnType<typeof transport>, name: string) {
+    owner.matching("/activity/runs").at(-1)!.response.resolve(Response.json({ live: [], history: [{ ...activityRollup(name), runId: name }] }));
+    owner.matching("/activity/rollups").at(-1)!.response.resolve(Response.json({ timeZone: "UTC", days: [] }));
+    owner.matching("/models/pricing").at(-1)!.response.resolve(Response.json({ stale: false, error: null }));
+    owner.matching("/activity/inbox").at(-1)!.response.resolve(Response.json({ intents: [] }));
+  }
+
+  test("activity refreshes use their root and reject older lists and pricing errors", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><ActivityPage /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      expect(a.requests.every((r) => r.url.startsWith("https://alpha.example/"))).toBe(true);
+      expect(a.matching("/activity/runs")).toHaveLength(1);
+      view.rerender(panel(b.root));
+      await act(async () => { replyActivity(b, "Beta run"); await flushPromises(); });
+      expect(view.getByText("Beta run")).toBeTruthy();
+      await act(async () => {
+        a.matching("/activity/runs")[0].response.resolve(Response.json({ error: "obsolete failure" }, { status: 500 }));
+        a.matching("/models/pricing")[0].response.resolve(Response.json({ stale: true, error: "offline" }));
+        await flushPromises();
+      });
+      expect(view.queryByText(/obsolete failure/)).toBeNull();
+      expect(view.queryByText("Pricing stale")).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "Refresh" }));
+      fireEvent.click(view.getByRole("button", { name: "Refresh" }));
+      await act(async () => {
+        replyActivity(b, "Newest run");
+        b.matching("/activity/runs")[1].response.resolve(Response.json({ live: [], history: [{ ...activityRollup("Older run"), runId: "older" }] }));
+        await flushPromises();
+      });
+      expect(view.getByText("Newest run")).toBeTruthy();
+      expect(view.queryByText("Older run")).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("the same detail run ID reloads on a new root without restoring old metadata", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><RunDetail runId="same" onBack={() => {}} /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      await act(async () => { a.requests[0].response.resolve(Response.json({ ...activityDetail("same", "Alpha summary"), detailPruned: true })); await flushPromises(); });
+      expect(view.getByText(/Detail pruned/)).toBeTruthy();
+      view.rerender(panel(b.root));
+      expect(view.queryByText(/Detail pruned/)).toBeNull();
+      expect(view.queryByRole("heading", { name: "Alpha summary" })).toBeNull();
+      await act(async () => { b.requests[0].response.resolve(Response.json(activityDetail("same", "Beta summary"))); await flushPromises(); });
+      expect(view.getByRole("heading", { name: "Beta summary" })).toBeTruthy();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("digest loading and dismissal belong to the displayed root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><DigestCard /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    const digest = (runs: number) => Response.json({ digest: { generatedAt: 2, windowStart: 0, windowEnd: 1, runs, failures: 0, notable: [], costUsd: 0, inputTokens: 0, outputTokens: 0 }, dismissedAt: 0 });
+    try {
+      view.rerender(panel(b.root));
+      await act(async () => { b.requests[0].response.resolve(digest(2)); a.requests[0].response.resolve(digest(9)); await flushPromises(); });
+      expect(view.getByText(/2 runs/)).toBeTruthy();
+      expect(view.queryByText(/9 runs/)).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
+      expect(b.matching("/activity/digest/dismiss")).toHaveLength(1);
+      expect(a.matching("/activity/digest/dismiss")).toHaveLength(0);
+      expect(view.queryByText("While you were away")).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  const principal = (label: string) => ({ id: "same", kind: "agent", auth_method: "delegated", label, created_at: 1, last_seen_at: null, expires_at: null, is_own: false });
+  test("a late device revoke cannot remove the same ID from a replacement root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    window.confirm = () => true;
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><DevicesAgentsTab active /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      await act(async () => { a.requests[0].response.resolve(principalResponse([principal("Alpha agent")])); await flushPromises(); });
+      fireEvent.click(view.getByRole("button", { name: /Revoke/i }));
+      expect(a.requests[1].init?.method).toBe("DELETE");
+      view.rerender(panel(b.root));
+      await act(async () => {
+        b.requests[0].response.resolve(principalResponse([principal("Beta agent")]));
+        a.requests[1].response.resolve(Response.json({ ok: true }));
+        await flushPromises();
+      });
+      expect(view.getByText("Beta agent")).toBeTruthy();
+      expect(view.queryByText("Alpha agent")).toBeNull();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a delayed one-time credential stays with its issuing root after switching views", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><AppShell><DevicesAgentsTab active /></AppShell></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      await act(async () => { a.requests[0].response.resolve(principalResponse([])); await flushPromises(); });
+      changeControlledInput(view.getByLabelText("Label") as HTMLInputElement, "Alpha helper");
+      fireEvent.click(view.getByRole("button", { name: "Create agent credential" }));
+      expect(a.requests[1].init?.method).toBe("POST");
+      view.rerender(panel(b.root));
+      await act(async () => {
+        b.requests[0].response.resolve(principalResponse([]));
+        a.requests[1].response.resolve(Response.json({ id: "issued", label: "Alpha helper", expiresAt: 1, cookie: "alpha-once" }));
+        await flushPromises();
+      });
+      expect(a.root.stores.principal.getState().oneTimeCredential?.cookie).toBe("alpha-once");
+      expect(b.root.stores.principal.getState().oneTimeCredential).toBeNull();
+      expect(view.queryByText("alpha-once")).toBeNull();
+      view.rerender(panel(a.root));
+      expect(view.getByText("alpha-once")).toBeTruthy();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late device lists and remembered-grant revocations cannot overwrite another root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><DevicesAgentsTab active /><ToolPermissionsSection active /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      await act(async () => { a.matching("/tool-permissions")[0].response.resolve(Response.json({ tools: ["same-tool"] })); await flushPromises(); });
+      fireEvent.click(view.getByTitle("Ask for approval again"));
+      view.rerender(panel(b.root));
+      await act(async () => {
+        b.matching("/auth/principals")[0].response.resolve(principalResponse([principal("Beta device")]));
+        b.matching("/tool-permissions")[0].response.resolve(Response.json({ tools: ["same-tool"] }));
+        a.matching("/auth/principals")[0].response.resolve(principalResponse([principal("Obsolete device")]));
+        a.matching("/tool-permissions/same-tool")[0].response.resolve(Response.json({ tools: [] }));
+        await flushPromises();
+      });
+      expect(view.getByText("Beta device")).toBeTruthy();
+      expect(view.queryByText("Obsolete device")).toBeNull();
+      expect(view.getByText("same-tool")).toBeTruthy();
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
 });

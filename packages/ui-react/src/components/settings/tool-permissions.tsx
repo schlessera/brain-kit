@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { api } from "../../lib/api-client.js";
+import { useBrainApi } from "../../root-context.js";
 
 /**
  * The user's remembered "always allow" tool grants — accumulated by the
@@ -9,30 +9,40 @@ import { api } from "../../lib/api-client.js";
  * to manage.
  */
 export function ToolPermissionsSection({ active }: { active: boolean }) {
+  const api = useBrainApi();
+  const lifetime = useRef(0);
   const [tools, setTools] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!active) return;
-    api
-      .toolPermissions()
-      .then(({ tools }) => setTools(tools))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Could not load tool permissions")
-      );
-  }, [active]);
+    const generation = ++lifetime.current;
+    const current = () => generation === lifetime.current;
+    setTools([]);
+    setError(null);
+    setBusy(null);
+    if (active) {
+      api.toolPermissions()
+        .then(({ tools }) => { if (current()) setTools(tools); })
+        .catch((err) => {
+          if (current()) setError(err instanceof Error ? err.message : "Could not load tool permissions");
+        });
+    }
+    const invalidate = () => { lifetime.current++; };
+    return invalidate;
+  }, [active, api]);
 
   async function revoke(tool: string) {
+    const generation = lifetime.current;
     setBusy(tool);
     setError(null);
     try {
       const { tools } = await api.toolPermissionRevoke(tool);
-      setTools(tools);
+      if (generation === lifetime.current) setTools(tools);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke");
+      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Could not revoke");
     } finally {
-      setBusy(null);
+      if (generation === lifetime.current) setBusy(null);
     }
   }
 

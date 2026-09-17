@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Newspaper, X } from "lucide-react";
 
-import { api, type ActivityDigest } from "../../lib/api-client.js";
+import type { ActivityDigest } from "../../lib/api-client.js";
+import { useBrainApi } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { cn } from "../../lib/utils.js";
 import { digestCostClause } from "./span-bits.js";
@@ -15,15 +16,19 @@ import { digestCostClause } from "./span-bits.js";
  * is labeled: the card says what period it covers, never implies "now".
  */
 export function DigestCard() {
+  const api = useBrainApi();
   const [digest, setDigest] = useState<ActivityDigest | null>(null);
   const [visible, setVisible] = useState(false);
   const setActiveView = useUIStore((s) => s.setActiveView);
 
   useEffect(() => {
+    let active = true;
+    setDigest(null);
+    setVisible(false);
     void api
       .activityDigest()
       .then(({ digest, dismissedAt }) => {
-        if (!digest || digest.runs === 0) return;
+        if (!active || !digest || digest.runs === 0) return;
         if (digest.generatedAt <= dismissedAt) return;
         setDigest(digest);
         setVisible(true);
@@ -31,7 +36,8 @@ export function DigestCard() {
       .catch(() => {
         // No digest is a quiet state, never an error surface.
       });
-  }, []);
+    return () => { active = false; };
+  }, [api]);
 
   if (!visible || !digest) return null;
 
