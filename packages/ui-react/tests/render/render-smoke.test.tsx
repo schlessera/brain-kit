@@ -7,11 +7,13 @@
 // render test lives in this one file and why `screen` must not be used.
 import { unregisterDom } from "./dom.js";
 
+import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
+import { PasskeyTab } from "../../src/components/settings/passkey-tab.js";
 import { ModelsTab } from "../../src/components/settings/models-tab.js";
 import { PiAccountsSection } from "../../src/components/settings/pi-accounts.js";
 import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
 import type {
@@ -3143,5 +3145,166 @@ describe("model and pi account root ownership", () => {
       expect(view.getByText("Alpha account")).toBeTruthy();
       expect(view.queryByRole("alert")).toBeNull();
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+
+describe("authentication and passkey root ownership", () => {
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example`, appName: `${owner} brain` },
+      request: (url, init) => {
+        const response = deferred<Response>();
+        requests.push({ url, init, response });
+        return response.promise;
+      },
+    });
+    return { root, requests, matching: (path: string, method = "GET") => requests.filter(r => new URL(r.url).pathname === `/api${path}` && (r.init?.method ?? "GET") === method) };
+  }
+  function browser(autofill: () => Promise<boolean> = async () => false) {
+    const previousPublicKey = Object.getOwnPropertyDescriptor(globalThis, "PublicKeyCredential");
+    const previousCredentials = Object.getOwnPropertyDescriptor(navigator, "credentials");
+    const ceremonies: Array<ReturnType<typeof deferred<unknown>>> = [];
+    const ceremony = () => { const result = deferred<unknown>(); ceremonies.push(result); return result.promise; };
+    Object.defineProperty(globalThis, "PublicKeyCredential", { configurable: true, value: class { static isConditionalMediationAvailable = autofill; } });
+    Object.defineProperty(navigator, "credentials", { configurable: true, value: { create: ceremony, get: ceremony } });
+    return { ceremonies, restore() {
+      if (previousPublicKey) Object.defineProperty(globalThis, "PublicKeyCredential", previousPublicKey);
+      else Reflect.deleteProperty(globalThis, "PublicKeyCredential");
+      if (previousCredentials) Object.defineProperty(navigator, "credentials", previousCredentials);
+      else Reflect.deleteProperty(navigator, "credentials");
+    } };
+  }
+  const credential = () => ({ id: "test-key", type: "public-key", rawId: new ArrayBuffer(1),
+    response: { attestationObject: new ArrayBuffer(1), clientDataJSON: new ArrayBuffer(1), authenticatorData: new ArrayBuffer(1), signature: new ArrayBuffer(1) },
+    getClientExtensionResults: () => ({}),
+  });
+  const registrationOptions = { challenge: "YQ", rp: { name: "Example", id: "example" }, user: { id: "YQ", name: "example", displayName: "Example" }, pubKeyCredParams: [{ type: "public-key", alg: -7 }] };
+  const keys = (label: string) => ({ credentials: [{ id: "same", label, rpId: "example", createdAt: 1, lastUsedAt: null, backedUp: false }] });
+  const login = (root: BrainUiRoot) => <BrainUiProvider root={root}><LoginScreen /></BrainUiProvider>;
+  const security = (root: BrainUiRoot) => <BrainUiProvider root={root}><PasskeyTab active /></BrainUiProvider>;
+  async function reply(request: ReturnType<typeof transport>["requests"][number], body: unknown) {
+    await act(async () => { request.response.resolve(Response.json(body)); await flushPromises(); });
+  }
+
+  test("password login, branding and methods belong to the displayed root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {});
+    const view = render(login(a.root));
+    try {
+      changeControlledInput(view.getByPlaceholderText("Password") as HTMLInputElement, "alpha-password");
+      fireEvent.click(view.getByRole("button", { name: "Sign in" }));
+      expect(JSON.parse(String(a.matching("/auth/login", "POST")[0].init?.body))).toEqual({ password: "alpha-password" });
+      view.rerender(login(b.root));
+      expect(view.getByRole("heading", { name: "beta brain" })).toBeTruthy();
+      expect((view.getByPlaceholderText("Password") as HTMLInputElement).value).toBe("");
+      await reply(a.matching("/auth/methods")[0], { passkey: true, password: false });
+      await reply(a.matching("/auth/login", "POST")[0], { ok: true });
+      expect(reload).not.toHaveBeenCalled();
+      expect(view.getByPlaceholderText("Password")).toBeTruthy();
+      changeControlledInput(view.getByPlaceholderText("Password") as HTMLInputElement, "beta-password");
+      fireEvent.click(view.getByRole("button", { name: "Sign in" }));
+      expect(b.matching("/auth/login", "POST")[0].url).toBe("https://beta.example/api/auth/login");
+      await reply(b.matching("/auth/login", "POST")[0], { ok: true });
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late autofill support cannot start a ceremony after switching roots", async () => {
+    const support = deferred<boolean>(); const platform = browser(() => support.promise);
+    const a = transport("alpha"); const b = transport("beta");
+    const view = render(login(a.root));
+    try {
+      await reply(a.requests[0], { passkey: true, password: true });
+      view.rerender(login(b.root));
+      await act(async () => { support.resolve(true); await flushPromises(); });
+      expect(a.matching("/auth/passkey/login-options", "POST")).toHaveLength(0);
+      expect(platform.ceremonies).toHaveLength(0);
+      expect(b.requests).toHaveLength(1);
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("registration options arriving after a root switch never open a browser ceremony", async () => {
+    const platform = browser(); const a = transport("alpha"); const b = transport("beta");
+    const view = render(security(a.root));
+    try {
+      await reply(a.requests[0], { credentials: [] });
+      fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
+      view.rerender(security(b.root));
+      await reply(b.requests[0], keys("Beta key"));
+      await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
+      expect(platform.ceremonies).toHaveLength(0);
+      expect(view.getByText("Beta key")).toBeTruthy();
+      expect((view.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a stale registration result is not verified and a current ceremony uses its root", async () => {
+    const platform = browser(); const a = transport("alpha"); const b = transport("beta");
+    const view = render(security(a.root));
+    try {
+      await reply(a.requests[0], { credentials: [] });
+      fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
+      await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
+      expect(platform.ceremonies).toHaveLength(1);
+      view.rerender(security(b.root));
+      await reply(b.requests[0], { credentials: [] });
+      fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
+      await reply(b.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
+      await act(async () => { platform.ceremonies[0].resolve(credential()); await flushPromises(); });
+      expect(a.matching("/auth/passkey/register-verify", "POST")).toHaveLength(0);
+      expect((view.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => { platform.ceremonies[1].resolve(credential()); await flushPromises(); });
+      const verify = b.matching("/auth/passkey/register-verify", "POST")[0];
+      expect(verify.url).toBe("https://beta.example/api/auth/passkey/register-verify");
+      await reply(verify, { ok: true });
+      expect(b.matching("/auth/passkey/list")).toHaveLength(2);
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a stale passkey login result cannot verify or reload another root", async () => {
+    const platform = browser(); const a = transport("alpha"); const b = transport("beta");
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {});
+    const view = render(login(a.root));
+    try {
+      await reply(a.requests[0], { passkey: true, password: true });
+      fireEvent.click(view.getByRole("button", { name: "Sign in with a passkey" }));
+      await reply(a.matching("/auth/passkey/login-options", "POST")[0], { challenge: "YQ", rpId: "example", allowCredentials: [] });
+      view.rerender(login(b.root));
+      await reply(b.requests[0], { passkey: true, password: true });
+      fireEvent.click(view.getByRole("button", { name: "Sign in with a passkey" }));
+      await reply(b.matching("/auth/passkey/login-options", "POST")[0], { challenge: "YQ", rpId: "example", allowCredentials: [] });
+      await act(async () => { platform.ceremonies[0].resolve(credential()); await flushPromises(); });
+      expect(a.matching("/auth/passkey/login-verify", "POST")).toHaveLength(0);
+      expect(reload).not.toHaveBeenCalled();
+      await act(async () => { platform.ceremonies[1].resolve(credential()); await flushPromises(); });
+      const verify = b.matching("/auth/passkey/login-verify", "POST")[0];
+      expect(verify.url).toBe("https://beta.example/api/auth/passkey/login-verify");
+      await reply(verify, { ok: true });
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally { view.unmount(); reload.mockRestore(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late passkey mutations and sign-out cannot change or reload a replacement root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {});
+    window.confirm = () => true;
+    const view = render(security(a.root));
+    try {
+      await reply(a.requests[0], keys("Alpha key"));
+      fireEvent.click(view.getByTitle("Rename"));
+      changeControlledInput(view.getByRole("textbox") as HTMLInputElement, "Obsolete name");
+      fireEvent.click(view.getByTitle("Save"));
+      fireEvent.click(view.getByTitle("Remove"));
+      fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
+      view.rerender(security(b.root));
+      await reply(b.requests[0], keys("Beta key"));
+      await reply(a.matching("/auth/passkey/same", "PUT")[0], { ok: true });
+      await reply(a.matching("/auth/passkey/same", "DELETE")[0], { ok: true });
+      await reply(a.matching("/auth/logout", "POST")[0], { ok: true });
+      expect(view.getByText("Beta key")).toBeTruthy();
+      expect(view.queryByText("Obsolete name")).toBeNull();
+      expect(reload).not.toHaveBeenCalled();
+    } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
 });

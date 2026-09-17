@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   Cloud,
@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
-import { api } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { isUserCancel, registerPasskey, supportsPasskeys } from "../../lib/passkeys.js";
 import { cn } from "../../lib/utils.js";
 
@@ -25,6 +25,10 @@ import { cn } from "../../lib/utils.js";
  * rather than on mount, so switching tabs picks up changes made elsewhere.
  */
 export function PasskeyTab({ active }: { active: boolean }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(new AbortController());
+  const listRequest = useRef(0);
   const [credentials, setCredentials] = useState<PasskeySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,72 +37,89 @@ export function PasskeyTab({ active }: { active: boolean }) {
 
   const webAuthnSupported = supportsPasskeys();
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    const signal = lifetime.current.signal;
+    const request = ++listRequest.current;
+    const current = () => !signal.aborted && request === listRequest.current;
     setLoading(true);
     try {
       const data = await api.passkeyList();
+      if (!current()) return;
       setCredentials(data.credentials);
       setPasskeyMode(true);
     } catch {
+      if (!current()) return;
       // 400 = server not in password mode; anything else degrades the same way.
       setPasskeyMode(false);
       setCredentials([]);
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }
+  }, [api]);
 
   useEffect(() => {
-    if (active) {
-      setError(null);
-      void refresh();
-    }
-  }, [active]);
+    const controller = new AbortController();
+    lifetime.current = controller;
+    setCredentials([]);
+    setLoading(false);
+    setBusy(false);
+    setError(null);
+    setPasskeyMode(true);
+    if (active) void refresh();
+    return () => controller.abort();
+  }, [active, root, refresh]);
 
   async function onAdd() {
     if (busy) return;
+    const signal = lifetime.current.signal;
     setBusy(true);
     setError(null);
     try {
-      await registerPasskey();
+      await registerPasskey(api, undefined, signal);
+      if (signal.aborted) return;
       await refresh();
     } catch (err) {
-      if (!isUserCancel(err)) {
+      if (!signal.aborted && !isUserCancel(err)) {
         setError(err instanceof Error ? err.message : "Registration failed");
       }
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   }
 
   async function onDelete(id: string) {
     if (!window.confirm("Remove this passkey? You can't undo this.")) return;
+    const signal = lifetime.current.signal;
     setError(null);
     try {
       await api.passkeyDelete(id);
+      if (signal.aborted) return;
       setCredentials((rows) => rows.filter((row) => row.id !== id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Delete failed");
     }
   }
 
   async function onRename(id: string, label: string) {
+    const signal = lifetime.current.signal;
     setError(null);
     try {
       await api.passkeyRename(id, label);
+      if (signal.aborted) return;
       setCredentials((rows) =>
         rows.map((row) => (row.id === id ? { ...row, label } : row))
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Rename failed");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Rename failed");
     }
   }
 
   async function onSignOut() {
+    const signal = lifetime.current.signal;
     try {
       await api.logout();
     } finally {
-      window.location.reload();
+      if (!signal.aborted) window.location.reload();
     }
   }
 

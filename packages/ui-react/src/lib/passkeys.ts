@@ -4,11 +4,12 @@ import {
   browserSupportsWebAuthn,
   browserSupportsWebAuthnAutofill,
 } from "@simplewebauthn/browser";
-import { api } from "./api-client.js";
+import type { BrainApi } from "./api-client.js";
 
 /**
  * Thin ceremony wrappers around @simplewebauthn/browser. All server calls go
- * through api-client; success means the server set the session cookie.
+ * through the supplied API. Cancellation prevents starting a stale prompt or
+ * submitting its result; the browser library owns the page-wide prompt itself.
  */
 
 export function supportsPasskeys(): boolean {
@@ -31,20 +32,27 @@ export function isUserCancel(err: unknown): boolean {
  * Full login ceremony. With `useBrowserAutofill`, resolves only if the user
  * picks a passkey from the input's autofill suggestions (conditional UI).
  */
-export async function loginWithPasskey(opts?: {
+export async function loginWithPasskey(api: BrainApi, opts?: {
+  signal?: AbortSignal;
   useBrowserAutofill?: boolean;
 }): Promise<void> {
+  opts?.signal?.throwIfAborted();
   const optionsJSON = await api.passkeyLoginOptions();
+  opts?.signal?.throwIfAborted();
   const response = await startAuthentication({
     optionsJSON,
     useBrowserAutofill: opts?.useBrowserAutofill ?? false,
   });
+  opts?.signal?.throwIfAborted();
   await api.passkeyLoginVerify(response);
 }
 
 /** Full registration ceremony (requires an authenticated session). */
-export async function registerPasskey(label?: string): Promise<void> {
+export async function registerPasskey(api: BrainApi, label?: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   const optionsJSON = await api.passkeyRegisterOptions();
+  signal?.throwIfAborted();
   const response = await startRegistration({ optionsJSON });
+  signal?.throwIfAborted();
   await api.passkeyRegisterVerify(response, label);
 }

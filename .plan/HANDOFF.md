@@ -372,6 +372,44 @@ Remaining S4 work: passkeys/authentication, push registration, branding and
 media/share helpers. UI-kit component integration (S5/S6/S7/S9) follows this
 migration; full application isolation is not yet claimed.
 
+## Authentication and passkey injection progress — 2026-09-17
+
+Here, a **UI root** means one `createBrainUiRoot()` instance: the backend API,
+configuration, stores, caches and connection provided to a React subtree by
+`BrainUiProvider`. It is not a filesystem root or another brain repository. A
+normal app uses one; explicit ownership supports embedding multiple instances
+and switching brain-kit server deployments without late responses overwriting
+the new instance. Claude and pi are agent backends within that server: they share
+one UI root and one authenticated session. Multiple roots do not introduce
+separate application logins per agent backend.
+
+S4 now covers login (including its app name) and passkey management. Root changes
+reset password drafts, auth-method availability, credential lists and pending
+state. Late password/passkey login and sign-out completions cannot reload the
+replacement view; late rename/delete responses cannot change its same-ID keys.
+The passkey helpers take an explicit API and cancellation signal, checked before
+requesting options, before opening the browser ceremony and before verification.
+The conditional-autofill capability probe also checks its lifetime after awaiting.
+
+The browser library still owns a single page-wide WebAuthn prompt. Cleanup
+invalidates a ceremony's result, rather than invoking the library's global cancel
+and risking cancellation of another instance's prompt. This isolates our server
+requests and component callbacks; it does not isolate browser cookies or native
+credential UI. Already-submitted verification requests can still complete on
+their issuing backend. Current-view authentication retains the existing page
+reload behavior.
+
+Verification: **560 UI React tests pass** across 40 files. Six mounted tests use
+the installed WebAuthn library with controlled native credential responses and
+deferred transports. They cover methods/password/branding, delayed autofill
+support, registration options, ceremony results and same-ID mutations/sign-out.
+Removing the post-ceremony registration guard made its regression test fail;
+the seed was removed. The UI React package build, repository typecheck and all
+seven lint gates pass, with only the existing dictation cleanup-ref warning.
+
+Remaining S4 work: push registration, media/share helpers and other branding
+consumers. UI-kit component integration (S5/S6/S7/S9) follows this migration.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -498,7 +536,7 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining auth/push/media `api`, branding `uiConfig`, and
+remaining push/media `api`, branding `uiConfig`, and
 `apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when

@@ -1,8 +1,7 @@
-import { uiConfig } from "../../config.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Brain, Fingerprint, Lock } from "lucide-react";
 import { motion } from "framer-motion";
-import { api } from "../../lib/api-client.js";
 import {
   isUserCancel,
   loginWithPasskey,
@@ -18,6 +17,10 @@ import {
  * HttpOnly session cookie; a reload boots the authenticated app.
  */
 export function LoginScreen() {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const uiConfig = root.config;
+  const lifetime = useRef(new AbortController());
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -26,26 +29,31 @@ export function LoginScreen() {
   // server enforces the real policy, and hiding the only working method on a
   // transient error would be a self-inflicted lockout.
   const [passwordAvailable, setPasswordAvailable] = useState(true);
-  const conditionalStarted = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    lifetime.current = controller;
+    setPassword("");
+    setError(null);
+    setSubmitting(false);
+    setPasskeyAvailable(false);
+    setPasswordAvailable(true);
     api
       .authMethods()
       .then(async (methods) => {
-        if (cancelled) return;
+        if (signal.aborted) return;
         if (methods.passkey && !methods.password) setPasswordAvailable(false);
         if (!methods.passkey || !supportsPasskeys()) return;
         setPasskeyAvailable(true);
         // Conditional UI (progressive enhancement): surface passkeys in the
         // password input's autofill. Runs once; a user cancel is not an error.
-        if (conditionalStarted.current || !(await supportsAutofill())) return;
-        conditionalStarted.current = true;
+        if (!(await supportsAutofill()) || signal.aborted) return;
         try {
-          await loginWithPasskey({ useBrowserAutofill: true });
-          window.location.reload();
+          await loginWithPasskey(api, { useBrowserAutofill: true, signal });
+          if (!signal.aborted) window.location.reload();
         } catch (err) {
-          if (!isUserCancel(err)) {
+          if (!signal.aborted && !isUserCancel(err)) {
             console.warn("[passkeys] conditional UI failed:", err);
           }
         }
@@ -53,21 +61,21 @@ export function LoginScreen() {
       .catch(() => {
         // Methods probe failing degrades to password-only — unchanged behavior.
       });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => controller.abort();
+  }, [root, api]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!password || submitting) return;
+    const signal = lifetime.current.signal;
     setSubmitting(true);
     setError(null);
     try {
       await api.login(password);
       // Cookie is set; reload so the app boots authenticated.
-      window.location.reload();
+      if (!signal.aborted) window.location.reload();
     } catch (err) {
+      if (signal.aborted) return;
       setError(err instanceof Error ? err.message : "Login failed");
       setSubmitting(false);
     }
@@ -75,12 +83,14 @@ export function LoginScreen() {
 
   async function onPasskeyClick() {
     if (submitting) return;
+    const signal = lifetime.current.signal;
     setSubmitting(true);
     setError(null);
     try {
-      await loginWithPasskey();
-      window.location.reload();
+      await loginWithPasskey(api, { signal });
+      if (!signal.aborted) window.location.reload();
     } catch (err) {
+      if (signal.aborted) return;
       if (!isUserCancel(err)) {
         setError(err instanceof Error ? err.message : "Passkey login failed");
       }
