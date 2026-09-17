@@ -480,8 +480,9 @@ Sequenced after the component waves but **before** step 2. Not optional.
       share one socket within a root; release/dispose ignores late callbacks
 - [ ] S4 api/config injection — independent config/REST factories and explicit
       URL helpers and provider hooks are implemented and tested. Store and
-      connection callers migrated; remaining component/helper API/config
-      callers still need migration
+      connection callers migrated. Search, capture, sync and briefing now use
+      root services and reject stale completions after root replacement.
+      Settings, activity, media/share, auth and branding callers remain
 - [ ] S5 ui-kit dependency wired in
 - [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
       flatten `AddPanel`'s epoch guard)

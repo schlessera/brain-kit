@@ -244,6 +244,39 @@ that an entire `AppShell` can connect to a separate backend. The public README
 states this limit. Root/SDK additions carry a minor changeset; no versioning or
 publishing was done.
 
+## Quick-action injection progress — 2026-09-17
+
+The earlier work is committed in three groups: map fixtures (`ceb21df`), the
+existing SDK RTK test's probe-cache reset (`06889f5`), and root/store/connection
+isolation with its lint gate (`6b57843`). The RTK change only fixes test-order
+dependence in the repository's existing backend command-rewrite integration.
+
+S4 has advanced through quick actions. Search and capture use `useBrainApi`;
+sync and briefing use the root transport and backend URL. Replacing the root
+cancels search, resets results/type suggestions, and advances capture's existing
+operation epoch so an old save or indexing completion cannot take over the new
+panel. Each capture panel now has its own datalist ID.
+
+The stream effects now cancel their readers on replacement/unmount, reject
+late responses/chunks, and clear the Cancel controller only when they still own
+it. Cancel updates the panel immediately, even if the transport ignores abort.
+The sync endpoint prop is a backend-relative path; its only production caller
+now passes that path and the panel resolves it against the current root.
+
+Verification: **537 UI React tests pass**, including six new mounted tests for
+capture/search root switches, current-root file opening, reader cleanup,
+replacement-stream rendering and Cancel ownership. The Cancel regression was
+proved by making an old completion unconditionally clear the active controller;
+the test failed, and the seed was removed. Repository typecheck, the UI React
+package build and all seven lint gates pass (the same two existing hook
+warnings remain). This is a separate patch changeset.
+
+S4 remains open: settings, activity, authentication, branding and media/share
+helpers still need their API/config consumers migrated. Quick-action rich-text
+output also uses those shared media/share renderers, so this batch is not a
+claim that all nested content has finished migration. The map-generation and
+containerized visual-verification blockers are unchanged.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -370,7 +403,8 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining `api`, `uiConfig`, `apiBase` and `getBackendUrl` consumers to the
+remaining settings/activity/auth/media `api`, branding `uiConfig`, and
+`apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when
 injecting services. Then proceed to S5/S6/S7/S9 (kit dependency, component splits,

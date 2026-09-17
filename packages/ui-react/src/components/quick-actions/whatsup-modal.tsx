@@ -1,8 +1,9 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useEffect, useRef } from "react";
 import { Loader2, XCircle } from "lucide-react";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { BrainMarkdown } from "../chat/brain-markdown.js";
-import { getBackendUrl } from "../../lib/backend.js";
+
 
 type State = "loading" | "done" | "error" | "cancelled";
 
@@ -13,6 +14,7 @@ export function WhatsupPanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const root = useBrainUiRoot();
   const [state, setState] = useState<State>("loading");
   const [content, setContent] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
@@ -23,15 +25,24 @@ export function WhatsupPanel({
     setState("loading");
     setContent("");
 
+    let disposed = false;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const controller = new AbortController();
+    const cancelReader = () => { void reader?.cancel().catch(() => {}); };
+    controller.signal.addEventListener("abort", cancelReader);
     controllerRef.current = controller;
 
     (async () => {
       try {
-        const res = await fetch(getBackendUrl("/api/brain/whatsup"), {
+        const res = await root.request(root.backendUrl("/api/brain/whatsup"), {
           method: "POST",
           signal: controller.signal,
         });
+
+        if (disposed || controller.signal.aborted) {
+          await res.body?.cancel();
+          return;
+        }
 
         if (!res.ok || !res.body) {
           setState("error");
@@ -39,13 +50,14 @@ export function WhatsupPanel({
           return;
         }
 
-        const reader = res.body.getReader();
+        reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         const lines: string[] = [];
 
         while (true) {
           const { done, value } = await reader.read();
+          if (disposed || controller.signal.aborted) return;
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -72,6 +84,7 @@ export function WhatsupPanel({
 
         setContent(lines.join("\n"));
       } catch (err: any) {
+        if (disposed || controller.signal.aborted) return;
         if (err.name === "AbortError") {
           setState("cancelled");
           setContent("Cancelled.");
@@ -80,15 +93,18 @@ export function WhatsupPanel({
           setContent(`Error: ${err.message}`);
         }
       } finally {
-        controllerRef.current = null;
+        controller.signal.removeEventListener("abort", cancelReader);
+        reader?.releaseLock();
+        if (controllerRef.current === controller) controllerRef.current = null;
       }
     })();
 
     return () => {
+      disposed = true;
       controller.abort();
-      controllerRef.current = null;
+      if (controllerRef.current === controller) controllerRef.current = null;
     };
-  }, [open]);
+  }, [open, root]);
 
   const isLoading = state === "loading";
 
@@ -129,7 +145,11 @@ export function WhatsupPanel({
         <div className="border-t border-border px-5 py-3 flex justify-end">
           {isLoading ? (
             <button
-              onClick={() => controllerRef.current?.abort()}
+              onClick={() => {
+                controllerRef.current?.abort();
+                setState("cancelled");
+                setContent("Cancelled.");
+              }}
               className="rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               Cancel

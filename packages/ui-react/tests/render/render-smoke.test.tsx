@@ -45,6 +45,7 @@ import { useChatStore, activeChat } from "../../src/stores/chat-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { WhatsupPanel } from "../../src/components/quick-actions/whatsup-modal.js";
 import { StreamingPanel } from "../../src/components/quick-actions/streaming-modal.js";
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
@@ -2544,4 +2545,133 @@ describe("UI root provider lifetimes", () => {
     await act(async () => { await Promise.resolve(); });
     expect(() => captured!.connection.connect()).toThrow(/disposed/);
   });
+});
+
+// Requests deliberately ignore AbortSignal here: changing roots must reject
+// stale completions even when a transport has already queued the response.
+describe("quick-action root ownership", () => {
+  function transport(prefix: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${prefix}.example` },
+      request: (url, init) => {
+        const response = deferred<Response>();
+        requests.push({ url, init, response });
+        return response.promise;
+      },
+    });
+    return { root, requests };
+  }
+  const stream = (text: string) => new Response(`data: ${JSON.stringify({ type: "progress", text })}\n\ndata: {"type":"done","success":true}\n\n`);
+
+  test("capture switches API roots and ignores the old save and type completions", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><AddPanel open onClose={() => {}} /></BrainUiProvider>;
+    const mounted = render(panel(a.root));
+    try {
+      changeControlledInput(mounted.getByPlaceholderText("What do you want to remember?") as HTMLTextAreaElement, "alpha note");
+      fireEvent.click(mounted.getByRole("button", { name: /^Add$/ }));
+      expect(a.requests.map((r) => r.url)).toEqual(["https://alpha.example/api/brain/stats", "https://alpha.example/api/brain/add"]);
+      mounted.rerender(panel(b.root));
+      await act(async () => {
+        a.requests[0].response.resolve(Response.json({ byType: { stale: 1 } }));
+        a.requests[1].response.resolve(Response.json({ success: true, path: "notes/stale.md", indexed: true }));
+        b.requests[0].response.resolve(Response.json({ byType: { current: 1 } }));
+        await flushPromises();
+      });
+      expect(mounted.queryByText("notes/stale.md")).toBeNull();
+      expect(mounted.container.querySelector('option[value="stale"]')).toBeNull();
+      expect(mounted.container.querySelector('option[value="current"]')).not.toBeNull();
+      const note = mounted.getByPlaceholderText("What do you want to remember?") as HTMLTextAreaElement;
+      expect(note.value).toBe("");
+      changeControlledInput(note, "beta note");
+      fireEvent.click(mounted.getByRole("button", { name: /^Add$/ }));
+      expect(b.requests[1].url).toBe("https://beta.example/api/brain/add");
+      await act(async () => {
+        b.requests[1].response.resolve(Response.json({ success: true, path: "notes/beta.md", indexed: false }));
+        await flushPromises();
+      });
+      fireEvent.click(mounted.getByRole("button", { name: "Retry indexing" }));
+      expect(b.requests[2].url).toBe("https://beta.example/api/brain/index");
+      await act(async () => { b.requests[2].response.resolve(Response.json({ success: true })); await flushPromises(); });
+      expect(mounted.getByText(/Saved and indexed/)).toBeTruthy();
+    } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("search aborts on root replacement and opens results in the matching file store", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const opened: string[] = [];
+    b.root.stores.file.setState({ openFile: async (path) => { opened.push(path); } });
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><SearchPanel open onClose={() => {}} /></BrainUiProvider>;
+    const mounted = render(panel(a.root));
+    try {
+      changeControlledInput(mounted.getByPlaceholderText("Search your brain...") as HTMLInputElement, "same");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+      expect(a.requests[0].url).toContain("https://alpha.example/api/brain/search");
+      mounted.rerender(panel(b.root));
+      expect(a.requests[0].init?.signal?.aborted).toBe(true);
+      changeControlledInput(mounted.getByPlaceholderText("Search your brain...") as HTMLInputElement, "same");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+      expect(b.requests[0].url).toContain("https://beta.example/api/brain/search");
+      const result = (name: string) => Response.json({ results: [{ path: `notes/${name}.md`, title: name, snippet: "", score: 1 }] });
+      await act(async () => {
+        b.requests[0].response.resolve(result("beta"));
+        a.requests[0].response.resolve(result("stale"));
+        await flushPromises();
+      });
+      expect(mounted.queryByTitle("notes/stale.md")).toBeNull();
+      fireEvent.click(mounted.getByTitle("notes/beta.md"));
+      expect(opened).toEqual(["notes/beta.md"]);
+      expect(b.root.stores.ui.getState().filePanelOpen).toBe(true);
+      expect(a.root.stores.ui.getState().filePanelOpen).toBe(false);
+    } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  for (const kind of ["sync", "whatsup"] as const) {
+    test(`${kind} cancels a superseded stream reader and renders the replacement stream`, async () => {
+      const a = transport("alpha"); const b = transport("beta");
+      let cancelled = false;
+      const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}>
+        {kind === "sync" ? <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} /> : <WhatsupPanel open onClose={() => {}} />}
+      </BrainUiProvider>;
+      const mounted = render(panel(a.root));
+      try {
+        await act(async () => {
+          a.requests[0].response.resolve(new Response(new ReadableStream<Uint8Array>({
+            cancel() { cancelled = true; },
+          })));
+          await flushPromises();
+        });
+        mounted.rerender(panel(b.root));
+        expect(cancelled).toBe(true);
+        await act(async () => {
+          b.requests[0].response.resolve(stream("replacement output"));
+          await flushPromises();
+        });
+        expect(mounted.getByText("replacement output")).toBeTruthy();
+        expect(mounted.queryByText("Cancelled.")).toBeNull();
+        if (kind === "sync") expect(mounted.getByText("Complete")).toBeTruthy();
+      } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
+    });
+
+    test(`${kind} uses the root transport and an old completion cannot steal Cancel`, async () => {
+      const a = transport("alpha"); const b = transport("beta");
+      const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}>
+        {kind === "sync" ? <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} /> : <WhatsupPanel open onClose={() => {}} />}
+      </BrainUiProvider>;
+      const mounted = render(panel(a.root));
+      try {
+        expect(a.requests[0].url).toBe(`https://alpha.example/api/brain/${kind}`);
+        mounted.rerender(panel(b.root));
+        expect(a.requests[0].init?.signal?.aborted).toBe(true);
+        expect(b.requests[0].url).toBe(`https://beta.example/api/brain/${kind}`);
+        await act(async () => { a.requests[0].response.resolve(stream("stale")); await flushPromises(); });
+        expect(mounted.queryByText("stale")).toBeNull();
+        fireEvent.click(mounted.getByRole("button", { name: "Cancel" }));
+        expect(b.requests[0].init?.signal?.aborted).toBe(true);
+        await act(async () => { b.requests[0].response.resolve(stream("too late")); await flushPromises(); });
+        expect(mounted.queryByText("too late")).toBeNull();
+        expect(mounted.getAllByText("Cancelled.").length).toBe(1);
+      } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
+    });
+  }
 });

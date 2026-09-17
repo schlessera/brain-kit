@@ -4,7 +4,8 @@ import { SlidePanel } from "../layout/slide-panel.js";
 import { Kbd } from "../layout/kbd.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { api, type BrainSearchHit } from "../../lib/api-client.js";
+import type { BrainSearchHit } from "../../lib/api-client.js";
+import { useBrainApi } from "../../root-context.js";
 import { parseSnippet } from "../../lib/search-snippet.js";
 import { cn } from "../../lib/utils.js";
 
@@ -22,6 +23,7 @@ export function SearchPanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const api = useBrainApi();
   const [query, setQuery] = useState("");
   const [state, setState] = useState<State>("idle");
   const [resultQuery, setResultQuery] = useState("");
@@ -90,7 +92,7 @@ export function SearchPanel({
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
     }
-  }, [cancelSearch]);
+  }, [cancelSearch, api]);
 
   // Fresh panel every time it opens: stale results from a previous query would
   // otherwise flash before the first search lands.
@@ -110,7 +112,7 @@ export function SearchPanel({
     // mobile keyboard on some browsers.
     const t = setTimeout(() => inputRef.current?.focus(), 120);
     return () => { clearTimeout(t); cancelSearch(); };
-  }, [open, cancelSearch]);
+  }, [open, cancelSearch, api]);
 
   // Debounced search on typing.
   useEffect(() => {

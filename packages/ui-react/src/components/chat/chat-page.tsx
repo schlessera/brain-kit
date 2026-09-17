@@ -225,7 +225,7 @@ export function ChatPage() {
         open={syncPanelOpen}
         onClose={() => setSyncPanelOpen(false)}
         title="Brain Sync"
-        endpoint={root.backendUrl("/api/brain/sync")}
+        endpoint="/api/brain/sync"
       />
       <WhatsupPanel
         open={whatsupPanelOpen}

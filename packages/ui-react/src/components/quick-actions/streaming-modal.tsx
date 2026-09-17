@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { SlidePanel } from "../layout/slide-panel.js";
@@ -15,9 +16,11 @@ export function StreamingPanel({
   open: boolean;
   onClose: () => void;
   title: string;
+  /** Backend-relative path, resolved against the current root. */
   endpoint: string;
   method?: string;
 }) {
+  const root = useBrainUiRoot();
   const [state, setState] = useState<StreamState>("idle");
   const [lines, setLines] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -29,30 +32,41 @@ export function StreamingPanel({
     setState("running");
     setLines([]);
 
+    let disposed = false;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const controller = new AbortController();
+    const cancelReader = () => { void reader?.cancel().catch(() => {}); };
+    controller.signal.addEventListener("abort", cancelReader);
     controllerRef.current = controller;
 
     (async () => {
       try {
-        const res = await fetch(endpoint, {
+        const res = await root.request(root.backendUrl(endpoint), {
           method,
           signal: controller.signal,
         });
 
+        if (disposed || controller.signal.aborted) {
+          await res.body?.cancel();
+          return;
+        }
+
         if (!res.ok || !res.body) {
-          setState("error");
           const body = await res.json().catch(() => null);
+          if (disposed || controller.signal.aborted) return;
+          setState("error");
           const message = typeof body?.error === "string" ? body.error : `HTTP ${res.status}: ${res.statusText}`;
           if (!controller.signal.aborted) setLines((l) => [...l, message]);
           return;
         }
 
-        const reader = res.body.getReader();
+        reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
+          if (disposed || controller.signal.aborted) return;
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -77,6 +91,7 @@ export function StreamingPanel({
           }
         }
       } catch (err: any) {
+        if (disposed || controller.signal.aborted) return;
         if (err.name === "AbortError") {
           setLines((l) => [...l, "Cancelled."]);
           setState("cancelled");
@@ -85,15 +100,18 @@ export function StreamingPanel({
           setLines((l) => [...l, `Error: ${err.message}`]);
         }
       } finally {
-        controllerRef.current = null;
+        controller.signal.removeEventListener("abort", cancelReader);
+        reader?.releaseLock();
+        if (controllerRef.current === controller) controllerRef.current = null;
       }
     })();
 
     return () => {
+      disposed = true;
       controller.abort();
-      controllerRef.current = null;
+      if (controllerRef.current === controller) controllerRef.current = null;
     };
-  }, [open, endpoint, method]);
+  }, [open, endpoint, method, root]);
 
   // Auto-scroll
   useEffect(() => {
@@ -150,7 +168,11 @@ export function StreamingPanel({
         <div className="border-t border-border px-5 py-3 flex justify-end">
           {isRunning ? (
             <button
-              onClick={() => controllerRef.current?.abort()}
+              onClick={() => {
+                controllerRef.current?.abort();
+                setState("cancelled");
+                setLines((lines) => [...lines, "Cancelled."]);
+              }}
               className="rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               Cancel

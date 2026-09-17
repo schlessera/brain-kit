@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { Kbd } from "../layout/kbd.js";
-import { api } from "../../lib/api-client.js";
+import { useBrainApi } from "../../root-context.js";
 
 type State = "editing" | "saving" | "saved" | "error";
 
@@ -21,6 +21,8 @@ export function AddPanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const api = useBrainApi();
+  const typesId = useId();
   const [content, setContent] = useState("");
   const [title, setTitle] = useState("");
   const [type, setType] = useState("");
@@ -40,6 +42,7 @@ export function AddPanel({
   useEffect(() => {
     if (!open) return;
     operation.epoch++;
+    setKnownTypes([]);
     setSavedPath("");
     setIndexed(undefined);
     setIndexing(false);
@@ -67,7 +70,7 @@ export function AddPanel({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [open, operation]);
+  }, [open, operation, api]);
 
   async function handleSave() {
     const body = content.trim();
@@ -196,11 +199,11 @@ export function AddPanel({
                   <input
                     value={type}
                     onChange={(e) => setType(e.target.value)}
-                    list="brain-add-types"
+                    list={typesId}
                     placeholder="note"
                     className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40"
                   />
-                  <datalist id="brain-add-types">
+                  <datalist id={typesId}>
                     {knownTypes.map((t) => (
                       <option key={t} value={t} />
                     ))}
