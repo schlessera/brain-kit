@@ -23,22 +23,37 @@ export interface AsrClient {
 
 export type AsrClientFactory = (opts: AsrClientOptions) => AsrClient;
 
-const factories = new Map<string, AsrClientFactory>();
-
-export function registerAsrClient(providerId: string, factory: AsrClientFactory): void {
-  factories.set(providerId, factory);
+export interface AsrClientRegistry {
+  register: (providerId: string, factory: AsrClientFactory) => void;
+  create: (opts: AsrClientOptions) => AsrClient;
+  reset: () => void;
 }
 
-export function createAsrClient(opts: AsrClientOptions): AsrClient {
-  const factory = factories.get(opts.session.providerId);
-  if (!factory) {
-    throw new Error(
-      `No AsrClient registered for speech provider "${opts.session.providerId}" ` +
-        `(registered: ${[...factories.keys()].join(", ") || "none"})`
-    );
+/** One registry per UI root: factories may close over that root's voice state. */
+export function createAsrClientRegistry(): AsrClientRegistry {
+  const factories = new Map<string, AsrClientFactory>();
+
+  function register(providerId: string, factory: AsrClientFactory): void {
+    factories.set(providerId, factory);
   }
-  return factory(opts);
+
+  function create(opts: AsrClientOptions): AsrClient {
+    const factory = factories.get(opts.session.providerId);
+    if (!factory) {
+      throw new Error(
+        `No AsrClient registered for speech provider "${opts.session.providerId}" ` +
+        `(registered: ${[...factories.keys()].join(", ") || "none"})`
+      );
+    }
+    return factory(opts);
+  }
+
+  return { register, create, reset: () => factories.clear() };
 }
+
+export const defaultAsrClientRegistry = createAsrClientRegistry();
+export const registerAsrClient = defaultAsrClientRegistry.register;
+export const createAsrClient = defaultAsrClientRegistry.create;
 
 /**
  * Degradation guidance for UI code (derived, not hardcoded per provider):
@@ -60,5 +75,5 @@ export function speechUiHints(capabilities: SpeechCapabilities): {
 
 /** Test helper — clears all registrations. */
 export function resetAsrClients(): void {
-  factories.clear();
+  defaultAsrClientRegistry.reset();
 }

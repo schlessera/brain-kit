@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, SPAN_TOOL_NAME_PREFIX } from "@schlessera/brain-ui-sdk/protocol";
@@ -11,7 +12,6 @@ import type {
 import {
   useActivityStore,
   payloadEventsFor,
-  loadSpanPayloads,
 } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel, formatTokenCount } from "../chat/tool-views.js";
@@ -80,13 +80,14 @@ export function spanToolLabel(span: ActivitySpan): string {
  * the wire `truncated` flag, rendered as a hint line under the block.
  */
 export function SpanPayload({ spanId }: { spanId: string }) {
+  const root = useBrainUiRoot();
   const events = useActivityStore(useShallow((s) => payloadEventsFor(s, spanId)));
   // History fetches skip payload bodies (they exist for duration badges);
   // the first expand of a finished run backfills them over REST. A no-op for
   // live runs (payloads ride the WS deltas) and once per run thereafter.
   useEffect(() => {
-    if (events.length === 0) void loadSpanPayloads(spanId);
-  }, [spanId, events.length]);
+    if (events.length === 0) void root.stores.activity.loadSpanPayloads(spanId);
+  }, [spanId, events.length, root]);
   if (events.length === 0) {
     return (
       <p className="px-2 py-1 text-[11px] text-muted-foreground/60">

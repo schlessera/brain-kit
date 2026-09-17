@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../root-context.js";
 import { useCallback, useEffect } from "react";
 import {
   SHARE_STASH_TTL_MS,
@@ -9,8 +10,6 @@ import {
   readShareLaunchParams,
   type StoredShare,
 } from "@schlessera/brain-ui-sdk/share-target";
-import { useChatStore } from "../stores/chat-store.js";
-import { useConnectionStore } from "../stores/connection-store.js";
 import { useShareStore } from "../stores/share-store.js";
 import { detectClientEnvironment } from "../lib/client-environment.js";
 import {
@@ -23,7 +22,6 @@ import {
   shareImagesToAttachments,
   uploadShare,
 } from "../lib/share-intake.js";
-import { sendClientMessage } from "./use-websocket.js";
 
 /**
  * Pick up shares the service worker stashed, and file them once confirmed.
@@ -66,6 +64,7 @@ export function useShareIntake(): {
   confirm: (record: StoredShare) => Promise<void>;
   dismiss: (record: StoredShare) => void;
 } {
+  const root = useBrainUiRoot();
   const enqueue = useShareStore((s) => s.enqueue);
   const remove = useShareStore((s) => s.remove);
   const setBusy = useShareStore((s) => s.setBusy);
@@ -112,9 +111,9 @@ export function useShareIntake(): {
 
   const confirm = useCallback(
     async (record: StoredShare) => {
-      const share = useShareStore.getState();
+      const share = root.stores.share.getState();
       if (share.busy) return;
-      if (useConnectionStore.getState().wsStatus !== "connected") {
+      if (root.stores.connection.getState().wsStatus !== "connected") {
         setError("Not connected yet — this will work as soon as the app reconnects.");
         return;
       }
@@ -133,7 +132,7 @@ export function useShareIntake(): {
         if (errors.length) setNotes(errors);
 
         const prompt = buildSharePrompt(outcome.result as ShareIntakeResult);
-        const chat = useChatStore.getState();
+        const chat = root.stores.chat.getState();
         // Always start from a fresh draft: `activeSessionId` is restored from
         // localStorage at store creation, so on a cold boot it already points
         // at whatever session was last open.
@@ -153,7 +152,7 @@ export function useShareIntake(): {
         );
         chat.startAssistantMessage(null);
 
-        const sent = sendClientMessage({
+        const sent = root.connection.send({
           type: "chat_message",
           text: prompt,
           ...(attachments.length
@@ -172,7 +171,7 @@ export function useShareIntake(): {
         setBusy(false);
       }
     },
-    [remove, setBusy, setError, setNotes]
+    [remove, setBusy, setError, setNotes, root]
   );
 
   const dismiss = useCallback(

@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp,
@@ -12,7 +13,6 @@ import {
 } from "lucide-react";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
-import { uiConfig } from "../../config.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { deriveConnectionIssue } from "../connectivity/connection-state.js";
 import { useProviderStore } from "../../stores/provider-store.js";
@@ -46,6 +46,7 @@ import { cn } from "../../lib/utils.js";
  * belong in this file, and draft state does not belong above it.
  */
 export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
+  const root = useBrainUiRoot();
   const [input, setInput] = useState("");
   const [lastPrompt, setLastPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -202,7 +203,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       previewUrl: a.previewUrl,
       mediaType: a.attachment.mediaType,
     }));
-    const chat = useChatStore.getState();
+    const chat = root.stores.chat.getState();
     chat.addUserMessage(
       sessionId,
       text,
@@ -475,7 +476,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
                       : connectionIssue === "refused"
                         ? "Server refused the connection"
                         : "Connecting..."
-                    : uiConfig.composerPlaceholder
+                    : root.config.composerPlaceholder
                 }
                 disabled={wsStatus !== "connected"}
                 rows={1}

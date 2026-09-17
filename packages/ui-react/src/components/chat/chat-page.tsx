@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ArrowDown, ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
@@ -18,7 +19,6 @@ import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
 import { useChatCommands } from "./use-chat-commands.js";
-import { getBackendUrl } from "../../lib/backend.js";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -48,6 +48,7 @@ const WINDOW_STEP = 40;
  * that on the first re-render.
  */
 export function ChatPage() {
+  const root = useBrainUiRoot();
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -139,14 +140,14 @@ export function ChatPage() {
 
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {
-      useChatStore.getState().resolveToolApproval(sessionId, toolUseId, approved);
+      root.stores.chat.getState().resolveToolApproval(sessionId, toolUseId, approved);
       if (approved) {
         send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) });
       } else {
         send({ type: "tool_denial", toolUseId, message: "Denied by user" });
       }
     },
-    [send, sessionId]
+    [send, sessionId, root]
   );
 
   const handleAskUserSubmit = useCallback(
@@ -155,20 +156,19 @@ export function ChatPage() {
       answers: Record<string, string>,
       annotations?: Record<string, AskUserAnnotation>
     ) => {
-      useChatStore
-        .getState()
+      root.stores.chat.getState()
         .submitAskUserAnswers(sessionId, requestId, answers, annotations);
       send({ type: "ask_user_response", requestId, answers, annotations });
     },
-    [send, sessionId]
+    [send, sessionId, root]
   );
 
   const handleAskUserCancel = useCallback(
     (requestId: string) => {
-      useChatStore.getState().cancelAskUser(sessionId, requestId);
+      root.stores.chat.getState().cancelAskUser(sessionId, requestId);
       send({ type: "ask_user_cancel", requestId, reason: "User dismissed" });
     },
-    [send, sessionId]
+    [send, sessionId, root]
   );
 
   const handleSessionResume = useCallback(
@@ -225,7 +225,7 @@ export function ChatPage() {
         open={syncPanelOpen}
         onClose={() => setSyncPanelOpen(false)}
         title="Brain Sync"
-        endpoint={getBackendUrl("/api/brain/sync")}
+        endpoint={root.backendUrl("/api/brain/sync")}
       />
       <WhatsupPanel
         open={whatsupPanelOpen}

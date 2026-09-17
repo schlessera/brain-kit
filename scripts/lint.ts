@@ -17,6 +17,7 @@ const LINTS = [
   "check-module-casts.ts", // `as` casts papering over the module config contract
   "check-leakage.ts", // personal strings anywhere in the tree (CI's leakage gate, runnable locally)
   "check-kit-purity.ts", // ui-kit stays prop-driven: no store, no I/O, no ambient globals
+  "check-root-stores.ts", // internal imperative store access must use an explicit root
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
 ];
 

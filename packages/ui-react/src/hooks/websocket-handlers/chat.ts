@@ -1,4 +1,4 @@
-import { activeChat, useChatStore } from "../../stores/chat-store.js";
+import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {
   AskUserQuestion,
@@ -194,7 +194,7 @@ export const chatFrameHandlers = {
     // THIS frame's session: a background session settling must not consume
     // (or trigger) the active session's pending resync.
     if (msg.status === "idle" || msg.status === "cancelled") {
-      const current = useChatStore.getState();
+      const current = context.stores.chat.getState();
       context.resyncIfNeeded(context.frameSessionId ?? current.activeSessionId);
       // Cold load: we hold a stored session id but an empty transcript and
       // the server is idle (so it sent no snapshot). Fetch the history.

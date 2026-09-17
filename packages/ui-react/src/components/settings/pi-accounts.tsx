@@ -1,7 +1,7 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Loader2, LogOut, X } from "lucide-react";
 import { api, type PiAuthProviderStatus, type PiLoginFlow } from "../../lib/api-client.js";
-import { useProviderStore } from "../../stores/provider-store.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -14,6 +14,7 @@ import { cn } from "../../lib/utils.js";
  * configured), so the Models tab is unchanged for Claude-only deployments.
  */
 export function PiAccountsSection({ active }: { active: boolean }) {
+  const root = useBrainUiRoot();
   const [providers, setProviders] = useState<PiAuthProviderStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export function PiAccountsSection({ active }: { active: boolean }) {
           void reload();
           // A connected subscription account can change the picker's default
           // ordering — refresh the composer's roster copy too.
-          void useProviderStore.getState().loadProviders();
+          void root.stores.provider.getState().loadProviders();
         }
       } catch {
         if (disposed) return;
@@ -82,7 +83,7 @@ export function PiAccountsSection({ active }: { active: boolean }) {
       disposed = true;
       stopPolling();
     };
-  }, [flow]);
+  }, [flow, root]);
 
   async function connect(providerId: string) {
     setBusy(providerId);

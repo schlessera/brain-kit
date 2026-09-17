@@ -1,11 +1,13 @@
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { ChatKey, SessionChat } from "../../stores/chat-store.js";
-import { useChatStore } from "../../stores/chat-store.js";
+import type { ChatState } from "../../stores/chat-state.js";
+import type { BrainStores } from "../../stores/create-stores.js";
 
 export type ServerMessageType = ServerMessage["type"];
 
 export interface DispatchContext {
-  state: ReturnType<typeof useChatStore.getState>;
+  state: ChatState;
+  stores: BrainStores;
   frameSessionId: string | undefined;
   key: ChatKey;
   buffer: () => SessionChat | null | undefined;

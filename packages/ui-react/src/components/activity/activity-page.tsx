@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon,
@@ -13,7 +14,6 @@ import {
   type ActivityRollups,
   type ActivityRunSummary,
 } from "../../lib/api-client.js";
-import { sendClientMessage } from "../../hooks/use-websocket.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
@@ -35,6 +35,7 @@ import { SettingsPanel } from "../settings/settings-panel.js";
  * open; history and rollups come from the REST activity API.
  */
 export function ActivityPage() {
+  const root = useBrainUiRoot();
   const supported = useActivityStore((s) => s.supported);
   const connectionEpoch = useActivityStore((s) => s.connectionEpoch);
   const liveSpans = useActivityStore((s) => s.spans);
@@ -76,13 +77,13 @@ export function ActivityPage() {
   useEffect(() => {
     refresh();
     if (supported) {
-      sendClientMessage({ type: "activity_subscribe", view: "index" });
+      root.connection.send({ type: "activity_subscribe", view: "index" });
       return () => {
-        sendClientMessage({ type: "activity_unsubscribe", view: "index" });
+        root.connection.send({ type: "activity_unsubscribe", view: "index" });
       };
     }
     return undefined;
-  }, [supported, connectionEpoch]);
+  }, [supported, connectionEpoch, root]);
 
   // Deep-link consumer: `#/activity/<runId>` (the push notification landing
   // spot — the shell routes it here but leaves the hash intact) opens that

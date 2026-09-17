@@ -8,8 +8,12 @@ export "." (./src/index.ts)
   ActivityPage
   AppShell
   type AskUserExchange
+  type BrainApi
   BrainMarkdown
   type BrainUiConfig
+  BrainUiProvider
+  type BrainUiRoot
+  type BrainUiRootOptions
   type ChatKey
   type ChatMessage
   ChatPage
@@ -30,9 +34,15 @@ export "." (./src/index.ts)
   anyStreaming
   api
   apiBase
+  apiBaseFor
   configureBrainUi
+  createBrainApi
+  createBrainUiConfig
+  createBrainUiRoot
   getBackendUrl
+  getBackendUrlFor
   getWsUrl
+  getWsUrlFor
   handleServerMessage
   hasPendingShare
   hasUnsentText
@@ -41,6 +51,9 @@ export "." (./src/index.ts)
   runStateForFrame
   sendClientMessage
   uiConfig
+  useBrainApi
+  useBrainConfig
+  useBrainUiRoot
   useChatStore
   useConnectionStore
   useFileStore

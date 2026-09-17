@@ -9,7 +9,7 @@
  */
 
 // Branding / copy configuration (module singleton, set once at boot).
-export { configureBrainUi, uiConfig, type BrainUiConfig } from "./config.js";
+export { configureBrainUi, createBrainUiConfig, uiConfig, type BrainUiConfig } from "./config.js";
 
 // Top-level surfaces the shell composes.
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
@@ -79,5 +79,9 @@ export {
 export { ShareIntake } from "./components/chat/share-card.js";
 
 // API surface (typed REST client + backend URL helpers).
-export { api } from "./lib/api-client.js";
-export { apiBase, getWsUrl, getBackendUrl } from "./lib/backend.js";
+export { api, createBrainApi, type BrainApi } from "./lib/api-client.js";
+export { apiBase, apiBaseFor, getWsUrl, getWsUrlFor, getBackendUrl, getBackendUrlFor } from "./lib/backend.js";
+
+// Independent UI roots; connection handlers close over the root they belong to.
+export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions } from "./root.js";
+export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";

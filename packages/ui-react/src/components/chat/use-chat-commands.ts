@@ -1,8 +1,6 @@
+import type { BrainUiRoot } from "../../root.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback } from "react";
-import { useChatStore } from "../../stores/chat-store.js";
-import { useConnectionStore } from "../../stores/connection-store.js";
-import { useUIStore } from "../../stores/ui-store.js";
-import { api } from "../../lib/api-client.js";
 
 /**
  * Slash-command dispatch, shared by the composer's palette and the welcome
@@ -15,8 +13,9 @@ import { api } from "../../lib/api-client.js";
  * identity per character would defeat the memoization around it.
  */
 export function useChatCommands(): (command: string) => void {
+  const root = useBrainUiRoot();
   return useCallback((command: string) => {
-    const ui = useUIStore.getState();
+    const ui = root.stores.ui.getState();
 
     // Search and add talk to the brain CLI over REST, not to the agent — they
     // stay available while a turn streams or the socket is down.
@@ -29,11 +28,11 @@ export function useChatCommands(): (command: string) => void {
         return;
     }
 
-    const chat = useChatStore.getState();
+    const chat = root.stores.chat.getState();
     const sessionId = chat.activeSessionId;
     const buffer = sessionId ? chat.buffers[sessionId] : chat.draft;
     const disabled =
-      useConnectionStore.getState().wsStatus !== "connected" ||
+      root.stores.connection.getState().wsStatus !== "connected" ||
       Boolean(buffer?.isStreaming);
     if (disabled) return;
 
@@ -45,19 +44,19 @@ export function useChatCommands(): (command: string) => void {
         ui.setWhatsupPanelOpen(true);
         break;
       case "stats":
-        void runStats(sessionId);
+        void runStats(root, sessionId);
         break;
     }
-  }, []);
+  }, [root]);
 }
 
 /** Brain statistics rendered into the transcript as an assistant turn. */
-async function runStats(sessionId: string | null): Promise<void> {
-  const chat = useChatStore.getState();
+async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {
+  const chat = root.stores.chat.getState();
   chat.addUserMessage(sessionId, "Stats");
   chat.startAssistantMessage(sessionId);
   try {
-    const stats = await api.brainStats();
+    const stats = await root.api.brainStats();
     const result = [
       `**Brain Statistics**`,
       `- Documents: ${stats.documents}`,
@@ -73,15 +72,14 @@ async function runStats(sessionId: string | null): Promise<void> {
         .map(([s, n]) => `${s} (${n})`)
         .join(", ")}`,
     ].join("\n");
-    useChatStore.getState().appendText(sessionId, result);
+    root.stores.chat.getState().appendText(sessionId, result);
   } catch (err) {
-    useChatStore
-      .getState()
+    root.stores.chat.getState()
       .appendText(
         sessionId,
         `**Error:** ${err instanceof Error ? err.message : "Action failed"}`
       );
   } finally {
-    useChatStore.getState().finishAssistantMessage(sessionId);
+    root.stores.chat.getState().finishAssistantMessage(sessionId);
   }
 }

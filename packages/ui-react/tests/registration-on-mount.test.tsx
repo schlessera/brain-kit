@@ -146,8 +146,8 @@ if (!childMode) {
 
   const sdk = await import("@schlessera/brain-ui-sdk/client");
   const realSdk = { ...sdk };
-  const realRegisterToolRenderers = realSdk.registerToolRenderers;
-  const realRegisterAsrClient = realSdk.registerAsrClient;
+  const realRegisterToolRenderers = realSdk.defaultToolRendererRegistry.register;
+  const realRegisterAsrClient = realSdk.defaultAsrClientRegistry.register;
   const registerToolRenderers = mock((pack: RendererPack) =>
     realRegisterToolRenderers(pack)
   );
@@ -156,11 +156,8 @@ if (!childMode) {
       realRegisterAsrClient(providerId, factory)
   );
 
-  mock.module("@schlessera/brain-ui-sdk/client", () => ({
-    ...realSdk,
-    registerToolRenderers,
-    registerAsrClient,
-  }));
+  sdk.defaultToolRendererRegistry.register = registerToolRenderers;
+  sdk.defaultAsrClientRegistry.register = registerAsrClient;
 
   const React = await import("react");
   const { cleanup, render, renderHook } = await import("@testing-library/react");

@@ -189,409 +189,425 @@ export interface WebSearchConfig {
   providers: WebSearchProvider[];
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+/**
+ * A concrete REST client owned by one UI root. The getter is evaluated for
+ * EVERY request: a root can be constructed before the shell supplies its
+ * configuration without freezing the default URL. Multipart uploads use the
+ * same getter and transport as JSON requests.
+ */
+export function createBrainApi(
+  getBase: () => string,
+  request: (url: string, init?: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
+) {
+  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const res = await request(`${getBase()}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.json();
   }
-  return res.json();
+
+  return {
+    health: () =>
+      fetchJson<{ status: string; uptime: number; version: string }>("/health"),
+
+    vpnCheck: () => fetchJson<{ vpn: boolean }>("/vpn-check"),
+
+    status: () =>
+      fetchJson<{
+        healthy: boolean;
+        uptime: number;
+        cronJobs: Array<{
+          name: string;
+          lastRunAt: number | null;
+          lastStatus: string | null;
+        }>;
+        activeSession: boolean;
+      }>("/status"),
+
+    brainSearch: (
+      q: string,
+      opts?: {
+        type?: string;
+        tag?: string;
+        limit?: number;
+        mode?: "fts" | "vector" | "hybrid";
+        signal?: AbortSignal;
+      }
+    ) =>
+      // Built with encodeURIComponent rather than URLSearchParams: the latter
+      // form-encodes spaces as "+", which not every query parser turns back into
+      // a space. %20 is unambiguous.
+      fetchJson<BrainSearchResponse>(
+        `/brain/search?q=${encodeURIComponent(q)}` +
+          (opts?.type ? `&type=${encodeURIComponent(opts.type)}` : "") +
+          (opts?.tag ? `&tag=${encodeURIComponent(opts.tag)}` : "") +
+          (opts?.limit ? `&limit=${opts.limit}` : "") +
+          (opts?.mode ? `&mode=${opts.mode}` : ""),
+        { signal: opts?.signal }
+      ),
+
+    brainBriefing: () =>
+      fetchJson<{ content: string }>("/brain/briefing"),
+
+    brainStats: () =>
+      fetchJson<{
+        documents: number;
+        byType: Record<string, number>;
+        byStatus: Record<string, number>;
+        tags: number;
+        links: number;
+      }>("/brain/stats"),
+
+    brainSync: () =>
+      fetchJson<{ success: boolean; message: string }>("/brain/sync", {
+        method: "POST",
+      }),
+
+    brainAdd: (content: string, opts?: { type?: string; title?: string; tags?: string[] }) =>
+      fetchJson<{ success: boolean; path?: string; indexed?: boolean; indexError?: string }>("/brain/add", {
+        method: "POST",
+        body: JSON.stringify({ content, ...opts }),
+      }),
+
+    brainIndex: () => fetchJson<{ success: boolean }>("/brain/index", {
+      method: "POST", body: "{}",
+    }),
+
+    sessions: () =>
+      fetchJson<{
+        unavailableBackends?: string[];
+        sessions: Array<{
+          id: string;
+          title: string | null;
+          createdAt: number;
+          lastActiveAt: number;
+        }>;
+      }>("/sessions"),
+
+    /** Mint a dictation session for the active speech provider. */
+    voiceSession: (signal?: AbortSignal) =>
+      fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal }),
+
+    /** @deprecated use voiceSession(); kept during client transition. */
+    voiceToken: () =>
+      fetchJson<VoiceTokenResponse>("/voice/token", { method: "POST" }),
+
+    voiceKeyterms: () => fetchJson<VoiceKeytermsResponse>("/voice/keyterms"),
+
+    voiceOverrides: (signal?: AbortSignal) =>
+      fetchJson<{ overrides: PronunciationOverride[] }>("/voice/overrides", {
+        signal,
+      }),
+
+    providers: () =>
+      fetchJson<{
+        providers: ProviderInfo[];
+        backends?: Record<string, BackendInfo>;
+      }>("/providers"),
+
+    /** Full model catalog for the settings screen — hidden entries included. */
+    models: () => fetchJson<ModelCatalogResponse>("/models"),
+
+    /** Replace the hidden set (full list, not a delta); returns the new catalog. */
+    setHiddenModels: (hidden: string[]) =>
+      fetchJson<ModelCatalogResponse>("/models/hidden", {
+        method: "PUT",
+        body: JSON.stringify({ hidden }),
+      }),
+
+    /** Replace the billing-override record (full record, not a delta); returns the new catalog. */
+    setBillingOverrides: (billing: Record<string, BillingMode>) =>
+      fetchJson<ModelCatalogResponse>("/models/billing", {
+        method: "PUT",
+        body: JSON.stringify({ billing }),
+      }),
+
+    /** Pricing-table freshness for the Activity staleness indicator (see `PricingState`). */
+    pricingState: () => fetchJson<PricingState>("/models/pricing"),
+
+    /** Auth status of configured pi providers; empty when pi is not in play. */
+    piAuthProviders: () =>
+      fetchJson<{ providers: PiAuthProviderStatus[] }>("/pi-auth/providers"),
+
+    /** Start an OAuth device-code login; resolves once the user code exists. */
+    piAuthStart: (providerId: string) =>
+      fetchJson<{ flow: PiLoginFlow }>("/pi-auth/login", {
+        method: "POST",
+        body: JSON.stringify({ providerId }),
+      }),
+
+    /** Poll one login flow. */
+    piAuthFlow: (id: string) =>
+      fetchJson<{ flow: PiLoginFlow }>(`/pi-auth/login/${encodeURIComponent(id)}`),
+
+    /** Abort a pending login flow. */
+    piAuthCancel: (id: string) =>
+      fetchJson<{ ok: boolean }>(`/pi-auth/login/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    /** Remove the stored credential for a pi provider. */
+    piAuthLogout: (providerId: string) =>
+      fetchJson<{ ok: boolean }>("/pi-auth/logout", {
+        method: "POST",
+        body: JSON.stringify({ providerId }),
+      }),
+
+    /** Custom + built-in skills, as managed from Settings → Skills. */
+    skillsList: () => fetchJson<{ skills: SkillEntry[] }>("/skills"),
+
+    /** One skill's SKILL.md and file list (builtins read-only). */
+    skillGet: (name: string) =>
+      fetchJson<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
+
+    /** Create a custom skill; runs `brain skills sync` server-side. */
+    skillCreate: (name: string, content: string) =>
+      fetchJson<{ skill: SkillEntry; warning?: string }>("/skills", {
+        method: "POST",
+        body: JSON.stringify({ name, content }),
+      }),
+
+    /** Replace a custom skill's SKILL.md. */
+    skillUpdate: (name: string, content: string) =>
+      fetchJson<{ skill: SkillEntry; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }),
+
+    /** Enable/disable a custom skill (applies to every backend at once). */
+    skillSetEnabled: (name: string, enabled: boolean) =>
+      fetchJson<{ skill: SkillEntry; warning?: string }>(
+        `/skills/${encodeURIComponent(name)}/enabled`,
+        { method: "POST", body: JSON.stringify({ enabled }) }
+      ),
+
+    /** Delete a custom skill permanently. */
+    skillRemove: (name: string) =>
+      fetchJson<{ ok: boolean; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+
+    /** Install skill(s) from an uploaded ZIP archive. */
+    skillInstallZip: async (file: File, overwrite: boolean) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("overwrite", overwrite ? "true" : "false");
+      // Raw fetch: the browser must set the multipart boundary itself.
+      const res = await request(`${getBase()}/skills/install/zip`, {
+        method: "POST",
+        body: form,
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { outcomes?: SkillInstallOutcome[]; warning?: string; error?: string }
+        | null;
+      if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+      return body as { outcomes: SkillInstallOutcome[]; warning?: string };
+    },
+
+    /** Install skill(s) from a GitHub repository (owner/repo or URL). */
+    skillInstallGitHub: (source: string, overwrite: boolean, ref?: string) =>
+      fetchJson<{ outcomes: SkillInstallOutcome[]; warning?: string }>(
+        "/skills/install/github",
+        {
+          method: "POST",
+          body: JSON.stringify({ source, overwrite, ...(ref ? { ref } : {}) }),
+        }
+      ),
+
+    /** Tools remembered as "always allow" (auto-approved without a card). */
+    toolPermissions: () => fetchJson<{ tools: string[] }>("/tool-permissions"),
+
+    /** Revoke one remembered tool grant; returns the updated list. */
+    toolPermissionRevoke: (tool: string) =>
+      fetchJson<{ tools: string[] }>(`/tool-permissions/${encodeURIComponent(tool)}`, {
+        method: "DELETE",
+      }),
+
+    /** Web-search provider config; `configured: false` when pi is not in play. */
+    webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
+
+    /**
+     * Toggle providers and/or store API keys (null/"" clears a key), or clear a
+     * single-provider override. Returns the updated config.
+     */
+    webSearchUpdate: (update: {
+      enabled?: Record<string, boolean>;
+      apiKeys?: Record<string, string | null>;
+      clearOverride?: boolean;
+    }) =>
+      fetchJson<WebSearchConfig>("/web-search", {
+        method: "PUT",
+        body: JSON.stringify(update),
+      }),
+
+    /** Replace the reasoning-effort override record (full record, not a delta). */
+    setThinkingOverrides: (thinking: Record<string, ThinkingLevel>) =>
+      fetchJson<ModelCatalogResponse>("/models/thinking", {
+        method: "PUT",
+        body: JSON.stringify({ thinking }),
+      }),
+
+    /** Set the default model (a profile id, or null for auto); returns the new catalog. */
+    setDefaultModel: (defaultId: string | null) =>
+      fetchJson<ModelCatalogResponse>("/models/default", {
+        method: "PUT",
+        body: JSON.stringify({ defaultId }),
+      }),
+
+    /** Replace the custom OpenRouter model list (full list, not a delta). */
+    setCustomModels: (models: string[]) =>
+      fetchJson<ModelCatalogResponse>("/models/custom", {
+        method: "PUT",
+        body: JSON.stringify({ models }),
+      }),
+
+    /** Force a discovery refresh, bypassing the TTL. */
+    refreshModels: () =>
+      fetchJson<ModelCatalogResponse>("/models/refresh", { method: "POST" }),
+
+    /** Password-mode login. Resolves on success; throws the server error otherwise. */
+    login: (password: string) =>
+      fetchJson<{ ok: true }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      }),
+
+    logout: () =>
+      fetchJson<{ ok: true }>("/auth/logout", { method: "POST" }),
+
+    principals: () =>
+      fetchJson<{ principals: PrincipalSummary[] }>("/auth/principals"),
+
+    principalMint: (label: string, ttlDays: number) =>
+      fetchJson<MintedAgent>("/auth/principals", {
+        method: "POST",
+        body: JSON.stringify({ label, ttlDays }),
+      }),
+
+    principalRevoke: (id: string) =>
+      fetchJson<{ ok: true }>(`/auth/principals/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    /** Which login methods the server offers (public; drives the login screen). */
+    authMethods: () =>
+      fetchJson<{ password: boolean; passkey: boolean }>("/auth/methods"),
+
+    passkeyLoginOptions: () =>
+      fetchJson<PublicKeyCredentialRequestOptionsJSON>("/auth/passkey/login-options", {
+        method: "POST",
+        body: "{}",
+      }),
+
+    passkeyLoginVerify: (response: AuthenticationResponseJSON) =>
+      fetchJson<{ ok: true }>("/auth/passkey/login-verify", {
+        method: "POST",
+        body: JSON.stringify(response),
+      }),
+
+    passkeyRegisterOptions: () =>
+      fetchJson<PublicKeyCredentialCreationOptionsJSON>("/auth/passkey/register-options", {
+        method: "POST",
+        body: "{}",
+      }),
+
+    passkeyRegisterVerify: (response: RegistrationResponseJSON, label?: string) =>
+      fetchJson<{ ok: true; credential: PasskeySummary | null }>(
+        "/auth/passkey/register-verify",
+        { method: "POST", body: JSON.stringify({ response, label }) }
+      ),
+
+    passkeyList: () =>
+      fetchJson<{ credentials: PasskeySummary[] }>("/auth/passkey/list"),
+
+    passkeyRename: (id: string, label: string) =>
+      fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ label }),
+      }),
+
+    passkeyDelete: (id: string) =>
+      fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    // --- Activity record (read side; live updates ride the WebSocket) ---
+
+    activityRuns: (opts?: {
+      origin?: "session" | "cron";
+      job?: string;
+      session?: string;
+      status?: string;
+      limit?: number;
+      before?: number;
+    }) =>
+      fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
+        "/activity/runs?" +
+          [
+            opts?.origin && `origin=${opts.origin}`,
+            opts?.job && `job=${encodeURIComponent(opts.job)}`,
+            opts?.session && `session=${encodeURIComponent(opts.session)}`,
+            opts?.status && `status=${encodeURIComponent(opts.status)}`,
+            opts?.limit && `limit=${opts.limit}`,
+            opts?.before && `before=${opts.before}`,
+          ]
+            .filter(Boolean)
+            .join("&")
+      ),
+
+    /**
+     * One run's detail. Payload bodies (tool_input/tool_output events) are
+     * excluded by default — the session-history fetch only needs span timings —
+     * and opted into by the drill-in views via `includePayloads`.
+     */
+    activityRun: (runId: string, opts?: { includePayloads?: boolean }) =>
+      fetchJson<ActivityRunDetail>(
+        `/activity/runs/${encodeURIComponent(runId)}` +
+          (opts?.includePayloads ? "?include=payloads" : "")
+      ),
+
+    activityRollups: (days?: number) =>
+      fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
+
+    activityInbox: () => fetchJson<{ intents: ActivityIntent[] }>("/activity/inbox"),
+
+    activityInboxAck: (id: number) =>
+      fetchJson<{ ok: true }>(`/activity/inbox/${id}/ack`, { method: "POST" }),
+
+    activityInboxAckAll: () =>
+      fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
+
+    activityDigest: () =>
+      fetchJson<{ digest: ActivityDigest | null; dismissedAt: number }>("/activity/digest"),
+
+    activityDigestDismiss: () =>
+      fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
+
+    pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
+
+    pushSubscribe: (subscription: unknown, label?: string) =>
+      fetchJson<{ ok: true }>("/push/subscribe", {
+        method: "POST",
+        body: JSON.stringify({ subscription, label }),
+      }),
+
+    pushUnsubscribe: (endpoint: string) =>
+      fetchJson<{ removed: boolean }>("/push/unsubscribe", {
+        method: "POST",
+        body: JSON.stringify({ endpoint }),
+      }),
+  };
 }
 
-export const api = {
-  health: () =>
-    fetchJson<{ status: string; uptime: number; version: string }>("/health"),
+export type BrainApi = ReturnType<typeof createBrainApi>;
 
-  vpnCheck: () => fetchJson<{ vpn: boolean }>("/vpn-check"),
-
-  status: () =>
-    fetchJson<{
-      healthy: boolean;
-      uptime: number;
-      cronJobs: Array<{
-        name: string;
-        lastRunAt: number | null;
-        lastStatus: string | null;
-      }>;
-      activeSession: boolean;
-    }>("/status"),
-
-  brainSearch: (
-    q: string,
-    opts?: {
-      type?: string;
-      tag?: string;
-      limit?: number;
-      mode?: "fts" | "vector" | "hybrid";
-      signal?: AbortSignal;
-    }
-  ) =>
-    // Built with encodeURIComponent rather than URLSearchParams: the latter
-    // form-encodes spaces as "+", which not every query parser turns back into
-    // a space. %20 is unambiguous.
-    fetchJson<BrainSearchResponse>(
-      `/brain/search?q=${encodeURIComponent(q)}` +
-        (opts?.type ? `&type=${encodeURIComponent(opts.type)}` : "") +
-        (opts?.tag ? `&tag=${encodeURIComponent(opts.tag)}` : "") +
-        (opts?.limit ? `&limit=${opts.limit}` : "") +
-        (opts?.mode ? `&mode=${opts.mode}` : ""),
-      { signal: opts?.signal }
-    ),
-
-  brainBriefing: () =>
-    fetchJson<{ content: string }>("/brain/briefing"),
-
-  brainStats: () =>
-    fetchJson<{
-      documents: number;
-      byType: Record<string, number>;
-      byStatus: Record<string, number>;
-      tags: number;
-      links: number;
-    }>("/brain/stats"),
-
-  brainSync: () =>
-    fetchJson<{ success: boolean; message: string }>("/brain/sync", {
-      method: "POST",
-    }),
-
-  brainAdd: (content: string, opts?: { type?: string; title?: string; tags?: string[] }) =>
-    fetchJson<{ success: boolean; path?: string; indexed?: boolean; indexError?: string }>("/brain/add", {
-      method: "POST",
-      body: JSON.stringify({ content, ...opts }),
-    }),
-
-  brainIndex: () => fetchJson<{ success: boolean }>("/brain/index", {
-    method: "POST", body: "{}",
-  }),
-
-  sessions: () =>
-    fetchJson<{
-      unavailableBackends?: string[];
-      sessions: Array<{
-        id: string;
-        title: string | null;
-        createdAt: number;
-        lastActiveAt: number;
-      }>;
-    }>("/sessions"),
-
-  /** Mint a dictation session for the active speech provider. */
-  voiceSession: (signal?: AbortSignal) =>
-    fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal }),
-
-  /** @deprecated use voiceSession(); kept during client transition. */
-  voiceToken: () =>
-    fetchJson<VoiceTokenResponse>("/voice/token", { method: "POST" }),
-
-  voiceKeyterms: () => fetchJson<VoiceKeytermsResponse>("/voice/keyterms"),
-
-  voiceOverrides: (signal?: AbortSignal) =>
-    fetchJson<{ overrides: PronunciationOverride[] }>("/voice/overrides", {
-      signal,
-    }),
-
-  providers: () =>
-    fetchJson<{
-      providers: ProviderInfo[];
-      backends?: Record<string, BackendInfo>;
-    }>("/providers"),
-
-  /** Full model catalog for the settings screen — hidden entries included. */
-  models: () => fetchJson<ModelCatalogResponse>("/models"),
-
-  /** Replace the hidden set (full list, not a delta); returns the new catalog. */
-  setHiddenModels: (hidden: string[]) =>
-    fetchJson<ModelCatalogResponse>("/models/hidden", {
-      method: "PUT",
-      body: JSON.stringify({ hidden }),
-    }),
-
-  /** Replace the billing-override record (full record, not a delta); returns the new catalog. */
-  setBillingOverrides: (billing: Record<string, BillingMode>) =>
-    fetchJson<ModelCatalogResponse>("/models/billing", {
-      method: "PUT",
-      body: JSON.stringify({ billing }),
-    }),
-
-  /** Pricing-table freshness for the Activity staleness indicator (see `PricingState`). */
-  pricingState: () => fetchJson<PricingState>("/models/pricing"),
-
-  /** Auth status of configured pi providers; empty when pi is not in play. */
-  piAuthProviders: () =>
-    fetchJson<{ providers: PiAuthProviderStatus[] }>("/pi-auth/providers"),
-
-  /** Start an OAuth device-code login; resolves once the user code exists. */
-  piAuthStart: (providerId: string) =>
-    fetchJson<{ flow: PiLoginFlow }>("/pi-auth/login", {
-      method: "POST",
-      body: JSON.stringify({ providerId }),
-    }),
-
-  /** Poll one login flow. */
-  piAuthFlow: (id: string) =>
-    fetchJson<{ flow: PiLoginFlow }>(`/pi-auth/login/${encodeURIComponent(id)}`),
-
-  /** Abort a pending login flow. */
-  piAuthCancel: (id: string) =>
-    fetchJson<{ ok: boolean }>(`/pi-auth/login/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  /** Remove the stored credential for a pi provider. */
-  piAuthLogout: (providerId: string) =>
-    fetchJson<{ ok: boolean }>("/pi-auth/logout", {
-      method: "POST",
-      body: JSON.stringify({ providerId }),
-    }),
-
-  /** Custom + built-in skills, as managed from Settings → Skills. */
-  skillsList: () => fetchJson<{ skills: SkillEntry[] }>("/skills"),
-
-  /** One skill's SKILL.md and file list (builtins read-only). */
-  skillGet: (name: string) =>
-    fetchJson<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
-
-  /** Create a custom skill; runs `brain skills sync` server-side. */
-  skillCreate: (name: string, content: string) =>
-    fetchJson<{ skill: SkillEntry; warning?: string }>("/skills", {
-      method: "POST",
-      body: JSON.stringify({ name, content }),
-    }),
-
-  /** Replace a custom skill's SKILL.md. */
-  skillUpdate: (name: string, content: string) =>
-    fetchJson<{ skill: SkillEntry; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
-      method: "PUT",
-      body: JSON.stringify({ content }),
-    }),
-
-  /** Enable/disable a custom skill (applies to every backend at once). */
-  skillSetEnabled: (name: string, enabled: boolean) =>
-    fetchJson<{ skill: SkillEntry; warning?: string }>(
-      `/skills/${encodeURIComponent(name)}/enabled`,
-      { method: "POST", body: JSON.stringify({ enabled }) }
-    ),
-
-  /** Delete a custom skill permanently. */
-  skillRemove: (name: string) =>
-    fetchJson<{ ok: boolean; warning?: string }>(`/skills/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }),
-
-  /** Install skill(s) from an uploaded ZIP archive. */
-  skillInstallZip: async (file: File, overwrite: boolean) => {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("overwrite", overwrite ? "true" : "false");
-    // Raw fetch: the browser must set the multipart boundary itself.
-    const res = await fetch(`${apiBase()}/skills/install/zip`, {
-      method: "POST",
-      body: form,
-    });
-    const body = (await res.json().catch(() => null)) as
-      | { outcomes?: SkillInstallOutcome[]; warning?: string; error?: string }
-      | null;
-    if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
-    return body as { outcomes: SkillInstallOutcome[]; warning?: string };
-  },
-
-  /** Install skill(s) from a GitHub repository (owner/repo or URL). */
-  skillInstallGitHub: (source: string, overwrite: boolean, ref?: string) =>
-    fetchJson<{ outcomes: SkillInstallOutcome[]; warning?: string }>(
-      "/skills/install/github",
-      {
-        method: "POST",
-        body: JSON.stringify({ source, overwrite, ...(ref ? { ref } : {}) }),
-      }
-    ),
-
-  /** Tools remembered as "always allow" (auto-approved without a card). */
-  toolPermissions: () => fetchJson<{ tools: string[] }>("/tool-permissions"),
-
-  /** Revoke one remembered tool grant; returns the updated list. */
-  toolPermissionRevoke: (tool: string) =>
-    fetchJson<{ tools: string[] }>(`/tool-permissions/${encodeURIComponent(tool)}`, {
-      method: "DELETE",
-    }),
-
-  /** Web-search provider config; `configured: false` when pi is not in play. */
-  webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
-
-  /**
-   * Toggle providers and/or store API keys (null/"" clears a key), or clear a
-   * single-provider override. Returns the updated config.
-   */
-  webSearchUpdate: (update: {
-    enabled?: Record<string, boolean>;
-    apiKeys?: Record<string, string | null>;
-    clearOverride?: boolean;
-  }) =>
-    fetchJson<WebSearchConfig>("/web-search", {
-      method: "PUT",
-      body: JSON.stringify(update),
-    }),
-
-  /** Replace the reasoning-effort override record (full record, not a delta). */
-  setThinkingOverrides: (thinking: Record<string, ThinkingLevel>) =>
-    fetchJson<ModelCatalogResponse>("/models/thinking", {
-      method: "PUT",
-      body: JSON.stringify({ thinking }),
-    }),
-
-  /** Set the default model (a profile id, or null for auto); returns the new catalog. */
-  setDefaultModel: (defaultId: string | null) =>
-    fetchJson<ModelCatalogResponse>("/models/default", {
-      method: "PUT",
-      body: JSON.stringify({ defaultId }),
-    }),
-
-  /** Replace the custom OpenRouter model list (full list, not a delta). */
-  setCustomModels: (models: string[]) =>
-    fetchJson<ModelCatalogResponse>("/models/custom", {
-      method: "PUT",
-      body: JSON.stringify({ models }),
-    }),
-
-  /** Force a discovery refresh, bypassing the TTL. */
-  refreshModels: () =>
-    fetchJson<ModelCatalogResponse>("/models/refresh", { method: "POST" }),
-
-  /** Password-mode login. Resolves on success; throws the server error otherwise. */
-  login: (password: string) =>
-    fetchJson<{ ok: true }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ password }),
-    }),
-
-  logout: () =>
-    fetchJson<{ ok: true }>("/auth/logout", { method: "POST" }),
-
-  principals: () =>
-    fetchJson<{ principals: PrincipalSummary[] }>("/auth/principals"),
-
-  principalMint: (label: string, ttlDays: number) =>
-    fetchJson<MintedAgent>("/auth/principals", {
-      method: "POST",
-      body: JSON.stringify({ label, ttlDays }),
-    }),
-
-  principalRevoke: (id: string) =>
-    fetchJson<{ ok: true }>(`/auth/principals/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  /** Which login methods the server offers (public; drives the login screen). */
-  authMethods: () =>
-    fetchJson<{ password: boolean; passkey: boolean }>("/auth/methods"),
-
-  passkeyLoginOptions: () =>
-    fetchJson<PublicKeyCredentialRequestOptionsJSON>("/auth/passkey/login-options", {
-      method: "POST",
-      body: "{}",
-    }),
-
-  passkeyLoginVerify: (response: AuthenticationResponseJSON) =>
-    fetchJson<{ ok: true }>("/auth/passkey/login-verify", {
-      method: "POST",
-      body: JSON.stringify(response),
-    }),
-
-  passkeyRegisterOptions: () =>
-    fetchJson<PublicKeyCredentialCreationOptionsJSON>("/auth/passkey/register-options", {
-      method: "POST",
-      body: "{}",
-    }),
-
-  passkeyRegisterVerify: (response: RegistrationResponseJSON, label?: string) =>
-    fetchJson<{ ok: true; credential: PasskeySummary | null }>(
-      "/auth/passkey/register-verify",
-      { method: "POST", body: JSON.stringify({ response, label }) }
-    ),
-
-  passkeyList: () =>
-    fetchJson<{ credentials: PasskeySummary[] }>("/auth/passkey/list"),
-
-  passkeyRename: (id: string, label: string) =>
-    fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify({ label }),
-    }),
-
-  passkeyDelete: (id: string) =>
-    fetchJson<{ ok: true }>(`/auth/passkey/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-
-  // --- Activity record (read side; live updates ride the WebSocket) ---
-
-  activityRuns: (opts?: {
-    origin?: "session" | "cron";
-    job?: string;
-    session?: string;
-    status?: string;
-    limit?: number;
-    before?: number;
-  }) =>
-    fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
-      "/activity/runs?" +
-        [
-          opts?.origin && `origin=${opts.origin}`,
-          opts?.job && `job=${encodeURIComponent(opts.job)}`,
-          opts?.session && `session=${encodeURIComponent(opts.session)}`,
-          opts?.status && `status=${encodeURIComponent(opts.status)}`,
-          opts?.limit && `limit=${opts.limit}`,
-          opts?.before && `before=${opts.before}`,
-        ]
-          .filter(Boolean)
-          .join("&")
-    ),
-
-  /**
-   * One run's detail. Payload bodies (tool_input/tool_output events) are
-   * excluded by default — the session-history fetch only needs span timings —
-   * and opted into by the drill-in views via `includePayloads`.
-   */
-  activityRun: (runId: string, opts?: { includePayloads?: boolean }) =>
-    fetchJson<ActivityRunDetail>(
-      `/activity/runs/${encodeURIComponent(runId)}` +
-        (opts?.includePayloads ? "?include=payloads" : "")
-    ),
-
-  activityRollups: (days?: number) =>
-    fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
-
-  activityInbox: () => fetchJson<{ intents: ActivityIntent[] }>("/activity/inbox"),
-
-  activityInboxAck: (id: number) =>
-    fetchJson<{ ok: true }>(`/activity/inbox/${id}/ack`, { method: "POST" }),
-
-  activityInboxAckAll: () =>
-    fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
-
-  activityDigest: () =>
-    fetchJson<{ digest: ActivityDigest | null; dismissedAt: number }>("/activity/digest"),
-
-  activityDigestDismiss: () =>
-    fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
-
-  pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
-
-  pushSubscribe: (subscription: unknown, label?: string) =>
-    fetchJson<{ ok: true }>("/push/subscribe", {
-      method: "POST",
-      body: JSON.stringify({ subscription, label }),
-    }),
-
-  pushUnsubscribe: (endpoint: string) =>
-    fetchJson<{ removed: boolean }>("/push/unsubscribe", {
-      method: "POST",
-      body: JSON.stringify({ endpoint }),
-    }),
-};
+/** Default application client; configuration remains late-bound. */
+export const api = createBrainApi(apiBase);

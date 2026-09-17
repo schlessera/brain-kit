@@ -13,8 +13,10 @@ export {
   resetToolRenderers,
 } from "./renderers.js";
 
-export type { AsrClient, AsrClientFactory, AsrClientOptions } from "./asr.js";
+export type { AsrClient, AsrClientFactory, AsrClientOptions, AsrClientRegistry } from "./asr.js";
 export {
+  createAsrClientRegistry,
+  defaultAsrClientRegistry,
   registerAsrClient,
   createAsrClient,
   speechUiHints,

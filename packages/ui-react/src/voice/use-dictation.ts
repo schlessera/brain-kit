@@ -1,12 +1,11 @@
+import { useBrainUiRoot } from "../root-context.js";
 import { useCallback, useEffect, useRef } from "react";
 import { useVoiceStore } from "./voice-store.js";
 import {
-  createAsrClient,
   speechUiHints,
   type AsrClient,
 } from "@schlessera/brain-ui-sdk/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
-import { api } from "../lib/api-client.js";
 import { registerAsrClients } from "./asr-clients.js";
 
 /** Apply pronunciation overrides client-side to a finalized transcript. */
@@ -25,8 +24,10 @@ function applyOverrides(
 }
 
 export function useDictation() {
+  const root = useBrainUiRoot();
   // start() may resolve a client before this hook's effects have run.
-  registerAsrClients();
+  registerAsrClients(root);
+  const api = root.api;
 
   const clientRef = useRef<AsrClient | null>(null);
   const overridesRef = useRef<PronunciationOverride[]>([]);
@@ -81,7 +82,7 @@ export function useDictation() {
       setProviderId(session.providerId);
 
       const hints = speechUiHints(session.capabilities);
-      const client = createAsrClient({
+      const client = root.asr.create({
         session,
         onEvent: (evt) => {
           if (evt.type === "partial") {
@@ -119,6 +120,8 @@ export function useDictation() {
       setMode("idle");
     }
   }, [
+    root,
+    api,
     resetCapture,
     setMode,
     setConnecting,
@@ -139,7 +142,7 @@ export function useDictation() {
       const client = clientRef.current;
       clientRef.current = null;
 
-      const setDraining = useVoiceStore.getState().setDraining;
+      const setDraining = root.stores.voice.getState().setDraining;
       if (client) {
         if (commitToReview) {
           setDraining(true);
@@ -153,7 +156,7 @@ export function useDictation() {
         }
       }
 
-      const { finalText, partial, reviewText } = useVoiceStore.getState();
+      const { finalText, partial, reviewText } = root.stores.voice.getState();
       const merged = [finalText, partial].filter(Boolean).join(" ").trim();
       setConnecting(false);
       setMode("idle");
@@ -164,7 +167,7 @@ export function useDictation() {
       }
       resetCapture();
     },
-    [resetCapture, setMode, setConnecting, setReviewText]
+    [resetCapture, setMode, setConnecting, setReviewText, root]
   );
 
   const cancel = useCallback(() => {
@@ -181,7 +184,7 @@ export function useDictation() {
       clientRef.current?.stop();
       clientRef.current = null;
     };
-  }, []);
+  }, [root]);
 
   return { start, stop, cancel };
 }

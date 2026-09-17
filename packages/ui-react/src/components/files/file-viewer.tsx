@@ -1,3 +1,4 @@
+import type { FileState } from "../../stores/file-state.js";
 import { Loader2, AlertCircle, Eye, Code, Copy, Check, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { useFileStore } from "../../stores/file-store.js";
@@ -73,7 +74,7 @@ export function FileViewer() {
   );
 }
 
-function ViewerBody({ content, viewMode }: { content: NonNullable<ReturnType<typeof useFileStore.getState>["currentContent"]>; viewMode: "preview" | "raw" }) {
+function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["currentContent"]>; viewMode: "preview" | "raw" }) {
   if (content.kind === "binary") {
     return <FileViewerBinary content={content} />;
   }

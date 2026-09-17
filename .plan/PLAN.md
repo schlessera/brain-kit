@@ -471,22 +471,26 @@ Sequenced after the component waves but **before** step 2. Not optional.
       caught, in under 250ms each, with diff images
 
 ### Step 2 — rewire `ui-react` (from `.plan/architecture/state.md`, as amended by D15)
-- [ ] S1 registry instancing — **also fixes the real bug**: `registered` in
-      `components/chat/renderers/index.ts` is never cleared by
-      `resetToolRenderers()`, so one reset permanently un-registers the builtins
-- [ ] S2 root + store factories (judgement; load-bearing)
-- [ ] S3 bind the root at construction in the connection layer —
-      `createWebSocketClient({ root })`, `handleServerMessage(msg, root)`. Per
-      D15 this lands with S2, not after: it is what makes wrong-root access
-      unrepresentable rather than merely documented
-- [ ] S4 api/config injection
+- [x] S1 registry instancing — completed in wave 6, including the renderer
+      reset/re-registration bug and the matching ASR registration latch
+- [x] S2 root + all 11 store factories, provider hooks, namespaced persistence
+      and root-owned caches/registries; StrictMode and side-by-side roots tested
+- [x] S3 connection factory closes over its root; delta queues, handlers,
+      resync bookkeeping and subscriptions are isolated. Connection leases
+      share one socket within a root; release/dispose ignores late callbacks
+- [ ] S4 api/config injection — independent config/REST factories and explicit
+      URL helpers and provider hooks are implemented and tested. Store and
+      connection callers migrated; remaining component/helper API/config
+      callers still need migration
 - [ ] S5 ui-kit dependency wired in
 - [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
       flatten `AddPanel`'s epoch guard)
 - [ ] S7 store-coupled component splits
-- [ ] S8 lint gate banning the deprecated statics inside the repo
+- [x] S8 AST lint gate rejects internal default-store statics, including
+      renamed imports, namespace imports, brackets, destructuring and aliases
 - [ ] S9 first real in-chat component end to end
-- [ ] S10 remove the shim at 1.0 (major)
+- [x] S10 superseded by D31: no compatibility shim or separate 1.0 removal
+      step is required
 
 ## Open questions
 

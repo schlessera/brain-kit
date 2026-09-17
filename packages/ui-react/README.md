@@ -126,11 +126,36 @@ in their own buffers while another session is in view. `activeChat(state)`
 selects the buffer in view; `anyStreaming(state)` is the "something is
 running" signal (used e.g. to defer service-worker update reloads).
 
+## UI roots
+
+`createBrainUiRoot({ config, storagePrefix, storage, request, api })` constructs
+independent stores, API access, renderer/ASR registries and a connection without
+opening a socket. Pass it to `<BrainUiProvider root={root}>`. Store selector
+hooks resolve the nearest provider; imperative code uses `root.stores` and
+`root.connection`. `useBrainApi()` and `useBrainConfig()` expose its services.
+
+A provider without a `root` owns a new root and disposes it on unmount. An
+explicit root belongs to the caller, which must call `root.dispose()` when
+finished. `useWebSocket()` acquires a connection lease: multiple consumers of
+the same root share one socket until the last consumer unmounts.
+
+Use a stable, distinct `storagePrefix` to restore an embedder's session,
+provider choice and frontmatter preference. Omission generates an ephemeral
+namespace; `storage: null` disables persistence. Outside a provider, hooks use
+the default application root and its existing storage keys. Hook statics such
+as `useChatStore.getState()` always address that default root; internal code
+must use explicit roots, enforced by `check-root-stores.ts`.
+
+**Migration is in progress:** stores and WebSocket handlers are isolated, but
+some components and helpers still use the default API/config. Separate-backend
+application embeds require the remaining S4 caller migration in `.plan/PLAN.md`.
+
 ## Registries
 
-Tool renderers and ASR clients register at module load into the
-`@schlessera/brain-ui-sdk/client` registries (build-time composition — no
-runtime plugin loading).
+Tool renderers and ASR clients register synchronously on first render into the
+current root's registries. Imports are inert. Repeated registration is safe;
+resetting one root's registry leaves other roots untouched. This is build-time
+composition, with no runtime plugin loading.
 
 ## Versioning
 

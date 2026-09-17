@@ -8,8 +8,8 @@ nothing important lives only in a session transcript.
 
 A new `packages/ui-kit`: 58 presentational React components ported from a Claude
 Design system, with Storybook inside the package as the surface for iterating on
-design, copy and layout. Step 2 — not started — rewires `packages/ui-react` onto
-it and reshapes the state architecture.
+design, copy and layout. Step 2 now has root-owned stores, registries and connections;
+component API/config migration and rewiring onto the kit remain ahead.
 
 ## State
 
@@ -27,7 +27,7 @@ it and reshapes the state architecture.
 | 6b | MapView coastline geometry (D25) | done |
 | 7 | Visual regression (D10) | done |
 | — | Server-side map geometry for arbitrary places | done, one fixture outstanding |
-| Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | not started |
+| Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | S1/S2/S3/S8 done; S4 caller migration and kit integration pending |
 
 Fixtures: the Odyssey world under `packages/ui-kit/fixtures/`, 16 people, 20
 places with verified real coordinates, pinned to 2026-07-12, 38 invariant tests,
@@ -38,7 +38,7 @@ see the LICENSE in that directory).
 
 ```sh
 bun run test            # whole suite
-bun run lint            # six gates, including the leakage gate
+bun run lint            # seven gates, including leakage and root-store access
 bunx tsc --noEmit       # typecheck
 cd packages/ui-kit && bunx storybook dev      # the design surface
 cd packages/ui-kit && bunx vitest run --project=storybook   # browser tests, fast
@@ -132,7 +132,7 @@ session on the canonical instance and on the kumi mirror. `OVERPASS_URL` points
 the generator elsewhere; mirrors can be months behind, so the canonical instance
 is the default.
 
-## The one piece of outstanding work — still outstanding
+## Map fixtures still outstanding
 
 `bun packages/ui-kit/tools/geo/generate.ts vathy` — the location is declared and
 the fixture is not committed, because Overpass still would not answer. Probed
@@ -143,7 +143,7 @@ has an expired certificate. A bare `curl` gets **406** rather than a timeout —
 Overpass rejects the default user agent, so probe with the generator's own
 (`brain-kit-fixtures/1.0 …`) or you will misread the outage. **Vathy is the
 demo for the detail tiers**: the same verified Ithaca coordinate at 1.8 km
-instead of 12, so the same island appears twice, two orders of magnitude apart.
+instead of 12, moving from the road tier to the street tier.
 The world already has the pins for it — Penelope in the hall, Eumaeus' farm,
 Laertes' upland farm, Argos — and OSM has 107 street ways there (confirmed by a
 direct query). It needs a `vathyMap` scene and a story once the data lands.
@@ -151,6 +151,98 @@ direct query). It needs a `vathyMap` scene and a story once the data lands.
 While there: `troy` and `messina` predate `land` and carry no `land` key. The
 loader treats that as "no fill", which is also the right answer for a mainland
 bbox, so nothing is broken — but they are due a regeneration pass.
+
+## Progress — 2026-09-17
+
+The existing local Ithaca regeneration is retained. It uses the server's newer
+pipeline: a 2.4-span bleed and the `roads` tier at 36 m/px. Two fixture tests
+still described the old pipeline (one-span radial bounds, roads only at Troy).
+They now check per-axis bleed bounds with rounding allowance and the declared
+detail tier. Shape validation also covers streets and land, and the fixture
+loader now includes streets in rendered paths, quieter than major roads.
+Focused verification: all 23 geometry-fixture tests pass. Vathy regeneration
+failed after the initial attempt and four retries; a direct probe confirmed
+HTTP 504 from the canonical Overpass instance. No file was written, and the
+sequential generator never reached Messina or Troy. All three remain pending.
+
+Step 2's API/config prerequisites are implemented: `createBrainUiConfig`,
+`createBrainApi(getBase, request?)`, and explicit-config backend URL helpers.
+JSON requests AND ZIP uploads resolve their own base per request. The existing
+application client delegates to the same factory, preserving late configuration
+and multipart boundaries. Tests exercise two clients interleaved with different
+backends/transports, configuration after construction, cancellation and errors.
+Focused verification: all 26 API tests pass. The later root/connection work
+below builds on these factories; full application isolation still awaits S4.
+
+Both new regression checks were proved by seeding their failure: freezing the
+API base at construction fails the late-configuration test; dropping streets
+from `geoPaths` fails the street-layer test. Both seeds were removed.
+
+The full suite also exposed an existing test-order dependency in
+`ui-sdk/tests/rtk.test.ts`: earlier backend tests warm the process-wide probe,
+so the test missed its own fake binary's version invocation. It passed alone.
+The test now resets the probe before as well as after each case; production
+RTK behavior is unchanged.
+
+API/config batch verification: `bun run test` — **3088 pass / 41 skip / 0 fail** across
+231 files. Build, typecheck and lint pass (lint retains two existing hook
+warnings). `check-dist-types` reports all consumer surfaces clean, ignoring
+third-party declaration errors as its existing policy specifies. Host Chromium
+Storybook: **543 tests across 65 files pass**. API reports are regenerated, and
+the new factories carry a minor changeset. No versioning or publishing was done.
+
+Containerized visual verification is currently blocked by Docker socket
+permissions; passwordless sudo is unavailable. No visual baselines were
+regenerated on the host. Re-run `bun run visual` from a session with Docker
+access before accepting any fixture-driven pixel changes.
+
+## Root isolation progress — 2026-09-17
+
+S2/S3 landed together. `createBrainUiRoot` owns all eleven vanilla Zustand
+stores, config/API/transport, storage namespace, graph scene cache, activity
+history/payload deduplication and polling, file-request controllers, renderer
+registry and ASR registry. Hooks resolve the nearest `BrainUiProvider`; internal
+imperative callers use its explicit root. The default application keeps its
+existing config object, persistence keys and debug handles.
+
+The connection factory closes over that root, including every frame handler,
+delta queue, reconnect/resync marker and activity subscription. Multiple mounted
+consumers hold leases on one socket per root. The last release removes listeners,
+closes the client and stops polling; disposal invalidates late frames and graph
+results. Delayed location responses cannot jump onto a replacement socket.
+Provider-owned roots survive StrictMode effect replay and dispose on final
+unmount; callers own explicitly supplied roots.
+
+The SDK now has `createAsrClientRegistry`. Built-in renderer and ASR registration
+stays synchronous on first render and targets the current root; imports remain
+inert. Registration-count tests now instrument the actual registry instances.
+S8's new AST gate rejects default-store statics in `ui-react/src`, including
+renamed/namespace imports, bracket access, destructuring and aliasing. Existing
+default-app tests may still use the statics.
+
+Keyless tests exercise identical session IDs with interleaved delta queues,
+provider pins and masks; independent file abort controllers; graph caches and
+activity deduplication; persistence restoration; registry resets; activity
+snapshots/poller teardown; late graph results; and two mounted trees sharing
+leases within one root under StrictMode. The mounted selector uses `useShallow`.
+The isolation test was proved by forcing hook reads back to the default root;
+it failed as intended. A renamed import with bracket-access statics also failed
+the production lint gate. Both seeds were removed.
+
+Verification for this batch: `bun run test` — **3101 pass / 41 skip / 0 fail**
+across 233 files. Build, typecheck and all seven lint gates pass; the two
+pre-existing hook warnings remain. `check-dist-types` passes under its existing
+policy of ignoring third-party declaration errors. API reports are regenerated.
+The initial full run caught the stale reports; the recorded run is after their
+regeneration. No additional visual changes or baseline updates were made in
+this root-isolation batch; the earlier Docker/Overpass blockers remain.
+
+**Still outstanding:** S4 component/helper API/config migration. Some settings,
+quick-action, media/share, activity and branding consumers still use defaults.
+The root API is usable for isolated state/connection tests, but is not yet a claim
+that an entire `AppShell` can connect to a separate backend. The public README
+states this limit. Root/SDK additions carry a minor changeset; no versioning or
+publishing was done.
 
 ## Open questions for the maintainer
 
@@ -275,8 +367,15 @@ part of itself** rather than waiting for step 2's S1.
 ## What to do next
 
 **Step 2** — rewire `ui-react` onto `ui-kit`, reshape the stores (D13/D15). It
-is the only wave-sized piece left in step 1's neighbourhood. Note what wave 6
-already did from its list: S1's registry fix is in, and D31 removed S10.
+is the only wave-sized piece left in step 1's neighbourhood. Note what is
+already done: S1's registry fix, S2's root/store factories, S3's bound connection
+and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
+remaining `api`, `uiConfig`, `apiBase` and `getBackendUrl` consumers to the
+provider's root, including helpers that upload/share/render and their callers.
+Keep the existing cancellation/epoch guards and update effect dependencies when
+injecting services. Then proceed to S5/S6/S7/S9 (kit dependency, component splits,
+and first end-to-end kit component). Do not describe the whole application as
+safe for separate-backend embeds until S4 and its runtime tests are complete.
 
 Three design questions are open and will move screens, and therefore baselines:
 two in `design-feedback.md` §14 (a four-tile `StatTiles` row breaking 3 + 1; the

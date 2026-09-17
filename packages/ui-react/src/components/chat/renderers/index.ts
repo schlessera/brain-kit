@@ -2,7 +2,7 @@
 // import line + registerToolRenderers call here (React.lazy for heavy packs).
 // Runtime plugin loading into the compiled PWA is deliberately not supported.
 
-import { registerToolRenderers } from "@schlessera/brain-ui-sdk/client";
+import { defaultToolRendererRegistry, type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
 import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
@@ -16,11 +16,11 @@ import { brainUiToolPack } from "./brain-ui-tools.js";
  * `resetToolRenderers()`, so the first reset anywhere — one story, one test —
  * permanently un-registered the builtins for everything that ran after it.
  */
-export function registerBuiltinRenderers(): void {
-  registerToolRenderers(brainUiToolPack);
-  registerToolRenderers(claudeToolPack);
-  registerToolRenderers(piToolPack);
-  registerToolRenderers(genericToolPack);
+export function registerBuiltinRenderers(registry: ToolRendererRegistry = defaultToolRendererRegistry): void {
+  registry.register(brainUiToolPack);
+  registry.register(claudeToolPack);
+  registry.register(piToolPack);
+  registry.register(genericToolPack);
 }
 
 export { GENERIC_RENDERER };

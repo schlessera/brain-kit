@@ -9,7 +9,7 @@ import { unregisterDom } from "./dom.js";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
-import { createElement, forwardRef, useState, type ReactNode } from "react";
+import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
   ActivityRunRollup,
@@ -38,6 +38,10 @@ import {
   useGraphStore,
 } from "../../src/stores/graph-store.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
+import { useShallow } from "zustand/react/shallow";
+import { BrainUiProvider, useBrainUiRoot } from "../../src/root-context.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { useChatStore, activeChat } from "../../src/stores/chat-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
@@ -308,7 +312,7 @@ class PageSocket {
   onerror: (() => void) | null = null;
   readonly sent: string[] = [];
 
-  constructor() {
+  constructor(readonly url = "") {
     PageSocket.instances.push(this);
   }
 
@@ -2444,5 +2448,100 @@ describe("DevicesAgentsTab", () => {
     await act(flushPromises);
     expect(page.getByRole("alert").textContent).toBe("Database unavailable");
     expect(page.queryByText("No active devices or agents.")).toBeNull();
+  });
+});
+
+describe("UI root provider lifetimes", () => {
+  function Probe({ name }: { name: string }) {
+    const { send } = useWebSocket();
+    const { content } = useChatStore(useShallow((state) => ({ content: activeChat(state).messages[0]?.content ?? "" })));
+    return <button data-testid={name} onClick={() => send({ type: "cancel" })}>{content || name}</button>;
+  }
+
+  test("two roots and multiple leases survive StrictMode and independent unmounts", () => {
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    PageSocket.instances = [];
+    const a = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" } });
+    const b = createBrainUiRoot({ storage: null, config: { backendUrl: "https://beta.example" } });
+    const view = (showA: boolean, secondLease: boolean) => <StrictMode>
+      {showA && <BrainUiProvider root={a}><Probe name="alpha" /></BrainUiProvider>}
+      <BrainUiProvider root={b}><Probe name="beta" />{secondLease && <Probe name="beta-peer" />}</BrainUiProvider>
+    </StrictMode>;
+    const mounted = render(view(true, true));
+    try {
+      const socketA = PageSocket.instances.findLast((s) => s.url.includes("alpha.example"))!;
+      const socketB = PageSocket.instances.findLast((s) => s.url.includes("beta.example"))!;
+      act(() => {
+        socketA.open(); socketB.open();
+        socketA.deliver({ type: "text_delta", text: "alpha text" });
+        socketB.deliver({ type: "text_delta", text: "beta text" });
+        a.connection.flushChatDeltas(); b.connection.flushChatDeltas();
+      });
+      expect(mounted.getByTestId("alpha").textContent).toBe("alpha text");
+      expect(mounted.getByTestId("beta").textContent).toBe("beta text");
+      const stale = socketA.onmessage;
+      mounted.rerender(view(false, false));
+      expect(socketA.readyState).toBe(3);
+      expect(socketB.readyState).toBe(1);
+      act(() => {
+        stale?.({ data: JSON.stringify({ type: "text_delta", text: " stale" }) } as MessageEvent);
+        a.connection.flushChatDeltas();
+      });
+      expect(activeChat(a.stores.chat.getState()).messages[0].content).toBe("alpha text");
+      fireEvent.click(mounted.getByTestId("beta"));
+      expect(JSON.parse(socketB.sent.at(-1)!)).toMatchObject({ type: "cancel" });
+      mounted.unmount();
+      expect(socketB.readyState).toBe(3);
+    } finally {
+      mounted.unmount(); a.dispose(); b.dispose();
+    }
+  });
+
+  test("a delayed location result cannot reply through a replacement socket", () => {
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    let deliver: PositionCallback | undefined;
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition: (success: PositionCallback) => { deliver = success; },
+    } });
+    const root = createBrainUiRoot({ storage: null });
+    const release = root.connection.connect();
+    try {
+      const first = PageSocket.instances.at(-1)!;
+      first.open();
+      first.deliver({ type: "location_request", requestId: "old" });
+      expect(deliver).toBeDefined();
+      first.close(1006);
+      root.connection.reconnectNow();
+      const second = PageSocket.instances.at(-1)!;
+      expect(second).not.toBe(first);
+      second.open();
+      const sentBefore = second.sent.length;
+      deliver!({ coords: { latitude: 1, longitude: 2, accuracy: 3 }, timestamp: 0 } as GeolocationPosition);
+      expect(second.sent).toHaveLength(sentBefore);
+    } finally {
+      release(); root.dispose();
+      if (original) Object.defineProperty(navigator, "geolocation", original);
+      else Reflect.deleteProperty(navigator, "geolocation");
+    }
+  });
+
+  test("provider-owned root survives effect replay and disposes after final unmount", async () => {
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    let captured: BrainUiRoot | undefined;
+    function Capture() {
+      const root = useBrainUiRoot();
+      useEffect(() => { captured = root; }, [root]);
+      useWebSocket();
+      return null;
+    }
+    const mounted = render(<StrictMode><BrainUiProvider><Capture /></BrainUiProvider></StrictMode>);
+    await act(async () => { await Promise.resolve(); });
+    expect(captured).toBeDefined();
+    const release = captured!.connection.connect();
+    release();
+    mounted.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(() => captured!.connection.connect()).toThrow(/disposed/);
   });
 });

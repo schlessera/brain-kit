@@ -1,21 +1,21 @@
+import { defaultRoot } from "../default-root.js";
+import { useBrainUiRoot } from "../root-context.js";
+import type { BrainUiRoot } from "../root.js";
 import { useEffect, useState } from "react";
 import {
-  useConnectionStore,
   type VpnStatus,
 } from "../stores/connection-store.js";
-import { getBackendUrl } from "../lib/backend.js";
 
 const POLL_INTERVAL = 15_000;
 // Tighter cadence while offline so recovery is near-immediate
 const OFFLINE_POLL_INTERVAL = 3_000;
 const TIMEOUT_MS = 5_000;
-let activeRecheck: (() => void) | null = null;
 
-async function fetchVpnStatus(): Promise<VpnStatus> {
+async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnStatus> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(getBackendUrl("/api/vpn-check"), {
+    const res = await root.request(root.backendUrl("/api/vpn-check"), {
       signal: controller.signal,
     });
 
@@ -35,10 +35,11 @@ async function fetchVpnStatus(): Promise<VpnStatus> {
  * the only writer of vpnStatus and serializes this with its scheduled checks.
  */
 export function recheckVpnStatus(): void {
-  activeRecheck?.();
+  defaultRoot.recheckVpn?.();
 }
 
 export function useVpnStatus() {
+  const root = useBrainUiRoot();
   const [successfulProbeCount, setSuccessfulProbeCount] = useState(0);
 
   useEffect(() => {
@@ -54,18 +55,18 @@ export function useVpnStatus() {
         return;
       }
       inFlight = true;
-      const opensAtStart = useConnectionStore.getState().socketOpens;
+      const opensAtStart = root.stores.connection.getState().socketOpens;
       try {
-        const status = await fetchVpnStatus();
+        const status = await fetchVpnStatus(root);
         // A socket that reached `open` while this probe was in flight is newer
         // reachability evidence than a failure the probe was started for.
         // Counting opens rather than sampling wsStatus twice also catches a
         // drop and a replacement open inside one probe, where both samples
         // read "connected".
         const socketOpenedDuringCheck =
-          useConnectionStore.getState().socketOpens !== opensAtStart;
+          root.stores.connection.getState().socketOpens !== opensAtStart;
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
-          useConnectionStore.getState().setVpnStatus(status);
+          root.stores.connection.getState().setVpnStatus(status);
           if (status === "connected") {
             setSuccessfulProbeCount((count) => count + 1);
           }
@@ -78,7 +79,7 @@ export function useVpnStatus() {
             recheckRequested = false;
             void check();
           } else {
-            const status = useConnectionStore.getState().vpnStatus;
+            const status = root.stores.connection.getState().vpnStatus;
             // Auth required but no valid session is still a reachable server.
             const reachable = status === "connected" || status === "unauthorized";
             timer = setTimeout(
@@ -93,7 +94,7 @@ export function useVpnStatus() {
     // Re-check immediately when the network returns or the PWA is foregrounded
     // instead of waiting out the poll interval.
     const recheckNow = () => void check();
-    activeRecheck = recheckNow;
+    const removeRecheck = root.registerVpnRecheck(recheckNow);
     const onVisible = () => {
       if (document.visibilityState === "visible") void check();
     };
@@ -105,11 +106,11 @@ export function useVpnStatus() {
     return () => {
       disposed = true;
       clearTimeout(timer);
-      if (activeRecheck === recheckNow) activeRecheck = null;
+      removeRecheck();
       window.removeEventListener("online", recheckNow);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [root]);
 
   return successfulProbeCount;
 }

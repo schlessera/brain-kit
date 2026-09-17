@@ -7,19 +7,20 @@
 // module latches: a latch survives `resetAsrClients()`, which would leave the
 // registry permanently empty for everything that ran after the first reset.
 
-import { registerAsrClient } from "@schlessera/brain-ui-sdk/client";
+import type { BrainUiRoot } from "../root.js";
+import { defaultRoot } from "../default-root.js";
 import { DeepgramClient } from "./asr-deepgram.js";
 import { WebSpeechClient } from "./asr-webspeech.js";
-import { useVoiceStore } from "./voice-store.js";
 
-function endToIdle() {
-  if (useVoiceStore.getState().mode === "dictate") {
-    useVoiceStore.getState().setMode("idle");
+export function registerAsrClients(root: BrainUiRoot = defaultRoot): void {
+  function endToIdle() {
+    if (root.stores.voice.getState().mode === "dictate") {
+      root.stores.voice.getState().setMode("idle");
+    }
   }
-}
 
-export function registerAsrClients(): void {
-  registerAsrClient(
+
+  root.asr.register(
     "deepgram",
     (opts) =>
       new DeepgramClient({
@@ -27,12 +28,12 @@ export function registerAsrClients(): void {
         token: opts.session.token ?? "",
         onEvent: opts.onEvent,
         onError: opts.onError,
-        onAudioLevel: (level) => useVoiceStore.getState().setAudioLevel(level),
+        onAudioLevel: (level) => root.stores.voice.getState().setAudioLevel(level),
         onClose: endToIdle,
       })
   );
 
-  registerAsrClient(
+  root.asr.register(
     "webspeech",
     (opts) =>
       new WebSpeechClient({

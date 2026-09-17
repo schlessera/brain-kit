@@ -14,8 +14,9 @@
  * `scripts/check-env-access.ts` now refuses `import.meta.env` anywhere in a
  * package's `src`, so the loophole cannot reopen.
  *
- * Values are a module-level singleton, matching the renderer/ASR registries.
- * Runtime plugin-style reconfiguration is deliberately unsupported.
+ * `createBrainUiConfig` makes independent configurations for UI roots. The
+ * existing `uiConfig` remains the application's default until root migration
+ * is complete. Runtime plugin-style reconfiguration is unsupported.
  */
 export interface BrainUiConfig {
   /** Product name shown on the login screen and connection status. */
@@ -46,7 +47,7 @@ export interface BrainUiConfig {
   devTools: boolean;
 }
 
-export const uiConfig: BrainUiConfig = {
+const DEFAULT_CONFIG: Readonly<BrainUiConfig> = {
   appName: "Brain UI",
   assistantName: "Brain",
   shareTitle: "Shared from Brain",
@@ -54,6 +55,22 @@ export const uiConfig: BrainUiConfig = {
   backendUrl: "",
   devTools: false,
 };
+
+/** Fresh values for one UI root; never reads or mutates the default instance. */
+export function createBrainUiConfig(overrides: Partial<BrainUiConfig> = {}): BrainUiConfig {
+  const config = { ...DEFAULT_CONFIG };
+  applyConfig(config, overrides);
+  return config;
+}
+
+function applyConfig(config: BrainUiConfig, overrides: Partial<BrainUiConfig>): void {
+  Object.assign(config, overrides);
+  if (typeof overrides.backendUrl === "string") {
+    config.backendUrl = overrides.backendUrl.replace(/\/$/, "");
+  }
+}
+
+export const uiConfig = createBrainUiConfig();
 
 /**
  * Dev-handle installers, registered at module scope by the stores that own a
@@ -78,9 +95,6 @@ export function registerDevHandle(install: () => void): void {
 }
 
 export function configureBrainUi(overrides: Partial<BrainUiConfig>): void {
-  Object.assign(uiConfig, overrides);
-  if (typeof overrides.backendUrl === "string") {
-    uiConfig.backendUrl = overrides.backendUrl.replace(/\/$/, "");
-  }
+  applyConfig(uiConfig, overrides);
   if (uiConfig.devTools) installDevHandles();
 }

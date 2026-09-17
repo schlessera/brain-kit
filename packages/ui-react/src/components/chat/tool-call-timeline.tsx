@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useEffect, useRef } from "react";
 import {
   Check,
@@ -9,7 +10,7 @@ import {
   AlertTriangle,
   FileText,
 } from "lucide-react";
-import { resolveToolRenderer, type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
+import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
 import { useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
@@ -46,7 +47,8 @@ export function ToolCallTimeline({
   live?: boolean;
 }) {
   // Resolution happens below during this render, before effects can run.
-  registerBuiltinRenderers();
+  const root = useBrainUiRoot();
+  registerBuiltinRenderers(root.renderers);
 
   // Collapse the whole run to a summary row once the turn is over. History
   // messages mount collapsed; a live timeline collapses when streaming ends.
@@ -108,12 +110,13 @@ function TimelineSummaryRow({
   backendId: string;
   onExpand: () => void;
 }) {
+  const root = useBrainUiRoot();
   const steps = toolCalls.length;
   const files = new Set(
     toolCalls
       .map(
         (t) =>
-          resolveToolRenderer(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t)
+          root.renderers.resolve(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t)
       )
       .filter(Boolean)
   ).size;
@@ -156,6 +159,7 @@ function ToolCallEntry({
   backendId: string;
   onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
 }) {
+  const root = useBrainUiRoot();
   const [expanded, setExpanded] = useState(
     toolCall.status === "pending_approval"
   );
@@ -175,7 +179,7 @@ function ToolCallEntry({
     : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
   // shape-sniffing predicate). Falls back to the generic renderer.
-  const renderer = resolveToolRenderer(toolCall, backendId) ?? GENERIC_RENDERER;
+  const renderer = root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
   const Icon = renderer.icon ?? FileText;
   const label =
     typeof renderer.label === "function"

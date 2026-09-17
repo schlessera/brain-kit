@@ -1,10 +1,10 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
-import { reconnectWebSocketNow } from "../../hooks/use-websocket.js";
 import {
   deriveConnectionIssue,
   type ConnectionIssue,
@@ -199,6 +199,7 @@ function OfflineBanner({
   show: boolean;
   issue: ConnectionIssue;
 }) {
+  const root = useBrainUiRoot();
   const message =
     issue === "forbidden"
       ? "VPN required — reconnect Tailscale"
@@ -233,7 +234,7 @@ function OfflineBanner({
             {(issue === "refused" || issue === "capacity") && (
               <button
                 type="button"
-                onClick={reconnectWebSocketNow}
+                onClick={root.connection.reconnectNow}
                 className="font-medium underline underline-offset-2 hover:text-amber-100"
               >
                 Retry now

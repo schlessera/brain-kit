@@ -168,6 +168,7 @@ export "./client" (./src/client/index.ts)
   type AsrClient
   type AsrClientFactory
   type AsrClientOptions
+  type AsrClientRegistry
   type AsrEvent
   type AsrFinal
   type AsrPartial
@@ -322,8 +323,10 @@ export "./client" (./src/client/index.ts)
   bridgeContractForToolName
   canonicalModelId
   createAsrClient
+  createAsrClientRegistry
   createBrainUiClient
   createToolRendererRegistry
+  defaultAsrClientRegistry
   defaultToolRendererRegistry
   defineToolComponentContract
   defineToolContract

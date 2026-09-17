@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { useFileStore } from "../stores/file-store.js";
 import { useUIStore, type ActiveView } from "../stores/ui-store.js";
@@ -31,6 +32,7 @@ function viewForHash(hash: string): Exclude<ActiveView, "chat"> | null {
  * stores.
  */
 export function useHashRoutes(): void {
+  const root = useBrainUiRoot();
   const [hash, setHash] = useState(() => window.location.hash);
   const syncingFromHash = useRef(false);
   const activeView = useUIStore((state) => state.activeView);
@@ -74,10 +76,10 @@ export function useHashRoutes(): void {
     // below never runs and never clears the flag. It would then swallow the
     // NEXT store-driven change, leaving the URL pointing at Activity while the
     // app shows Chat, and a refresh would jump back.
-    if (useUIStore.getState().activeView === view) return;
+    if (root.stores.ui.getState().activeView === view) return;
     syncingFromHash.current = true;
     setActiveView(view);
-  }, [hash, setActiveView]);
+  }, [hash, setActiveView, root]);
 
   useEffect(() => {
     // A hash-driven store write and this effect are flushed together. Skip
