@@ -113,7 +113,7 @@ interface Location {
 const LOCATIONS: Location[] = [
   { id: "ithaca", label: "Ithaca", center: [20.7202, 38.3647], spanKm: 12 },
   // The town, at the scale a person walks. Same island, same coordinate, two
-  // orders of magnitude in: this is the pair the detail rule exists for, and
+  // detail tiers: this is the pair the detail rule exists for, and
   // the one place in this world where "what is near me" is a real question.
   { id: "vathy", label: "Vathy", center: [20.7202, 38.3647], spanKm: 1.8 },
   { id: "gozo", label: "Ogygia (Gozo)", center: [14.25, 36.05], spanKm: 18 },

@@ -16,7 +16,7 @@ import { gzipSync } from "bun";
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 
-import { OSM_ATTRIBUTION, geo, geoIds } from "../fixtures/geo/index.js";
+import { OSM_ATTRIBUTION, geo, geoIds, geoPaths } from "../fixtures/geo/index.js";
 import { mapScenes } from "../fixtures/places.js";
 
 const KIT = resolve(import.meta.dir, "..");
@@ -37,7 +37,7 @@ describe("the geometry is geometry", () => {
     const fixture = geo[id];
 
     test(`${id}: every coordinate is a pair inside the Mediterranean basin`, () => {
-      const lines = [...fixture.coastline, ...fixture.roads];
+      const lines = [...fixture.coastline, ...fixture.roads, ...(fixture.streets ?? []), ...(fixture.land ?? [])];
       expect(lines.length).toBeGreaterThan(0);
 
       const wrong: string[] = [];
@@ -57,17 +57,21 @@ describe("the geometry is geometry", () => {
     test(`${id}: the geometry surrounds the centre it claims`, () => {
       // Catches the failure a basin check cannot: geometry that is real, inside
       // the Mediterranean, and a hundred kilometres from the place it is
-      // labelled as. The bbox is the span times `BLEED`, so half the span plus
-      // a margin is the furthest any point may legitimately sit.
+      // labelled as. The generator fetches a square 2.4 times the scene's
+      // width, so each AXIS can reach 1.2 spans from the centre. A radial
+      // one-span bound wrongly rejects the bleed and the square's corners.
+      // Four-decimal rounding can move a boundary coordinate by about 6 m.
+      // Land rings stay whole for SVG clipping, so only strokes are bounded.
       const [lon, lat] = fixture.center;
-      const allowedKm = fixture.spanKm; // generous: the bbox half-span is 0.7x this
+      const allowedKm = fixture.spanKm * 1.2 + 0.01;
       const far: string[] = [];
-      for (const line of [...fixture.coastline, ...fixture.roads]) {
+      for (const line of [...fixture.coastline, ...fixture.roads, ...(fixture.streets ?? [])]) {
         for (const [pLon, pLat] of line) {
           const dLatKm = (pLat - lat) * 111;
           const dLonKm = (pLon - lon) * 111 * Math.cos((lat * Math.PI) / 180);
-          const km = Math.hypot(dLatKm, dLonKm);
-          if (km > allowedKm) far.push(`${km.toFixed(1)} km from ${id}'s centre`);
+          if (Math.abs(dLatKm) > allowedKm || Math.abs(dLonKm) > allowedKm) {
+            far.push(`${dLonKm.toFixed(2)},${dLatKm.toFixed(2)} km from ${id}'s centre`);
+          }
         }
       }
       expect(far.slice(0, 3)).toEqual([]);
@@ -80,9 +84,26 @@ describe("the geometry is geometry", () => {
     });
   }
 
-  test("only Troy carries roads, and it carries them because coastline alone is weak", () => {
+  test("detail tiers keep their promised layers and reach the rendered paths", () => {
     for (const id of geoIds) {
-      expect({ id, roads: geo[id].roads.length > 0 }).toEqual({ id, roads: id === "troy" });
+      const fixture = geo[id];
+      const streets = fixture.streets ?? [];
+      // Legacy files have no detail metadata; regenerated files must be
+      // complete and use the scene's scale (Troy deliberately forces roads).
+      if (fixture.detail) {
+        const expected = id === "troy" ? "roads"
+          : fixture.toleranceM <= 8 ? "streets"
+          : fixture.toleranceM <= 40 ? "roads" : "coast";
+        expect({ id, detail: fixture.detail, partial: fixture.partial }).toEqual({ id, detail: expected, partial: false });
+        if (expected !== "coast") expect(fixture.roads.length).toBeGreaterThan(0);
+        if (expected === "streets") expect(streets.length).toBeGreaterThan(0);
+        else expect(streets).toHaveLength(0);
+      }
+      const paths = geoPaths(id);
+      expect(paths.map((path) => path.coords)).toEqual([...fixture.coastline, ...fixture.roads, ...streets]);
+      for (const path of paths.slice(fixture.coastline.length + fixture.roads.length)) {
+        expect(path.width).toBeLessThan(0.6);
+      }
     }
   });
 
@@ -103,6 +124,22 @@ describe("the geometry is geometry", () => {
       0,
     );
     expect(bytes).toBeLessThan(24 * 1024);
+  });
+
+  test("a street layer is drawn after roads, including before Vathy is available", () => {
+    const fixture = geo.ithaca;
+    const previous = fixture.streets;
+    const street: [number, number][] = [[20.7202, 38.3647], [20.721, 38.365]];
+    try {
+      fixture.streets = [street];
+      const paths = geoPaths("ithaca");
+      expect(paths).toHaveLength(fixture.coastline.length + fixture.roads.length + 1);
+      expect(paths.at(-1)?.coords).toBe(street);
+      expect(paths.at(-1)?.width).toBeLessThan(0.6);
+    } finally {
+      if (previous === undefined) delete fixture.streets;
+      else fixture.streets = previous;
+    }
   });
 });
 

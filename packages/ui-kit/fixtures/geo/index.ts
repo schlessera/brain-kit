@@ -44,8 +44,12 @@ export interface GeoFixture {
   toleranceM: number;
   attribution: string;
   coastline: [number, number][][];
-  /** Only where coastline alone does not locate you. Troy has them. */
+  /** Major roads at town scale, or explicitly requested for legibility. */
   roads: [number, number][][];
+  /** Older fixtures predate detail tiers; absence means no streets. */
+  streets?: [number, number][][];
+  detail?: "coast" | "roads" | "streets";
+  partial?: boolean;
   /**
    * Closed rings of land, for the fill. **Islands only** — a mainland shore
    * crosses the bbox and closing it against the viewport is the operation D25
@@ -88,16 +92,15 @@ export const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
  * A location's geometry as `MapView` paths: coastline first, then roads, so a
  * road drawn over its own shoreline reads as a road.
  *
- * Roads come in a step quieter than the coast. Troy is the only place with
- * them and the reason is legibility rather than completeness — one shoreline
- * curve is ambiguous, and a road network is what turns it into a place — so
- * they must not compete with the coast that gives the picture its shape.
+ * Each finer tier comes in a step quieter than the last, so streets locate a
+ * block without competing with the coast or the caller's route.
  */
 export function geoPaths(id: GeoId): MapPath[] {
   const fixture = geo[id];
   return [
     ...fixture.coastline.map((coords) => ({ coords, tone: "neutral" as const, width: 1 })),
     ...fixture.roads.map((coords) => ({ coords, tone: "neutral" as const, width: 0.6 })),
+    ...(fixture.streets ?? []).map((coords) => ({ coords, tone: "neutral" as const, width: 0.35 })),
   ];
 }
 

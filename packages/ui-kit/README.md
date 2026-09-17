@@ -13,11 +13,13 @@ mechanically rather than by review.
 
 ## Status
 
-The component port runs in waves — see `.plan/PLAN.md`. **46 of the design's 58
-components have landed**: the twelve primitives and `Placeholder` (wave 1), the
-rows, evidence and decision surfaces (wave 2), and the twenty in-chat blocks and
-conversation-lifecycle components (wave 3). Still to come: the agent views and
-the screen chrome, then the assembled screens that are the acceptance test.
+**58 presentational components have landed**, including agent views, screen
+chrome and desktop navigation. Four assembled screens exercise the kit in
+Storybook: Morning Digest, Chat Answer, Weekly Review and Run Detail. Browser
+interaction/accessibility checks and curated visual baselines run in CI.
+
+The live `ui-react` application has not yet migrated onto the kit. See
+`.plan/HANDOFF.md` for current progress and `.plan/PLAN.md` for the wave checklist.
 
 ## Styles
 
@@ -58,12 +60,13 @@ no story carries a `../../.storybook/preview` path.
 
 ## Accessibility
 
-`parameters.a11y.test` is `'todo'`, which means axe violations warn in the
-Storybook UI and **fail nothing in CI**. This is temporary and deliberate, and
-flipping the parameter to `'error'` is the accessibility wave's definition of
-done. Until then a green CI is not an accessibility claim.
+`parameters.a11y.test` is `'error'`: axe violations fail the browser suite in
+CI. The gate was verified with a seeded violation. Known palette contrast gaps
+have explicit, story-scoped exceptions recorded in `.plan/design-feedback.md`;
+a green suite does not mean those design issues are resolved. Keyboard groups
+use roving tab stops, and reduced-motion behavior is checked in the browser.
 
-Three things are already in place and should not be undone by that wave.
+The following interaction rules are also covered by stories.
 
 **Interaction states are gated on a handler.** A component that was given no
 `onClick` gets no role, no tab stop, no focus ring and no hover — so a static
