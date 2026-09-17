@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   mkdtempSync,
@@ -12,6 +12,10 @@ import { join } from "path";
 import { resetRtkProbe, rtkRewriteCommand } from "../src/server";
 
 let directory: string | undefined;
+
+// Earlier backend tests can warm the process-wide probe. This test needs to
+// observe its own fake binary's version call, not reuse that earlier answer.
+beforeEach(resetRtkProbe);
 
 afterEach(() => {
   resetRtkProbe();
