@@ -1,6 +1,7 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
-import { api, type BrainSearchHit } from "../../lib/api-client.js";
+import type { BrainSearchHit } from "../../lib/api-client.js";
 import {
   useGraphStore,
   type DiscoveryColorBy,
@@ -352,12 +353,20 @@ function NotePicker({
   placeholder?: string;
   onPick: (path: string) => void;
 }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(false);
   const [results, setResults] = useState<BrainSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  useEffect(() => {
+    setQuery(""); setEditing(false); setResults([]);
+    const cleanup = () => clearTimeout(blurTimer.current);
+    return cleanup;
+  }, [root]);
   const trimmed = query.trim();
 
   useEffect(() => {
@@ -388,7 +397,7 @@ function NotePicker({
       clearTimeout(t);
       controllerRef.current?.abort();
     };
-  }, [editing, trimmed]);
+  }, [editing, trimmed, root, api]);
 
   return (
     <div className="relative">
@@ -402,7 +411,7 @@ function NotePicker({
           }}
           onBlur={() => {
             // Delay so a click on a result lands before the list unmounts.
-            setTimeout(() => setEditing(false), 150);
+            blurTimer.current = setTimeout(() => setEditing(false), 150);
           }}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}

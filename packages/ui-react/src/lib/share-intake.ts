@@ -4,7 +4,7 @@ import {
   type ShareIntakeResult,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
-import { apiBase } from "./backend.js";
+import type { BrainUiRoot } from "../root.js";
 import {
   fileToAttachment,
   validateAttachments,
@@ -75,7 +75,9 @@ export type ShareUploadOutcome =
  */
 export async function uploadShare(
   record: StoredShare,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: BrainUiRoot["request"],
+  apiBase: string,
+  signal?: AbortSignal
 ): Promise<ShareUploadOutcome> {
   const form = new FormData();
   if (record.title) form.set("title", record.title);
@@ -85,9 +87,10 @@ export async function uploadShare(
 
   let response: Response;
   try {
-    response = await fetchImpl(`${apiBase()}/share`, {
+    response = await fetchImpl(`${apiBase}/share`, {
       method: "POST",
       body: form,
+      signal,
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "network_error" };

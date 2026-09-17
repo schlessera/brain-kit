@@ -1,5 +1,5 @@
 import { useBrainUiRoot } from "../root-context.js";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   SHARE_STASH_TTL_MS,
   type ShareIntakeResult,
@@ -65,6 +65,12 @@ export function useShareIntake(): {
   dismiss: (record: StoredShare) => void;
 } {
   const root = useBrainUiRoot();
+  const lifetime = useRef(new AbortController());
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    return () => controller.abort();
+  }, [root]);
   const enqueue = useShareStore((s) => s.enqueue);
   const remove = useShareStore((s) => s.remove);
   const setBusy = useShareStore((s) => s.setBusy);
@@ -81,8 +87,12 @@ export function useShareIntake(): {
       try {
         for (const id of claimed) {
           const record = await store.take(id);
+          if (disposed) {
+            if (record) await store.put(record);
+            return;
+          }
           dropShareClaim(id);
-          if (record && !disposed) enqueue(record);
+          if (record) enqueue(record);
         }
 
         // Orphans: a share whose landing page never ran (the app opened
@@ -90,8 +100,13 @@ export function useShareIntake(): {
         // parameter was read) leaves a record nobody holds the id for. The
         // stash is the only place it still exists.
         for (const record of await store.list()) {
+          if (disposed) return;
           const taken = await store.take(record.id);
-          if (taken && !disposed) enqueue(taken);
+          if (disposed) {
+            if (taken) await store.put(taken);
+            return;
+          }
+          if (taken) enqueue(taken);
         }
 
         // The service worker's own prune runs after a stash, so it can never
@@ -111,6 +126,7 @@ export function useShareIntake(): {
 
   const confirm = useCallback(
     async (record: StoredShare) => {
+      const signal = lifetime.current.signal;
       const share = root.stores.share.getState();
       if (share.busy) return;
       if (root.stores.connection.getState().wsStatus !== "connected") {
@@ -122,13 +138,18 @@ export function useShareIntake(): {
       setError(null);
       setNotes([]);
       try {
-        const outcome = await uploadShare(record);
+        const outcome = await uploadShare(record, root.request, root.apiBase(), signal);
+        if (signal.aborted) return;
         if (!outcome.ok) {
           setError(describeUploadError(outcome));
           return;
         }
 
         const { attachments, errors } = await shareImagesToAttachments(record.files);
+        if (signal.aborted) {
+          for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
+          return;
+        }
         if (errors.length) setNotes(errors);
 
         const prompt = buildSharePrompt(outcome.result as ShareIntakeResult);

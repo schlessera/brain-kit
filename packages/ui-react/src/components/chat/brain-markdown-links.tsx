@@ -1,6 +1,6 @@
 import React from "react";
 
-import { apiBase } from "../../lib/backend.js";
+import type { BrainUiRoot } from "../../root.js";
 import {
   isInternalRepoDir,
   isInternalRepoPath,
@@ -15,13 +15,13 @@ import { useUIStore } from "../../stores/ui-store.js";
  * already an API route — passes through. A repo-relative path is rewritten to
  * the files endpoint, which is where brain content is served from.
  */
-export function repoImageSrc(src: string): string {
+export function repoImageSrc(src: string, root: BrainUiRoot): string {
   const trimmed = src.trim();
   if (!trimmed) return src;
   if (/^(data:|blob:|https?:\/\/)/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/api/")) return trimmed;
+  if (trimmed.startsWith("/api/")) return root.backendUrl(trimmed);
   const rel = trimmed.replace(/^\.\//, "").replace(/^\/+/, "");
-  return `${apiBase()}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
+  return `${root.apiBase()}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
 }
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
 export function FileLink({ path, children }: { path: string; children?: React.ReactNode }) {

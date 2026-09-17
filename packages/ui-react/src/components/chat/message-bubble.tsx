@@ -1,4 +1,4 @@
-import { uiConfig } from "../../config.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Mic, Image as ImageIcon } from "lucide-react";
 import type {
@@ -44,6 +44,7 @@ export const MessageBubble = memo(function MessageBubble({
   ) => void;
   onAskUserCancel: (requestId: string) => void;
 }) {
+  const root = useBrainUiRoot();
   const isUser = message.role === "user";
 
   return (
@@ -62,7 +63,7 @@ export const MessageBubble = memo(function MessageBubble({
               : "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest text-accent/80"
           }
         >
-          {isUser ? "You" : uiConfig.assistantName}
+          {isUser ? "You" : root.config.assistantName}
         </span>
         <div className="h-px flex-1 bg-border/40" />
         {isUser && message.source && message.source !== "typed" && (
@@ -213,11 +214,12 @@ function AssistantContent({
   ) => void;
   onAskUserCancel: (requestId: string) => void;
 }) {
+  const root = useBrainUiRoot();
   const contentRef = useRef<HTMLDivElement>(null);
   const showShare =
     !message.isStreaming && !!message.content && message.content.trim().length > 0;
   const shareOptions = showShare
-    ? buildMessageShareOptions({
+    ? buildMessageShareOptions(root, {
         content: message.content,
         renderedRef: contentRef,
       })

@@ -15,7 +15,7 @@ import type {
 import { useGraphStore } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFileStore } from "../../stores/file-store.js";
-import { apiBase } from "../../lib/backend.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { GraphControls } from "./graph-controls.js";
 import { NodePopover } from "./node-popover.js";
 import { GraphEmptyState, Mono } from "./graph-empty-state.js";
@@ -320,6 +320,7 @@ function FolderLegend({ colors }: { colors: Map<string, string> }) {
  * maintenance findings still provide the exact list, and shows no number.
  */
 function UnreachableTray({ count }: { count: number | undefined }) {
+  const root = useBrainUiRoot();
   const discovery = useGraphStore((s) => s.discovery);
   const staleDays = useGraphStore((s) => s.maintenance.staleDays);
   const openFile = useFileStore((s) => s.openFile);
@@ -327,6 +328,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
   const [open, setOpen] = useState(false);
   const [nodes, setNodes] = useState<GraphNodePayload[] | null>(null);
 
+  useEffect(() => { setNodes(null); setOpen(false); }, [root]);
   const isDefaultRoot = !discovery.root;
   // Older server, no count field: the maintenance list is the only honest
   // source, so it must be fetched EAGERLY — the chip may only appear once
@@ -339,8 +341,8 @@ function UnreachableTray({ count }: { count: number | undefined }) {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(
-          `${apiBase()}/graph/maintenance?${buildQuery({ staleDays })}`
+        const res = await root.request(
+          `${root.apiBase()}/graph/maintenance?${buildQuery({ staleDays })}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as GraphMaintenanceResponse;
@@ -352,7 +354,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
     return () => {
       cancelled = true;
     };
-  }, [open, needsFallbackProof, isDefaultRoot, nodes, staleDays]);
+  }, [open, needsFallbackProof, isDefaultRoot, nodes, staleDays, root]);
 
   if (count === 0) return null;
   // No server count and no exact list available: nothing honest to show.
@@ -414,17 +416,19 @@ function UnreachableTray({ count }: { count: number | undefined }) {
  * inviting — index notes are the natural candidates.
  */
 export function DiscoveryStart() {
+  const root = useBrainUiRoot();
   const setDiscoveryParams = useGraphStore((s) => s.setDiscoveryParams);
   const [candidates, setCandidates] = useState<
     { path: string; title: string }[] | null
   >(null);
 
   useEffect(() => {
+    setCandidates(null);
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(
-          `${apiBase()}/brain/list?${buildQuery({ type: "index", limit: 6 })}`
+        const res = await root.request(
+          `${root.apiBase()}/brain/list?${buildQuery({ type: "index", limit: 6 })}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as {
@@ -444,7 +448,7 @@ export function DiscoveryStart() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [root]);
 
   return (
     <>

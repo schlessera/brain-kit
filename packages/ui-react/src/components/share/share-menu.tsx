@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Share2, Loader2, Check, AlertCircle } from "lucide-react";
 import { cn } from "../../lib/utils.js";
@@ -33,10 +34,20 @@ interface ShareMenuProps {
 type Status = "idle" | "busy" | "done" | "error";
 
 export function ShareMenu({ options, title = "Share", className, renderTrigger }: ShareMenuProps) {
+  const root = useBrainUiRoot();
+  const lifetime = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    lifetime.current++;
+    setOpen(false); setStatus("idle"); setError(null);
+    const invalidate = () => { lifetime.current++; clearTimeout(timer.current); };
+    return invalidate;
+  }, [root]);
 
   useEffect(() => {
     if (!open) return;
@@ -63,18 +74,22 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
   const single = options.length === 1 ? options[0] : null;
 
   const runOption = async (opt: ShareOption) => {
+    const token = ++lifetime.current;
+    clearTimeout(timer.current);
     setOpen(false);
     setStatus("busy");
     setError(null);
     try {
-      await opt.run();
-      setStatus("done");
-      setTimeout(() => setStatus("idle"), 1200);
+      const shared = await opt.run();
+      if (token !== lifetime.current) return;
+      setStatus(shared ? "done" : "idle");
+      timer.current = setTimeout(() => { if (token === lifetime.current) setStatus("idle"); }, 1200);
     } catch (err) {
+      if (token !== lifetime.current) return;
       console.error("[share-menu]", err);
       setError(err instanceof Error ? err.message : "Share failed");
       setStatus("error");
-      setTimeout(() => setStatus("idle"), 3000);
+      timer.current = setTimeout(() => { if (token === lifetime.current) setStatus("idle"); }, 3000);
     }
   };
 

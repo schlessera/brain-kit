@@ -146,9 +146,13 @@ the default application root and its existing storage keys. Hook statics such
 as `useChatStore.getState()` always address that default root; internal code
 must use explicit roots, enforced by `check-root-stores.ts`.
 
-**Migration is in progress:** stores and WebSocket handlers are isolated, but
-some components and helpers still use the default API/config. Separate-backend
-application embeds require the remaining S4 caller migration in `.plan/PLAN.md`.
+Component requests, media URLs and branding follow the provider's root.
+Browser resources remain shared: cookies, native credential/share UI, the
+share-target stash and service-worker push subscriptions. Native media loading
+uses backend URLs and browser credentials rather than the injected transport.
+Separate roots do not establish a browser security boundary. One root serves
+all agent backends on the same brain server; separate roots are only needed
+for distinct application instances.
 
 ## Registries
 

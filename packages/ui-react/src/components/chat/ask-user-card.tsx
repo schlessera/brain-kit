@@ -1,4 +1,4 @@
-import { uiConfig } from "../../config.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Check,
@@ -52,6 +52,7 @@ export function AskUserCard({
   ) => void;
   onCancel: (requestId: string) => void;
 }) {
+  const root = useBrainUiRoot();
 
   // Independent per-question state
   const [state, setState] = useState<PerQuestionState[]>(() =>
@@ -213,7 +214,7 @@ export function AskUserCard({
             ? cancelled
               ? "Dismissed"
               : "You answered"
-            : `${uiConfig.assistantName} needs your input`}
+            : `${root.config.assistantName} needs your input`}
         </span>
         {isLocked && (
           <button

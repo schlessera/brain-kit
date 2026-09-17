@@ -9,7 +9,7 @@ nothing important lives only in a session transcript.
 A new `packages/ui-kit`: 58 presentational React components ported from a Claude
 Design system, with Storybook inside the package as the surface for iterating on
 design, copy and layout. Step 2 now has root-owned stores, registries and connections;
-component API/config migration and rewiring onto the kit remain ahead.
+component API/config migration is complete; rewiring onto the kit remains ahead.
 
 ## State
 
@@ -27,7 +27,7 @@ component API/config migration and rewiring onto the kit remain ahead.
 | 6b | MapView coastline geometry (D25) | done |
 | 7 | Visual regression (D10) | done |
 | — | Server-side map geometry for arbitrary places | done, one fixture outstanding |
-| Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | S1/S2/S3/S8 done; S4 caller migration and kit integration pending |
+| Step 2 | Rewire `ui-react`, reshape stores (D13/D15) | S1/S2/S3/S8 done; S4 complete; kit integration pending |
 
 Fixtures: the Odyssey world under `packages/ui-kit/fixtures/`, 16 people, 20
 places with verified real coordinates, pinned to 2026-07-12, 38 invariant tests,
@@ -447,6 +447,48 @@ dictation cleanup-ref warning.
 Remaining S4 work: media/share helpers and other branding consumers. UI-kit
 component integration (S5/S6/S7/S9) follows this migration.
 
+## Media, sharing and remaining service callers — 2026-09-17
+
+S4 is complete. Media URLs, image downloads, rendered exports, incoming share
+uploads and branding use the provider's root. Session history, graph searches
+and discovery candidates use the same root and discard obsolete responses.
+Markdown image memoization follows root changes; identical mask request IDs on
+different roots reset painting/error state. Share menus ignore obsolete
+completion feedback, and incoming uploads abort on root replacement before
+starting chat work. Outbound exports keep the root captured when requested.
+A stash record taken during cleanup is returned instead of silently dropped.
+
+Verification: **572 UI React tests pass**, including six new transport/mounted
+regressions. Removing the mask editor's root reset fails its mounted regression;
+the seed was removed. Repository typecheck, UI React package build and all
+seven lint gates pass (the existing dictation cleanup-ref warning remains).
+Native image/media requests use backend URLs and browser
+credentials, not the injected JavaScript transport. Cookies, native share,
+service-worker subscriptions and the share-target stash remain browser resources;
+roots are application ownership boundaries, not browser security boundaries.
+
+## Current scope and deferred design work — 2026-09-17
+
+The maintainer requested **non-design work only**. The updated Claude Design
+source reportedly resolves the reserved decisions, but has not been imported.
+The MCP endpoint was registered; OAuth login failed metadata issuer validation.
+Do not infer the new decisions from the old exports or choose defaults.
+
+- [ ] Import the updated design when access is available, then reconcile
+  `.plan/design-feedback.md` against it.
+- [ ] Apply its light-theme palette, map-label collision/long-label behavior,
+  card spacing/layout, and keyboard-shortcut decisions.
+- [ ] Resolve the remaining feedback: bordered hit targets, contact severity,
+  neutral meanings, agent fallback, ApprovalCard buttons, StatTiles layout,
+  repeated digest heading, and Home/End behavior using that source.
+- [ ] Run pinned-container visual verification after design changes; do not
+  regenerate baselines on the host.
+
+These are deliberately open design TODOs. Existing visual behavior is retained
+while non-design work proceeds. S6/S7/S9 still require an explicit mapping from
+the design's components to the application's richer interactive flows; do not
+mark those steps done just because service injection is complete.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -569,17 +611,10 @@ part of itself** rather than waiting for step 2's S1.
 
 ## What to do next
 
-**Step 2** — rewire `ui-react` onto `ui-kit`, reshape the stores (D13/D15). It
-is the only wave-sized piece left in step 1's neighbourhood. Note what is
-already done: S1's registry fix, S2's root/store factories, S3's bound connection
-and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining media `api`, branding `uiConfig`, and
-`apiBase`/`getBackendUrl` consumers to the
-provider's root, including helpers that upload/share/render and their callers.
-Keep the existing cancellation/epoch guards and update effect dependencies when
-injecting services. Then proceed to S5/S6/S7/S9 (kit dependency, component splits,
-and first end-to-end kit component). Do not describe the whole application as
-safe for separate-backend embeds until S4 and its runtime tests are complete.
+**Step 2** — S1/S2/S3/S4/S8 are complete. S5 dependency and stylesheet
+wiring is next. S6/S7/S9 remain open: preserve request cancellation and store
+ownership when adapting views, and use the imported design rather than inventing
+replacement presentation. See the current scope below.
 
 Three design questions are open and will move screens, and therefore baselines:
 two in `design-feedback.md` §14 (a four-tile `StatTiles` row breaking 3 + 1; the

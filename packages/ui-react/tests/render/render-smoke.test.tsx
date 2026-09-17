@@ -7,6 +7,11 @@
 // render test lives in this one file and why `screen` must not be used.
 import { unregisterDom } from "./dom.js";
 
+import { BrainMarkdown } from "../../src/components/chat/brain-markdown.js";
+import { MaskEditor } from "../../src/components/images/mask-editor.js";
+import { ShareMenu } from "../../src/components/share/share-menu.js";
+import { DiscoveryStart } from "../../src/components/graph/graph-scene.js";
+import { ShareBlock } from "../../src/components/chat/share-block.js";
 import { PushToggle } from "../../src/components/activity/push-toggle.js";
 import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
 import { PasskeyTab } from "../../src/components/settings/passkey-tab.js";
@@ -3463,5 +3468,89 @@ describe("push root ownership", () => {
       expect(a.requests).toHaveLength(0); expect(b.requests).toHaveLength(0);
       expect(view.getByRole("button", { name: "Enable push" })).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+
+describe("remaining media and lookup root ownership", () => {
+  test("mask requests with identical IDs reset errors and strokes across roots", () => {
+    const a = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" } });
+    const b = createBrainUiRoot({ storage: null, config: { backendUrl: "https://beta.example" } });
+    for (const root of [a, b]) root.stores.mask.getState().open({ requestId: "same", imagePath: "photo.png" });
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><MaskEditor onSubmit={() => {}} onCancel={() => {}} /></BrainUiProvider>;
+    const view = render(panel(a));
+    try {
+      const canvas = view.container.querySelector("canvas")!;
+      canvas.setPointerCapture = () => {};
+      fireEvent.pointerDown(canvas, { clientX: 1, clientY: 1, pointerId: 1 });
+      fireEvent.error(view.container.querySelector("img")!);
+      expect((view.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(view.getByText("Could not load photo.png")).toBeTruthy();
+      view.rerender(panel(b));
+      expect((view.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.queryByText("Could not load photo.png")).toBeNull();
+      expect(view.container.querySelector("img")!.src).toStartWith("https://beta.example/api/");
+    } finally { view.unmount(); a.dispose(); b.dispose(); }
+  });
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example`, shareTitle: `${owner} export` },
+      request: (url, init) => { const response = deferred<Response>(); requests.push({ url, init, response }); return response.promise; },
+    });
+    return { root, requests };
+  }
+  test("session history and graph candidates discard a previous server's results", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><SessionDrawer open onClose={() => {}} onResume={() => {}} /><DiscoveryStart /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    const respond = (owner: ReturnType<typeof transport>, name: string) => {
+      for (const request of owner.requests) request.response.resolve(Response.json(request.url.includes("/sessions")
+        ? { sessions: [{ id: name, title: `${name} conversation`, createdAt: 1, lastActiveAt: 2 }] }
+        : { results: [{ path: `notes/${name}.md`, title: `${name} index` }] }));
+    };
+    try {
+      view.rerender(panel(b.root));
+      await act(async () => { respond(b, "Beta"); respond(a, "Obsolete"); await flushPromises(); });
+      expect(view.getByText("Beta conversation")).toBeTruthy(); expect(view.getByText("Beta index")).toBeTruthy();
+      expect(view.queryByText("Obsolete conversation")).toBeNull(); expect(view.queryByText("Obsolete index")).toBeNull();
+      expect(b.requests.every(r => r.url.startsWith("https://beta.example/api/"))).toBe(true);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+  test("markdown images change server URLs when the provider changes", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><BrainMarkdown content="![Note image](notes/photo.png)" /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      expect(view.getByRole("button", { name: "Note image" }).getAttribute("src")).toBe("https://alpha.example/api/files/content?path=notes%2Fphoto.png&raw=1");
+      view.rerender(panel(b.root));
+      expect(view.getByRole("button", { name: "Note image" }).getAttribute("src")).toBe("https://beta.example/api/files/content?path=notes%2Fphoto.png&raw=1");
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+  test("share rendering captures the issuing server and its branding", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><ShareBlock body="A note" /></BrainUiProvider>;
+    const view = render(panel(a.root));
+    try {
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Share as image" })); await flushPromises(); });
+      expect(a.requests.find(r => r.url.endsWith("/render"))!.url).toBe("https://alpha.example/api/render");
+      expect(JSON.parse(String(a.requests.find(r => r.url.endsWith("/render"))!.init?.body)).title).toBe("alpha export");
+      view.rerender(panel(b.root));
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Share as image" })); await flushPromises(); });
+      expect(b.requests.find(r => r.url.endsWith("/render"))!.url).toBe("https://beta.example/api/render");
+      expect(JSON.parse(String(b.requests.find(r => r.url.endsWith("/render"))!.init?.body)).title).toBe("beta export");
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+  test("a previous root's share completion cannot clear a new share's pending state", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const old = deferred<boolean>(); const next = deferred<boolean>();
+    const panel = (root: BrainUiRoot, result: Promise<boolean>) => <BrainUiProvider root={root}><ShareMenu options={[{ id: "test", label: "Test", run: () => result }]} /></BrainUiProvider>;
+    const view = render(panel(a.root, old.promise));
+    try {
+      fireEvent.click(view.getByTitle("Share")); view.rerender(panel(b.root, next.promise)); fireEvent.click(view.getByTitle("Share"));
+      await act(async () => { old.resolve(true); await flushPromises(); });
+      expect((view.getByTitle("Share") as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => { next.resolve(false); await flushPromises(); });
+      expect((view.getByTitle("Share") as HTMLButtonElement).disabled).toBe(false);
+    } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 });

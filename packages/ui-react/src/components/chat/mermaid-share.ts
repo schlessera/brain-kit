@@ -1,4 +1,4 @@
-import { uiConfig } from "../../config.js";
+import type { BrainUiRoot } from "../../root.js";
 import { renderMermaidSvg, sizeSvgForExport } from "../../lib/mermaid.js";
 import { renderAndShare, shareFile, shareText } from "../../lib/share.js";
 import type { ShareOption } from "../share/share-menu.js";
@@ -41,6 +41,7 @@ async function exportHtml(source: string, tight: boolean): Promise<string> {
 }
 
 export function buildDiagramShareOptions(
+  root: BrainUiRoot,
   source: string,
   opts: { filename?: string } = {}
 ): ShareOption[] {
@@ -51,12 +52,12 @@ export function buildDiagramShareOptions(
       label: "Image (PNG)",
       hint: "Cropped to the diagram",
       run: async () =>
-        renderAndShare({
+        renderAndShare(root, {
           content: await exportHtml(source, true),
           contentType: "html",
           format: "png",
           filename,
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {
@@ -64,12 +65,12 @@ export function buildDiagramShareOptions(
       label: "PDF",
       hint: "Vector PDF, A4",
       run: async () =>
-        renderAndShare({
+        renderAndShare(root, {
           content: await exportHtml(source, false),
           contentType: "html",
           format: "pdf",
           filename,
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {
@@ -78,14 +79,14 @@ export function buildDiagramShareOptions(
       hint: "Scales to any size",
       run: async () =>
         shareFile(new File([await exportSvg(source)], `${filename}.svg`, { type: "image/svg+xml" }), {
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {
       id: "source",
       label: "Mermaid source",
       hint: "Paste into another tool",
-      run: () => shareText({ text: source, title: uiConfig.shareTitle }),
+      run: () => shareText({ text: source, title: root.config.shareTitle }),
     },
   ];
 }

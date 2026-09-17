@@ -99,7 +99,7 @@ describe("uploadShare", () => {
         url: "https://example.com",
         files: [new File(["x"], "photo.jpg", { type: "image/jpeg" })],
       },
-      impl
+      impl, "/api"
     );
 
     expect(outcome.ok).toBe(true);
@@ -117,7 +117,7 @@ describe("uploadShare", () => {
     // only thing that lets the card say which cap was hit.
     const { impl } = fakeFetch(413, { error: "file_too_large", limit: 25_000_000 });
 
-    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl);
+    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl, "/api");
 
     expect(outcome).toMatchObject({
       ok: false,
@@ -133,7 +133,7 @@ describe("uploadShare", () => {
       throw new Error("Failed to fetch");
     }) as unknown as typeof fetch;
 
-    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl);
+    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl, "/api");
 
     expect(outcome).toEqual({ ok: false, error: "Failed to fetch" });
   });
@@ -142,7 +142,7 @@ describe("uploadShare", () => {
     const impl = (async () =>
       new Response("<html>502</html>", { status: 502 })) as unknown as typeof fetch;
 
-    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl);
+    const outcome = await uploadShare({ id: "a", receivedAt: 1, files: [] }, impl, "/api");
 
     expect(outcome).toMatchObject({ ok: false, status: 502 });
   });

@@ -1,11 +1,12 @@
 import { FileWarning, Download } from "lucide-react";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
-import { apiBase } from "../../lib/backend.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
 
 export function FileViewerBinary({ content }: { content: FileContentResponse }) {
+  const root = useBrainUiRoot();
   const isImage = content.mime?.startsWith("image/");
-  const rawUrl = `${apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
+  const rawUrl = `${root.apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
 
   if (isImage) {
     const filename = content.path.split("/").pop() ?? content.path;

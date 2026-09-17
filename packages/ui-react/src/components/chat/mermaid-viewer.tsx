@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useMemo } from "react";
 import { sizeSvgForExport } from "../../lib/mermaid.js";
 import { ShareMenu } from "../share/share-menu.js";
@@ -23,6 +24,7 @@ export function MermaidViewer({
   source: string;
   onClose: () => void;
 }) {
+  const root = useBrainUiRoot();
   // Mermaid ships `width: 100%` + `max-width` on the svg, which has no
   // intrinsic size to measure or to scale from. Reuse the export sizer to pin
   // it to its viewBox pixels; the viewer's transform does all the scaling.
@@ -33,7 +35,7 @@ export function MermaidViewer({
       onClose={onClose}
       refitKey={sizedSvg}
       label="Diagram viewer"
-      actions={<ShareMenu options={buildDiagramShareOptions(source)} title="Share diagram" />}
+      actions={<ShareMenu options={buildDiagramShareOptions(root, source)} title="Share diagram" />}
     >
       <div dangerouslySetInnerHTML={{ __html: sizedSvg }} />
     </ZoomViewer>

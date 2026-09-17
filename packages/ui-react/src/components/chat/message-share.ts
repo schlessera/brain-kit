@@ -1,4 +1,4 @@
-import { uiConfig } from "../../config.js";
+import type { BrainUiRoot } from "../../root.js";
 import type { RefObject } from "react";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
@@ -11,7 +11,7 @@ interface BuildOpts {
   renderedRef: RefObject<HTMLElement | null>;
 }
 
-export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): ShareOption[] {
+export function buildMessageShareOptions(root: BrainUiRoot, { content, renderedRef }: BuildOpts): ShareOption[] {
   const plain = () => stripMarkdown(content);
 
   return [
@@ -20,14 +20,14 @@ export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): S
       label: "Image (PNG)",
       hint: "Rendered snapshot",
       run: async () =>
-        renderAndShare({
+        renderAndShare(root, {
           // The render page runs without JavaScript, so mermaid fences are
           // pre-rendered to inline SVG here on the client.
           content: await inlineMermaidDiagrams(content),
           contentType: "markdown",
           format: "png",
           filename: "message",
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {
@@ -35,12 +35,12 @@ export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): S
       label: "PDF",
       hint: "Vector PDF, A4",
       run: async () =>
-        renderAndShare({
+        renderAndShare(root, {
           content: await inlineMermaidDiagrams(content),
           contentType: "markdown",
           format: "pdf",
           filename: "message",
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {
@@ -55,7 +55,7 @@ export function buildMessageShareOptions({ content, renderedRef }: BuildOpts): S
       hint: "Raw markdown verbatim",
       run: () =>
         shareFile(new File([content], "message.md", { type: "text/markdown" }), {
-          title: uiConfig.shareTitle,
+          title: root.config.shareTitle,
         }),
     },
     {

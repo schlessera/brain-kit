@@ -1,3 +1,4 @@
+import type { BrainUiRoot } from "../../root.js";
 import type { FileState } from "../../stores/file-state.js";
 import { Loader2, AlertCircle, Eye, Code, Copy, Check, FolderOpen } from "lucide-react";
 import { useState } from "react";
@@ -8,7 +9,7 @@ import { FileViewerHtml } from "./file-viewer-html.js";
 import { FileViewerRaw } from "./file-viewer-raw.js";
 import { FileViewerBinary } from "./file-viewer-binary.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
-import { apiBase } from "../../lib/backend.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { fetchAsFile, shareFile, renderAndShare } from "../../lib/share.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
@@ -114,8 +115,9 @@ function Toolbar({
   content: FileContentResponse | null;
   onRevealInTree: () => void;
 }) {
+  const root = useBrainUiRoot();
   const [copied, setCopied] = useState(false);
-  const shareOptions = content ? buildFileShareOptions(content, fileName) : [];
+  const shareOptions = content ? buildFileShareOptions(root, content, fileName) : [];
   return (
     <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
       <button
@@ -181,14 +183,14 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function buildFileShareOptions(content: FileContentResponse, fileName: string): ShareOption[] {
-  const rawUrl = `${apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
+function buildFileShareOptions(root: BrainUiRoot, content: FileContentResponse, fileName: string): ShareOption[] {
+  const rawUrl = `${root.apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
 
   if (content.kind === "binary") {
     // An image gets both: the original bytes, and a lighter re-encode for
     // messaging. The original is first, and nothing is downgraded unasked.
     if (content.mime?.startsWith("image/")) {
-      return buildImageShareOptions(rawUrl, fileName, {
+      return buildImageShareOptions(root, rawUrl, fileName, {
         mime: content.mime,
         bytes: content.size,
       });
@@ -200,7 +202,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
           id: "file",
           label: "Share file",
           run: async () => {
-            const file = await fetchAsFile(rawUrl, fileName, content.mime);
+            const file = await fetchAsFile(root, rawUrl, fileName, content.mime);
             return shareFile(file, { title: fileName });
           },
         },
@@ -241,7 +243,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         label: "Share as image",
         hint: "Rendered PNG snapshot",
         run: async () =>
-          renderAndShare({
+          renderAndShare(root, {
             // The render page runs without JavaScript — mermaid fences are
             // pre-rendered to inline SVG on the client.
             content: await inlineMermaidDiagrams(body),
@@ -256,7 +258,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         label: "Share as PDF",
         hint: "Vector PDF, A4",
         run: async () =>
-          renderAndShare({
+          renderAndShare(root, {
             content: await inlineMermaidDiagrams(body),
             contentType: "markdown",
             format: "pdf",
@@ -284,7 +286,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         id: "html-png",
         label: "Share as image",
         run: () =>
-          renderAndShare({
+          renderAndShare(root, {
             content: html,
             contentType: "html",
             format: "png",
@@ -296,7 +298,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
         id: "html-pdf",
         label: "Share as PDF",
         run: () =>
-          renderAndShare({
+          renderAndShare(root, {
             content: html,
             contentType: "html",
             format: "pdf",
@@ -312,7 +314,7 @@ function buildFileShareOptions(content: FileContentResponse, fileName: string): 
   if (content.kind === "text" && isMermaidPath(content.path)) {
     const source = content.content ?? "";
     return [
-      ...buildDiagramShareOptions(source, { filename: baseName(fileName) }),
+      ...buildDiagramShareOptions(root, source, { filename: baseName(fileName) }),
       {
         id: "mmd-file",
         label: "Share source file",

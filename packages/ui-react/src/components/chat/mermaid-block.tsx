@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Code, ChartNetwork, Expand } from "lucide-react";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
@@ -17,6 +18,7 @@ import { MermaidViewer } from "./mermaid-viewer.js";
  * costs a cache lookup, not a mermaid parse.
  */
 export function MermaidBlock({ source }: { source: string }) {
+  const root = useBrainUiRoot();
   const [svg, setSvg] = useState<string | null>(() => peekMermaidSvg(source));
   const [showSource, setShowSource] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -77,7 +79,7 @@ export function MermaidBlock({ source }: { source: string }) {
         )}
         {diagramReady && (
           <ShareMenu
-            options={buildDiagramShareOptions(source)}
+            options={buildDiagramShareOptions(root, source)}
             title="Share diagram"
             renderTrigger={({ onClick, busy, icon }) => (
               <button type="button" title="Share diagram" onClick={onClick} disabled={busy} className={iconBtn}>

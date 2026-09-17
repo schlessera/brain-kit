@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eraser, RotateCcw, X } from "lucide-react";
 
-import { apiBase } from "../../lib/backend.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useMaskStore } from "../../stores/mask-store.js";
 
 /**
@@ -31,6 +31,7 @@ export function MaskEditor({
   onSubmit: (requestId: string, maskPngBase64: string) => void;
   onCancel: (requestId: string, message: string) => void;
 }) {
+  const root = useBrainUiRoot();
   const request = useMaskStore((s) => s.request);
   const close = useMaskStore((s) => s.close);
 
@@ -43,16 +44,17 @@ export function MaskEditor({
   const [error, setError] = useState<string | null>(null);
 
   const rawUrl = request
-    ? `${apiBase()}/files/content?path=${encodeURIComponent(request.imagePath)}&raw=1`
+    ? `${root.apiBase()}/files/content?path=${encodeURIComponent(request.imagePath)}&raw=1`
     : null;
 
   // Reset per request: a second mask on a different image must not inherit the
   // first one's strokes.
   useEffect(() => {
     setStrokes([]);
+    setDrawing(false);
     setLoaded(false);
     setError(null);
-  }, [request?.requestId]);
+  }, [root, request?.requestId, rawUrl]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -165,6 +167,7 @@ export function MaskEditor({
       <div className="flex min-h-0 flex-1 items-center justify-center p-3">
         {rawUrl && (
           <img
+            key={rawUrl}
             ref={imageRef}
             src={rawUrl}
             alt=""

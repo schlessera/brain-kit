@@ -1,4 +1,5 @@
-import { uiConfig } from "../../config.js";
+import type { BrainUiRoot } from "../../root.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useRef } from "react";
 import { BrainMarkdown } from "./brain-markdown.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
@@ -26,12 +27,13 @@ interface ShareBlockProps {
 }
 
 export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
+  const root = useBrainUiRoot();
   const bodyRef = useRef<HTMLDivElement>(null);
   const filename = sanitizeFilename(title ?? "share");
 
-  const primary = makeAction(format, body, filename, title, bodyRef);
+  const primary = makeAction(root, format, body, filename, title, bodyRef);
   const secondary: ShareOption[] = ORDER.filter((f) => f !== format).map((f) =>
-    makeAction(f, body, filename, title, bodyRef)
+    makeAction(root, f, body, filename, title, bodyRef)
   );
 
   return (
@@ -64,6 +66,7 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
 }
 
 function makeAction(
+  root: BrainUiRoot,
   fmt: ShareBlockFormat,
   body: string,
   filename: string,
@@ -73,11 +76,12 @@ function makeAction(
   return {
     id: fmt,
     label: FORMAT_LABELS[fmt],
-    run: () => runFormat(fmt, body, filename, title, bodyRef),
+    run: () => runFormat(root, fmt, body, filename, title, bodyRef),
   };
 }
 
 async function runFormat(
+  root: BrainUiRoot,
   fmt: ShareBlockFormat,
   body: string,
   filename: string,
@@ -86,22 +90,22 @@ async function runFormat(
 ): Promise<boolean> {
   switch (fmt) {
     case "image":
-      return renderAndShare({
+      return renderAndShare(root, {
         // The render page runs without JavaScript — mermaid fences are
         // pre-rendered to inline SVG on the client.
         content: await inlineMermaidDiagrams(body),
         contentType: "markdown",
         format: "png",
         filename,
-        title: title ?? uiConfig.shareTitle,
+        title: title ?? root.config.shareTitle,
       });
     case "pdf":
-      return renderAndShare({
+      return renderAndShare(root, {
         content: await inlineMermaidDiagrams(body),
         contentType: "markdown",
         format: "pdf",
         filename,
-        title: title ?? uiConfig.shareTitle,
+        title: title ?? root.config.shareTitle,
       });
     case "text":
       return shareText({ text: stripMarkdown(body), title });

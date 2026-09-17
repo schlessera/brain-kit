@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import React, { memo, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
 
@@ -83,6 +84,7 @@ export const BrainMarkdown = memo(function BrainMarkdown({ content, className, e
 });
 
 const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
+  const root = useBrainUiRoot();
   const processed = entityTags ? renderEntityTags(content) : content;
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
   // Entity-tag rendering emits its own markup and must not be re-highlighted.
@@ -134,7 +136,7 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
        * appears. `data:` URIs and absolute URLs are left alone.
        */
       img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<"img">) => {
-        const resolved = typeof src === "string" ? repoImageSrc(src) : src;
+        const resolved = typeof src === "string" ? repoImageSrc(src, root) : src;
         // Inline, an image is only as wide as the viewport. Tapping it opens the
         // zoom viewer, the same way a mermaid diagram does.
         if (typeof resolved !== "string") {
@@ -166,7 +168,7 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
         );
       },
     };
-  }, [entityTags, fileLinks]);
+  }, [entityTags, fileLinks, root]);
 
   return (
     <div className={className ?? "brain-prose"}>

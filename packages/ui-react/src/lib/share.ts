@@ -1,4 +1,4 @@
-import { apiBase } from "./backend.js";
+import type { BrainUiRoot } from "../root.js";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 
 export type ShareKind = "file" | "text" | "richtext";
@@ -108,11 +108,12 @@ export async function copyRichText(html: string, plain: string): Promise<boolean
  * /api/files/content?raw=1 endpoint for share-the-bytes flows.
  */
 export async function fetchAsFile(
+  root: BrainUiRoot,
   url: string,
   filename: string,
   mime?: string
 ): Promise<File> {
-  const res = await fetch(url);
+  const res = await root.request(url);
   if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
   const blob = await res.blob();
   return new File([blob], filename, { type: mime ?? blob.type ?? "application/octet-stream" });
@@ -122,10 +123,11 @@ export async function fetchAsFile(
  * POST to /api/render and return the resulting File. Throws on non-2xx.
  */
 export async function renderToFile(
+  root: BrainUiRoot,
   req: RenderRequest,
   filename: string
 ): Promise<File> {
-  const res = await fetch(`${apiBase()}/render`, {
+  const res = await root.request(`${root.apiBase()}/render`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
@@ -151,7 +153,7 @@ export async function renderToFile(
 /**
  * One-call helper: render content to PNG/PDF and dispatch the share sheet.
  */
-export async function renderAndShare(opts: {
+export async function renderAndShare(root: BrainUiRoot, opts: {
   content: string;
   contentType: RenderRequest["contentType"];
   format: RenderRequest["format"];
@@ -160,6 +162,7 @@ export async function renderAndShare(opts: {
   text?: string;
 }): Promise<boolean> {
   const file = await renderToFile(
+    root,
     { content: opts.content, contentType: opts.contentType, format: opts.format, title: opts.title },
     opts.filename
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Loader2 } from "lucide-react";
-import { api } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
@@ -28,6 +28,8 @@ export function SessionDrawer({
   onClose: () => void;
   onResume: (sessionId: string) => void;
 }) {
+  const root = useBrainUiRoot();
+  const api = root.api;
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
@@ -42,6 +44,8 @@ export function SessionDrawer({
   // servers no longer send.
   const backgroundSessionId =
     Object.keys(runStates).find((id) => id !== currentSessionId) ?? null;
+
+  useEffect(() => { setSessions([]); setWarning(null); }, [root]);
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +65,7 @@ export function SessionDrawer({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [open, retry]);
+  }, [open, retry, root, api]);
 
   const groups = groupSessionsByDate(sessions);
 

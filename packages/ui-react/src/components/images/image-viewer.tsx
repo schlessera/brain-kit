@@ -1,3 +1,4 @@
+import { useBrainUiRoot } from "../../root-context.js";
 import { useState } from "react";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomViewer } from "../viewer/zoom-viewer.js";
@@ -26,6 +27,7 @@ export function ImageViewer({
   bytes?: number;
   onClose: () => void;
 }) {
+  const root = useBrainUiRoot();
   // The natural size is unknown until the decode finishes, and `fit()` measures
   // the DOM — so the load event is what tells the viewer to fit.
   const [loaded, setLoaded] = useState(false);
@@ -38,7 +40,7 @@ export function ImageViewer({
       label={`Image viewer: ${filename}`}
       actions={
         <ShareMenu
-          options={buildImageShareOptions(src, filename, { mime, bytes })}
+          options={buildImageShareOptions(root, src, filename, { mime, bytes })}
           title="Share image"
         />
       }

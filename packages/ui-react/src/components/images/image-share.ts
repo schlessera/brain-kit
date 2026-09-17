@@ -1,3 +1,4 @@
+import type { BrainUiRoot } from "../../root.js";
 import { fetchAsFile, shareFile } from "../../lib/share.js";
 import {
   SHARE_OPTIMIZED,
@@ -20,12 +21,13 @@ import type { ShareOption } from "../share/share-menu.js";
  *   falls back to the original rather than being recompressed for show.
  */
 export function buildImageShareOptions(
+  root: BrainUiRoot,
   url: string,
   filename: string,
   opts: { mime?: string; bytes?: number } = {}
 ): ShareOption[] {
   const shareOriginal = async (): Promise<boolean> => {
-    const file = await fetchAsFile(url, filename, opts.mime);
+    const file = await fetchAsFile(root, url, filename, opts.mime);
     return shareFile(file, { title: filename });
   };
 
@@ -41,7 +43,7 @@ export function buildImageShareOptions(
       label: "Share optimized",
       hint: `JPEG, up to ${SHARE_OPTIMIZED.maxEdge}px · under ${formatBytes(SHARE_OPTIMIZED.maxBytes)}`,
       run: async () => {
-        const original = await fetchAsFile(url, filename, opts.mime);
+        const original = await fetchAsFile(root, url, filename, opts.mime);
         const result = await optimizeImage(original, SHARE_OPTIMIZED);
         // null means "nothing to gain" (already small enough) or "could not be
         // decoded". Either way the original is the right thing to send, and
