@@ -7,6 +7,7 @@
 // render test lives in this one file and why `screen` must not be used.
 import { unregisterDom } from "./dom.js";
 
+import { PushToggle } from "../../src/components/activity/push-toggle.js";
 import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
 import { PasskeyTab } from "../../src/components/settings/passkey-tab.js";
 import { ModelsTab } from "../../src/components/settings/models-tab.js";
@@ -489,6 +490,7 @@ describe("push re-registration", () => {
         ready: Promise.resolve({
           pushManager: {
             getSubscription: async () => ({
+              options: { applicationServerKey: null },
               toJSON: () => ({
                 endpoint: "https://push.example/rebind",
                 keys: { p256dh: "p256dh", auth: "auth" },
@@ -3306,5 +3308,160 @@ describe("authentication and passkey root ownership", () => {
       expect(view.queryByText("Obsolete name")).toBeNull();
       expect(reload).not.toHaveBeenCalled();
     } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+
+describe("push root ownership", () => {
+  function transport(owner: string) {
+    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example` },
+      request: (url, init) => {
+        const response = deferred<Response>(); requests.push({ url, init, response }); return response.promise;
+      },
+    });
+    return { root, requests, matching: (path: string) => requests.filter(r => new URL(r.url).pathname === `/api${path}`) };
+  }
+  function browser(permission: NotificationPermission = "granted") {
+    const descriptors: Array<{ target: object; key: string; descriptor: PropertyDescriptor | undefined }> = [];
+    function install(target: object, key: string, value: unknown) {
+      descriptors.push({ target, key, descriptor: Object.getOwnPropertyDescriptor(target, key) });
+      Object.defineProperty(target, key, { configurable: true, value });
+    }
+    const permissions: Array<ReturnType<typeof deferred<NotificationPermission>>> = [];
+    const creations: Array<{ options: unknown; response: ReturnType<typeof deferred<typeof subscription>> }> = [];
+    let removals = 0;
+    const subscription = { endpoint: "https://push.example/endpoint", options: { applicationServerKey: new Uint8Array([1]).buffer },
+      toJSON: () => ({ endpoint: "https://push.example/endpoint", keys: { p256dh: "test", auth: "test" } }),
+      unsubscribe: async () => { removals++; return true; },
+    };
+    const registration = { pushManager: {
+      getSubscription: async () => subscription,
+      subscribe: async (options: unknown) => { const response = deferred<typeof subscription>(); creations.push({ options, response }); return response.promise; },
+    } };
+    const notifications = { permission, requestPermission: () => { const response = deferred<NotificationPermission>(); permissions.push(response); return response.promise; } };
+    const worker = { ready: Promise.resolve(registration) };
+    install(globalThis, "Notification", notifications);
+    if (window !== (globalThis as unknown)) install(window, "Notification", notifications);
+    install(window, "PushManager", class {});
+    install(navigator, "serviceWorker", worker);
+    return { subscription, registration, notifications, worker, permissions, creations, removals: () => removals, restore() {
+      for (const { target, key, descriptor } of descriptors.reverse()) {
+        if (descriptor) Object.defineProperty(target, key, descriptor); else Reflect.deleteProperty(target, key);
+      }
+    } };
+  }
+  const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><PushToggle /></BrainUiProvider>;
+  const gate = (root: BrainUiRoot) => <BrainUiProvider root={root}><ConnectionGate><div>Protected content</div></ConnectionGate></BrainUiProvider>;
+  async function reply(request: ReturnType<typeof transport>["requests"][number], body: unknown) {
+    await act(async () => { request.response.resolve(Response.json(body)); await flushPromises(); });
+  }
+  async function connected(owner: ReturnType<typeof transport>) {
+    await reply(owner.matching("/push/public-key").at(-1)!, { publicKey: "AQ" });
+    await reply(owner.matching("/push/subscribe").at(-1)!, { ok: true });
+  }
+
+  test("mounting against a different key does not remove the browser subscription", async () => {
+    const platform = browser(); const a = transport("alpha"); const view = render(panel(a.root));
+    try {
+      await act(flushPromises);
+      await reply(a.requests[0], { publicKey: "Ag" });
+      expect(platform.removals()).toBe(0);
+      expect(a.matching("/push/subscribe")).toHaveLength(0);
+      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
+      await reply(a.matching("/push/public-key")[1], { publicKey: "Ag" });
+      expect(platform.removals()).toBe(1);
+      expect(platform.creations[0].options).toEqual({ userVisibleOnly: true, applicationServerKey: "Ag" });
+      await act(async () => { platform.creations[0].response.resolve(platform.subscription); await flushPromises(); });
+      expect(a.matching("/push/subscribe")[0].url).toBe("https://alpha.example/api/push/subscribe");
+      await reply(a.matching("/push/subscribe")[0], { ok: true });
+      expect(view.getByRole("button", { name: "Push on" })).toBeTruthy();
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); }
+  });
+
+  test("a late permission response cannot enable push or clear another root's pending state", async () => {
+    const platform = browser("default"); const a = transport("alpha"); const b = transport("beta");
+    const view = render(panel(a.root));
+    try {
+      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      view.rerender(panel(b.root));
+      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
+      expect(a.requests).toHaveLength(0);
+      expect((view.getByRole("button", { name: "Enable push" }) as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => { platform.permissions[1].resolve("denied"); await flushPromises(); });
+      expect(view.getByText("Blocked in browser settings")).toBeTruthy();
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late native subscription creation cannot bind to a superseded UI", async () => {
+    const platform = browser("default"); const a = transport("alpha"); const b = transport("beta");
+    const view = render(panel(a.root));
+    try {
+      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
+      await reply(a.requests[0], { publicKey: "AQ" });
+      expect(platform.creations).toHaveLength(1);
+      view.rerender(panel(b.root));
+      await act(async () => { platform.creations[0].response.resolve(platform.subscription); await flushPromises(); });
+      expect(a.matching("/push/subscribe")).toHaveLength(0);
+      expect(b.requests).toHaveLength(0);
+      expect(view.getByRole("button", { name: "Enable push" })).toBeTruthy();
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("late disable responses cannot unsubscribe the replacement root's browser subscription", async () => {
+    const platform = browser(); const a = transport("alpha"); const b = transport("beta");
+    const view = render(panel(a.root));
+    try {
+      await act(flushPromises); await connected(a);
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Push on" })); await flushPromises(); });
+      expect(a.matching("/push/unsubscribe")).toHaveLength(1);
+      view.rerender(panel(b.root));
+      await act(flushPromises); await connected(b);
+      await reply(a.matching("/push/unsubscribe")[0], { removed: true });
+      expect(platform.removals()).toBe(0);
+      expect(view.getByRole("button", { name: "Push on" })).toBeTruthy();
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("connection gates reset connectivity and bind push only after their own successful probe", async () => {
+    const platform = browser(); const a = transport("alpha"); const b = transport("beta");
+    const view = render(gate(a.root));
+    try {
+      await reply(a.matching("/vpn-check")[0], {});
+      expect(view.getByText("Protected content")).toBeTruthy();
+      // Leave A's public-key request pending while B establishes its session.
+      view.rerender(gate(b.root));
+      expect(view.queryByText("Protected content")).toBeNull();
+      expect(b.matching("/push/public-key")).toHaveLength(0);
+      await reply(b.matching("/vpn-check")[0], {});
+      await reply(b.matching("/push/public-key")[0], { publicKey: "AQ" });
+      await reply(a.matching("/push/public-key")[0], { publicKey: "AQ" });
+      expect(a.matching("/push/subscribe")).toHaveLength(0);
+      expect(b.matching("/push/subscribe")).toHaveLength(1);
+      await reply(b.matching("/push/subscribe")[0], { ok: true });
+      expect(view.getByText("Protected content")).toBeTruthy();
+      // Revisit A: completed B bookkeeping must not suppress its new bind.
+      view.rerender(gate(a.root));
+      expect(a.matching("/push/public-key")).toHaveLength(1);
+      await reply(a.matching("/vpn-check")[1], {});
+      await reply(a.matching("/push/public-key")[1], { publicKey: "Ag" });
+      expect(a.matching("/push/subscribe")).toHaveLength(0);
+      expect(platform.removals()).toBe(0);
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a superseded service-worker readiness wait cannot fetch or bind push", async () => {
+    const platform = browser(); const ready = deferred<typeof platform.registration>(); platform.worker.ready = ready.promise;
+    const a = transport("alpha"); const b = transport("beta"); const view = render(panel(a.root));
+    try {
+      platform.notifications.permission = "default";
+      view.rerender(panel(b.root));
+      await act(async () => { ready.resolve(platform.registration); await flushPromises(); });
+      expect(a.requests).toHaveLength(0); expect(b.requests).toHaveLength(0);
+      expect(view.getByRole("button", { name: "Enable push" })).toBeTruthy();
+    } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
   });
 });

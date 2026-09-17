@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, BellOff } from "lucide-react";
 
-import { api } from "../../lib/api-client.js";
+import { useBrainUiRoot } from "../../root-context.js";
+import { subscriptionMatchesKey } from "../../lib/push-registration.js";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -13,14 +14,6 @@ import { cn } from "../../lib/utils.js";
  * nothing. Where the platform has no push at all (iOS Safari in-browser,
  * pre-16.4), the control renders disabled-with-explanation, not hidden.
  */
-/** The subscription's bound applicationServerKey, in the base64url form the
- *  server hands out — comparable against `pushPublicKey()` directly. */
-function keyToBase64Url(key: ArrayBuffer): string {
-  let bin = "";
-  for (const b of new Uint8Array(key)) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 type PushState =
   | "unsupported"
   | "not-asked"
@@ -29,10 +22,18 @@ type PushState =
   | "unsubscribed";
 
 export function PushToggle() {
+  const root = useBrainUiRoot();
+  const api = root.api;
+  const lifetime = useRef(new AbortController());
   const [state, setState] = useState<PushState>("unsupported");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    lifetime.current = controller;
+    setState("unsupported");
+    setBusy(false);
     void (async () => {
       if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
         setState("unsupported");
@@ -47,20 +48,16 @@ export function PushToggle() {
         return;
       }
       const registration = await navigator.serviceWorker.ready;
+      if (signal.aborted) return;
       const subscription = await registration.pushManager.getSubscription();
+      if (signal.aborted) return;
       if (subscription) {
-        // The browser having a subscription doesn't mean the SERVER can
-        // still use it. Two disagreement cases: the server pruned/lost the
-        // row (a dead-endpoint send, a DB restore) — healed by re-asserting,
-        // an idempotent upsert; or the server's VAPID keypair changed, which
-        // makes this subscription permanently unsendable — its
-        // applicationServerKey no longer matches, so drop it and surface the
-        // re-enable button. Offline, trust the browser's own state.
+        // Heal a lost server-side binding, but do not delete a browser
+        // subscription merely because this UI displays a different server.
         try {
           const { publicKey } = await api.pushPublicKey();
-          const boundKey = subscription.options.applicationServerKey;
-          if (boundKey && keyToBase64Url(boundKey) !== publicKey) {
-            await subscription.unsubscribe().catch(() => {});
+          if (signal.aborted) return;
+          if (!subscriptionMatchesKey(subscription, publicKey)) {
             setState("unsubscribed");
             return;
           }
@@ -69,14 +66,17 @@ export function PushToggle() {
           // Server unreachable — keep the browser's answer.
         }
       }
-      setState(subscription ? "subscribed" : "unsubscribed");
-    })();
-  }, []);
+      if (!signal.aborted) setState(subscription ? "subscribed" : "unsubscribed");
+    })().catch(() => { if (!signal.aborted) setState("unsubscribed"); });
+    return () => controller.abort();
+  }, [root, api]);
 
   async function enable() {
+    const signal = lifetime.current.signal;
     setBusy(true);
     try {
       const permission = await Notification.requestPermission();
+      if (signal.aborted) return;
       if (permission === "denied") {
         setState("blocked");
         return;
@@ -86,32 +86,48 @@ export function PushToggle() {
         return;
       }
       const { publicKey } = await api.pushPublicKey();
+      if (signal.aborted) return;
       const registration = await navigator.serviceWorker.ready;
+      if (signal.aborted) return;
+      const existing = await registration.pushManager.getSubscription();
+      if (signal.aborted) return;
+      // Key rotation (or switching servers) is an explicit user action.
+      if (existing && !subscriptionMatchesKey(existing, publicKey)) {
+        await existing.unsubscribe();
+        if (signal.aborted) return;
+      }
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: publicKey,
       });
+      if (signal.aborted) return;
       await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100));
-      setState("subscribed");
+      if (!signal.aborted) setState("subscribed");
     } catch {
-      setState("unsubscribed");
+      if (!signal.aborted) setState("unsubscribed");
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   }
 
   async function disable() {
+    const signal = lifetime.current.signal;
     setBusy(true);
     try {
       const registration = await navigator.serviceWorker.ready;
+      if (signal.aborted) return;
       const subscription = await registration.pushManager.getSubscription();
+      if (signal.aborted) return;
       if (subscription) {
         await api.pushUnsubscribe(subscription.endpoint).catch(() => {});
+        if (signal.aborted) return;
         await subscription.unsubscribe();
       }
-      setState("unsubscribed");
+      if (!signal.aborted) setState("unsubscribed");
+    } catch {
+      // Preserve the current state when the browser rejects an unsubscribe.
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   }
 

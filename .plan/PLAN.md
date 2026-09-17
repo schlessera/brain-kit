@@ -487,8 +487,9 @@ Sequenced after the component waves but **before** step 2. Not optional.
       settings now isolate drafts and async completions as well. Model catalog
       writes use separate queues per root; pi account flows and polling retain
       their owner. Login and passkey management now use root services and guard
-      ceremony stages and late callbacks. Remaining: push, media/share and other
-      branding callers
+      ceremony stages and late callbacks. Push uses root APIs and guards browser
+      steps; gate retry/probe state resets per instance. Remaining: media/share
+      and other branding callers
 - [ ] S5 ui-kit dependency wired in
 - [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
       flatten `AddPanel`'s epoch guard)

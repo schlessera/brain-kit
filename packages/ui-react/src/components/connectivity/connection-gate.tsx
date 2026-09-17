@@ -1,3 +1,4 @@
+import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,7 +15,19 @@ import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js
 const INITIAL_PUSH_REBIND_BACKOFF_MS = 1_000;
 const MAX_PUSH_REBIND_BACKOFF_MS = 60_000;
 
+function newPushRebind() {
+  return {
+    pending: true,
+    inFlight: false,
+    retryReady: true,
+    backoffMs: INITIAL_PUSH_REBIND_BACKOFF_MS,
+    retryTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+    controller: new AbortController(),
+  };
+}
+
 export function ConnectionGate({ children }: { children: ReactNode }) {
+  const root = useBrainUiRoot();
   // The gate owns its connectivity probe — composing <ConnectionGate> is all
   // an embedder needs; the store would otherwise sit on "checking" forever.
   const successfulProbeCount = useVpnStatus();
@@ -30,28 +43,22 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
 
   // Once the app has connected, never unmount the UI again — an intermittent
   // drop must not destroy rendered chat state. Show a banner instead.
-  const [everConnected, setEverConnected] = useState(false);
+  const [connectedRoot, setConnectedRoot] = useState<BrainUiRoot | null>(null);
+  const everConnected = connectedRoot === root;
   useEffect(() => {
-    if (vpnStatus === "connected") setEverConnected(true);
-  }, [vpnStatus]);
+    if (vpnStatus === "connected") setConnectedRoot(root);
+  }, [vpnStatus, root]);
 
-  const pushRebind = useRef({
-    pending: true,
-    inFlight: false,
-    retryReady: true,
-    backoffMs: INITIAL_PUSH_REBIND_BACKOFF_MS,
-    retryTimer: undefined as ReturnType<typeof setTimeout> | undefined,
-    disposed: false,
-  });
+  const pushRebind = useRef(newPushRebind());
 
   useEffect(() => {
-    const state = pushRebind.current;
-    state.disposed = false;
+    const state = newPushRebind();
+    pushRebind.current = state;
     return () => {
-      state.disposed = true;
+      state.controller.abort();
       clearTimeout(state.retryTimer);
     };
-  }, []);
+  }, [root]);
 
   // A successful authenticated probe follows a login reload (and is also the
   // boot path for ambient auth modes). Re-assert any browser-held subscription
@@ -71,14 +78,14 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
     }
 
     state.inFlight = true;
-    void rebindPushSubscriptionAfterLogin().then(
+    void rebindPushSubscriptionAfterLogin(root.api, state.controller.signal).then(
       () => {
-        if (state.disposed) return;
+        if (state.controller.signal.aborted) return;
         state.inFlight = false;
         state.pending = false;
       },
       () => {
-        if (state.disposed) return;
+        if (state.controller.signal.aborted) return;
         state.inFlight = false;
         state.retryReady = false;
         const delay = state.backoffMs;
@@ -92,7 +99,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
         }, delay);
       }
     );
-  }, [successfulProbeCount, vpnStatus]);
+  }, [successfulProbeCount, vpnStatus, root]);
 
   const refused = issue === "refused" || issue === "capacity";
   const wasRefused = useRef(false);

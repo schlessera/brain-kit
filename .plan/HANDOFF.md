@@ -410,6 +410,43 @@ seven lint gates pass, with only the existing dictation cleanup-ref warning.
 Remaining S4 work: push registration, media/share helpers and other branding
 consumers. UI-kit component integration (S5/S6/S7/S9) follows this migration.
 
+## Push injection progress — 2026-09-17
+
+S4 now covers the push toggle and post-login subscription rebinding. Both use
+the displayed instance's API and guard service-worker readiness, subscription
+lookup, permission responses and subsequent browser/server operations. Late
+completion cannot clear another instance's pending state or unsubscribe its
+browser subscription.
+
+Mounting against a different VAPID key no longer deletes the browser subscription.
+Automatic rebinding skips a known mismatched key; replacing it requires an
+explicit Enable click. This preserves key-rotation recovery without a passive
+mount destroying another deployment's subscription.
+
+ConnectionGate now creates fresh retry state per root lifetime, including
+StrictMode effect replay. Successful probe counts carry their root identity;
+the new instance waits for its own probe before rebinding. The gate's connected
+history is also scoped, so an old connection cannot reveal a new instance's
+content while its first probe is pending.
+
+Browser permission and the service-worker subscription remain shared browser
+resources, not one independent subscription per UI root. A native subscribe or
+unsubscribe already submitted cannot be undone by a root switch. These changes
+prevent stale follow-up actions and server bindings; hosts that need independent
+push subscriptions still need distinct service-worker registrations/scopes.
+
+Six mounted regression tests cover passive key mismatch and explicit replacement,
+late permissions, native creation, disable responses, gate rebinding and worker
+readiness. The existing backoff/retry test also passes. Removing the guard before
+native unsubscribe made its regression test fail; the seed was removed.
+
+Verification: **566 UI React tests pass** across 40 files. The package build,
+repository typecheck and all seven lint gates pass, with only the existing
+dictation cleanup-ref warning.
+
+Remaining S4 work: media/share helpers and other branding consumers. UI-kit
+component integration (S5/S6/S7/S9) follows this migration.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
@@ -536,7 +573,7 @@ part of itself** rather than waiting for step 2's S1.
 is the only wave-sized piece left in step 1's neighbourhood. Note what is
 already done: S1's registry fix, S2's root/store factories, S3's bound connection
 and S8's static-access lint gate. D31 removed S10. **Finish S4 next:** migrate
-remaining push/media `api`, branding `uiConfig`, and
+remaining media `api`, branding `uiConfig`, and
 `apiBase`/`getBackendUrl` consumers to the
 provider's root, including helpers that upload/share/render and their callers.
 Keep the existing cancellation/epoch guards and update effect dependencies when

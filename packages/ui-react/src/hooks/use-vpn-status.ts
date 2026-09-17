@@ -40,7 +40,7 @@ export function recheckVpnStatus(): void {
 
 export function useVpnStatus() {
   const root = useBrainUiRoot();
-  const [successfulProbeCount, setSuccessfulProbeCount] = useState(0);
+  const [successfulProbe, setSuccessfulProbe] = useState({ root, count: 0 });
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +68,7 @@ export function useVpnStatus() {
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
           root.stores.connection.getState().setVpnStatus(status);
           if (status === "connected") {
-            setSuccessfulProbeCount((count) => count + 1);
+            setSuccessfulProbe((previous) => ({ root, count: previous.root === root ? previous.count + 1 : 1 }));
           }
         }
       } finally {
@@ -112,5 +112,5 @@ export function useVpnStatus() {
     };
   }, [root]);
 
-  return successfulProbeCount;
+  return successfulProbe.root === root ? successfulProbe.count : 0;
 }
