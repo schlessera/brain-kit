@@ -58,6 +58,13 @@ export interface CommandPaletteProps {
   selected?: number;
   /** Corpus size and query time, bottom right. */
   footMeta?: string;
+  /**
+   * The key legend, bottom left. Defaults to the design's line, which
+   * includes ⌘⏎; an app that does not bind ⌘⏎ passes its own, because a
+   * printed key that does nothing is what the design's "every shortcut is
+   * printed where it applies" forbids.
+   */
+  footHint?: string;
   maxHeight?: number;
   /** ↑↓. Receives the new flat index. Without it the arrows do nothing. */
   onSelect?: (index: number) => void;
@@ -316,7 +323,7 @@ export function CommandPalette(p: CommandPaletteProps) {
           background: token("palette-foot-bg"),
         }}
       >
-        <span style={{ ...footText, flex: 1, minWidth: 0 }}>↑↓ move · ⏎ run · ⌘⏎ run without asking</span>
+        <span style={{ ...footText, flex: 1, minWidth: 0 }}>{p.footHint ?? "↑↓ move · ⏎ run · ⌘⏎ run without asking"}</span>
         <span style={{ ...footText, flex: "none" }}>{p.footMeta ?? "4,812 docs · 0.2s"}</span>
       </div>
     </div>

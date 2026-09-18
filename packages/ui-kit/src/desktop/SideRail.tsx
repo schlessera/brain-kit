@@ -59,12 +59,23 @@ export interface SideRailProps {
   expanded?: boolean;
   /** The mono line under the wordmark. */
   status?: string;
-  /** 0-100, the day's spend against its cap. */
-  spendPct?: number;
+  /** The status line's ink. Teal is the design's; red and amber are for a
+   * rail that has to say the connection is gone or on its way back. */
+  statusTone?: "teal" | "amber" | "red";
+  /**
+   * 0-100, the day's spend against its cap. `null` means the app has no spend
+   * to show and draws no meter; `undefined` keeps the fixture default, which
+   * is what the stories and the parity harness render.
+   */
+  spendPct?: number | null;
   /** The spend as the user reads it. */
   spendText?: string;
-  /** What ⌘K opens. */
-  hint?: string;
+  /**
+   * What ⌘K opens. `null` means the app has no palette, and the ⌘K cap goes
+   * with the hint — a printed key that does nothing is a lie the design's
+   * "every shortcut is printed where it applies" rule forbids.
+   */
+  hint?: string | null;
   /** Expanded width in px. Collapsed is always 60. */
   width?: number;
 }
@@ -81,6 +92,9 @@ export function SideRail(p: SideRailProps) {
   const expanded = p.expanded !== false;
   const src = p.items || FALLBACK;
   const active = Number(p.active ?? 1);
+  const showSpend = p.spendPct !== null;
+  const showPalette = p.hint !== null;
+  const statusInk = p.statusTone === "red" ? accent.red.ink : p.statusTone === "amber" ? accent.amber.ink : accent.teal.ink;
   const eligible = src.map((it) => Boolean(it.onClick));
   const anyInteractive = eligible.includes(true);
   const roving = useRoving(eligible, active);
@@ -156,7 +170,7 @@ export function SideRail(p: SideRailProps) {
                 font: `500 9px/1 ${font.mono}`,
                 letterSpacing: ".06em",
                 textTransform: "uppercase",
-                color: accent.teal.ink,
+                color: statusInk,
               }}
             >
               {p.status ?? "connected"}
@@ -250,7 +264,7 @@ export function SideRail(p: SideRailProps) {
           borderTop: `1px solid ${color.line}`,
         }}
       >
-        {expanded ? (
+        {expanded && showSpend ? (
           <Meter
             variant="row"
             label="today"
@@ -260,30 +274,32 @@ export function SideRail(p: SideRailProps) {
             labelWidth={38}
           />
         ) : null}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            justifyContent: expanded ? "flex-start" : "center",
-            font: `400 10px/1 ${font.mono}`,
-            color: color.inkMute,
-          }}
-        >
-          <span
+        {showPalette ? (
+          <div
             style={{
-              flex: "none",
-              border: `1px solid ${color.edge}`,
-              borderRadius: 5,
-              padding: "3px 5px",
-              font: `500 9.5px/1 ${font.mono}`,
-              color: color.inkDim,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: expanded ? "flex-start" : "center",
+              font: `400 10px/1 ${font.mono}`,
+              color: color.inkMute,
             }}
           >
-            ⌘K
-          </span>
-          {expanded ? <span>{p.hint ?? "Command palette"}</span> : null}
-        </div>
+            <span
+              style={{
+                flex: "none",
+                border: `1px solid ${color.edge}`,
+                borderRadius: 5,
+                padding: "3px 5px",
+                font: `500 9.5px/1 ${font.mono}`,
+                color: color.inkDim,
+              }}
+            >
+              ⌘K
+            </span>
+            {expanded ? <span>{p.hint ?? "Command palette"}</span> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -235,3 +235,20 @@ export const AnUnreachableActiveRowDoesNotStrandTheRail = meta.story({
     await expect(canvasElement.contains(document.activeElement)).toBe(true);
   },
 });
+
+/**
+ * An app that tracks no spend and has no palette passes `null` for each, and
+ * the footer draws neither — `undefined` keeps the fixture defaults the other
+ * stories render. A printed ⌘K that opens nothing would break the design's
+ * "every shortcut is printed where it applies", so the cap goes with the
+ * hint. The status line takes a tone for a rail that has to say the
+ * connection is gone.
+ */
+export const NoSpendNoPalette = Expanded.extend({
+  args: { spendPct: null, hint: null, status: "offline", statusTone: "red" },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.textContent).not.toContain(weekSpendMeter.valueText);
+    await expect(canvasElement.textContent).not.toContain("⌘K");
+    await expect(canvasElement.textContent).toContain("offline");
+  },
+});
