@@ -1,5 +1,12 @@
 # Brain Kit catalog — foundations, sections, assembled screens
 
+> **2026-09-18 drop.** The catalog now lives at `kit/Brain Kit.dc.html` (it
+> was at the project root), and two sibling catalogs joined it:
+> `kit/Brain Kit Light.dc.html` (→ `light.md`) and `kit/Brain Kit Desktop.dc.html`
+> (→ `desktop.md`). Sections that changed in this drop are marked below; the
+> unmarked ones are unchanged from the 2026-08-26 drop this digest was written
+> against.
+
 Source: `kit/Brain Kit.dc.html` from the design drop (829 lines, one `<x-dc>`
 template plus one `DCLogic` class). Values below are reproduced exactly from
 that file, not paraphrased from the README.
@@ -20,7 +27,7 @@ stated use, verbatim.
 | raised | `#1a1d22` | user bubbles, pills, notifications |
 | line / edge | `#1f2229` | hairline inside cards · `#2a2d35` borders |
 | ink | `#e8e4df` | primary text |
-| ink dim / muted | `#c0bcb5` | secondary · `#8a8691` machine meta |
+| ink dim / muted | `#c0bcb5` | secondary · `#9a96a1` machine meta (was `#8a8691` until the fourth drop) |
 | amber | `#e09f3e` | agent acting, approval, primary action |
 | gold | `#eab354` | caution, staleness, unverified premise |
 | teal | `#5bb5a2` | your turn, ok, files & people |
@@ -30,8 +37,9 @@ stated use, verbatim.
 
 Two tokens are named inside a row rather than getting one of their own, and both
 are load-bearing: **`#2a2d35`** (the border/edge colour, distinct from the
-`#1f2229` internal hairline) and **`#8a8691`** (machine meta — the README calls
-it "5.10:1 on surface — the floor").
+`#1f2229` internal hairline) and **`#9a96a1`** (machine meta — the README now calls
+it "the floor, 4.80:1 on the worst tint"; it was `#8a8691` at 5.10 on surface
+until the fourth drop restated it against the worst ground).
 
 Rules the file states about colour:
 
@@ -40,12 +48,45 @@ Rules the file states about colour:
   fills, `rgba(224,159,62,.4)` borders, `rgba(177,151,212,.4)` provenance chip
   borders, `rgba(248,113,113,.35)` policy borders.
 - **Ink never comes from alpha.** Hierarchy is weight and size; only
-  `#e8e4df` / `#c0bcb5` / `#8a8691` are used, because alpha-muted ink drops 9–12px
+  `#e8e4df` / `#c0bcb5` / `#9a96a1` are used, because alpha-muted ink drops 9–12px
   type under 4.5:1.
 
 Note the catalog *page chrome* uses `#0f0f11` for its own background (set in the
 helmet `<style>`), which is **not** an app token — the app canvas is `#0c0e12`.
 Do not carry `#0f0f11` into `ui-kit`.
+
+### 1.1b The tone vocabulary (new in the 2026-09-18 drop)
+
+§01 gained a `TONE_VOCAB` table — ten members, "each meaning exactly one thing
+in every component" — after the port found `neutral` resolving to four
+different values across four components (design-feedback §4). Verbatim:
+
+| Tone | Dark | Means |
+|---|---|---|
+| `amber` | `#e09f3e` | agent acting · approval · primary action |
+| `gold` | `#eab354` | caution · staleness · load · retries |
+| `teal` | `#5bb5a2` | your turn · ok · files & people |
+| `purple` | `#b197d4` | untrusted origin · subagents · projects |
+| `blue` | `#67b8e3` | companies · T1 triage |
+| `red` | `#f87171` | failure · danger · overdue obligation |
+| `ink` | `#e8e4df` | primary text — **not** `neutral` |
+| `dim` | `#c0bcb5` | secondary text · unlisted-tone fallback |
+| `neutral` | `#9a96a1` | the grey **accent**: machine meta |
+| `edge` | `#2a2d35` | hairlines and rails — **not** `neutral` |
+
+"`neutral` is the grey accent and nothing else. A component that wants default
+text, a dim label or a hairline names `ink`, `dim` or `edge`. **Every tone
+lookup falls back** (`this.C[x] || this.C.dim`) rather than inheriting, so an
+unlisted name renders as something rather than as nothing. The dead `muted`
+entries in `Receipt` and `ComparisonTable` are gone — `dim` is the real
+member." And for `ContactCard`: "Entity tone vs fact tone … facts take the full
+set including `gold` and `red`. A relationship twenty years cold is `red`, not
+amber." Ported as D33.
+
+Text on a solid accent fill is **near-black ink** — `#0c0e12` dark / `#231f1a`
+light, the README's `--on-fill` — "including count badges, which are the one
+place the kit had used white (2.77:1 on red; near-black is 6.75:1)". That is
+design-feedback §6, resolved.
 
 ### 1.2 Type — three families, one job each
 
@@ -56,7 +97,7 @@ Do not carry `#0f0f11` into `ui-kit`.
 | **JetBrains Mono** | 9 – 12 | paths, states, effects, money |
 
 One further named specimen: the **section label** — `9.5px / 600 / .09em`
-letter-spacing, uppercase, mono, colour `#8a8691`. That is the `Label`
+letter-spacing, uppercase, mono, colour `#9a96a1`. That is the `Label`
 component's default and it recurs on every screen.
 
 Stated rule: "Nothing below 9px, and nothing in serif that isn't a title."
@@ -138,12 +179,45 @@ the only mapping, **77 keys** → Lucide 0.454.0 names. The catalog displays 36 
 them with a tone map (`ITONE`) that assigns: amber to `approval`, `capability`,
 `brain`, `suggestion`, `deadline`; teal to `choose`, `resolved`, `file`; red to
 `failed`, `quarantined`, `policy`; gold to `unverified`; purple to `trust`; grey
-`#8a8691` to everything else.
+`#9a96a1` to everything else.
 
 To swap sets: repoint the values in `SET` and replace the single
 `<i data-lucide>` line. Nothing else in the kit names an icon.
 
 ---
+
+## 1b. §11 accessibility notes that changed (2026-09-18 drop)
+
+`A11Y_NOTES` gained two entries and rewrote a third. Verbatim:
+
+- **Specify reach, not box size.** "A 44px target is not a 44px box. Small
+  visuals stay small and extend their target past the paint — a transparent
+  `::before` at negative inset, or padding cancelled by equal negative margin.
+  Always specify the REACH past the paint, never a finished box size: box size
+  is a derived number that depends on a border the spec may not mention."
+- **Hairlines on expanding targets are inset shadows.** "An absolutely
+  positioned pseudo-element is offset from its containing block's PADDING box,
+  so a 1px border silently eats 1px of reach per side — 2px per axis. Draw the
+  hairline with `box-shadow: inset 0 0 0 1px` instead, and an underline with
+  `text-decoration` rather than `border-bottom`. Neither touches the box model,
+  so the stated reach is the real reach. Toggle only ever measured correctly
+  because it happens to have no border."
+- **Expansion is constrained per axis.** "Expansion per side must be ≤ half the
+  distance to the nearest interactive neighbour ON THAT AXIS — a row of
+  side-by-side targets constrains only the horizontal. FeedbackRow reaches its
+  full 9px vertically (44px tall from a 26px visual) but 8px horizontally
+  against an 18px gap, leaving 2px spare … verify with `elementFromPoint` at
+  each target's edges, never its centre. Desktop pointer-only rows may go to
+  32px."
+
+The README adds the measured set: Toggle 38×22 → 44×44; FeedbackRow thumbs
+30×26 → **46×44** (`inset:-9px -8px`); InlineToast undo 25×13.65 →
+**45×45.65** (`inset:-16px -10px`); TabBar items ~33px → 51px via negative
+margin. This is the design's answer to design-feedback §1 (D34).
+
+The role-and-keys table is unchanged: no `Home`/`End` (design-feedback §11
+stays open), and `a / d / s`, `1–5`, `←→ to fold` are still listed with nothing
+said about scope (§10 stays open — see `desktop.md` for the new evidence).
 
 ## 2. Section structure
 
@@ -181,6 +255,14 @@ These four are the acceptance test for the component set. Composition is given
 in exact nesting order, with the props that select a variant.
 
 ### 11.1 Morning digest
+
+> 2026-09-18 drop: `digestStats` is **three tiles** now (filed / waiting /
+> failed; was four) — the design's answer to design-feedback §14's 3 + 1 wrap —
+> and `digestToday` has two items, so the `Label meta="2 items"` agrees with
+> its group. The `Label "Today"` above a `ScheduleList` group headed "Thursday
+> 27 Aug" still renders two headings one line apart; the design kept both, so
+> that composition stands as designed (section label + date heading), and only
+> the count mismatch was a defect.
 
 > "The destination behind 'What's new?' — with the overnight work stated as fact
 > before anything asks for a decision."
@@ -317,7 +399,7 @@ viewer)**, as raw markup. Its type values:
 | frontmatter chip | `500 9.5px/1.4 'JetBrains Mono'` (kv chips, one per key) |
 | wiki-link | teal `#5bb5a2`, prefixed `↗` |
 | backlink path | `500 10.5px/1 'JetBrains Mono'` |
-| ink colours in prose | `#e8e4df` body, `#c0bcb5` secondary, `#8a8691` meta, `#b197d4` tags |
+| ink colours in prose | `#e8e4df` body, `#c0bcb5` secondary, `#9a96a1` meta, `#b197d4` tags |
 
 **This is a gap, not a finding.** There is no `Prose` / `Markdown` component in
 the kit, `packages/ui-react/src/components/chat/brain-markdown*.tsx` already
@@ -325,3 +407,17 @@ solves the same problem with a different vocabulary, and D4 forbids inventing
 components the design does not show. The honest reading: the type values above
 are a **style contract for the existing markdown renderer**, not a new component
 to build.
+
+## §11 as revised by the fourth drop (2026-09-18)
+
+The role-and-keys table now reads: Toggle `switch + name` · ChoiceOption
+`↑↓ · home/end · space` · FilterRow/TabBar `←→ · home/end · ⌘1–5` · SideRail
+`↑↓ · home/end · ⌘1–5` · ListRow/FileRow `⏎ · ←→ fold · home/end` ·
+ActionCard `a / d / s while focused` · CommandPalette `⌘K · ↑↓ · home/end ·
+esc`. The Hover row: "untoned surface +1 step (#1a1d22) · a TONED card goes
+tint +.04 alpha, not to #1a1d22". Five new rule cards: single keys are
+focus-scoped; Home/End everywhere a roving tab stop exists; hover on a toned
+card is tint +.04; Toggle carries a name; focus after a decision. The three
+bare toggles in §1 gained visible labels ("Ask before writing files",
+"Announce resolutions", "Single-key shortcuts" — the last is the Settings off
+switch D36 names). See design-feedback "The fourth drop" and D35/D36.

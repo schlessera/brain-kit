@@ -1693,3 +1693,137 @@ registry dedupes by pack identity and the ASR registry is keyed by provider id,
 so both latches bought nothing and cost the ability to reset. The general
 form: **a latch outside the thing being reset is a bug waiting for a reset to
 exist.**
+
+## 2026-09-18 — D32: the light theme is `light-dark()` per token, switched by `color-scheme` under `[data-theme]`
+
+The second design drop shipped the paper palette in full (`design/light.md`),
+so the light-theme wave D21 deferred is done. The contract says "route the tone
+maps through custom properties on a `[data-theme]` root"; the kit already
+routed every colour through `--bk-*`, so the question was only how the second
+set of values is switched. Researched against MDN, web.dev and the Storybook
+and Tailwind v4 docs before choosing.
+
+**The mechanism.** Every token is one declaration, `--bk-x: light-dark(<paper>,
+<dark>)`, and `color-scheme` picks the half: `:root { color-scheme: dark }`
+keeps the kit dark for a consumer who does nothing, and `[data-theme="light"]`
+/ `"dark"` / `"system"` set `light` / `dark` / `light dark` — the design's
+three-way toggle, on `<html>` for an app or on any element for a subtree.
+`system` is the browser's own `prefers-color-scheme`, with no script and no
+flash. Baseline since May 2024; in an older browser the declaration is invalid
+at computed-value time and the element renders no colour, which is the loud
+failure the kit already chose for a missing stylesheet.
+
+**Why not a second `[data-theme="light"]` block of 300 values**, which is what
+the stub in `theme.css` had sketched: (1) one declaration per token keeps each
+light value beside its dark one and the comment that explains it, and cannot
+drift from it by omission; (2) the UA's own chrome — scrollbars, form
+controls, the composer's textarea — follows `color-scheme` for free, and a
+block does not do that; (3) a light subtree inside a dark page needs no
+selector work, because the property inherits and `light-dark()` reads it
+where the token is USED — the paper `PhoneFrame` story proves the nesting;
+(4) system preference costs nothing, where a block needs either a duplicated
+`@media` copy or a script. **Why keep `data-theme` at all:** it is the attribute
+the design's contract names, it is what `@storybook/addon-themes` sets, and it
+is what an app's persisted choice writes — `color-scheme` stays the
+implementation underneath it.
+
+**Where the values come from.** The design draws about fifty light values
+(§L3/§L4) and states the base palette and accent pairs (§L5); it says nothing
+about the other ~260 alpha tokens. Those are derived by one rule each in
+`tools/theme/derive-light.ts` — tints keep their hue role and step +0.07 in the
+fill hue (capped at 0.16), borders step +0.05 in the ink hue, white veils
+invert to ink — and the generator rewrites `theme.css` and `LIGHT_TOKENS`
+in place. `tests/light-theme.test.ts` pins both to the generator, so a light
+value can only change as a rule or as an entry in the `SPECIFIED` table, and
+the line between "the design said" and "we chose" stays in one file. The
+design's own rule against deriving one theme from the other is about hue and
+lightness (no `invert()`, no programmatic lightening); the derivation here
+touches only alpha, and never a hex the design gave.
+
+**Proof.** The a11y gate runs every story on paper: a second Vitest project
+pins the `theme` global to `light` (`initialGlobals`, D9's matrix made real),
+and `tests/contrast.test.ts` measures the light ramp and every accent ink on
+its own tinted ground over the canvas. The first run of that gate found the
+first light palette failing on 141 stories (design-feedback §19); the design
+revised five inks the same day and the gate is green with one recorded
+exception (§20). What it does not prove: pixels. No light visual baselines
+exist yet, and the dark ones that changed need a container run.
+
+## 2026-09-18 — D33: `neutral` is the grey accent and nothing else; `on-fill` is what sits on a fill
+
+The drop tightened the tone vocabulary to ten members (`design/catalog.md`
+§1.1b) after design-feedback §4: `ink`, `dim` and `edge` are named, `neutral`
+means `#8a8691` in every component, every lookup falls back to `dim`, and the
+dead `muted` entries are gone. The kit follows: `ValueTone = Tone | "ink" |
+"dim"` for values inside an answer (`StatTiles`, `ComparisonTable`, `Receipt`
+rows, `ContactCard` facts — which also settles §2), an untoned value takes the
+component's stated default (ink, ink, dim, dim), and `ScheduleList` names
+`edge` for its untoned rail. Wave 3's "ported as found" notes for these five
+components are superseded, and the fixtures were audited for a `neutral` that
+meant "plain" (one, the digest's `days out` tile, now untoned).
+
+The same drop settled what sits on a solid accent: near-black ink in both
+themes, the README's `--on-fill`, "including count badges". `--bk-on-fill`
+(`#0c0e12` / `#231f1a`) replaces every foreground use of `color.canvas`, and
+`--bk-on-ink-solid` (`#0c0e12` / `#f8f5ef`) covers the two discs the light
+catalog fills with an accent's INK rather than its fill — a selected option's
+mark and a done step's bubble — where the light glyph has to be surface, not
+ink. The distinction is the light theme's, not the dark's, which is why it
+needed two names.
+
+## 2026-09-18 — D34: hit targets are specified as reach past the paint, and the paint carries no border
+
+The drop answered design-feedback §1 with a rule rather than two numbers, and
+stated it three times (README, catalog §11, desktop D3): a small control's
+target is its transparent `::before` at negative inset, **specified as the
+reach past the paint**; a hairline on such an element is `box-shadow: inset 0
+0 0 1px`, an underline is `text-decoration`, never a border, because an
+absolutely positioned pseudo-element is offset from the padding box and a
+border eats a pixel of reach per side; and **expansion is constrained per
+axis** — per side, at most half the distance to the nearest interactive
+neighbour on that axis. `FeedbackRow` is 46×44 from a 30×26 thumb
+(`inset:-9px -8px`, 8 horizontally against an 18px gap), `InlineToast`'s undo
+45×45.65 (`inset:-16px -10px`), `Toggle` 44×44 as before. The kit's stories
+measure all three with `elementFromPoint` at the edges, and now also assert
+that the border is zero — so a border creeping back fails a test rather than
+shaving two pixels silently, which is exactly how it shipped under spec for
+three waves. The consequence for the hover mechanism: a shadow is not a
+border, so `.bk-thumb:hover` and `.bk-undo:hover` carry their own rule in
+`theme.css` beside the shared `.bk-control:hover`.
+
+## 2026-09-18 — D35: the dark floor is `#9a96a1`, and the paper palette is stated three times per hue
+
+The fourth drop answered the ledger's palette questions with numbers rather
+than exceptions. **Dark:** machine-meta ink moves from `#8a8691` to `#9a96a1`
+— "6.26 on surface, 5.83 on raised, 4.80 on the worst documented tint" — and
+`neutral` moves with it, because it is the same colour. `opacity` on a row is
+gone as a de-emphasis (a superseded queue item reads as superseded from its
+state word and its still dot). The well on a solid button lightens
+(`rgba(255,255,255,.28)`) in both themes and its subtitle is opaque `on-fill`
+at weight 500. **Paper:** every accent carries ink, fill and dot; teal, purple
+and red came down once more for two stacked tints of one hue (`#15594c`,
+`#5d4489`, `#9c2a24`); all seven dots are stated and judged against the 3:1
+non-text bar. The kit takes all of it through the two places it already had —
+`tokens.ts` for dark, `derive-light.ts`'s `SPECIFIED` table for paper — and
+the effect is measured rather than described: `tests/contrast.test.ts` now
+asserts §4, §5, §7 and §20 as resolved (ink-mute clears every tint over both
+grounds; the effect chip clears 9:1 on every fill), and the light story
+project runs with no contrast exception. The cost is every dark visual
+baseline, which is what a floor move should cost.
+
+## 2026-09-18 — D36: single-key shortcuts are focus-scoped; a resolved decision hands focus to the next card or the empty heading
+
+The design's answer to design-feedback §10, verbatim in its README and D3:
+`a` / `d` / `s` act only while the ActionCard they belong to holds focus, and
+are printed on that card's own buttons; `j` / `k` only inside the focused
+list, printed in its footer; anything global takes a modifier (⌘K, ⌘1–⌘5);
+Settings carries an off switch for single-key shortcuts (WCAG 2.1.4's third
+escape hatch). Focus after a decision goes to the next card, and when the
+resolved card was the last, to the `EmptyState` heading, "focusable for
+exactly this reason". These are app rules and land with the desktop
+migration (S7+); the kit's share is small and done: `EmptyState`'s title is a
+`role="heading"` at `tabIndex={-1}` with a `focusTitle` prop, `Home` / `End`
+reach the edges of every roving group (`focusEdge`, beside `focusSibling`),
+and the printed keys are ordinary label text. The kit does not bind `a`, `d`,
+`s`, `j` or `k` itself: which card is "focused" for the purpose of a letter
+key is the list's knowledge, not the card's.

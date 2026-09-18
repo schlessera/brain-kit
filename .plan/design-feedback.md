@@ -807,3 +807,370 @@ from the two pins' longitudes and their x positions, down from the same two
 pins' latitudes and their y — because the inputs are exactly what was being
 computed wrongly.
 
+
+---
+
+# 2026-09-18 — reconciled against the second design drop
+
+The maintainer imported the updated design (`Brain Kit Light.dc.html`,
+`Brain Kit Desktop.dc.html`, a revised catalog and README, and changed
+component files — see `FETCH-PROGRESS.md`). This section is the ledger: for
+every numbered entry above, what the drop said, and what the kit did about it.
+Status words: **RESOLVED** (the design answered and the kit follows),
+**PARTLY** (answered in part), **OPEN** (the drop does not address it).
+
+## 1. Hit-target expansion on bordered elements — RESOLVED (D34)
+
+The design took option 2 and stated the general rule in three places (README,
+catalog §11, desktop D3): **specify reach past the paint, never a box size; a
+hairline on a hit-expanding element is an inset box-shadow, never a border; an
+underline is `text-decoration`, never `border-bottom`; expansion is constrained
+per axis.** It also rewrote the two components.
+
+Kit: `FeedbackRow`'s thumb is borderless with `box-shadow: inset 0 0 0 1px`
+and `.bk-thumb::before { inset: -9px -8px }` — **46×44 measured** by the same
+`elementFromPoint` story that measured 46×42 before, which now also asserts
+`border-top-width: 0` and that the shadow is inset. `InlineToast`'s undo uses
+`text-decoration: underline dotted` and `.bk-undo::before { inset: -16px -10px }`
+— **45.65 tall**, asserted above 44 with `border-bottom-width: 0`. The hover
+that used to move a border now moves the shadow (`.bk-thumb:hover`) and the
+decoration colour (`.bk-undo:hover`). `NarrowGapStealsTheClick` still steals
+at `gap: 10`, so the per-axis constraint stays proven.
+
+## 2. `ContactCard` severity — RESOLVED (D33)
+
+"Entity tone vs fact tone … facts take the full set including `gold` and
+`red`. A relationship twenty years cold is `red`, not amber. Unlisted tones
+fall back to dim." Kit: `ContactFact.tone` is `ValueTone` (every accent plus
+`ink` / `dim`), the avatar keeps its own five, and the lookup falls back to
+dim. The two weakened fixtures are red and gold again.
+
+## 3. `AgentRunCard`'s unreachable fallback — OPEN
+
+The component file still carries both `?? 72` and the gate. The port keeps its
+behaviour (no meter without a stated progress). Still worth the sentence in the
+design's porting notes.
+
+## 4. Four meanings of `neutral` — RESOLVED (D33)
+
+The catalog's Foundations gained a ten-member tone vocabulary: `neutral` is
+the grey accent everywhere; `ink`, `dim` and `edge` are named for the other
+three meanings; every lookup falls back to `dim`; the dead `muted` entries are
+gone. Kit: `StatTiles`, `ComparisonTable` and `Receipt` take `ValueTone` and
+render `neutral` as the grey accent (untoned values default to ink, ink, dim
+respectively, as the component files do); `SuggestionChips` renders an untoned
+chip as dim ink on the card edge and `neutral` as the grey accent with a
+neutral-hue tint; `ScheduleList`'s untoned rail is the `edge` hairline and
+`neutral` is the grey mark, with its own tag-border token. The `EmptyState`
+copy note became a README rule ("no real product or vendor names in kit
+copy").
+
+**Fixture consequence.** Every fixture that said `tone: "neutral"` to mean
+"plain" was audited. The only one that changed meaning was the digest's
+`days out` tile (was primary ink, would have become grey): it now carries no
+tone and renders as ink, as before. `Receipt` rows that said `neutral` ("run
+#4c1 · turn 12", "~$0.02") are machine meta and read correctly as grey now.
+
+## 5. `ink-mute` on tinted grounds — OPEN, in both themes
+
+The light contract restates the floor against the bare surface (`#6e6659`,
+5.2:1) and says nothing about tints. `tests/contrast.test.ts` now measures the
+light theme the same way and records that ink-mute fails on tinted grounds on
+paper too. Same ask as before: state the floor against the worst ground.
+
+## 6. The count chip's white ink — RESOLVED
+
+README: "Text on a solid accent fill is near-black ink … including count
+badges, which are the one place the kit had used white (2.77:1 on red;
+near-black is 6.75:1)." Kit: a new `--bk-on-fill` token (`#0c0e12` dark,
+`#231f1a` light); `--bk-chip-count-ink` now references it; `Chip`, `Button`,
+`Composer`, `NotificationCard`, `FeedbackRow`, `TabBar` and `SideRail` read
+`on-fill` rather than `canvas` for anything that sits on a fill. The contrast
+exception on `Chip/Count` is removed and the story passes the gate. Measured:
+6.98:1 on red.
+
+## 7. A solid button's effect chip — OPEN
+
+`Button.dc.html` is unchanged: the effect chip on a solid button still has
+its ink at 62% alpha. The light file draws the chip ground as
+`rgba(35,31,26,.16)` and does not draw a subtitle, so the light theme inherits
+the same gap. The test still asserts the numbers.
+
+## 8. The paper theme — RESOLVED (D32)
+
+Specified in full and wired: `Brain Kit Light.dc.html` §L5's contract is every
+`--bk-*` token's light half, `[data-theme]` switches `color-scheme`, and the
+whole story suite runs on paper under the a11y gate at `'error'`. The
+`PhoneFrame/Paper` story's contrast exception is gone; the story now asserts
+that the frame's subtree is light while the document is dark.
+
+## 9. `FileRow`'s `option` role — unchanged, still diverged as recorded.
+
+## 10. Three key bindings — OPEN, with new evidence
+
+The desktop catalog prints `a / d / s` on the approval buttons themselves and
+`j / k` in the list footer, and its rules say "shortcuts are printed on the
+control they trigger" — which reads as screen-scoped, exactly the reading WCAG
+2.1.4 makes a conformance failure with a `Composer` on the same screen. This
+is now an app-level question for the desktop migration (S5+), not a kit one.
+See `design/desktop.md`.
+
+## 11. Roving tabindex — unchanged (fixed). `Home` / `End` still absent from
+the design's table; still not added (D4).
+
+## 12. A switch with no name — OPEN. `Toggle.dc.html` still has no text.
+
+## 13. Derived `Surface` hover values — OPEN. Not addressed; the light theme
+derives its hover tints by the same +0.04 step and they are flagged as derived
+in `derive-light.ts`.
+
+## 14. Wave 5's assembly findings — PARTLY
+
+The catalog's digest is **three tiles** now, which is the design's answer to
+the 3 + 1 wrap, and the kit's Odyssey digest follows (`fixtures/events.ts`). The doubled heading stands
+as designed: the `Label` is a section label and the group heading is a date,
+and only their counts disagreed, which the drop fixed.
+
+## 15–17. Wave 6b/7 findings — unchanged. MapView pin-label collision (§16) is
+still not addressed by the drop.
+
+## 18. New in this drop, and derived rather than decided
+
+Recorded so the designer can replace them:
+
+- **Five dot values.** The contract gives `--amber-dot #c07d12` and the rule;
+  gold / teal / purple / blue / red / neutral dots are a 0.55 blend of ink
+  toward fill (the mix that reproduces the amber dot).
+- **A neutral fill.** The design has none; the kit's solid neutral chip needed
+  a ground, `#a59d8f`.
+- **263 alpha values.** Every tint or border the light catalog does not draw
+  is its dark alpha stepped by +0.07 (tints, fill hue, capped at 0.16) or
+  +0.05 (borders, ink hue). The 55 it does draw are used verbatim. The split is
+  visible in `packages/ui-kit/tools/theme/derive-light.ts`.
+- **Solid button borders.** The light catalog draws `#d08f2e` on amber and
+  `#4aa593` on teal; the kit tokenised them (`--bk-button-border-primary` /
+  `-affirm`) so the dark theme keeps its fill-coloured border.
+- **Hover lifts on paper.** `amber-lift` / `teal-lift` keep their dark values
+  (a lighter fill with `on-fill` on it still passes); the design does not draw
+  a hovered solid button in light.
+
+## Baselines
+
+Regenerated in the pinned container after all of the above landed; the four
+screens also have light baselines now. Never regenerate on the host.
+
+## 19. The light palette is stated against the surface and has no headroom on the canvas — RESOLVED the same day
+
+**Status:** RESOLVED. The design revised the palette within the day: the
+README's table is now stated against "the worst real ground — a 12–16% accent
+tint over canvas", and §L5 gained the rule ("State the palette against its
+worst ground") and its companion ("Tinted cards may sit on canvas" — the
+surface-wrapper alternative was rejected because approval cards sit directly on
+the canvas in Actions, Chat and the digest). Ink-meta `#6e6659` → `#5f584c`,
+amber `#94580a` → `#7f4c08`, gold `#795c0d` → `#6f540c`, blue `#1f6d96` →
+`#1a5c7f`, red `#b8362f` → `#a52e28`; teal, purple and every base and fill
+value unchanged. The kit regenerated from the revised contract, the light
+Vitest project runs the FULL a11y gate again (the one-day contrast exception is
+deleted), and `tests/contrast.test.ts` now asserts what the revision claims:
+every accent ink on every tint of its own hue over the canvas, and ink-meta
+over every tint, clear 4.5. As a side effect §5 is solved on paper: ink-mute
+clears every tint over the surface there, which is the §5 argument — state the
+floor against the worst ground and the better grounds follow — demonstrated.
+The measurement below is kept as the record of what forced the revision.
+
+`Brain Kit Light.dc.html` §L1 says its ratios are "measured against light
+surface `#f8f5ef`" and the README's table calls the same column "on canvas".
+They are not the same ground, and the difference is the whole finding. A
+screen's ground is the **canvas** (`#ece7dc`); cards sit on it and carry
+tints. Measured there (`tests/contrast.test.ts`, "§19"):
+
+| Ink | On surface (design's claim) | **On canvas** | Over the 12% approval tint on canvas |
+|---|---|---|---|
+| `ink-meta` `#6e6659` | 5.20 | **4.59** | **4.26** |
+| `amber` `#94580a` | 5.27 (quoted 5.3) | **4.65** | **4.32** |
+| `blue` `#1f6d96` | 5.24 (quoted 5.3) | **4.62** | 4.3 on a teal column |
+| `red` `#b8362f` | 5.35 | 4.72 | **4.38** |
+| `teal` `#1a6b5b` | 5.85 | 5.16 | passes |
+| `gold`, `purple` | 5.76 / 5.96 | 5.08 / 5.26 | pass |
+
+So on paper, **every tint in the kit takes `ink-meta` under 4.5 over the
+canvas** — not a proportion this time, all of them — and the two inks the kit
+uses most after it, amber and blue, go under on their own tints at 12% and
+above, including values the design itself draws (the approval card at
+`rgba(224,159,62,.12)`, the active filter pill at `.16`). Running the full
+story suite on paper with the a11y gate at `'error'` fails **141 of 543
+stories, all on `color-contrast`**, once the two derivation mistakes that were
+the kit's own were fixed (a rail ground one step too dark; dot values used as
+tag text).
+
+**What the design needs to decide.** The same shape as §5, and it is the same
+finding: the floor is stated against the best ground in the system. Either:
+
+1. **Restate the light ramp against the canvas** and darken the three inks
+   that need it — roughly one notch on `ink-meta`, `amber` and `blue` (each
+   needs about 0.1 more contrast on the bare canvas to survive a 12% tint).
+   `teal`, `gold` and `purple` already have the room.
+2. Or **say that tinted cards carry the surface, not the canvas** — i.e. a
+   tint is composited over `#f8f5ef`, and a card is always a raised thing on
+   the canvas rather than a tinted patch of it. That is a layout rule the kit
+   can follow, but it is not what the light catalog draws today (its cards sit
+   directly on the `#ece7dc` panel).
+
+**What the kit does meanwhile.** The values stay the design's. The light
+Vitest project runs every story on paper with every axe rule except
+`color-contrast` (a project-level define, `.storybook/preview.ts`, so it cannot
+leak into the dark run, which keeps the full gate). The numbers live in
+`tests/contrast.test.ts` so that the moment the palette moves, the test fails
+and says by how much — and the moment it clears, the exception can be deleted
+and the light run becomes the proof it was built to be.
+
+## 20. Two stacked tints of one hue take teal and purple under on paper — small, needs a design answer
+
+**Status:** ships as designed; one story carries a contrast exception.
+
+The revised light palette is stated against ONE tint over the canvas. Teal
+(4.5 on that ground) and purple (4.6) have no room for a second: a soft
+`Chip` inside a teal-tinted `Surface` on the canvas — the `Primitives/Surface
+→ Nested` story — measures teal ink 4.32:1 on `#c5dacc` and purple ink 4.39:1
+on `#d3d5d4` at 10.5px. The amber chip beside them survives the stack. The
+dark theme passes the same story.
+
+Nothing else in the suite stacks a tint on a tint, so this is a composition
+rule rather than a palette fault: either the design says a toned chip on a
+toned card is not a composition the kit makes (and the kit can lint for it),
+or teal and purple come down one more notch. Until then the story carries
+`knownContrastGap` and this section is its reason.
+
+---
+
+# The fourth drop — 2026-09-18, the answers
+
+The maintainer forwarded the open questions to the design as one prompt; the
+design answered every one of them in the same day, in a drop that touched all
+59 component files (one palette move reaches everything) and rewrote the
+README, the catalog's §11 tables, the desktop's D3 rules and the light file's
+§L1/§L5 (now generated from one `PALETTE` object, "because a hand-maintained
+table drifts from the contract every time a value moves — which is how five
+fill rows and both neutral steps went missing"). Statuses:
+
+## 3. `AgentRunCard`'s unreachable fallback — RESOLVED
+
+`?? 72` is gone from `renderVals()`; the comment says what the port had
+decided: "a run that does not report progress draws no meter, because
+inventing a percentage fabricates agent state. The data-props default is an
+EDITOR SEED." The README's porting notes carry the general rule (D30 in the
+kit's own words). No kit change.
+
+## 5. `ink-mute` on tinted grounds — RESOLVED, in both themes (D35)
+
+The dark floor moved: **`#8a8691` → `#9a96a1`**, "6.26 on surface, 5.83 on
+raised, 4.80 on the worst documented tint (4–10% of any fill over either
+ground)". The same correction the light palette needed, applied to dark.
+Kit: one token pair in `tokens.ts` (`color-ink-mute`, the three `neutral-*`),
+the neutral rgba hue, and every dark baseline. `tests/contrast.test.ts`
+measures it: ink-mute clears 4.5 on all 76 translucent tints over both
+`surface` and `raised` (it failed 81/81 over raised before), and the selected
+ChoiceOption detail line that axe caught at 4.36 is at 4.8+.
+
+## 4. `opacity` — RESOLVED by removal
+
+"No `opacity` de-emphasis … a superseded row is not lower-contrast at all. It
+reads as superseded from its state word and its still, neutral dot, at full
+ink contrast. The only surviving opacity is `.45` on a disabled control."
+Kit: `QueueItemRow` no longer fades; both story exceptions are gone.
+`NotificationCard`'s `dim` variant still carries `.8` (it is a lock-screen
+mock, and the design file still draws it that way) — recorded in the test.
+
+## 7. A solid button's effect chip — RESOLVED
+
+"A well over a fill **lightens** it (`rgba(255,255,255,.28)`): a dark well
+sat at 4.99–6.18, the light one reaches 9.26–12.25", and the subtitle on a
+solid button is opaque `on-fill` at weight 500. Kit: `button-ink-on-solid`
+is `#0c0e12` / `#231f1a`, `button-effect-bg-on-solid` is the white well in
+both themes, `Button`'s subtitle is weight 500. The test asserts the chip
+clears 9:1 on every tone (was 2.99–3.3).
+
+## 10. Keyboard scope — RESOLVED (D36)
+
+"Single-character keys are focus-scoped. `a` / `d` / `s` fire only while the
+ActionCard they belong to holds focus, and are printed on that card's own
+buttons; `j` / `k` only inside the focused list, printed in its footer. WCAG
+2.1.4 bars an always-live unmodified single key, and a Composer sits on every
+screen — a screen-scoped `a` types into it. Global commands take a modifier:
+⌘K for the palette, ⌘1–⌘5 for destinations. Settings carries an off switch
+for single-key shortcuts." Plus the focus rule: "a resolved card hands focus
+to the next card in the list; if it was the last, focus moves to the
+`EmptyState` heading, which is focusable for exactly this reason." App-level;
+the kit's part is `EmptyState`'s heading (`tabIndex=-1`, `role=heading`, a
+`focusTitle` prop) and the printed keys, which are labels.
+
+## 11. `Home` / `End` — RESOLVED
+
+"Wherever a roving tab stop exists — FilterRow, TabBar, SideRail,
+CommandPalette, the ChoiceOption radiogroup and the file tree. They were
+missing from the table rather than deliberately absent." Kit: `focusEdge` in
+`internal/roving.ts`, wired in all six (FileRow also gained ↑↓ between
+sibling `treeitem`s, which it had lacked). Every arrow-key story asserts the
+edges.
+
+## 12. A switch with no name — RESOLVED
+
+"`Toggle` always carries a name … inside a `ListRow` it is `aria-labelledby`
+the row's visible title (the row emits a stable id); standalone it takes
+`label`. There is no Toggle without adjacent visible text." The source falls
+back to the literal string `'Toggle'`; the kit keeps its dev warning instead,
+which is stricter. `ListRow` now emits the id and passes `labelledBy`; the
+catalog's three bare toggles gained visible labels.
+
+## 13. `Surface` hover — CONFIRMED, one delta
+
+The dark values the kit derived are exactly the design's (+.04 alpha per
+tone, neutral → raised). Paper "uses the same deltas over its lighter tints":
+the generator's +0.07/0.16 cap had produced .16 for every hue where teal,
+purple and blue tint at .13 and want .17 — three `SPECIFIED` overrides now.
+
+## 16. MapView label collisions — RESOLVED
+
+"Clustering, never truncating." A pin within `clusterPx` (34) of a placed pin
+is absorbed; the survivor's label gains `+N`; `meta` is dropped past 70% of
+the width. Kit: ported as the design's two passes, `clusterPx` is a prop,
+`tests/mapview-projection.test.tsx` covers the cluster, the meta drop and the
+override.
+
+## 18. Derived values — mostly decided now
+
+- **Dots:** all seven are stated (`amber #b06d10`, `gold #9b7610`, `teal
+  #227f6c`, `purple #7a5fb0`, `blue #22719b`, `red #bd3b33`, `neutral
+  #847c6f`), judged against the 3:1 non-text bar on canvas; "a first pass sat
+  at 2.10–2.94 and had to come down". The kit's 0.55 blend is gone. Note the
+  amber dot moved from `#c07d12`.
+- **Neutral fill** (`#a59d8f`) is still the kit's — the design has none.
+- **Alpha values:** still derived by rule, now 252 of 319.
+
+## 20. Stacked tints — RESOLVED
+
+"Teal, purple and red measured 4.24 / 4.32 / 4.41 there and came down a
+notch: **teal `#15594c`, purple `#5d4489`, red `#9c2a24`** (now 5.45 / 5.27 /
+4.81 stacked). The alternative — linting the composition out — was rejected."
+`Surface/Nested` carries no exception; the light project runs the full gate
+with none.
+
+## 21. Three small things the drop says twice, differently
+
+Recorded, not blocking:
+
+- The light file's §L5 alias list gives `well-on-fill` as `rgba(12,14,18,.18)`
+  in dark, while `Button.dc.html` and the README rule draw the dark well as
+  `rgba(255,255,255,.28)`. The kit follows the component and the rule (the
+  alias reads like the pre-answer value left in a table).
+- The README says the `EmptyState` heading is focusable; `EmptyState.dc.html`
+  does not mark it. The kit does (`tabIndex=-1`).
+- `Toggle.dc.html` falls back to the name `'Toggle'` when neither `label` nor
+  `labelledBy` is given, which satisfies axe with a name that says nothing.
+  The kit keeps the warning.
+
+## Baselines
+
+All twenty visual baselines regenerated in the container: the ink move
+touches every dark screenshot. 544 stories on dark, 544 on paper, no
+exceptions left in either project.

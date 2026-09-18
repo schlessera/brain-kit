@@ -491,11 +491,25 @@ Sequenced after the component waves but **before** step 2. Not optional.
       steps; gate retry/probe state resets per instance. Media/share uploads,
       exports, URLs and branding now use the root; session/graph lookups
       reject stale results and mask/share UI resets per root
-- [ ] S5 kit dependency and stylesheet wiring: add the dependency together
-      with its first real consumer (the dependency gate rejects unused edges).
-      Resolve kit/app Tailwind spacing overlap before composing styles.
-- [ ] S6 the six fetch-on-mount splits (judgement — do not let a bulk pass
-      flatten `AddPanel`'s epoch guard)
+- [x] S5 kit dependency and stylesheet wiring. The kit's stylesheet is split:
+      `tokens.css` (values, `color-scheme` switch, keyframe, interaction
+      rules — plain CSS) and `theme.css` (imports it, adds the `@theme static`
+      scales). `ui-react` imports `tokens.css` only, so the kit's
+      `--spacing-2: 2px` never reaches the app's `p-2` — verified on the
+      compiled CSS. Dependency and allowed edge added with the first consumer:
+      `MobileTabBar` is the kit `TabBar` (More menu stays app-owned). Theme
+      preference (system / paper / dark) in the UI store, persisted per root,
+      toggled in Settings, written to `<html data-theme>` by `AppShell`
+- [x] S6 the six fetch-on-mount splits — `PushSwitch`, `LoginForm`,
+      `WebSearchChain`, `PasskeyList`, `SkillsList` + `SkillEditor`, `AddForm`,
+      and `StreamingOutput` / `BriefingOutput` for the two streaming panels.
+      Every container keeps its guards untouched (`AddPanel`'s epoch,
+      `SkillsTab`'s `active`-gated reload, the stream abort controllers); the
+      views are assembled from kit `Button` / `Toggle` / `Callout` /
+      `Placeholder` / `StatusDot` / `Chip` and have props-only tests beside
+      the container tests. Text fields stay native — the kit has no text
+      input — and titled icon buttons stay native where the kit has no
+      icon-only button
 - [ ] S7 store-coupled component splits
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
@@ -503,16 +517,64 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] S10 superseded by D31: no compatibility shim or separate 1.0 removal
       step is required
 
+### Wave 8 — the light theme and the second design drop (D32, D33, D34)
+- [x] Second drop imported (`FETCH-PROGRESS.md`); three new digests under
+      `design/` (`light.md`, `desktop.md`, catalog §1.1b / §1b / §11.1 notes)
+- [x] Every `--bk-*` token is `light-dark(<paper>, <dark>)`; `color-scheme`
+      switches it; `[data-theme="light|dark|system"]` is the public attribute
+      (D32). `tools/theme/derive-light.ts` generates the light half from the
+      design's contract plus one rule per family; `tests/light-theme.test.ts`
+      pins both files to it. 55 values are the design's, 264 derived and
+      flagged (design-feedback §18)
+- [x] `on-fill` / `on-ink-solid` replace every foreground use of `canvas`;
+      the count badge takes near-black (§6 resolved); `neutral` is the grey
+      accent everywhere and `ink` / `dim` / `edge` are named (D33, §4 resolved);
+      `ContactCard` facts take the full set (§2 resolved)
+- [x] Hit targets per D34: `FeedbackRow` 46×44 with an inset-shadow hairline,
+      `InlineToast` undo 45.65 with a `text-decoration` underline, both
+      measured by their stories and both asserting the border is gone (§1
+      resolved)
+- [x] Storybook: `withThemeByDataAttribute` decorator, dark by default; the
+      paper `PhoneFrame` is a real light subtree and its contrast exception is
+      gone (§8 resolved); a second Vitest project (`storybook-light`) runs
+      every story on paper — D9's matrix, real
+- [x] **The light suite found the palette's canvas problem** (design-feedback
+      §19): the first light inks were stated against the surface and had no
+      headroom on the canvas — 141 stories failed `color-contrast` on paper.
+      The design revised five inks the same day; regenerated, and the light
+      project runs the full gate: 543 + 543 stories green, one recorded
+      exception for stacked same-hue tints (§20)
+- [x] Visual baselines regenerated in the pinned container after the drop
+      (count-badge ink, thumb hairline, `neutral` values, the three-tile
+      digest, the red/gold facts); the four screens gained light baselines
+      (`screen-*-light`), and the container runner and CI run the
+      `storybook-light` project too
+- [x] The two `ContactCard` fixtures §2 weakened are red / gold again, and
+      the digest carries three tiles as the catalog now does (§14)
+- [x] The app's three-way toggle (system / paper / dark) with a persisted
+      choice — landed with S5. The pre-paint inline script is the host's
+      (it owns the HTML); `ui-react`'s README gives the one line
+- [x] **The fourth drop — the answers** (D35, D36; design-feedback "The
+      fourth drop"): dark floor `#9a96a1` (§5), no row opacity (§4), the white
+      well and opaque subtitle on a solid button (§7), teal/purple/red for
+      stacked tints and all seven dots (§18, §20), toned-`Surface` hover
+      confirmed with three paper overrides (§13), `Home`/`End` in every
+      roving group and ↑↓ in `FileRow` (§11), `ListRow`'s toggle named by its
+      title (§12), MapView clustering with `clusterPx` (§16), `EmptyState`'s
+      focusable heading (§10). `contrast.test.ts` asserts §4/§5/§7/§20 as
+      resolved; no `knownContrastGap` caller remains; 544 + 544 stories green
+      under the full gate; all twenty baselines regenerated in the container
+- [ ] D36's app rules (focus-scoped `a/d/s`, `j/k`, ⌘1–⌘5, the Settings off
+      switch, focus after a decision) — with the desktop migration, S7+
+
 ## Open questions
 
 - [x] Does the catalog's foundations section introduce a light theme beyond
-      `PhoneFrame theme="paper"`? **No.** Checked against
-      `.plan/design/catalog.md` §1.1 during wave 0: one palette table, twelve
-      dark rows, no second table anywhere in Foundations. So D9's two-theme
-      matrix collapses to one project for now. `@storybook/addon-themes` is
-      installed and registered but carries no decorator; if `paper` is ever
-      promoted to a real theme, `.storybook/preview.ts` is where
-      `withThemeByDataAttribute` goes and the second Vitest project follows.
+      `PhoneFrame theme="paper"`? **Not in the first drop; yes in the second.**
+      The 2026-08-26 drop had one palette table and twelve dark rows, so D9's
+      matrix collapsed to one project. The 2026-09-18 drop shipped
+      `Brain Kit Light.dc.html` with the full paper contract, and wave 8 made
+      the decorator and the second Vitest project real (D32).
 - ~~Mobile-only or desktop?~~ Answered: D16, mobile-first responsive up.
 
 ## Wave 0 notes

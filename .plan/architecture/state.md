@@ -279,6 +279,30 @@ the kit component renders `editing | saving | saved | error` from props.
 | `components/connectivity/login-screen.tsx` `LoginScreen` | `LoginForm` — props `appName`, `methods: { password: boolean; passkey: boolean }`, `busy`, `error`; callbacks `onPassword(pw)`, `onPasskey()` | `api.authMethods()` + `lib/passkeys` |
 | `components/activity/push-toggle.tsx` `PushToggle` | `PushSwitch` — props `state: "granted"\|"default"\|"blocked"\|"unsupported"`, `busy`, `reason?`; callback `onToggle()` | `lib/push-registration` |
 
+Landed (S6, 2026-09-18), with the prop names the real API dictated: `PushSwitch`
+(`state: "unsupported"|"not-asked"|"blocked"|"subscribed"|"unsubscribed"`,
+`busy`, `onToggle`), `LoginForm` (`appName`, `methods`, `password`, `busy`,
+`error`, `onPasswordChange`, `onPassword`, `onPasskey` — the field is
+controlled from the container), `WebSearchChain` (`config`, `busy`, `error`,
+`openKey`, `keyDraft`, `savedFlash`; `onToggle(id)`, `onToggleKey(id)`,
+`onKeyDraft`, `onSaveKey(id)`, `onClearKey(id)`, `onClearOverride()` — there
+is no reorder in the API, the chain order is the server's), `PasskeyList`
+(`credentials`, `status: "loading"|"ready"|"unavailable"`, `busy`, `error`,
+`supported`, `hostname`; `onAdd`, `onRename(id, label)`, `onDelete(id)`,
+`onSignOut`), `SkillsList` (`skills`, `busy: string | null`, `installing`,
+`error`, `warning`, `outcomes`, the three drafts; `onCreate`, `onInstallZip`,
+`onInstallGitHub`, `onOpen(skill)`, `onToggle(skill)`, `onRemove(skill)`) with
+`SkillEditor` (`name`, `content`, `isNew`, `readOnly`, `saving`, `error`;
+`onChange`, `onSave`, `onClose`), `AddForm` (`state`, `draft`, `knownTypes`,
+`error`, `savedPath`, `indexed`, `indexing`, `contentRef`; `onDraft(patch)`,
+`onSave`, `onRetryIndex`, `onAddAnother`, `onClose`), and for the two streams
+`StreamingOutput` (`state`, `lines: ReactNode[]`, `anchor`; `onCancel`,
+`onClose`) and `BriefingOutput` (`state`, `content: ReactNode`; `onCancel`,
+`onClose`) — the container renders the markdown and linkifies the paths, the
+view does not know what the nodes are made of. The views live in `ui-react`
+beside their containers and are assembled from kit primitives, per the S6
+rule that kit views come from the design inventory.
+
 Two streaming panels follow the same rule with a different prop shape:
 `StreamingPanel` and `WhatsupPanel` keep the `ReadableStream` reader loop in the
 container and hand the kit a `StreamingOutput` with
