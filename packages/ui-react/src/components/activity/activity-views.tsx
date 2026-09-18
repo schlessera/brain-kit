@@ -86,6 +86,8 @@ export interface IntentCardProps {
   when: string;
   onOpen: () => void;
   onDismiss: () => void;
+  /** Print `d` on Dismiss: the list binds it while the card holds focus (D36). */
+  keyHint?: boolean;
 }
 
 /** A thing that needs attention: failure, stuck, or a completion to note. */
@@ -105,7 +107,7 @@ export function IntentCard(p: IntentCardProps) {
       onClick={p.onOpen}
     >
       <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
-        <Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={p.onDismiss} />
+        <Button label={p.keyHint ? "Dismiss · d" : "Dismiss"} tone="quiet" size="sm" block={false} onClick={p.onDismiss} />
       </div>
     </ActionCard>
   );

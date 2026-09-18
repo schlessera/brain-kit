@@ -148,6 +148,9 @@ export function ComposerView(p: ComposerViewProps) {
         <div className="composer-grow" data-value={p.value + " "}>
           <textarea
             ref={p.textareaRef}
+            // Where focus lands after the last pending approval is decided
+            // (D36): the thing the reader continues with.
+            data-composer=""
             value={p.value}
             onChange={(e) => p.onChange(e.target.value)}
             onPaste={onPaste}

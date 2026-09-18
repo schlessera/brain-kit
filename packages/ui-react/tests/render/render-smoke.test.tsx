@@ -18,6 +18,7 @@ import { MobileTabBar } from "../../src/components/layout/mobile-tab-bar.js";
 import { SideRail } from "../../src/components/layout/side-rail.js";
 import { DesktopPalette } from "../../src/components/layout/desktop-palette.js";
 import { ThemeToggle, useApplyTheme } from "../../src/components/layout/theme.js";
+import { ShortcutSwitch } from "../../src/components/layout/shortcut-switch.js";
 import { createUIStore } from "../../src/stores/ui-state.js";
 import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
 import { LoginForm } from "../../src/components/connectivity/login-form.js";
@@ -3795,6 +3796,147 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
     expect(view.queryByRole("dialog")).toBeNull();
     view.unmount();
+  });
+});
+
+/* ── D36: single-key shortcuts, focus-scoped ────────────────────────────── */
+
+describe("single-key shortcuts (D36)", () => {
+  function pending(id: string, name = "Bash"): ToolCall {
+    return {
+      id,
+      name,
+      input: { command: "ls" },
+      inputJson: '{"command":"ls"}',
+      status: "pending_approval",
+      approvalKind: "command",
+    } as ToolCall;
+  }
+
+  function Harness({ calls, onApproval }: { calls: ToolCall[]; onApproval: (id: string, ok: boolean, always?: boolean) => void }) {
+    return (
+      <div>
+        <ToolCallTimeline toolCalls={calls} onApproval={onApproval} />
+        <textarea data-composer="" aria-label="composer" />
+      </div>
+    );
+  }
+
+  test("a and d decide the approval card that holds focus, and the keys are printed on its buttons", () => {
+    const decided: unknown[] = [];
+    const view = render(<Harness calls={[pending("t1")]} onApproval={(...a) => decided.push(a)} />);
+    const card = view.getByRole("group", { name: "Approval: Bash" });
+    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allowa");
+    expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Denyd");
+
+    // Bare letters elsewhere do nothing: the scope is the card.
+    fireEvent.keyDown(document.body, { key: "a" });
+    expect(decided).toEqual([]);
+
+    card.focus();
+    fireEvent.keyDown(card, { key: "a", metaKey: true });
+    expect(decided).toEqual([]);
+    fireEvent.keyDown(card, { key: "d" });
+    expect(decided).toEqual([["t1", false, undefined]]);
+    // The last pending card hands focus to the composer.
+    expect(document.activeElement).toBe(view.getByLabelText("composer"));
+    view.unmount();
+  });
+
+  test("deciding one of two cards hands focus to the next one, not the top of the document", () => {
+    const view = render(<Harness calls={[pending("t1"), pending("t2", "Write")]} onApproval={() => {}} />);
+    const first = view.getByRole("group", { name: "Approval: Bash" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "a" });
+    expect(document.activeElement).toBe(view.getByRole("group", { name: "Approval: Write" }));
+    view.unmount();
+  });
+
+  test("the Settings switch turns the letters off and the printed keys go with them", () => {
+    const decided: unknown[] = [];
+    const view = render(
+      <>
+        <ShortcutSwitch />
+        <Harness calls={[pending("t1")]} onApproval={(...a) => decided.push(a)} />
+      </>
+    );
+    const toggle = view.getByRole("switch", { name: /Single-key shortcuts/ });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(useUIStore.getState().singleKeyShortcuts).toBe(false);
+    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allow");
+    const card = view.getByRole("group", { name: "Approval: Bash" });
+    card.focus();
+    fireEvent.keyDown(card, { key: "a" });
+    expect(decided).toEqual([]);
+    // The buttons still work; only the letters are off.
+    fireEvent.click(view.getByRole("button", { name: /^Allow/ }));
+    expect(decided).toEqual([["t1", true, undefined]]);
+    useUIStore.getState().setSingleKeyShortcuts(true);
+    view.unmount();
+  });
+
+  test("the preference persists under the root's storage prefix", () => {
+    const backing = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => void backing.set(k, v),
+      removeItem: (k: string) => void backing.delete(k),
+    } as unknown as Storage;
+    const env = { storage: () => storage, storageKey: (k: string) => `t:${k}` };
+    const first = createUIStore(env);
+    expect(first.getState().singleKeyShortcuts).toBe(true);
+    first.getState().setSingleKeyShortcuts(false);
+    expect(backing.get("t:brain-single-key-shortcuts")).toBe("off");
+    expect(createUIStore(env).getState().singleKeyShortcuts).toBe(false);
+  });
+
+  test("j and k move inside the inbox, d dismisses the focused card and focus moves on", async () => {
+    const calls = installActivityFetch((url) => {
+      if (url.includes("/activity/inbox") && !url.includes("/ack")) {
+        return Response.json({
+          intents: [1, 2].map((n) => ({
+            id: n,
+            runId: `run-${n}`,
+            spanId: null,
+            kind: "failure",
+            tag: "t",
+            title: `Intent ${n}`,
+            body: "",
+            status: "pending",
+            acknowledged: false,
+            createdAt: Date.now(),
+          })),
+        });
+      }
+      return undefined;
+    });
+    const page = render(<ActivityPage />);
+    await act(flushPromises);
+    const cards = page.getAllByRole("button", { name: /Intent \d/ });
+    expect(cards).toHaveLength(2);
+    expect(page.getAllByRole("button", { name: "Dismiss · d" })).toHaveLength(2);
+    expect(page.getByText("j / k move · d dismiss · ⏎ open")).toBeTruthy();
+
+    cards[0]!.focus();
+    fireEvent.keyDown(cards[0]!, { key: "j" });
+    expect(document.activeElement).toBe(cards[1]);
+    fireEvent.keyDown(cards[1]!, { key: "j" });
+    expect(document.activeElement).toBe(cards[0]);
+    fireEvent.keyDown(cards[0]!, { key: "k" });
+    expect(document.activeElement).toBe(cards[1]);
+
+    fireEvent.keyDown(cards[1]!, { key: "d" });
+    await act(flushPromises);
+    expect(useActivityStore.getState().inbox.map((i) => i.id)).toEqual([1]);
+    expect(calls.some((url) => url.includes("/activity/inbox/2/ack") || url.includes("inbox") && url.includes("2"))).toBe(true);
+    expect(document.activeElement).toBe(page.getByRole("button", { name: /Intent 1/ }));
+
+    fireEvent.keyDown(document.activeElement!, { key: "d" });
+    await act(flushPromises);
+    expect(useActivityStore.getState().inbox).toEqual([]);
+    expect(document.activeElement).toBe(page.getByRole("heading", { name: "Activity", level: 1 }));
+    page.unmount();
   });
 });
 

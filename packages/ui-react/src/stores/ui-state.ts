@@ -10,6 +10,7 @@ import type { StoreEnvironment } from "./store-environment.js";
 export type ThemePreference = "system" | "light" | "dark";
 
 const THEME_KEY = "brain-theme";
+const SINGLE_KEY_KEY = "brain-single-key-shortcuts";
 
 function isThemePreference(value: unknown): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
@@ -64,6 +65,15 @@ export interface UIState {
    * it once through `setTheme`. */
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
+  /**
+   * D36: `a` / `d` on a focused approval card and `j` / `k` in a focused
+   * list. On by default; the off switch is WCAG 2.1.4's third escape hatch
+   * for readers whose assistive tech or typing habits collide with single
+   * letters. Persisted per root. Modifier shortcuts (⌘K, ⌘1–⌘5) are not
+   * governed by it.
+   */
+  singleKeyShortcuts: boolean;
+  setSingleKeyShortcuts: (on: boolean) => void;
 }
 
 const CLOSED = {
@@ -79,6 +89,8 @@ const CLOSED = {
 export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageKey">) {
   const themeKey = env?.storageKey(THEME_KEY) ?? THEME_KEY;
   const stored = env?.storage()?.getItem(themeKey);
+  const singleKeyKey = env?.storageKey(SINGLE_KEY_KEY) ?? SINGLE_KEY_KEY;
+  const storedSingleKey = env?.storage()?.getItem(singleKeyKey);
   return createStore<UIState>((set) => ({
     ...CLOSED,
     activeView: "chat",
@@ -87,6 +99,11 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
     setTheme: (theme) => {
       env?.storage()?.setItem(themeKey, theme);
       set({ theme });
+    },
+    singleKeyShortcuts: storedSingleKey !== "off",
+    setSingleKeyShortcuts: (on) => {
+      env?.storage()?.setItem(singleKeyKey, on ? "on" : "off");
+      set({ singleKeyShortcuts: on });
     },
     subagentStack: [],
     pushSubagentView: (spanId) =>

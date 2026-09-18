@@ -1,5 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Activity as ActivityIcon, AlertTriangle, RefreshCw } from "lucide-react";
 import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -16,6 +16,7 @@ import { RollupCards } from "./activity-rollups.js";
 import { LiveRow, RunRow } from "./activity-run-list.js";
 import { RunDetail } from "./activity-run-detail.js";
 import { IntentCard } from "./activity-views.js";
+import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { PushToggle } from "./push-toggle.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 
@@ -159,6 +160,31 @@ export function ActivityPage() {
     }
   }
 
+  const keys = useUIStore((s) => s.singleKeyShortcuts);
+  const INTENT_CARD = "[data-intent-card] > [role=\"button\"]";
+  /**
+   * `j` / `k` move inside the focused list and `d` dismisses the focused
+   * card (D36): all three act only while a card in this list holds focus,
+   * and the footer prints them. After a dismiss, focus goes to the next
+   * card, else the previous, else the page heading.
+   */
+  function onInboxKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!keys) return;
+    const key = singleKey(event);
+    if (key !== "j" && key !== "k" && key !== "d") return;
+    const cards = [...event.currentTarget.querySelectorAll<HTMLElement>(INTENT_CARD)];
+    const here = cards.findIndex((card) => card.contains(event.target as Node));
+    if (here === -1) return;
+    event.preventDefault();
+    if (key === "d") {
+      const intent = inbox[here];
+      focusAfterDecision(cards[here]!, INTENT_CARD, "[data-activity-heading]");
+      if (intent) void acknowledgeIntent(intent.id);
+      return;
+    }
+    cards[(here + (key === "j" ? 1 : -1) + cards.length) % cards.length]?.focus();
+  }
+
   if (detailRunId) {
     return <RunDetail runId={detailRunId} onBack={() => showDetail(null)} />;
   }
@@ -174,7 +200,7 @@ export function ActivityPage() {
       />
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
         <ActivityIcon className="h-4 w-4 text-muted-foreground" />
-        <h1 className="text-sm font-medium">Activity</h1>
+        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Activity</h1>
         <div className="ml-auto flex items-center gap-2">
           {pricingStale && (
             <button
@@ -219,20 +245,27 @@ export function ActivityPage() {
                 Dismiss all
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" onKeyDown={onInboxKeyDown}>
               {inbox.map((intent) => (
-                <IntentCard
-                  key={intent.id}
-                  intent={intent}
-                  when={formatRelativeTime(intent.createdAt)}
-                  onOpen={() => {
-                    void acknowledgeIntent(intent.id);
-                    openIntent(intent);
-                  }}
-                  onDismiss={() => void acknowledgeIntent(intent.id)}
-                />
+                <div key={intent.id} data-intent-card="">
+                  <IntentCard
+                    intent={intent}
+                    when={formatRelativeTime(intent.createdAt)}
+                    keyHint={keys}
+                    onOpen={() => {
+                      void acknowledgeIntent(intent.id);
+                      openIntent(intent);
+                    }}
+                    onDismiss={() => void acknowledgeIntent(intent.id)}
+                  />
+                </div>
               ))}
             </div>
+            {keys && (
+              <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70">
+                j / k move · d dismiss · ⏎ open
+              </p>
+            )}
           </section>
         )}
 

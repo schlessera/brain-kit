@@ -1,5 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type KeyboardEvent } from "react";
 import {
   Check,
   X,
@@ -18,6 +18,7 @@ import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
 import { useShallow } from "zustand/react/shallow";
+import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
@@ -186,6 +187,23 @@ function ToolCallEntry({
       ? renderer.label(toolCall)
       : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = toolCall.status === "pending_approval";
+  const keys = useUIStore((s) => s.singleKeyShortcuts);
+  /**
+   * A decision hands focus on before the card goes (D36): the next pending
+   * approval in the transcript, else the composer — the thing the reader
+   * continues with, since a chat has no empty-state heading to land on.
+   */
+  function decide(card: HTMLElement | null, approved: boolean, always?: boolean) {
+    if (card) focusAfterDecision(card, "[data-approval-card]", "textarea[data-composer]");
+    onApproval(toolCall.id, approved, always);
+  }
+  function onCardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!keys) return;
+    const key = singleKey(event);
+    if (key !== "a" && key !== "d") return;
+    event.preventDefault();
+    decide(event.currentTarget, key === "a");
+  }
   const summary = renderer.summary?.(timed) ?? null;
   const meta = renderer.meta?.(timed) ?? null;
   const Input = renderer.Input;
@@ -295,17 +313,28 @@ function ToolCallEntry({
                   requests — a destructive-command confirmation (kind
                   "command") stays per-use. */}
               {isPending && (
-                <div className="flex flex-wrap gap-2">
+                // The card is the focus scope for `a` / `d` (D36): the keys
+                // act only while it, or a button inside it, holds focus, and
+                // they are printed on the buttons they belong to.
+                <div
+                  data-approval-card=""
+                  role="group"
+                  aria-label={`Approval: ${label}`}
+                  tabIndex={0}
+                  onKeyDown={onCardKeyDown}
+                  className="flex flex-wrap gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                >
                   <button
-                    onClick={() => onApproval(toolCall.id, true)}
+                    onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true)}
                     className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110"
                   >
                     <Check className="h-3 w-3" />
                     Allow
+                    {keys && <KeyCap>a</KeyCap>}
                   </button>
                   {toolCall.approvalKind !== "command" && (
                     <button
-                      onClick={() => onApproval(toolCall.id, true, true)}
+                      onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true, true)}
                       title={`Allow ${toolCall.name} without asking from now on (revocable in Settings → Models)`}
                       className="flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                     >
@@ -314,11 +343,12 @@ function ToolCallEntry({
                     </button>
                   )}
                   <button
-                    onClick={() => onApproval(toolCall.id, false)}
+                    onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), false)}
                     className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
                   >
                     <X className="h-3 w-3" />
                     Deny
+                    {keys && <KeyCap>d</KeyCap>}
                   </button>
                 </div>
               )}
@@ -433,4 +463,17 @@ function StatusIndicator({
         <Check className="h-3 w-3 text-muted-foreground/50" />
       );
   }
+}
+
+/** The printed key on the button it belongs to — "every shortcut is printed
+ * where it applies, never hidden in help" (D36). */
+function KeyCap({ children }: { children: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="ml-0.5 rounded border border-current/30 px-1 font-[family-name:var(--font-mono)] text-[9.5px] leading-[1.4] opacity-70"
+    >
+      {children}
+    </span>
+  );
 }

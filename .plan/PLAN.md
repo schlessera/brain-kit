@@ -619,10 +619,19 @@ Sequenced after the component waves but **before** step 2. Not optional.
       focusable heading (§10). `contrast.test.ts` asserts §4/§5/§7/§20 as
       resolved; no `knownContrastGap` caller remains; 544 + 544 stories green
       under the full gate; all twenty baselines regenerated in the container
-- [ ] D36's app rules — ⌘1–⌘5 and ⌘K landed with the rail (S7 `layout/`);
-      still open: focus-scoped `a/d/s`, `j/k`, the Settings off switch for
-      single-key shortcuts, focus after a decision — these need the in-chat
-      decision list, so they come with S9
+- [x] D36's app rules — ⌘1–⌘5 and ⌘K landed with the rail (S7 `layout/`).
+      The letters: `a` / `d` decide the in-chat approval card that holds
+      focus (a `role="group"` at `tabIndex=0` around the buttons, the keys
+      printed on Allow and Deny), `j` / `k` move inside the Activity inbox
+      and `d` dismisses the focused card (printed in the list's footer and on
+      the Dismiss button), and a decision hands focus to the next card, else
+      the previous, else the composer (chat) or the page heading (inbox) —
+      the chat has no `EmptyState` heading to land on, so the composer is
+      the thing the reader continues with. `lib/single-key.ts` holds the one
+      rule (bare key, not from a field). The Settings off switch is a kit
+      `Toggle` beside Appearance, persisted per root
+      (`brain-single-key-shortcuts`); modifier shortcuts are not governed by
+      it. `s` (snooze) has no app action yet and is not bound
 
 ## Open questions
 

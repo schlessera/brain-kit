@@ -5,6 +5,7 @@ import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 import { ThemeToggle } from "../layout/theme.js";
+import { ShortcutSwitch } from "../layout/shortcut-switch.js";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -79,6 +80,11 @@ export function SettingsPanel({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
           <span className="text-xs text-muted-foreground">Appearance</span>
           <ThemeToggle />
+        </div>
+        {/* The off switch for single-key shortcuts (D36, WCAG 2.1.4): one
+            control, applies everywhere, so it sits beside Appearance. */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
+          <ShortcutSwitch />
         </div>
 
         <div className="min-h-0 flex-1">

@@ -545,6 +545,12 @@ run the `storybook-light` project as well.
   tokens file carries no `@theme`. The app's duplicate `breathe` keyframe is
   gone — declared after the kit's reduced-motion override it would have
   cancelled it.
+- **D36's letters are app-level and focus-scoped.** `lib/single-key.ts`
+  is the one rule (bare key, not from a field); the approval card and the
+  inbox list bind their own letters and print them; the store's
+  `singleKeyShortcuts` is the off switch. Focus after a decision:
+  `focusAfterDecision(card, cardSelector, fallback)`, called BEFORE the
+  card leaves the DOM.
 - **S9 is closed by the location map.** `LocationResultCard` is the kit
   `MapView` fed from the `get_current_location` payload plus the server's
   `/geo/coastline`; the contract layer itself was wave 6's. The card is the
