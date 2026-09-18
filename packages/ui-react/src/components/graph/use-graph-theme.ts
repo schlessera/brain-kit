@@ -16,12 +16,12 @@ export interface GraphTheme {
 const FALLBACK: GraphTheme = {
   background: "#0c0e12",
   surfaceOverlay: "#1e2128",
-  node: "#8a8691",
+  node: "#9a96a1",
   nodeSelected: "#e09f3e",
   edge: "#2a2d35",
   edgeHighlight: "#5bb5a2",
   label: "#e8e4df",
-  labelMuted: "#8a8691",
+  labelMuted: "#9a96a1",
 };
 
 /**

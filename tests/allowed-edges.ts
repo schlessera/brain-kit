@@ -60,8 +60,11 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // internal edges at all. An edge here would mean the kit had started
   // reaching for state, which is the one thing it exists not to do.
   "@schlessera/brain-ui-kit": { dependencies: [], optionalPeers: [] },
+  // ui-react renders the design kit's components (step 2, S5 onward): a hard
+  // dependency, because the app's screens are assembled from them and its
+  // stylesheet imports the kit's tokens. The kit never depends back.
   "@schlessera/brain-ui-react": {
-    dependencies: ["@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-ui-kit", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
   // ui-server drives whichever backend the deployment picks, so BOTH backends

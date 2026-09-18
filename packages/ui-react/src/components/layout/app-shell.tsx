@@ -4,9 +4,11 @@ import { MobileTabBar } from "./mobile-tab-bar.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { OneTimeAgentCredentialDialog } from "../settings/one-time-agent-credential.js";
+import { useApplyTheme } from "./theme.js";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
+  useApplyTheme();
 
   return (
     <div className="flex h-[100dvh] bg-background text-foreground">

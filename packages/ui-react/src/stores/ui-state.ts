@@ -1,4 +1,19 @@
 import { createStore } from "zustand/vanilla";
+import type { StoreEnvironment } from "./store-environment.js";
+
+/**
+ * The design's three-way theme toggle (system / paper / dark). `system` is
+ * the browser's own `prefers-color-scheme`; the other two override it. The
+ * value is written to `<html data-theme>` by `useApplyTheme`, and the kit's
+ * tokens do the rest — no component knows which theme it is in.
+ */
+export type ThemePreference = "system" | "light" | "dark";
+
+const THEME_KEY = "brain-theme";
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
 
 /** Which tab the settings panel opens on. */
 export type SettingsTab = "models" | "skills" | "security" | "devices";
@@ -44,6 +59,11 @@ export interface UIState {
   /** Open settings straight onto a tab (menu entries, deep links). */
   openSettings: (tab: SettingsTab) => void;
   setSettingsTab: (tab: SettingsTab) => void;
+  /** Persisted per root; `dark` until the user says otherwise, which is what
+   * the app has always been. A host that wants `system` as its default sets
+   * it once through `setTheme`. */
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
 }
 
 const CLOSED = {
@@ -56,11 +76,18 @@ const CLOSED = {
   settingsPanelOpen: false,
 };
 
-export function createUIStore() {
+export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageKey">) {
+  const themeKey = env?.storageKey(THEME_KEY) ?? THEME_KEY;
+  const stored = env?.storage()?.getItem(themeKey);
   return createStore<UIState>((set) => ({
     ...CLOSED,
     activeView: "chat",
     settingsTab: "models",
+    theme: isThemePreference(stored) ? stored : "dark",
+    setTheme: (theme) => {
+      env?.storage()?.setItem(themeKey, theme);
+      set({ theme });
+    },
     subagentStack: [],
     pushSubagentView: (spanId) =>
       set((s) => ({ subagentStack: [...s.subagentStack, spanId] })),

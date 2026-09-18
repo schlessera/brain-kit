@@ -4,6 +4,7 @@ import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
+import { ThemeToggle } from "../layout/theme.js";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -70,6 +71,14 @@ export function SettingsPanel({
               {label}
             </button>
           ))}
+        </div>
+
+        {/* Appearance is not a tab: it is one control, it applies everywhere,
+            and the design puts the three-way toggle in Settings without
+            giving it a section of its own. */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
+          <span className="text-xs text-muted-foreground">Appearance</span>
+          <ThemeToggle />
         </div>
 
         <div className="min-h-0 flex-1">

@@ -1,21 +1,26 @@
 import { useEffect, useRef, useState } from "react";
+import { TabBar, type TabItem } from "@schlessera/brain-ui-kit";
 import {
-  Activity,
-  Brain,
   RefreshCw,
   History,
   SlidersHorizontal,
-  FolderTree,
-  SquarePen,
-  MoreHorizontal,
   Waypoints,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useActivityStore } from "../../stores/activity-store.js";
-import { cn } from "../../lib/utils.js";
-import { CountBadge } from "../activity/span-bits.js";
 
+/**
+ * The phone's bottom navigation, on the kit's `TabBar` (S5: the first kit
+ * consumer in the app). Five slots, as the design draws them: Chat, New chat,
+ * Activity (with the inbox count), Files, More. The kit owns the bar — the
+ * roving tab stop, the amber active slot, the badge, the hit targets; this
+ * file owns what the slots DO and the More menu, which is app behaviour the
+ * kit has no component for.
+ *
+ * The menu is a sibling of the bar, anchored above its right edge, rather
+ * than a child of the More slot: a kit tab is a leaf and cannot host it.
+ */
 export function MobileTabBar() {
   const activeView = useUIStore((s) => s.activeView);
   const setActiveView = useUIStore((s) => s.setActiveView);
@@ -53,111 +58,84 @@ export function MobileTabBar() {
     };
   }, [moreOpen]);
 
-  return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 flex h-14 items-center justify-around border-t border-border bg-surface px-1 pb-[env(safe-area-inset-bottom)]">
-      <TabIcon
-        icon={Brain}
-        label="Chat"
-        active={activeView === "chat"}
-        onClick={() => setActiveView("chat")}
-      />
-      <TabIcon
-        icon={SquarePen}
-        label="New chat"
-        onClick={() => {
-          setMoreOpen(false);
-          setActiveView("chat");
-          clearMessages();
-        }}
-      />
-      {/* Activity holds the tab-bar slot; Graph moved into the More menu —
-          the phone glance-check ("is real work happening?") is the headline
-          flow and must stay one tap away (planning decision). */}
-      <TabIcon
-        icon={Activity}
-        label="Activity"
-        active={activeView === "activity"}
-        badge={inboxCount}
-        onClick={() => setActiveView("activity")}
-      />
-      <TabIcon icon={FolderTree} label="Files" onClick={toggleFilePanel} />
-      <div ref={moreRef} className="relative">
-        <TabIcon
-          icon={MoreHorizontal}
-          label="More"
-          active={moreOpen}
-          onClick={() => setMoreOpen((v) => !v)}
-        />
-        {moreOpen && (
-          <div
-            role="menu"
-            className="absolute bottom-full right-0 z-50 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
-          >
-            <MoreItem
-              icon={Waypoints}
-              label="Graph"
-              onClick={() => {
-                setMoreOpen(false);
-                setActiveView("graph");
-              }}
-            />
-            <MoreItem
-              icon={RefreshCw}
-              label="Sync"
-              onClick={() => {
-                setMoreOpen(false);
-                inChat(toggleSyncPanel)();
-              }}
-            />
-            <MoreItem
-              icon={History}
-              label="History"
-              onClick={() => {
-                setMoreOpen(false);
-                inChat(toggleSessionPanel)();
-              }}
-            />
-            <MoreItem
-              icon={SlidersHorizontal}
-              label="Settings"
-              onClick={() => {
-                setMoreOpen(false);
-                toggleSettingsPanel();
-              }}
-            />
-          </div>
-        )}
-      </div>
-    </nav>
-  );
-}
+  const items: TabItem[] = [
+    { icon: "brain", label: "Chat", onClick: () => setActiveView("chat") },
+    {
+      icon: "compose",
+      label: "New chat",
+      onClick: () => {
+        setMoreOpen(false);
+        setActiveView("chat");
+        clearMessages();
+      },
+    },
+    // Activity holds the tab-bar slot; Graph moved into the More menu — the
+    // phone glance-check ("is real work happening?") is the headline flow
+    // and must stay one tap away (planning decision).
+    {
+      icon: "activity",
+      label: "Activity",
+      badge: inboxCount > 0 ? (inboxCount > 9 ? "9+" : String(inboxCount)) : undefined,
+      onClick: () => setActiveView("activity"),
+    },
+    { icon: "files", label: "Files", onClick: toggleFilePanel },
+    { icon: "more", label: "More", onClick: () => setMoreOpen((v) => !v) },
+  ];
+  // The amber slot. -1 is "none", which the kit renders as no active item
+  // and still keeps the bar reachable (its stop falls back to the first
+  // eligible slot).
+  const active = moreOpen ? 4 : activeView === "chat" ? 0 : activeView === "activity" ? 2 : -1;
 
-function TabIcon({
-  icon: Icon,
-  label,
-  active,
-  onClick,
-  badge,
-}: {
-  icon: typeof Brain;
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-  /** Unread-count dot (the inbox badge). Hidden at 0. */
-  badge?: number;
-}) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "relative flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]",
-        active ? "text-primary" : "text-muted-foreground"
-      )}
+    <nav
+      ref={moreRef}
+      aria-label="Primary"
+      className="md:hidden fixed bottom-0 inset-x-0 z-30 pb-[env(safe-area-inset-bottom)]"
+      // The safe-area strip below the bar takes the bar's own ground, from the
+      // kit's token so it follows the theme.
+      style={{ background: "var(--bk-color-surface)" }}
     >
-      <Icon className="h-5 w-5" />
-      {badge !== undefined && <CountBadge count={badge} className="right-0 top-0" />}
-      {label}
-    </button>
+      <TabBar items={items} active={active} />
+      {moreOpen && (
+        <div
+          role="menu"
+          className="absolute bottom-full right-2 z-50 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
+        >
+          <MoreItem
+            icon={Waypoints}
+            label="Graph"
+            onClick={() => {
+              setMoreOpen(false);
+              setActiveView("graph");
+            }}
+          />
+          <MoreItem
+            icon={RefreshCw}
+            label="Sync"
+            onClick={() => {
+              setMoreOpen(false);
+              inChat(toggleSyncPanel)();
+            }}
+          />
+          <MoreItem
+            icon={History}
+            label="History"
+            onClick={() => {
+              setMoreOpen(false);
+              inChat(toggleSessionPanel)();
+            }}
+          />
+          <MoreItem
+            icon={SlidersHorizontal}
+            label="Settings"
+            onClick={() => {
+              setMoreOpen(false);
+              toggleSettingsPanel();
+            }}
+          />
+        </div>
+      )}
+    </nav>
   );
 }
 
@@ -166,7 +144,7 @@ function MoreItem({
   label,
   onClick,
 }: {
-  icon: typeof Brain;
+  icon: typeof Waypoints;
   label: string;
   onClick: () => void;
 }) {

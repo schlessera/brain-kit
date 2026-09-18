@@ -109,14 +109,33 @@ Two ways to get the CSS, pick one:
   ```css
   @import "tailwindcss";
   @import "@schlessera/brain-ui-react/theme.css";
+  @import "@schlessera/brain-ui-kit/tokens.css";
   @source "../node_modules/@schlessera/brain-ui-react/src";
   ```
 
-- **No Tailwind:** import the precompiled stylesheet:
+  The kit's `tokens.css` (not its `theme.css`, which carries the kit's own
+  `@theme` scales and would redefine `p-2`) supplies the `--bk-*` values the
+  kit components inside this package read.
+
+- **No Tailwind:** import the precompiled stylesheet, which already includes
+  the kit's tokens:
 
   ```ts
   import "@schlessera/brain-ui-react/styles.css";
   ```
+
+### Theme
+
+The app is dark by default. Settings carries a three-way toggle (system /
+paper / dark), stored per root under `brain-theme`, and `AppShell` writes it to
+`<html data-theme>`; the kit's tokens switch on that attribute. Because the
+attribute is applied in an effect, a host that wants a stored non-default
+preference to paint correctly on the very first frame adds one inline line to
+its HTML before the stylesheet:
+
+```html
+<script>document.documentElement.dataset.theme = localStorage.getItem("brain-theme") || "dark";</script>
+```
 
 ## Multi-session state
 

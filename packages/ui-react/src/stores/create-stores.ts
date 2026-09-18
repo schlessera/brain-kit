@@ -16,7 +16,7 @@ export function createBrainStores(env: StoreEnvironment) {
   return {
     provider,
     chat: createChatStore(env, provider),
-    ui: createUIStore(),
+    ui: createUIStore(env),
     connection: createConnectionStore(),
     file: createFileStore(env),
     graph: createGraphStore(env),

@@ -46,6 +46,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
+    "@schlessera/brain-ui-kit": "workspace:*",
     "@schlessera/brain-ui-sdk": "workspace:*",
     "@simplewebauthn/browser": "^13.2.2",
     "clsx": "^2",
