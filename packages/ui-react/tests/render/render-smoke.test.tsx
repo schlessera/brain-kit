@@ -75,6 +75,14 @@ import { StreamingPanel } from "../../src/components/quick-actions/streaming-mod
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { SessionList } from "../../src/components/chat/session-list.js";
 import { WelcomeState } from "../../src/components/chat/welcome-state.js";
+import { ComposerView } from "../../src/components/chat/composer-view.js";
+import { AttachmentCount, ThinkingBlock, ThinkingIndicator, TurnHeader, UserTurn } from "../../src/components/chat/transcript-turn.js";
+import { Segmented, SwitchRow } from "../../src/components/graph/graph-form.js";
+import { NodeCard } from "../../src/components/graph/node-card.js";
+import { PrincipalList } from "../../src/components/settings/principal-list.js";
+import { AccountsList } from "../../src/components/settings/pi-accounts-list.js";
+import { ToolPermissionsList } from "../../src/components/settings/tool-permissions-list.js";
+import { ModelsCatalogView } from "../../src/components/settings/models-list.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { AddForm } from "../../src/components/quick-actions/add-form.js";
 import { FileTree } from "../../src/components/files/file-tree.js";
@@ -2844,7 +2852,8 @@ describe("activity and device root ownership", () => {
     const view = render(panel(a.root));
     try {
       await act(async () => { a.matching("/tool-permissions")[0].response.resolve(Response.json({ tools: ["same-tool"] })); await flushPromises(); });
-      fireEvent.click(view.getByTitle("Ask for approval again"));
+      // The grant is a kit row whose action is decorative: tapping the row revokes.
+      fireEvent.click(view.getByRole("button", { name: /same-tool/ }));
       view.rerender(panel(b.root));
       await act(async () => {
         b.matching("/auth/principals")[0].response.resolve(principalResponse([principal("Beta device")]));
@@ -3076,10 +3085,10 @@ describe("model and pi account root ownership", () => {
       await reply(a.matching("/models")[0], catalog("Obsolete load"));
       await reply(a.matching("/models/refresh", "POST")[0], catalog("Obsolete refresh"));
       expect(view.getByLabelText("Billing for Beta one")).toBeTruthy();
-      expect((view.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByRole("button", { name: "Refreshing…" }).getAttribute("aria-disabled")).toBe("true");
       await reply(b.matching("/models/refresh", "POST")[0], catalog("New beta"));
       expect(view.getByLabelText("Billing for New beta one")).toBeTruthy();
-      expect((view.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(view.getByRole("button", { name: "Refresh" }).getAttribute("aria-disabled")).toBeNull();
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3100,7 +3109,7 @@ describe("model and pi account root ownership", () => {
       expect(b.requests).toHaveLength(2);
       expect(view.getByText("beta-code")).toBeTruthy();
       expect(a.matching("/pi-auth/login/alpha")).toHaveLength(0);
-      expect((view.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByRole("button", { name: "Connect" }).getAttribute("aria-disabled")).toBe("true");
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3163,7 +3172,7 @@ describe("model and pi account root ownership", () => {
       await reply(b.requests[0], accounts("Beta account", true));
       await reply(a.requests[0], accounts("Obsolete account", true));
       expect(view.queryByText("Obsolete account")).toBeNull();
-      fireEvent.click(view.getByTitle("Disconnect"));
+      fireEvent.click(view.getByRole("button", { name: "Disconnect" }));
       expect(b.matching("/pi-auth/logout", "POST")).toHaveLength(1);
       view.rerender(accountsPanel(a.root));
       await reply(a.matching("/pi-auth/providers")[1], accounts("Alpha account"));
@@ -4284,5 +4293,251 @@ describe("chat views", () => {
     fireEvent.click(view.getByRole("button", { name: "Brain stats" }));
     expect(onAction).toHaveBeenLastCalledWith("stats");
     view.unmount();
+  });
+});
+
+describe("ComposerView", () => {
+  const refs = { textareaRef: { current: null }, providerMenuRef: { current: null } };
+  const handlers = () => ({
+    onChange: mock((_v: string) => {}), onSubmit: mock(() => {}), onCancel: mock(() => {}), onPasteFiles: mock((_f: File[]) => {}),
+    onAttach: mock(() => {}), onCamera: mock(() => {}), onRecall: mock(() => {}), onMic: mock(() => {}), onEscape: mock(() => {}),
+    onRemoveAttachment: mock((_i: number) => {}), onDismissErrors: mock(() => {}), onProviderToggle: mock(() => {}), onProviderSelect: mock((_id: string) => {}),
+  });
+  const base = { placeholder: "Ask", disabled: false, streaming: false, canSend: true, hasDraft: true, followUpHint: null, showRecall: false, micActive: false, paletteOpen: false, palette: null, attachments: [], attachErrors: [], provider: null, ...refs };
+
+  test("send, stop, recall, escape and the provider picker route to the container", () => {
+    const h = handlers();
+    const view = render(<ComposerView {...base} value="hello" showRecall provider={{ label: "Fast model", locked: false, menuOpen: true, options: [{ id: "a", label: "Fast model" }, { id: "b", label: "Careful model" }], selectedId: "a" }} {...h} />);
+    fireEvent.click(view.getByRole("button", { name: "Send" }));
+    expect(h.onSubmit).toHaveBeenCalledTimes(1);
+    const field = view.getByLabelText("Ask") as HTMLTextAreaElement;
+    changeControlledInput(field, "hello there");
+    expect(h.onChange).toHaveBeenCalledWith("hello there");
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(h.onEscape).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Recall last prompt" }));
+    expect(h.onRecall).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Attach images" }));
+    fireEvent.click(view.getByRole("button", { name: "Take a photo" }));
+    expect(h.onAttach).toHaveBeenCalledTimes(1);
+    expect(h.onCamera).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("menuitem", { name: "Careful model" }));
+    expect(h.onProviderSelect).toHaveBeenCalledWith("b");
+    fireEvent.click(view.getByRole("button", { name: "Fast model" }));
+    expect(h.onProviderToggle).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const streaming = render(<ComposerView {...base} value="" hasDraft={false} canSend={false} streaming followUpHint="Will queue" provider={{ label: "Pinned model", locked: true, menuOpen: false, options: [], selectedId: null }} {...h} />);
+    fireEvent.click(streaming.getByRole("button", { name: "Stop the running turn" }));
+    expect(h.onCancel).toHaveBeenCalledTimes(1);
+    expect(streaming.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(streaming.getByText("Will queue")).toBeTruthy();
+    expect(streaming.getByRole("button", { name: "Pinned model" }).getAttribute("aria-disabled")).toBe("true");
+    expect((streaming.getByRole("button", { name: "Attach images" }) as HTMLButtonElement).disabled).toBe(true);
+    streaming.unmount();
+  });
+
+  test("attachments, their errors and a lost connection", () => {
+    const h = handlers();
+    const view = render(<ComposerView {...base} value="" disabled canSend={false} hasDraft={false} placeholder="Connecting..." attachments={[{ previewUrl: "blob:one", name: "one.png" }]} attachErrors={["big.png: too large"]} {...h} />);
+    expect((view.getByLabelText("Connecting...") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(view.getByRole("alert").textContent).toContain("big.png: too large");
+    fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
+    expect(h.onDismissErrors).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Remove one.png" }));
+    expect(h.onRemoveAttachment).toHaveBeenCalledWith(0);
+    expect((view.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    view.unmount();
+  });
+});
+
+describe("transcript turn views", () => {
+  test("the header names who and when, and marks a voice turn", () => {
+    const view = render(<TurnHeader who="You" when="09:41" voice="voice-dictate" tone="user" />);
+    expect(view.getByText("You")).toBeTruthy();
+    expect(view.getByText("09:41")).toBeTruthy();
+    expect(view.getByRole("img", { name: "Voice dictation" })).toBeTruthy();
+    view.unmount();
+    const brain = render(<TurnHeader who="Brain" when="09:42" tone="brain" />);
+    expect(brain.queryByRole("img")).toBeNull();
+    brain.unmount();
+  });
+
+  test("a user turn wraps its content in the bubble; a resumed one counts its images", () => {
+    const view = render(<UserTurn><p>hello</p></UserTurn>);
+    expect(view.getByText("hello")).toBeTruthy();
+    view.unmount();
+    const count = render(<AttachmentCount count={2} />);
+    expect(count.getByText("2 images")).toBeTruthy();
+    count.unmount();
+  });
+
+  test("thinking streams open, then collapses into a disclosure the container controls", () => {
+    const onOpenChange = mock((_o: boolean) => {});
+    const live = render(<ThinkingBlock content="considering the loom" chars={80} streaming open onOpenChange={onOpenChange} />);
+    expect(live.getByText("considering the loom")).toBeTruthy();
+    expect(live.queryByRole("button")).toBeNull();
+    live.unmount();
+    const done = render(<ThinkingBlock content="considering the loom" chars={80} streaming={false} open={false} onOpenChange={onOpenChange} />);
+    const summary = done.getByRole("button", { name: /Thought for ~20 tokens/ });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    expect(done.queryByText("considering the loom")).toBeNull();
+    fireEvent.click(summary);
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    done.unmount();
+    const waiting = render(<ThinkingIndicator />);
+    expect(waiting.getByText("Thinking...")).toBeTruthy();
+    waiting.unmount();
+  });
+});
+
+/* ── S7 (graph): the options form and the node card render from props ───── */
+
+describe("graph views", () => {
+  test("a segmented choice is a kit FilterRow and a switch is a named kit Toggle", () => {
+    const onChange = mock((_v: string) => {});
+    const seg = render(<Segmented options={[{ value: "in", label: "In" }, { value: "out", label: "Out" }, { value: "both", label: "Both" }]} value="out" onChange={onChange} />);
+    expect(seg.getByRole("tab", { name: "Out" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(seg.getByRole("tab", { name: "Both" }));
+    expect(onChange).toHaveBeenCalledWith("both");
+    seg.unmount();
+    const onToggle = mock((_v: boolean) => {});
+    const sw = render(<SwitchRow checked={false} onChange={onToggle} label="Orphans" />);
+    const control = sw.getByRole("switch", { name: "Orphans" });
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(control);
+    expect(onToggle).toHaveBeenCalledWith(true);
+    sw.unmount();
+  });
+
+  test("the node card shows kind, topic, path and degrees, and offers only the actions that apply", () => {
+    const h = { onOpen: mock(() => {}), onFocus: mock(() => {}), onExpand: mock(() => {}), onClose: mock(() => {}) };
+    const view = render(<NodeCard kind="note" title="Lisbon venues" path="talks/lisbon.md" topic="travel" topicColor="#123456" inDegree={3} outDegree={1} distance={2} canOpen canFocus canExpand {...h} />);
+    expect(view.getByText("note")).toBeTruthy();
+    expect(view.getByText("topic: travel")).toBeTruthy();
+    expect(view.getByText("talks/lisbon.md")).toBeTruthy();
+    expect(view.getByText("2 hops")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Open note" }));
+    fireEvent.click(view.getByRole("button", { name: "Focus here" }));
+    fireEvent.click(view.getByRole("button", { name: "Expand" }));
+    fireEvent.click(view.getByRole("button", { name: "Close" }));
+    expect([h.onOpen, h.onFocus, h.onExpand, h.onClose].map((m) => m.mock.calls.length)).toEqual([1, 1, 1, 1]);
+    view.unmount();
+    const root = render(<NodeCard kind="root" title="root" path="" inDegree={0} outDegree={4} canOpen={false} canFocus={false} canExpand={false} {...h} />);
+    expect(root.queryByRole("button", { name: "Open note" })).toBeNull();
+    expect(root.queryByText(/hop/)).toBeNull();
+    root.unmount();
+  });
+});
+
+/* ── S7 (settings): principals, accounts and grants render from props ────── */
+
+describe("settings views", () => {
+  test("the principal list: states, the mint form gated on a label, revoke by id", () => {
+    const h = { onLabel: mock((_v: string) => {}), onTtlDays: mock((_d: number) => {}), onMint: mock(() => {}), onRevoke: mock((_id: string) => {}) };
+    const rows = [
+      { id: "own", label: "Laptop", kind: "owner", isOwn: true, created: "2h ago", lastSeen: "5m ago", expires: "in 6d" },
+      { id: "agent", label: "Build agent", kind: "agent", isOwn: false, created: "1m ago", lastSeen: "Never", expires: "in 1d" },
+    ];
+    const view = render(<PrincipalList state="ready" principals={rows} error={null} label="" ttlDays={7} minting={false} {...h} />);
+    expect(view.getByText("This device")).toBeTruthy();
+    expect(view.getByText("Agent")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Create agent credential" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(view.getByRole("button", { name: "Revoke Build agent" }));
+    expect(h.onRevoke).toHaveBeenCalledWith("agent");
+    changeControlledInput(view.getByLabelText("Label") as HTMLInputElement, "Deploy agent");
+    expect(h.onLabel).toHaveBeenCalledWith("Deploy agent");
+    view.unmount();
+
+    const ready = render(<PrincipalList state="ready" principals={[]} error="mint failed" label="Deploy agent" ttlDays={7} minting={false} {...h} />);
+    expect(ready.getByText("No active devices or agents.")).toBeTruthy();
+    expect(ready.getByRole("alert").textContent).toContain("mint failed");
+    fireEvent.click(ready.getByRole("button", { name: "Create agent credential" }));
+    expect(h.onMint).toHaveBeenCalledTimes(1);
+    ready.unmount();
+
+    const off = render(<PrincipalList state="unavailable" principals={[]} error={null} label="" ttlDays={7} minting={false} {...h} />);
+    expect(off.getByText(/password authentication is enabled/)).toBeTruthy();
+    expect(off.queryByRole("button", { name: "Create agent credential" })).toBeNull();
+    off.unmount();
+  });
+
+  test("the accounts list: connect, disconnect, the device code, and a settled flow", () => {
+    const h = { onConnect: mock((_id: string) => {}), onDisconnect: mock((_id: string) => {}), onCancelFlow: mock(() => {}), onDismissFlow: mock(() => {}) };
+    const providers = [
+      { providerId: "vendor", name: "Vendor", configured: false, oauth: true, source: null },
+      { providerId: "other", name: "Other", configured: true, oauth: true, source: "stored" },
+    ] as unknown as Parameters<typeof AccountsList>[0]["providers"];
+    const view = render(<AccountsList providers={providers} busy={null} flow={null} error={null} {...h} />);
+    expect(view.getByText("Not connected")).toBeTruthy();
+    expect(view.getByText("Connected · stored")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Connect" }));
+    expect(h.onConnect).toHaveBeenCalledWith("vendor");
+    fireEvent.click(view.getByRole("button", { name: "Disconnect" }));
+    expect(h.onDisconnect).toHaveBeenCalledWith("other");
+    view.unmount();
+
+    const pending = { id: "f", providerId: "vendor", status: "pending", userCode: "ABCD-1234", verificationUri: "https://example.invalid/device", intervalSeconds: 5 } as unknown as NonNullable<Parameters<typeof AccountsList>[0]["flow"]>;
+    const waiting = render(<AccountsList providers={providers} busy={null} flow={pending} error={null} {...h} />);
+    expect(waiting.getByText("ABCD-1234")).toBeTruthy();
+    expect(waiting.getByRole("link", { name: /Open verification page/ }).getAttribute("href")).toBe("https://example.invalid/device");
+    expect(waiting.getByRole("button", { name: "Connect" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(waiting.getByRole("button", { name: "Cancel" }));
+    expect(h.onCancelFlow).toHaveBeenCalledTimes(1);
+    waiting.unmount();
+
+    const failed = render(<AccountsList providers={providers} busy={null} flow={{ ...pending, status: "error", error: "denied" } as typeof pending} error={null} {...h} />);
+    expect(failed.getByText("denied")).toBeTruthy();
+    fireEvent.click(failed.getByRole("button", { name: "Dismiss" }));
+    expect(h.onDismissFlow).toHaveBeenCalledTimes(1);
+    failed.unmount();
+  });
+
+  test("the grants are kit rows: tapping one revokes, a busy one is inert", () => {
+    const onRevoke = mock((_t: string) => {});
+    const view = render(<ToolPermissionsList tools={["Read", "Bash"]} busy="Bash" error={null} onRevoke={onRevoke} />);
+    fireEvent.click(view.getByRole("button", { name: /Read/ }));
+    expect(onRevoke).toHaveBeenCalledWith("Read");
+    expect(view.queryByRole("button", { name: /Bash/ })).toBeNull();
+    expect(view.getByText("Revoking…")).toBeTruthy();
+    view.unmount();
+  });
+});
+
+describe("ModelsCatalogView", () => {
+  test("the roster: hidden rows say so at full contrast, selects keep their names, refresh and add are kit buttons", () => {
+    const h = { onToggleHidden: mock(() => {}), onBilling: mock(() => {}), onThinking: mock(() => {}), onDefault: mock(() => {}), onCustomModels: mock((_m: string[]) => {}), onRefresh: mock(() => {}) };
+    const catalog = {
+      models: [
+        { id: "one", label: "Model one", hidden: false, source: "discovered", billingMode: "api", thinkingLevel: "medium", contextWindow: 200000 },
+        { id: "two", label: "Model two", hidden: true, source: "declared" },
+      ],
+      defaultModelId: null, resolvedDefaultId: "one", customModels: ["vendor/custom"], refreshedAt: null,
+      discovery: { enabled: true, error: "rate limited" },
+    } as unknown as Parameters<typeof ModelsCatalogView>[0]["catalog"];
+    const view = render(<ModelsCatalogView catalog={catalog} loading={false} refreshing={false} error={null} sections={<p>sections here</p>} {...h} />);
+    expect(view.getByText("hidden")).toBeTruthy();
+    expect(view.getByLabelText("Billing for Model one")).toBeTruthy();
+    expect(view.getByLabelText("Reasoning effort for Model one")).toBeTruthy();
+    expect(view.getByText(/Last refresh failed \(rate limited\)/)).toBeTruthy();
+    expect(view.getByText(/1 in picker · never refreshed/)).toBeTruthy();
+    expect(view.getByText("sections here")).toBeTruthy();
+    fireEvent.click(view.getByTitle("Show in picker"));
+    expect(h.onToggleHidden).toHaveBeenCalledWith(catalog!.models[1]);
+    fireEvent.click(view.getByRole("button", { name: "Refresh" }));
+    expect(h.onRefresh).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Remove vendor/custom" }));
+    expect(h.onCustomModels).toHaveBeenCalledWith([]);
+    changeControlledInput(view.getByLabelText("OpenRouter model id") as HTMLInputElement, "vendor/new");
+    fireEvent.click(view.getByRole("button", { name: "Add" }));
+    expect(h.onCustomModels).toHaveBeenLastCalledWith(["vendor/custom", "vendor/new"]);
+    view.unmount();
+
+    const empty = render(<ModelsCatalogView catalog={{ ...catalog!, models: [], discovery: { enabled: false, error: undefined } }} loading={false} refreshing error="save failed" sections={null} {...h} />);
+    expect(empty.getByText("No models available.")).toBeTruthy();
+    expect(empty.getByText(/Discovery is disabled/)).toBeTruthy();
+    expect(empty.getByRole("alert").textContent).toContain("save failed");
+    expect(empty.getByRole("button", { name: "Refreshing…" }).getAttribute("aria-disabled")).toBe("true");
+    empty.unmount();
   });
 });

@@ -629,9 +629,11 @@ and the brain turn keeps the app's real share menu rather than the kit
 `MessageBubble`'s decorative action row (`actions={false}`). `graph/`
 followed (`graph-form.tsx`, `node-card.tsx`): the options form's segmented
 choices are `FilterRow`s, its switches kit `Toggle`s named by the visible
-text beside them, the selected node a `Surface`. Remaining: the desktop rail
-(waits for the D16 mapping) and the settings remainder (bulk on the
-`ListRow` + `Toggle` pattern).
+text beside them, the selected node a `Surface`. The settings remainder
+followed (`tool-permissions-list.tsx`, `principal-list.tsx`,
+`pi-accounts-list.tsx`, `models-list.tsx`); native `<select>`s stay where
+the kit has no select, and their `aria-label`s are what the tests read.
+Remaining in S7: the desktop rail, which waits for the D16 mapping.
 
 ## Open questions for the maintainer
 

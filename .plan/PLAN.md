@@ -537,8 +537,15 @@ Sequenced after the component waves but **before** step 2. Not optional.
       (`GraphControls` composes `Field`/`Segmented`/`SwitchRow` from
       `graph-form.tsx` — kit `Label`, `FilterRow`, `Toggle`; `NodePopover`
       renders `NodeCard` on `Surface` + `Chip` + `PathRef` + `Button`; the
-      canvas is WebGL and stays). Open: `layout/side-rail` (waits for the
-      D16 desktop mapping),
+      canvas is WebGL and stays); `settings/` remainder (`ToolPermissionsList`
+      — grouped `ListRow`s in a `Surface(pad=0)`, tap-to-revoke since the
+      kit's trailing action is decorative; `PrincipalList` — a `Surface` per
+      device/agent with a kind chip and the timestamp `<dl>` the tests read;
+      `AccountsList` — card `ListRow`s with Connect/Disconnect `Button`s and
+      the device code in an amber `Callout`; `ModelsCatalogView` — the
+      roster with native selects kept for their accessible names, a hidden
+      model chipped rather than faded, kit `Refresh`/`Add`/`Callout`s). Open:
+      `layout/side-rail` (waits for the D16 desktop mapping),
       `settings/` remainder (models, devices/agents, tool permissions, pi
       accounts — `ListRow` + `Toggle` rows, bulk once one is done)
 - [x] S8 AST lint gate rejects internal default-store statics, including
