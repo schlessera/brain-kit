@@ -73,6 +73,8 @@ import { Composer } from "../../src/components/chat/composer.js";
 import { WhatsupPanel } from "../../src/components/quick-actions/whatsup-modal.js";
 import { StreamingPanel } from "../../src/components/quick-actions/streaming-modal.js";
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
+import { SessionList } from "../../src/components/chat/session-list.js";
+import { WelcomeState } from "../../src/components/chat/welcome-state.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { AddForm } from "../../src/components/quick-actions/add-form.js";
 import { FileTree } from "../../src/components/files/file-tree.js";
@@ -4234,5 +4236,53 @@ describe("activity views", () => {
     const clean = render(<RunRollupReceipt origin="session" outcome="success" when="now" duration={null} listCost="—" effectiveCost="—" billing={null} estimated={false} usage={null} failureReason={null} />);
     expect(clean.queryByText(/this file only/)).toBeNull();
     clean.unmount();
+  });
+});
+
+/* ── S7 (chat): the session list and the welcome state render from props ── */
+
+describe("chat views", () => {
+  test("the session list is card rows: selection, run state, the reattach row, warning with retry, empty", () => {
+    const onNew = mock(() => {}); const onResume = mock((_id: string) => {}); const onRetry = mock(() => {});
+    const groups = [{ label: "Today", sessions: [
+      { id: "a", title: "Lisbon venues", when: "2h ago", cost: "$0.12", run: "streaming" as const },
+      { id: "b", title: null, when: "3h ago", cost: null, run: "queued" as const, note: "queue is heavy" },
+    ] }];
+    const view = render(<SessionList groups={groups} loading={false} warning={null} currentSessionId="a" backgroundSessionId="z" onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    expect(view.getByText("Today")).toBeTruthy();
+    const current = view.getByRole("button", { name: /Lisbon venues/ });
+    expect(current.getAttribute("aria-current")).toBe("true");
+    expect(view.getByText("2h ago · $0.12")).toBeTruthy();
+    expect(view.getByText("running")).toBeTruthy();
+    expect(view.getByText("queued")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: /Untitled/ }));
+    expect(onResume).toHaveBeenLastCalledWith("b");
+    fireEvent.click(view.getByRole("button", { name: /Tap to reattach/ }));
+    expect(onResume).toHaveBeenLastCalledWith("z");
+    fireEvent.click(view.getByRole("button", { name: "New conversation" }));
+    expect(onNew).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const warned = render(<SessionList groups={[]} loading={false} warning="Could not refresh sessions. Please retry." currentSessionId={null} backgroundSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    expect(warned.getByRole("status").textContent).toContain("Could not refresh");
+    fireEvent.click(warned.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(warned.getByText("No sessions available")).toBeTruthy();
+    warned.unmount();
+
+    const loading = render(<SessionList groups={[]} loading warning={null} currentSessionId={null} backgroundSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    expect(loading.queryByText("No sessions yet")).toBeNull();
+    loading.unmount();
+  });
+
+  test("the welcome state is a kit EmptyState with suggestion chips that route actions", () => {
+    const onAction = mock((_a: string) => {});
+    const view = render(<WelcomeState onAction={onAction} />);
+    expect(view.getByText("What do you need to know?")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "What's new?" }));
+    expect(onAction).toHaveBeenLastCalledWith("whatsup");
+    fireEvent.click(view.getByRole("button", { name: "Brain stats" }));
+    expect(onAction).toHaveBeenLastCalledWith("stats");
+    view.unmount();
   });
 });

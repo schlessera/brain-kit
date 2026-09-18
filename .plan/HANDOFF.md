@@ -618,9 +618,13 @@ directory:
 `digest-summary.tsx`): a kit card without a handler (`AgentRunCard`,
 `DigestCard`) gets a native button around or under it, named for what it
 does; the span rows in the run detail stay native because they expand to a
-payload the kit has no shape for. Remaining S7 directories: `chat/`
-(composer, bubbles, session drawer), `graph/`, the desktop rail (waits for
-the D16 mapping), and the settings remainder.
+payload the kit has no shape for. `chat/` is half done: the session drawer
+(`session-list.tsx`) and the welcome state are on the kit. What is left
+there is the two judgement splits — see the S7 line in `PLAN.md` for what
+the kit offers and what the app's composer and message bubble own beyond
+it. After that: `graph/` (controls and popover only), the desktop rail
+(waits for the D16 mapping), and the settings remainder (bulk on the
+`ListRow` + `Toggle` pattern).
 
 ## Open questions for the maintainer
 

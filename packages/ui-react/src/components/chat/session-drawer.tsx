@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import { Plus, Loader2 } from "lucide-react";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
-import { cn } from "../../lib/utils.js";
+import { SessionList } from "./session-list.js";
 import { formatRelativeTime } from "./tool-views.js";
 
 interface SessionInfo {
@@ -19,6 +18,10 @@ interface GroupedSessions {
   sessions: SessionInfo[];
 }
 
+/**
+ * The container (S7): the sessions request, the retry counter and the
+ * chat-store reads live here; `SessionList` draws the rows.
+ */
 export function SessionDrawer({
   open,
   onClose,
@@ -67,144 +70,40 @@ export function SessionDrawer({
     return () => { active = false; };
   }, [open, retry, root, api]);
 
-  const groups = groupSessionsByDate(sessions);
+  const groups = groupSessionsByDate(sessions).map((group) => ({
+    label: group.label,
+    sessions: group.sessions.map((session) => {
+      const state = runStates[session.id];
+      return {
+        id: session.id,
+        title: session.title,
+        when: formatRelativeTime(session.lastActiveAt),
+        cost: session.totalCostUsd != null && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(2)}` : null,
+        run: state === "streaming" || state === "queued" ? state : null,
+        note: queueNotes[session.id],
+      };
+    }),
+  }));
 
   return (
     <SlidePanel open={open} onClose={onClose} title="Sessions" wide>
-      <div className="flex h-full flex-col">
-        {/* New chat button */}
-        <div className="p-4">
-          <button
-            onClick={() => {
-              clearMessages();
-              onClose();
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/30 py-3 text-[13px] font-medium text-primary transition-all hover:border-primary/50 hover:bg-primary/5"
-          >
-            <Plus className="h-4 w-4" />
-            New conversation
-          </button>
-        </div>
-
-        {/* Session list */}
-        <div className="flex-1 overflow-y-auto px-2 pb-4">
-          {/* Active session banner */}
-          {backgroundSessionId && (
-            <div className="px-2 pb-2">
-              <button
-                onClick={() => {
-                  onResume(backgroundSessionId);
-                  onClose();
-                }}
-                className="flex w-full items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                  style={{ animation: "breathe 2s ease-in-out infinite" }}
-                />
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-foreground">
-                    Session running...
-                  </div>
-                  <div className="text-[11px] text-primary">
-                    Tap to reattach
-                  </div>
-                </div>
-              </button>
-            </div>
-          )}
-
-          {warning && (
-            <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
-              <p>{warning}</p>
-              <button className="mt-2 text-primary underline" onClick={() => setRetry((value) => value + 1)}>
-                Retry
-              </button>
-            </div>
-          )}
-          {loading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-            </div>
-          ) : sessions.length === 0 && !backgroundSessionId ? (
-            <p className="py-12 text-center text-xs text-muted-foreground">
-              {warning ? "No sessions available" : "No sessions yet"}
-            </p>
-          ) : (
-            groups.map((group) => (
-              <div key={group.label}>
-                <div className="px-3 py-2 font-[family-name:var(--font-mono)] text-[10px] font-medium uppercase tracking-widest text-muted-foreground/40">
-                  {group.label}
-                </div>
-                {group.sessions.map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => {
-                      onResume(session.id);
-                      onClose();
-                    }}
-                    className={cn(
-                      "w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-raised",
-                      session.id === currentSessionId &&
-                        "border-l-2 border-primary bg-primary/5"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
-                        {session.title || "Untitled"}
-                      </div>
-                      <RunBadge state={runStates[session.id]} note={queueNotes[session.id]} />
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground">
-                        {formatRelativeTime(session.lastActiveAt)}
-                      </span>
-                      {session.totalCostUsd != null &&
-                        session.totalCostUsd > 0 && (
-                          <span className="text-[11px] text-muted-foreground/40">
-                            ${session.totalCostUsd.toFixed(2)}
-                          </span>
-                        )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      <SessionList
+        groups={groups}
+        loading={loading}
+        warning={warning}
+        currentSessionId={currentSessionId}
+        backgroundSessionId={backgroundSessionId}
+        onNew={() => {
+          clearMessages();
+          onClose();
+        }}
+        onResume={(id) => {
+          onResume(id);
+          onClose();
+        }}
+        onRetry={() => setRetry((value) => value + 1)}
+      />
     </SlidePanel>
-  );
-}
-
-/** Live run-state pill on a session row (streaming / queued). */
-function RunBadge({
-  state,
-  note,
-}: {
-  state?: "streaming" | "queued" | "idle";
-  /** Host's queue-pressure note, present only once the queue is heavy. */
-  note?: string;
-}) {
-  if (state !== "streaming" && state !== "queued") return null;
-  const running = state === "streaming";
-  // A note only ever accompanies a queue under pressure, so it doubles as the
-  // "this is getting heavy" signal: the pill turns red and says how much.
-  const heavy = !running && Boolean(note);
-  return (
-    <span
-      title={note}
-      className={cn(
-        "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-        running
-          ? "bg-primary/15 text-primary"
-          : heavy
-            ? "bg-destructive/15 text-destructive"
-            : "bg-amber-500/15 text-amber-500"
-      )}
-    >
-      {running ? "Running" : "Queued"}
-    </span>
   );
 }
 

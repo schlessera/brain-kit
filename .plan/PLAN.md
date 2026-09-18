@@ -520,9 +520,21 @@ Sequenced after the component waves but **before** step 2. Not optional.
       with the tool strip from the run's child spans; `RunRow` a `HistoryRow`
       on `ListRow plain`; inbox intents an `IntentCard` on `ActionCard`; the
       detail's rollup a `RunRollupReceipt` on `Receipt`; the digest a
-      `DigestSummary` on the kit `DigestCard`). Open: `chat/`, `graph/`,
-      `layout/side-rail` (waits for the D16 desktop mapping), `settings/`
-      remainder
+      `DigestSummary` on the kit `DigestCard`); `chat/` in part
+      (`SessionDrawer` renders `SessionList` — card `ListRow`s with
+      `selected` for the session in view and the run state as the value;
+      `WelcomeState` is the kit `EmptyState` + `SuggestionChips`). Open:
+      `chat/composer.tsx` (the kit `Composer` is a live textarea now —
+      `value`/`onChange`/`onSend`/`onAttach`/`onMic`/`maxRows` — so the
+      split is real, but the app's composer also owns streaming/stop,
+      dictation, attachments and the command palette: judgement),
+      `chat/message-bubble.tsx` (kit `MessageBubble` is the wrapper —
+      user bubble / brain no-bubble + trace line; its action row has no
+      handlers, so the app's share/copy row stays beside it), `graph/`
+      (only the controls and the node popover map onto the kit; the canvas
+      is WebGL), `layout/side-rail` (waits for the D16 desktop mapping),
+      `settings/` remainder (models, devices/agents, tool permissions, pi
+      accounts — `ListRow` + `Toggle` rows, bulk once one is done)
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
 - [ ] S9 first real in-chat component end to end
