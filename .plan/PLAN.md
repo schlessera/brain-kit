@@ -515,9 +515,14 @@ Sequenced after the component waves but **before** step 2. Not optional.
       `FileRow`, per-node store subscriptions kept; `FileViewer` renders
       `ViewerToolbar` with a kit `FilterRow` mode switch plus
       `ViewerLoading`/`ViewerError`/`ViewerEmpty`; `FrontmatterPanel` renders
-      `FrontmatterChips`, kit `Chip kv` behind a controlled `Disclosure`).
-      Open: `activity/`, `chat/`, `graph/`, `layout/side-rail` (waits for the
-      D16 desktop mapping), `settings/` remainder
+      `FrontmatterChips`, kit `Chip kv` behind a controlled `Disclosure`);
+      `activity/` (`LiveRow` renders a `LiveRunCard` — kit `AgentRunCard`
+      with the tool strip from the run's child spans; `RunRow` a `HistoryRow`
+      on `ListRow plain`; inbox intents an `IntentCard` on `ActionCard`; the
+      detail's rollup a `RunRollupReceipt` on `Receipt`; the digest a
+      `DigestSummary` on the kit `DigestCard`). Open: `chat/`, `graph/`,
+      `layout/side-rail` (waits for the D16 desktop mapping), `settings/`
+      remainder
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
 - [ ] S9 first real in-chat component end to end

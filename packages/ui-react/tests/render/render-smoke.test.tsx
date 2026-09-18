@@ -78,6 +78,7 @@ import { AddForm } from "../../src/components/quick-actions/add-form.js";
 import { FileTree } from "../../src/components/files/file-tree.js";
 import { FileTreeView, TreeRow, fileKind } from "../../src/components/files/file-tree-view.js";
 import { FrontmatterChips } from "../../src/components/files/frontmatter-chips.js";
+import { HistoryRow, IntentCard, LiveRunCard, RunRollupReceipt, toolState } from "../../src/components/activity/activity-views.js";
 import { FrontmatterPanel } from "../../src/components/files/frontmatter-panel.js";
 import { ViewerEmpty, ViewerToolbar, formatSize } from "../../src/components/files/file-viewer-frame.js";
 import { BriefingOutput, StreamingOutput } from "../../src/components/quick-actions/streaming-output.js";
@@ -4170,5 +4171,68 @@ describe("frontmatter chips and the viewer frame", () => {
     const empty = render(<ViewerEmpty />);
     expect(empty.getByText("No file open")).toBeTruthy();
     empty.unmount();
+  });
+});
+
+/* ── S7 (activity): the rows render from props on the kit cards ──────────── */
+
+describe("activity views", () => {
+  test("a live run is an AgentRunCard inside a named button, with the tool strip from its children", () => {
+    expect(toolState(undefined)).toBe("active");
+    expect(toolState("success")).toBe("done");
+    expect(toolState("error")).toBe("failed");
+    const onOpen = mock(() => {});
+    const view = render(<LiveRunCard name="nightly-sync" current="WebFetch" elapsed="1m 12s" tools={[{ label: "brain_search", state: "done" }, { label: "WebFetch", state: "active" }]} onOpen={onOpen} />);
+    fireEvent.click(view.getByRole("button", { name: "Open run nightly-sync" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(view.getByText("nightly-sync")).toBeTruthy();
+    expect(view.getByText("1m 12s")).toBeTruthy();
+    // The current step is the quoted task line AND the active entry of the strip.
+    expect(view.getAllByText(/▸ WebFetch/)).toHaveLength(2);
+    expect(view.getByText(/brain_search/)).toBeTruthy();
+    view.unmount();
+  });
+
+  test("history is a plain ListRow; failure colours it and names the outcome", () => {
+    const onOpen = mock(() => {});
+    const ok = render(<HistoryRow name="ledger_sync" cron outcome="success" meta="$0.02 · 4s · 2h ago" onOpen={onOpen} />);
+    fireEvent.click(ok.getByRole("button", { name: /ledger_sync/ }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(ok.queryByText("success")).toBeNull();
+    ok.unmount();
+    const failed = render(<HistoryRow name="ledger_sync" cron={false} outcome="error" meta="— · 4s · 2h ago" onOpen={onOpen} />);
+    expect(failed.getByText("error")).toBeTruthy();
+    expect(failed.getByText("— · 4s · 2h ago")).toBeTruthy();
+    failed.unmount();
+  });
+
+  test("an intent is an ActionCard whose Dismiss does not also open it", () => {
+    const onOpen = mock(() => {}); const onDismiss = mock(() => {});
+    const intent = { id: 1, runId: "r", spanId: null, kind: "failure" as const, tag: "t", title: "ledger sync keeps failing", body: "3 tries", status: "sent" as const, acknowledged: false, createdAt: 1 };
+    const view = render(<IntentCard intent={intent} when="4m ago" onOpen={onOpen} onDismiss={onDismiss} />);
+    expect(view.getByText("Failed")).toBeTruthy();
+    expect(view.getByText("3 tries")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledTimes(0);
+    fireEvent.click(view.getByText("ledger sync keeps failing"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    view.unmount();
+    const stuck = render(<IntentCard intent={{ ...intent, kind: "stuck" }} when="now" onOpen={onOpen} onDismiss={onDismiss} />);
+    expect(stuck.getByText("Stuck")).toBeTruthy();
+    stuck.unmount();
+  });
+
+  test("the rollup receipt lists the run's facts and carries the failure reason as its footnote", () => {
+    const view = render(<RunRollupReceipt origin="cron" outcome="error" when="2h ago" duration="4s" listCost="$0.10" effectiveCost="$0.02" billing="API billed" estimated usage="1.2k tok" failureReason="invoice source unreachable" />);
+    expect(view.getByText("origin")).toBeTruthy();
+    expect(view.getByText("cron")).toBeTruthy();
+    expect(view.getByText("error")).toBeTruthy();
+    expect(view.getByText(/\$0\.02 · API billed · ~ estimated rates/)).toBeTruthy();
+    expect(view.getByText("invoice source unreachable")).toBeTruthy();
+    view.unmount();
+    const clean = render(<RunRollupReceipt origin="session" outcome="success" when="now" duration={null} listCost="—" effectiveCost="—" billing={null} estimated={false} usage={null} failureReason={null} />);
+    expect(clean.queryByText(/this file only/)).toBeNull();
+    clean.unmount();
   });
 });

@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Newspaper, X } from "lucide-react";
 
 import type { ActivityDigest } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { cn } from "../../lib/utils.js";
+import { DigestSummary } from "./digest-summary.js";
 import { digestCostClause } from "./span-bits.js";
 
 /**
@@ -14,6 +13,9 @@ import { digestCostClause } from "./span-bits.js";
  * dismissing persists server-side, so a phone and a laptop don't each nag.
  * An empty window stays quiet — no card for "nothing happened". The window
  * is labeled: the card says what period it covers, never implies "now".
+ *
+ * This is the container (S7): the fetch, the once-per-digest rule and the
+ * dismissal live here; `DigestSummary` draws the kit `DigestCard`.
  */
 export function DigestCard() {
   const api = useBrainApi();
@@ -46,63 +48,19 @@ export function DigestCard() {
     void api.activityDigestDismiss().catch(() => {});
   }
 
-  const windowLabel = `${formatDay(digest.windowStart)} – ${formatDay(digest.windowEnd)}`;
-  // Effective-only spend clause; a digest persisted before pricing shipped
-  // falls back to its old list-cost clause inside the helper.
-  const costClause = digestCostClause(digest);
-
   return (
-    <div
-      className={cn(
-        "mx-auto mb-3 w-full max-w-2xl rounded-xl border p-3 text-xs",
-        digest.failures > 0
-          ? "border-destructive/30 bg-destructive/5"
-          : "border-border-subtle bg-surface"
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <Newspaper className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="font-medium">While you were away</span>
-        <span className="text-[10px] text-muted-foreground/60">{windowLabel}</span>
-        <button
-          type="button"
-          onClick={dismiss}
-          className="ml-auto rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-          aria-label="Dismiss"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="mt-1.5 text-muted-foreground">
-        {digest.runs} run{digest.runs === 1 ? "" : "s"}
-        {digest.failures > 0 && (
-          <span className="text-destructive"> · {digest.failures} failed</span>
-        )}
-        {costClause && ` · ${costClause}`}
-      </div>
-      {digest.notable.length > 0 && (
-        <div className="mt-1.5 space-y-0.5">
-          {digest.notable.slice(0, 3).map((n) => (
-            <div key={n.runId} className="flex items-center gap-1.5 text-[11px]">
-              <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
-              <span className="truncate">
-                {n.jobName ?? n.name} — {n.outcome}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={() => {
-          dismiss();
-          setActiveView("activity");
-        }}
-        className="mt-2 text-[11px] font-medium text-primary hover:underline"
-      >
-        Open Activity
-      </button>
-    </div>
+    <DigestSummary
+      digest={digest}
+      windowLabel={`${formatDay(digest.windowStart)} – ${formatDay(digest.windowEnd)}`}
+      // Effective-only spend clause; a digest persisted before pricing shipped
+      // falls back to its old list-cost clause inside the helper.
+      costClause={digestCostClause(digest)}
+      onDismiss={dismiss}
+      onOpen={() => {
+        dismiss();
+        setActiveView("activity");
+      }}
+    />
   );
 }
 

@@ -1,11 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Activity as ActivityIcon,
-  AlertTriangle,
-  RefreshCw,
-  Timer,
-} from "lucide-react";
+import { Activity as ActivityIcon, AlertTriangle, RefreshCw } from "lucide-react";
 import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import type {
@@ -16,11 +11,11 @@ import type {
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { cn } from "../../lib/utils.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
 import { RollupCards } from "./activity-rollups.js";
 import { LiveRow, RunRow } from "./activity-run-list.js";
 import { RunDetail } from "./activity-run-detail.js";
+import { IntentCard } from "./activity-views.js";
 import { PushToggle } from "./push-toggle.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 
@@ -224,46 +219,18 @@ export function ActivityPage() {
                 Dismiss all
               </button>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               {inbox.map((intent) => (
-                <div
+                <IntentCard
                   key={intent.id}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
-                    intent.kind === "failure"
-                      ? "border-destructive/30 bg-destructive/5"
-                      : "border-border-subtle bg-surface"
-                  )}
-                >
-                  {intent.kind === "failure" ? (
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                  ) : intent.kind === "stuck" ? (
-                    <Timer className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  ) : (
-                    <ActivityIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left hover:underline"
-                    onClick={() => {
-                      void acknowledgeIntent(intent.id);
-                      openIntent(intent);
-                    }}
-                  >
-                    {intent.title}
-                  </button>
-                  <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                    {formatRelativeTime(intent.createdAt)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void acknowledgeIntent(intent.id)}
-                    className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label="Dismiss"
-                  >
-                    ×
-                  </button>
-                </div>
+                  intent={intent}
+                  when={formatRelativeTime(intent.createdAt)}
+                  onOpen={() => {
+                    void acknowledgeIntent(intent.id);
+                    openIntent(intent);
+                  }}
+                  onDismiss={() => void acknowledgeIntent(intent.id)}
+                />
               ))}
             </div>
           </section>

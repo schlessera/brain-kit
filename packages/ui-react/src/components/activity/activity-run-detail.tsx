@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { ActivityRunRollup } from "../../lib/api-client.js";
 import {
@@ -21,6 +21,7 @@ import {
   formatSpanUsage,
   spanToolLabel,
 } from "./span-bits.js";
+import { RunRollupReceipt } from "./activity-views.js";
 
 /**
  * Chat-less run detail (cron runs; pruned runs show their rollup) — the full
@@ -114,46 +115,18 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
       <div className="mx-auto w-full max-w-3xl space-y-1 p-4">
         {missing && <p className="text-xs text-muted-foreground">Unknown run.</p>}
         {rollup && (
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border border-border-subtle bg-surface px-3 py-2 text-[11px] text-muted-foreground">
-            <span className="text-foreground/80">{rollup.origin}</span>
-            {rollup.outcome && (
-              <span className={cn(isFailureOutcome(rollup.outcome) && "text-destructive")}>
-                {rollup.outcome}
-              </span>
-            )}
-            <span>{formatRelativeTime(rollup.startedAt)}</span>
-            {rollup.durationMs !== null && <span>{formatDuration(rollup.durationMs)}</span>}
-            <span>
-              list{" "}
-              <span className="font-[family-name:var(--font-mono)] text-foreground/80">
-                {formatEffectiveCost(rollup.costUsd)}
-              </span>
-            </span>
-            <span>
-              effective{" "}
-              <span className="font-[family-name:var(--font-mono)] text-foreground/80">
-                {formatEffectiveCost(
-                  rollup.effectiveCostUsd,
-                  rollup.pricingEstimate,
-                  rollup.billingMode
-                )}
-              </span>
-            </span>
-            {rollup.billingMode && (
-              <span>{rollup.billingMode === "api" ? "API billed" : "subscription billed"}</span>
-            )}
-            {rollup.pricingEstimate && <span>~ estimated rates</span>}
-            {totalUsage && (
-              <span className="font-[family-name:var(--font-mono)] text-foreground/80">
-                {totalUsage}
-              </span>
-            )}
-            {rollup.failureReason && (
-              <span className="w-full whitespace-pre-wrap break-words pt-1 text-destructive/80">
-                {rollup.failureReason}
-              </span>
-            )}
-          </div>
+          <RunRollupReceipt
+            origin={rollup.origin}
+            outcome={rollup.outcome}
+            when={formatRelativeTime(rollup.startedAt)}
+            duration={rollup.durationMs !== null ? formatDuration(rollup.durationMs) : null}
+            listCost={formatEffectiveCost(rollup.costUsd)}
+            effectiveCost={formatEffectiveCost(rollup.effectiveCostUsd, rollup.pricingEstimate, rollup.billingMode)}
+            billing={rollup.billingMode ? (rollup.billingMode === "api" ? "API billed" : "subscription billed") : null}
+            estimated={Boolean(rollup.pricingEstimate)}
+            usage={totalUsage}
+            failureReason={rollup.failureReason}
+          />
         )}
         {pruned && (
           <div className="rounded-lg border border-border-subtle bg-surface p-3 text-xs text-muted-foreground">

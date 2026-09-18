@@ -614,9 +614,13 @@ directory:
 - **What needs the root stays in the container**: the share options are
   built there and handed to the toolbar as a rendered node.
 
-Remaining S7 directories: `activity/` (run list/detail onto `AgentRunCard`
-/ `TraceSteps`), `chat/` (composer, bubbles, session drawer), `graph/`, the
-desktop rail (waits for the D16 mapping), and the settings remainder.
+`activity/` followed the same pattern (`activity-views.tsx`,
+`digest-summary.tsx`): a kit card without a handler (`AgentRunCard`,
+`DigestCard`) gets a native button around or under it, named for what it
+does; the span rows in the run detail stay native because they expand to a
+payload the kit has no shape for. Remaining S7 directories: `chat/`
+(composer, bubbles, session drawer), `graph/`, the desktop rail (waits for
+the D16 mapping), and the settings remainder.
 
 ## Open questions for the maintainer
 
