@@ -20,4 +20,9 @@ export default defineMain({
   // Required by addon-mcp: the manifest is what lets an agent discover the
   // components and their props.
   features: { componentsManifest: true },
+  // Storybook's dev server answers `403 Invalid host` to any Host header but
+  // localhost, and the UI reports that as "Unable to reach server" — which
+  // is what you get opening it through the machine's hostname, its LAN
+  // address or a forwarded URL. Dev only; the static build has no server.
+  core: { allowedHosts: true },
 });
