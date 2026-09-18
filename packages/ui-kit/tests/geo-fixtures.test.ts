@@ -30,7 +30,7 @@ const BASIN = { lat: [30, 46], lon: [-6, 37] } as const;
 describe("the geometry is geometry", () => {
   test("every location loaded", () => {
     // A guard on the guard: an empty set would pass every loop below.
-    expect(geoIds).toEqual(["ithaca", "gozo", "corfu", "messina", "troy"]);
+    expect(geoIds).toEqual(["ithaca", "gozo", "corfu", "messina", "troy", "vathy"]);
   });
 
   for (const id of geoIds) {
@@ -114,19 +114,23 @@ describe("the geometry is geometry", () => {
     // about 16.5 KB, which is worth the bytes — a stroke does not say which
     // side is water, and that is the first thing a reader needs.
     //
-    // The bound is 24 KB rather than the old 16, and the honest comparison is
-    // not tile-for-tile anyway: a raster map needs a SET of tiles per theme,
-    // which D25 measured at 400-700 KB across two asset sets. What this guards
-    // is a blow-up — an unfiltered regeneration put Corfu alone at 17.7 KB by
-    // keeping 467 rings, most of them outside the view or smaller than a pixel.
+    // The bound was 24 KB for five locations; Vathy, the street-tier demo,
+    // is a sixth at 4.4 KB (159 streets), so it is 28 KB now. The honest
+    // comparison is not tile-for-tile anyway: a raster map needs a SET of
+    // tiles per theme, which D25 measured at 400-700 KB across two asset
+    // sets. What this guards is a blow-up — an unfiltered regeneration put
+    // Corfu alone at 17.7 KB by keeping 467 rings, most of them outside the
+    // view or smaller than a pixel, and a 2026-09-19 regeneration of Troy and
+    // Messina through the current road tier came back at 11.5 and 7.9 KB
+    // (three and ten times their committed size) and was not kept.
     const bytes = geoIds.reduce(
       (total, id) => total + gzipSync(new TextEncoder().encode(JSON.stringify(geo[id]))).length,
       0,
     );
-    expect(bytes).toBeLessThan(24 * 1024);
+    expect(bytes).toBeLessThan(28 * 1024);
   });
 
-  test("a street layer is drawn after roads, including before Vathy is available", () => {
+  test("a street layer is drawn after roads, on a fixture that has none of its own", () => {
     const fixture = geo.ithaca;
     const previous = fixture.streets;
     const street: [number, number][] = [[20.7202, 38.3647], [20.721, 38.365]];

@@ -144,7 +144,21 @@ session on the canonical instance and on the kumi mirror. `OVERPASS_URL` points
 the generator elsewhere; mirrors can be months behind, so the canonical instance
 is the default.
 
-## Map fixtures still outstanding
+## Map fixtures — Vathy landed 2026-09-19
+
+Overpass answered on the third try and `vathy.json` is committed: 16 coast,
+9 road and 159 street lines, 2 land rings, 4.4 KB gzipped, street tier at
+5 m/px, complete. `vathyMap` and the `VathyHasStreets` story (three stroke
+weights on one card) are the detail-ladder demo. The same run regenerated
+Troy and Messina through the current road tier and they came back at 11.5
+and 7.9 KB — three and ten times their committed size, the full road
+network at 27–91 m/px — so those two were NOT kept; the size guard in
+`tests/geo-fixtures.test.ts` moved from 24 to 28 KB for the sixth location
+only. A size-aware regeneration of the two (a coarser road filter at the
+coarse tiers) is the follow-up. The section below is the pre-landing note,
+kept for the probing advice.
+
+## Map fixtures still outstanding (pre-2026-09-19 note)
 
 `bun packages/ui-kit/tools/geo/generate.ts vathy` — the location is declared and
 the fixture is not committed, because Overpass still would not answer. Probed

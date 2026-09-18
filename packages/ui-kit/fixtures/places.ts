@@ -443,8 +443,31 @@ export const troyMap: MapScene = {
   attribution: OSM_ATTRIBUTION,
 };
 
+/**
+ * Vathy at street scale: the same verified coordinate as `ithacaMap`, at
+ * 1.8 km instead of 12, which moves the geometry from the road tier to the
+ * street tier — the demo for the detail ladder. At this span a block is
+ * legible, so the residential streets come in a step quieter than the roads
+ * and the harbour front reads as a place rather than a shape.
+ */
+export const vathyMap: MapScene = {
+  title: "Vathy",
+  subtitle: "the harbour town · every street, this once",
+  meta: "1.8 km",
+  icon: "resolved",
+  // One pin: the world's verified Ithaca coordinate. A second pin here would
+  // need a place with a source of its own (`tests/fixtures.test.ts` holds
+  // every map pin to one), and the harbour front is what the streets draw.
+  pins: [{ lat: 38.3647, lon: 20.7202, label: "The hall", meta: "Penelope · 108 guests", tone: "teal" }],
+  paths: geoPaths("vathy"),
+  land: geoLand("vathy"),
+  spanKm: 1.8,
+  height: 148,
+  attribution: OSM_ATTRIBUTION,
+};
+
 /** Every map scene the world offers, for the story that iterates them. */
-export const mapScenes: MapScene[] = [voyageMap, straitMap, ithacaMap, gozoMap, corfuMap, troyMap];
+export const mapScenes: MapScene[] = [voyageMap, straitMap, ithacaMap, vathyMap, gozoMap, corfuMap, troyMap];
 
 /** Convenience: only the pins, for a story that wants one flat list. */
 export const allPins: MapPin[] = mapScenes.flatMap((s) => s.pins);

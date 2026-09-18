@@ -32,6 +32,7 @@ import gozo from "./gozo.json" with { type: "json" };
 import ithaca from "./ithaca.json" with { type: "json" };
 import messina from "./messina.json" with { type: "json" };
 import troy from "./troy.json" with { type: "json" };
+import vathy from "./vathy.json" with { type: "json" };
 
 /** One generated file, as `tools/geo/generate.ts` writes it. */
 export interface GeoFixture {
@@ -79,6 +80,7 @@ export const geo = {
   corfu: adopt(corfu),
   messina: adopt(messina),
   troy: adopt(troy),
+  vathy: adopt(vathy),
 } as const;
 
 export type GeoId = keyof typeof geo;

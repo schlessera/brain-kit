@@ -1,7 +1,7 @@
 import preview from "#.storybook/preview";
 import { expect } from "storybook/test";
 
-import { corfuMap, gozoMap, ithacaMap, straitMap, troyMap, voyageMap } from "../../fixtures/places.js";
+import { corfuMap, gozoMap, ithacaMap, straitMap, troyMap, vathyMap, voyageMap } from "../../fixtures/places.js";
 import { MapView } from "../../src/blocks/MapView.js";
 import { stage, wide } from "../_stage.js";
 
@@ -126,6 +126,27 @@ export const TroyHasRoads = Default.extend({
     // Two weights on screen: the coast and, quieter, the roads.
     await expect(widths.size).toBe(2);
     await expect(lines.length).toBeGreaterThan(100);
+  },
+});
+
+/**
+ * VATHY, AND THE STREET TIER.
+ *
+ * The same verified coordinate as `SinglePin`, at 1.8 km instead of 12. That
+ * moves the geometry from the road tier (8–40 m/px) to the street tier (below
+ * 8 m/px): every residential street comes in a third weight, quieter than
+ * the roads, which are quieter than the coast. Three weights on screen is the
+ * whole ladder in one card, and a block is legible where the 12 km view
+ * showed a shape.
+ */
+export const VathyHasStreets = Default.extend({
+  args: vathyMap,
+  play: async ({ canvasElement }) => {
+    const lines = [...canvasElement.querySelectorAll<SVGPolylineElement>("polyline")];
+    const widths = new Set(lines.map((l) => l.getAttribute("stroke-width")));
+    await expect(widths.size).toBe(3);
+    await expect(lines.length).toBeGreaterThan(150);
+    await expect(canvasElement.textContent).toContain("OpenStreetMap");
   },
 });
 
