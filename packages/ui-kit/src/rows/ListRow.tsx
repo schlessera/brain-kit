@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Button } from "../primitives/Button.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -71,6 +71,7 @@ const TONES: Record<Tone, string> = {
 
 export function ListRow(p: ListRowProps) {
   const v = p.variant || "group";
+  const titleId = useId();
   const tone = TONES[p.iconTone || "neutral"] || TONES.neutral;
   const selected = p.selected === true;
   const act = Boolean(p.onClick);
@@ -147,11 +148,15 @@ export function ListRow(p: ListRowProps) {
     >
       {p.icon ? <Icon icon={p.icon} size={Number(p.iconSize) || (v === "launcher" ? 19 : 17)} color={tone} /> : null}
       <span style={textWrap}>
-        <span style={titleStyle}>{p.title ?? "Tomorrow morning"}</span>
+        <span style={titleStyle} id={titleId}>{p.title ?? "Tomorrow morning"}</span>
         {p.subtitle ? <span style={subStyle}>{p.subtitle}</span> : null}
       </span>
       {p.value ? <span style={valueStyle}>{p.value}</span> : null}
-      {p.toggle !== undefined ? <Toggle on={p.toggle === true} tone={p.toggleTone || "amber"} /> : null}
+      {/* Named by the row's own visible title, as the fourth drop draws it —
+          the switch is pure geometry, so it points at the text a sighted user
+          reads as its label. Still decorative here (no handler, so no role);
+          the name is what an operable switch composed the same way would take. */}
+      {p.toggle !== undefined ? <Toggle on={p.toggle === true} tone={p.toggleTone || "amber"} labelledBy={titleId} /> : null}
       {p.actionLabel ? <Button label={p.actionLabel} tone="ghost" size="sm" block={false} /> : null}
       {p.chevron === true ? <Icon icon="next" size={16} color={color.inkMute} /> : null}
     </div>

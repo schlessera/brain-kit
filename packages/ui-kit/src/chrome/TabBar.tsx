@@ -1,6 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
-import { focusSibling, useRoving } from "../internal/roving.js";
+import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 
@@ -105,10 +105,12 @@ export function TabBar(p: TabBarProps) {
       src[index]?.onClick?.();
       return;
     }
+    const edge = edgeFor(event.key);
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (delta === 0) return;
+    if (delta === 0 && !edge) return;
     event.preventDefault();
-    focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
+    if (edge) focusEdge(event.currentTarget, edge, '[role="tab"][tabindex]');
+    else focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
   }
 
   const bar: CSSProperties = {

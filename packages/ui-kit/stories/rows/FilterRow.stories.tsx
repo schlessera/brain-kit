@@ -70,6 +70,13 @@ export const ArrowKeys = meta.story({
     // Wraps rather than stopping at the end.
     await userEvent.keyboard("{ArrowLeft}");
     await expect(document.activeElement).toBe(tabs[tabs.length - 1]);
+
+    // Home / End land on the edges, and activate like the arrows do.
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(tabs[0]);
+    await expect(args.items?.[0].onClick).toHaveBeenCalledTimes(2);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(tabs[tabs.length - 1]);
   },
 });
 

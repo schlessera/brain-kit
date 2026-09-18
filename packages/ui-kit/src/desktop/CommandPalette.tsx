@@ -126,13 +126,15 @@ export function CommandPalette(p: CommandPaletteProps) {
       return;
     }
     const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
-    if (delta === 0) return;
+    const edge = event.key === "Home" ? "first" : event.key === "End" ? "last" : null;
+    if (delta === 0 && !edge) return;
     event.preventDefault();
     const box = event.currentTarget.closest('[role="dialog"]');
     const rows = [...(box?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
     const here = rows.indexOf(event.currentTarget);
     if (here === -1 || rows.length < 2) return;
-    const next = (here + delta + rows.length) % rows.length;
+    // Home / End land on the edges (design-feedback §11, answered).
+    const next = edge === "first" ? 0 : edge === "last" ? rows.length - 1 : (here + delta + rows.length) % rows.length;
     // The tab stop is the SELECTED row, so it has to move before focus does.
     p.onSelect?.(next);
     rows[next].tabIndex = 0;

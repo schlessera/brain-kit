@@ -138,6 +138,12 @@ export const ArrowKeysMoveSelection = meta.story({
     // Wraps at both ends, like every other arrow-key list in the kit.
     await userEvent.keyboard("{ArrowUp}{ArrowUp}");
     await expect(args.onSelect).toHaveBeenCalledWith(options.length - 1);
+    // Home / End move the selection to the edges, still without running.
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(options[0]);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(options[options.length - 1]);
+    await expect(args.groups?.[0].items[0].onClick).not.toHaveBeenCalled();
   },
 });
 

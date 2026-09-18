@@ -88,3 +88,25 @@ export function focusSibling(
   next.focus();
   return next;
 }
+
+/**
+ * Home / End: focus the first or last item of the composite widget, over the
+ * same DOM walk as {@link focusSibling}. "Every composite widget with arrow-key
+ * movement also takes Home and End for first and last … they were missing
+ * from the table rather than deliberately absent" (the fourth drop's answer to
+ * design-feedback §11).
+ */
+export function focusEdge(from: HTMLElement, edge: "first" | "last", item: string, group?: string): HTMLElement | null {
+  const scope = (group ? from.closest(group) : null) ?? from.parentElement;
+  if (!scope) return null;
+  const items = [...scope.querySelectorAll<HTMLElement>(item)];
+  if (items.length === 0) return null;
+  const next = edge === "first" ? items[0]! : items[items.length - 1]!;
+  next.focus();
+  return next;
+}
+
+/** `Home` / `End` → the edge they name, or null for any other key. */
+export function edgeFor(key: string): "first" | "last" | null {
+  return key === "Home" ? "first" : key === "End" ? "last" : null;
+}

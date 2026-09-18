@@ -4,7 +4,7 @@ import { expect, fn } from "storybook/test";
 import { queueItems } from "../../fixtures/actions.js";
 import { QueueItemRow } from "../../src/rows/QueueItemRow.js";
 import type { QueueState } from "../../src/types.js";
-import { knownContrastGap, stage, wide } from "../_stage.js";
+import { stage, wide } from "../_stage.js";
 
 const STATES: QueueState[] = ["claimed", "blocked", "ready", "scheduled", "failed", "superseded"];
 
@@ -34,10 +34,6 @@ export const Default = meta.story({});
  * keeps the two that need you visible.
  */
 export const States = meta.story({
-  // Contains the `superseded` row; see `Superseded` below for the arithmetic.
-  parameters: knownContrastGap(
-    "Includes the superseded row, whose opacity .7 takes ink-mute to 3.08:1 and its teal to 4.17:1. See design-feedback §4.",
-  ),
   render: (args) => (
     <>
       {queueItems.map((item) => (
@@ -66,17 +62,15 @@ export const Failed = Default.extend({
  * Superseded work is still shown, held back rather than deleted: it is the
  * evidence that the queue did the right thing.
  *
- * It is held back with `opacity: .7`, which renders the row to a layer and
- * composites the WHOLE thing against the canvas — text and ground together. So
- * ink-mute arrives at 3.08:1 and the teal that means something arrives at
- * 4.17:1, neither of which is a property of the colours themselves. That is
- * design-feedback §4, and it is the widest of the four because it applies to
- * every colour in the row at once rather than to one pairing.
+ * It USED to be held back with `opacity: .7`, which renders the row to a layer
+ * and composites the WHOLE thing against the canvas — text and ground together
+ * — so ink-mute arrived at 3.08:1 and the teal that means something at 4.17:1
+ * (design-feedback §4). The design's answer was not a brighter ink but no fade
+ * at all: "a superseded row is not lower-contrast. It reads as superseded from
+ * its state word and its still, neutral dot, at full ink contrast." This story
+ * carries no contrast exception any more, which is the assertion.
  */
 export const Superseded = Default.extend({
-  parameters: knownContrastGap(
-    "opacity .7 on the whole row takes ink-mute to 3.08:1 and teal-ink to 4.17:1. See design-feedback §4.",
-  ),
   args: {
     state: "superseded",
     subject: "edit · voyage/_index.md",

@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import { Chip } from "../primitives/Chip.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { StatusDot } from "../primitives/StatusDot.js";
+import { edgeFor, focusEdge, focusSibling } from "../internal/roving.js";
 import { Placeholder } from "../states/Placeholder.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { FileKind, Tone, ViewState } from "../types.js";
@@ -149,11 +150,22 @@ export function FileRow(p: FileRowProps) {
   // has no callback for: `kind` is a prop, and there is no `onToggle` in the
   // source's prop table to route an arrow key to. Adding one would widen the
   // API during a port, so it is recorded in `.plan/PLAN.md` for the wave that
-  // builds the tree rather than invented here.
+  // builds the tree rather than invented here. ↑↓ and Home/End move between
+  // the sibling rows of whatever container the caller stacked them in (the
+  // fourth drop's answer to design-feedback §11: "Home / End wherever a
+  // roving tab stop exists … and the file tree").
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      p.onClick?.();
+      return;
+    }
+    const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    const edge = edgeFor(event.key);
+    if (delta === 0 && !edge) return;
     event.preventDefault();
-    p.onClick?.();
+    if (edge) focusEdge(event.currentTarget, edge, '[role="treeitem"]');
+    else focusSibling(event.currentTarget, delta, '[role="treeitem"]');
   }
 
   return (

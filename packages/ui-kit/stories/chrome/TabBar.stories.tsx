@@ -181,6 +181,12 @@ export const ArrowKeys = meta.story({
     await expect(args.items?.[1].onClick).not.toHaveBeenCalled();
     await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
     await expect(document.activeElement).toBe(tabs[tabs.length - 1]);
+    // Home / End land on the edges without activating either.
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(tabs[0]);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(tabs[tabs.length - 1]);
+    await expect(args.items?.[0].onClick).not.toHaveBeenCalled();
   },
 });
 

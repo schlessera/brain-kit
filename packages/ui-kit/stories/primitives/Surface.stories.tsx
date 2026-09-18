@@ -72,6 +72,14 @@ export const Unlabelled = Default.extend({ args: { label: undefined, meta: undef
  * top layout risk. In the DC runtime each child sat inside an extra
  * `div.sc-host`; here each child's own root is the flex item, which is why the
  * `PathRef` chips shrink-wrap and the `Meter` fills.
+ *
+ * On paper it is also the one place the suite stacks a toned chip on a toned
+ * card on the canvas — two tints between the ink and the ground. The light
+ * palette was stated against ONE, and teal and purple ink landed at 4.32 and
+ * 4.39 here (design-feedback §20). The fourth drop restated teal, purple and
+ * red against two stacked tints of one hue ("a toned chip on a toned card is
+ * exactly how a provenance label sits on an untrusted item") and this story
+ * carries no exception any more — which is the assertion.
  */
 export const Nested = meta.story({
   args: {

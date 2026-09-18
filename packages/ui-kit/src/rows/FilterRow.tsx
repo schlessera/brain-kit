@@ -1,6 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
-import { focusSibling, useRoving } from "../internal/roving.js";
+import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
 import { accent, color, font, token } from "../tokens.js";
 
 /**
@@ -79,10 +79,13 @@ export function FilterRow(p: FilterRowProps) {
       src[index]?.onClick?.();
       return;
     }
+    const edge = edgeFor(event.key);
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (delta === 0) return;
+    if (delta === 0 && !edge) return;
     event.preventDefault();
-    const next = focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
+    const next = edge
+      ? focusEdge(event.currentTarget, edge, '[role="tab"][tabindex]')
+      : focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
     // Activation follows focus: arrowing through filters is filtering. Driven
     // off the element, not off an index into `items` — see the class doc.
     next?.click();

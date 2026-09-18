@@ -68,6 +68,14 @@ export interface MapViewProps {
   paths?: MapPath[];
   /** Minimum span in kilometres. The view widens past it to fit the pins. */
   spanKm?: number;
+  /**
+   * Pins whose projected centres land within this many pixels of an
+   * already-placed pin are absorbed into it: the survivor's label gains `+N`
+   * and the absorbed pins draw nothing. Default 34. "Resolved by clustering,
+   * never truncating — the kit does not truncate a place name or a path
+   * anywhere, because half a name is worse than a count."
+   */
+  clusterPx?: number;
   title?: string;
   subtitle?: string;
   meta?: string;
@@ -334,6 +342,31 @@ export function MapView(p: MapViewProps) {
   const pctX = (x: number) => `${((x / W) * 100).toFixed(4)}%`;
   const pctY = (y: number) => `${((y / H) * 100).toFixed(4)}%`;
 
+  /*
+   * Label collisions are resolved by CLUSTERING, not by truncating (the
+   * fourth drop's answer to design-feedback §16). Two rules, both computable
+   * without measuring text:
+   *   1. a pin whose projected centre sits within `clusterPx` of an
+   *      already-placed pin joins it; the survivor carries `+N` and the
+   *      absorbed pins draw nothing;
+   *   2. `meta` is dropped past 70% of the width, where the label has already
+   *      flipped and the remaining room cannot be known at render time. The
+   *      pin keeps its name; only the secondary figure goes.
+   * Two passes, as the source has them: project and absorb, then style.
+   */
+  const clusterPx = Number(p.clusterPx) || 34;
+  const placed: { x: number; y: number; extra: number; tone: Tone; label?: string; meta?: string }[] = [];
+  for (const pin of src) {
+    const x = px(pin.lon);
+    const y = py(pin.lat);
+    const host = placed.find((q) => Math.hypot(q.x - x, q.y - y) < clusterPx);
+    if (host) {
+      host.extra += 1;
+      continue;
+    }
+    placed.push({ x, y, extra: 0, tone: pin.tone, label: pin.label, meta: pin.meta });
+  }
+
   const lonStep = step(me - mw);
   const latStep = step(latTop - latBot);
 
@@ -489,9 +522,11 @@ export function MapView(p: MapViewProps) {
             {lab.text}
           </span>
         ))}
-        {src.map((pin, i) => {
+        {placed.map((pin, i) => {
           const c = MARKS[pin.tone] || MARKS.amber;
-          const x = px(pin.lon);
+          const x = pin.x;
+          const label = pin.extra ? `${pin.label || "here"} +${pin.extra}` : pin.label;
+          const meta = x <= W * 0.7 && !pin.extra ? pin.meta : undefined;
           // A label on a pin in the right-hand third would run off the edge, so
           // the row reverses and the label sits to the left of its own dot.
           const flip = x > W * 0.62;
@@ -501,7 +536,7 @@ export function MapView(p: MapViewProps) {
               style={{
                 position: "absolute",
                 left: pctX(x),
-                top: pctY(py(pin.lat)),
+                top: pctY(pin.y),
                 // THE DOT marks the coordinate, not the row.
                 //
                 // `translate(-50%, -50%)` centres the whole flex row — dot, gap
@@ -538,7 +573,7 @@ export function MapView(p: MapViewProps) {
                   boxShadow: `0 0 0 3px ${token("map-halo")}, 0 0 0 5px ${RINGS[pin.tone] || RINGS.amber}`,
                 }}
               />
-              {pin.label ? (
+              {label ? (
                 <span
                   style={{
                     background: token("map-label-bg"),
@@ -549,9 +584,9 @@ export function MapView(p: MapViewProps) {
                     color: c,
                   }}
                 >
-                  {pin.label}
-                  {pin.meta ? (
-                    <span style={{ marginLeft: 6, color: accent.neutral.ink }}>{pin.meta}</span>
+                  {label}
+                  {meta ? (
+                    <span style={{ marginLeft: 6, color: accent.neutral.ink }}>{meta}</span>
                   ) : null}
                 </span>
               ) : null}

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 
 import { Button } from "../primitives/Button.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -36,6 +36,15 @@ export interface EmptyStateProps {
   minHeight?: number;
   pad?: number;
   titleSize?: number;
+  /**
+   * Move focus to the title on mount. "A resolved decision hands focus to the
+   * next card in the list; if it was the last, focus goes to the EmptyState
+   * heading — focusable for exactly this reason — so the keyboard user is told
+   * the queue is clear instead of being dropped at the document top." The
+   * heading is always `tabIndex={-1}` (reachable by script, never a tab stop);
+   * this is the caller saying the moment has come.
+   */
+  focusTitle?: boolean;
   onPrimary?: () => void;
   onSecondary?: () => void;
 }
@@ -103,6 +112,10 @@ const VARIANTS: Record<EmptyVariant, { icon: IconName; tone: EmptyTone; title: s
 };
 
 export function EmptyState(p: EmptyStateProps) {
+  const titleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (p.focusTitle) titleRef.current?.focus();
+  }, [p.focusTitle]);
   const v = VARIANTS[p.variant || "caught_up"] || VARIANTS.caught_up;
   const tone = p.tone || v.tone;
   const ink = INKS[tone] || INKS.neutral;
@@ -139,7 +152,11 @@ export function EmptyState(p: EmptyStateProps) {
         <Icon icon={p.icon || v.icon} size={26} color={ink} />
       </span>
       <div
-        style={{ font: `400 ${Number(p.titleSize) || 21}px/1.2 ${font.display}`, color: color.ink }}
+        ref={titleRef}
+        role="heading"
+        aria-level={2}
+        tabIndex={-1}
+        style={{ font: `400 ${Number(p.titleSize) || 21}px/1.2 ${font.display}`, color: color.ink, outline: "none" }}
       >
         {p.title ?? v.title}
       </div>

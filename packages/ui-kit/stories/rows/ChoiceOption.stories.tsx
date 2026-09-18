@@ -98,6 +98,11 @@ export const ArrowKeys = Group.extend({
     await expect(document.activeElement).toBe(options[0]);
     await userEvent.keyboard("{ArrowUp}");
     await expect(document.activeElement).toBe(options[2]);
+    // Home / End land on the edges of the same group.
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(options[0]);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(options[2]);
   },
 });
 

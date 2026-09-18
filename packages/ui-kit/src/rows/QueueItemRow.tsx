@@ -107,8 +107,9 @@ export function QueueItemRow(p: QueueItemRowProps) {
     width: "100%",
     flex: "none",
     // A superseded item is still shown — it is evidence that the queue did the
-    // right thing — but it is held back rather than deleted.
-    opacity: state === "superseded" ? 0.7 : 1,
+    // right thing — and it is NOT faded: `opacity: .7` took its meta ink to
+    // 3.08:1 (design-feedback §4). It reads as superseded from its state word,
+    // its dim ink and its still neutral dot, at full contrast.
     cursor: act ? "pointer" : "default",
     // A custom property is not in React's CSSProperties, so the entry is cast.
     ...({ "--hv-bg": act ? color.raised : s.bg } as CSSProperties),

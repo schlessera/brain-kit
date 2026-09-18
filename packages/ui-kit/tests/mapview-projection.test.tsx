@@ -187,6 +187,47 @@ describe("the rendered projection", () => {
     expect(down / across).toBeCloseTo(1, 2);
   });
 
+  test("pins that would collide cluster into one labelled `+N`, and never truncate", () => {
+    // The same two pins at a 400 km span land within a few pixels of each
+    // other. The design's answer to design-feedback §16: the second is absorbed
+    // into the first, which carries the count — "half a name is worse than a
+    // count". Both names still exist in the data; one label is drawn.
+    const far = renderToStaticMarkup(
+      <MapView
+        width={330}
+        height={170}
+        spanKm={400}
+        pins={[
+          { ...SCYLLA, label: "Scylla", tone: "red", meta: "1.5 km" },
+          { ...CHARYBDIS, label: "Charybdis", tone: "red" },
+        ]}
+        paths={[]}
+      />,
+    );
+    expect(pinPositions(far, 330, 170)).toHaveLength(1);
+    expect(far).toContain("Scylla +1");
+    expect(far).not.toContain("Charybdis");
+    // A cluster label carries no meta: the count is the secondary figure now.
+    expect(far).not.toContain("1.5 km");
+
+    // At the strait's own scale they are 175px apart and both draw, with meta.
+    const near = renderToStaticMarkup(
+      <MapView width={330} height={170} spanKm={9} pins={[{ ...SCYLLA, label: "Scylla", meta: "east" }, { ...CHARYBDIS, label: "Charybdis", meta: "west" }]} paths={[]} />,
+    );
+    expect(pinPositions(near, 330, 170)).toHaveLength(2);
+    // Scylla sits at x=252.9 of 330 — past 70% of the width, where the label
+    // has flipped and the room left cannot be known — so ITS meta is dropped
+    // and Charybdis's, at x=77, is kept. The pin keeps its name either way.
+    expect(near).toContain("Scylla");
+    expect(near).not.toContain("east");
+    expect(near).toContain("west");
+    // `clusterPx` is the caller's: at 200px the strait pair clusters too.
+    const forced = renderToStaticMarkup(
+      <MapView width={330} height={170} spanKm={9} clusterPx={200} pins={[{ ...SCYLLA, label: "Scylla" }, { ...CHARYBDIS, label: "Charybdis" }]} paths={[]} />,
+    );
+    expect(pinPositions(forced, 330, 170)).toHaveLength(1);
+  });
+
   test("the scale bar measures the distance it claims", () => {
     // 2 km, drawn 59px wide. The check is not that those two numbers appear —
     // it is that 59px, converted back through metres-per-degree of longitude
