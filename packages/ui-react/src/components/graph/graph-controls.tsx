@@ -8,13 +8,16 @@ import {
   type LocalDirection,
   type SizeBy,
 } from "../../stores/graph-store.js";
-import { cn } from "../../lib/utils.js";
+import { Field, Segmented, SwitchRow } from "./graph-form.js";
 
 /**
  * Per-mode option forms. Desktop: a floating card in the top-right of the
  * canvas. Mobile: a slide-up sheet behind a filter button (tap targets kept
  * at ≥44px). Only the options that matter per mode — everything else stays
  * out until a later phase earns it.
+ *
+ * This is the container (S7): every option reads and writes the graph
+ * store; the form primitives are `graph-form.tsx`, on the kit.
  */
 export function GraphControls() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -208,7 +211,7 @@ function ClustersControls() {
         />
       </Field>
       <Field label="Isolated notes">
-        <Toggle
+        <SwitchRow
           checked={clusters.isolates}
           onChange={(v) => setClustersParams({ isolates: v })}
           label="Include notes without links"
@@ -227,22 +230,22 @@ function MaintenanceControls() {
     <>
       <Field label="Findings">
         <div className="flex flex-col">
-          <Toggle
+          <SwitchRow
             checked={filters.orphans}
             onChange={(v) => setFilters({ orphans: v })}
             label="Orphans"
           />
-          <Toggle
+          <SwitchRow
             checked={filters.unreachable}
             onChange={(v) => setFilters({ unreachable: v })}
             label="Unreachable"
           />
-          <Toggle
+          <SwitchRow
             checked={filters.broken}
             onChange={(v) => setFilters({ broken: v })}
             label="Broken links"
           />
-          <Toggle
+          <SwitchRow
             checked={filters.stale}
             onChange={(v) => setFilters({ stale: v })}
             label="Stale notes"
@@ -261,82 +264,6 @@ function MaintenanceControls() {
         />
       </Field>
     </>
-  );
-}
-
-// --- Small form primitives ---------------------------------------------------
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Segmented({
-  options,
-  value,
-  onChange,
-}: {
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="flex rounded-lg border border-border bg-surface-raised p-0.5">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "min-h-9 flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-            value === opt.value
-              ? "bg-surface-overlay text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className="flex min-h-9 w-full items-center justify-between gap-2 text-left text-xs text-foreground"
-    >
-      {label}
-      <span
-        className={cn(
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-          checked ? "bg-primary" : "bg-surface-raised border border-border"
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 h-4 w-4 rounded-full bg-foreground transition-transform",
-            checked ? "translate-x-4" : "translate-x-0.5"
-          )}
-        />
-      </span>
-    </button>
   );
 }
 

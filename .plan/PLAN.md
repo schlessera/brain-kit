@@ -523,16 +523,22 @@ Sequenced after the component waves but **before** step 2. Not optional.
       `DigestSummary` on the kit `DigestCard`); `chat/` in part
       (`SessionDrawer` renders `SessionList` — card `ListRow`s with
       `selected` for the session in view and the run state as the value;
-      `WelcomeState` is the kit `EmptyState` + `SuggestionChips`). Open:
-      `chat/composer.tsx` (the kit `Composer` is a live textarea now —
-      `value`/`onChange`/`onSend`/`onAttach`/`onMic`/`maxRows` — so the
-      split is real, but the app's composer also owns streaming/stop,
-      dictation, attachments and the command palette: judgement),
-      `chat/message-bubble.tsx` (kit `MessageBubble` is the wrapper —
-      user bubble / brain no-bubble + trace line; its action row has no
-      handlers, so the app's share/copy row stays beside it), `graph/`
-      (only the controls and the node popover map onto the kit; the canvas
-      is WebGL), `layout/side-rail` (waits for the D16 desktop mapping),
+      `WelcomeState` is the kit `EmptyState` + `SuggestionChips`;
+      `Composer` renders `ComposerView` — the design's field drawn from kit
+      `Icon`/`Button`/`Chip`/`Callout` on kit tokens around the app's
+      CSS-grown textarea, since the kit `Composer`'s API stops at
+      attach/mic/send and the app's field needs camera, stop, recall, the
+      provider picker, paste-to-attach and a connection-aware placeholder;
+      `MessageBubble` renders `TurnHeader`, `UserTurn` (kit `MessageBubble
+      role="user"`), `ThinkingBlock` (kit `Disclosure`, controlled so it
+      auto-collapses when the stream ends), `ThinkingIndicator` and
+      `AttachmentCount`; the brain turn keeps no bubble and the app's real
+      share menu instead of the kit's decorative action row); `graph/`
+      (`GraphControls` composes `Field`/`Segmented`/`SwitchRow` from
+      `graph-form.tsx` — kit `Label`, `FilterRow`, `Toggle`; `NodePopover`
+      renders `NodeCard` on `Surface` + `Chip` + `PathRef` + `Button`; the
+      canvas is WebGL and stays). Open: `layout/side-rail` (waits for the
+      D16 desktop mapping),
       `settings/` remainder (models, devices/agents, tool permissions, pi
       accounts — `ListRow` + `Toggle` rows, bulk once one is done)
 - [x] S8 AST lint gate rejects internal default-store statics, including

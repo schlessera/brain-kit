@@ -1,14 +1,17 @@
-import { X, FileText, Crosshair, Expand } from "lucide-react";
 import type { GraphNodePayload } from "@schlessera/brain-ui-sdk/protocol";
 import { useFileStore } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useGraphStore } from "../../stores/graph-store.js";
 import { communityColor } from "./lib/graph-helpers.js";
+import { NodeCard } from "./node-card.js";
 
 /**
  * Detail card for the selected node, docked to the bottom-left of the canvas
  * (bottom sheet width on phones). "Open note" hands over to the file viewer
  * panel — the same hand-off the search modal uses.
+ *
+ * This is the container (S7): the store reads and the "which actions
+ * apply" rules live here; `NodeCard` draws the card on the kit.
  */
 export function NodePopover({
   node,
@@ -40,96 +43,22 @@ export function NodePopover({
   }
 
   return (
-    <div className="pointer-events-auto absolute inset-x-2 bottom-2 z-10 rounded-xl border border-border bg-surface-overlay/95 p-4 shadow-2xl backdrop-blur md:inset-x-auto md:left-4 md:bottom-4 md:w-80">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              {isVirtual ? "root" : node.type}
-            </span>
-            {communityLabel && (
-              <span
-                title="Topic cluster inferred from this note's links"
-                className="flex min-w-0 items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              >
-                {node.community !== undefined && (
-                  <span
-                    aria-hidden="true"
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: communityColor(node.community) }}
-                  />
-                )}
-                <span className="truncate">Topic: {communityLabel}</span>
-              </span>
-            )}
-          </div>
-          <h3 className="mt-1 truncate text-sm font-medium text-foreground">
-            {node.title || node.path}
-          </h3>
-          <p className="truncate font-mono text-[10px] text-muted-foreground/60">
-            {node.path}
-          </p>
-        </div>
-        <button
-          onClick={() => select(null)}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-          title="Close"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <div className="mt-2 flex gap-4 text-[11px] text-muted-foreground">
-        <span>{node.inDegree} in</span>
-        <span>{node.outDegree} out</span>
-        {node.distance !== undefined && node.distance > 0 && (
-          <span>
-            {node.distance} hop{node.distance === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {!isVirtual && (
-          <ActionButton icon={FileText} label="Open note" onClick={handleOpen} primary />
-        )}
-        {!isVirtual && (mode !== "local" || node.distance !== 0) && (
-          <ActionButton icon={Crosshair} label="Focus here" onClick={handleFocus} />
-        )}
-        {mode === "local" && !isVirtual && node.distance !== 0 && (
-          <ActionButton
-            icon={Expand}
-            label="Expand"
-            onClick={() => void expandNode(node.path)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({
-  icon: Icon,
-  label,
-  onClick,
-  primary,
-}: {
-  icon: typeof X;
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={
-        primary
-          ? "flex min-h-9 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          : "flex min-h-9 items-center gap-1.5 rounded-lg bg-surface-raised px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-overlay"
-      }
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
+    <NodeCard
+      kind={isVirtual ? "root" : node.type}
+      title={node.title || node.path}
+      path={node.path}
+      topic={communityLabel}
+      topicColor={node.community !== undefined ? communityColor(node.community) : undefined}
+      inDegree={node.inDegree}
+      outDegree={node.outDegree}
+      distance={node.distance}
+      canOpen={!isVirtual}
+      canFocus={!isVirtual && (mode !== "local" || node.distance !== 0)}
+      canExpand={mode === "local" && !isVirtual && node.distance !== 0}
+      onOpen={handleOpen}
+      onFocus={handleFocus}
+      onExpand={() => void expandNode(node.path)}
+      onClose={() => select(null)}
+    />
   );
 }

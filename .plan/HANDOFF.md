@@ -618,12 +618,19 @@ directory:
 `digest-summary.tsx`): a kit card without a handler (`AgentRunCard`,
 `DigestCard`) gets a native button around or under it, named for what it
 does; the span rows in the run detail stay native because they expand to a
-payload the kit has no shape for. `chat/` is half done: the session drawer
-(`session-list.tsx`) and the welcome state are on the kit. What is left
-there is the two judgement splits — see the S7 line in `PLAN.md` for what
-the kit offers and what the app's composer and message bubble own beyond
-it. After that: `graph/` (controls and popover only), the desktop rail
-(waits for the D16 mapping), and the settings remainder (bulk on the
+payload the kit has no shape for. `chat/` is done: session list, welcome
+state, `ComposerView` (`composer-view.tsx`) and the turn frame
+(`transcript-turn.tsx`). Two judgement calls there worth knowing: the kit
+`Composer` was NOT used for the app's field — its API stops at
+attach/mic/send and the app's field needs eight more affordances, so the
+view draws the design's field from kit primitives on kit tokens around the
+app's CSS-grown textarea (the grow trick is load-bearing, see the comment);
+and the brain turn keeps the app's real share menu rather than the kit
+`MessageBubble`'s decorative action row (`actions={false}`). `graph/`
+followed (`graph-form.tsx`, `node-card.tsx`): the options form's segmented
+choices are `FilterRow`s, its switches kit `Toggle`s named by the visible
+text beside them, the selected node a `Surface`. Remaining: the desktop rail
+(waits for the D16 mapping) and the settings remainder (bulk on the
 `ListRow` + `Toggle` pattern).
 
 ## Open questions for the maintainer
