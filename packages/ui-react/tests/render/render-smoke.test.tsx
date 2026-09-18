@@ -75,6 +75,11 @@ import { StreamingPanel } from "../../src/components/quick-actions/streaming-mod
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
 import { AddForm } from "../../src/components/quick-actions/add-form.js";
+import { FileTree } from "../../src/components/files/file-tree.js";
+import { FileTreeView, TreeRow, fileKind } from "../../src/components/files/file-tree-view.js";
+import { FrontmatterChips } from "../../src/components/files/frontmatter-chips.js";
+import { FrontmatterPanel } from "../../src/components/files/frontmatter-panel.js";
+import { ViewerEmpty, ViewerToolbar, formatSize } from "../../src/components/files/file-viewer-frame.js";
 import { BriefingOutput, StreamingOutput } from "../../src/components/quick-actions/streaming-output.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
@@ -4038,5 +4043,132 @@ describe("StreamingOutput and BriefingOutput", () => {
     fireEvent.click(failed.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     failed.unmount();
+  });
+});
+
+/* ── S7 (files): the tree renders from props; the container reads the store ─ */
+
+describe("FileTree on the kit FileRow", () => {
+  test("a row is a kit FileRow: kind from the name, folder state from expansion, error with a retry", () => {
+    expect(fileKind("notes", true, false)).toBe("folder");
+    expect(fileKind("notes", true, true)).toBe("open");
+    expect(fileKind("a.md", false, false)).toBe("file");
+    expect(fileKind("map.PNG", false, false)).toBe("image");
+
+    const onClick = mock(() => {}); const onRetry = mock(() => {});
+    const view = render(
+      <FileTreeView state="ready">
+        <TreeRow name="notes" kind="open" depth={0} active={false} loading={true} highlighted={false} error="Permission denied" onClick={onClick} onRetry={onRetry}>
+          <TreeRow name="a.md" kind="file" depth={1} active={true} loading={false} highlighted={false} onClick={onClick} />
+        </TreeRow>
+      </FileTreeView>,
+    );
+    const folder = view.getByRole("treeitem", { name: /notes/ });
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
+    expect(view.getByText("loading…")).toBeTruthy();
+    const file = view.getByRole("treeitem", { name: /a\.md/ });
+    expect(file.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(file);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(view.getByText("Permission denied")).toBeTruthy();
+    fireEvent.click(view.getByText("Retry"));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const failed = render(<FileTreeView state="error" error="offline" onRetry={onRetry} />);
+    expect(failed.getByText("Files unreadable")).toBeTruthy();
+    expect(failed.getByText("offline")).toBeTruthy();
+    failed.unmount();
+    const loading = render(<FileTreeView state="loading" />);
+    expect(loading.getByLabelText("Loading files")).toBeTruthy();
+    loading.unmount();
+  });
+
+  test("the container reads the store: expansion, the active file, and clicks go to the store's actions", () => {
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" } });
+    const toggled: string[] = []; const opened: string[] = [];
+    root.stores.file.setState({
+      dirCache: { "": [{ name: "notes", path: "notes", type: "dir" }, { name: "readme.md", path: "readme.md", type: "file" }], notes: [{ name: "a.md", path: "notes/a.md", type: "file" }] },
+      expandedDirs: new Set(["notes"]),
+      currentPath: "notes/a.md",
+      toggleDir: async (path) => { toggled.push(path); },
+      openFile: async (path) => { opened.push(path); },
+    });
+    const view = render(<BrainUiProvider root={root}><FileTree /></BrainUiProvider>);
+    try {
+      expect(view.getByRole("treeitem", { name: /notes/ }).getAttribute("aria-expanded")).toBe("true");
+      expect(view.getByRole("treeitem", { name: /a\.md/ }).getAttribute("aria-selected")).toBe("true");
+      fireEvent.click(view.getByRole("treeitem", { name: /notes/ }));
+      expect(toggled).toEqual(["notes"]);
+      fireEvent.click(view.getByRole("treeitem", { name: /readme/ }));
+      expect(opened).toEqual(["readme.md"]);
+      act(() => { root.stores.file.setState({ expandedDirs: new Set() }); });
+      expect(view.queryByRole("treeitem", { name: /a\.md/ })).toBeNull();
+    } finally { view.unmount(); root.dispose(); }
+  });
+});
+
+describe("frontmatter chips and the viewer frame", () => {
+  test("frontmatter is one kv chip per value behind a disclosure the store controls", () => {
+    const onOpenChange = mock((_o: boolean) => {});
+    const fields = [{ key: "type", value: "talk" }, { key: "tags", value: "[a, b]", list: ["a", "b"] }, { key: "status", value: "" }, { key: "extra", value: "x" }];
+    const open = render(<FrontmatterChips fields={fields} open onOpenChange={onOpenChange} />);
+    expect(open.getByText("type: talk")).toBeTruthy();
+    expect(open.getByText("tags: a")).toBeTruthy();
+    expect(open.getByText("tags: b")).toBeTruthy();
+    expect(open.getByText("status: —")).toBeTruthy();
+    const summary = open.getByRole("button", { name: /frontmatter · 4 fields/ });
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(summary);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    open.unmount();
+
+    const closed = render(<FrontmatterChips fields={fields} open={false} onOpenChange={onOpenChange} />);
+    expect(closed.queryByText("type: talk")).toBeNull();
+    expect(closed.getByText("type, tags, status…")).toBeTruthy();
+    closed.unmount();
+
+    const none = render(<FrontmatterChips fields={[]} open onOpenChange={onOpenChange} />);
+    expect(none.container.textContent).toBe("");
+    none.unmount();
+
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" } });
+    root.stores.file.setState({ frontmatterCollapsed: true });
+    const panel = render(<BrainUiProvider root={root}><FrontmatterPanel fields={fields.slice(0, 1)} /></BrainUiProvider>);
+    try {
+      expect(panel.queryByText("type: talk")).toBeNull();
+      fireEvent.click(panel.getByRole("button", { name: /frontmatter/ }));
+      expect(root.stores.file.getState().frontmatterCollapsed).toBe(false);
+      expect(panel.getByText("type: talk")).toBeTruthy();
+    } finally { panel.unmount(); root.dispose(); }
+  });
+
+  test("the toolbar's mode switch is a kit FilterRow, and the empty frame says what to do", () => {
+    const onMode = mock((_m: "preview" | "raw") => {}); const onCopyPath = mock(() => {}); const onReveal = mock(() => {});
+    const view = render(
+      <ViewerToolbar fileName="a.md" fullPath="notes/a.md" size={2048} mode="preview" previewAvailable copied={false} share={<span>share-menu</span>}
+        onMode={onMode} onCopyPath={onCopyPath} onReveal={onReveal} />,
+    );
+    expect(view.getByText("notes/a.md")).toBeTruthy();
+    expect(view.getByText(/2\.0 KB/)).toBeTruthy();
+    expect(view.getByText("share-menu")).toBeTruthy();
+    expect(view.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(view.getByRole("tab", { name: "Raw" }));
+    expect(onMode).toHaveBeenCalledWith("raw");
+    fireEvent.click(view.getByTitle("Copy path"));
+    expect(onCopyPath).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByTitle("Reveal in tree"));
+    expect(onReveal).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const raw = render(<ViewerToolbar fileName="x.bin" fullPath="x.bin" mode="raw" previewAvailable={false} copied share={null} onMode={onMode} onCopyPath={onCopyPath} onReveal={onReveal} />);
+    expect(raw.queryByRole("tab")).toBeNull();
+    raw.unmount();
+
+    expect(formatSize(512)).toBe("512 B");
+    expect(formatSize(3 * 1024 * 1024)).toBe("3.00 MB");
+    const empty = render(<ViewerEmpty />);
+    expect(empty.getByText("No file open")).toBeTruthy();
+    empty.unmount();
   });
 });

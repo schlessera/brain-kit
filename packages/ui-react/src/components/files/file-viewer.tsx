@@ -1,9 +1,7 @@
 import type { BrainUiRoot } from "../../root.js";
 import type { FileState } from "../../stores/file-state.js";
-import { Loader2, AlertCircle, Eye, Code, Copy, Check, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { useFileStore } from "../../stores/file-store.js";
-import { cn } from "../../lib/utils.js";
 import { FileViewerMarkdown } from "./file-viewer-markdown.js";
 import { FileViewerHtml } from "./file-viewer-html.js";
 import { FileViewerRaw } from "./file-viewer-raw.js";
@@ -18,7 +16,13 @@ import { MermaidBlock } from "../chat/mermaid-block.js";
 import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
+import { ViewerEmpty, ViewerError, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
 
+/**
+ * The container (S7): reads the file store, builds the share options (they
+ * need the root) and picks the body renderer; the frame around it is
+ * `file-viewer-frame.tsx`, rendered from props.
+ */
 export function FileViewer() {
   const currentPath = useFileStore((s) => s.currentPath);
   const content = useFileStore((s) => s.currentContent);
@@ -28,14 +32,7 @@ export function FileViewer() {
   const setViewMode = useFileStore((s) => s.setViewMode);
   const setTreeExpanded = useFileStore((s) => s.setTreeExpanded);
 
-  if (!currentPath) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-        <FolderOpen className="h-8 w-8 text-muted-foreground/40" />
-        <span>Select a file from the tree to view it.</span>
-      </div>
-    );
-  }
+  if (!currentPath) return <ViewerEmpty />;
 
   const fileName = currentPath.split("/").pop() ?? currentPath;
   const previewAvailable =
@@ -57,18 +54,8 @@ export function FileViewer() {
       />
 
       <div className="flex-1 overflow-auto">
-        {loading && (
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading file...
-          </div>
-        )}
-        {error && (
-          <div className="m-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+        {loading && <ViewerLoading />}
+        {error && <ViewerError message={error} />}
         {!loading && !error && content && <ViewerBody content={content} viewMode={viewMode} />}
       </div>
     </div>
@@ -119,68 +106,23 @@ function Toolbar({
   const [copied, setCopied] = useState(false);
   const shareOptions = content ? buildFileShareOptions(root, content, fileName) : [];
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
-      <button
-        onClick={onRevealInTree}
-        title="Reveal in tree"
-        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground" title={fullPath}>
-          {fileName}
-        </div>
-        <div className="truncate text-[10px] text-muted-foreground" title={fullPath}>
-          {fullPath}
-          {size !== undefined && <span className="ml-2">· {formatSize(size)}</span>}
-        </div>
-      </div>
-      <button
-        onClick={() => {
-          navigator.clipboard.writeText(fullPath);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        title="Copy path"
-        className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
-      {shareOptions.length > 0 && <ShareMenu options={shareOptions} title="Share" />}
-      {previewAvailable && (
-        <div className="flex items-center rounded-md border border-border bg-background">
-          <ModeButton active={viewMode === "preview"} onClick={() => setViewMode("preview")} title="Preview">
-            <Eye className="h-3.5 w-3.5" />
-          </ModeButton>
-          <ModeButton active={viewMode === "raw"} onClick={() => setViewMode("raw")} title="Raw">
-            <Code className="h-3.5 w-3.5" />
-          </ModeButton>
-        </div>
-      )}
-    </div>
+    <ViewerToolbar
+      fileName={fileName}
+      fullPath={fullPath}
+      size={size}
+      mode={viewMode}
+      previewAvailable={previewAvailable}
+      copied={copied}
+      share={shareOptions.length > 0 ? <ShareMenu options={shareOptions} title="Share" /> : null}
+      onMode={setViewMode}
+      onCopyPath={() => {
+        navigator.clipboard.writeText(fullPath);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      onReveal={onRevealInTree}
+    />
   );
-}
-
-function ModeButton({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "flex h-7 w-7 items-center justify-center transition-colors",
-        active ? "bg-surface-raised text-primary" : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function buildFileShareOptions(root: BrainUiRoot, content: FileContentResponse, fileName: string): ShareOption[] {

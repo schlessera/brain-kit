@@ -510,7 +510,14 @@ Sequenced after the component waves but **before** step 2. Not optional.
       the container tests. Text fields stay native — the kit has no text
       input — and titled icon buttons stay native where the kit has no
       icon-only button
-- [ ] S7 store-coupled component splits
+- [ ] S7 store-coupled component splits — one directory at a time. Done:
+      `files/` (`FileTree` renders `TreeRow`/`FileTreeView` on the kit
+      `FileRow`, per-node store subscriptions kept; `FileViewer` renders
+      `ViewerToolbar` with a kit `FilterRow` mode switch plus
+      `ViewerLoading`/`ViewerError`/`ViewerEmpty`; `FrontmatterPanel` renders
+      `FrontmatterChips`, kit `Chip kv` behind a controlled `Disclosure`).
+      Open: `activity/`, `chat/`, `graph/`, `layout/side-rail` (waits for the
+      D16 desktop mapping), `settings/` remainder
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
 - [ ] S9 first real in-chat component end to end

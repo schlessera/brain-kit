@@ -593,6 +593,31 @@ with `aria-disabled`, so a test that reads `.disabled` off it reads
 `undefined` — query `aria-disabled` instead, and note a busy button's label
 changes ("Saving…", "Adding a passkey…").
 
+## S7 — the pattern, set by `files/` (2026-09-18)
+
+The rule from S6 holds: the container keeps every store subscription and
+every action, the view renders from props on kit primitives, and the view
+lives beside its container in `ui-react`. What `files/` adds, for the next
+directory:
+
+- **Keep per-node subscriptions where the tree had them.** `FileTree`'s
+  `TreeNode` still subscribes each row to the store and renders a `TreeRow`
+  with its children already rendered; a change deep in one folder re-renders
+  that row, not the tree. Do not "simplify" a recursive container into one
+  big selector.
+- **A kit row with a handler is a `treeitem` / `tab` / `button`**, so the
+  tests query roles, not titles, and `aria-selected` / `aria-expanded` are
+  what the kit row exposes.
+- **Store-owned booleans become controlled kit props**: the frontmatter's
+  collapsed flag drives `Disclosure`'s `open` + `onOpenChange`; the viewer's
+  mode drives `FilterRow`'s `active`.
+- **What needs the root stays in the container**: the share options are
+  built there and handed to the toolbar as a rendered node.
+
+Remaining S7 directories: `activity/` (run list/detail onto `AgentRunCard`
+/ `TraceSteps`), `chat/` (composer, bubbles, session drawer), `graph/`, the
+desktop rail (waits for the D16 mapping), and the settings remainder.
+
 ## Open questions for the maintainer
 
 - `.plan/design-feedback.md` holds defects that need the **designer**, not code:
