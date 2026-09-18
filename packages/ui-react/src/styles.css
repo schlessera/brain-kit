@@ -1,11 +1,7 @@
 /* Precompiled-stylesheet entry: `bunx @tailwindcss/cli -i src/styles.css -o dist/styles.css`.
  *
- * The kit's TOKENS come in here, not its `theme.css`: that entry carries the
- * kit's own `@theme static` scales, and its `--spacing-2: 2px` would redefine
- * this app's `p-2` (0.5rem). `tokens.css` is plain CSS — the `--bk-*` values,
- * the `color-scheme` switch under `[data-theme]`, the one `breathe` keyframe
- * and the kit's interaction rules — and defines no utility name. */
+ * `theme.css` carries the kit's `tokens.css` import, so both CSS exports
+ * agree on the `--bk-*` values without a second import here. */
 @import "tailwindcss" source(none);
 @source "./";
 @import "./theme.css";
-@import "@schlessera/brain-ui-kit/tokens.css";

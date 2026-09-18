@@ -109,13 +109,14 @@ Two ways to get the CSS, pick one:
   ```css
   @import "tailwindcss";
   @import "@schlessera/brain-ui-react/theme.css";
-  @import "@schlessera/brain-ui-kit/tokens.css";
   @source "../node_modules/@schlessera/brain-ui-react/src";
   ```
 
-  The kit's `tokens.css` (not its `theme.css`, which carries the kit's own
-  `@theme` scales and would redefine `p-2`) supplies the `--bk-*` values the
-  kit components inside this package read.
+  `theme.css` imports the kit's `tokens.css` itself (not the kit's
+  `theme.css`, which carries the kit's own `@theme` scales and would redefine
+  `p-2`), so the `--bk-*` values the kit components inside this package read
+  arrive with it. Importing `@schlessera/brain-ui-kit/tokens.css` a second
+  time is harmless.
 
 - **No Tailwind:** import the precompiled stylesheet, which already includes
   the kit's tokens:

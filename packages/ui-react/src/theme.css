@@ -6,7 +6,17 @@
  *   @source "../node_modules/@schlessera/brain-ui-react/src";
  * so the consumer build scans the component sources. Consumers without a
  * Tailwind build use the precompiled ./styles.css export instead.
+ *
+ * The kit's tokens come in here, so a consumer cannot forget them: the kit
+ * components this package renders read `--bk-*` and draw no colour without
+ * it (kit D23). It is the kit's `tokens.css`, not its `theme.css` — that
+ * entry carries the kit's own `@theme static` scales, and its `--spacing-2:
+ * 2px` would redefine this app's `p-2`. `tokens.css` is plain CSS: the
+ * values, the `color-scheme` switch under `[data-theme]`, the one `breathe`
+ * keyframe and the interaction rules, and no utility name.
  */
+@import "@schlessera/brain-ui-kit/tokens.css";
+
 @theme {
   /* Backgrounds - warm-tinted darks */
   --color-background: #0c0e12;
