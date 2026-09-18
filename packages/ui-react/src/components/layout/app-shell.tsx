@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SideRail } from "./side-rail.js";
 import { MobileTabBar } from "./mobile-tab-bar.js";
+import { DesktopPalette } from "./desktop-palette.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { OneTimeAgentCredentialDialog } from "../settings/one-time-agent-credential.js";
@@ -23,6 +24,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <MobileTabBar />
+      <DesktopPalette />
       <OneTimeAgentCredentialDialog />
     </div>
   );

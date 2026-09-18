@@ -533,8 +533,11 @@ run the `storybook-light` project as well.
 
 `ui-react` depends on the kit. Three things to know:
 
-- **Import the kit's `tokens.css`, never its `theme.css`, into a Tailwind
-  build that has a theme of its own.** The kit's `theme.css` adds
+- **`ui-react`'s `theme.css` imports the kit's `tokens.css` itself** (found
+  in the shell repo, where a Tailwind consumer importing only `theme.css`
+  rendered every kit surface colourless — the palette drew as glass). Import
+  the kit's `tokens.css`, never its `theme.css`, into a Tailwind build that
+  has a theme of its own. The kit's `theme.css` adds
   `@theme static` scales, and `--spacing-2: 2px` redefines `p-2` for every
   consumer that inlines it. The split (`tokens.css` = values + `color-scheme`
   switch + keyframe + interaction rules, plain CSS; `theme.css` = import +
@@ -544,8 +547,11 @@ run the `storybook-light` project as well.
   cancelled it.
 - **`MobileTabBar` is the first kit consumer** (`TabBar`; the More menu stays
   a sibling the app owns, since a kit tab is a leaf). The desktop `SideRail`
-  is NOT ported: the app's rail carries actions the design's rail does not
-  (Sync, Whatsup, Sessions), so it waits for the S7 mapping.
+  followed in S7: the rail keeps the design's five destinations and the
+  actions the old rail carried (Sync, Whatsup, Sessions, New chat) moved to
+  the ⌘K `DesktopPalette` on the kit's `CommandPalette`, which is where D22
+  puts anything that is not one of the five. The rail still shows at `md`
+  (768px), not D22's 480px — every pane keys on `md:`.
 - **Theme:** `theme` on the UI store (`brain-theme` under the root's storage
   prefix, dark by default), a three-way toggle in Settings, `useApplyTheme`
   in `AppShell` writing `<html data-theme>`. The pre-paint inline script is

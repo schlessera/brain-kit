@@ -1,169 +1,87 @@
-import {
-  Activity,
-  Brain,
-  RefreshCw,
-  Newspaper,
-  History,
-  SlidersHorizontal,
-  SquarePen,
-  FolderTree,
-  Waypoints,
-} from "lucide-react";
+import { SideRail as KitSideRail, type RailItem } from "@schlessera/brain-ui-kit";
+import { useEffect } from "react";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { useChatStore, activeChat } from "../../stores/chat-store.js";
-import { cn } from "../../lib/utils.js";
-import { CountBadge } from "../activity/span-bits.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 
+/**
+ * The desktop navigation, on the kit's `SideRail` (S7, the last of the
+ * `layout` directory). The kit owns the rail — the one roving tab stop, the
+ * amber destination, the badge, the collapsed and expanded widths; this file
+ * owns what the destinations DO, which of them is "here", and the ⌘1–⌘5
+ * keys the design prints beside them (D36: anything global takes a
+ * modifier).
+ *
+ * Five destinations, as the design draws them and as the phone's bar
+ * already chose: Chat, Activity (with the inbox count), Files, Graph and
+ * Settings. The old rail also carried New chat, Sync, Whatsup and Sessions;
+ * those are actions rather than places, and on desktop they live in the ⌘K
+ * palette (`DesktopPalette`), which is where D22 puts anything that is not
+ * one of the rail's five.
+ *
+ * Widths follow D22's ladder: collapsed to the 60px icon rail below 900px,
+ * expanded from 900px up. The rail appears at the same `md` breakpoint the
+ * phone bar disappears at, so the two never show together; moving that
+ * boundary to the ladder's 480px is a shell-wide change (every pane keys on
+ * `md:`) and waits for the desktop screens the design has not drawn yet.
+ *
+ * The connection status takes the wordmark's line: teal while live, amber
+ * while reconnecting, red when the socket is gone. No spend meter — the app
+ * tracks no spend — and the ⌘K cap is real, because the palette is.
+ */
 export function SideRail() {
   const wsStatus = useConnectionStore((s) => s.wsStatus);
   const activeView = useUIStore((s) => s.activeView);
   const setActiveView = useUIStore((s) => s.setActiveView);
-  const toggleSessionPanel = useUIStore((s) => s.toggleSessionPanel);
-  const toggleSyncPanel = useUIStore((s) => s.toggleSyncPanel);
-  const toggleWhatsupPanel = useUIStore((s) => s.toggleWhatsupPanel);
+  const filePanelOpen = useUIStore((s) => s.filePanelOpen);
+  const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
-  const clearMessages = useChatStore((s) => s.clearMessages);
-  const hasMessages = useChatStore((s) => activeChat(s).messages.length > 0);
-  const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const inboxCount = useActivityStore((s) => s.inbox.length);
+  const expanded = useMediaQuery("(min-width: 900px)");
 
-  /** Chat-scoped panels live in the chat page — surface it before opening them. */
-  function inChat(toggle: () => void) {
-    return () => {
-      if (activeView !== "chat") setActiveView("chat");
-      toggle();
-    };
-  }
+  const items: RailItem[] = [
+    { icon: "brain", label: "Chat", shortcut: "⌘1", onClick: () => setActiveView("chat") },
+    {
+      icon: "activity",
+      label: "Activity",
+      shortcut: "⌘2",
+      badge: inboxCount > 0 ? (inboxCount > 9 ? "9+" : String(inboxCount)) : undefined,
+      onClick: () => setActiveView("activity"),
+    },
+    { icon: "files", label: "Files", shortcut: "⌘3", onClick: toggleFilePanel },
+    { icon: "graph", label: "Graph", shortcut: "⌘4", onClick: () => setActiveView("graph") },
+    { icon: "settings", label: "Settings", shortcut: "⌘5", onClick: toggleSettingsPanel },
+  ];
+
+  // A panel over the view is "here" while it is open; otherwise the view is.
+  const active = filePanelOpen ? 2 : settingsPanelOpen ? 4 : activeView === "chat" ? 0 : activeView === "activity" ? 1 : 3;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > items.length) return;
+      e.preventDefault();
+      items[n - 1]!.onClick?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
-    <nav className="hidden md:flex w-16 shrink-0 flex-col items-center border-r border-border bg-surface py-4 gap-1">
-      {/* Logo */}
-      <div className="mb-4">
-        <Brain className="h-7 w-7 text-primary" />
-      </div>
-
-      {/* New chat */}
-      {hasMessages && (
-        <RailButton
-          icon={SquarePen}
-          label="New chat"
-          onClick={clearMessages}
-        />
-      )}
-
-      {/* Divider */}
-      <div className="my-2 h-px w-8 bg-border" />
-
-      {/* Quick actions */}
-      <RailButton
-        icon={RefreshCw}
-        label="Sync"
-        onClick={inChat(toggleSyncPanel)}
-        disabled={isStreaming}
+    <nav aria-label="Primary" className="hidden md:flex shrink-0">
+      <KitSideRail
+        items={items}
+        active={active}
+        expanded={expanded}
+        status={wsStatus === "connected" ? "live" : wsStatus === "connecting" ? "reconnecting" : "offline"}
+        statusTone={wsStatus === "connected" ? "teal" : wsStatus === "connecting" ? "amber" : "red"}
+        spendPct={null}
+        hint="Command palette"
       />
-      <RailButton
-        icon={Newspaper}
-        label="Whatsup"
-        onClick={inChat(toggleWhatsupPanel)}
-        disabled={isStreaming}
-      />
-      <RailButton
-        icon={FolderTree}
-        label="Files"
-        onClick={toggleFilePanel}
-      />
-      <RailButton
-        icon={Waypoints}
-        label="Graph"
-        active={activeView === "graph"}
-        onClick={() =>
-          setActiveView(activeView === "graph" ? "chat" : "graph")
-        }
-      />
-      <RailButton
-        icon={Activity}
-        label="Activity"
-        active={activeView === "activity"}
-        badge={inboxCount}
-        onClick={() =>
-          setActiveView(activeView === "activity" ? "chat" : "activity")
-        }
-      />
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* History */}
-      <RailButton
-        icon={History}
-        label="Sessions"
-        onClick={inChat(toggleSessionPanel)}
-      />
-
-      {/* Settings (models, passkeys, sign out) */}
-      <RailButton
-        icon={SlidersHorizontal}
-        label="Settings"
-        onClick={toggleSettingsPanel}
-      />
-
-      {/* Connection status */}
-      <div className="mt-2 flex flex-col items-center gap-1">
-        <span
-          className={cn(
-            "inline-block h-2 w-2 rounded-full",
-            wsStatus === "connected" && "bg-green-500",
-            wsStatus === "connecting" && "bg-primary animate-pulse",
-            wsStatus === "disconnected" && "bg-destructive"
-          )}
-        />
-        <span className="text-[10px] text-muted-foreground">
-          {wsStatus === "connected"
-            ? "Live"
-            : wsStatus === "connecting"
-              ? "..."
-              : "Off"}
-        </span>
-      </div>
     </nav>
-  );
-}
-
-function RailButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-  active,
-  badge,
-}: {
-  icon: typeof Brain;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  active?: boolean;
-  /** Unread-count dot (the inbox badge). Hidden at 0. */
-  badge?: number;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      className={cn(
-        "group relative flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-raised hover:text-foreground hover:scale-110 disabled:opacity-40 disabled:hover:scale-100",
-        active ? "bg-surface-raised text-primary" : "text-muted-foreground"
-      )}
-    >
-      <Icon className="h-4.5 w-4.5" />
-      {badge !== undefined && <CountBadge count={badge} className="-right-0.5 -top-0.5" />}
-      {/* Tooltip */}
-      <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md bg-surface-overlay px-2.5 py-1 text-xs font-medium text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 border border-border">
-        {label}
-      </span>
-    </button>
   );
 }

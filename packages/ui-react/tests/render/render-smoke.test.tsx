@@ -15,6 +15,8 @@ import { ShareBlock } from "../../src/components/chat/share-block.js";
 import { PushToggle } from "../../src/components/activity/push-toggle.js";
 import { PushSwitch } from "../../src/components/activity/push-switch.js";
 import { MobileTabBar } from "../../src/components/layout/mobile-tab-bar.js";
+import { SideRail } from "../../src/components/layout/side-rail.js";
+import { DesktopPalette } from "../../src/components/layout/desktop-palette.js";
 import { ThemeToggle, useApplyTheme } from "../../src/components/layout/theme.js";
 import { createUIStore } from "../../src/stores/ui-state.js";
 import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
@@ -2365,7 +2367,7 @@ describe("DevicesAgentsTab", () => {
     changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Sidebar agent");
     fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
 
-    const settingsButton = page.getByTitle("Settings");
+    const settingsButton = page.getByRole("tab", { name: /^Settings/ });
     settingsButton.focus();
     expect(document.activeElement).toBe(settingsButton);
     fireEvent.click(settingsButton);
@@ -3635,6 +3637,115 @@ describe("MobileTabBar on the kit TabBar", () => {
     const none = render(<MobileTabBar />);
     expect(none.getByRole("tab", { name: "Activity" }).textContent).toBe("Activity");
     none.unmount();
+  });
+});
+
+/* ── S7: the desktop rail and the ⌘K palette ────────────────────────────── */
+
+describe("SideRail on the kit SideRail", () => {
+  test("five destinations in one vertical tablist, the inbox count as the badge, the socket as the status line", () => {
+    useActivityStore.setState({ inbox: [{ id: "a" }, { id: "b" }] as never });
+    const view = render(<SideRail />);
+    const tabs = view.getAllByRole("tab");
+    // The test window is 1024px wide, so the rail is expanded: label, badge
+    // and printed ⌘ key are the row's text.
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat⌘1", "Activity2⌘2", "Files⌘3", "Graph⌘4", "Settings⌘5"]);
+    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
+    expect(tabs.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
+    // Nothing the app cannot back: no spend meter, and the ⌘K cap is the palette's.
+    expect(view.container.textContent).not.toContain("$");
+    expect(view.container.textContent).toContain("⌘K");
+    // Disconnected is what the store starts as, and the rail says so.
+    expect(view.container.textContent).toContain("offline");
+    view.unmount();
+  });
+
+  test("below 900px the rail collapses and each row keeps its name through aria-label", () => {
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
+    try {
+      const view = render(<SideRail />);
+      const tabs = view.getAllByRole("tab");
+      expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Chat", "Activity", "Files", "Graph", "Settings"]);
+      expect(tabs.map((t) => t.textContent)).toEqual(["", "", "", "", ""]);
+      expect(view.container.textContent).toContain("⌘K");
+      expect(view.container.textContent).not.toContain("Command palette");
+      view.unmount();
+    } finally {
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  test("a destination switches the view or opens its panel, and an open panel is the amber row", () => {
+    const view = render(<SideRail />);
+    const tab = (name: string) => view.getByRole("tab", { name: new RegExp(`^${name}`) });
+    fireEvent.click(tab("Graph"));
+    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(tab("Graph").getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(tab("Files"));
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
+    expect(tab("Files").getAttribute("aria-selected")).toBe("true");
+    // The view is still the graph underneath; closing the panel hands the row back.
+    fireEvent.click(tab("Files"));
+    expect(tab("Graph").getAttribute("aria-selected")).toBe("true");
+    view.unmount();
+  });
+
+  test("⌘1–⌘5 (or Ctrl) reach the destinations from anywhere; a bare digit does not", () => {
+    const view = render(<SideRail />);
+    fireEvent.keyDown(window, { key: "2", metaKey: true });
+    expect(useUIStore.getState().activeView).toBe("activity");
+    fireEvent.keyDown(window, { key: "4", ctrlKey: true });
+    expect(useUIStore.getState().activeView).toBe("graph");
+    fireEvent.keyDown(window, { key: "1" });
+    expect(useUIStore.getState().activeView).toBe("graph");
+    fireEvent.keyDown(window, { key: "5", metaKey: true });
+    expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+    view.unmount();
+  });
+});
+
+describe("DesktopPalette on the kit CommandPalette", () => {
+  test("⌘K opens it on the selected row, typing filters, ⏎ runs the row and closes, esc closes", () => {
+    const view = render(<DesktopPalette />);
+    expect(view.queryByRole("dialog")).toBeNull();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const dialog = view.getByRole("dialog", { name: "Command palette" });
+    expect(dialog).toBeTruthy();
+    const names = view.getAllByRole("option").map((o) => o.textContent);
+    expect(names.slice(0, 5).map((n) => n?.replace(/⌘\d|⏎/g, ""))).toEqual(["Chat", "Activity", "Files", "Graph", "Settings"]);
+    // Disconnected, so Sync, the briefing and stats are not listed at all.
+    expect(names.some((n) => n?.includes("Sync"))).toBe(false);
+    expect(names.some((n) => n?.includes("New chat"))).toBe(true);
+    expect(document.activeElement).toBe(view.getAllByRole("option")[0]);
+
+    fireEvent.keyDown(document.activeElement!, { key: "g" });
+    fireEvent.keyDown(document.activeElement!, { key: "r" });
+    expect(dialog.textContent).toContain("gr");
+    expect(view.getAllByRole("option").map((o) => o.getAttribute("aria-label") ?? o.textContent)).toEqual(["Graph⌘4"]);
+    expect(document.activeElement).toBe(view.getByRole("option"));
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(view.queryByRole("dialog")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    // The query was reset with the close.
+    expect(view.getAllByRole("option").length).toBeGreaterThan(5);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(view.queryByRole("dialog")).toBeNull();
+    view.unmount();
+  });
+
+  test("with the socket live and no turn streaming, Sync carries its effect chip in its name", () => {
+    useConnectionStore.setState({ wsStatus: "connected" });
+    const view = render(<DesktopPalette />);
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(view.getByRole("option", { name: "Sync the brain, sync" })).toBeTruthy();
+    expect(view.getByRole("option", { name: /Daily briefing/ })).toBeTruthy();
+    fireEvent.click(view.getByRole("option", { name: /Daily briefing/ }));
+    expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
+    expect(view.queryByRole("dialog")).toBeNull();
+    view.unmount();
   });
 });
 

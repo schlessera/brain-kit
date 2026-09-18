@@ -510,7 +510,7 @@ Sequenced after the component waves but **before** step 2. Not optional.
       the container tests. Text fields stay native — the kit has no text
       input — and titled icon buttons stay native where the kit has no
       icon-only button
-- [ ] S7 store-coupled component splits — one directory at a time. Done:
+- [x] S7 store-coupled component splits — one directory at a time. Done:
       `files/` (`FileTree` renders `TreeRow`/`FileTreeView` on the kit
       `FileRow`, per-node store subscriptions kept; `FileViewer` renders
       `ViewerToolbar` with a kit `FilterRow` mode switch plus
@@ -544,10 +544,18 @@ Sequenced after the component waves but **before** step 2. Not optional.
       `AccountsList` — card `ListRow`s with Connect/Disconnect `Button`s and
       the device code in an amber `Callout`; `ModelsCatalogView` — the
       roster with native selects kept for their accessible names, a hidden
-      model chipped rather than faded, kit `Refresh`/`Add`/`Callout`s). Open:
-      `layout/side-rail` (waits for the D16 desktop mapping),
-      `settings/` remainder (models, devices/agents, tool permissions, pi
-      accounts — `ListRow` + `Toggle` rows, bulk once one is done)
+      model chipped rather than faded, kit `Refresh`/`Add`/`Callout`s); `layout/` (the desktop `SideRail` on
+      the kit's, five destinations with ⌘1–⌘5 and the socket state on the
+      wordmark's line, collapsed below 900px per D22; the actions the old
+      rail carried — New chat, Sessions, Sync, Whatsup, Search, Add, Stats —
+      are a ⌘K `DesktopPalette` on the kit's `CommandPalette`, typed on the
+      overlay since the kit's query is display text; the kit gained
+      `statusTone` and `null` for `spendPct`/`hint`, so the app draws no
+      meter it cannot back and no key that opens nothing). The rail still
+      appears at `md` (768px) rather than D22's 480px: every pane keys on
+      `md:`, so moving the boundary is a shell-wide change that waits for
+      the desktop screens the design has not drawn (Files, Activity,
+      Settings)
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
 - [ ] S9 first real in-chat component end to end
@@ -601,8 +609,10 @@ Sequenced after the component waves but **before** step 2. Not optional.
       focusable heading (§10). `contrast.test.ts` asserts §4/§5/§7/§20 as
       resolved; no `knownContrastGap` caller remains; 544 + 544 stories green
       under the full gate; all twenty baselines regenerated in the container
-- [ ] D36's app rules (focus-scoped `a/d/s`, `j/k`, ⌘1–⌘5, the Settings off
-      switch, focus after a decision) — with the desktop migration, S7+
+- [ ] D36's app rules — ⌘1–⌘5 and ⌘K landed with the rail (S7 `layout/`);
+      still open: focus-scoped `a/d/s`, `j/k`, the Settings off switch for
+      single-key shortcuts, focus after a decision — these need the in-chat
+      decision list, so they come with S9
 
 ## Open questions
 
