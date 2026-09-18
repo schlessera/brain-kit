@@ -2,7 +2,7 @@ import preview from "#.storybook/preview";
 
 import { Chip } from "../../src/primitives/Chip.js";
 import type { ChipVariant, Tone } from "../../src/types.js";
-import { knownContrastGap, Row, stage } from "../_stage.js";
+import { Row, stage } from "../_stage.js";
 
 const VARIANTS: ChipVariant[] = [
   "outline",
@@ -46,15 +46,12 @@ export const KeyValue = Default.extend({ args: { label: "place: aeaea", variant:
 /** An effect chip: the mono name of what a tap will actually do. */
 export const Effect = Default.extend({ args: { label: "write_policy", variant: "effect", tone: "amber" } });
 
-/** The one chip that paints white on a solid fill — 2.77:1 at 9px, the widest
- * miss in the kit. Every fill in this palette was chosen to glow against
- * near-black, so white on one of them is the wrong way round. See
- * design-feedback §6. */
+/** A count badge: a solid fill taking `on-fill`, like every other solid. It
+ * USED to paint white — 2.77:1 on red at 9px, the widest miss in the kit and a
+ * contrast exception here — until the 2026-09-18 drop resolved design-feedback
+ * §6. Near-black on red is 6.98:1; the gate runs on this story now. */
 export const Count = Default.extend({
   args: { label: "12", variant: "count", tone: "red" },
-  parameters: knownContrastGap(
-    "variant=count paints --bk-chip-count-ink (white) on the solid tone fill: 2.77:1 at 9px. See design-feedback §6.",
-  ),
 });
 
 export const Caps = Default.extend({ args: { label: "hostile", variant: "soft", tone: "red", caps: true } });

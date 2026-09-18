@@ -4,6 +4,8 @@ import { warnOnce } from "../internal/dev.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
 
+type RailTone = Tone | "edge";
+
 /**
  * Time-of-day agenda inside an answer — appointments, deadlines, scheduled
  * runs.
@@ -12,11 +14,10 @@ import type { Tone } from "../types.js";
  * deadline, teal something the agent will handle, neutral an FYI. A conflict
  * gets the gold tag whatever its rail says, because a clash is a clash.
  *
- * **One source quirk, ported as found.** This component's tone table resolves
- * `neutral` to the `edge` HAIRLINE rather than to the neutral accent — so an
- * FYI draws a rule, not a grey bar. Its tag border follows, at 40% of that
- * hairline. Every other component in the kit resolves `neutral` to the ink
- * ramp; this one does not, and the difference is deliberate in the source.
+ * **An UNTONED item draws the `edge` hairline as its rail** — an FYI is a
+ * rule, not a grey bar — and its tag border follows, at 40% of that hairline.
+ * `neutral` is the grey accent, as everywhere else (D33); before the
+ * 2026-09-18 drop this table resolved it to the hairline, ported as found.
  */
 export interface ScheduleItem {
   time: string;
@@ -39,25 +40,41 @@ export interface ScheduleListProps {
   timeWidth?: number;
 }
 
-/** The rail. `neutral` is the hairline — see the note above. */
-const RAILS: Record<Tone, string> = {
+/** The tag's ink: an accent's INK, because a tag is text. The rail below uses
+ * the MARK value — the same colour in the dark, a different one on paper,
+ * where a 2px rail keeps its hue at the dot value and text needs the ink. */
+const TAG_INKS: Record<RailTone, string> = {
+  amber: accent.amber.ink,
+  gold: accent.gold.ink,
+  teal: accent.teal.ink,
+  purple: accent.purple.ink,
+  blue: accent.blue.ink,
+  red: accent.red.ink,
+  neutral: accent.neutral.ink,
+  edge: color.edge,
+};
+
+/** The rail. `edge` is the untoned hairline — see the note above. */
+const RAILS: Record<RailTone, string> = {
   amber: accent.amber.mark,
   gold: accent.gold.mark,
   teal: accent.teal.mark,
   purple: accent.purple.mark,
   blue: accent.blue.mark,
   red: accent.red.mark,
-  neutral: color.edge,
+  neutral: accent.neutral.mark,
+  edge: color.edge,
 };
 
-const TAG_BORDERS: Record<Tone, string> = {
+const TAG_BORDERS: Record<RailTone, string> = {
   amber: token("schedule-tag-border-amber"),
   gold: token("schedule-tag-border-gold"),
   teal: token("schedule-tag-border-teal"),
   purple: token("schedule-tag-border-purple"),
   blue: token("schedule-tag-border-blue"),
   red: token("schedule-tag-border-red"),
-  neutral: token("schedule-tag-border-neutral"),
+  neutral: token("schedule-tag-border-accent-neutral"),
+  edge: token("schedule-tag-border-neutral"),
 };
 
 /** The day the raft launches, and the day it is due to make land. */
@@ -156,12 +173,12 @@ export function ScheduleList(p: ScheduleListProps) {
             {g.meta ? <span style={dayMetaStyle}>{g.meta}</span> : null}
           </div>
           {(g.items || []).map((it, i) => {
-            const tone = it.tone || "neutral";
-            const rail = RAILS[tone] || RAILS.neutral;
+            const tone: RailTone = it.tone || "edge";
+            const rail = RAILS[tone] || RAILS.edge;
             // A conflict is gold whatever the item's own claim on you is.
             const conflict = it.tag === "conflict";
-            const tagInk = conflict ? accent.gold.ink : rail;
-            const tagBorder = conflict ? TAG_BORDERS.gold : TAG_BORDERS[tone] || TAG_BORDERS.neutral;
+            const tagInk = conflict ? accent.gold.ink : TAG_INKS[tone] || TAG_INKS.edge;
+            const tagBorder = conflict ? TAG_BORDERS.gold : TAG_BORDERS[tone] || TAG_BORDERS.edge;
             return (
               <div key={i} style={row}>
                 <span style={timeStyle}>{it.time}</span>

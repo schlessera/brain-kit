@@ -18,8 +18,22 @@
  * blue = companies and T1 triage, neutral = idle or scheduled. */
 export type Tone = "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
 
-/** `Label` alone may render in primary ink. */
+/**
+ * The two ink members of the design's ten-member tone vocabulary. `ink` is
+ * primary text and `dim` secondary text; `neutral` is the grey ACCENT (machine
+ * meta) and means that everywhere. A component that wants default text, a dim
+ * value or a hairline says `ink`, `dim` or `edge` — `neutral` is no longer a
+ * synonym for any of them (design-feedback §4, resolved by the 2026-09-18
+ * drop). Every tone lookup falls back to `dim` rather than inheriting.
+ */
+export type InkTone = "ink" | "dim";
+
+/** `Label` may render in primary ink. */
 export type LabelTone = Tone | "ink";
+
+/** A value inside an answer — a `StatTiles` value, a `ComparisonTable` cell, a
+ * `Receipt` row, a `ContactCard` fact: any accent, or one of the two inks. */
+export type ValueTone = Tone | InkTone;
 
 /** `Toggle`'s track only has three colours. */
 export type ToggleTone = "amber" | "teal" | "purple";
@@ -99,16 +113,19 @@ export type StepState = "done" | "current" | "todo";
 /** `ContactCard` entity kind. Decides the avatar shape and the default tone. */
 export type ContactKind = "person" | "company" | "project";
 
-/** `ContactCard`'s five. Entity colours: teal person, blue company, purple
- * project, amber a host, neutral anything unremarkable. */
+/** `ContactCard`'s ENTITY colours: teal person, blue company, purple project,
+ * amber a host, neutral anything unremarkable. Its facts take `ValueTone`
+ * instead — what kind of thing this is and what state it is in are different
+ * questions, so a relationship twenty years cold can be red. */
 export type ContactTone = "teal" | "blue" | "purple" | "amber" | "neutral";
 
 /** `QuoteCard`'s five. Provenance, not severity — the quote is somebody's real
  * words and the rail says whose, which is why there is no red. */
 export type QuoteTone = "teal" | "amber" | "purple" | "blue" | "neutral";
 
-/** `SuggestionChips`' five. `neutral` here resolves to DIM INK rather than to
- * the neutral accent: a chip suggesting a plain question is text-coloured. */
+/** `SuggestionChips`' five accents. An UNTONED chip is dim ink on the plain
+ * card edge — a plain question is text-coloured — and `neutral` is the grey
+ * accent, as everywhere else. */
 export type SuggestionTone = "teal" | "amber" | "purple" | "blue" | "neutral";
 
 /** `TrendChart`'s delta pill has two readings and no third. */

@@ -27,14 +27,16 @@ export const Three = Default.extend({ args: { tiles: answerStats } });
 export const Two = Default.extend({ args: { tiles: digestStats.slice(0, 2) } });
 
 /**
- * `neutral` is the INK ramp here, not the neutral accent — an unremarkable
- * number is still a number you read. Side by side with an amber tile, the
+ * An UNTONED value is primary ink — an unremarkable number is still a number
+ * you read — and `neutral` is the grey accent, for a value that is machine
+ * meta rather than an answer (D33). Side by side with an amber tile, the
  * difference is the whole reason the component reads as prose.
  */
-export const NeutralIsInk = Default.extend({
+export const UntonedIsInk = Default.extend({
   args: {
     tiles: [
-      { label: "days out", value: "3,652", icon: "history", tone: "neutral" },
+      { label: "days out", value: "3,652", icon: "history" },
+      { label: "run", value: "#4c1", icon: "activity", tone: "neutral" },
       { label: "waiting on you", value: "3", icon: "approval", tone: "amber" },
     ],
   },

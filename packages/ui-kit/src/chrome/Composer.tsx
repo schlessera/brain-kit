@@ -152,7 +152,7 @@ export function Composer(p: ComposerProps) {
                   : undefined
               }
             >
-              <Icon icon="send" size={15} color={color.canvas} />
+              <Icon icon="send" size={15} color={color.onFill} />
             </span>
           ) : null}
         </div>
@@ -165,7 +165,7 @@ export function Composer(p: ComposerProps) {
             tabIndex={p.onMic ? 0 : undefined}
             onClick={p.onMic}
           >
-            <Icon icon="mic" size={24} color={color.canvas} />
+            <Icon icon="mic" size={24} color={color.onFill} />
           </span>
         ) : null}
       </div>

@@ -353,6 +353,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Storybook interaction + accessibility tests
         run: node scripts/visual.mjs --inside --project=storybook
+      - name: Every story on paper, same gate (D32)
+        run: node scripts/visual.mjs --inside --project=storybook-light
       - name: Visual regression against the committed baselines
         run: node scripts/visual.mjs --inside --project=visual
       - name: The actual and diff images, when a baseline moved

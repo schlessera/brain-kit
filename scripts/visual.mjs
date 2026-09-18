@@ -49,7 +49,9 @@ const argv = process.argv.slice(2);
 const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArg = argv.find((a) => a.startsWith("--project="));
-const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "visual"];
+// Three projects: every story on dark, every story on paper (D32), and the
+// curated visual baselines in both themes.
+const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });

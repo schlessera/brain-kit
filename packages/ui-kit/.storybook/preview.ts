@@ -1,5 +1,5 @@
 import addonA11y from "@storybook/addon-a11y";
-import addonThemes from "@storybook/addon-themes";
+import addonThemes, { withThemeByDataAttribute } from "@storybook/addon-themes";
 import { definePreview } from "@storybook/react-vite";
 
 // The Tailwind entry, and the same one `scripts/build.ts` compiles into the
@@ -8,15 +8,21 @@ import { definePreview } from "@storybook/react-vite";
 import "../src/styles.css";
 
 export default definePreview({
-  addons: [
-    addonA11y(),
-    // Registered, but with no decorator yet. The kit is dark-only: the design's
-    // Foundations lists twelve dark tokens and no second table, and the one
-    // light surface in the whole source is `PhoneFrame theme="paper"`. Whether
-    // that becomes a real second theme is an open question in `.plan/PLAN.md`;
-    // if it does, this is where `withThemeByDataAttribute` goes and D9's
-    // two-project Vitest matrix becomes real.
-    addonThemes(),
+  addons: [addonA11y(), addonThemes()],
+  decorators: [
+    // The toolbar's theme switch, and the `theme` global the Vitest matrix pins
+    // (D9, real since the 2026-09-18 drop shipped the paper palette). It sets
+    // `data-theme` on <html>; `theme.css` maps that onto `color-scheme`, which
+    // is what every `light-dark()` token reads. Dark by default so the visual
+    // baselines and every existing story keep their ground; a story that wants
+    // paper sets `globals: { theme: "light" }`, and the light Vitest project
+    // runs every story that way — with the a11y gate still at `'error'`, which
+    // is the contrast proof the light theme did not have before.
+    withThemeByDataAttribute({
+      themes: { dark: "dark", light: "light" },
+      defaultTheme: "dark",
+      attributeName: "data-theme",
+    }),
   ],
   parameters: {
     // THE GATE. D17 is closed here.
@@ -36,6 +42,12 @@ export default definePreview({
     // `.plan/design-feedback.md`, with their measured ratios asserted in
     // `tests/contrast.test.ts` so that the day a token moves, a test says so.
     // Nothing else may switch a rule off.
+    // THE GATE, in BOTH themes. `'error'` fails the Vitest run on any axe
+    // violation in any story, and the light project runs the same rule set on
+    // paper. (For one day the light project ran without `color-contrast`: the
+    // first light palette was stated against the surface and failed on the
+    // canvas — design-feedback §19. The revised palette fixed it and the
+    // exception is gone; do not reintroduce a theme-specific rule set.)
     a11y: { test: "error" },
     layout: "centered",
   },

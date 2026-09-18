@@ -85,10 +85,10 @@ export function Chip(p: ChipProps) {
     letterSpacing: p.caps ? ".07em" : "normal",
     textTransform: p.caps ? "uppercase" : "none",
     whiteSpace: "nowrap",
-    // A solid chip is a FILLED surface taking near-black text, so it takes the
-    // fill role; an outline chip is text and takes ink. Identical in the dark
+    // A solid chip is a FILLED surface taking near-black text on it — `on-fill`
+    // — and an outline chip is text and takes ink. Identical in the dark
     // theme, different on paper.
-    color: solid ? color.canvas : t.fg,
+    color: solid ? color.onFill : t.fg,
     background: solid ? fill : p.selected || v === "soft" ? t.tint : "transparent",
     border: solid ? "none" : `1px solid ${p.selected ? t.fg : t.border}`,
   };

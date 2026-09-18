@@ -5,7 +5,7 @@ import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
 import type { IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
-import type { ButtonTone, ContactKind, ContactTone } from "../types.js";
+import type { ButtonTone, ContactKind, ContactTone, ValueTone } from "../types.js";
 
 /**
  * An entity the corpus knows about — a person, a company, a project — surfaced
@@ -16,15 +16,17 @@ import type { ButtonTone, ContactKind, ContactTone } from "../types.js";
  * never enrichment fetched from the web, which is why they are mono and
  * key-aligned rather than prose.
  *
- * The tone union is the component's own five, not `Tone`. Its fact colours
- * have no fallback in the source, so a `gold` fact renders with no colour at
- * all — a value the component silently discards, which is what the narrowing
- * exists to make impossible.
+ * **Entity tone vs fact tone.** The avatar's tone names WHAT KIND OF THING
+ * this is and is the component's own five. A fact names WHAT STATE it is in,
+ * which is a different question, so facts take the full value set including
+ * `gold` and `red`: a relationship twenty years cold is red, not amber. An
+ * unlisted fact tone falls back to dim rather than inheriting. Both are the
+ * 2026-09-18 drop's answer to design-feedback §2.
  */
 export interface ContactFact {
   k: string;
   v: string;
-  tone?: ContactTone;
+  tone?: ValueTone;
 }
 
 export interface ContactAction {
@@ -56,6 +58,19 @@ const INKS: Record<ContactTone, string> = {
   purple: accent.purple.ink,
   amber: accent.amber.ink,
   neutral: accent.neutral.ink,
+};
+
+/** Fact values: every accent's ink, plus the two inks themselves. */
+const FACT_INKS: Record<ValueTone, string> = {
+  amber: accent.amber.ink,
+  gold: accent.gold.ink,
+  teal: accent.teal.ink,
+  purple: accent.purple.ink,
+  blue: accent.blue.ink,
+  red: accent.red.ink,
+  neutral: accent.neutral.ink,
+  ink: color.ink,
+  dim: color.inkDim,
 };
 
 const AVATAR_TINTS: Record<ContactTone, string> = {
@@ -170,9 +185,9 @@ export function ContactCard(p: ContactCardProps) {
                 style={{
                   flex: 1,
                   minWidth: 0,
-                  // No fallback: an untoned fact is dim ink, and a toned one is
-                  // its accent. Both are the source's.
-                  color: f.tone ? INKS[f.tone] : color.inkDim,
+                  // An untoned fact is dim ink; an unlisted tone falls back to
+                  // the same rather than inheriting.
+                  color: FACT_INKS[f.tone || "dim"] || FACT_INKS.dim,
                   fontWeight: 500,
                 }}
               >

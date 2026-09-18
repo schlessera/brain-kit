@@ -17,30 +17,40 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 // There is deliberately no `.storybook/vitest.setup.ts`: since Storybook 10.3
 // the addon applies `setProjectAnnotations` itself, and adding the file back
 // makes it skip that and warn. The published docs snippets are stale on this.
+//
+// Two story projects, one per theme — D9's matrix. `initialGlobals` pins the
+// addon-themes `theme` global for every story the project runs, so the light
+// project renders all 540-odd stories on paper with the same play functions
+// and the same a11y gate at `'error'`. That is the light theme's contrast
+// proof: axe on every rendered story, not a table of numbers.
+const storyProject = (name: string, theme: string) => ({
+  extends: true,
+  plugins: [
+    storybookTest({
+      configDir: path.join(dirname, ".storybook"),
+      storybookScript: "bun run storybook --no-open",
+      storybookUrl: process.env.SB_URL,
+      initialGlobals: { theme },
+    }),
+  ],
+  test: {
+    name,
+    browser: {
+      enabled: true,
+      provider: playwright({}),
+      headless: true,
+      instances: [{ browser: "chromium" }],
+    },
+  },
+});
+
 export default mergeConfig(
   viteConfig,
   defineConfig({
     test: {
       projects: [
-        {
-          extends: true,
-          plugins: [
-            storybookTest({
-              configDir: path.join(dirname, ".storybook"),
-              storybookScript: "bun run storybook --no-open",
-              storybookUrl: process.env.SB_URL,
-            }),
-          ],
-          test: {
-            name: "storybook",
-            browser: {
-              enabled: true,
-              provider: playwright({}),
-              headless: true,
-              instances: [{ browser: "chromium" }],
-            },
-          },
-        },
+        storyProject("storybook", "dark"),
+        storyProject("storybook-light", "light"),
         {
           extends: true,
           test: {

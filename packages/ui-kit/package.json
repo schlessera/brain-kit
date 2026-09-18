@@ -34,6 +34,7 @@
     },
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css",
+    "./tokens.css": "./dist/tokens.css",
     "./package.json": "./package.json"
   },
   "imports": {

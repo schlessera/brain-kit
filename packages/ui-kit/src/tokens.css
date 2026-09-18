@@ -1,0 +1,1049 @@
+/*
+ * brain-ui-kit design tokens — the values, the theme switch, the one keyframe
+ * and the interaction rules. Plain CSS; no Tailwind directive in this file.
+ *
+ * Two entries build on it:
+ *   - `theme.css` imports this and adds the kit's `@theme static` scales for a
+ *     consumer whose Tailwind build should generate the kit's utilities;
+ *   - `styles.css` is the precompiled entry (`theme.css` + preflight).
+ * A consumer with its OWN Tailwind theme imports THIS file, not `theme.css`:
+ * the kit's `@theme` block defines global names (`--spacing-2: 2px`, `--color-surface`,
+ * `--radius-card`) that would silently redefine that consumer's utilities —
+ * `p-2` becoming 2px is the concrete case, found while wiring `ui-react`.
+ *
+ * Every value here is reproduced from the design catalog's Foundations
+ * section and the component sources, not invented. Where the design states a
+ * RANGE rather than a value, the range is preserved: the spacing set is
+ * deliberately not a 4px grid, and three of the radius steps are ranges whose
+ * ends both appear in the source. Regularising either would silently redesign
+ * the kit.
+ *
+ * ── How theming works here ───────────────────────────────────────────────
+ *
+ * `--bk-*` is the kit's contract. Every colour any component renders resolves
+ * through one of these and nothing else; no `.tsx` in this package contains a
+ * colour literal except `src/tokens.ts`, which is where the fallbacks are
+ * constructed. `tests/tokens-match-theme.test.ts` pins the two files together
+ * in both directions.
+ *
+ * Every declaration carries both themes as `light-dark(<paper>, <dark>)`, and
+ * `color-scheme` picks the half — see the block after the tokens.
+ *
+ * The `--bk-` prefix is not decoration. This is a PUBLISHED package, and a
+ * consumer who defines their own `--color-red` would otherwise silently
+ * restyle the kit.
+ *
+ * Components spell their references `var(--bk-x)` with NO FALLBACK, so a
+ * consumer who never loads a stylesheet gets a colourless page rather than a
+ * quietly wrong theme — see the reasoning at the top of `src/tokens.ts`. A
+ * consumer who does load one can re-point every value with an attribute, and
+ * needs no runtime theme context to do it.
+ */
+:root {
+  /* ── Base palette ─────────────────────────────────────────────────
+   * Two backgrounds, four inks, seven meanings, and teal one step up. */
+  --bk-color-canvas: light-dark(#ece7dc, #0c0e12);
+  --bk-color-surface: light-dark(#f8f5ef, #141619);
+  --bk-color-raised: light-dark(#fffefa, #1a1d22);
+  --bk-color-line: light-dark(#ddd6c7, #1f2229);
+  --bk-color-edge: light-dark(#c8bfac, #2a2d35);
+  --bk-color-ink: light-dark(#231f1a, #e8e4df);
+  --bk-color-ink-dim: light-dark(#554f45, #c0bcb5);
+  --bk-color-ink-mute: light-dark(#5f584c, #9a96a1);
+  --bk-color-amber: light-dark(#7f4c08, #e09f3e);
+  --bk-color-gold: light-dark(#6f540c, #eab354);
+  --bk-color-teal: light-dark(#15594c, #5bb5a2);
+  --bk-color-purple: light-dark(#5d4489, #b197d4);
+  --bk-color-blue: light-dark(#1a5c7f, #67b8e3);
+  --bk-color-red: light-dark(#9c2a24, #f87171);
+  --bk-color-amber-lift: #eab354;
+  --bk-color-teal-lift: #7fd0be;
+
+  /* ── Accent roles ─────────────────────────────────────────────────
+   * A light theme is not the dark theme inverted. Every dark accent was
+   * chosen to glow against #0c0e12 and collapses on paper — amber is 2.2:1
+   * against white, gold 1.8:1 — so the design's rule is: hue carries the
+   * meaning, lightness carries the contrast.
+   *
+   * That makes each accent THREE values on paper and one in the dark:
+   *   ink   text, icons, borders          (light: darkened until it passes)
+   *   fill  solid surfaces that take near-black text on top   (light: as-is)
+   *   mark  6-8px marks — status dots      (light: a mid step)
+   * Fill-as-text is illegible; ink-as-fill turns the primary button to mud;
+   * and at dot size a darkened accent reads black, which is why `mark` is a
+   * third value and not a rounding of the other two.
+   *
+   * In the dark theme all three are the same colour, because a glowing accent
+   * works as all three. The NAMES are what matter here: they let the light
+   * theme be a block of values rather than an edit to every component. */
+  --bk-amber-ink: light-dark(#7f4c08, #e09f3e);
+  --bk-amber-fill: #e09f3e;
+  --bk-amber-mark: light-dark(#b06d10, #e09f3e);
+  --bk-gold-ink: light-dark(#6f540c, #eab354);
+  --bk-gold-fill: #eab354;
+  --bk-gold-mark: light-dark(#9b7610, #eab354);
+  --bk-teal-ink: light-dark(#15594c, #5bb5a2);
+  --bk-teal-fill: #5bb5a2;
+  --bk-teal-mark: light-dark(#227f6c, #5bb5a2);
+  --bk-purple-ink: light-dark(#5d4489, #b197d4);
+  --bk-purple-fill: #b197d4;
+  --bk-purple-mark: light-dark(#7a5fb0, #b197d4);
+  --bk-blue-ink: light-dark(#1a5c7f, #67b8e3);
+  --bk-blue-fill: #67b8e3;
+  --bk-blue-mark: light-dark(#22719b, #67b8e3);
+  --bk-red-ink: light-dark(#9c2a24, #f87171);
+  --bk-red-fill: #f87171;
+  --bk-red-mark: light-dark(#bd3b33, #f87171);
+  --bk-neutral-ink: light-dark(#5f584c, #9a96a1);
+  --bk-neutral-fill: light-dark(#a59d8f, #9a96a1);
+  --bk-neutral-mark: light-dark(#847c6f, #9a96a1);
+
+  /* ── What sits ON an accent ──────────────────────────────────────────
+   * The design's `--on-fill`: text that sits on any `*-fill` is near-black
+   * ink in both themes (`#0c0e12` dark, `#231f1a` light), including count
+   * badges — "the one place the kit had used white (2.77:1 on red; near-black
+   * is 6.75:1)". A solid `Button`, a solid `Chip`, the composer's send disc
+   * and a rich notification's icon well all read this rather than `canvas`,
+   * which happens to be the same colour in the dark and is not on paper.
+   *
+   * `on-ink-solid` is the other case: a small disc filled with an accent's
+   * INK value rather than its fill (a selected ChoiceOption's mark, a done
+   * StepList bubble). Dark fills those with the fill and puts canvas on top;
+   * the light catalog fills them with the darkened ink and puts SURFACE on
+   * top, because the ink is dark enough to take light text and the fill is
+   * not. Two names, because they are two different answers on paper. */
+  --bk-on-fill: light-dark(#231f1a, #0c0e12);
+  --bk-on-ink-solid: light-dark(#f8f5ef, #0c0e12);
+  --bk-choice-mark-bg: light-dark(var(--bk-teal-ink), var(--bk-teal-fill));
+  --bk-step-bubble-done-bg: light-dark(var(--bk-teal-ink), var(--bk-teal-fill));
+
+  /* Toggle's knob: canvas on a lit track, ink-mute on a dark one. The light
+   * catalog draws the knob as `surface` in both states — a light knob on a
+   * warm fill and on the edge-coloured off track — so it is two tokens rather
+   * than two literals in the component. */
+  --bk-toggle-knob-on: light-dark(var(--bk-color-surface), var(--bk-color-canvas));
+  --bk-toggle-knob-off: light-dark(var(--bk-color-surface), var(--bk-color-ink-mute));
+
+  /* A solid button's border is its own fill in the dark; on paper the light
+   * catalog draws it one notch darker than the fill (`#d08f2e` on amber,
+   * `#4aa593` on teal) so the button keeps an edge against the tinted card
+   * it sits on. */
+  --bk-button-border-primary: light-dark(#d08f2e, var(--bk-amber-fill));
+  --bk-button-border-affirm: light-dark(#4aa593, var(--bk-teal-fill));
+
+  /* The chat header's filament: amber to gold and back in the dark; on paper
+   * the light catalog runs it from the amber DOT value through the fill,
+   * because the darkened amber ink would read as a brown rule. */
+  --bk-filament-edge: light-dark(var(--bk-amber-mark), var(--bk-amber-ink));
+  --bk-filament-core: light-dark(var(--bk-amber-fill), var(--bk-gold-ink));
+
+  /* The one keyframe's glow. The light catalog redeclares `breathe` with the
+   * amber INK at 16% rather than the fill at 15%; a `var()` inside the
+   * keyframe resolves on the animated element, so one keyframe serves both. */
+  --bk-breathe-glow: light-dark(rgba(127,76,8,0.16), rgba(224,159,62,0.15));
+
+  /* ── Tint and border ramps, per surface ───────────────────────────
+   * The rule is tints at 4-10% alpha and borders at 30-50%, and each
+   * component picks its own point in that band: a chip is a small dense mark
+   * and tints at 9-10%, a card is a large field and tints at 5-6%, a callout
+   * sits between at 6-8%. Reproduced from the `T` tables in the source rather
+   * than averaged into one token — an averaged tint is a silent redesign.
+   *
+   * Written out rather than derived from the base hex at runtime. The light
+   * theme hand-tunes these (its tints use the FILL hue at 8-14%, never the
+   * ink hue, and each accent was tested on its own tinted ground rather than
+   * on plain surface — teal and gold both had to come down a notch). A
+   * derivation would produce the wrong value for exactly those cases.
+   *
+   * `neutral` is not an accent: every set resolves it to a real surface or
+   * rule colour, exactly as the source's tables do. */
+  --bk-chip-border-amber: light-dark(rgba(127,76,8,0.42), rgba(224,159,62,0.4));
+  --bk-chip-border-gold: light-dark(rgba(111,84,12,0.5), rgba(234,179,84,0.45));
+  --bk-chip-border-teal: light-dark(rgba(21,89,76,0.45), rgba(91,181,162,0.4));
+  --bk-chip-border-purple: light-dark(rgba(93,68,137,0.42), rgba(177,151,212,0.4));
+  --bk-chip-border-blue: light-dark(rgba(26,92,127,0.45), rgba(103,184,227,0.4));
+  --bk-chip-border-red: light-dark(rgba(156,42,36,0.45), rgba(248,113,113,0.4));
+  --bk-chip-border-neutral: light-dark(#c8bfac, #2a2d35);
+  --bk-chip-tint-amber: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.1));
+  --bk-chip-tint-gold: light-dark(rgba(234,179,84,0.16), rgba(234,179,84,0.1));
+  --bk-chip-tint-teal: light-dark(rgba(91,181,162,0.16), rgba(91,181,162,0.1));
+  --bk-chip-tint-purple: light-dark(rgba(177,151,212,0.16), rgba(177,151,212,0.09));
+  --bk-chip-tint-blue: light-dark(rgba(103,184,227,0.16), rgba(103,184,227,0.09));
+  --bk-chip-tint-red: light-dark(rgba(248,113,113,0.16), rgba(248,113,113,0.09));
+  --bk-chip-tint-neutral: light-dark(rgba(35,31,26,0.04), rgba(255,255,255,0.04));
+
+
+  --bk-surface-border-amber: light-dark(rgba(127,76,8,0.45), rgba(224,159,62,0.4));
+  --bk-surface-border-gold: light-dark(rgba(111,84,12,0.5), rgba(234,179,84,0.45));
+  --bk-surface-border-teal: light-dark(rgba(21,89,76,0.45), rgba(91,181,162,0.4));
+  --bk-surface-border-purple: light-dark(rgba(93,68,137,0.45), rgba(177,151,212,0.4));
+  --bk-surface-border-blue: light-dark(rgba(26,92,127,0.45), rgba(103,184,227,0.4));
+  --bk-surface-border-red: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.35));
+  --bk-surface-border-neutral: light-dark(#ddd6c7, #1f2229);
+  --bk-surface-tint-amber: light-dark(rgba(224,159,62,0.12), rgba(224,159,62,0.05));
+  --bk-surface-tint-gold: light-dark(rgba(234,179,84,0.12), rgba(234,179,84,0.05));
+  --bk-surface-tint-teal: light-dark(rgba(91,181,162,0.13), rgba(91,181,162,0.06));
+  --bk-surface-tint-purple: light-dark(rgba(177,151,212,0.13), rgba(177,151,212,0.06));
+  --bk-surface-tint-blue: light-dark(rgba(103,184,227,0.13), rgba(103,184,227,0.06));
+  --bk-surface-tint-red: light-dark(rgba(248,113,113,0.12), rgba(248,113,113,0.05));
+  --bk-surface-tint-neutral: light-dark(#f8f5ef, #141619);
+
+  /* Wave 1b: `Surface` became operable, so its hover needs a value per tone.
+   * The design specifies hover as "surface one step up" and shows it only on
+   * the untoned card, so the toned steps are derived: +0.04 alpha in the tone's
+   * OWN hue, which keeps D20's rule that the tone never changes on hover. The
+   * step is smaller than `--bk-suggestion-hover-tint-*`'s +0.07 on purpose — a
+   * chip is a small dense mark and a card is a large field, and the same jump
+   * that reads as a lift on a pill reads as a colour change on a panel.
+   * Neutral has no hue to step, so it takes `raised`, which is D20's literal
+   * value. Recorded in `.plan/design-feedback.md` as derived, not specified. */
+  --bk-surface-hover-tint-amber: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.09));
+  --bk-surface-hover-tint-gold: light-dark(rgba(234,179,84,0.16), rgba(234,179,84,0.09));
+  --bk-surface-hover-tint-teal: light-dark(rgba(91,181,162,0.17), rgba(91,181,162,0.1));
+  --bk-surface-hover-tint-purple: light-dark(rgba(177,151,212,0.17), rgba(177,151,212,0.1));
+  --bk-surface-hover-tint-blue: light-dark(rgba(103,184,227,0.17), rgba(103,184,227,0.1));
+  --bk-surface-hover-tint-red: light-dark(rgba(248,113,113,0.16), rgba(248,113,113,0.09));
+  --bk-surface-hover-tint-neutral: var(--bk-color-raised);
+
+
+  --bk-callout-border-amber: light-dark(rgba(127,76,8,0.35), rgba(224,159,62,0.3));
+  --bk-callout-border-gold: light-dark(rgba(111,84,12,0.45), rgba(234,179,84,0.4));
+  --bk-callout-border-teal: light-dark(rgba(21,89,76,0.42), rgba(91,181,162,0.4));
+  --bk-callout-border-purple: light-dark(rgba(93,68,137,0.42), rgba(177,151,212,0.4));
+  --bk-callout-border-blue: light-dark(rgba(26,92,127,0.45), rgba(103,184,227,0.4));
+  --bk-callout-border-red: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.35));
+  --bk-callout-border-neutral: light-dark(#ddd6c7, #1f2229);
+  --bk-callout-tint-amber: light-dark(rgba(224,159,62,0.14), rgba(224,159,62,0.06));
+  --bk-callout-tint-gold: light-dark(rgba(234,179,84,0.13), rgba(234,179,84,0.06));
+  --bk-callout-tint-teal: light-dark(rgba(91,181,162,0.12), rgba(91,181,162,0.08));
+  --bk-callout-tint-purple: light-dark(rgba(177,151,212,0.14), rgba(177,151,212,0.07));
+  --bk-callout-tint-blue: light-dark(rgba(103,184,227,0.14), rgba(103,184,227,0.07));
+  --bk-callout-tint-red: light-dark(rgba(248,113,113,0.13), rgba(248,113,113,0.06));
+  --bk-callout-tint-neutral: light-dark(#f8f5ef, #141619);
+
+  /* Placeholder: the error field and hairline are the red variant, not a
+   * tone; the retry affordance borders in whatever tone it was given. */
+  --bk-placeholder-action-border-amber: light-dark(rgba(127,76,8,0.4), rgba(224,159,62,0.35));
+  --bk-placeholder-action-border-gold: light-dark(rgba(111,84,12,0.4), rgba(234,179,84,0.35));
+  --bk-placeholder-action-border-teal: light-dark(rgba(21,89,76,0.4), rgba(91,181,162,0.35));
+  --bk-placeholder-action-border-purple: light-dark(rgba(93,68,137,0.4), rgba(177,151,212,0.35));
+  --bk-placeholder-action-border-blue: light-dark(rgba(26,92,127,0.4), rgba(103,184,227,0.35));
+  --bk-placeholder-action-border-red: light-dark(rgba(156,42,36,0.5), rgba(248,113,113,0.35));
+  --bk-placeholder-action-border-neutral: light-dark(rgba(95,88,76,0.4), rgba(154,150,161,0.35));
+  --bk-placeholder-error-tint: light-dark(rgba(156,42,36,0.07), rgba(248,113,113,0.05));
+  --bk-placeholder-error-border: light-dark(rgba(156,42,36,0.45), rgba(248,113,113,0.35));
+
+  /* Button. `on-solid` is ink and inset fill ON a filled button — the one
+   * place the canvas colour is used as a foreground. */
+  --bk-button-border-danger: light-dark(rgba(156,42,36,0.45), rgba(248,113,113,0.35));
+  --bk-button-tint-suggest: light-dark(rgba(224,159,62,0.13), rgba(224,159,62,0.06));
+  --bk-button-border-suggest: light-dark(rgba(127,76,8,0.35), rgba(224,159,62,0.3));
+  --bk-button-ink-on-solid: light-dark(#231f1a, #0c0e12);
+  --bk-button-effect-bg-on-solid: rgba(255,255,255,0.28);
+
+  /* Button hover, per tone. The design's rule: hover lifts the same surface
+   * one step and NEVER changes the tone, because a control that looks like
+   * something else on hover has lied about what it does. These travel to CSS
+   * as --hv-bg / --hv-bd / --hv-fg on the element's own inline style; see the
+   * interaction rules at the foot of this file.
+   *
+   * Most of them are an existing colour under another name, so they SAY so
+   * rather than restating a hex — a theme that moves `raised` moves the quiet
+   * hovers with it. Note `primary` lifts to `--bk-color-amber-lift`, not to
+   * gold: the two are the same value in this palette, but "amber one step up"
+   * is what the hover means, and a theme that moved gold must not drag the
+   * primary button's hover along behind it. Only the two accent tints below
+   * are values of their own. */
+  --bk-button-hover-bg-primary: var(--bk-color-amber-lift);
+  --bk-button-hover-border-primary: var(--bk-color-amber-lift);
+  --bk-button-hover-fg-primary: var(--bk-color-canvas);
+  --bk-button-hover-bg-affirm: var(--bk-color-teal-lift);
+  --bk-button-hover-border-affirm: var(--bk-color-teal-lift);
+  --bk-button-hover-fg-affirm: var(--bk-color-canvas);
+  --bk-button-hover-bg-ghost: var(--bk-color-raised);
+  --bk-button-hover-border-ghost: var(--bk-hover-border);
+  --bk-button-hover-fg-ghost: var(--bk-color-ink);
+  --bk-button-hover-bg-quiet: var(--bk-color-raised);
+  --bk-button-hover-border-quiet: var(--bk-hover-border);
+  --bk-button-hover-fg-quiet: var(--bk-color-ink-dim);
+  --bk-button-hover-bg-danger: light-dark(rgba(248,113,113,0.16), rgba(248,113,113,0.1));
+  --bk-button-hover-border-danger: light-dark(rgba(156,42,36,0.6), rgba(248,113,113,0.6));
+  --bk-button-hover-fg-danger: var(--bk-red-ink);
+  --bk-button-hover-bg-suggest: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.12));
+  --bk-button-hover-border-suggest: light-dark(rgba(127,76,8,0.55), rgba(224,159,62,0.5));
+  --bk-button-hover-fg-suggest: var(--bk-amber-ink);
+
+  /* Shared interaction values. The hover surface is `raised` and has no token
+   * of its own — a second name for one colour is how two colours start. Focus
+   * is ink, not amber or teal, because it says WHERE YOU ARE rather than what a
+   * thing means. */
+  --bk-hover-border: light-dark(#b5ab96, #3a3e47);
+  /* The ring IS ink, and says so rather than restating ink's literal. D21
+   * requires the focus ring to stay ink in BOTH themes, so a theme that moves
+   * ink must drag the ring with it; a second copy of `#e8e4df` here is how the
+   * paper theme would end up with a ring left over from the dark one. */
+  --bk-focus-ring: var(--bk-color-ink);
+
+  /* ── Wave 2: rows, evidence, decision surfaces ──────────────────────
+   *
+   * Same rules as above. A value that is already a token says so rather than
+   * restating a hex, and nothing here is an average of two source values.
+   *
+   * THE HOVER VEIL. Four wave-2 components lift a TRANSPARENT row on hover,
+   * so they cannot lift to `raised` the way a filled control does — there is
+   * no surface underneath to step up from. The design writes a translucent
+   * white instead, at three weights (3%, 3.5%, 4%), which is what these are.
+   * Named for what they are rather than for the four call sites, because the
+   * same 3.5% serves FileRow and ActionCard and two names for one colour is
+   * how two colours start. On paper the veil inverts to black; that is one
+   * edit here rather than four.
+   *
+   * The components whose hover lifts to an opaque `#1a1d22` (ListRow,
+   * QueueItemRow, SearchResultCard) reach for `--bk-color-raised` directly
+   * and get no alias — that is the rule that deleted `--bk-hover-surface`. */
+  --bk-hover-veil-soft: light-dark(rgba(35,31,26,0.03), rgba(255,255,255,0.03));
+  --bk-hover-veil: light-dark(rgba(35,31,26,0.035), rgba(255,255,255,0.035));
+  --bk-hover-veil-firm: light-dark(rgba(35,31,26,0.04), rgba(255,255,255,0.04));
+
+  /* ListRow `card` and ChoiceOption, selected. Both are teal because the
+   * choice belongs to the USER, never to the agent — the design's rule — and
+   * both sit at their own point in the tint band: a whole selected card at 8%,
+   * a single option at 10%. */
+  --bk-listrow-border-selected: light-dark(rgba(21,89,76,0.55), rgba(91,181,162,0.5));
+  --bk-listrow-tint-selected: light-dark(rgba(91,181,162,0.15), rgba(91,181,162,0.08));
+  --bk-choice-border-selected: light-dark(rgba(21,89,76,0.5), rgba(91,181,162,0.6));
+  --bk-choice-tint-selected: light-dark(rgba(91,181,162,0.14), rgba(91,181,162,0.1));
+
+  /* FileRow. The open folder's glyph is amber held back to 80% so the OPEN
+   * folder does not outshout the ACTIVE row, which is amber at full strength. */
+  --bk-file-icon-open: light-dark(rgba(127,76,8,0.8), rgba(224,159,62,0.8));
+
+  /* QueueItemRow. Only two of the six states colour their own shell: `blocked`
+   * is amber because it is waiting on you, `failed` is red. The other four take
+   * the plain card hairline. */
+  --bk-queue-border-blocked: light-dark(rgba(127,76,8,0.42), rgba(224,159,62,0.35));
+  --bk-queue-tint-blocked: light-dark(rgba(224,159,62,0.1), rgba(224,159,62,0.04));
+  --bk-queue-border-failed: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.3));
+
+  /* SearchResultCard's <mark>. A highlight, not a tint — it sits well above the
+   * 4-10% tint band on purpose, because it has to be legible as a background
+   * behind running prose. */
+  --bk-search-mark-bg: rgba(224,159,62,0.22);
+
+  /* ActionCard. `kind` picks the accent; `emphasis` picks how loudly the card
+   * states it. Three border weights over one 5% tint, so a card can be louder
+   * without becoming a different colour. Five tones, not seven: the seven
+   * action kinds resolve to five accents.
+   *
+   * Not folded into the surface/chip/callout ramps, which sit at 0.4/0.45/0.35
+   * per tone rather than one alpha across all of them — matching them would
+   * have meant averaging, and the design's own numbers are uniform here. */
+  --bk-action-tint-amber: light-dark(rgba(224,159,62,0.12), rgba(224,159,62,0.05));
+  --bk-action-tint-gold: light-dark(rgba(234,179,84,0.12), rgba(234,179,84,0.05));
+  --bk-action-tint-teal: light-dark(rgba(91,181,162,0.12), rgba(91,181,162,0.05));
+  --bk-action-tint-red: light-dark(rgba(248,113,113,0.12), rgba(248,113,113,0.05));
+  --bk-action-tint-neutral: light-dark(rgba(95,88,76,0.12), rgba(154,150,161,0.05));
+  --bk-action-border-bold-amber: light-dark(rgba(127,76,8,0.4), rgba(224,159,62,0.4));
+  --bk-action-border-bold-gold: light-dark(rgba(111,84,12,0.45), rgba(234,179,84,0.4));
+  --bk-action-border-bold-teal: light-dark(rgba(21,89,76,0.45), rgba(91,181,162,0.4));
+  --bk-action-border-bold-red: light-dark(rgba(156,42,36,0.45), rgba(248,113,113,0.4));
+  --bk-action-border-bold-neutral: light-dark(rgba(95,88,76,0.45), rgba(154,150,161,0.4));
+  --bk-action-border-tinted-amber: rgba(224,159,62,0.35);
+  --bk-action-border-tinted-gold: rgba(234,179,84,0.35);
+  --bk-action-border-tinted-teal: rgba(91,181,162,0.35);
+  --bk-action-border-tinted-red: light-dark(rgba(156,42,36,0.5), rgba(248,113,113,0.35));
+  --bk-action-border-tinted-neutral: light-dark(rgba(95,88,76,0.35), rgba(154,150,161,0.35));
+  --bk-action-border-dashed-amber: light-dark(rgba(127,76,8,0.5), rgba(224,159,62,0.45));
+  --bk-action-border-dashed-gold: light-dark(rgba(111,84,12,0.6), rgba(234,179,84,0.45));
+  --bk-action-border-dashed-teal: light-dark(rgba(21,89,76,0.5), rgba(91,181,162,0.45));
+  --bk-action-border-dashed-red: light-dark(rgba(156,42,36,0.5), rgba(248,113,113,0.45));
+  --bk-action-border-dashed-neutral: light-dark(rgba(95,88,76,0.5), rgba(154,150,161,0.45));
+
+  /* AskUserCard. The card's hairline and its uppercase mono heading are the
+   * chosen accent at 30% and 85%. The 85% is the one place in the kit a
+   * FOREGROUND comes from alpha; it is the design's value, and the a11y wave
+   * should measure it at 10px rather than assume it passes. */
+  --bk-ask-border-amber: light-dark(rgba(127,76,8,0.35), rgba(224,159,62,0.3));
+  --bk-ask-border-teal: light-dark(rgba(21,89,76,0.35), rgba(91,181,162,0.3));
+  --bk-ask-border-purple: light-dark(rgba(93,68,137,0.35), rgba(177,151,212,0.3));
+  --bk-ask-head-amber: light-dark(rgba(127,76,8,0.85), rgba(224,159,62,0.85));
+  --bk-ask-head-teal: light-dark(rgba(21,89,76,0.85), rgba(91,181,162,0.85));
+  --bk-ask-head-purple: light-dark(rgba(93,68,137,0.85), rgba(177,151,212,0.85));
+
+  /* NotificationCard is the only component that renders OVER something it does
+   * not own — a lock screen — so its three grounds are translucent and it is
+   * the only place in the kit with a backdrop filter. `rich` is `raised` at
+   * 92%, the two quieter densities are `surface` at 90% and 72%. */
+  --bk-notification-bg-rich: light-dark(rgba(255,254,250,0.92), rgba(26,29,34,0.92));
+  --bk-notification-bg-compact: light-dark(rgba(248,245,239,0.9), rgba(20,22,25,0.9));
+  --bk-notification-bg-dim: light-dark(rgba(248,245,239,0.72), rgba(20,22,25,0.72));
+
+  /* Two values that belong to no ramp. `inset-well-bg` is the darker well sunk
+   * INTO a card — DiffBlock's body, StepList's code line, AttachmentRow's
+   * extract. It was named `diff-bg-inset` when DiffBlock was its only caller;
+   * wave 3 gave it two more, and a token is named for what it is rather than
+   * for where it was first needed.
+   *
+   * The count badge's ink WAS pure white, and it was the widest single miss in
+   * the kit — 2.77:1 on red at 9px (design-feedback §6). The 2026-09-18 drop
+   * resolves it the way §6 predicted: a count badge is a solid fill like any
+   * other and takes `on-fill`. The token stays so the three call sites keep
+   * naming what they mean; its value is no longer its own. */
+  --bk-inset-well-bg: light-dark(#ece7dc, rgba(12,14,18,0.7));
+  --bk-chip-count-ink: var(--bk-on-fill);
+
+
+  /* ── Wave 3: in-chat blocks and conversation lifecycle ──────────────
+   *
+   * Twenty components, eleven of which carry their own tone table. Same rules
+   * as the two waves above: a value that is already a token says so, nothing
+   * is an average of two source values, and a family exists per SURFACE rather
+   * than per call site — a pin label, a medallion and a waveform thumb are
+   * three different grounds that happen to share an alpha today and will not
+   * share one on paper.
+   *
+   * ALPHA BYTES ARE ROUNDED TO TWO DECIMALS, as waves 1 and 2 rounded theirs.
+   * The source writes tints as an eight-digit hex suffix (`c + '0f'`), which
+   * is 15/255 = 0.0588; the token says 0.06. The difference is invisible and
+   * the alternative is a stylesheet whose alphas are unreadable byte fractions
+   * that the light theme then has to hand-tune anyway. */
+
+  /* MapView. Everything here is map furniture rather than content: the
+   * graticule, the two stops of the sky gradient, the two translucent
+   * near-black grounds that keep a label and a coordinate legible over it, and
+   * the scale bar's rule and end caps in ink. The sky is a radial gradient
+   * between two values a shade below `canvas`, which is what makes the map
+   * read as a hole in the card rather than a panel on it. */
+  --bk-map-graticule: light-dark(rgba(21,89,76,0.18), rgba(91,181,162,0.13));
+  --bk-map-sky-inner: light-dark(#e4ded0, #101318);
+  --bk-map-sky-outer: light-dark(#ddd6c7, #0b0d11);
+  --bk-map-label-bg: light-dark(rgba(248,245,239,0.86), rgba(12,14,18,0.86));
+  --bk-map-coord-bg: light-dark(rgba(248,245,239,0.6), rgba(12,14,18,0.6));
+  --bk-map-halo: light-dark(rgba(248,245,239,0.8), rgba(12,14,18,0.8));
+  --bk-map-scale-bar: light-dark(rgba(35,31,26,0.5), rgba(232,228,223,0.5));
+  --bk-map-scale-cap: light-dark(rgba(35,31,26,0.8), rgba(232,228,223,0.8));
+
+  /* Land, and the reason it is barely there.
+   *
+   * A coastline stroke says where the edge is and NOT which side of it is
+   * water, which is the one thing a reader needs before anything else on the
+   * map means anything. A fill answers it in a way no label can.
+   *
+   * It has to answer it without becoming the subject. The map already carries
+   * a route, pins, labels, a graticule and a scale bar, and land is the ground
+   * all of those sit on — so this is the smallest lift off the sky that still
+   * reads as a different surface: 6% white, which takes #101318 to about
+   * #1d1f24. It was measured at 3.5% first and that really was invisible —
+   * present in the DOM, correct in the computed style, and indistinguishable
+   * from the sky on screen. Enough to see an island; not enough to compete with
+   * a 2px amber route drawn across it. */
+  --bk-map-land: light-dark(rgba(35,31,26,0.06), rgba(232,228,223,0.06));
+
+  /* A pin is a 10px mark with two rings: the near-black halo above, which
+   * separates it from whatever it sits on, and a wider ring of its own accent
+   * at 20%. The label beside it takes the same accent at 35%. */
+  --bk-map-pin-ring-amber: rgba(224,159,62,0.2);
+  --bk-map-pin-ring-gold: rgba(234,179,84,0.2);
+  --bk-map-pin-ring-teal: rgba(91,181,162,0.2);
+  --bk-map-pin-ring-purple: rgba(177,151,212,0.2);
+  --bk-map-pin-ring-blue: rgba(103,184,227,0.2);
+  --bk-map-pin-ring-red: rgba(248,113,113,0.2);
+  --bk-map-pin-ring-neutral: light-dark(rgba(95,88,76,0.2), rgba(154,150,161,0.2));
+  --bk-map-pin-border-amber: light-dark(rgba(127,76,8,0.4), rgba(224,159,62,0.35));
+  --bk-map-pin-border-gold: light-dark(rgba(111,84,12,0.4), rgba(234,179,84,0.35));
+  --bk-map-pin-border-teal: light-dark(rgba(21,89,76,0.4), rgba(91,181,162,0.35));
+  --bk-map-pin-border-purple: light-dark(rgba(93,68,137,0.4), rgba(177,151,212,0.35));
+  --bk-map-pin-border-blue: light-dark(rgba(26,92,127,0.4), rgba(103,184,227,0.35));
+  --bk-map-pin-border-red: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.35));
+  --bk-map-pin-border-neutral: light-dark(rgba(95,88,76,0.4), rgba(154,150,161,0.35));
+
+  /* StepList. The rail below a DONE step is teal at 40%; below any other step
+   * it is the plain `edge` hairline and reaches for that token directly. The
+   * current step's bubble sits at 14%, above the tint band, because it is a
+   * 22px disc rather than a field and it is the one thing on the list that is
+   * happening now. */
+  --bk-step-rail-done: light-dark(rgba(21,89,76,0.4), rgba(91,181,162,0.4));
+  --bk-step-bubble-tint-current: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.14));
+
+  /* ScheduleList's tag pill. The rail's own colour at 40%. An UNTONED item's
+   * rail is the `edge` hairline and its tag border is that hairline at 40%
+   * (`-neutral`, the name it shipped under); `neutral` the grey ACCENT gets
+   * its own row (D33), so the two stop sharing a token. */
+  --bk-schedule-tag-border-amber: light-dark(rgba(127,76,8,0.45), rgba(224,159,62,0.4));
+  --bk-schedule-tag-border-gold: light-dark(rgba(111,84,12,0.45), rgba(234,179,84,0.4));
+  --bk-schedule-tag-border-teal: light-dark(rgba(21,89,76,0.45), rgba(91,181,162,0.4));
+  --bk-schedule-tag-border-purple: light-dark(rgba(93,68,137,0.45), rgba(177,151,212,0.4));
+  --bk-schedule-tag-border-blue: light-dark(rgba(26,92,127,0.45), rgba(103,184,227,0.4));
+  --bk-schedule-tag-border-red: light-dark(rgba(156,42,36,0.45), rgba(248,113,113,0.4));
+  --bk-schedule-tag-border-neutral: light-dark(rgba(200,191,172,0.45), rgba(42,45,53,0.4));
+  --bk-schedule-tag-border-accent-neutral: light-dark(rgba(95,88,76,0.45), rgba(154,150,161,0.4));
+
+  /* QuoteCard's ground: one uniform 6% behind a 3px solid rail of the same
+   * accent. Its own ramp rather than `callout-tint-*`, which varies 6-8% per
+   * tone — matching would have meant averaging. */
+  --bk-quote-tint-teal: light-dark(rgba(91,181,162,0.14), rgba(91,181,162,0.06));
+  --bk-quote-tint-amber: light-dark(rgba(224,159,62,0.13), rgba(224,159,62,0.06));
+  --bk-quote-tint-purple: light-dark(rgba(177,151,212,0.13), rgba(177,151,212,0.06));
+  --bk-quote-tint-blue: light-dark(rgba(103,184,227,0.13), rgba(103,184,227,0.06));
+  --bk-quote-tint-neutral: light-dark(rgba(95,88,76,0.13), rgba(154,150,161,0.06));
+
+  /* Provenance. Two components shell themselves in purple when what they hold
+   * came from outside the corpus — LinkPreviewCard and AttachmentRow — and the
+   * design says that line is not optional. One name, because it is one
+   * statement, not two borders that happen to match. */
+  --bk-provenance-border: light-dark(rgba(93,68,137,0.4), rgba(177,151,212,0.35));
+
+  /* The hatch. Brain does not render remote images inline, so a picture is a
+   * deliberate 135-degree placeholder: `raised` against this one stripe. */
+  --bk-hatch-stripe: light-dark(#e6e0d3, #22262c);
+
+  /* ContactCard's avatar: the entity's accent at 12% behind its initials, with
+   * its own edge at 35%. A person is a circle, a company or a project a
+   * rounded square; the colour says which, so the shape never has to. */
+  --bk-avatar-tint-teal: light-dark(rgba(91,181,162,0.16), rgba(91,181,162,0.12));
+  --bk-avatar-tint-blue: light-dark(rgba(103,184,227,0.16), rgba(103,184,227,0.12));
+  --bk-avatar-tint-purple: light-dark(rgba(177,151,212,0.16), rgba(177,151,212,0.12));
+  --bk-avatar-tint-amber: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.12));
+  --bk-avatar-tint-neutral: light-dark(rgba(95,88,76,0.16), rgba(154,150,161,0.12));
+  --bk-avatar-border-teal: light-dark(rgba(21,89,76,0.4), rgba(91,181,162,0.35));
+  --bk-avatar-border-blue: light-dark(rgba(26,92,127,0.4), rgba(103,184,227,0.35));
+  --bk-avatar-border-purple: light-dark(rgba(93,68,137,0.4), rgba(177,151,212,0.35));
+  --bk-avatar-border-amber: light-dark(rgba(127,76,8,0.4), rgba(224,159,62,0.35));
+  --bk-avatar-border-neutral: light-dark(rgba(95,88,76,0.4), rgba(154,150,161,0.35));
+
+  /* TrendChart. Every bar but the last is the series accent at 45%; the last
+   * one is the accent at full strength, because "today" is what the question
+   * meant. The track behind them is `line` at 55%, so an empty bucket still
+   * reads as a bucket. */
+  --bk-trend-track: light-dark(rgba(221,214,199,0.55), rgba(31,34,41,0.55));
+  --bk-trend-bar-amber: rgba(224,159,62,0.45);
+  --bk-trend-bar-gold: rgba(234,179,84,0.45);
+  --bk-trend-bar-teal: rgba(91,181,162,0.45);
+  --bk-trend-bar-purple: rgba(177,151,212,0.45);
+  --bk-trend-bar-blue: rgba(103,184,227,0.45);
+  --bk-trend-bar-red: rgba(248,113,113,0.45);
+  --bk-trend-bar-neutral: light-dark(rgba(95,88,76,0.45), rgba(154,150,161,0.45));
+
+  /* SuggestionChips. A follow-up chip is the one control in the kit whose REST
+   * state is toned and whose hover is toned too, so it needs four values per
+   * tone rather than two: 30% border over a 5% ground at rest, 50% over 12% on
+   * hover. Five tones. `neutral` is the grey ACCENT (D33): the 2026-09-18 drop
+   * tightened the vocabulary so that an UNTONED chip is dim ink on the plain
+   * card edge, and `neutral` means the machine-meta grey like everywhere else.
+   * Before that drop this ramp was the dim-ink hue, ported as found. */
+  --bk-suggestion-border-teal: light-dark(rgba(21,89,76,0.35), rgba(91,181,162,0.3));
+  --bk-suggestion-border-amber: light-dark(rgba(127,76,8,0.42), rgba(224,159,62,0.3));
+  --bk-suggestion-border-purple: light-dark(rgba(93,68,137,0.35), rgba(177,151,212,0.3));
+  --bk-suggestion-border-blue: light-dark(rgba(26,92,127,0.35), rgba(103,184,227,0.3));
+  --bk-suggestion-border-neutral: light-dark(rgba(95,88,76,0.35), rgba(154,150,161,0.3));
+  --bk-suggestion-tint-teal: light-dark(rgba(91,181,162,0.12), rgba(91,181,162,0.05));
+  --bk-suggestion-tint-amber: light-dark(rgba(224,159,62,0.14), rgba(224,159,62,0.05));
+  --bk-suggestion-tint-purple: light-dark(rgba(177,151,212,0.12), rgba(177,151,212,0.05));
+  --bk-suggestion-tint-blue: light-dark(rgba(103,184,227,0.12), rgba(103,184,227,0.05));
+  --bk-suggestion-tint-neutral: light-dark(rgba(95,88,76,0.12), rgba(154,150,161,0.05));
+  --bk-suggestion-hover-tint-teal: light-dark(rgba(91,181,162,0.16), rgba(91,181,162,0.12));
+  --bk-suggestion-hover-tint-amber: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.12));
+  --bk-suggestion-hover-tint-purple: light-dark(rgba(177,151,212,0.16), rgba(177,151,212,0.12));
+  --bk-suggestion-hover-tint-blue: light-dark(rgba(103,184,227,0.16), rgba(103,184,227,0.12));
+  --bk-suggestion-hover-tint-neutral: light-dark(rgba(95,88,76,0.16), rgba(154,150,161,0.12));
+  --bk-suggestion-hover-border-teal: light-dark(rgba(21,89,76,0.55), rgba(91,181,162,0.5));
+  --bk-suggestion-hover-border-amber: light-dark(rgba(127,76,8,0.55), rgba(224,159,62,0.5));
+  --bk-suggestion-hover-border-purple: light-dark(rgba(93,68,137,0.55), rgba(177,151,212,0.5));
+  --bk-suggestion-hover-border-blue: light-dark(rgba(26,92,127,0.55), rgba(103,184,227,0.5));
+  --bk-suggestion-hover-border-neutral: light-dark(rgba(95,88,76,0.55), rgba(154,150,161,0.5));
+
+  /* The fourth weight of the hover veil. An UNTONED suggestion chip is
+   * transparent at rest, so it cannot lift to `raised`; it lifts to white at
+   * 5%, one step above the firm veil the wave-2 rows use. */
+  --bk-hover-veil-strong: light-dark(rgba(35,31,26,0.05), rgba(255,255,255,0.05));
+
+  /* AttachmentRow's thumb — the well the kind glyph sits in, at 8% with a 19%
+   * edge. An IMAGE takes the hatch instead, because Brain shows you that it
+   * has a picture rather than showing you the picture. */
+  --bk-attach-thumb-tint-teal: light-dark(rgba(91,181,162,0.15), rgba(91,181,162,0.08));
+  --bk-attach-thumb-tint-amber: light-dark(rgba(224,159,62,0.15), rgba(224,159,62,0.08));
+  --bk-attach-thumb-tint-purple: light-dark(rgba(177,151,212,0.15), rgba(177,151,212,0.08));
+  --bk-attach-thumb-tint-blue: light-dark(rgba(103,184,227,0.15), rgba(103,184,227,0.08));
+  --bk-attach-thumb-tint-neutral: light-dark(rgba(95,88,76,0.15), rgba(154,150,161,0.08));
+  --bk-attach-thumb-border-teal: light-dark(rgba(21,89,76,0.24), rgba(91,181,162,0.19));
+  --bk-attach-thumb-border-amber: light-dark(rgba(127,76,8,0.24), rgba(224,159,62,0.19));
+  --bk-attach-thumb-border-purple: light-dark(rgba(93,68,137,0.24), rgba(177,151,212,0.19));
+  --bk-attach-thumb-border-blue: light-dark(rgba(26,92,127,0.24), rgba(103,184,227,0.19));
+  --bk-attach-thumb-border-neutral: light-dark(rgba(95,88,76,0.24), rgba(154,150,161,0.19));
+
+  /* InlineToast. The receipt for a named effect, and the one component whose
+   * tone table the source wrote out in full rather than deriving — teal and
+   * amber and purple at 40% over 7-8%, red held back to 35% over 6% because a
+   * receipt for a failure should not shout louder than the failure did. Its
+   * `neutral` resolves to the plain card hairline over the plain card. */
+  --bk-toast-border-teal: light-dark(rgba(21,89,76,0.45), rgba(91,181,162,0.4));
+  --bk-toast-border-amber: light-dark(rgba(127,76,8,0.45), rgba(224,159,62,0.4));
+  --bk-toast-border-purple: light-dark(rgba(93,68,137,0.45), rgba(177,151,212,0.4));
+  --bk-toast-border-red: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.35));
+  --bk-toast-border-neutral: light-dark(#c8bfac, #2a2d35);
+  --bk-toast-tint-teal: light-dark(rgba(91,181,162,0.15), rgba(91,181,162,0.08));
+  --bk-toast-tint-amber: light-dark(rgba(224,159,62,0.14), rgba(224,159,62,0.07));
+  --bk-toast-tint-purple: light-dark(rgba(177,151,212,0.14), rgba(177,151,212,0.07));
+  --bk-toast-tint-red: light-dark(rgba(248,113,113,0.13), rgba(248,113,113,0.06));
+  --bk-toast-tint-neutral: light-dark(#f8f5ef, #141619);
+
+  /* ComparisonTable's recommended column. Teal, because a recommendation is
+   * still the user's decision to take; the header carries 8% and the cells 6%
+   * so the column reads as one field with a heavier top rather than as two. */
+  --bk-compare-recommended-head: light-dark(rgba(21,89,76,0.13), rgba(91,181,162,0.08));
+  --bk-compare-recommended-cell: light-dark(rgba(21,89,76,0.11), rgba(91,181,162,0.06));
+
+  /* EmptyState's medallion — a 56px rounded square holding the one glyph on an
+   * otherwise empty screen. 8% ground, 24% edge. Six tones, not seven: the
+   * source's table has no blue, because no empty state means "a company". */
+  --bk-medallion-tint-amber: light-dark(rgba(224,159,62,0.15), rgba(224,159,62,0.08));
+  --bk-medallion-tint-gold: light-dark(rgba(234,179,84,0.15), rgba(234,179,84,0.08));
+  --bk-medallion-tint-teal: light-dark(rgba(91,181,162,0.15), rgba(91,181,162,0.08));
+  --bk-medallion-tint-purple: light-dark(rgba(177,151,212,0.15), rgba(177,151,212,0.08));
+  --bk-medallion-tint-red: light-dark(rgba(248,113,113,0.15), rgba(248,113,113,0.08));
+  --bk-medallion-tint-neutral: light-dark(rgba(95,88,76,0.15), rgba(154,150,161,0.08));
+  --bk-medallion-border-amber: light-dark(rgba(127,76,8,0.29), rgba(224,159,62,0.24));
+  --bk-medallion-border-gold: light-dark(rgba(111,84,12,0.29), rgba(234,179,84,0.24));
+  --bk-medallion-border-teal: light-dark(rgba(21,89,76,0.29), rgba(91,181,162,0.24));
+  --bk-medallion-border-purple: light-dark(rgba(93,68,137,0.29), rgba(177,151,212,0.24));
+  --bk-medallion-border-red: light-dark(rgba(156,42,36,0.29), rgba(248,113,113,0.24));
+  --bk-medallion-border-neutral: light-dark(rgba(95,88,76,0.29), rgba(154,150,161,0.24));
+
+
+  /* ── Wave 4: agent views, chrome and the first desktop components ────
+   *
+   * Ten components plus `ScreenBody`. Same rules again: a family per SURFACE,
+   * nothing averaged, and a value that is already a token says so.
+   *
+   * `orbit-border-*` is keyed by RUN STATE rather than by tone, because that
+   * is what the source's `S` map keys it by — an orbit pill's border says
+   * "still going / your turn / finished / broke", and three of the four are an
+   * existing colour under that second meaning, so they name it. */
+  --bk-orbit-border-running: var(--bk-chip-border-amber);
+  --bk-orbit-border-waiting: light-dark(rgba(21,89,76,0.5), rgba(91,181,162,0.45));
+  --bk-orbit-border-done: var(--bk-color-edge);
+  --bk-orbit-border-failed: var(--bk-surface-border-red);
+
+  /* The three dashed orbit rings and the radial glow behind the outermost.
+   * Faint on purpose: the rings are a scale, not a decoration, and anything
+   * brighter competes with the pills sitting on them. */
+  --bk-orbit-ring-inner: light-dark(rgba(127,76,8,0.19), rgba(224,159,62,0.14));
+  --bk-orbit-ring-mid: light-dark(rgba(127,76,8,0.25), rgba(224,159,62,0.2));
+  --bk-orbit-ring-outer: light-dark(rgba(127,76,8,0.15), rgba(224,159,62,0.1));
+  --bk-orbit-glow: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.09));
+
+  /* LaneChart derives two fills from the lane's own accent, and in the source
+   * it does it by string-concatenating an eight-digit hex suffix onto the
+   * colour (`c + '80'`, `c + '8c'`). That cannot survive tokenisation —
+   * `var(--bk-teal-ink)80` is not a colour — so the two derived values become
+   * two real ramps. 0x80/255 = 0.5, 0x8c/255 = 0.549, rounded to two decimals
+   * the way waves 1-3 rounded theirs.
+   *
+   * `hatch` is the one that carries meaning: a hatched segment is WAITING ON
+   * A PERSON, never "in progress", and the legend's swatch reads the same ramp
+   * so the key and the chart cannot drift. */
+  --bk-lane-hatch-amber: rgba(224,159,62,0.5);
+  --bk-lane-hatch-gold: rgba(234,179,84,0.5);
+  --bk-lane-hatch-teal: rgba(91,181,162,0.5);
+  --bk-lane-hatch-purple: rgba(177,151,212,0.5);
+  --bk-lane-hatch-blue: rgba(103,184,227,0.5);
+  --bk-lane-hatch-red: rgba(248,113,113,0.5);
+  --bk-lane-hatch-neutral: light-dark(rgba(95,88,76,0.5), rgba(154,150,161,0.5));
+  --bk-lane-fade-amber: rgba(224,159,62,0.55);
+  --bk-lane-fade-gold: rgba(234,179,84,0.55);
+  --bk-lane-fade-teal: rgba(91,181,162,0.55);
+  --bk-lane-fade-purple: rgba(177,151,212,0.55);
+  --bk-lane-fade-blue: rgba(103,184,227,0.55);
+  --bk-lane-fade-red: rgba(248,113,113,0.55);
+  --bk-lane-fade-neutral: light-dark(rgba(95,88,76,0.55), rgba(154,150,161,0.55));
+
+  /* GraphView draws on its own ground, one step darker than a card and one
+   * step lighter than the canvas, so a graph inside a screen reads as a
+   * viewport rather than as another card. The focus node is the only tinted
+   * one; every other node sits on `raised` with the plain card edge. */
+  --bk-graph-canvas-bg: light-dark(#f2eee6, #0e1014);
+  --bk-graph-node-focus-tint: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.14));
+
+  /* The voice composer's button throws a glow the send button does not: it is
+   * the primary action of a whole screen rather than one control in a row. */
+  --bk-composer-voice-glow: rgba(224,159,62,0.35);
+
+  /* ── Desktop (D22) ──────────────────────────────────────────────────
+   *
+   * The rail has its own ground, darker than a card so the panes beside it
+   * read as the content. Its active row and the palette's selected row are
+   * separate families on purpose: they sit on different grounds and the
+   * design gives them different alphas (10/14% against 9/12%), which is
+   * exactly the case the no-averaging rule exists for. */
+  --bk-rail-bg: light-dark(#ece7dc, #101216);
+  --bk-rail-tint-active: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.1));
+  --bk-rail-tint-active-hover: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.14));
+  --bk-palette-tint-selected: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.09));
+  --bk-palette-tint-selected-hover: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.12));
+  --bk-palette-foot-bg: light-dark(rgba(236,231,220,0.5), rgba(12,14,18,0.5));
+  --bk-palette-shadow: light-dark(rgba(90,78,58,0.35), rgba(0,0,0,0.55));
+
+  /* ── Light theme ──────────────────────────────────────────────────────
+   * Is the first argument of every `light-dark()` above; see the block after
+   * this one for how it is switched, and which values are derived. */
+}
+
+/* ── Two themes, one declaration each ─────────────────────────────────────
+ *
+ * Every `--bk-*` above is `light-dark(<paper>, <dark>)`, and `color-scheme`
+ * decides which half an element sees. That is the whole switch:
+ *
+ *   - the kit's stylesheet sets `color-scheme: dark` on `:root`, so a consumer
+ *     who does nothing gets the dark kit it always had;
+ *   - `[data-theme="light"]` / `"dark"` / `"system"` set `color-scheme` to
+ *     `light` / `dark` / `light dark` — the design's three-way toggle, and the
+ *     `[data-theme]` root its contract names (`Brain Kit Light.dc.html` §L5).
+ *     Put it on `<html>` for an app, on any element for a subtree: the story
+ *     furniture's paper phone re-themes only itself this way;
+ *   - `system` is the browser's own `prefers-color-scheme`, with no script.
+ *
+ * Why `light-dark()` rather than a second block of 300 values under the
+ * attribute: one declaration per token keeps each light value beside the dark
+ * one and the comment that explains it, the UA's own chrome (scrollbars, form
+ * controls, the composer's textarea) follows `color-scheme` for free, and a
+ * light subtree inside a dark page needs no selector gymnastics — the property
+ * inherits and the function reads it where the token is USED. Baseline since
+ * May 2024 (Chrome 123, Safari 17.5, Firefox 120). In an older browser the
+ * declaration is invalid at computed-value time and the element renders no
+ * colour, which is the same loud failure the kit already chose for a missing
+ * stylesheet — see `src/tokens.ts`.
+ *
+ * WHICH VALUES ARE THE DESIGN'S AND WHICH ARE DERIVED. The base palette, the
+ * accent ink/fill pairs, `amber-mark`, the focus ring, `on-fill`, and every
+ * tint and border the light catalog draws in §L3/§L4 are the design's own,
+ * verbatim. Everything else — five of the six dot values, and the alpha of a
+ * tint or border the catalog never renders — is derived by ONE rule each, in
+ * `tools/theme/derive-light.ts`, which rewrites the light half of every
+ * declaration above from the dark table and the design's overrides: tints keep
+ * their hue role and step up by +0.07 (capped at 0.16), borders by +0.05, the
+ * white hover veils invert to ink at the same alpha. `tests/light-theme.test.ts`
+ * pins the stylesheet and `LIGHT_TOKENS` to that generator, so a hand edit to
+ * a light value has to arrive as a rule or an override there — which keeps the
+ * line between "the design said" and "we chose" visible in one file. Every
+ * derived value is a candidate for the designer to replace; none is a decision.
+ *
+ * The design's three rules, which the derivation follows:
+ *   1. A light theme is not the dark theme inverted. Each accent carries TWO
+ *      values on paper — a darkened INK for text, icons and borders, and the
+ *      original FILL for solid surfaces that take `on-fill` on top — plus a
+ *      mid DOT value for 6-8px marks, where a darkened accent reads black.
+ *   2. Tints use the FILL hue at 8-16%, never the ink hue, which reads as
+ *      dirt on paper. Borders use the INK hue. Elevation still means lighter.
+ *   3. Ink is the three-step ramp and never alpha; `#6e6659` at 5.2:1 on
+ *      surface is the floor, matching the dark theme's `#9a96a1` at 4.80:1 on
+ *      its own worst tint.
+ */
+:root {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="system"] {
+  color-scheme: light dark;
+}
+
+
+/* The single shared keyframe. Defined ONCE — see the note above. */
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--bk-breathe-glow);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 8px 2px var(--bk-breathe-glow);
+    opacity: 0.6;
+  }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────
+ *
+ * One of the design's five non-negotiable rules: `prefers-reduced-motion`
+ * drops `breathe` to a static dot and skeletons to still bars, and NOTHING
+ * CONVEYS MEANING THROUGH MOTION ALONE, so nothing is lost when it is off.
+ *
+ * This is ONE RULE because there is one keyframe. Six call sites write
+ * `animation: breathe …` on their own INLINE style — StatusDot, Placeholder,
+ * StepList, InlineToast and StreamingAnswer twice — and an inline style cannot
+ * be overridden from a stylesheet without `!important`, which would have meant
+ * six `!important` declarations and a seventh the day someone adds a seventh
+ * call site. REDEFINING THE KEYFRAME reaches every call site instead, present
+ * and future, from the one place the motion is described: the animation still
+ * runs, it simply has nowhere to go.
+ *
+ * The single stop is the REST state, not the trough. A pulsing dot left at
+ * `opacity: .6` would read as disabled — which is precisely the meaning-lost
+ * failure this rule exists to prevent.
+ *
+ * `breathe` is declared above and this must stay AFTER it: two @keyframes of
+ * one name resolve by source order, not by specificity.
+ *
+ * Toggle's knob slide is the only other motion in the kit. It is not ambient —
+ * it answers a tap — but it is the one place the kit animates POSITION, so it
+ * goes too. `.bk-control:active`'s 1px nudge stays: it lasts exactly as long as
+ * the finger does, and it is a pressed state rather than a movement.
+ */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes breathe {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 var(--bk-breathe-glow);
+      opacity: 1;
+    }
+  }
+
+  .bk-switch,
+  .bk-switch * {
+    transition: none;
+  }
+}
+
+/* ── Interaction states ────────────────────────────────────────────────────
+ *
+ * Four states, one implementation each. That is the only reason they stay
+ * consistent across components, and it is why they are CSS here rather than
+ * inline styles in a component: a pseudo-class cannot be expressed in a React
+ * `style` object at all.
+ *
+ *   Hover    surface one step up, border to --bk-hover-border on controls.
+ *            THE TONE NEVER CHANGES — a control that looks like something else
+ *            on hover has lied about what it does.
+ *   Pressed  translateY(1px) + brightness(.94). No colour change, no ripple.
+ *   Focus    2px ink outline, offset +2 on controls (-2 on full-width rows, so
+ *            no overflow clips it — no such row exists in this wave).
+ *   Disabled opacity .45 + pointer-events:none + aria-disabled.
+ *
+ * `:focus-visible`, never `:focus`: a pointer tap must not leave a ring behind.
+ *
+ * Per-tone hover values arrive as --hv-bg / --hv-bd / --hv-fg, set on the
+ * element's own inline style by the component. The design uses that mechanism
+ * because its template engine compiles a bound hole to an empty rule; React has
+ * no such constraint, but the mechanism is kept because it is what lets the
+ * hover palette be tokens like everything else instead of a second stylesheet.
+ *
+ * EVERY RULE HERE IS GATED ON A CLASS THE COMPONENT ADDS ONLY WHEN IT WAS GIVEN
+ * A HANDLER. A row with no `onClick` is not focusable and gets no hover, so a
+ * static list never pretends to be clickable.
+ */
+
+.bk-control:hover {
+  background: var(--hv-bg);
+  border-color: var(--hv-bd);
+  color: var(--hv-fg);
+}
+
+.bk-control:active {
+  transform: translateY(1px);
+  filter: brightness(0.94);
+}
+
+.bk-control:focus-visible,
+.bk-switch:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: 2px;
+}
+
+.bk-switch:hover {
+  filter: brightness(1.12);
+}
+
+/* A 44px TARGET is not a 44px BOX. Small visuals stay small and extend their
+ * target past the paint with a transparent pseudo-element at negative inset —
+ * here 38x22 drawn, 44x44 hit.
+ *
+ * The constraint that makes this safe: expansion per side must be no more than
+ * half the distance to the nearest interactive neighbour. This one reaches 11px
+ * above and below and 3px either side, so a row of switches needs a vertical
+ * gap of at least 22px and a horizontal gap of at least 6px. Get it wrong and a
+ * neighbour's invisible pseudo-element sits on top of your visual and steals
+ * the click — the later sibling wins the hit test — which is how the design's
+ * FeedbackRow briefly recorded thumbs-down for a thumbs-up.
+ * `Toggle.stories.tsx` asserts this with elementFromPoint at the EDGES of two
+ * adjacent switches, which is where it fails; centres always pass.
+ *
+ * Note this rule rides on `.bk-switch`, which a Toggle only carries when it was
+ * given a handler — so a decorative switch grows no invisible hit area to steal
+ * a real neighbour's clicks. */
+.bk-switch::before {
+  content: "";
+  position: absolute;
+  top: -11px;
+  left: -3px;
+  right: -3px;
+  bottom: -11px;
+}
+
+/* ── Rows ─────────────────────────────────────────────────────────────────
+ *
+ * A full-width row is not a control, and the design separates them at exactly
+ * two points:
+ *
+ *   FOCUS OFFSET IS -2, not +2. An outline at +2 on a row that fills its
+ *   container is drawn outside the container and gets clipped by the first
+ *   ancestor with `overflow: hidden` — which, in this kit, is every `Surface`.
+ *   The design states the two offsets side by side for that reason.
+ *
+ *   PRESSED IS `brightness(.97)` WITH NO TRANSFORM. `.bk-control` translates
+ *   1px, which reads as a button taking a press; a whole row nudging down
+ *   while its neighbours hold still reads as the list glitching. The value is
+ *   the design's own, from `ListRow`, and it is applied to every row so the
+ *   state keeps one implementation rather than one per component.
+ *
+ * Hover is background only. `.bk-row-border` adds the border, which ChoiceOption
+ * needs because its rest border is what tells selected from unselected — the
+ * one row in this wave whose hover has to move two properties.
+ *
+ * Gated on a handler, like every other rule in this file: a row with no
+ * `onClick` carries no class, so it gets no hover, no ring and no tab stop. */
+
+.bk-row:hover {
+  /* The `transparent` fallback is not decoration. `.bk-row-fg` below exists
+   * for the nav items whose hover moves the FOREGROUND only, and those set no
+   * --hv-bg at all; without a fallback the declaration would be invalid at
+   * computed-value time and reset the element's background to initial. That
+   * happens to be transparent for every such item today, which is exactly the
+   * kind of accident worth spelling out instead of relying on. */
+  background: var(--hv-bg, transparent);
+}
+
+.bk-row-border:hover {
+  border-color: var(--hv-bd);
+}
+
+/* Additive, and the sibling of `.bk-row-border`: one extra hover property for
+ * the rows that need it. `TabBar` moves ONLY the foreground (a tab bar has no
+ * row to shade), `SideRail` moves both. Both are `.bk-row` rather than
+ * `.bk-control` on the discriminator the design states: their focus ring is at
+ * offset -2, drawn INSIDE, because a nav item sits against a container edge
+ * and a ring outside it gets clipped. */
+.bk-row-fg:hover {
+  color: var(--hv-fg);
+}
+
+.bk-row:active {
+  filter: brightness(0.97);
+}
+
+.bk-row:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
+}
+
+/* ── Wave 3: two more expanded hit targets ────────────────────────────────
+ *
+ * Same rule as `.bk-switch::before`, and this is the component it actually
+ * happened to. `FeedbackRow` draws a 30x26 thumb and must be hittable at
+ * 48x44, so a transparent pseudo-element reaches 9px past the paint on every
+ * side. The constraint: expansion per side must be no more than half the
+ * distance to the nearest interactive neighbour, so two thumbs 9px each need
+ * at least 18px between them — which is exactly the `gap: 18` the source
+ * writes, with the reason written next to it. At the original `gap: 6` the
+ * later sibling's invisible target sits on top of the earlier one's visual and
+ * wins the hit test, and the design records the consequence: thumbs-down
+ * recorded for a thumbs-up. `FeedbackRow.stories.tsx` asserts it with
+ * `elementFromPoint` at each thumb's EDGES, and the same story narrows the gap
+ * to prove the assertion has teeth.
+ *
+ * `InlineToast`'s undo is the other shape of the same problem: a text-sized
+ * word that has to be a 44px-tall target, so it expands 15px above and below
+ * and 10px either side. It is the only interactive thing in the toast, so it
+ * has no neighbour to steal from — but it does reach outside the toast's own
+ * 9px padding, which is a real property of expanded targets and not a bug.
+ *
+ * Both ride a class the component adds only when it was given a handler, so a
+ * receipt with no undo and a feedback row with no callbacks grow no invisible
+ * targets. */
+.bk-thumb::before {
+  content: "";
+  position: absolute;
+  /* 9px vertical, 8px horizontal: the vertical has no interactive neighbour;
+   * the horizontal is constrained to half the 18px gap, with 2px spare. From a
+   * 30x26 thumb that is 46x44. The thumb's hairline is an INSET SHADOW, so
+   * this really is measured from the paint (design-feedback §1, resolved). */
+  inset: -9px -8px;
+}
+
+/* The thumb's hover moves its hairline, and the hairline is a shadow rather
+ * than a border — so `.bk-control:hover`'s `border-color` reaches nothing and
+ * the shadow has to be moved here, from the same --hv-bd the border would
+ * have read. */
+.bk-thumb:hover {
+  box-shadow: inset 0 0 0 1px var(--hv-bd);
+}
+
+.bk-undo::before {
+  content: "";
+  position: absolute;
+  /* 16 above and below, 10 either side: 45 x 45.65 from a text-sized word.
+   * The underline is text-decoration, so nothing offsets the padding box. */
+  inset: -16px -10px;
+}
+
+/* Undo's hover recolours the word AND its dotted underline; the underline is
+ * `text-decoration`, which `.bk-control:hover` does not touch. */
+.bk-undo:hover {
+  text-decoration-color: var(--hv-fg);
+}
+
+/* ── Wave 4: the composer is a real input ─────────────────────────────────
+ *
+ * The design draws `Composer` as a styled span with `role="textbox"` and its
+ * own `style-focus`, and its own README says to "wire it to a real <textarea>
+ * with :focus-visible when implementing". That is what the port does, so the
+ * focus ring has to move: the thing that takes focus is now the textarea, and
+ * the thing that should be ringed is the field around it.
+ *
+ * `:has(:focus-visible)` rather than `:focus-within` keeps the design's rule
+ * that a pointer tap leaves no ring behind — and a text field is precisely
+ * where that rule is least surprising, since browsers match `:focus-visible`
+ * on text inputs for mouse focus too. Offset +2, the control offset: the
+ * field is a control, and the composer's wrap has the padding to show it.
+ *
+ * The textarea suppresses its own ring so the two do not stack. */
+.bk-field:has(:focus-visible) {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: 2px;
+}
+
+.bk-composer {
+  outline: none;
+}
+
+.bk-composer::placeholder {
+  color: var(--bk-color-ink-mute);
+  opacity: 1;
+}
+
+/* A screen body's children keep their height.
+ *
+ * `ScreenBody` is a flex COLUMN with a definite height, and a flex item's
+ * default `flex-shrink: 1` means that the moment a screen's content is taller
+ * than the phone, every child gives up height at once rather than the body
+ * scrolling. It does not fail loudly: a `FilterRow` compresses from 22px to
+ * 14px and clips the descenders off its own labels, an `ActionCard` swallows
+ * the last line of its body, and a `margin-top: auto` spacer silently stops
+ * spacing because there is no free space left to distribute. Every one of those
+ * reads as a component bug in whichever component happened to be shortest.
+ *
+ * Wave 5 found all three on one screen. The fix is one declaration and it
+ * belongs here rather than on each child, because the constraint comes from the
+ * container: a screen body is a SCROLLING column, and a scrolling column's job
+ * is to overflow, not to squeeze.
+ *
+ * Whether the overflow then clips or scrolls is still `ScreenBody`'s `overflow`
+ * prop -- `hidden` for a mockup, `auto` for a real screen. */
+.bk-screen-body > * {
+  flex-shrink: 0;
+}

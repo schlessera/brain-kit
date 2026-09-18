@@ -99,7 +99,7 @@ export function NotificationCard(p: NotificationCardProps) {
     justifyContent: "center",
     background: rich ? FILLS[tone] || FILLS.amber : color.raised,
     // The glyph inherits this, which is why `Icon` is given no colour below.
-    color: rich ? color.canvas : INKS[tone] || INKS.amber,
+    color: rich ? color.onFill : INKS[tone] || INKS.amber,
   };
   const content: CSSProperties = { flex: 1, minWidth: 0 };
   const titleRow: CSSProperties = { display: "flex", alignItems: "baseline", gap: 6 };

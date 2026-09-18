@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { StatusDot } from "../primitives/StatusDot.js";
-import { accent, color, font } from "../tokens.js";
+import { accent, color, font, token } from "../tokens.js";
 import type { ScreenHeaderVariant, SubtitleTone, Tone } from "../types.js";
 
 /**
@@ -144,7 +144,7 @@ export function ScreenHeader(p: ScreenHeaderProps) {
           style={{
             height: 1,
             marginTop: 10,
-            background: `linear-gradient(to right,transparent 0%,${accent.amber.ink} 30%,${accent.gold.ink} 50%,${accent.amber.ink} 70%,transparent 100%)`,
+            background: `linear-gradient(to right,transparent 0%,${token("filament-edge")} 30%,${token("filament-core")} 50%,${token("filament-edge")} 70%,transparent 100%)`,
             opacity: 0.7,
           }}
         />

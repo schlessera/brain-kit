@@ -76,8 +76,8 @@ interface Skin {
 const SKINS: Record<ButtonTone, Skin> = {
   // primary and affirm are filled surfaces taking near-black text, so they take
   // the `fill` role; the four outline tones are text, and take `ink`.
-  primary: { background: accent.amber.fill, color: color.canvas, border: `1px solid ${accent.amber.fill}` },
-  affirm: { background: accent.teal.fill, color: color.canvas, border: `1px solid ${accent.teal.fill}` },
+  primary: { background: accent.amber.fill, color: color.onFill, border: `1px solid ${token("button-border-primary")}` },
+  affirm: { background: accent.teal.fill, color: color.onFill, border: `1px solid ${token("button-border-affirm")}` },
   ghost: { background: "transparent", color: color.inkDim, border: `1px solid ${color.edge}` },
   quiet: { background: "transparent", color: color.inkMute, border: `1px solid ${color.edge}` },
   danger: {
@@ -183,7 +183,9 @@ export function Button(p: ButtonProps) {
   const labelWrap: CSSProperties = { flex: centred ? "0 1 auto" : 1, minWidth: 0 };
   const subStyle: CSSProperties = {
     display: "block",
-    font: `400 10.5px/1.4 ${font.body}`,
+    // Weight 500 and opaque on-fill since the fourth drop: the .62-alpha
+    // near-black it used to be sat under the floor on every fill (§7).
+    font: `500 10.5px/1.4 ${font.body}`,
     color: solid ? token("button-ink-on-solid") : color.inkMute,
     marginTop: 2,
   };
@@ -194,7 +196,7 @@ export function Button(p: ButtonProps) {
     font: `600 9px/1.3 ${font.mono}`,
     background: solid ? token("button-effect-bg-on-solid") : "transparent",
     border: solid ? "none" : `1px solid ${color.edge}`,
-    color: solid ? color.canvas : color.inkMute,
+    color: solid ? color.onFill : color.inkMute,
   };
 
   // A role="button" that cannot be activated from the keyboard is worse than no
@@ -212,8 +214,12 @@ export function Button(p: ButtonProps) {
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? (disabled ? -1 : 0) : undefined}
       aria-disabled={interactive && disabled ? true : undefined}
-      onClick={p.onClick}
-      onKeyDown={interactive ? onKeyDown : undefined}
+      // `pointer-events: none` stops a real pointer, not a programmatic
+      // `.click()` or a test's synthetic event — and a disabled button that
+      // still fires is worse than one that merely looks dim. Inert means
+      // inert: no click, no key, from anywhere.
+      onClick={disabled ? undefined : p.onClick}
+      onKeyDown={interactive && !disabled ? onKeyDown : undefined}
     >
       {p.icon ? <Icon icon={p.icon} size={size === "lg" ? 18 : 15} /> : null}
       <span style={labelWrap}>

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { warnOnce } from "../internal/dev.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
-import type { Tone } from "../types.js";
+import type { ValueTone } from "../types.js";
 
 /**
  * Two to four numbers that answer a question at a glance.
@@ -12,17 +12,13 @@ import type { Tone } from "../types.js";
  * dashboard, and a tile is only coloured when its number implies something the
  * user should act on. Never more than four: past that it is a table.
  *
- * **`neutral` here is the ink ramp, not the neutral accent.** An unremarkable
- * number is a number you read, so it takes primary ink; only a number that
- * means something takes a colour. That is the source's table and it is the
- * whole reason the component reads as prose.
  */
 export interface StatTile {
   label: string;
   value: string;
   meta?: string;
   icon?: IconName;
-  tone?: Tone;
+  tone?: ValueTone;
 }
 
 export interface StatTilesProps {
@@ -31,15 +27,19 @@ export interface StatTilesProps {
   minTile?: number;
 }
 
-/** Ink for six meanings, and PRIMARY ink for the seventh — see the note. */
-const TONES: Record<Tone, string> = {
+/** Every accent's ink, plus the two inks. An UNTONED value is primary ink —
+ * an unremarkable number is still a number you read — and `neutral` is the
+ * grey accent, as everywhere else (D33). */
+const TONES: Record<ValueTone, string> = {
   amber: accent.amber.ink,
   gold: accent.gold.ink,
   teal: accent.teal.ink,
   purple: accent.purple.ink,
   blue: accent.blue.ink,
   red: accent.red.ink,
-  neutral: color.ink,
+  neutral: accent.neutral.ink,
+  ink: color.ink,
+  dim: color.inkDim,
 };
 
 /**
@@ -53,7 +53,7 @@ const FALLBACK: StatTile[] = [
   { label: "unfiled", value: "3", icon: "filer", tone: "teal" },
   { label: "deadlines < 14d", value: "1", icon: "deadline", tone: "gold", meta: "Lisbon deck" },
   { label: "failed runs", value: "1", icon: "failed", tone: "red", meta: "ledger_sync" },
-  { label: "spend today", value: "$1.90", icon: "wallet", tone: "neutral", meta: "of $5 cap" },
+  { label: "spend today", value: "$1.90", icon: "wallet", tone: "ink", meta: "of $5 cap" },
 ];
 
 export function StatTiles(p: StatTilesProps) {
@@ -81,7 +81,7 @@ export function StatTiles(p: StatTilesProps) {
   return (
     <div style={grid}>
       {src.map((t, i) => {
-        const c = TONES[t.tone || "neutral"] || TONES.neutral;
+        const c = TONES[t.tone || "ink"] || TONES.dim;
         return (
           <div
             key={i}

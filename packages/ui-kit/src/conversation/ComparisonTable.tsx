@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { warnOnce } from "../internal/dev.js";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
-import type { Tone } from "../types.js";
+import type { ValueTone } from "../types.js";
 
 /**
  * Candidates side by side — the other axis from `DataTable`, for when the
@@ -14,19 +14,19 @@ import type { Tone } from "../types.js";
  * comparison reads as zero. Two or three columns at 390px, never four; D22
  * allows a fourth past 1100px.
  *
- * `neutral` here is the ink ramp, like `StatTiles`: an unremarkable value in a
+ * An untoned cell is primary ink, like `StatTiles`: an unremarkable value in a
  * comparison is still a value to read.
  */
 export interface ComparisonColumn {
   label: string;
   /** A quiet mono line under the label — provenance, not a second value. */
   note?: string;
-  tone?: Tone;
+  tone?: ValueTone;
   /** At most one. Tints the whole column and earns the footnote. */
   recommended?: boolean;
 }
 
-export type ComparisonCell = string | { v: string; tone?: Tone };
+export type ComparisonCell = string | { v: string; tone?: ValueTone };
 
 export interface ComparisonRow {
   label: string;
@@ -43,17 +43,19 @@ export interface ComparisonTableProps {
   labelWidth?: number;
 }
 
-/** Ink for six, PRIMARY ink for `neutral` — see the note above. The source's
- * table also carries a `muted` entry nothing can reach, since `Tone` has no
- * such member; dead in the source, so not ported. */
-const TONES: Record<Tone, string> = {
+/** Every accent's ink plus the two inks. An untoned cell is primary ink and
+ * `neutral` is the grey accent (D33); the source's dead `muted` entry is gone
+ * and `dim` is the real member. */
+const TONES: Record<ValueTone, string> = {
   teal: accent.teal.ink,
   amber: accent.amber.ink,
   purple: accent.purple.ink,
   blue: accent.blue.ink,
   gold: accent.gold.ink,
   red: accent.red.ink,
-  neutral: color.ink,
+  neutral: accent.neutral.ink,
+  ink: color.ink,
+  dim: color.inkDim,
 };
 
 const FALLBACK_COLUMNS: ComparisonColumn[] = [
@@ -119,7 +121,7 @@ export function ComparisonTable(p: ComparisonTableProps) {
               padding: "9px 8px",
               textAlign: "center",
               font: `600 11px/1.3 ${font.body}`,
-              color: TONES[c.tone || "neutral"] || TONES.neutral,
+              color: TONES[c.tone || "ink"] || TONES.dim,
               background: i === recIdx ? token("compare-recommended-head") : "transparent",
               borderLeft: `1px solid ${color.line}`,
             }}
@@ -174,7 +176,7 @@ export function ComparisonTable(p: ComparisonTableProps) {
                   font: `${isRec ? 600 : 500} 11px/1.4 ${font.mono}`,
                   // An untoned cell in the recommended column reads teal; every
                   // other untoned cell reads as plain ink.
-                  color: TONES[cell.tone || (isRec ? "teal" : "neutral")] || TONES.neutral,
+                  color: TONES[cell.tone || (isRec ? "teal" : "ink")] || TONES.dim,
                 }}
               >
                 {/* A blank cell in a comparison reads as zero, so absence is

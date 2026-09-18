@@ -29,7 +29,7 @@ export const NeutralIsAHairline = Default.extend({
       {
         day: "Tomorrow",
         items: [
-          { time: "—", title: "Wind holds, per the forecast", tone: "neutral" },
+          { time: "—", title: "Wind holds, per the forecast" },
           { time: "—", title: "Wind holds, per the forecast", tone: "teal" },
         ],
       },

@@ -114,14 +114,15 @@ export function StepList(p: StepListProps) {
           alignItems: "center",
           justifyContent: "center",
           font: `600 10.5px/1 ${font.mono}`,
-          // A solid disc taking near-black ink on top is the `fill` role.
+          // A solid disc: the teal FILL with canvas on top in the dark, the teal
+          // INK with surface on top on paper — see `--bk-step-bubble-done-bg`.
           background: done
-            ? accent.teal.fill
+            ? token("step-bubble-done-bg")
             : current
               ? token("step-bubble-tint-current")
               : "transparent",
           border: done ? "none" : `1px solid ${current ? accent.amber.ink : color.edge}`,
-          color: done ? color.canvas : ink,
+          color: done ? color.onInkSolid : ink,
           animation: current && p.pulse !== false ? "breathe 2s ease-in-out infinite" : undefined,
         };
         const connectorStyle: CSSProperties = {
@@ -142,7 +143,7 @@ export function StepList(p: StepListProps) {
           <div key={i} style={row}>
             <div style={gutter}>
               <span style={bubble}>
-                {done ? <Icon icon="confirm" size={11} color={color.canvas} /> : null}
+                {done ? <Icon icon="confirm" size={11} color={color.onInkSolid} /> : null}
                 {/* `checklist` numbers nothing: a tick box is not an ordinal. */}
                 {!done && v !== "checklist" ? String(i + 1) : null}
               </span>

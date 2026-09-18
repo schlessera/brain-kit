@@ -19,11 +19,15 @@ import type { ToastTone } from "../types.js";
  * for a pause rather than cutting across whatever is being read.
  *
  * **Undo's hit target.** The word is text-sized and must be a 44px-tall
- * target, so `theme.css`'s `.bk-undo::before` reaches 15px above and below and
- * 10px either side. It is the only interactive thing in the toast, so it has
- * no neighbour to steal a click from — but it does reach past the toast's own
- * 9px padding, which is a real property of an expanded target and is why a
- * caller must not stack two toasts flush against each other.
+ * target, so `theme.css`'s `.bk-undo::before` reaches 16px above and below and
+ * 10px either side: **45 x 45.65** from a 25 x 13.65 word. The underline is
+ * `text-decoration`, not `border-bottom`, because a border would offset the
+ * pseudo-element's containing block and cost the target its last fraction of
+ * a pixel — which is exactly how it shipped at 43.65 for three waves
+ * (design-feedback §1). It is the only interactive thing in the toast, so it
+ * has no neighbour to steal a click from — but it does reach past the toast's
+ * own 9px padding, which is a real property of an expanded target and is why
+ * a caller must not stack two toasts flush against each other.
  */
 export interface InlineToastProps {
   /** The verb. One word where one word will do: "Filed", "Queued". */
@@ -92,7 +96,9 @@ export function InlineToast(p: InlineToastProps) {
     position: "relative",
     font: `600 10.5px/1.3 ${font.mono}`,
     color: color.inkDim,
-    borderBottom: `1px dotted ${accent.neutral.ink}`,
+    textDecoration: "underline dotted",
+    textDecorationColor: accent.neutral.ink,
+    textUnderlineOffset: 3,
     cursor: act ? "pointer" : "default",
     ...({
       "--hv-bg": "transparent",

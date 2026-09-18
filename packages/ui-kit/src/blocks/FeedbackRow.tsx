@@ -11,16 +11,24 @@ import type { FeedbackValue } from "../types.js";
  *
  * ── The hit target, which is the whole reason this component is careful ───
  *
- * A thumb is drawn 30x26 and must be hittable at 48x44, so a transparent
- * pseudo-element extends the target 9px past the paint on every side rather
- * than inflating the box (`theme.css`'s `.bk-thumb::before`). The design's
- * constraint on that: **expansion per side must be no more than half the
- * distance to the nearest interactive neighbour**, so two thumbs expanding 9px
- * each need at least 18px between them — which is exactly the `gap: 18` below,
- * and the source now carries that reasoning inline because it got this wrong
- * once. At the original `gap: 6` the second thumb's invisible target sits on
- * top of the first thumb's visual and wins the hit test, because the later
- * sibling wins: **the row recorded thumbs-down for a thumbs-up.**
+ * A thumb is drawn 30x26 and reaches **46x44**: a transparent pseudo-element
+ * extends the target 9px above and below and 8px either side of the paint
+ * rather than inflating the box (`theme.css`'s `.bk-thumb::before`). Two rules
+ * from the design make those numbers true, and both were learned here:
+ *
+ *   - **The hairline is an inset box-shadow, not a border.** An absolutely
+ *     positioned pseudo-element is offset from its containing block's PADDING
+ *     box, so a 1px border silently eats 1px of reach per side — which is how
+ *     this row shipped at 46x42, under the 44px floor, for three waves
+ *     (design-feedback §1). A shadow touches nothing in the box model, so the
+ *     stated reach is the real reach.
+ *   - **Expansion is constrained per axis.** Per side it must be no more than
+ *     half the distance to the nearest interactive neighbour ON THAT AXIS. Only
+ *     the horizontal has one: 8px against the `gap: 18` below leaves 2px spare,
+ *     and the vertical reaches its full 9px. At the original `gap: 6` the
+ *     second thumb's invisible target sits on top of the first thumb's visual
+ *     and wins the hit test, because the later sibling wins: **the row
+ *     recorded thumbs-down for a thumbs-up.**
  *
  * `FeedbackRow.stories.tsx` asserts the targets with `elementFromPoint` at
  * each thumb's EDGES — centres always pass — and a second story narrows the
@@ -36,9 +44,9 @@ export interface FeedbackRowProps {
   value?: FeedbackValue;
   onUp?: () => void;
   onDown?: () => void;
-  /** The gap between the two thumbs. Must stay at or above 2x the 9px target
-   * expansion; the design's value is 18. Exposed only so a story can narrow it
-   * and prove the hit-target assertion fails. */
+  /** The gap between the two thumbs. Must stay at or above 2x the 8px
+   * horizontal expansion; the design's value is 18. Exposed only so a story
+   * can narrow it and prove the hit-target assertion fails. */
   gap?: number;
 }
 
@@ -65,9 +73,10 @@ export function FeedbackRow(p: FeedbackRowProps) {
     };
   }
 
-  // A selected thumb is a SOLID accent taking near-black ink, which is the
-  // `fill` role; its border is the same accent as ink. Hover moves the border
-  // only, so --hv-bg and --hv-fg resolve to the rest values.
+  // A selected thumb is a SOLID accent taking `on-fill`, which is the `fill`
+  // role; its hairline is the same accent as ink. Hover moves the hairline
+  // only (`.bk-thumb:hover` in theme.css reads --hv-bd into the shadow), so
+  // --hv-bg and --hv-fg resolve to the rest values.
   function thumb(
     side: "up" | "down",
     on: boolean,
@@ -78,12 +87,12 @@ export function FeedbackRow(p: FeedbackRowProps) {
     const act = Boolean(handler);
     return {
       ...pad,
-      border: `1px solid ${on ? inkColour : color.edge}`,
+      boxShadow: `inset 0 0 0 1px ${on ? inkColour : color.edge}`,
       background: on ? fillColour : "transparent",
       ...({
         "--hv-bg": on ? fillColour : "transparent",
         "--hv-bd": inkColour,
-        "--hv-fg": on ? color.canvas : side === "up" ? accent.teal.ink : accent.neutral.ink,
+        "--hv-fg": on ? color.onFill : side === "up" ? accent.teal.ink : accent.neutral.ink,
       } as CSSProperties),
       cursor: act ? "pointer" : "default",
     };
@@ -115,7 +124,7 @@ export function FeedbackRow(p: FeedbackRowProps) {
         {p.question ?? "Was this filing right?"}
       </span>
       {/* See the note at the top: this gap is a hit-target constraint, not
-          spacing taste. 18 >= 2 x 9. */}
+          spacing taste. 18 >= 2 x 8, with 2px to spare. */}
       <div style={{ display: "flex", gap: Number(p.gap) || 18, flex: "none" }}>
         <span
           style={thumb("up", up, accent.teal.fill, accent.teal.ink, p.onUp)}
@@ -127,7 +136,7 @@ export function FeedbackRow(p: FeedbackRowProps) {
           onClick={p.onUp}
           onKeyDown={upAct ? keys(p.onUp) : undefined}
         >
-          <Icon icon="up" size={13} color={up ? color.canvas : accent.teal.ink} />
+          <Icon icon="up" size={13} color={up ? color.onFill : accent.teal.ink} />
         </span>
         <span
           style={thumb("down", down, accent.red.fill, accent.red.ink, p.onDown)}
@@ -139,7 +148,7 @@ export function FeedbackRow(p: FeedbackRowProps) {
           onClick={p.onDown}
           onKeyDown={downAct ? keys(p.onDown) : undefined}
         >
-          <Icon icon="down" size={13} color={down ? color.canvas : accent.neutral.ink} />
+          <Icon icon="down" size={13} color={down ? color.onFill : accent.neutral.ink} />
         </span>
       </div>
     </div>

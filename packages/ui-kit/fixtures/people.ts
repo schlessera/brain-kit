@@ -278,8 +278,10 @@ export const hostile: Person[] = people.filter((p) => p.standing === "hostile");
 export const penelopeFacts: ContactFact[] = [
   { k: "at", v: "Ithaca · the hall", tone: "teal" },
   { k: "phone", v: "555-0101" },
-  { k: "last spoke", v: "20 years ago", tone: "amber" },
-  { k: "holding", v: "estate · herds · 108 guests", tone: "amber" },
+  // Facts take the full set now (design-feedback §2, resolved): twenty years
+  // cold is red, and a load is gold.
+  { k: "last spoke", v: "20 years ago", tone: "red" },
+  { k: "holding", v: "estate · herds · 108 guests", tone: "gold" },
   { k: "asked for", v: "nothing", tone: "neutral" },
 ];
 
@@ -290,7 +292,7 @@ export const penelopeActions: ContactAction[] = [
 
 /** ContactCard facts for the party on the other side of the grievance. */
 export const poseidonFacts: ContactFact[] = [
-  { k: "standing", v: "unresolved · 10 years", tone: "amber" },
+  { k: "standing", v: "unresolved · 10 years", tone: "red" },
   { k: "grievance", v: "people/polyphemus.md", tone: "amber" },
   { k: "last seen", v: "away, at the far feast", tone: "neutral" },
   { k: "escalated to", v: "Zeus · council, twice", tone: "purple" },

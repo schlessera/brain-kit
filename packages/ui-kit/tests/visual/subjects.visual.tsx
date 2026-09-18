@@ -98,9 +98,11 @@ import * as morningDigest from "../../stories/screens/MorningDigest.stories.js";
 import * as runDetail from "../../stories/screens/RunDetail.stories.js";
 import * as weeklyReview from "../../stories/screens/WeeklyReview.stories.js";
 
-/** What CSF Next hands back: a composed story that renders and plays itself. */
+/** What CSF Next hands back: a composed story that renders and plays itself.
+ * `run` takes a partial story context, which is how the `theme` global reaches
+ * the preview's theme decorator outside Storybook. */
 interface ComposedStory {
-  run: () => Promise<void>;
+  run: (context?: { globals?: Record<string, unknown> }) => Promise<void>;
 }
 
 /**
@@ -112,9 +114,24 @@ interface ComposedStory {
  */
 const TOLERANCE = { comparatorOptions: { allowedMismatchedPixelRatio: 0.001 } } as const;
 
-async function looksRight(story: unknown, name: string) {
-  await (story as ComposedStory).run();
+async function looksRight(story: unknown, name: string, globals?: Record<string, unknown>) {
+  await (story as ComposedStory).run(globals ? { globals } : undefined);
   await expect(document.body).toMatchScreenshot(name, TOLERANCE);
+}
+
+/**
+ * The same story on paper. The preview's theme decorator writes `data-theme`
+ * on `<html>` from the `theme` global on EVERY render — so setting the
+ * attribute by hand is overwritten the moment the story runs, and the first
+ * light baselines came out dark for exactly that reason. The global goes in
+ * through `run()`'s context instead, and the ground is asserted before the
+ * screenshot so a dark "light" baseline can never be written again.
+ */
+async function looksRightOnPaper(story: unknown, name: string) {
+  await (story as ComposedStory).run({ globals: { theme: "light" } });
+  expect(getComputedStyle(document.documentElement).colorScheme).toBe("light");
+  expect(document.documentElement.dataset.theme).toBe("light");
+  await expect(document.body).toMatchScreenshot(`${name}-light`, TOLERANCE);
 }
 
 /* ── The four assembled screens ───────────────────────────────────────────── */
@@ -134,6 +151,27 @@ test("screen: weekly review", async () => {
 
 test("screen: run detail", async () => {
   await looksRight(runDetail.RunDetail, "screen-run-detail");
+});
+
+/* ── The same four, on paper ──────────────────────────────────────────────── */
+// The light theme is a value swap and never a layout change (D32) — so the
+// light screens are the same subjects, and a light baseline catches the one
+// thing the dark one cannot: a token whose paper half is wrong or missing.
+
+test("screen: morning digest, light", async () => {
+  await looksRightOnPaper(morningDigest.MorningDigest, "screen-morning-digest");
+});
+
+test("screen: chat answer, light", async () => {
+  await looksRightOnPaper(chatAnswer.ChatAnswer, "screen-chat-answer");
+});
+
+test("screen: weekly review, light", async () => {
+  await looksRightOnPaper(weeklyReview.WeeklyReview, "screen-weekly-review");
+});
+
+test("screen: run detail, light", async () => {
+  await looksRightOnPaper(runDetail.RunDetail, "screen-run-detail");
 });
 
 /* ── The components that paint ────────────────────────────────────────────── */

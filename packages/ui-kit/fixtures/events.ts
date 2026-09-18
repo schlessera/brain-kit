@@ -16,7 +16,9 @@ import type {
   Tone,
 } from "./types.js";
 
-/** The four tiles above the morning digest. */
+/** The three tiles above the morning digest. Three, not four: the catalog's
+ * own digest dropped to three after a fourth wrapped alone onto a second row
+ * at phone width (design-feedback §14). */
 /**
  * What the night cost, in cents. The digest's spend tile and the "Overnight"
  * section label are the same figure in two places on one screen, so there is
@@ -27,7 +29,6 @@ export const overnightSpend = usd(overnightSpendCents);
 
 export const digestStats: StatTile[] = [
   { label: "waiting on you", value: "3", meta: "1 approval", icon: "approval", tone: "amber" },
-  { label: "days out", value: "3,652", meta: "since Troy", icon: "history", tone: "neutral" },
   { label: "crew", value: "0", meta: "of 600", icon: "failed", tone: "red" },
   { label: "spend", value: overnightSpend, meta: "overnight", icon: "wallet", tone: "teal" },
 ];

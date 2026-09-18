@@ -1,7 +1,7 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
 import { warnOnce } from "../internal/dev.js";
-import { accent, color } from "../tokens.js";
+import { accent, color, token } from "../tokens.js";
 import type { ToggleTone } from "../types.js";
 
 /**
@@ -46,6 +46,11 @@ export interface ToggleProps {
    * own label in a row. Wins over `label` when both are given, because a name
    * the user can see beats one only the screen reader hears. */
   labelledBy?: string;
+  /** The design's fourth state for every interactive component: dimmed to
+   * .45, inert, `aria-disabled`, out of the tab order. Same implementation
+   * as `Button`'s. A switch mid-flight (a push subscription being created)
+   * is this, not "no handler" — it keeps its role and its name. */
+  disabled?: boolean;
   onClick?: () => void;
 }
 
@@ -59,6 +64,7 @@ const TONES: Record<ToggleTone, string> = {
 export function Toggle(p: ToggleProps) {
   const on = p.on !== false;
   const interactive = Boolean(p.onClick);
+  const disabled = p.disabled === true;
   const named = Boolean(p.labelledBy || p.label);
 
   if (interactive && !named) {
@@ -75,6 +81,7 @@ export function Toggle(p: ToggleProps) {
     background: on ? TONES[p.tone || "amber"] || TONES.amber : color.edge,
     cursor: p.onClick ? "pointer" : "default",
     transition: "background .18s ease",
+    ...(disabled ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" } : null),
   };
   const knob: CSSProperties = {
     position: "absolute",
@@ -83,7 +90,7 @@ export function Toggle(p: ToggleProps) {
     width: 18,
     height: 18,
     borderRadius: "50%",
-    background: on ? color.canvas : color.inkMute,
+    background: on ? token("toggle-knob-on") : token("toggle-knob-off"),
     transition: "left .18s ease",
   };
 
@@ -102,9 +109,10 @@ export function Toggle(p: ToggleProps) {
       aria-checked={interactive ? on : undefined}
       aria-label={interactive && !p.labelledBy ? p.label : undefined}
       aria-labelledby={interactive ? p.labelledBy : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      onClick={p.onClick}
-      onKeyDown={interactive ? onKeyDown : undefined}
+      aria-disabled={interactive && disabled ? true : undefined}
+      tabIndex={interactive ? (disabled ? -1 : 0) : undefined}
+      onClick={disabled ? undefined : p.onClick}
+      onKeyDown={interactive && !disabled ? onKeyDown : undefined}
     >
       <span style={knob} />
     </span>

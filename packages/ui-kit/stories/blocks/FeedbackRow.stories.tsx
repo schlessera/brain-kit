@@ -54,27 +54,22 @@ export const Tapped = meta.story({
 });
 
 /**
- * THE BUG THIS COMPONENT IS NAMED FOR, and a measurement that corrects the
- * design's own note about it.
+ * THE BUG THIS COMPONENT IS NAMED FOR, and the measurement that fixed it.
  *
  * Each thumb is drawn 30x26 and extends its target with a transparent
- * pseudo-element at `inset: -9px`. The source's comment calls the result
- * "48x44" — 30+18 by 26+18 — and **that is 2px generous on both axes.** An
+ * pseudo-element at `inset: -9px -8px`: **46x44**, and that number is exact
+ * because the thumb's hairline is an inset box-shadow rather than a border.
+ * For three waves it was a border, and the target measured 46x42 — an
  * absolutely positioned pseudo-element is offset from its containing block's
- * PADDING box, not its border box, so a 1px border eats 1px of the expansion
- * on every side: the real target is **46x42**.
+ * PADDING box, so a 1px border eats 1px of reach per side — which put it 2px
+ * under the design's own 44px floor. Design-feedback §1 asked the design to
+ * choose; the 2026-09-18 drop chose the borderless element and stated the
+ * per-axis rule, and this story now asserts the real reach.
  *
- * Measured here rather than argued, and it matters: 42 is under the design's
- * own 44px floor for a touch target. Reported rather than fixed, because
- * fixing it is a design change with a second edge — `inset: -10px` would give
- * a true 48x44 but would then demand `gap >= 20`, and the design's gap is 18,
- * so the two thumbs' targets would start overlapping and the bug below would
- * come back. Both numbers have to move together, and that is the design's
- * call. See `.plan/PLAN.md`'s wave 3 notes.
- *
- * The constraint that still holds: expansion per side (8px past the paint)
- * must be no more than half the distance to the nearest interactive neighbour,
- * and 8 + 8 = 16 fits inside `gap: 18` with 2px to spare.
+ * The constraint that holds: expansion per side must be no more than half the
+ * distance to the nearest interactive neighbour ON THAT AXIS. Only the
+ * horizontal has one, so it reaches 8px against `gap: 18` with 2px to spare,
+ * and the vertical reaches its full 9px.
  *
  * Probes are at the EDGES, one pixel inside, because centres always pass and
  * edges are where this fails. The wrapper's padding is not decoration: an
@@ -90,10 +85,10 @@ export const HitTargets = meta.story({
   play: async ({ canvas }) => {
     const [up, down] = await canvas.findAllByRole("button");
 
-    // `inset: -9px` from the padding box, less the 1px border, is 8px past the
-    // paint on each side. This is the number the probes use, and it is the one
-    // the assertion below measures rather than assumes.
+    // `inset: -9px -8px` from a padding box that IS the paint — no border —
+    // so the reach is 9 vertically and 8 horizontally, and the probes use both.
     const REACH = 8;
+    const REACH_Y = 9;
 
     for (const [name, el] of [
       ["up", up],
@@ -105,8 +100,8 @@ export const HitTargets = meta.story({
       // ambiguous and a corner probe reads as outside.
       const left = box.left - REACH + 1;
       const right = box.right + REACH - 1;
-      const top = box.top - REACH + 1;
-      const bottom = box.bottom + REACH - 1;
+      const top = box.top - REACH_Y + 1;
+      const bottom = box.bottom + REACH_Y - 1;
 
       const probes: [string, number, number][] = [
         ["top-left", left, top],
@@ -125,16 +120,21 @@ export const HitTargets = meta.story({
       }
     }
 
-    // The expansion stops where it stops: 10px above the paint is outside the
-    // 8px reach and belongs to nothing.
+    // The expansion stops where it stops: 11px above the paint is outside the
+    // 9px reach and belongs to nothing.
     const box = up.getBoundingClientRect();
-    const outside = document.elementFromPoint(box.left + box.width / 2, box.top - 10);
+    const outside = document.elementFromPoint(box.left + box.width / 2, box.top - 11);
     await expect(outside?.closest('[role="button"]')).toBeNull();
 
     // And the measurement itself, stated as a number so a change to the inset
-    // or the border has to come past this line. 30x26 drawn; 46x42 hit.
+    // or a border creeping back has to come past this line. 30x26 drawn;
+    // 46x44 hit — the floor, met.
     await expect(`${box.width}x${box.height}`).toBe("30x26");
-    await expect(`${box.width + 2 * REACH}x${box.height + 2 * REACH}`).toBe("46x42");
+    await expect(`${box.width + 2 * REACH}x${box.height + 2 * REACH_Y}`).toBe("46x44");
+    // The hairline is a shadow, not a border: a border would make the two
+    // lines above lie by 2px on each axis.
+    await expect(getComputedStyle(up).borderTopWidth).toBe("0px");
+    await expect(getComputedStyle(up).boxShadow).toContain("inset");
   },
 });
 

@@ -24,6 +24,26 @@ export const Default = meta.story({});
 
 export const Off = Default.extend({ args: { on: false } });
 
+/**
+ * The design's fourth state, which the switch did not have until the app
+ * needed it (a push subscription mid-creation): dimmed, inert, out of the tab
+ * order, still named and still a switch — so a screen reader learns it exists
+ * and cannot be flipped, rather than finding it gone.
+ */
+export const Disabled = Default.extend({
+  args: { disabled: true },
+  play: async ({ canvas, args }) => {
+    const toggle = await canvas.findByRole("switch", { name: "Watch this folder" });
+    await expect(toggle.getAttribute("aria-disabled")).toBe("true");
+    await expect(toggle.getAttribute("tabindex")).toBe("-1");
+    await expect(getComputedStyle(toggle).opacity).toBe("0.45");
+    await expect(getComputedStyle(toggle).pointerEvents).toBe("none");
+    // pointer-events:none stops a real pointer; a synthetic click must fail too.
+    toggle.click();
+    await expect(args.onClick).not.toHaveBeenCalled();
+  },
+});
+
 export const Tones = meta.story({
   render: () => (
     <>

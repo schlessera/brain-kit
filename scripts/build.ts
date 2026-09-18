@@ -75,6 +75,13 @@ for (const packageName of packages) {
     cpSync(resolve(packageDir, "src", "theme.css"), resolve(distDir, "theme.css"), {
       preserveTimestamps: true,
     });
+    // The kit's theme.css imports its tokens.css; both ship, and tokens.css is
+    // also the entry a consumer with its own Tailwind scale imports directly.
+    if (packageName === "ui-kit") {
+      cpSync(resolve(packageDir, "src", "tokens.css"), resolve(distDir, "tokens.css"), {
+        preserveTimestamps: true,
+      });
+    }
   }
 
   if (packageName === "core") {

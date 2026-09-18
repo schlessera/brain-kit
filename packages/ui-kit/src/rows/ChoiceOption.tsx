@@ -1,6 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
-import { focusSibling } from "../internal/roving.js";
+import { edgeFor, focusEdge, focusSibling } from "../internal/roving.js";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 
@@ -103,7 +103,8 @@ export function ChoiceOption(p: ChoiceOptionProps) {
       "--hv-bd": sel ? token("choice-border-selected") : act ? token("hover-border") : color.edge,
     } as CSSProperties),
   };
-  /** The mark is a 16px filled disc taking a near-black glyph: the `fill` role. */
+  /** The mark is a 16px filled disc: the teal fill with a canvas glyph in the
+   * dark, the teal INK with a surface glyph on paper — `--bk-choice-mark-bg`. */
   const mark: CSSProperties = {
     width: 16,
     height: 16,
@@ -113,7 +114,7 @@ export function ChoiceOption(p: ChoiceOptionProps) {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: sel ? accent.teal.fill : "transparent",
+    background: sel ? token("choice-mark-bg") : "transparent",
     border: sel ? "none" : `1px solid ${color.edge}`,
   };
   const textWrap: CSSProperties = { minWidth: 0, flex: 1 };
@@ -144,6 +145,12 @@ export function ChoiceOption(p: ChoiceOptionProps) {
     if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
       event.preventDefault();
       focusSibling(event.currentTarget, -1, OPTION, GROUP);
+      return;
+    }
+    const edge = edgeFor(event.key);
+    if (edge) {
+      event.preventDefault();
+      focusEdge(event.currentTarget, edge, OPTION, GROUP);
     }
   }
 
@@ -159,7 +166,7 @@ export function ChoiceOption(p: ChoiceOptionProps) {
       onKeyDown={act ? onKeyDown : undefined}
     >
       {p.mark !== false ? (
-        <span style={mark}>{sel ? <Icon icon="confirm" size={10} color={color.canvas} /> : null}</span>
+        <span style={mark}>{sel ? <Icon icon="confirm" size={10} color={color.onInkSolid} /> : null}</span>
       ) : null}
       <span style={textWrap}>
         <b style={titleStyle}>{p.title ?? "life/health/appointments.md"}</b>

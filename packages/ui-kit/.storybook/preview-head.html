@@ -8,7 +8,8 @@
   every one of the 56 source components carries `body{margin:0;background:#0c0e12}`
   in its own helmet, so rendering any single one repaints the whole page. A
   published library must not do that to its host, so the global side effect
-  stops at the Storybook preview.
+  stops at the Storybook preview. It reads the canvas and ink TOKENS rather
+  than restating them, so the theme switch repaints the page too.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,8 +20,8 @@
 <style>
   body {
     margin: 0;
-    background: #0c0e12;
-    color: #e8e4df;
+    background: var(--bk-color-canvas);
+    color: var(--bk-color-ink);
     font-family: "Plus Jakarta Sans", system-ui, sans-serif;
   }
 </style>

@@ -57,25 +57,28 @@ const meta = preview.meta({
 export const Dark = meta.story({});
 
 /**
- * `theme="paper"` is the only light surface in the entire design drop, and it is
- * what made the two-theme question worth asking (D9 → D21).
+ * `theme="paper"` is the light theme, scoped to one device: the frame carries
+ * `data-theme="light"`, so every token inside it resolves its paper half while
+ * the Storybook around it stays dark. This is the nested case the switching
+ * mechanism (`color-scheme` + `light-dark()`) exists to make trivial, and the
+ * story is where it is visible: the same screen, re-grounded, no component
+ * knowing which theme it is in.
  *
- * It is a MOCK of the light theme rather than the light theme: the frame's own
- * chrome changes colour and the components inside it do not, because their
- * tokens still resolve against the dark root. Wiring `[data-theme="light"]`
- * onto the screen is the light-theme wave's job, and this story is where the
- * gap is visible instead of merely written down.
+ * Until the 2026-09-18 drop this was a light bezel around DARK components —
+ * ink at 1.11:1 on cream, design-feedback §8 — and carried a contrast
+ * exception. The exception is gone: the a11y gate runs here at `'error'`.
  */
 export const Paper = Dark.extend({
   args: { theme: "paper" },
-  // A second, larger gap on top of the inherited one, and the design already
-  // records it: the components' tokens still resolve against the dark root, so
-  // on paper the ink is `#e8e4df` on `#f4f0e8` — 1.11:1. That is the known gap
-  // made visible, not a defect to fix here; wiring [data-theme="light"] is the
-  // light-theme wave's job. See design-feedback §8.
-  parameters: knownContrastGap(
-    "theme=paper renders dark-token components on a light bezel: ink reaches 1.11:1. The design's own known-gaps list already says the light theme is not wired into the components. See design-feedback §8.",
-  ),
+  play: async ({ canvasElement }) => {
+    const frame = canvasElement.querySelector<HTMLElement>('[data-theme="light"]');
+    await expect(frame).not.toBeNull();
+    // The proof that the subtree switched: the ink INSIDE the frame is the
+    // paper ink whatever the document around it is doing (the light Vitest
+    // project runs this story on a light document, the dark one on a dark).
+    await expect(getComputedStyle(frame!).color).toBe("rgb(35, 31, 26)");
+    await expect(getComputedStyle(frame!).colorScheme).toBe("light");
+  },
 });
 
 export const WithHomeIndicator = Dark.extend({ args: { showHome: true } });

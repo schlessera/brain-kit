@@ -14,13 +14,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join, relative, resolve } from "path";
+import { join, relative } from "path";
 
-import { TOKENS, accent, color, token } from "../src/tokens.js";
+import { LIGHT_TOKENS, TOKENS, accent, color, token } from "../src/tokens.js";
+import { DECLARED, PACKAGE_ROOT, theme } from "./_theme.js";
 
-const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 const SRC = join(PACKAGE_ROOT, "src");
-const theme = readFileSync(join(SRC, "theme.css"), "utf8");
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -37,11 +36,6 @@ const files = sources(SRC).map((path) => ({
   code: readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, ""),
 }));
 
-/** Declarations, not uses: `--bk-x: …` at the start of a declaration. */
-const DECLARED = new Map(
-  [...theme.matchAll(/^\s*(--bk-[\w-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1], m[2].trim()]),
-);
-
 describe("tokens match the stylesheet", () => {
   test("the parser found the stylesheet's tokens", () => {
     // A guard on the guard: if the declaration regex stopped matching, every
@@ -51,7 +45,10 @@ describe("tokens match the stylesheet", () => {
 
   for (const [name, value] of Object.entries(TOKENS)) {
     test(`--bk-${name} is ${value} in both files`, () => {
-      expect(DECLARED.get(`--bk-${name}`)).toBe(value);
+      // The DARK half of the declaration is the mirror in TOKENS; the light
+      // half is LIGHT_TOKENS, pinned in `light-theme.test.ts`.
+      expect(DECLARED.get(`--bk-${name}`)?.dark).toBe(value);
+      expect(DECLARED.get(`--bk-${name}`)?.light).toBe(LIGHT_TOKENS[name as keyof typeof TOKENS]);
     });
   }
 
@@ -112,17 +109,22 @@ describe("tokens match the stylesheet", () => {
     // say `var(--bk-color-raised)` rather than restating a hex. That is only
     // safe if a typo is caught: an undefined reference inside a token renders
     // nothing at all, and the element quietly inherits.
-    const references = Object.entries(TOKENS).flatMap(([name, value]) =>
+    const references = [...Object.entries(TOKENS), ...Object.entries(LIGHT_TOKENS)].flatMap(([name, value]) =>
       [...value.matchAll(/var\((--bk-[\w-]+)/g)].map((m) => `${name} -> ${m[1]}`),
     );
     expect(references.length).toBeGreaterThan(10);
     expect(references.filter((r) => !DECLARED.has(r.split(" -> ")[1]))).toEqual([]);
   });
 
-  test("the light theme has somewhere to land", () => {
-    // Not authored this wave — the names and the dark values are what make it a
-    // token file next wave rather than 58 component edits. This asserts the
-    // mechanism is documented so the next author does not invent a different one.
-    expect(theme).toContain('[data-theme="light"]');
+  test("the light theme is switched by color-scheme under [data-theme]", () => {
+    // The design's contract names a `[data-theme]` root; the kit honours it by
+    // mapping the attribute onto `color-scheme`, which is what every
+    // `light-dark()` above actually reads. Three values, because the design's
+    // toggle has three positions: system / paper / dark.
+    const rules = theme.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(rules).toMatch(/:root\s*\{\s*color-scheme: dark;/);
+    expect(rules).toMatch(/\[data-theme="light"\]\s*\{\s*color-scheme: light;/);
+    expect(rules).toMatch(/\[data-theme="dark"\]\s*\{\s*color-scheme: dark;/);
+    expect(rules).toMatch(/\[data-theme="system"\]\s*\{\s*color-scheme: light dark;/);
   });
 });

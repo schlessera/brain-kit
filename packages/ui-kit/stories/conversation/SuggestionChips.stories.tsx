@@ -30,7 +30,7 @@ export const TonePresenceMatters = Default.extend({
   args: {
     items: [
       { label: "What else is unfiled?", onClick: fn() },
-      { label: "What else is unfiled?", tone: "neutral", onClick: fn() },
+      { label: "What else is unfiled?", onClick: fn() },
     ],
   },
 });

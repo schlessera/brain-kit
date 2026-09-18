@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { DiffBlock } from "../primitives/DiffBlock.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
-import type { Tone } from "../types.js";
+import type { Tone, ValueTone } from "../types.js";
 
 /**
  * "Capability you'd grant", hash comparisons, provenance blocks — any list of
@@ -17,7 +17,7 @@ import type { Tone } from "../types.js";
 export interface ReceiptRow {
   k: string;
   v: string;
-  tone?: Tone;
+  tone?: ValueTone;
 }
 
 export interface ReceiptProps {
@@ -38,22 +38,22 @@ export interface ReceiptProps {
 }
 
 /**
- * Receipt's own tone table, and it is NOT the shared one: its `neutral` is dim
- * ink rather than the neutral accent, because a receipt's unremarkable values
- * are still values to read, not labels to skim past. Ported as written.
+ * Every accent's ink plus the two inks. An UNTONED value is dim ink — a
+ * receipt's unremarkable values are still values to read, not labels to skim
+ * past — and `neutral` is the grey accent, as everywhere else (D33). The
+ * source's dead `muted` entry is gone; `dim` is the real member.
  */
-const TONES: Record<Tone, string> = {
+const TONES: Record<ValueTone, string> = {
   amber: accent.amber.ink,
   gold: accent.gold.ink,
   teal: accent.teal.ink,
   purple: accent.purple.ink,
   blue: accent.blue.ink,
   red: accent.red.ink,
-  neutral: color.inkDim,
+  neutral: accent.neutral.ink,
+  ink: color.ink,
+  dim: color.inkDim,
 };
-
-/* The source's table also carries a `muted` entry that nothing reads — its key
- * column spells the same colour inline. Dead in the source, so not ported. */
 
 const FALLBACK: ReceiptRow[] = [
   { k: "tool", v: "Edit" },
@@ -113,7 +113,7 @@ export function Receipt(p: ReceiptProps) {
               flex: 1,
               minWidth: 0,
               wordBreak: "break-all",
-              color: TONES[row.tone || "neutral"] || TONES.neutral,
+              color: TONES[row.tone || "dim"] || TONES.dim,
               fontWeight: 500,
             }}
           >

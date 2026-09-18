@@ -8,42 +8,48 @@
  *
  * `tests/tokens-match-theme.test.ts` is the companion: it pins every value here
  * against `src/tokens.ts`. This file asserts the SHAPE of the set — that the
- * design's own rules about it still hold.
+ * design's own rules about it still hold. The values live in `tokens.css`; the
+ * Tailwind scales (`@theme static`) live in `theme.css`, which imports it.
  */
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
 
-const PACKAGE_ROOT = resolve(import.meta.dir, "..");
-const theme = readFileSync(join(PACKAGE_ROOT, "src", "theme.css"), "utf8");
+import { DECLARED, PACKAGE_ROOT, tailwindTheme, theme } from "./_theme.js";
+
 const styles = readFileSync(join(PACKAGE_ROOT, "src", "styles.css"), "utf8");
+const dark = (name: string) => DECLARED.get(`--bk-${name}`)?.dark;
+const light = (name: string) => DECLARED.get(`--bk-${name}`)?.light;
 
 describe("design tokens", () => {
   // The catalog's PALETTE is twelve rows, but two of them name a second
   // load-bearing colour inside the row: #2a2d35 (the card border, distinct
-  // from the #1f2229 hairline inside a card) and #8a8691 (machine meta).
+  // from the #1f2229 hairline inside a card) and #9a96a1 (machine meta).
   // Both were nearly lost by reading the palette as twelve values.
-  const COLOURS: [string, string][] = [
-    ["canvas", "#0c0e12"],
-    ["surface", "#141619"],
-    ["raised", "#1a1d22"],
-    ["line", "#1f2229"],
-    ["edge", "#2a2d35"],
-    ["ink", "#e8e4df"],
-    ["ink-dim", "#c0bcb5"],
-    ["ink-mute", "#8a8691"],
-    ["amber", "#e09f3e"],
-    ["gold", "#eab354"],
-    ["teal", "#5bb5a2"],
-    ["purple", "#b197d4"],
-    ["blue", "#67b8e3"],
-    ["red", "#f87171"],
+  // Third column: the design's paper palette (`Brain Kit Light.dc.html` §L5).
+  // The accents' light value is their INK — the hue's identity on paper.
+  const COLOURS: [string, string, string][] = [
+    ["canvas", "#0c0e12", "#ece7dc"],
+    ["surface", "#141619", "#f8f5ef"],
+    ["raised", "#1a1d22", "#fffefa"],
+    ["line", "#1f2229", "#ddd6c7"],
+    ["edge", "#2a2d35", "#c8bfac"],
+    ["ink", "#e8e4df", "#231f1a"],
+    ["ink-dim", "#c0bcb5", "#554f45"],
+    ["ink-mute", "#9a96a1", "#5f584c"],
+    ["amber", "#e09f3e", "#7f4c08"],
+    ["gold", "#eab354", "#6f540c"],
+    ["teal", "#5bb5a2", "#15594c"],
+    ["purple", "#b197d4", "#5d4489"],
+    ["blue", "#67b8e3", "#1a5c7f"],
+    ["red", "#f87171", "#9c2a24"],
   ];
 
-  for (const [name, hex] of COLOURS) {
-    test(`--bk-color-${name} is ${hex}`, () => {
-      expect(theme).toContain(`--bk-color-${name}: ${hex};`);
+  for (const [name, hex, paper] of COLOURS) {
+    test(`--bk-color-${name} is ${hex}, and ${paper} on paper`, () => {
+      expect(dark(`color-${name}`)).toBe(hex);
+      expect(light(`color-${name}`)).toBe(paper);
     });
   }
 
@@ -53,10 +59,13 @@ describe("design tokens", () => {
     // carry an alpha channel. (`--bk-button-ink-on-solid` is deliberately not
     // in the ramp: it is near-black ON a filled accent, which is the one place
     // the design does tint a foreground.)
-    const ramp = [...theme.matchAll(/--bk-(color-ink[\w-]*): ([^;]+);/g)];
+    const ramp = [...DECLARED.keys()].filter((n) => n.startsWith("--bk-color-ink"));
     expect(ramp.length).toBe(3);
-    for (const [, name, value] of ramp) {
-      expect(`${name} -> ${value}`).toMatch(/^[\w-]+ -> #[0-9a-f]{6}$/);
+    for (const name of ramp) {
+      const { light, dark } = DECLARED.get(name)!;
+      expect(`${name} -> ${dark}`).toMatch(/^[\w-]+ -> #[0-9a-f]{6}$/);
+      // Same rule in both themes: "alpha ink is still banned".
+      expect(`${name} -> ${light}`).toMatch(/^[\w-]+ -> #[0-9a-f]{6}$/);
     }
   });
 
@@ -67,12 +76,13 @@ describe("design tokens", () => {
     // what keeps it from being re-derived inside a component.
     for (const surface of ["chip", "surface", "callout"]) {
       for (const accent of ["amber", "gold", "teal", "purple", "blue", "red"]) {
-        expect(theme).toMatch(
-          new RegExp(`--bk-${surface}-tint-${accent}: rgba\\([\\d,]+,0\\.(0[4-9]|1[0-4]?)\\);`),
-        );
-        expect(theme).toMatch(
-          new RegExp(`--bk-${surface}-border-${accent}: rgba\\([\\d,]+,0\\.(3[0-9]?|4[0-9]?|5)\\);`),
-        );
+        expect(dark(`${surface}-tint-${accent}`)).toMatch(/^rgba\([\d,]+,0\.(0[4-9]|1[0-4]?)\)$/);
+        expect(dark(`${surface}-border-${accent}`)).toMatch(/^rgba\([\d,]+,0\.(3[0-9]?|4[0-9]?|5)\)$/);
+        // On paper the band moves up — tints at 8-16%, borders at 35-60% —
+        // because the same alpha that lifts a panel off black vanishes on
+        // cream. The design's own words: "tints go up, not down".
+        expect(light(`${surface}-tint-${accent}`)).toMatch(/^rgba\([\d,]+,0\.(0[8-9]|1[0-6])\)$/);
+        expect(light(`${surface}-border-${accent}`)).toMatch(/^rgba\([\d,]+,0\.(3[5-9]|4[0-9]?|5[0-9]?|6)\)$/);
       }
     }
   });
@@ -83,8 +93,12 @@ describe("design tokens", () => {
     // light theme a token file instead of 58 component edits.
     for (const accent of ["amber", "gold", "teal", "purple", "blue", "red", "neutral"]) {
       for (const role of ["ink", "fill", "mark"]) {
-        expect(theme).toMatch(new RegExp(`--bk-${accent}-${role}: `));
+        expect(DECLARED.has(`--bk-${accent}-${role}`)).toBe(true);
       }
+      // One colour in the dark — and three different ones on paper, which is
+      // the whole reason the names exist.
+      const roles = ["ink", "fill", "mark"].map((r) => light(`${accent}-${r}`));
+      expect(new Set(roles).size).toBe(3);
     }
   });
 
@@ -105,21 +119,21 @@ describe("design tokens", () => {
       ["pill", "999px"],
     ];
     for (const [name, value] of expected) {
-      expect(theme).toContain(`--radius-${name}: ${value};`);
+      expect(tailwindTheme).toContain(`--radius-${name}: ${value};`);
     }
   });
 
   test("the spacing set is the design's irregular one, not a 4px grid", () => {
-    const values = [...theme.matchAll(/--spacing-(\d+): (\d+)px;/g)].map((m) => Number(m[2]));
+    const values = [...tailwindTheme.matchAll(/--spacing-(\d+): (\d+)px;/g)].map((m) => Number(m[2]));
     expect(values).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 26]);
     // The giveaway for a "tidied" scale: every step a multiple of four.
     expect(values.every((v) => v % 4 === 0)).toBe(false);
   });
 
   test("the three families each have one job", () => {
-    expect(theme).toContain('--font-display: "DM Serif Text", Georgia, serif;');
-    expect(theme).toContain('--font-body: "Plus Jakarta Sans", system-ui, sans-serif;');
-    expect(theme).toContain('--font-mono: "JetBrains Mono", ui-monospace, monospace;');
+    expect(tailwindTheme).toContain('--font-display: "DM Serif Text", Georgia, serif;');
+    expect(tailwindTheme).toContain('--font-body: "Plus Jakarta Sans", system-ui, sans-serif;');
+    expect(tailwindTheme).toContain('--font-mono: "JetBrains Mono", ui-monospace, monospace;');
   });
 
   test("Tailwind's colour namespace mirrors the kit's rather than restating it", () => {
@@ -127,7 +141,7 @@ describe("design tokens", () => {
     // cost is that a var-valued theme colour generates no bg-*/text-* utility;
     // nothing in the kit uses one.
     for (const [name] of COLOURS) {
-      expect(theme).toContain(`--color-${name}: var(--bk-color-${name});`);
+      expect(tailwindTheme).toContain(`--color-${name}: var(--bk-color-${name});`);
     }
   });
 
@@ -147,7 +161,7 @@ describe("design tokens", () => {
     //
     // Comments are stripped first, or the note above explaining the rule would
     // count as a declaration of it.
-    const css = `${theme}\n${styles}`.replace(/\/\*[\s\S]*?\*\//g, "");
+    const css = `${theme}\n${tailwindTheme}\n${styles}`.replace(/\/\*[\s\S]*?\*\//g, "");
     const declarations = [...css.matchAll(/@keyframes\s+breathe\b/g)];
     expect(declarations.length).toBe(2);
 
@@ -186,6 +200,17 @@ describe("design tokens", () => {
     // Comments are stripped, or the line above explaining the rule trips it.
     const rules = theme.replace(/\/\*[\s\S]*?\*\//g, "");
     expect(rules).not.toMatch(/:focus(?!-visible)/);
+  });
+
+  test("the Tailwind theme entry imports the tokens, and the tokens carry no @theme", () => {
+    // A consumer with its own Tailwind scale imports `tokens.css` and must
+    // get no `@theme` from it: the kit's `--spacing-2: 2px` would otherwise
+    // redefine that consumer's `p-2`. Found while wiring ui-react (S5).
+    expect(tailwindTheme).toContain('@import "./tokens.css";');
+    expect(tailwindTheme).toContain("@theme static {");
+    const bare = theme.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(bare).not.toContain("@theme");
+    expect(bare).not.toContain("@import");
   });
 
   test("the Tailwind entry pins its own scan root", () => {

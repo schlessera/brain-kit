@@ -12,16 +12,16 @@
  *   - **The token rule does not reach it either.** `tests/tokens-match-theme.ts`
  *     forbids a colour literal in `src/`; furniture is exempt for the same
  *     reason the design marks its own `browser-window.jsx` "raw elements / hex
- *     / px by design". The literals below are the design's own, verbatim, and
- *     the paper values are the one place in this repo the light palette is
- *     drawn at all.
+ *     / px by design". The bezel and shadow literals below are the design's
+ *     own, verbatim — the dark frame from `PhoneFrame.dc.html`, the paper one
+ *     from `Brain Kit Light.dc.html` §L4.
  *
- * `theme="paper"` is the only light surface in the whole design drop, which is
- * what made the two-theme question worth asking in the first place (D9 → D21).
- * It is a MOCK of the light theme rather than the light theme: the frame's own
- * chrome changes colour and the components inside it do not, because their
- * tokens still resolve against the dark root. Wiring `[data-theme="light"]`
- * onto the screen is the light-theme wave's job, and this is where it goes.
+ * `theme="paper"` puts `data-theme="light"` on the frame, so everything inside
+ * it resolves the light half of every token: the screen IS the light theme,
+ * not a mock of it. The screen's ground and ink come from the tokens for that
+ * reason — only the bezel, which is a device and not a surface, is a literal.
+ * Before the 2026-09-18 drop this was a light bezel around dark components
+ * (design-feedback §8); that gap is closed.
  */
 import type { ReactNode } from "react";
 import type { CSSProperties } from "react";
@@ -49,6 +49,7 @@ export function PhoneFrame(p: PhoneFrameProps) {
     width: Number(p.width) || 390,
     height: Number(p.height) || 844,
     borderRadius: 42,
+    // The bezel: a device, not a surface, so it is the design's literal.
     border: `9px solid ${paper ? "#d9d2c6" : "#1c1d20"}`,
     // `content-box`, explicitly, and this is a third instance of the Tailwind
     // preflight exception waves 1 and 3 both recorded (`Chip variant="count"`,
@@ -59,19 +60,20 @@ export function PhoneFrame(p: PhoneFrameProps) {
     // OUTSIDE the screen, and the numbers on these props are the device's
     // screen size.
     boxSizing: "content-box",
-    background: paper ? "#f4f0e8" : "#0c0e12",
+    background: "var(--bk-color-canvas)",
     overflow: "hidden",
     position: "relative",
     flex: "none",
-    boxShadow: "0 24px 60px rgba(0,0,0,.5)",
+    // The light catalog's device shadow is warm; the dark one is black.
+    boxShadow: paper ? "0 24px 60px rgba(90,78,58,.28)" : "0 24px 60px rgba(0,0,0,.5)",
     fontFamily: "'Plus Jakarta Sans',system-ui,sans-serif",
-    color: paper ? "#231f1a" : "#e8e4df",
+    color: "var(--bk-color-ink)",
     display: "flex",
     flexDirection: "column",
   };
 
   return (
-    <div style={frame}>
+    <div style={frame} data-theme={paper ? "light" : undefined}>
       {p.showStatus !== false ? (
         <div
           style={{
@@ -97,7 +99,7 @@ export function PhoneFrame(p: PhoneFrameProps) {
       </div>
       {p.showHome === true ? (
         <div style={{ flex: "none", height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ width: 120, height: 4, borderRadius: 99, background: paper ? "#ddd4c4" : "#2a2d35" }} />
+          <span style={{ width: 120, height: 4, borderRadius: 99, background: "var(--bk-color-edge)" }} />
         </div>
       ) : null}
     </div>

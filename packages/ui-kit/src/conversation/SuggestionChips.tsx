@@ -13,9 +13,10 @@ import type { SuggestionTone } from "../types.js";
  * which is why a chip can be amber. Three or four maximum: past that it is a
  * menu, and a menu is the app telling the user what to want.
  *
- * **`neutral` resolves to DIM INK, not to the neutral accent**, which is the
- * source's table and is right: a chip suggesting a plain question is
- * text-coloured, and the grey accent would make it look disabled.
+ * **An untoned chip is DIM INK on the plain card edge**: a chip suggesting a
+ * plain question is text-coloured, and the grey accent would make it look
+ * disabled. `neutral` is that grey accent (D33), for the one chip that IS
+ * machine-flavoured — a re-index, a retry.
  *
  * Interaction states are the design's, from the drop that added them. A chip
  * is pill-shaped, so it takes `.bk-control` — ring outside, all three hover
@@ -40,7 +41,7 @@ export interface SuggestionChipsProps {
 }
 
 const INKS: Record<SuggestionTone, string> = {
-  neutral: color.inkDim,
+  neutral: accent.neutral.ink,
   teal: accent.teal.ink,
   amber: accent.amber.ink,
   purple: accent.purple.ink,
@@ -121,7 +122,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
       >
         {src.map((it, i) => {
           const tone = it.tone;
-          const ink = tone ? INKS[tone] || INKS.neutral : INKS.neutral;
+          const ink = tone ? INKS[tone] || color.inkDim : color.inkDim;
           const act = Boolean(it.onClick);
           // The PRESENCE of a tone is what makes a chip toned, not its value:
           // an untoned chip is transparent with the plain card edge, and lifts

@@ -76,10 +76,14 @@ export const Disabled = Default.extend({
     subtitle: "The raft is short two planks",
     effect: "depart",
   },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, args }) => {
     const button = await canvas.findByRole("button");
     await expect(button).toHaveAttribute("aria-disabled", "true");
     await expect(button).toHaveAttribute("tabindex", "-1");
+    // Inert means inert: `pointer-events: none` stops a real pointer, and the
+    // handler is not wired at all, so a programmatic click reaches nothing.
+    button.click();
+    await expect(args.onClick).not.toHaveBeenCalled();
   },
 });
 
