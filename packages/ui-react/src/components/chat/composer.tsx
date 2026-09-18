@@ -1,16 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect } from "react";
-import {
-  ArrowUp,
-  Square,
-  CornerLeftUp,
-  Paperclip,
-  Camera,
-  X,
-  Check,
-  ChevronDown,
-  Lock,
-} from "lucide-react";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
@@ -23,14 +12,13 @@ import {
 } from "../../lib/image-attachments.js";
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
-import { MicButton } from "../voice/mic-button.js";
+import { ComposerView } from "./composer-view.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { useDictation } from "../../voice/use-dictation.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
-import { cn } from "../../lib/utils.js";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -44,6 +32,10 @@ import { cn } from "../../lib/utils.js";
  *
  * The corollary is a rule for future edits: transcript-scale state does not
  * belong in this file, and draft state does not belong above it.
+ *
+ * This is the container (S7): every store read, the draft, the attachments
+ * and their object URLs, the provider choice and the voice review live here;
+ * `ComposerView` draws the field.
  */
 export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const root = useBrainUiRoot();
@@ -353,278 +345,67 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
             onDiscard={clearReview}
             onAppend={handleVoiceAppend}
           />
-
-          {/* Rejected-file errors */}
-          {attachErrors.length > 0 && (
-            <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
-              <div className="flex-1 space-y-0.5">
-                {attachErrors.map((e, i) => (
-                  <div key={i}>{e}</div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setAttachErrors([])}
-                title="Dismiss"
-                className="shrink-0 rounded p-0.5 transition-colors hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* Image attachment preview strip */}
-          {attachments.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {attachments.map((a, i) => (
-                <div key={i} className="relative h-16 w-16 shrink-0">
-                  <img
-                    src={a.previewUrl}
-                    alt={a.name}
-                    className="h-16 w-16 rounded-lg border border-border object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(i)}
-                    title="Remove"
-                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground shadow transition-colors hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            className={cn(
-              "relative rounded-2xl border border-border bg-surface shadow-lg transition-all duration-200",
-              "focus-within:border-primary/40 focus-within:shadow-[0_0_20px_rgba(224,159,62,0.05)]"
-            )}
-          >
-            {/* Command palette */}
-            {showCommandPalette && (
-              <CommandPalette
-                filter={input.slice(1)}
-                onSelect={handleCommand}
-              />
-            )}
-
-            {/* Hidden file inputs for the paperclip / camera buttons */}
-            <input
-              ref={libraryInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={onFilePick}
-            />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              onChange={onFilePick}
-            />
-
-            {/* The textarea grows by CSS, not by JavaScript: the wrapper's
-                ::after mirrors the value and sets the row height, so the
-                composer never reads scrollHeight. That read forced a full
-                document layout on every keystroke, and its cost scaled with
-                the size of the transcript behind it. */}
-            <div className="composer-grow" data-value={input + " "}>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  setPaletteDismissed(false);
-                }}
-                onPaste={(e) => {
-                  const files = e.clipboardData?.files;
-                  if (files && files.length > 0) {
-                    const images = Array.from(files).filter((f) =>
-                      f.type.startsWith("image/")
-                    );
-                    if (images.length > 0) {
-                      e.preventDefault();
-                      void addFiles(images);
-                    }
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    if (showCommandPalette) return;
-                    // On desktop (>=768px), Enter sends. On mobile, Enter inserts newline.
-                    if (window.matchMedia("(min-width: 768px)").matches) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }
-                  if (e.key === "ArrowUp" && !input.trim()) {
-                    handleRecall();
-                  }
-                  if (e.key === "Escape") {
-                    setPaletteDismissed(true);
-                  }
-                }}
-                placeholder={
-                  wsStatus !== "connected"
-                    ? connectionIssue === "capacity"
-                      ? "Server connection limit reached"
-                      : connectionIssue === "refused"
-                        ? "Server refused the connection"
-                        : "Connecting..."
-                    : root.config.composerPlaceholder
-                }
-                disabled={wsStatus !== "connected"}
-                rows={1}
-                className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-
-            <div className="flex items-center justify-between px-4 pb-3">
-              {/* Provider picker + hints */}
-              <div className="flex min-w-0 items-center gap-3 text-[11px] text-muted-foreground/50">
-                {showProviderPicker && (
-                  <div ref={providerMenuRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        !providerLocked && setProviderMenuOpen((v) => !v)
-                      }
-                      disabled={providerLocked}
-                      title={
-                        providerLocked
-                          ? "Provider is fixed for this conversation"
-                          : "Choose model"
-                      }
-                      className={cn(
-                        "flex max-w-[9rem] items-center gap-1 rounded-lg px-2 py-1 text-[11px] transition-colors md:max-w-[14rem]",
-                        providerLocked
-                          ? "cursor-default text-muted-foreground/60"
-                          : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
-                      )}
-                    >
-                      {providerLocked && (
-                        <Lock className="h-3 w-3 shrink-0 opacity-70" />
-                      )}
-                      <span className="truncate">
-                        {displayProviderLabel}
-                      </span>
-                      {!providerLocked && (
-                        <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
-                      )}
-                    </button>
-                    {providerMenuOpen && !providerLocked && (
-                      <div
-                        role="menu"
-                        className="absolute bottom-full left-0 z-50 mb-1 min-w-[14rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
-                      >
-                        {providers.map((p) => (
-                          <button
-                            key={p.id}
-                            role="menuitem"
-                            type="button"
-                            onClick={() => {
-                              setSelectedProvider(p.id);
-                              setProviderMenuOpen(false);
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
-                          >
-                            <Check
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0 text-primary",
-                                p.id === selectedProviderId
-                                  ? "opacity-100"
-                                  : "opacity-0"
-                              )}
-                            />
-                            <span className="truncate">{p.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {followUpHint ? (
-                  <span className="text-primary/70">{followUpHint}</span>
-                ) : (
-                  <>
-                    <span className="hidden sm:inline">
-                      <span className="font-[family-name:var(--font-mono)]">/</span>{" "}
-                      for commands
-                    </span>
-                    <span className="hidden md:inline">Shift+Enter for newline</span>
-                  </>
-                )}
-              </div>
-
-              {/* Attach + Recall + Mic + Send / Cancel */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => libraryInputRef.current?.click()}
-                  disabled={isStreaming || wsStatus !== "connected"}
-                  title="Attach images"
-                  aria-label="Attach images"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:bg-surface-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cameraInputRef.current?.click()}
-                  disabled={isStreaming || wsStatus !== "connected"}
-                  title="Take a photo"
-                  aria-label="Take a photo"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:bg-surface-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <Camera className="h-4 w-4" />
-                </button>
-                {lastPrompt && !input.trim() && !isStreaming && (
-                  <button
-                    type="button"
-                    onClick={handleRecall}
-                    title="Recall last prompt"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:bg-surface-raised hover:text-foreground"
-                  >
-                    <CornerLeftUp className="h-4 w-4" />
-                  </button>
-                )}
-                <MicButton
-                  active={voiceMode === "dictate"}
-                  disabled={isStreaming || wsStatus !== "connected"}
-                  onTap={handleMicTap}
-                />
-                {isStreaming && !hasDraft ? (
-                  // Streaming with nothing drafted: the primary action is cancel.
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    title="Stop the running turn"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive text-primary-foreground transition-all duration-150"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                  </button>
-                ) : (
-                  // A draft always sends — as a new turn, or a follow-up when a
-                  // session is already running.
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={!canSend}
-                    title={followUpHint ?? "Send"}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all duration-150 hover:brightness-110 disabled:opacity-30"
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
+
+        {/* Hidden file inputs for the paperclip / camera buttons */}
+        <input ref={libraryInputRef} type="file" accept="image/*" multiple hidden onChange={onFilePick} />
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
+
+        <ComposerView
+          value={input}
+          placeholder={
+            wsStatus !== "connected"
+              ? connectionIssue === "capacity"
+                ? "Server connection limit reached"
+                : connectionIssue === "refused"
+                  ? "Server refused the connection"
+                  : "Connecting..."
+              : root.config.composerPlaceholder
+          }
+          disabled={wsStatus !== "connected"}
+          streaming={isStreaming}
+          canSend={canSend}
+          hasDraft={hasDraft}
+          followUpHint={followUpHint}
+          showRecall={Boolean(lastPrompt && !input.trim() && !isStreaming)}
+          micActive={voiceMode === "dictate"}
+          paletteOpen={showCommandPalette}
+          palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} onSelect={handleCommand} /> : null}
+          attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
+          attachErrors={attachErrors}
+          provider={
+            showProviderPicker
+              ? {
+                  label: displayProviderLabel,
+                  locked: providerLocked,
+                  menuOpen: providerMenuOpen,
+                  options: providers.map((p) => ({ id: p.id, label: p.label })),
+                  selectedId: selectedProviderId,
+                }
+              : null
+          }
+          textareaRef={textareaRef}
+          providerMenuRef={providerMenuRef}
+          onChange={(value) => {
+            setInput(value);
+            setPaletteDismissed(false);
+          }}
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+          onPasteFiles={(files) => void addFiles(files)}
+          onAttach={() => libraryInputRef.current?.click()}
+          onCamera={() => cameraInputRef.current?.click()}
+          onRecall={handleRecall}
+          onMic={handleMicTap}
+          onEscape={() => setPaletteDismissed(true)}
+          onRemoveAttachment={removeAttachment}
+          onDismissErrors={() => setAttachErrors([])}
+          onProviderToggle={() => !providerLocked && setProviderMenuOpen((v) => !v)}
+          onProviderSelect={(id) => {
+            setSelectedProvider(id);
+            setProviderMenuOpen(false);
+          }}
+        />
       </div>
     </>
   );

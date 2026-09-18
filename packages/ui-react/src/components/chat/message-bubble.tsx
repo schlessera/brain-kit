@@ -1,6 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState } from "react";
-import { ChevronDown, Sparkles, Mic, Image as ImageIcon } from "lucide-react";
 import type {
   ChatMessage,
   ToolCall,
@@ -17,6 +16,7 @@ import { motion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
+import { AttachmentCount, ThinkingBlock, ThinkingIndicator, TurnHeader, UserTurn } from "./transcript-turn.js";
 
 /**
  * One message in the transcript.
@@ -28,6 +28,11 @@ import { ZoomableImage } from "../images/zoomable-image.js";
  *
  * The contract that keeps it working: every callback prop must be stable.
  * ChatPage wraps all three in useCallback for exactly this reason.
+ *
+ * This is the container (S7): it reads the message, groups its parts and
+ * routes the tool timelines, ask cards and markdown; the frame — header,
+ * user bubble, thinking disclosure, the streaming dot — is
+ * `transcript-turn.tsx`, on the kit.
  */
 export const MessageBubble = memo(function MessageBubble({
   message,
@@ -54,47 +59,23 @@ export const MessageBubble = memo(function MessageBubble({
       transition={{ duration: 0.2, ease: "easeOut" }}
       className="py-4"
     >
-      {/* Label row */}
-      <div className="mb-2 flex items-center gap-3">
-        <span
-          className={
-            isUser
-              ? "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest text-primary/80"
-              : "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest text-accent/80"
-          }
-        >
-          {isUser ? "You" : root.config.assistantName}
-        </span>
-        <div className="h-px flex-1 bg-border/40" />
-        {isUser && message.source && message.source !== "typed" && (
-          <Mic
-            className={
-              message.source === "voice-conversation"
-                ? "h-3 w-3 text-primary/70"
-                : "h-3 w-3 text-primary/50"
-            }
-            aria-label={
-              message.source === "voice-conversation"
-                ? "Voice conversation"
-                : "Voice dictation"
-            }
-          />
-        )}
-        <span className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/40">
-          {formatTime(message.timestamp)}
-        </span>
-      </div>
+      <TurnHeader
+        who={isUser ? "You" : root.config.assistantName}
+        when={formatTime(message.timestamp)}
+        voice={isUser && message.source && message.source !== "typed" ? message.source : undefined}
+        tone={isUser ? "user" : "brain"}
+      />
 
       {/* Content */}
       {isUser ? (
-        <div className="space-y-2">
+        <UserTurn>
           <UserAttachments message={message} />
           {message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
             </div>
           )}
-        </div>
+        </UserTurn>
       ) : (
         <AssistantContent
           message={message}
@@ -132,12 +113,7 @@ function UserAttachments({ message }: { message: ChatMessage }) {
   }
 
   if (message.attachmentCount && message.attachmentCount > 0) {
-    return (
-      <div className="inline-flex items-center gap-1.5 rounded-lg border border-border/40 bg-surface/50 px-2.5 py-1 text-xs text-muted-foreground">
-        <ImageIcon className="h-3.5 w-3.5" />
-        {message.attachmentCount} image{message.attachmentCount === 1 ? "" : "s"}
-      </div>
-    );
+    return <AttachmentCount count={message.attachmentCount} />;
   }
 
   return null;
@@ -316,15 +292,7 @@ function AssistantContent({
         />
       ))}
 
-      {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full bg-primary"
-            style={{ animation: "breathe 2s ease-in-out infinite" }}
-          />
-          Thinking...
-        </div>
-      )}
+      {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && <ThinkingIndicator />}
     </div>
   );
 }
@@ -346,43 +314,14 @@ function ThinkingSection({
     prevStreaming.current = isStreaming;
   }, [isStreaming]);
 
-  if (!isStreaming && !expanded) {
-    // Collapsed: minimal clickable text
-    const estimatedTokens = Math.round(content.length / 4);
-    return (
-      <button
-        onClick={() => setExpanded(true)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-      >
-        <Sparkles className="h-3 w-3" />
-        <span className="font-[family-name:var(--font-mono)]">
-          Thought for ~{estimatedTokens} tokens
-        </span>
-        <ChevronDown className="h-3 w-3" />
-      </button>
-    );
-  }
-
   return (
-    <div className="rounded-lg bg-surface/50 px-4 py-3">
-      {!isStreaming && (
-        <button
-          onClick={() => setExpanded(false)}
-          className="mb-2 text-[11px] font-medium text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-        >
-          Hide thinking
-        </button>
-      )}
-      <div className="font-[family-name:var(--font-mono)] text-xs leading-relaxed text-muted-foreground/60 italic whitespace-pre-wrap">
-        {linkifyPaths(content)}
-        {isStreaming && (
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full bg-primary ml-1"
-            style={{ animation: "breathe 2s ease-in-out infinite" }}
-          />
-        )}
-      </div>
-    </div>
+    <ThinkingBlock
+      content={linkifyPaths(content)}
+      chars={content.length}
+      streaming={isStreaming}
+      open={expanded}
+      onOpenChange={setExpanded}
+    />
   );
 }
 
