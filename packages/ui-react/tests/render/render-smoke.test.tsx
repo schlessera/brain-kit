@@ -1921,7 +1921,23 @@ describe("contract-bound tool renderers", () => {
     fireEvent.click(header);
   }
 
-  test("a JSON payload renders as the location card, not as JSON", () => {
+  const geometry = {
+    coastline: [[[20.70, 38.36], [20.72, 38.37], [20.73, 38.36]]],
+    roads: [[[20.71, 38.365], [20.72, 38.366]]],
+    streets: [],
+    land: [[[20.70, 38.36], [20.72, 38.37], [20.73, 38.36], [20.70, 38.36]]],
+    detail: "roads",
+    partial: false,
+    toleranceM: 8,
+    attribution: "\u00a9 OpenStreetMap contributors",
+  };
+
+  test("a JSON payload renders as a map with the pin, and the shoreline arrives from the server", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return Response.json(geometry);
+    }) as typeof fetch;
     const result = render(
       <ToolCallTimeline toolCalls={[locationCall(JSON.stringify(fix))]} onApproval={() => {}} />
     );
@@ -1932,6 +1948,39 @@ describe("contract-bound tool renderers", () => {
     expect(text).toContain("\u00b142 m");
     // The raw JSON is gone: the reader sees the card, not the wire format.
     expect(text).not.toContain('"accuracyMeters"');
+    // The pin is drawn by the kit's MapView from the payload's coordinates.
+    expect(result.baseElement.querySelector("svg")).toBeTruthy();
+
+    // One request, for the box the map draws, at the map's own width; the
+    // fix is inside it.
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const url = new URL(requests[0]!, "http://localhost");
+    expect(url.pathname.endsWith("/geo/coastline")).toBe(true);
+    const [w, s, e, n] = url.searchParams.get("bbox")!.split(",").map(Number) as [number, number, number, number];
+    expect(w).toBeLessThan(fix.longitude);
+    expect(e).toBeGreaterThan(fix.longitude);
+    expect(s).toBeLessThan(fix.latitude);
+    expect(n).toBeGreaterThan(fix.latitude);
+    expect(url.searchParams.get("width")).toBe("330");
+
+    // The geometry lands as paths and land, and the credit comes with it.
+    await waitFor(() => expect(result.baseElement.textContent).toContain("OpenStreetMap contributors"));
+    // Coastline + road as strokes, land as one filled path, the pin's own marks besides.
+    expect(result.baseElement.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("without a server the map still draws the pin, and carries no credit for geometry it has not got", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    const result = render(
+      <ToolCallTimeline toolCalls={[locationCall(JSON.stringify(fix))]} onApproval={() => {}} />
+    );
+    expandAll(result);
+    await act(flushPromises);
+    expect(result.baseElement.textContent).toContain("Vathy");
+    expect(result.baseElement.querySelector("svg")).toBeTruthy();
+    expect(result.baseElement.textContent).not.toContain("OpenStreetMap");
   });
 
   test("a denial keeps its message instead of blanking the row", () => {

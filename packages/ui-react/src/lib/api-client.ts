@@ -39,6 +39,18 @@ import type {
  * markers (`>>>term<<<`) — render it through `renderSnippet()` in the search
  * panel rather than printing it raw.
  */
+/** `GET /api/geo/coastline`: `[lon, lat]` polylines by tier, plus closed land rings. */
+export interface CoastlineGeometry {
+  coastline: [number, number][][];
+  roads: [number, number][][];
+  streets: [number, number][][];
+  land: [number, number][][];
+  detail: "coast" | "roads" | "streets";
+  partial: boolean;
+  toleranceM: number;
+  attribution: string;
+}
+
 export interface BrainSearchHit {
   path: string;
   title: string;
@@ -256,6 +268,20 @@ export function createBrainApi(
 
     brainBriefing: () =>
       fetchJson<{ content: string }>("/brain/briefing"),
+
+    /**
+     * Map geometry for a view, `[west, south, east, north]` in degrees. The
+     * server fetches once per place and caches forever; it answers 200 with
+     * empty geometry on any failure, so a caller never has to draw an error
+     * where a map should be. `attribution` is non-optional in the answer
+     * because the geometry is OpenStreetMap's (ODbL).
+     */
+    geoCoastline: (bbox: [number, number, number, number], opts?: { width?: number; signal?: AbortSignal }) =>
+      fetchJson<CoastlineGeometry>(
+        `/geo/coastline?bbox=${bbox.map((n) => n.toFixed(5)).join(",")}` +
+          (opts?.width ? `&width=${Math.round(opts.width)}` : ""),
+        { signal: opts?.signal }
+      ),
 
     brainStats: () =>
       fetchJson<{

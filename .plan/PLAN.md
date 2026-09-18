@@ -558,7 +558,17 @@ Sequenced after the component waves but **before** step 2. Not optional.
       Settings)
 - [x] S8 AST lint gate rejects internal default-store statics, including
       renamed imports, namespace imports, brackets, destructuring and aliases
-- [ ] S9 first real in-chat component end to end
+- [x] S9 first real in-chat component end to end. The contract layer
+      landed with wave 6 (`defineToolComponentContract`, `bind`, the
+      generated prompt paragraph, `CONTRACT:` f5512f7); the component is
+      `get_current_location` on the kit `MapView`: the payload's fix is the
+      pin, the span widens with a coarse accuracy, and the card is the
+      container that fetches `/geo/coastline` for the box the map draws —
+      `MapView` fetches nothing (D13) — degrading to a pin, graticule and
+      scale bar when no geometry comes back. The credit appears exactly when
+      OSM geometry is on the map. Nothing on the wire changed, so this is
+      not a `CONTRACT:` commit; `docs/integration-contract.md`'s "rendered
+      as" column is updated in words only
 - [x] S10 superseded by D31: no compatibility shim or separate 1.0 removal
       step is required
 

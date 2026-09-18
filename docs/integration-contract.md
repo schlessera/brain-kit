@@ -84,7 +84,7 @@ tool's result is meant to be rendered as a component rather than read as text:
 | Contract | Payload in `output` | Rendered as |
 |---|---|---|
 | `ask_user` | `{ questions, answers, annotations? }` | the picker's answered state |
-| `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a location card |
+| `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 

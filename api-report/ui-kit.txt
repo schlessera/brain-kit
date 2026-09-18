@@ -109,6 +109,7 @@ export "." (./src/index.ts)
   ListRow
   type ListRowProps
   type ListRowVariant
+  type MapLand
   type MapPath
   type MapPin
   MapView

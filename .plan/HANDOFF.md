@@ -545,6 +545,10 @@ run the `storybook-light` project as well.
   tokens file carries no `@theme`. The app's duplicate `breathe` keyframe is
   gone — declared after the kit's reduced-motion override it would have
   cancelled it.
+- **S9 is closed by the location map.** `LocationResultCard` is the kit
+  `MapView` fed from the `get_current_location` payload plus the server's
+  `/geo/coastline`; the contract layer itself was wave 6's. The card is the
+  container (it fetches), the kit draws; nothing on the wire moved.
 - **`MobileTabBar` is the first kit consumer** (`TabBar`; the More menu stays
   a sibling the app owns, since a kit tab is a leaf). The desktop `SideRail`
   followed in S7: the rail keeps the design's five destinations and the

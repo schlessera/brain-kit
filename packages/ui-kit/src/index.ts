@@ -117,7 +117,7 @@ export { LinkPreviewCard, type LinkPreviewCardProps } from "./blocks/LinkPreview
  * here: they are the projection's internals, `tests/mapview-projection.test.ts`
  * imports them directly, and `step` is far too generic a name to put into a
  * published package's top-level namespace. */
-export { MapView, type MapPath, type MapPin, type MapViewProps } from "./blocks/MapView.js";
+export { MapView, type MapLand, type MapPath, type MapPin, type MapViewProps } from "./blocks/MapView.js";
 export { QuoteCard, type QuoteCardProps } from "./blocks/QuoteCard.js";
 export {
   ScheduleList,

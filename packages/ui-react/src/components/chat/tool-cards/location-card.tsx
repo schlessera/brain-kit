@@ -1,14 +1,28 @@
 /**
- * The `get_current_location` result, as a card rather than a JSON blob.
+ * The `get_current_location` result, drawn on the kit's `MapView` (S9: the
+ * first in-chat component rendered end to end from its contract).
  *
  * Typed `LocationPayload` — the contract's payload type — so the fields it
- * reads are the fields the handler is contracted to send. It is a pure
- * function of that payload: no store, no fetch, nothing that knows which
- * backend produced it.
+ * reads are the fields the handler is contracted to send. The pin, the
+ * span and the caption are pure functions of that payload. What is not pure
+ * is the shoreline: `MapView` fetches nothing (kit D13), so this card is the
+ * container that asks the server's `/geo/coastline` for the geometry around
+ * the fix and hands it down as `paths` and `land`. The request is cancelled
+ * on unmount, and any failure — no server, an older server without the
+ * route, an Overpass outage — leaves a map with a correct pin, a graticule
+ * and a true scale bar, which is a good locator on its own.
+ *
+ * The bounding box asked for is the box `MapView` will draw: `spanKm` across
+ * the width, the height in proportion to the card, plus the component's own
+ * margins. The server bleeds well past it, so a slightly different frame is
+ * a cache hit rather than a fresh request to a shared service.
  */
 
-import { MapPin } from "lucide-react";
+import { MapView, type MapLand, type MapPath } from "@schlessera/brain-ui-kit";
 import type { LocationPayload } from "@schlessera/brain-ui-sdk/client";
+import { useEffect, useState } from "react";
+import { useBrainApi } from "../../../root-context.js";
+import type { CoastlineGeometry } from "../../../lib/api-client.js";
 
 /** 4 decimal places is ~11 m — finer than any browser fix is honest about. */
 function coord(value: number): string {
@@ -21,6 +35,47 @@ function accuracy(meters: number): string {
     : `±${Math.round(meters)} m`;
 }
 
+/** `MapView`'s own default projection width and card height. */
+const WIDTH = 330;
+const HEIGHT = 190;
+
+/**
+ * The view's span across its width, in kilometres. `MapView`'s default is
+ * 1.6 km — a town. A coarse fix (a Wi-Fi or cell position can be a
+ * kilometre out) widens it so the uncertainty fits inside the frame rather
+ * than the pin sitting confidently in the wrong street.
+ */
+export function spanFor(accuracyMeters: number): number {
+  return Math.max(1.6, (accuracyMeters * 6) / 1000);
+}
+
+/**
+ * The bbox `MapView` draws for one pin, as `[west, south, east, north]`. The
+ * same arithmetic as the component's: the span sets the longitude range at
+ * the pin's latitude, the card's aspect sets the latitude range, and the
+ * 12% / 14% margins are added on each side. Clamped to the server's 5°
+ * limit and to the poles.
+ */
+export function viewBox(lat: number, lon: number, spanKm: number): [number, number, number, number] {
+  const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+  const degLon = Math.min(4.5, (spanKm / 111 / cos) * 1.24);
+  const degLat = Math.min(4.5, (spanKm / 111) * (HEIGHT / WIDTH) * 1.28);
+  const west = Math.max(-180, lon - degLon / 2);
+  const east = Math.min(180, lon + degLon / 2);
+  const south = Math.max(-89, lat - degLat / 2);
+  const north = Math.min(89, lat + degLat / 2);
+  return [west, south, east, north];
+}
+
+/** The server's tiers as `MapView` paths, at the kit fixtures' weights. */
+export function geometryPaths(geo: CoastlineGeometry): MapPath[] {
+  return [
+    ...geo.coastline.map((coords) => ({ coords, tone: "neutral" as const, width: 1 })),
+    ...geo.roads.map((coords) => ({ coords, tone: "neutral" as const, width: 0.6 })),
+    ...geo.streets.map((coords) => ({ coords, tone: "neutral" as const, width: 0.35 })),
+  ];
+}
+
 export function LocationResultCard({
   latitude,
   longitude,
@@ -30,28 +85,52 @@ export function LocationResultCard({
   note,
   retrievedAt,
 }: LocationPayload) {
+  const api = useBrainApi();
+  const spanKm = spanFor(accuracyMeters);
+  const [geo, setGeo] = useState<CoastlineGeometry | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setGeo(null);
+    api
+      .geoCoastline(viewBox(latitude, longitude, spanKm), { width: WIDTH, signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setGeo(result);
+      })
+      .catch(() => {
+        // A plainer map, on purpose. The pin is the answer; the shore is
+        // context, and context that cannot be had is not an error to show.
+      });
+    return () => controller.abort();
+  }, [api, latitude, longitude, spanKm]);
+
   const when = new Date(retrievedAt);
   const stamp = Number.isNaN(when.getTime())
     ? retrievedAt
     : when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const paths = geo ? geometryPaths(geo) : [];
+  const land: MapLand | undefined = geo && geo.land.length ? { rings: geo.land } : undefined;
+  const drawn = paths.length > 0 || land !== undefined;
 
   return (
-    <div className="flex gap-2 rounded-md bg-background/60 p-2 text-[11px] leading-relaxed">
-      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-      <div className="min-w-0 space-y-0.5">
-        {/* The place name is the answer; coordinates are the evidence for it,
-            so they stay visible but quiet rather than leading. */}
-        <div className="truncate font-medium text-foreground">
-          {place ?? "Coordinates only"}
-        </div>
-        {address && address !== place && (
-          <div className="break-words text-muted-foreground">{address}</div>
-        )}
-        <div className="font-[family-name:var(--font-mono)] text-muted-foreground/70">
-          {coord(latitude)}, {coord(longitude)} · {accuracy(accuracyMeters)} · {stamp}
-        </div>
-        {note && <div className="text-muted-foreground/70">{note}</div>}
-      </div>
+    <div className="max-w-[420px]">
+      <MapView
+        pins={[{ lat: latitude, lon: longitude, label: place ?? "Here", meta: accuracy(accuracyMeters), tone: "amber" }]}
+        paths={paths}
+        land={land}
+        spanKm={spanKm}
+        // The place name is the answer; coordinates are the evidence for it,
+        // so they stay visible but quiet rather than leading.
+        title={place ?? "Coordinates only"}
+        subtitle={address && address !== place ? address : note}
+        meta={`${coord(latitude)}, ${coord(longitude)} · ${accuracy(accuracyMeters)} · ${stamp}`}
+        // The credit is the licence's, not the design's: it appears exactly
+        // when OpenStreetMap geometry is on the map.
+        attribution={drawn ? geo?.attribution : undefined}
+      />
+      {note && address && address !== place ? (
+        <div className="mt-1 text-[11px] text-muted-foreground/70">{note}</div>
+      ) : null}
     </div>
   );
 }
