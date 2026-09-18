@@ -1,25 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff } from "lucide-react";
 
 import { useBrainUiRoot } from "../../root-context.js";
 import { subscriptionMatchesKey } from "../../lib/push-registration.js";
-import { cn } from "../../lib/utils.js";
+import { PushSwitch, type PushState } from "./push-switch.js";
 
 /**
- * The push enable/disable control, living on the Activity surface (where the
- * alerts it governs land). The permission model is THREE-state, not a bare
- * toggle: once the browser prompt is denied, Chrome silently ignores every
- * further in-page request — so the blocked state must say where the real
- * switch lives (site settings) instead of offering a button that does
- * nothing. Where the platform has no push at all (iOS Safari in-browser,
- * pre-16.4), the control renders disabled-with-explanation, not hidden.
+ * The push enable/disable CONTAINER, living on the Activity surface (where
+ * the alerts it governs land). It owns the browser permission, the service
+ * worker subscription, the server binding, and the lifetime guards that keep
+ * a late response from a superseded root or an unmounted panel from acting;
+ * `PushSwitch` owns what it looks like (S6). Nothing here renders markup.
  */
-type PushState =
-  | "unsupported"
-  | "not-asked"
-  | "blocked"
-  | "subscribed"
-  | "unsubscribed";
 
 export function PushToggle() {
   const root = useBrainUiRoot();
@@ -131,43 +122,6 @@ export function PushToggle() {
     }
   }
 
-  if (state === "unsupported") {
-    return (
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60" title="This browser has no web push. On iOS, install the app to the home screen (iOS 16.4+).">
-        <BellOff className="h-3.5 w-3.5" />
-        No push here
-      </div>
-    );
-  }
-
-  if (state === "blocked") {
-    return (
-      <div
-        className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-        title="Notifications are blocked at the browser level. Allow them in this site's browser settings, then reload."
-      >
-        <BellOff className="h-3.5 w-3.5 text-destructive" />
-        Blocked in browser settings
-      </div>
-    );
-  }
-
   const on = state === "subscribed";
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => void (on ? disable() : enable())}
-      className={cn(
-        "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors disabled:opacity-50",
-        on
-          ? "text-primary hover:bg-surface-raised"
-          : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
-      )}
-      title={on ? "Push notifications are on for this device" : "Get a push notification when background work fails"}
-    >
-      {on ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
-      {on ? "Push on" : "Enable push"}
-    </button>
-  );
+  return <PushSwitch state={state} busy={busy} onToggle={() => void (on ? disable() : enable())} />;
 }

@@ -13,12 +13,22 @@ import { ShareMenu } from "../../src/components/share/share-menu.js";
 import { DiscoveryStart } from "../../src/components/graph/graph-scene.js";
 import { ShareBlock } from "../../src/components/chat/share-block.js";
 import { PushToggle } from "../../src/components/activity/push-toggle.js";
+import { PushSwitch } from "../../src/components/activity/push-switch.js";
+import { MobileTabBar } from "../../src/components/layout/mobile-tab-bar.js";
+import { ThemeToggle, useApplyTheme } from "../../src/components/layout/theme.js";
+import { createUIStore } from "../../src/stores/ui-state.js";
 import { LoginScreen } from "../../src/components/connectivity/login-screen.js";
+import { LoginForm } from "../../src/components/connectivity/login-form.js";
 import { PasskeyTab } from "../../src/components/settings/passkey-tab.js";
+import { PasskeyList } from "../../src/components/settings/passkey-list.js";
+import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
+import type { SkillEntry } from "../../src/lib/api-client.js";
 import { ModelsTab } from "../../src/components/settings/models-tab.js";
 import { PiAccountsSection } from "../../src/components/settings/pi-accounts.js";
 import { SkillsTab } from "../../src/components/settings/skills-tab.js";
+import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
+import { WebSearchChain } from "../../src/components/settings/web-search-chain.js";
 import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
@@ -64,6 +74,8 @@ import { WhatsupPanel } from "../../src/components/quick-actions/whatsup-modal.j
 import { StreamingPanel } from "../../src/components/quick-actions/streaming-modal.js";
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { AddPanel } from "../../src/components/quick-actions/add-modal.js";
+import { AddForm } from "../../src/components/quick-actions/add-form.js";
+import { BriefingOutput, StreamingOutput } from "../../src/components/quick-actions/streaming-output.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
@@ -183,7 +195,9 @@ afterEach(() => {
     filePanelOpen: false,
     settingsPanelOpen: false,
     settingsTab: "models",
+    theme: "dark",
   });
+  delete document.documentElement.dataset.theme;
   useConnectionStore.setState({
     wsStatus: "disconnected",
     vpnStatus: "checking",
@@ -2906,7 +2920,7 @@ describe("skill and web-search root ownership", () => {
       expect(view.queryByText("obsolete warning")).toBeNull();
       expect(a.requests).toHaveLength(2);
       expect(b.requests).toHaveLength(1);
-      expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(view.getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBeNull();
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -2972,7 +2986,7 @@ describe("skill and web-search root ownership", () => {
       fireEvent.click(view.getByRole("button", { name: "Save" }));
       await reply(a.requests[1], webConfig("Obsolete search"));
       expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("beta-test-key");
-      expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
       expect(view.getByText("Beta search")).toBeTruthy();
       await reply(b.requests[1], webConfig("Beta search"));
       expect((view.getByPlaceholderText("Paste API key") as HTMLInputElement).value).toBe("");
@@ -3242,7 +3256,7 @@ describe("authentication and passkey root ownership", () => {
       await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       expect(platform.ceremonies).toHaveLength(0);
       expect(view.getByText("Beta key")).toBeTruthy();
-      expect((view.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(view.getByRole("button", { name: "Add a passkey" }).getAttribute("aria-disabled")).toBeNull();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3260,7 +3274,7 @@ describe("authentication and passkey root ownership", () => {
       await reply(b.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       await act(async () => { platform.ceremonies[0].resolve(credential()); await flushPromises(); });
       expect(a.matching("/auth/passkey/register-verify", "POST")).toHaveLength(0);
-      expect((view.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByRole("button", { name: "Adding a passkey…" }).getAttribute("aria-disabled")).toBe("true");
       await act(async () => { platform.ceremonies[1].resolve(credential()); await flushPromises(); });
       const verify = b.matching("/auth/passkey/register-verify", "POST")[0];
       expect(verify.url).toBe("https://beta.example/api/auth/passkey/register-verify");
@@ -3373,7 +3387,7 @@ describe("push root ownership", () => {
       await reply(a.requests[0], { publicKey: "Ag" });
       expect(platform.removals()).toBe(0);
       expect(a.matching("/push/subscribe")).toHaveLength(0);
-      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      fireEvent.click(view.getByRole("switch", { name: "Push notifications" }));
       await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
       await reply(a.matching("/push/public-key")[1], { publicKey: "Ag" });
       expect(platform.removals()).toBe(1);
@@ -3381,7 +3395,7 @@ describe("push root ownership", () => {
       await act(async () => { platform.creations[0].response.resolve(platform.subscription); await flushPromises(); });
       expect(a.matching("/push/subscribe")[0].url).toBe("https://alpha.example/api/push/subscribe");
       await reply(a.matching("/push/subscribe")[0], { ok: true });
-      expect(view.getByRole("button", { name: "Push on" })).toBeTruthy();
+      expect(view.getByRole("switch", { name: "Push notifications", checked: true })).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); }
   });
 
@@ -3389,12 +3403,12 @@ describe("push root ownership", () => {
     const platform = browser("default"); const a = transport("alpha"); const b = transport("beta");
     const view = render(panel(a.root));
     try {
-      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      fireEvent.click(view.getByRole("switch", { name: "Push notifications" }));
       view.rerender(panel(b.root));
-      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      fireEvent.click(view.getByRole("switch", { name: "Push notifications" }));
       await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
       expect(a.requests).toHaveLength(0);
-      expect((view.getByRole("button", { name: "Enable push" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(view.getByRole("switch", { name: "Push notifications" }).getAttribute("aria-disabled")).toBe("true");
       await act(async () => { platform.permissions[1].resolve("denied"); await flushPromises(); });
       expect(view.getByText("Blocked in browser settings")).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
@@ -3404,7 +3418,7 @@ describe("push root ownership", () => {
     const platform = browser("default"); const a = transport("alpha"); const b = transport("beta");
     const view = render(panel(a.root));
     try {
-      fireEvent.click(view.getByRole("button", { name: "Enable push" }));
+      fireEvent.click(view.getByRole("switch", { name: "Push notifications" }));
       await act(async () => { platform.permissions[0].resolve("granted"); await flushPromises(); });
       await reply(a.requests[0], { publicKey: "AQ" });
       expect(platform.creations).toHaveLength(1);
@@ -3412,7 +3426,7 @@ describe("push root ownership", () => {
       await act(async () => { platform.creations[0].response.resolve(platform.subscription); await flushPromises(); });
       expect(a.matching("/push/subscribe")).toHaveLength(0);
       expect(b.requests).toHaveLength(0);
-      expect(view.getByRole("button", { name: "Enable push" })).toBeTruthy();
+      expect(view.getByRole("switch", { name: "Push notifications" })).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3421,13 +3435,13 @@ describe("push root ownership", () => {
     const view = render(panel(a.root));
     try {
       await act(flushPromises); await connected(a);
-      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Push on" })); await flushPromises(); });
+      await act(async () => { fireEvent.click(view.getByRole("switch", { name: "Push notifications", checked: true })); await flushPromises(); });
       expect(a.matching("/push/unsubscribe")).toHaveLength(1);
       view.rerender(panel(b.root));
       await act(flushPromises); await connected(b);
       await reply(a.matching("/push/unsubscribe")[0], { removed: true });
       expect(platform.removals()).toBe(0);
-      expect(view.getByRole("button", { name: "Push on" })).toBeTruthy();
+      expect(view.getByRole("switch", { name: "Push notifications", checked: true })).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3466,7 +3480,7 @@ describe("push root ownership", () => {
       view.rerender(panel(b.root));
       await act(async () => { ready.resolve(platform.registration); await flushPromises(); });
       expect(a.requests).toHaveLength(0); expect(b.requests).toHaveLength(0);
-      expect(view.getByRole("button", { name: "Enable push" })).toBeTruthy();
+      expect(view.getByRole("switch", { name: "Push notifications" })).toBeTruthy();
     } finally { view.unmount(); platform.restore(); a.root.dispose(); b.root.dispose(); }
   });
 });
@@ -3552,5 +3566,477 @@ describe("remaining media and lookup root ownership", () => {
       await act(async () => { next.resolve(false); await flushPromises(); });
       expect((view.getByTitle("Share") as HTMLButtonElement).disabled).toBe(false);
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
+});
+
+/* ── S5: the first kit consumer, and the theme switch ───────────────────── */
+
+describe("MobileTabBar on the kit TabBar", () => {
+  test("renders the five design slots as a tablist, with the inbox count as the badge", () => {
+    useActivityStore.setState({ inbox: [{ id: "a" }, { id: "b" }, { id: "c" }] as never });
+    const view = render(<MobileTabBar />);
+    const tabs = view.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "New chat", "Activity3", "Files", "More"]);
+    // Chat is the active view, so Chat is the amber slot and the only selected tab.
+    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
+    // The kit's roving tab stop: one slot reachable by Tab, the rest by arrows.
+    expect(tabs.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
+    view.unmount();
+  });
+
+  test("a slot switches the view, and the More menu opens above the bar and closes on Escape", () => {
+    const view = render(<MobileTabBar />);
+    fireEvent.click(view.getByRole("tab", { name: "Activity" }));
+    expect(useUIStore.getState().activeView).toBe("activity");
+    expect(view.getByRole("tab", { name: "Activity" }).getAttribute("aria-selected")).toBe("true");
+
+    expect(view.queryByRole("menu")).toBeNull();
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    const menu = view.getByRole("menu");
+    expect(view.getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Graph", "Sync", "History", "Settings"]);
+    // While the menu is open, More is the amber slot.
+    expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(view.getByRole("menuitem", { name: "Graph" }));
+    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(view.queryByRole("menu")).toBeNull();
+    expect(menu.isConnected).toBe(false);
+
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    expect(view.getByRole("menu")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(view.queryByRole("menu")).toBeNull();
+    view.unmount();
+  });
+
+  test("a badge of ten or more reads 9+, and no inbox means no badge", () => {
+    useActivityStore.setState({ inbox: Array.from({ length: 12 }, (_, i) => ({ id: String(i) })) as never });
+    const many = render(<MobileTabBar />);
+    // The badge is part of the accessible name, which is the point of it.
+    expect(many.getByRole("tab", { name: "Activity 9+" }).textContent).toBe("Activity9+");
+    many.unmount();
+    useActivityStore.setState({ inbox: [] });
+    const none = render(<MobileTabBar />);
+    expect(none.getByRole("tab", { name: "Activity" }).textContent).toBe("Activity");
+    none.unmount();
+  });
+});
+
+describe("theme preference", () => {
+  test("the toggle writes the choice to the store and AppShell's effect writes it to <html>", () => {
+    function Shell() {
+      useApplyTheme();
+      return <ThemeToggle />;
+    }
+    const view = render(<Shell />);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    const radios = view.getAllByRole("radio");
+    expect(radios.map((r) => r.textContent)).toEqual(["System", "Paper", "Dark"]);
+    fireEvent.click(view.getByRole("radio", { name: "Paper" }));
+    expect(useUIStore.getState().theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(view.getByRole("radio", { name: "Paper" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(view.getByRole("radio", { name: "System" }));
+    expect(document.documentElement.dataset.theme).toBe("system");
+    view.unmount();
+  });
+
+  test("a root persists the preference under its own storage prefix and restores it", () => {
+    const backing = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => void backing.set(k, v),
+      removeItem: (k: string) => void backing.delete(k),
+    } as unknown as Storage;
+    const env = { storage: () => storage, storageKey: (k: string) => `t:${k}` };
+    const first = createUIStore(env);
+    expect(first.getState().theme).toBe("dark");
+    first.getState().setTheme("light");
+    expect(backing.get("t:brain-theme")).toBe("light");
+    // A second root on the same storage sees the choice; garbage does not count.
+    expect(createUIStore(env).getState().theme).toBe("light");
+    backing.set("t:brain-theme", "neon");
+    expect(createUIStore(env).getState().theme).toBe("dark");
+    // No storage at all (SSR, stories) is fine and stays dark.
+    expect(createUIStore().getState().theme).toBe("dark");
+  });
+});
+
+/* ── S6: the push view renders from props alone ─────────────────────────── */
+
+describe("PushSwitch", () => {
+  test("three states: a named switch, a blocked explanation, an unsupported explanation", () => {
+    const onToggle = mock(() => {});
+    const off = render(<PushSwitch state="unsubscribed" busy={false} onToggle={onToggle} />);
+    const sw = off.getByRole("switch", { name: "Push notifications" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    off.unmount();
+
+    const on = render(<PushSwitch state="subscribed" busy={true} onToggle={onToggle} />);
+    const busy = on.getByRole("switch", { name: "Push notifications" });
+    expect(busy.getAttribute("aria-checked")).toBe("true");
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(busy);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    on.unmount();
+
+    const blocked = render(<PushSwitch state="blocked" busy={false} onToggle={onToggle} />);
+    expect(blocked.queryByRole("switch")).toBeNull();
+    expect(blocked.getByText("Blocked in browser settings")).toBeTruthy();
+    blocked.unmount();
+
+    const none = render(<PushSwitch state="unsupported" busy={false} onToggle={onToggle} />);
+    expect(none.queryByRole("switch")).toBeNull();
+    expect(none.getByText("No push here")).toBeTruthy();
+    none.unmount();
+  });
+});
+
+describe("LoginForm", () => {
+  test("renders the methods it is given and reports every intent through props", () => {
+    const onPassword = mock(() => {}); const onPasskey = mock(() => {}); const onPasswordChange = mock(() => {});
+    const both = render(
+      <LoginForm appName="Example brain" methods={{ password: true, passkey: true }} password="" busy={false} error={null}
+        onPasswordChange={onPasswordChange} onPassword={onPassword} onPasskey={onPasskey} />,
+    );
+    expect(both.getByRole("heading", { name: "Example brain" })).toBeTruthy();
+    expect(both.getByText("Use your passkey or enter the password.")).toBeTruthy();
+    // No password typed: sign-in is dimmed and inert, the passkey route is live.
+    expect(both.getByRole("button", { name: "Sign in" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(both.getByRole("button", { name: "Sign in" }));
+    expect(onPassword).not.toHaveBeenCalled();
+    fireEvent.click(both.getByRole("button", { name: "Sign in with a passkey" }));
+    expect(onPasskey).toHaveBeenCalledTimes(1);
+    changeControlledInput(both.getByPlaceholderText("Password") as HTMLInputElement, "x");
+    expect(onPasswordChange).toHaveBeenCalledWith("x");
+    both.unmount();
+
+    const typed = render(
+      <LoginForm appName="Example brain" methods={{ password: true, passkey: false }} password="secret" busy={false} error="Wrong password"
+        onPasswordChange={onPasswordChange} onPassword={onPassword} onPasskey={onPasskey} />,
+    );
+    expect(typed.queryByRole("button", { name: "Sign in with a passkey" })).toBeNull();
+    expect(typed.getByRole("alert").textContent).toContain("Wrong password");
+    fireEvent.click(typed.getByRole("button", { name: "Sign in" }));
+    expect(onPassword).toHaveBeenCalledTimes(1);
+    // Enter in the field submits the form, which is the same intent.
+    fireEvent.submit(typed.getByPlaceholderText("Password").closest("form")!);
+    expect(onPassword).toHaveBeenCalledTimes(2);
+    typed.unmount();
+
+    const only = render(
+      <LoginForm appName="Example brain" methods={{ password: false, passkey: true }} password="" busy={true} error={null}
+        onPasswordChange={onPasswordChange} onPassword={onPassword} onPasskey={onPasskey} />,
+    );
+    expect(only.queryByPlaceholderText("Password")).toBeNull();
+    expect(only.getByText("Sign in with your passkey.")).toBeTruthy();
+    expect(only.getByRole("button", { name: "Sign in with a passkey" }).getAttribute("aria-disabled")).toBe("true");
+    only.unmount();
+
+    const none = render(
+      <LoginForm appName="Example brain" methods={{ password: false, passkey: false }} password="" busy={false} error={null}
+        onPasswordChange={onPasswordChange} onPassword={onPassword} onPasskey={onPasskey} />,
+    );
+    expect(none.getByText(/Password login is disabled/)).toBeTruthy();
+    none.unmount();
+  });
+});
+
+/* ── S6: the web-search chain renders from props alone ──────────────────── */
+
+describe("WebSearchChain", () => {
+  const provider = (over: Record<string, unknown>) => ({
+    id: "search", label: "Search", enabled: false, hasKeyField: true, keyConfigured: false, keyFromEnv: false,
+    keyless: false, costNote: "Free", blurb: "Search provider", ...over,
+  });
+  const handlers = () => ({
+    onToggle: mock((_id: string) => {}), onToggleKey: mock((_id: string) => {}), onKeyDraft: mock((_v: string) => {}),
+    onSaveKey: mock((_id: string) => {}), onClearKey: mock((_id: string) => {}), onClearOverride: mock(() => {}),
+  });
+
+  test("a keyless provider that is off cannot be switched on; one that is on can always be switched off", () => {
+    const h = handlers();
+    const config = { configured: true, order: ["paid"], overriddenBy: null, appliesTo: ["pi-1"], providers: [
+      provider({ id: "free", label: "Free search", keyless: true }),
+      provider({ id: "paid", label: "Paid search", enabled: true, costNote: "Paid" }),
+      provider({ id: "bare", label: "Bare search" }),
+    ] };
+    const view = render(<WebSearchChain config={config} busy={false} error={null} openKey={null} keyDraft="" savedFlash={false} {...h} />);
+    expect(view.getByText(/Applies to/).textContent).toContain("pi-1");
+    expect(view.getByText("Order:").parentElement?.textContent).toContain("Paid search");
+    const free = view.getByRole("switch", { name: "Enable Free search for web search" });
+    expect(free.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(free);
+    expect(h.onToggle).toHaveBeenCalledWith("free");
+    const paid = view.getByRole("switch", { name: "Enable Paid search for web search" });
+    expect(paid.getAttribute("aria-checked")).toBe("true");
+    expect(paid.getAttribute("aria-disabled")).toBeNull();
+    const bare = view.getByRole("switch", { name: "Enable Bare search for web search" });
+    expect(bare.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(bare);
+    expect(h.onToggle).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getAllByRole("button", { name: "Needs key" })[0]);
+    expect(h.onToggleKey).toHaveBeenCalledWith("free");
+    view.unmount();
+  });
+
+  test("the open key editor saves and clears by provider, and the override warning clears the pin", () => {
+    const h = handlers();
+    const config = { configured: true, order: [], overriddenBy: "pinned-search", appliesTo: [], providers: [
+      provider({ keyConfigured: true, enabled: true }),
+    ] };
+    const view = render(<WebSearchChain config={config} busy={false} error="Could not save" openKey="search" keyDraft="new-key" savedFlash={false} {...h} />);
+    expect(view.getByText("Could not save")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Key stored" }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    expect(h.onSaveKey).toHaveBeenCalledWith("search");
+    fireEvent.click(view.getByRole("button", { name: "Clear" }));
+    expect(h.onClearKey).toHaveBeenCalledWith("search");
+    fireEvent.click(view.getByRole("button", { name: "Use the chain instead" }));
+    expect(h.onClearOverride).toHaveBeenCalledTimes(1);
+    changeControlledInput(view.getByLabelText("API key") as HTMLInputElement, "typed");
+    expect(h.onKeyDraft).toHaveBeenCalledWith("typed");
+    view.unmount();
+
+    const busy = render(<WebSearchChain config={config} busy={true} error={null} openKey="search" keyDraft="new-key" savedFlash={false} {...h} />);
+    expect(busy.getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+    expect(busy.getByRole("button", { name: "Clear" }).getAttribute("aria-disabled")).toBe("true");
+    expect(busy.getByRole("button", { name: "Use the chain instead" }).getAttribute("aria-disabled")).toBe("true");
+    busy.unmount();
+  });
+});
+
+/* ── S6: the passkey list renders from props alone ──────────────────────── */
+
+describe("PasskeyList", () => {
+  const cred = (over: Partial<PasskeySummary>): PasskeySummary => ({
+    id: "k1", label: "Laptop", rpId: "brain.local", createdAt: 1, lastUsedAt: null, backedUp: false,
+    deviceType: "singleDevice", transports: [], aaguid: null, ...over,
+  });
+  const handlers = () => ({ onAdd: mock(() => {}), onRename: mock((_id: string, _l: string) => {}), onDelete: mock((_id: string) => {}), onSignOut: mock(() => {}) });
+
+  test("status decides the list, the empty state and whether Add is offered", () => {
+    const h = handlers();
+    const loading = render(<PasskeyList credentials={[]} status="loading" busy={false} error={null} supported hostname="brain.local" {...h} />);
+    expect(loading.queryByText("No passkeys yet.")).toBeNull();
+    loading.unmount();
+
+    const empty = render(<PasskeyList credentials={[]} status="ready" busy={false} error={null} supported hostname="brain.local" {...h} />);
+    expect(empty.getByText("No passkeys yet.")).toBeTruthy();
+    fireEvent.click(empty.getByRole("button", { name: "Add a passkey" }));
+    expect(h.onAdd).toHaveBeenCalledTimes(1);
+    fireEvent.click(empty.getByRole("button", { name: "Sign out everywhere" }));
+    expect(h.onSignOut).toHaveBeenCalledTimes(1);
+    empty.unmount();
+
+    const off = render(<PasskeyList credentials={[]} status="unavailable" busy={false} error="boom" supported hostname="brain.local" {...h} />);
+    expect(off.queryByRole("button", { name: "Add a passkey" })).toBeNull();
+    expect(off.getByText(/password auth mode/)).toBeTruthy();
+    expect(off.getByRole("alert").textContent).toBe("boom");
+    off.unmount();
+
+    const noWebAuthn = render(<PasskeyList credentials={[]} status="ready" busy={false} error={null} supported={false} hostname="brain.local" {...h} />);
+    expect(noWebAuthn.getByText(/does not support passkeys/)).toBeTruthy();
+    noWebAuthn.unmount();
+  });
+
+  test("rows rename by id, remove by id, and badge a credential from another host", () => {
+    const h = handlers();
+    const view = render(
+      <PasskeyList credentials={[cred({}), cred({ id: "k2", label: "Phone", rpId: "other.example", backedUp: true })]} status="ready" busy={true} error={null} supported hostname="brain.local" {...h} />,
+    );
+    expect(view.getByRole("button", { name: "Adding a passkey…" }).getAttribute("aria-disabled")).toBe("true");
+    expect(view.getByText("other.example")).toBeTruthy();
+    expect(view.getByText("synced")).toBeTruthy();
+    expect(view.queryByText("brain.local")).toBeNull();
+    fireEvent.click(view.getAllByTitle("Remove")[1]);
+    expect(h.onDelete).toHaveBeenCalledWith("k2");
+    fireEvent.click(view.getAllByTitle("Rename")[0]);
+    changeControlledInput(view.getByLabelText("Passkey name") as HTMLInputElement, "Desk");
+    fireEvent.click(view.getByTitle("Save"));
+    expect(h.onRename).toHaveBeenCalledWith("k1", "Desk");
+    view.unmount();
+  });
+});
+
+/* ── S6: the skills list and editor render from props alone ─────────────── */
+
+describe("SkillsList and SkillEditor", () => {
+  const entry = (name: string, over: Partial<SkillEntry> = {}): SkillEntry => ({ name, description: `${name} description`, source: "custom", enabled: true, ...over });
+  const handlers = () => ({
+    onNewName: mock((_v: string) => {}), onCreate: mock(() => {}), onGithubSource: mock((_v: string) => {}), onOverwrite: mock((_v: boolean) => {}),
+    onInstallZip: mock((_f: File) => {}), onInstallGitHub: mock(() => {}), onOpen: mock((_s: SkillEntry) => {}), onToggle: mock((_s: SkillEntry) => {}), onRemove: mock((_s: SkillEntry) => {}),
+  });
+
+  test("the list names the skill every row control is about, and gates on busy", () => {
+    const h = handlers();
+    const skills = [entry("alpha"), entry("beta", { enabled: false, warning: "no description" }), entry("shipped", { source: "builtin" })];
+    const view = render(
+      <SkillsList skills={skills} busy={null} installing={false} error={null} warning={null} outcomes={[{ name: "x", status: "installed", files: 2 }, { name: "y", status: "skipped", reason: "exists" }]}
+        newName="new-one" githubSource="" overwrite={false} {...h} />,
+    );
+    expect(view.getByText("disabled")).toBeTruthy();
+    expect(view.getByText("⚠ no description")).toBeTruthy();
+    expect(view.getByText(/x installed \(2 files\)/)).toBeTruthy();
+    expect(view.getByText(/y — exists/)).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Create" }));
+    expect(h.onCreate).toHaveBeenCalledTimes(1);
+    // Install needs a source: the button is inert until one is typed.
+    expect(view.getByRole("button", { name: "Install" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(view.getAllByTitle("Edit SKILL.md")[1]);
+    expect(h.onOpen).toHaveBeenLastCalledWith(skills[1]);
+    fireEvent.click(view.getByTitle("Enable"));
+    expect(h.onToggle).toHaveBeenLastCalledWith(skills[1]);
+    fireEvent.click(view.getAllByTitle("Delete permanently")[0]);
+    expect(h.onRemove).toHaveBeenLastCalledWith(skills[0]);
+    fireEvent.click(view.getByRole("button", { name: "View" }));
+    expect(h.onOpen).toHaveBeenLastCalledWith(skills[2]);
+    view.unmount();
+
+    const busy = render(
+      <SkillsList skills={[entry("alpha")]} busy="alpha" installing={true} error="failed" warning="careful" outcomes={null}
+        newName="" githubSource="example/skills" overwrite={true} {...h} />,
+    );
+    expect(busy.getByText("failed")).toBeTruthy();
+    expect(busy.getByText("careful")).toBeTruthy();
+    expect((busy.getByTitle("Edit SKILL.md") as HTMLButtonElement).disabled).toBe(true);
+    expect(busy.getByRole("button", { name: "Install" }).getAttribute("aria-disabled")).toBe("true");
+    expect(busy.getByRole("button", { name: "Create" }).getAttribute("aria-disabled")).toBe("true");
+    busy.unmount();
+
+    const empty = render(<SkillsList skills={[]} busy={null} installing={false} error={null} warning={null} outcomes={null} newName="" githubSource="a/b" overwrite={false} {...h} />);
+    expect(empty.getByText("No custom skills yet.")).toBeTruthy();
+    fireEvent.click(empty.getByRole("button", { name: "Install" }));
+    expect(h.onInstallGitHub).toHaveBeenCalledTimes(1);
+    empty.unmount();
+  });
+
+  test("the editor edits, saves and closes; a built-in is read-only with no Save", () => {
+    const onChange = mock((_c: string) => {}); const onSave = mock(() => {}); const onClose = mock(() => {});
+    const view = render(<SkillEditor name="alpha" content="# alpha" isNew={false} readOnly={false} saving={false} error={null} onChange={onChange} onSave={onSave} onClose={onClose} />);
+    changeControlledInput(view.getByLabelText("SKILL.md") as HTMLInputElement, "# alpha\nmore");
+    expect(onChange).toHaveBeenCalledWith("# alpha\nmore");
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const ro = render(<SkillEditor name="shipped" content="# shipped" isNew={false} readOnly saving={false} error="nope" onChange={onChange} onSave={onSave} onClose={onClose} />);
+    expect(ro.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(ro.getByText("built-in · read-only")).toBeTruthy();
+    expect((ro.getByLabelText("SKILL.md") as HTMLTextAreaElement).readOnly).toBe(true);
+    expect(ro.getByText("nope")).toBeTruthy();
+    ro.unmount();
+
+    const saving = render(<SkillEditor name="new" content="" isNew readOnly={false} saving error={null} onChange={onChange} onSave={onSave} onClose={onClose} />);
+    expect(saving.getByText("New skill")).toBeTruthy();
+    expect(saving.getByRole("button", { name: "Saving…" }).getAttribute("aria-disabled")).toBe("true");
+    saving.unmount();
+  });
+});
+
+/* ── S6: the add form and the stream views render from props alone ──────── */
+
+describe("AddForm", () => {
+  const draft = { content: "", title: "", type: "", tags: "" };
+  const handlers = () => ({ onDraft: mock((_p: Partial<typeof draft>) => {}), onSave: mock(() => {}), onRetryIndex: mock(() => {}), onAddAnother: mock(() => {}), onClose: mock(() => {}) });
+  const ref = { current: null };
+
+  test("the form gates Add on content, saves on Ctrl+Enter, and shows the error banner", () => {
+    const h = handlers();
+    const empty = render(<AddForm state="editing" draft={draft} knownTypes={["note", "talk"]} error="" savedPath="" indexed={undefined} indexing={false} contentRef={ref} {...h} />);
+    expect(empty.getByRole("button", { name: "Add" }).getAttribute("aria-disabled")).toBe("true");
+    expect(empty.container.querySelector('option[value="talk"]')).not.toBeNull();
+    changeControlledInput(empty.getByPlaceholderText("What do you want to remember?") as HTMLTextAreaElement, "Remember");
+    expect(h.onDraft).toHaveBeenCalledWith({ content: "Remember" });
+    fireEvent.click(empty.getByRole("button", { name: "Cancel" }));
+    expect(h.onClose).toHaveBeenCalledTimes(1);
+    empty.unmount();
+
+    const typed = render(<AddForm state="error" draft={{ ...draft, content: "Remember" }} knownTypes={[]} error="disk full" savedPath="" indexed={undefined} indexing={false} contentRef={ref} {...h} />);
+    expect(typed.getByRole("alert").textContent).toContain("disk full");
+    fireEvent.click(typed.getByRole("button", { name: "Add" }));
+    expect(h.onSave).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(typed.getByPlaceholderText("idea, reading"), { key: "Enter", ctrlKey: true });
+    expect(h.onSave).toHaveBeenCalledTimes(2);
+    typed.unmount();
+
+    const saving = render(<AddForm state="saving" draft={{ ...draft, content: "Remember" }} knownTypes={[]} error="" savedPath="" indexed={undefined} indexing={false} contentRef={ref} {...h} />);
+    expect(saving.getByRole("button", { name: "Saving…" }).getAttribute("aria-disabled")).toBe("true");
+    saving.unmount();
+  });
+
+  test("the receipt reads the three-valued indexed flag and offers the retry only when it is false", () => {
+    const h = handlers();
+    const unindexed = render(<AddForm state="saved" draft={draft} knownTypes={[]} error="locked" savedPath="notes/x.md" indexed={false} indexing={false} contentRef={ref} {...h} />);
+    expect(unindexed.getByText(/Saved, but not indexed/)).toBeTruthy();
+    expect(unindexed.getByText("notes/x.md")).toBeTruthy();
+    expect(unindexed.getByRole("status").textContent).toContain("locked");
+    fireEvent.click(unindexed.getByRole("button", { name: "Retry indexing" }));
+    expect(h.onRetryIndex).toHaveBeenCalledTimes(1);
+    fireEvent.click(unindexed.getByRole("button", { name: "Add another" }));
+    expect(h.onAddAnother).toHaveBeenCalledTimes(1);
+    fireEvent.click(unindexed.getByRole("button", { name: "Done" }));
+    expect(h.onClose).toHaveBeenCalledTimes(1);
+    unindexed.unmount();
+
+    const indexing = render(<AddForm state="saved" draft={draft} knownTypes={[]} error="" savedPath="" indexed={false} indexing contentRef={ref} {...h} />);
+    expect(indexing.getByRole("button", { name: "Indexing…" }).getAttribute("aria-disabled")).toBe("true");
+    indexing.unmount();
+
+    const indexed = render(<AddForm state="saved" draft={draft} knownTypes={[]} error="" savedPath="" indexed contentRef={ref} indexing={false} {...h} />);
+    expect(indexed.getByText(/Saved and indexed/)).toBeTruthy();
+    expect(indexed.queryByRole("button", { name: "Retry indexing" })).toBeNull();
+    indexed.unmount();
+
+    const unknown = render(<AddForm state="saved" draft={draft} knownTypes={[]} error="" savedPath="" indexed={undefined} contentRef={ref} indexing={false} {...h} />);
+    expect(unknown.getByText(/did not report/)).toBeTruthy();
+    unknown.unmount();
+  });
+});
+
+describe("StreamingOutput and BriefingOutput", () => {
+  test("the stream view names its state, offers Cancel only while running, and lists the lines", () => {
+    const onCancel = mock(() => {}); const onClose = mock(() => {});
+    const running = render(<StreamingOutput state="running" lines={[]} onCancel={onCancel} onClose={onClose} />);
+    expect(running.getByText("Running...")).toBeTruthy();
+    expect(running.getByText("Starting...")).toBeTruthy();
+    expect(running.queryByRole("button", { name: "Close" })).toBeNull();
+    fireEvent.click(running.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    running.unmount();
+
+    const done = render(<StreamingOutput state="success" lines={["one", "two"]} onCancel={onCancel} onClose={onClose} />);
+    expect(done.getByText("Complete")).toBeTruthy();
+    expect(done.getByText("two")).toBeTruthy();
+    expect(done.queryByText("Starting...")).toBeNull();
+    fireEvent.click(done.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    done.unmount();
+
+    for (const [state, text] of [["error", "Failed"], ["cancelled", "Cancelled"], ["idle", "Ready"]] as const) {
+      const v = render(<StreamingOutput state={state} lines={[]} onCancel={onCancel} onClose={onClose} />);
+      expect(v.getByText(text)).toBeTruthy();
+      v.unmount();
+    }
+  });
+
+  test("the briefing loads behind a skeleton, then shows the content the container rendered", () => {
+    const onCancel = mock(() => {}); const onClose = mock(() => {});
+    const loading = render(<BriefingOutput state="loading" content={<p>never</p>} onCancel={onCancel} onClose={onClose} />);
+    expect(loading.getByText("Generating briefing...")).toBeTruthy();
+    expect(loading.queryByText("never")).toBeNull();
+    fireEvent.click(loading.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    loading.unmount();
+
+    const failed = render(<BriefingOutput state="error" content={<p>HTTP 500</p>} onCancel={onCancel} onClose={onClose} />);
+    expect(failed.getByText("Failed")).toBeTruthy();
+    expect(failed.getByText("HTTP 500")).toBeTruthy();
+    fireEvent.click(failed.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    failed.unmount();
   });
 });

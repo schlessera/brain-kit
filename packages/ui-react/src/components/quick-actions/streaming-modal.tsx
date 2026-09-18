@@ -1,11 +1,14 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useEffect, useRef } from "react";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { linkifyPaths } from "../chat/brain-markdown.js";
+import { StreamingOutput, type StreamState } from "./streaming-output.js";
 
-type StreamState = "idle" | "running" | "success" | "error" | "cancelled";
-
+/**
+ * The container (S6) for a streamed backend job: the request, the SSE reader
+ * loop, the abort controller and the "still my stream" checks live here;
+ * `StreamingOutput` draws from props.
+ */
 export function StreamingPanel({
   open,
   onClose,
@@ -121,72 +124,18 @@ export function StreamingPanel({
   const isRunning = state === "running";
 
   return (
-    <SlidePanel
-      open={open}
-      onClose={isRunning ? () => {} : onClose}
-      title={title}
-    >
-      <div className="flex h-full flex-col">
-        {/* Status bar */}
-        <div className="flex items-center gap-2 border-b border-border px-5 py-2">
-          {isRunning && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          )}
-          {state === "success" && (
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-          )}
-          {(state === "error" || state === "cancelled") && (
-            <XCircle className="h-3.5 w-3.5 text-destructive" />
-          )}
-          <span className="text-xs text-muted-foreground">
-            {isRunning
-              ? "Running..."
-              : state === "success"
-                ? "Complete"
-                : state === "error"
-                  ? "Failed"
-                  : state === "cancelled"
-                    ? "Cancelled"
-                    : "Ready"}
-          </span>
-        </div>
-
-        {/* Log output */}
-        <div className="flex-1 overflow-y-auto p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-muted-foreground">
-          {lines.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap">
-              {linkifyPaths(line)}
-            </div>
-          ))}
-          {isRunning && lines.length === 0 && (
-            <div className="text-muted-foreground/50">Starting...</div>
-          )}
-          <div ref={scrollRef} />
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-border px-5 py-3 flex justify-end">
-          {isRunning ? (
-            <button
-              onClick={() => {
-                controllerRef.current?.abort();
-                setState("cancelled");
-                setLines((lines) => [...lines, "Cancelled."]);
-              }}
-              className="rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-            >
-              Cancel
-            </button>
-          ) : (
-            <button
-              onClick={onClose}
-              className="rounded-lg bg-surface-raised px-4 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-overlay"
-            >
-              Close
-            </button>
-          )}
-        </div>
-      </div>
+    <SlidePanel open={open} onClose={isRunning ? () => {} : onClose} title={title}>
+      <StreamingOutput
+        state={state}
+        lines={lines.map((line) => linkifyPaths(line))}
+        anchor={<div ref={scrollRef} />}
+        onCancel={() => {
+          controllerRef.current?.abort();
+          setState("cancelled");
+          setLines((lines) => [...lines, "Cancelled."]);
+        }}
+        onClose={onClose}
+      />
     </SlidePanel>
   );
 }
