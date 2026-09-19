@@ -582,6 +582,51 @@ run the `storybook-light` project as well.
   the host's job; `ui-react`'s README gives the line. The kit needs no theme
   context. `design/desktop.md` is the spec for the desktop half of D16.
 
+## The sixth drop — the rulings, 2026-09-19
+
+Twelve questions forwarded, twelve rulings back (`design-feedback.md` "The
+sixth drop", D38). What a fresh session needs to know:
+
+- **`ask_user` is an exchange.** The app renders each question on the kit
+  `AskUserCard` in `pending` / `answered` / `typed`; nothing collapses. A
+  composer send while a question is pending is bound to it as the answer
+  (`chat/ask-user-typed.ts`) and is NOT sent as a message. `typed` and the
+  answer time are live-only — the persisted tool output carries neither, so
+  a resumed transcript shows a typed answer as answered.
+- **`request_image_mask` renders through its contract** as a receipt
+  (`tool-cards/image-mask-card.tsx`): hatched thumb over a `Receipt` with
+  the rows the payload has (source, mask). The design draws a region and a
+  coverage figure the payload does not carry; the card invents neither.
+- **The Files rail never collapses.** Blocks are independent; the Modified
+  block comes from `mtime` against `STALE_AFTER_DAYS` (30, in
+  `files/staleness.ts`, the app's number — the design gives none); the tree
+  dots stale files the same way; "Untrusted only" is drawn disabled with
+  "needs provenance". `← →` fold through the kit `FileRow.onFold`.
+- **Dismissal is silent**; approval decisions keep their receipt (effect out
+  of sight). Grow un-acknowledge and the dismissal toast returns with Undo.
+- **Graph colouring gains `entity`** from the node's document type (person ·
+  company · project in the kit's tones); caption and legend follow the
+  active rule.
+- **The map envelope is 1.5 × 1.0** in the fixture generator and in the live
+  location card; `MapView` clamps its viewport to 110–260. All six geo
+  fixtures regenerated; the `ChatAnswer` screen that passed `height={88}`
+  now renders at 110, so its baseline moves.
+- **Three more screens** (Actions triage, File viewer, First run) are
+  stories and visual subjects; the acceptance four stay the gate. The
+  keyboard walk in these stories names icon-only stops by `aria-label`, or
+  the attach button and the voice disc collide as `button:`.
+- **Render tests in a second file need their own happy-dom module**
+  (`tests/render/*-dom.ts`): `dom.ts` registers once per process and
+  `render-smoke` unregisters it, so a sibling importing `dom.ts` gets no
+  DOM. `ask-user.test.tsx` and `desktop-panes-sixth.test.tsx` each carry one.
+- **The `overflowing()` stage helper skips SVG children**: an `<svg>` clips
+  its content, and the map's paths are fetched wider than the card on
+  purpose.
+- **Rate limit trap:** five parallel agents on this drop all died on the
+  session limit mid-verification; the work was in the tree and the tests
+  found the four gaps above. Check `git status` before assuming an agent's
+  report is complete.
+
 ## The fifth drop — the desktop drawn, the navigation settled, 2026-09-19
 
 The maintainer forwarded eleven questions; the design answered all of them
