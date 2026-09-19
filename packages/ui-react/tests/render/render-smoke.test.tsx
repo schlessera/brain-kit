@@ -98,6 +98,7 @@ import { BriefingOutput, StreamingOutput } from "../../src/components/quick-acti
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
+import { FilePanel } from "../../src/components/files/file-panel.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { useConnectionStore } from "../../src/stores/connection-store.js";
 import { useProviderStore } from "../../src/stores/provider-store.js";
@@ -2345,15 +2346,19 @@ describe("DevicesAgentsTab", () => {
     const dialog = page.getByRole("dialog");
     expect(dialog.parentElement).toBe(document.body);
     expect(page.getByText("protected-one-time-value")).toBeTruthy();
+    // The drawer dismisses on its backdrop; the desktop pane (which the test
+    // DOM takes, its window being 1024px wide) on its Close control. Either
+    // way the dismissal is refused while the credential is unacknowledged.
     const backdrop = page.baseElement.querySelector(".fixed.inset-0.z-40");
-    expect(backdrop).toBeTruthy();
-    fireEvent.click(backdrop!);
+    fireEvent.click(backdrop ?? page.getByRole("button", { name: "Close" }));
     expect(page.getByText("protected-one-time-value")).toBeTruthy();
 
     fireEvent.click(page.getByRole("checkbox"));
     fireEvent.click(page.getByRole("button", { name: "Done" }));
-    fireEvent.click(backdrop!);
-    expect(page.baseElement.querySelector(".fixed.inset-0.z-40")).toBeNull();
+    // Acknowledged: the same dismissal now closes the panel.
+    fireEvent.click(backdrop ?? page.getByRole("button", { name: "Close" }));
+    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
+    expect(page.queryByRole("tab", { name: "Security" })).toBeNull();
   });
 
   test("keeps a delayed mint response after its tab unmounts", async () => {
@@ -3950,6 +3955,53 @@ describe("single-key shortcuts (D36)", () => {
     expect(document.activeElement).toBe(page.getByRole("heading", { name: "Nothing is waiting on you" }));
     expect(page.getByText("Dismissed")).toBeTruthy();
     expect(page.getByText("Intent 1")).toBeTruthy();
+    page.unmount();
+  });
+});
+
+/* ── D37: the desktop panes (the test window is 1024px, so `laptop:` shapes render) ── */
+
+describe("desktop panes (D37)", () => {
+  test("Settings is a pane with a section column; Appearance & input holds the theme and the switch", () => {
+    const onClose = mock(() => {});
+    const view = render(<SettingsPanel open onClose={onClose} />);
+    const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Skills", "Security", "Devices & agents"]);
+    fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
+    expect(useUIStore.getState().settingsTab).toBe("appearance");
+    expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
+    expect(view.getByRole("switch", { name: "Single-key shortcuts" })).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  test("Files is three panes: the tree, the reading pane with its close, and nothing invented in the rail", async () => {
+    const onClose = mock(() => {});
+    globalThis.fetch = (async () => Response.json({ entries: [] })) as unknown as typeof fetch;
+    const view = render(<FilePanel open onClose={onClose} />);
+    await act(flushPromises);
+    const pane = view.getByRole("dialog", { name: "Files" });
+    expect(pane.textContent).toContain("Files");
+    expect(pane.textContent).toContain("j / k move");
+    // The design's backlinks and provenance have no data behind them: not drawn.
+    expect(pane.textContent).not.toContain("Linked from");
+    expect(pane.textContent).not.toContain("Provenance");
+    fireEvent.click(view.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  test("Actions is a list beside a detail pane that asks for a run until one is picked", async () => {
+    installActivityFetch();
+    const page = render(<ActivityPage />);
+    await act(flushPromises);
+    expect(page.getByRole("region", { name: "Actions queue" })).toBeTruthy();
+    expect(page.getByText("Pick a run")).toBeTruthy();
+    act(() => setHash("#/activity/run%20one"));
+    await act(flushPromises);
+    expect(page.queryByText("Pick a run")).toBeNull();
+    expect(page.getByRole("heading", { name: "run one" })).toBeTruthy();
     page.unmount();
   });
 });

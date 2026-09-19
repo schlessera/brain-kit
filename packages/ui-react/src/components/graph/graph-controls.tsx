@@ -2,45 +2,48 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 import type { BrainSearchHit } from "../../lib/api-client.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import {
   useGraphStore,
   type DiscoveryColorBy,
   type LocalDirection,
   type SizeBy,
 } from "../../stores/graph-store.js";
-import { Field, Segmented, SwitchRow } from "./graph-form.js";
+import { Field, Rows, Segmented, ToggleRow, ValueRow } from "./graph-form.js";
+
+/** D22's ladder: the expanded rail, and D6's controls column, from 900. */
+export const LAPTOP_QUERY = "(min-width: 900px)";
+/** D6's four-pane rule: the right rail needs 1440. */
+export const WIDE_QUERY = "(min-width: 1440px)";
+
+const DEPTHS = [1, 2, 3] as const;
 
 /**
- * Per-mode option forms. Desktop: a floating card in the top-right of the
- * canvas. Mobile: a slide-up sheet behind a filter button (tap targets kept
- * at ≥44px). Only the options that matter per mode — everything else stays
- * out until a later phase earns it.
+ * Per-mode option forms. Below `laptop:` they live in a slide-up sheet
+ * behind a filter button (tap targets kept at >= 44px). From `laptop:` up
+ * the D6 controls column (`GraphControlsColumn`) owns `ControlsBody` and
+ * this overlay renders nothing — one picker in the DOM, never two.
  *
  * This is the container (S7): every option reads and writes the graph
  * store; the form primitives are `graph-form.tsx`, on the kit.
  */
 export function GraphControls() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const laptop = useMediaQuery(LAPTOP_QUERY);
+  if (laptop) return null;
 
   return (
     <>
-      {/* Mobile: floating filter button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="absolute right-3 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg md:hidden"
+        className="absolute right-3 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg"
         title="Graph options"
       >
         <SlidersHorizontal className="h-4.5 w-4.5" />
       </button>
 
-      {/* Desktop: docked card */}
-      <div className="absolute right-4 top-4 z-10 hidden w-64 rounded-xl border border-border bg-surface-overlay/95 p-4 shadow-xl backdrop-blur md:block">
-        <ControlsBody />
-      </div>
-
-      {/* Mobile: bottom sheet */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        <div className="fixed inset-0 z-40">
           <div
             className="absolute inset-0 bg-background/60"
             onClick={() => setMobileOpen(false)}
@@ -64,7 +67,8 @@ export function GraphControls() {
   );
 }
 
-function ControlsBody() {
+/** The per-mode form. Shared by the phone sheet and the D6 column. */
+export function ControlsBody() {
   const mode = useGraphStore((s) => s.mode);
   return (
     <div className="flex flex-col gap-4">
@@ -117,17 +121,6 @@ function LocalControls() {
           onPick={(path) => setLocalParams({ center: path })}
         />
       </Field>
-      <Field label="Depth">
-        <Segmented
-          options={[
-            { value: "1", label: "1" },
-            { value: "2", label: "2" },
-            { value: "3", label: "3" },
-          ]}
-          value={String(local.depth)}
-          onChange={(v) => setLocalParams({ depth: Number(v) as 1 | 2 | 3 })}
-        />
-      </Field>
       <Field label="Direction">
         <Segmented
           options={[
@@ -139,6 +132,16 @@ function LocalControls() {
           onChange={(v) => setLocalParams({ direction: v as LocalDirection })}
         />
       </Field>
+      <Rows>
+        <ValueRow
+          label="Depth"
+          options={DEPTHS}
+          value={local.depth}
+          format={(d) => `${d} hop${d === 1 ? "" : "s"}`}
+          onChange={(depth) => setLocalParams({ depth })}
+          last
+        />
+      </Rows>
     </>
   );
 }
@@ -210,13 +213,15 @@ function ClustersControls() {
           onChange={(v) => setSizeBy(v as SizeBy)}
         />
       </Field>
-      <Field label="Isolated notes">
-        <SwitchRow
+      <Rows>
+        <ToggleRow
           checked={clusters.isolates}
           onChange={(v) => setClustersParams({ isolates: v })}
-          label="Include notes without links"
+          label="Isolated notes"
+          subtitle="include notes without links"
+          last
         />
-      </Field>
+      </Rows>
     </>
   );
 }
@@ -229,28 +234,29 @@ function MaintenanceControls() {
   return (
     <>
       <Field label="Findings">
-        <div className="flex flex-col">
-          <SwitchRow
+        <Rows>
+          <ToggleRow
             checked={filters.orphans}
             onChange={(v) => setFilters({ orphans: v })}
             label="Orphans"
           />
-          <SwitchRow
+          <ToggleRow
             checked={filters.unreachable}
             onChange={(v) => setFilters({ unreachable: v })}
             label="Unreachable"
           />
-          <SwitchRow
+          <ToggleRow
             checked={filters.broken}
             onChange={(v) => setFilters({ broken: v })}
             label="Broken links"
           />
-          <SwitchRow
+          <ToggleRow
             checked={filters.stale}
             onChange={(v) => setFilters({ stale: v })}
             label="Stale notes"
+            last
           />
-        </div>
+        </Rows>
       </Field>
       <Field label={`Stale after ${maintenance.staleDays} days`}>
         <input

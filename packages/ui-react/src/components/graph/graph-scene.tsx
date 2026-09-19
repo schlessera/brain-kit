@@ -16,8 +16,9 @@ import { useGraphStore } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { GraphControls } from "./graph-controls.js";
+import { GraphControls, WIDE_QUERY } from "./graph-controls.js";
 import { NodePopover } from "./node-popover.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { GraphEmptyState, Mono } from "./graph-empty-state.js";
 import { GraphCanvas } from "./graph-canvas-lazy.js";
 import { CenteredSpinner } from "./graph-spinner.js";
@@ -52,6 +53,9 @@ export function SceneBody() {
   const discoveryColorBy = useGraphStore((s) => s.discoveryColorBy);
   const theme = useGraphTheme();
   const [listOpen, setListOpen] = useState(false);
+  // From `wide:` the D6 right rail draws the selected node; the floating
+  // card would double it.
+  const wide = useMediaQuery(WIDE_QUERY);
 
   const matchIds = useMemo(
     () => matchScene(subgraph.nodes, sceneQuery),
@@ -181,7 +185,7 @@ export function SceneBody() {
       </button>
       {listOpen && <NodeList onClose={() => setListOpen(false)} />}
 
-      {selectedNode && (
+      {selectedNode && !wide && (
         <NodePopover node={selectedNode} communityLabel={communityLabel} />
       )}
     </>
