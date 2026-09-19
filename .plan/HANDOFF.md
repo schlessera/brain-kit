@@ -589,8 +589,10 @@ sixth drop", D38). What a fresh session needs to know:
 
 - **`ask_user` is an exchange.** The app renders each question on the kit
   `AskUserCard` in `pending` / `answered` / `typed`; nothing collapses. A
-  composer send while a question is pending is bound to it as the answer
-  (`chat/ask-user-typed.ts`) and is NOT sent as a message. `typed` and the
+  composer send while a SINGLE-question exchange is pending is bound to it
+  as the answer (`chat/ask-user-typed.ts`) and is NOT sent as a message; a
+  multi-question prompt keeps its cards' Submit, because the server resolves
+  the whole request on the first response (found by the Codex review). `typed` and the
   answer time are live-only — the persisted tool output carries neither, so
   a resumed transcript shows a typed answer as answered.
 - **`request_image_mask` renders through its contract** as a receipt

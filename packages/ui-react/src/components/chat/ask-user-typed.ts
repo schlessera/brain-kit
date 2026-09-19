@@ -21,12 +21,15 @@ export function isPendingExchange(
 }
 
 /**
- * The question the composer text answers. Answers are submitted for the whole
- * exchange at once, so this is the exchange's first question: a typed reply
- * to a multi-question prompt answers question one and leaves the rest blank.
+ * The question the composer text answers — only when the exchange has exactly
+ * one. Answers are submitted for the whole exchange at once and the server
+ * resolves the request on the first response, so binding a typed reply to
+ * question one of several would leave the others blank and unanswerable. A
+ * multi-question prompt keeps the cards' own Submit; the composer text is an
+ * ordinary message.
  */
 export function questionForTypedAnswer(exchange: AskUserExchange): AskUserQuestion | null {
-  return exchange.questions[0] ?? null;
+  return exchange.questions.length === 1 ? exchange.questions[0]! : null;
 }
 
 /**

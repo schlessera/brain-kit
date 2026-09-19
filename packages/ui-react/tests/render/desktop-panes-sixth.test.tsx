@@ -223,11 +223,11 @@ describe("Actions dismissal (sixth pass §4)", () => {
 /* ── §7 · colour by entity, the caption names the active rule ─────────────── */
 
 const NODES: GraphNodePayload[] = [
-  { id: 1, path: "people/marta.md", title: "Marta", type: "person", inDegree: 1, outDegree: 1, distance: 0, community: 0 },
-  { id: 2, path: "companies/nordwind.md", title: "Nordwind", type: "company", inDegree: 1, outDegree: 0, distance: 1, community: 0 },
+  { id: 1, path: "people/penelope.md", title: "Penelope", type: "person", inDegree: 1, outDegree: 1, distance: 0, community: 0 },
+  { id: 2, path: "companies/phaeacian-yard.md", title: "Phaeacian yard", type: "company", inDegree: 1, outDegree: 0, distance: 1, community: 0 },
   { id: 3, path: "projects/pricing.md", title: "Pricing", type: "project", inDegree: 1, outDegree: 0, distance: 1, community: 1 },
-  { id: 4, path: "notes/lisbon.md", title: "Lisbon", type: "note", inDegree: 0, outDegree: 1, distance: 2, community: 1 },
-  { id: 5, path: "notes/berlin.md", title: "Berlin", type: "note", inDegree: 0, outDegree: 1, distance: 2 },
+  { id: 4, path: "notes/ithaca.md", title: "Ithaca", type: "note", inDegree: 0, outDegree: 1, distance: 2, community: 1 },
+  { id: 5, path: "notes/ogygia.md", title: "Ogygia", type: "note", inDegree: 0, outDegree: 1, distance: 2 },
 ];
 
 describe("entity colouring helpers", () => {
@@ -248,10 +248,10 @@ describe("Graph colour rule (sixth pass §7)", () => {
   function localScene() {
     useGraphStore.setState({
       mode: "local",
-      local: { center: "people/marta.md", depth: 2, direction: "both" },
+      local: { center: "people/penelope.md", depth: 2, direction: "both" },
       meta: {
         available: true, schemaVersion: 8, computedAt: "2026-09-09T00:00:00Z", stale: false,
-        nodeCount: 4812, edgeCount: 0, communities: [{ community: 0, size: 2, label: "Lisbon", topTerms: [] }, { community: 1, size: 2, label: null, topTerms: [] }], defaultRoot: null,
+        nodeCount: 4812, edgeCount: 0, communities: [{ community: 0, size: 2, label: "Ithaca", topTerms: [] }, { community: 1, size: 2, label: null, topTerms: [] }], defaultRoot: null,
       },
       metaState: "done",
       subgraph: { nodes: NODES, edges: [{ source: 1, target: 2 }, { source: 1, target: 3 }, { source: 4, target: 1 }, { source: 5, target: 1 }], truncated: false },
@@ -278,7 +278,9 @@ describe("Graph colour rule (sixth pass §7)", () => {
     expect(page.getByText(/colour = entity type/)).toBeTruthy();
     const legend = document.querySelector('[data-legend="entity"]')!;
     expect(legend.textContent).toContain("focus");
-    expect(legend.textContent).toContain("person");
+    // The centre is the only person, and it is painted amber as the focus,
+    // not teal as a person — so the legend does not count it as one.
+    expect(legend.textContent).not.toContain("person");
     expect(legend.textContent).toContain("company");
     expect(legend.textContent).toContain("project");
     expect(legend.textContent).toContain("note");
@@ -286,7 +288,10 @@ describe("Graph colour rule (sixth pass §7)", () => {
 
     fireEvent.click(page.getByRole("tab", { name: "Topic" }));
     expect(page.getByText(/colour = topic/)).toBeTruthy();
-    expect(document.querySelector('[data-legend="topic"]')!.textContent).toContain("Lisbon");
+    const topics = document.querySelector('[data-legend="topic"]')!.textContent!;
+    expect(topics).toContain("Ithaca");
+    // Community 0 holds the focus and one company; only the company is counted.
+    expect(topics).toContain("Ithaca1");
 
     fireEvent.click(page.getByRole("tab", { name: "Folder" }));
     expect(page.getByText(/colour = folder/)).toBeTruthy();

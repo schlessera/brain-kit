@@ -146,6 +146,55 @@ describe("AskUserCard · pending", () => {
     expect(submitted).toEqual([{ "Which sections stay?": "Intro, Notes" }]);
   });
 
+  test("multi-select: Other toggles off again, and a focused option previews", () => {
+    const withPreview: AskUserQuestion[] = [
+      {
+        ...multi[0],
+        options: [
+          { label: "Intro", description: "", preview: "# Intro draft" },
+          { label: "Method", description: "" },
+        ],
+      },
+    ];
+    const { getByText, getAllByRole, queryByText } = render(
+      <AskUserCard requestId="req-7" questions={withPreview} onSubmit={() => {}} onCancel={() => {}} />
+    );
+    const boxes = getAllByRole("checkbox") as HTMLInputElement[];
+    const other = boxes[boxes.length - 1]!;
+    fireEvent.click(getByText("Other"));
+    expect(other.checked).toBe(true);
+    fireEvent.click(getByText("Other"));
+    expect(other.checked).toBe(false);
+
+    // The contract's preview follows FOCUS, not selection.
+    expect(queryByText("Preview")).toBeNull();
+    fireEvent.focus(boxes[0]!);
+    expect(getByText("Preview")).toBeTruthy();
+    fireEvent.focus(boxes[1]!);
+    expect(queryByText("Preview")).toBeNull();
+  });
+
+  test("single-select: arrowing focus over an option previews it before it is picked", () => {
+    const withPreview: AskUserQuestion[] = [
+      {
+        ...single[0],
+        options: [
+          { label: "Alpha", description: "d", preview: "# Alpha draft" },
+          { label: "Beta", description: "e" },
+        ],
+      },
+    ];
+    const { getAllByRole, getByText, queryByText } = render(
+      <AskUserCard requestId="req-8" questions={withPreview} onSubmit={() => {}} onCancel={() => {}} />
+    );
+    const radios = getAllByRole("radio");
+    expect(queryByText("Preview")).toBeNull();
+    fireEvent.focus(radios[0]!);
+    expect(getByText("Preview")).toBeTruthy();
+    fireEvent.focus(radios[1]!);
+    expect(queryByText("Preview")).toBeNull();
+  });
+
   test("with several questions only the last card carries the actions and answers gather", () => {
     const submitted: unknown[] = [];
     const two: AskUserQuestion[] = [

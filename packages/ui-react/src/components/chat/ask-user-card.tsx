@@ -50,10 +50,28 @@ interface PerQuestionState {
   otherOpen: boolean;
   /** A free-text answer already taken from the field (multi-question only). */
   otherText: string;
+  /** The option holding focus — the contract's `preview` follows focus, so
+   * ↑↓ over the options shows each one's preview before anything is picked. */
+  focused: string | null;
 }
 
 function defaultState(): PerQuestionState {
-  return { selected: [], otherOpen: false, otherText: "" };
+  return { selected: [], otherOpen: false, otherText: "", focused: null };
+}
+
+/** The preview to show for a question: the focused option's, else the single
+ * chosen one's. `preview` is "content rendered when an option is focused"
+ * in the ask_user contract; selection is the fallback once focus has moved on. */
+export function previewFor(
+  question: AskUserQuestion,
+  state: Pick<PerQuestionState, "focused" | "selected">
+): string | undefined {
+  const focused = state.focused ? question.options.find((o) => o.label === state.focused) : undefined;
+  if (focused?.preview) return focused.preview;
+  if (state.selected.length === 1 && state.selected[0] !== OTHER_LABEL) {
+    return question.options.find((o) => o.label === state.selected[0])?.preview;
+  }
+  return undefined;
 }
 
 /** The answer the exchange recorded for one question, as the card shows it. */
@@ -129,8 +147,10 @@ export function AskUserCard({
         if (i !== qi) return s;
         const q = questions[qi];
         if (label === OTHER_LABEL) {
+          // Multi-select: Other is one checkbox among the others and toggles
+          // off again; single-select: it is the pick, and opens the field.
           return q.multiSelect
-            ? { ...s, otherOpen: true, selected: toggled(s.selected, OTHER_LABEL, true) }
+            ? { ...s, selected: toggled(s.selected, OTHER_LABEL) }
             : { ...s, otherOpen: true, selected: [OTHER_LABEL] };
         }
         return {
@@ -144,6 +164,10 @@ export function AskUserCard({
         };
       })
     );
+  }
+
+  function focus(qi: number, label: string | null) {
+    setState((prev) => prev.map((s, i) => (i === qi ? { ...s, focused: label } : s)));
   }
 
   function answerFor(qi: number, s: PerQuestionState): string[] {
@@ -243,10 +267,7 @@ export function AskUserCard({
         }
 
         const s = state[qi];
-        const selectedOption =
-          s.selected.length === 1 && s.selected[0] !== OTHER_LABEL
-            ? q.options.find((o) => o.label === s.selected[0])
-            : undefined;
+        const preview = previewFor(q, s);
 
         if (q.multiSelect) {
           return (
@@ -257,7 +278,9 @@ export function AskUserCard({
               question={q}
               selected={s.selected}
               otherText={s.otherText}
+              preview={preview}
               onToggle={(label) => pick(qi, label)}
+              onFocusOption={(label) => focus(qi, label)}
               onOtherChange={(text) =>
                 setState((prev) =>
                   prev.map((st, i) => (i === qi ? { ...st, otherText: text } : st))
@@ -277,6 +300,7 @@ export function AskUserCard({
             subtitle: o.description,
             selected: s.selected.includes(o.label),
             onClick: () => pick(qi, o.label),
+            onFocus: () => focus(qi, o.label),
           })),
           {
             title: OTHER_LABEL,
@@ -285,6 +309,7 @@ export function AskUserCard({
             dim: !s.otherText,
             selected: s.selected.includes(OTHER_LABEL),
             onClick: () => pick(qi, OTHER_LABEL),
+            onFocus: () => focus(qi, null),
           },
         ];
 
@@ -306,11 +331,7 @@ export function AskUserCard({
               onPrimary={() => (complete ? submit() : undefined)}
               onSecondary={() => onCancel(requestId)}
             />
-            {selectedOption?.preview ? (
-              <Surface label="Preview" labelIcon="file" pad={10}>
-                <BrainMarkdown content={selectedOption.preview} className="brain-prose text-xs" />
-              </Surface>
-            ) : null}
+            {preview ? <PreviewPane content={preview} /> : null}
           </div>
         );
       })}
@@ -318,10 +339,17 @@ export function AskUserCard({
   );
 }
 
-function toggled(list: string[], label: string, on?: boolean): string[] {
-  const has = list.includes(label);
-  if (on === true) return has ? list : [...list, label];
-  return has ? list.filter((l) => l !== label) : [...list, label];
+function toggled(list: string[], label: string): string[] {
+  return list.includes(label) ? list.filter((l) => l !== label) : [...list, label];
+}
+
+/** The focused (else chosen) option's preview, under the question it belongs to. */
+function PreviewPane({ content }: { content: string }) {
+  return (
+    <Surface label="Preview" labelIcon="file" pad={10}>
+      <BrainMarkdown content={content} className="brain-prose text-xs" />
+    </Surface>
+  );
 }
 
 /**
@@ -335,7 +363,9 @@ function MultiSelectQuestion({
   question,
   selected,
   otherText,
+  preview,
   onToggle,
+  onFocusOption,
   onOtherChange,
   showActions,
   canSubmit,
@@ -347,7 +377,9 @@ function MultiSelectQuestion({
   question: AskUserQuestion;
   selected: string[];
   otherText: string;
+  preview?: string;
   onToggle: (label: string) => void;
+  onFocusOption: (label: string | null) => void;
   onOtherChange: (text: string) => void;
   showActions: boolean;
   canSubmit: boolean;
@@ -380,6 +412,7 @@ function MultiSelectQuestion({
                 type="checkbox"
                 checked={on}
                 onChange={() => onToggle(row.label)}
+                onFocus={() => onFocusOption(row.label === OTHER_LABEL ? null : row.label)}
                 className="mt-0.5 h-4 w-4 accent-accent"
               />
               <span className="min-w-0 flex-1">
@@ -394,6 +427,11 @@ function MultiSelectQuestion({
           );
         })}
       </div>
+      {preview ? (
+        <div className="mt-2">
+          <PreviewPane content={preview} />
+        </div>
+      ) : null}
       {otherOn ? (
         <textarea
           value={otherText}

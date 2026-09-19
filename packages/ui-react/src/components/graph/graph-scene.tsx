@@ -86,12 +86,21 @@ export function SceneBody() {
   const focused = mode === "discovery" || mode === "local";
   const rule = focused ? discoveryColorBy : "topic";
 
+  // What the categorical legends describe: every node painted BY its category.
+  // The focus node (the local centre, an explicit root, or a virtual node) is
+  // painted amber whatever its type, folder or topic, so counting it under
+  // one would make the legend disagree with the canvas.
+  const legendNodes = useMemo(
+    () => subgraph.nodes.filter((n) => !(n.virtual === true || (focused && n.distance === 0))),
+    [subgraph.nodes, focused]
+  );
+
   const folderColors = useMemo(
     () =>
       focused && rule === "folder"
-        ? assignFolderColors(subgraph.nodes.map((n) => n.path))
+        ? assignFolderColors(legendNodes.map((n) => n.path))
         : null,
-    [focused, rule, subgraph.nodes]
+    [focused, rule, legendNodes]
   );
 
   const nodeColor = useMemo(() => {
@@ -196,9 +205,9 @@ export function SceneBody() {
         <FolderLegend colors={folderColors} />
       )}
       {focused && rule === "entity" && (
-        <EntityLegend nodes={subgraph.nodes} colors={theme.entity} />
+        <EntityLegend nodes={legendNodes} colors={theme.entity} />
       )}
-      {focused && rule === "topic" && <TopicLegend nodes={subgraph.nodes} />}
+      {focused && rule === "topic" && <TopicLegend nodes={legendNodes} />}
       {focused && rule === "distance" && (
         <DistanceLegend maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} />
       )}
@@ -360,7 +369,11 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
       if (node.community === undefined || node.virtual) continue;
       counts.set(node.community, (counts.get(node.community) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((a, b) => a[0] - b[0]).slice(0, 8);
+    // The eight largest, folded past that like the cluster legend: a node
+    // on the canvas whose colour has no row is a legend that lies by
+    // omission. (Communities past the palette share OTHER_COLOR anyway.)
+    const all = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+    return { rows: all.slice(0, 8), folded: all.slice(8).reduce((n, [, c]) => n + c, 0), foldedTopics: Math.max(0, all.length - 8) };
   }, [nodes]);
   return (
     <div
@@ -368,20 +381,30 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
       data-legend="topic"
     >
       <div className="mb-1 text-xs font-medium text-foreground">Topics</div>
-      {rows.length === 0 ? (
+      {rows.rows.length === 0 ? (
         <div className="font-mono text-[10px] text-muted-foreground">
           no topics computed · run <Mono>brain sync</Mono>
         </div>
       ) : (
-        rows.map(([community, count]) => (
-          <LegendRow
-            key={community}
-            color={communityColor(community)}
-            label={meta?.communities.find((c) => c.community === community)?.label ?? `Topic ${community + 1}`}
-            count={count}
-            mono={false}
-          />
-        ))
+        <>
+          {rows.rows.map(([community, count]) => (
+            <LegendRow
+              key={community}
+              color={communityColor(community)}
+              label={meta?.communities.find((c) => c.community === community)?.label ?? `Topic ${community + 1}`}
+              count={count}
+              mono={false}
+            />
+          ))}
+          {rows.foldedTopics > 0 && (
+            <LegendRow
+              color={OTHER_COLOR}
+              label={`${rows.foldedTopics} smaller topic${rows.foldedTopics === 1 ? "" : "s"}`}
+              count={rows.folded}
+              mono={false}
+            />
+          )}
+        </>
       )}
     </div>
   );

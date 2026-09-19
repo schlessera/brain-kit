@@ -63,6 +63,9 @@ export interface AskUserOption {
   italic?: boolean;
   dim?: boolean;
   onClick?: () => void;
+  /** The option took focus (↑↓ or pointer): a consumer that previews the
+   * focused option — the app's `ask_user` contract does — listens here. */
+  onFocus?: () => void;
 }
 
 export type AskUserState = "pending" | "answered" | "typed";
@@ -264,7 +267,14 @@ export function AskUserCard(p: AskUserCardProps) {
               dim={o.dim}
               tabStop={interactive ? roving.stop === i : undefined}
               onClick={o.onClick}
-              onFocus={o.onClick ? () => roving.onItemFocus(i) : undefined}
+              onFocus={
+                o.onClick
+                  ? () => {
+                      roving.onItemFocus(i);
+                      o.onFocus?.();
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>

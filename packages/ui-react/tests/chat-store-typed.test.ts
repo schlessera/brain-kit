@@ -100,26 +100,34 @@ describe("takeComposerTextAsAnswer", () => {
     expect(sent).toEqual([]);
   });
 
+  test("only a single-question exchange has a question for a typed answer", () => {
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.setAskUserRequest(null, "req-q", Q);
+    expect(questionForTypedAnswer(draft().askUser!)?.question).toBe("Which approach?");
+    store.setAskUserRequest(null, "req-q2", Q2);
+    expect(questionForTypedAnswer(draft().askUser!)).toBeNull();
+  });
+
+  test("a multi-question prompt is not answered by the composer", () => {
+    // The server resolves the whole request on the first response, so a
+    // typed reply bound to question one would leave the others blank and
+    // unanswerable. The cards' own Submit gathers all of them instead.
+    const sent: ClientMessage[] = [];
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.setAskUserRequest(null, "req-6", Q2);
+    expect(takeComposerTextAsAnswer(useChatStore.getState(), null, "keep it", (m) => sent.push(m))).toBe(false);
+    expect(sent).toEqual([]);
+    expect(draft().askUser?.answers).toBeUndefined();
+  });
+
   test("blank text takes nothing", () => {
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     store.setAskUserRequest(null, "req-5", Q);
     expect(takeComposerTextAsAnswer(useChatStore.getState(), null, "   ", () => {})).toBe(false);
     expect(draft().askUser?.answers).toBeUndefined();
-  });
-
-  test("several questions: the text answers the first, and only the first", () => {
-    const sent: ClientMessage[] = [];
-    const store = useChatStore.getState();
-    store.startAssistantMessage(null);
-    store.setAskUserRequest(null, "req-6", Q2);
-    expect(questionForTypedAnswer(draft().askUser!)?.question).toBe("Which approach?");
-    expect(takeComposerTextAsAnswer(useChatStore.getState(), null, "inline", (m) => sent.push(m))).toBe(true);
-    expect(sent[0]).toEqual({
-      type: "ask_user_response",
-      requestId: "req-6",
-      answers: { "Which approach?": "inline" },
-    });
   });
 
   test("works on a bound session buffer, not only the draft", () => {

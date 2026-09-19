@@ -12,10 +12,13 @@ are gone, not dimmed, because they were never the record) and `typed`. All
 three stay in the transcript at full contrast; nothing rolls up. A dismissed
 question keeps its card with no options and a neutral note.
 
-`typed` is new behaviour: a composer send while a question is pending is the
-ANSWER to it. The text binds to the first question, goes out as
-`ask_user_response`, and the card quotes what it took under a neutral border —
-nothing is sent as a chat message. The exchange records `typed` and
+`typed` is new behaviour: a composer send while a single-question exchange is
+pending is the ANSWER to it. The text goes out as `ask_user_response` and the
+card quotes what it took under a neutral border — nothing is sent as a chat
+message. A multi-question prompt keeps its cards' own Submit (the server
+resolves the whole request on the first response, so binding a typed reply to
+one question would strand the rest). Option previews follow focus, as the
+contract says, in both single- and multi-select questions. The exchange records `typed` and
 `answeredAt`; both are live-only, because the persisted tool output carries
 neither, so a resumed transcript shows a typed answer as a plain answered one
 with no time rather than one it made up.
