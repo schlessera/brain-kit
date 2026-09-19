@@ -13,16 +13,8 @@ import { GraphEmptyState } from "./graph-empty-state.js";
 import { GraphCanvas } from "./graph-canvas-lazy.js";
 import { CenteredSpinner } from "./graph-spinner.js";
 import { matchScene } from "./lib/graph-helpers.js";
+import { useGraphTheme } from "./use-graph-theme.js";
 import { cn } from "../../lib/utils.js";
-
-/** Finding-type colors: dataviz status palette (warning/serious/critical) plus
- * the light end of the distance ramp for "stale" — checked against #0c0e12. */
-const FINDING_COLORS = {
-  orphan: "#fab219",
-  unreachable: "#ec835a",
-  broken: "#d03b3b",
-  stale: "#86b6ef",
-} as const;
 
 // --- Maintenance -------------------------------------------------------------
 
@@ -51,6 +43,9 @@ export function MaintenanceBody() {
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
   const listRef = useRef<HTMLDivElement>(null);
+  // The four lenses: the kit's `--bk-canvas-lens-*`, resolved for the scheme
+  // in force, so the list's headings and the canvas agree in both themes.
+  const lens = useGraphTheme().palette.lens;
 
   // One node per document, first matching section wins (a stale orphan is an
   // orphan); ring index encodes the finding kind.
@@ -122,7 +117,7 @@ export function MaintenanceBody() {
               hoveredId={hoveredId}
               matchIds={matchIds}
               nodeColor={(node) =>
-                FINDING_COLORS[(node as FindingNode).finding ?? "stale"]
+                lens[(node as FindingNode).finding ?? "stale"]
               }
               onSelect={select}
               onHover={hover}
@@ -143,7 +138,7 @@ export function MaintenanceBody() {
             <FindingSection
               title={`Orphans (${findings.orphans.length})`}
               hint="No links in or out."
-              color={FINDING_COLORS.orphan}
+              color={lens.orphan}
               nodes={findings.orphans}
               selectedId={selectedId}
               onSelect={select}
@@ -154,7 +149,7 @@ export function MaintenanceBody() {
             <FindingSection
               title={`Unreachable from root (${findings.unreachable.length})`}
               hint="No link path from the graph root reaches these."
-              color={FINDING_COLORS.unreachable}
+              color={lens.unreachable}
               nodes={findings.unreachable}
               selectedId={selectedId}
               onSelect={select}
@@ -166,7 +161,7 @@ export function MaintenanceBody() {
               <SectionHeading
                 title={`Broken links (${findings.brokenLinks.length})`}
                 hint="Wiki links whose target resolves to nothing."
-                color={FINDING_COLORS.broken}
+                color={lens.broken}
               />
               <FindingRows
                 empty={findings.brokenLinks.length === 0}
@@ -183,7 +178,7 @@ export function MaintenanceBody() {
             <FindingSection
               title={`Stale notes (${findings.stale.length})`}
               hint={`Untouched for over ${findings.staleDays} days.`}
-              color={FINDING_COLORS.stale}
+              color={lens.stale}
               nodes={findings.stale}
               subOf={(n) => `${(n as GraphNodePayload & { updated: string }).updated} · ${n.path}`}
               selectedId={selectedId}

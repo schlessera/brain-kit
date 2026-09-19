@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit";
+import { graphTheme } from "../src/components/graph/use-graph-theme.js";
 import {
-  CATEGORICAL_SLOTS,
-  DISTANCE_RAMP,
-  OTHER_COLOR,
-  ROOT_COLOR,
+  SLOT_COUNT,
   assignFolderColors,
   buildQuery,
   communityColor,
@@ -118,22 +117,46 @@ describe("nodeSize", () => {
 });
 
 describe("palette", () => {
-  test("the first eight communities get distinct validated slots", () => {
-    const seen = new Set<string>();
-    for (let i = 0; i < 8; i++) seen.add(communityColor(i));
-    expect(seen.size).toBe(8);
-    expect(CATEGORICAL_SLOTS).toHaveLength(8);
+  // No document here, so the theme resolves from the kit's own tables — the
+  // dark set and the paper set — which is also the proof that both reach
+  // the canvas as values, not as `light-dark()` strings.
+  const dark = graphTheme("dark").palette;
+  const paper = graphTheme("light").palette;
+
+  test("the palette is the kit's canvas tokens, per scheme, and nothing is left unresolved", () => {
+    expect(dark.slots[0]).toBe(TOKENS["canvas-slot-1"]);
+    expect(paper.slots[0]).toBe(LIGHT_TOKENS["canvas-slot-1"]);
+    expect(dark.root).toBe(TOKENS["canvas-root"]);
+    expect(paper.lens.broken).toBe(LIGHT_TOKENS["canvas-lens-broken"]);
+    for (const palette of [dark, paper]) {
+      const values = [...palette.slots, ...palette.ramp, palette.root, palette.other, ...Object.values(palette.lens)];
+      for (const value of values) expect(value).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  test("the first eight communities get distinct slots, in the same order in both themes", () => {
+    for (const palette of [dark, paper]) {
+      const seen = new Set<string>();
+      for (let i = 0; i < SLOT_COUNT; i++) seen.add(communityColor(i, palette));
+      expect(seen.size).toBe(8);
+      expect(palette.slots).toHaveLength(SLOT_COUNT);
+    }
+    // Slot order is the CVD mechanism: community 2 is slot 3 on both grounds.
+    expect(communityColor(2, dark)).toBe(TOKENS["canvas-slot-3"]);
+    expect(communityColor(2, paper)).toBe(LIGHT_TOKENS["canvas-slot-3"]);
   });
 
   test("the long tail folds into the recessive color", () => {
-    expect(communityColor(8)).toBe(OTHER_COLOR);
-    expect(communityColor(120)).toBe(OTHER_COLOR);
+    expect(communityColor(8, dark)).toBe(dark.other);
+    expect(communityColor(120, dark)).toBe(dark.other);
+    expect(communityColor(8, paper)).toBe(paper.other);
   });
 
-  test("distance 0 is the amber root, far distances clamp to the ramp end", () => {
-    expect(distanceColor(0)).toBe(ROOT_COLOR);
-    expect(distanceColor(1)).toBe(DISTANCE_RAMP[0]);
-    expect(distanceColor(99)).toBe(DISTANCE_RAMP[DISTANCE_RAMP.length - 1]);
+  test("distance 0 is the root, far distances clamp to the ramp end", () => {
+    expect(distanceColor(0, dark)).toBe(dark.root);
+    expect(distanceColor(1, dark)).toBe(dark.ramp[0]);
+    expect(distanceColor(99, dark)).toBe(dark.ramp[dark.ramp.length - 1]);
+    expect(distanceColor(99, paper)).toBe(paper.ramp[paper.ramp.length - 1]);
   });
 });
 
@@ -150,12 +173,13 @@ describe("assignFolderColors", () => {
       "six/x.md",
       "seven/x.md",
     ];
-    const colors = assignFolderColors(paths);
-    expect(colors.get("career")).toBe(CATEGORICAL_SLOTS[0]);
-    expect(colors.get("talks")).toBe(CATEGORICAL_SLOTS[1]);
+    const palette = graphTheme("dark").palette;
+    const colors = assignFolderColors(paths, palette);
+    expect(colors.get("career")).toBe(palette.slots[0]);
+    expect(colors.get("talks")).toBe(palette.slots[1]);
     // Ties rank alphabetically: five, four, one, seven, six, three fill the
     // remaining slots — "two" is the ninth directory and folds to Other.
-    expect(colors.get("two")).toBe(OTHER_COLOR);
+    expect(colors.get("two")).toBe(palette.other);
   });
 
   test("topLevelDir extracts the first segment", () => {

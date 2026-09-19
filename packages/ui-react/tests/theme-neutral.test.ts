@@ -74,18 +74,15 @@ const SOLID_MONO_ALLOWED: Record<string, string> = {
   "components/files/file-viewer-html.tsx": "an HTML document assumes a white page behind it",
 };
 
-// Each of these draws outside the DOM — a canvas, an SVG the app owns, an
-// export — where a CSS token cannot reach, or is a palette validated as a
-// set. The graph and mermaid palettes were validated against the dark canvas
-// only; a paper set is an open design question, recorded in
-// `.plan/design-feedback.md`, not something to derive here.
+// Each of these draws outside the DOM — a canvas, an export — where a CSS
+// token cannot reach AND the colour is not the theme's. The graph canvas and
+// the mermaid theme also draw outside the DOM, but their colours ARE the
+// theme's: the kit's `--bk-canvas-*` and `--bk-diagram-*` tokens, read as
+// values through `lib/light-dark.ts` for the scheme in force, so no hex of
+// theirs lives here any more.
 const HEX_ALLOWED: Record<string, string> = {
-  "components/graph/lib/graph-helpers.ts": "sigma canvas palettes, validated as a set (CVD order)",
-  "components/graph/graph-maintenance.tsx": "sigma canvas palette for the maintenance lenses",
-  "components/graph/use-graph-theme.ts": "sigma canvas defaults, read through getComputedStyle where a token exists",
   "components/images/mask-editor.tsx": "the mask bitmap is white-on-black by contract",
   "lib/image-optimize.ts": "export canvas flattens transparency onto white",
-  "lib/mermaid-theme.ts": "mermaid's themeVariables take literal colours",
 };
 
 describe("component classes", () => {

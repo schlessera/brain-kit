@@ -129,39 +129,29 @@ export function nodeSize(
 
 // --- Palettes ----------------------------------------------------------------
 //
-// Both palettes ran through the dataviz validator against the app surface
-// (#0c0e12, dark): the categorical set passes lightness band, chroma floor,
-// CVD separation (worst adjacent ΔE 8.4), normal-vision floor and 3:1
-// contrast; the distance ramp passes monotone-lightness, step-gap, light-end
-// contrast and single-hue checks. Slot ORDER is the CVD-safety mechanism —
-// do not reorder without re-validating.
+// The canvas draws with VALUES, not CSS, so its palette arrives resolved: the
+// kit's `--bk-canvas-*` tokens read for the scheme the page is in (see
+// `use-graph-theme.ts`). Both sets are the kit's — the dark one ran through
+// the dataviz validator against #0c0e12 (lightness band, chroma floor, CVD
+// separation, 3:1), the paper one is the design's, each mark at 3:1 against
+// #ece7dc. Slot ORDER is the CVD-safety mechanism and is the same in both
+// themes: a theme may respell a slot, never reorder one.
 
-/** Fixed categorical slots (validated, dark). Community/folder identity. */
-export const CATEGORICAL_SLOTS = [
-  "#3987e5", // blue
-  "#d95926", // orange
-  "#199e70", // aqua
-  "#c98500", // yellow
-  "#d55181", // magenta
-  "#008300", // green
-  "#9085e9", // violet
-  "#e66767", // red
-] as const;
+export interface CanvasPalette {
+  /** Eight categorical slots, in the frozen order. Community/folder identity. */
+  slots: readonly string[];
+  /** Ordinal distance ramp, near to far (five visible steps). */
+  ramp: readonly string[];
+  /** The root's own colour in discovery mode (the focus amber). */
+  root: string;
+  /** Recessive slot for everything past the eight distinguishable ones. */
+  other: string;
+  /** The maintenance lenses. */
+  lens: { orphan: string; unreachable: string; broken: string; stale: string };
+}
 
-/** Recessive slot for everything past the eight distinguishable ones. */
-export const OTHER_COLOR = "#565b66";
-
-/** The root's own color in discovery mode (the app's amber primary). */
-export const ROOT_COLOR = "#e09f3e";
-
-/** Ordinal distance ramp, near → far (validated, 5 visible steps). */
-export const DISTANCE_RAMP = [
-  "#b7d3f6",
-  "#86b6ef",
-  "#5598e7",
-  "#2a78d6",
-  "#184f95",
-] as const;
+/** How many communities or folders get a slot of their own before the tail folds. */
+export const SLOT_COUNT = 8;
 
 /**
  * Linear blend of two hex colors: t=0 → a, t=1 → b. Used for the gentle
@@ -191,16 +181,14 @@ function parseHex(color: string): [number, number, number] | null {
  * index time, so the first eight — the ones a legend can carry — get the
  * distinguishable slots and the long tail shares one recessive color.
  */
-export function communityColor(community: number): string {
-  return community < CATEGORICAL_SLOTS.length
-    ? CATEGORICAL_SLOTS[community]!
-    : OTHER_COLOR;
+export function communityColor(community: number, palette: CanvasPalette): string {
+  return community < palette.slots.length ? palette.slots[community]! : palette.other;
 }
 
-/** Color for a BFS distance: amber root, then the blue ramp fading out. */
-export function distanceColor(distance: number): string {
-  if (distance <= 0) return ROOT_COLOR;
-  return DISTANCE_RAMP[Math.min(distance - 1, DISTANCE_RAMP.length - 1)]!;
+/** Color for a BFS distance: the root, then the ramp fading out hop by hop. */
+export function distanceColor(distance: number, palette: CanvasPalette): string {
+  if (distance <= 0) return palette.root;
+  return palette.ramp[Math.min(distance - 1, palette.ramp.length - 1)]!;
 }
 
 /** First path segment — "career/opportunities/x.md" → "career". */
@@ -213,7 +201,7 @@ export function topLevelDir(path: string): string {
  * Assign categorical slots to top-level directories, biggest first — the
  * same eight-then-other policy as communities. Returns dir → color.
  */
-export function assignFolderColors(paths: string[]): Map<string, string> {
+export function assignFolderColors(paths: string[], palette: CanvasPalette): Map<string, string> {
   const counts = new Map<string, number>();
   for (const path of paths) {
     const dir = topLevelDir(path);
@@ -224,7 +212,7 @@ export function assignFolderColors(paths: string[]): Map<string, string> {
   );
   const colors = new Map<string, string>();
   ranked.forEach(([dir], i) => {
-    colors.set(dir, i < CATEGORICAL_SLOTS.length ? CATEGORICAL_SLOTS[i]! : OTHER_COLOR);
+    colors.set(dir, i < palette.slots.length ? palette.slots[i]! : palette.other);
   });
   return colors;
 }

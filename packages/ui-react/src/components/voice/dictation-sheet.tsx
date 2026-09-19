@@ -89,12 +89,12 @@ export function DictationSheet({
               {/* Pulse only once capture is actually live — a "connecting" dot
                   must not imply the mic is already open. */}
               {!connecting && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-fill opacity-75" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-mark opacity-75" />
               )}
               <span
                 className={cn(
                   "relative inline-flex h-2 w-2 rounded-full",
-                  connecting ? "bg-muted-foreground/50" : "bg-primary-fill"
+                  connecting ? "bg-muted-foreground/50" : "bg-primary-mark"
                 )}
               />
             </span>
@@ -208,7 +208,7 @@ function Waveform({ level }: { level: number }) {
           <span
             key={i}
             style={{ height: `${h}px` }}
-            className="w-1.5 rounded-full bg-primary-fill transition-[height] duration-75 ease-linear"
+            className="w-1.5 rounded-full bg-primary-mark transition-[height] duration-75 ease-linear"
           />
         );
       })}

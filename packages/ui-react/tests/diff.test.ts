@@ -1,8 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { computeDiffRows } from "../src/lib/diff";
+import { computeDiffRows, diffText } from "../src/lib/diff";
 
 // ----------------------------------------------------------------------------
-// computeDiffRows (line-level LCS + word refinement)
+// computeDiffRows (line-level LCS) and diffText (the kit DiffBlock's input)
 // ----------------------------------------------------------------------------
 
 describe("computeDiffRows", () => {
@@ -21,27 +21,14 @@ describe("computeDiffRows", () => {
     expect(rows.filter((r) => r.kind === "ins").length).toBe(1);
   });
 
-  test("single-line change gets word-level tokens with only the word changed", () => {
-    const rows = computeDiffRows("the quick brown fox", "the quick red fox");
-    const del = rows.find((r) => r.kind === "del")!;
-    const ins = rows.find((r) => r.kind === "ins")!;
-    expect(del.tokens).not.toBeNull();
-    expect(ins.tokens).not.toBeNull();
-    // Only the differing token is flagged as changed on each side.
-    expect(del.tokens!.filter((t) => t.changed).map((t) => t.text)).toEqual(["brown"]);
-    expect(ins.tokens!.filter((t) => t.changed).map((t) => t.text)).toEqual(["red"]);
-    // Tokens reassemble the original line exactly.
-    expect(del.tokens!.map((t) => t.text).join("")).toBe("the quick brown fox");
-    expect(ins.tokens!.map((t) => t.text).join("")).toBe("the quick red fox");
-  });
-
-  test("multi-line change blocks are not word-refined", () => {
+  test("a change block lists its deletions before its insertions", () => {
     const rows = computeDiffRows("a\nb", "x\ny");
-    for (const r of rows) {
-      if (r.kind !== "same") expect(r.tokens).toBeNull();
-    }
-    expect(rows.filter((r) => r.kind === "del").length).toBe(2);
-    expect(rows.filter((r) => r.kind === "ins").length).toBe(2);
+    expect(rows.map((r) => [r.kind, r.line])).toEqual([
+      ["del", "a"],
+      ["del", "b"],
+      ["ins", "x"],
+      ["ins", "y"],
+    ]);
   });
 
   test("pure insert yields only same + ins rows", () => {
@@ -54,5 +41,20 @@ describe("computeDiffRows", () => {
     const rows = computeDiffRows("a\nb\nc", "a\nc");
     expect(rows.map((r) => r.kind)).toEqual(["same", "del", "same"]);
     expect(rows.find((r) => r.kind === "del")!.line).toBe("b");
+  });
+});
+
+describe("diffText", () => {
+  test("signs every row the way the kit DiffBlock reads it", () => {
+    expect(diffText(computeDiffRows("a\nb\nc", "a\nx\nc"))).toBe("  a\n- b\n+ x\n  c");
+  });
+
+  test("a context line starting with a sign keeps its two-space indent, so it stays context", () => {
+    const text = diffText(computeDiffRows("- item\n+ plus", "- item\n+ plus\nnew"));
+    expect(text.split("\n")).toEqual(["  - item", "  + plus", "+ new"]);
+  });
+
+  test("keeps the line's own leading whitespace after the sign", () => {
+    expect(diffText([{ kind: "ins", line: "    indented" }])).toBe("+     indented");
   });
 });

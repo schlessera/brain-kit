@@ -1,17 +1,24 @@
 /**
  * The `request_image_mask` result: a receipt, not a path (D38 §2).
  *
- * The source thumb — hatched, as everywhere: no remote image loads inline —
- * with the drawn region over it in teal, because the region is the user's own
- * answer, stacked ABOVE a kit `Receipt` (the truncation rule: a receipt value
- * column under ~160px means change the layout, not the break rule).
+ * The source thumb — hatched, as everywhere: no remote image loads inline for
+ * the source — stacked ABOVE a kit `Receipt` (the truncation rule: a receipt
+ * value column under ~160px means change the layout, not the break rule).
  *
  * Typed `ImageMaskPayload`, so the rows are the fields the handler actually
  * sends: `imagePath`, `maskPath`, `bytes`. The design also draws a region and
- * a coverage row; the payload carries neither yet, so the card draws the
- * region only when a caller supplies one and prints no coverage. Nothing here
- * is invented — a mask that silently became "whole image" is how an answer
- * ends up citing the wrong half of a whiteboard.
+ * a coverage row; the payload carries neither. The seventh drop's ruling 8
+ * settles what happens then: **state the absence**. The receipt's `region`
+ * row reads "region not recorded", in gold, rather than disappearing — a
+ * load-bearing fact that vanishes cannot be told apart from a whole-image
+ * mask, and a later answer citing that receipt would be citing a gap. A
+ * caller that does supply a region (the view test) gets the figures.
+ *
+ * And the mask itself is DRAWN over the thumb whenever its bytes exist: the
+ * PNG the handler wrote is fetched from the files API and laid over the
+ * hatch, with the teal region fill beneath it so the transparent (editable)
+ * pixels show as the user's answer. When the bytes do not exist the thumb
+ * shows the source alone with a mono line saying the mask was not rendered.
  *
  * Failure is a fact about the evidence, not a dialog: a declined or failed
  * mask comes back as a tool error with a message, and `ImageMaskFallback`
@@ -19,8 +26,9 @@
  */
 
 import type { CSSProperties } from "react";
-import { Callout, Receipt, Surface, color, type ReceiptRow } from "@schlessera/brain-ui-kit";
+import { Callout, Receipt, Surface, color, font, type ReceiptRow } from "@schlessera/brain-ui-kit";
 import type { ImageMaskPayload, ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { useBrainUiRoot } from "../../../root-context.js";
 import { ClampedPre } from "../tool-views.js";
 
 /** A normalised rectangle over the source image: every value in 0..1. */
@@ -34,6 +42,9 @@ export interface MaskRegion {
 const THUMB_W = 160;
 const THUMB_H = 100;
 
+export const REGION_NOT_RECORDED = "region not recorded";
+export const MASK_NOT_RENDERED = "mask not rendered";
+
 /** The kit's image placeholder: raised stripes on the surface, no pixels. */
 const HATCH = `repeating-linear-gradient(135deg,${color.raised} 0 6px,var(--bk-hatch-stripe) 6px 12px)`;
 
@@ -43,11 +54,17 @@ function bytesLabel(bytes: number): string {
   return `${bytes} B`;
 }
 
+/** The mask file exists with content: the handler reports the PNG's byte length. */
+export function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean {
+  return typeof payload.bytes === "number" && payload.bytes > 0;
+}
+
 /**
- * The thumb with the drawn region over it. Exported for the view test; the
- * bound card passes no `region` because the payload carries none.
+ * The thumb: the hatched source, the drawn region when a caller has one, and
+ * the mask image over both when `maskUrl` is given. Exported for the view
+ * test; the bound card computes `maskUrl` from the payload.
  */
-export function MaskThumb({ region, label }: { region?: MaskRegion; label: string }) {
+export function MaskThumb({ region, label, maskUrl }: { region?: MaskRegion; label: string; maskUrl?: string }) {
   const frame: CSSProperties = {
     position: "relative",
     width: "100%",
@@ -66,19 +83,36 @@ export function MaskThumb({ region, label }: { region?: MaskRegion; label: strin
         width: `${region.w * 100}%`,
         height: `${region.h * 100}%`,
         border: "1.5px dashed var(--bk-teal-ink)",
-        background: "rgba(91,181,162,0.18)",
+        background: "var(--bk-mask-region-fill)",
         borderRadius: 3,
         boxSizing: "border-box",
       }
     : undefined;
+  // The teal fill sits under the mask: where the PNG is transparent — the
+  // editable region, the user's own answer — the teal shows through.
+  const fill: CSSProperties = { position: "absolute", inset: 0, background: "var(--bk-mask-region-fill)" };
+  const overlay: CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+  };
   return (
     <div role="img" aria-label={label} style={frame} data-mask-thumb>
       {drawn ? <div style={drawn} data-mask-region /> : null}
+      {maskUrl ? (
+        <>
+          <div style={fill} aria-hidden="true" />
+          <img src={maskUrl} alt="" style={overlay} data-mask-overlay />
+        </>
+      ) : null}
     </div>
   );
 }
 
-/** The rows the receipt prints — only the facts the result carries. */
+/** The rows the receipt prints. The region row is always there: figures when
+ * a caller has them, the stated absence when the payload carries none. */
 export function maskReceiptRows(payload: ImageMaskPayload, region?: MaskRegion): ReceiptRow[] {
   const rows: ReceiptRow[] = [];
   if (region) {
@@ -88,6 +122,8 @@ export function maskReceiptRows(payload: ImageMaskPayload, region?: MaskRegion):
       tone: "teal",
     });
     rows.push({ k: "covers", v: `${pct(region.w * region.h)} of the image`, tone: "teal" });
+  } else {
+    rows.push({ k: "region", v: REGION_NOT_RECORDED, tone: "gold" });
   }
   rows.push({ k: "source", v: payload.imagePath });
   rows.push({ k: "mask", v: `${payload.maskPath} · ${bytesLabel(payload.bytes)}` });
@@ -99,18 +135,26 @@ function pct(fraction: number): string {
 }
 
 export function ImageMaskResultCard(payload: ImageMaskPayload & { region?: MaskRegion }) {
+  const root = useBrainUiRoot();
   const region = payload.region;
+  const rendered = hasMaskBytes(payload);
+  const maskUrl = rendered
+    ? `${root.apiBase()}/files/content?path=${encodeURIComponent(payload.maskPath)}&raw=1`
+    : undefined;
+  const note: CSSProperties = { font: `400 10.5px/1.5 ${font.mono}`, color: color.inkMute };
   return (
     <Surface tone="teal" label="Mask drawn" labelIcon="confirm" meta="by you" pad={12}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <MaskThumb
           region={region}
+          maskUrl={maskUrl}
           label={
-            region
-              ? `Source ${payload.imagePath} with the drawn region`
+            rendered
+              ? `Mask ${payload.maskPath} over the source ${payload.imagePath}`
               : `Source ${payload.imagePath}; the mask is in ${payload.maskPath}`
           }
         />
+        {rendered ? null : <div style={note}>{MASK_NOT_RENDERED}</div>}
         <Receipt keyWidth={58} rows={maskReceiptRows(payload, region)} />
       </div>
     </Surface>

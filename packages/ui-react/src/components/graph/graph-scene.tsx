@@ -23,7 +23,6 @@ import { GraphEmptyState, Mono } from "./graph-empty-state.js";
 import { GraphCanvas } from "./graph-canvas-lazy.js";
 import { CenteredSpinner } from "./graph-spinner.js";
 import {
-  OTHER_COLOR,
   assignFolderColors,
   buildQuery,
   communityColor,
@@ -33,6 +32,7 @@ import {
   groupCommunities,
   matchScene,
   topLevelDir,
+  type CanvasPalette,
 } from "./lib/graph-helpers.js";
 import { useGraphTheme, type EntityColors } from "./use-graph-theme.js";
 import { cn } from "../../lib/utils.js";
@@ -98,9 +98,9 @@ export function SceneBody() {
   const folderColors = useMemo(
     () =>
       focused && rule === "folder"
-        ? assignFolderColors(legendNodes.map((n) => n.path))
+        ? assignFolderColors(legendNodes.map((n) => n.path), theme.palette)
         : null,
-    [focused, rule, legendNodes]
+    [focused, rule, legendNodes, theme.palette]
   );
 
   const nodeColor = useMemo(() => {
@@ -110,7 +110,7 @@ export function SceneBody() {
         return (node: GraphNodePayload) =>
           isFocus(node)
             ? theme.nodeSelected
-            : (folderColors.get(topLevelDir(node.path)) ?? OTHER_COLOR);
+            : (folderColors.get(topLevelDir(node.path)) ?? theme.palette.other);
       }
       if (rule === "entity") {
         return (node: GraphNodePayload) =>
@@ -121,14 +121,14 @@ export function SceneBody() {
           isFocus(node)
             ? theme.nodeSelected
             : node.community !== undefined
-              ? communityColor(node.community)
-              : OTHER_COLOR;
+              ? communityColor(node.community, theme.palette)
+              : theme.palette.other;
       }
       return (node: GraphNodePayload) =>
-        isFocus(node) ? theme.nodeSelected : distanceColor(node.distance ?? maxDistance);
+        isFocus(node) ? theme.nodeSelected : distanceColor(node.distance ?? maxDistance, theme.palette);
     }
     return (node: GraphNodePayload) =>
-      node.community !== undefined ? communityColor(node.community) : theme.node;
+      node.community !== undefined ? communityColor(node.community, theme.palette) : theme.node;
   }, [focused, rule, folderColors, maxDistance, theme]);
 
   const centerId = useMemo(
@@ -200,16 +200,16 @@ export function SceneBody() {
 
       {/* The legend redraws per rule (sixth pass §7): it names what the
           canvas is doing right now, never a constant. */}
-      {mode === "clusters" && <ClusterLegend />}
+      {mode === "clusters" && <ClusterLegend palette={theme.palette} />}
       {focused && rule === "folder" && folderColors && (
-        <FolderLegend colors={folderColors} />
+        <FolderLegend colors={folderColors} other={theme.palette.other} />
       )}
       {focused && rule === "entity" && (
         <EntityLegend nodes={legendNodes} colors={theme.entity} />
       )}
-      {focused && rule === "topic" && <TopicLegend nodes={legendNodes} />}
+      {focused && rule === "topic" && <TopicLegend nodes={legendNodes} palette={theme.palette} />}
       {focused && rule === "distance" && (
-        <DistanceLegend maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} />
+        <DistanceLegend maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} palette={theme.palette} />
       )}
       {mode === "discovery" && (
         <UnreachableTray count={subgraph.unreachableCount} />
@@ -234,7 +234,7 @@ export function SceneBody() {
 }
 
 /** Clusters mode: interactive community legend, top-left. */
-function ClusterLegend() {
+function ClusterLegend({ palette }: { palette: CanvasPalette }) {
   const meta = useGraphStore((s) => s.meta);
   const clusters = useGraphStore((s) => s.clusters);
   const setClustersParams = useGraphStore((s) => s.setClustersParams);
@@ -286,7 +286,7 @@ function ClusterLegend() {
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: communityColor(c.community) }}
+                  style={{ backgroundColor: communityColor(c.community, palette) }}
                 />
                 <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                   {c.label ?? `Topic ${c.community + 1}`}
@@ -301,7 +301,7 @@ function ClusterLegend() {
             <div className="flex items-center gap-2 px-2 py-1.5">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: OTHER_COLOR }}
+                style={{ backgroundColor: palette.other }}
               />
               <span className="text-[11px] text-muted-foreground">
                 {foldedCount} smaller topic{foldedCount === 1 ? "" : "s"}
@@ -361,7 +361,7 @@ function EntityLegend({ nodes, colors }: { nodes: GraphNodePayload[]; colors: En
  * Clusters' own — listing the communities present in this scene. A corpus
  * with no computed topics says so rather than showing an empty box.
  */
-function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
+function TopicLegend({ nodes, palette }: { nodes: GraphNodePayload[]; palette: CanvasPalette }) {
   const meta = useGraphStore((s) => s.meta);
   const rows = useMemo(() => {
     const counts = new Map<number, number>();
@@ -371,7 +371,7 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
     }
     // The eight largest, folded past that like the cluster legend: a node
     // on the canvas whose colour has no row is a legend that lies by
-    // omission. (Communities past the palette share OTHER_COLOR anyway.)
+    // omission. (Communities past the palette share the recessive colour anyway.)
     const all = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
     return { rows: all.slice(0, 8), folded: all.slice(8).reduce((n, [, c]) => n + c, 0), foldedTopics: Math.max(0, all.length - 8) };
   }, [nodes]);
@@ -390,7 +390,7 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
           {rows.rows.map(([community, count]) => (
             <LegendRow
               key={community}
-              color={communityColor(community)}
+              color={communityColor(community, palette)}
               label={meta?.communities.find((c) => c.community === community)?.label ?? `Topic ${community + 1}`}
               count={count}
               mono={false}
@@ -398,7 +398,7 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
           ))}
           {rows.foldedTopics > 0 && (
             <LegendRow
-              color={OTHER_COLOR}
+              color={palette.other}
               label={`${rows.foldedTopics} smaller topic${rows.foldedTopics === 1 ? "" : "s"}`}
               count={rows.folded}
               mono={false}
@@ -411,7 +411,7 @@ function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
 }
 
 /** Colour-by-distance: the amber focus, then the ramp one hop at a time. */
-function DistanceLegend({ maxDistance, focus }: { maxDistance: number; focus: "root" | "centre" }) {
+function DistanceLegend({ maxDistance, focus, palette }: { maxDistance: number; focus: "root" | "centre"; palette: CanvasPalette }) {
   const hops = Array.from({ length: Math.min(maxDistance, 5) }, (_, i) => i + 1);
   return (
     <div
@@ -419,11 +419,11 @@ function DistanceLegend({ maxDistance, focus }: { maxDistance: number; focus: "r
       data-legend="distance"
     >
       <div className="mb-1 text-xs font-medium text-foreground">Distance</div>
-      <LegendRow color={distanceColor(0)} label={focus} mono={false} />
+      <LegendRow color={distanceColor(0, palette)} label={focus} mono={false} />
       {hops.map((hop) => (
         <LegendRow
           key={hop}
-          color={distanceColor(hop)}
+          color={distanceColor(hop, palette)}
           label={hop === 5 && maxDistance > 5 ? `${hop}+ hops` : `${hop} hop${hop === 1 ? "" : "s"}`}
           mono={false}
         />
@@ -445,8 +445,8 @@ function LegendRow({ color, label, count, mono = true }: { color: string; label:
 }
 
 /** Discovery + color-by-folder: which top-level dir wears which color. */
-function FolderLegend({ colors }: { colors: Map<string, string> }) {
-  const entries = [...colors.entries()].filter(([, c]) => c !== OTHER_COLOR);
+function FolderLegend({ colors, other }: { colors: Map<string, string>; other: string }) {
+  const entries = [...colors.entries()].filter(([, c]) => c !== other);
   const otherCount = colors.size - entries.length;
   if (entries.length === 0) return null;
   return (
@@ -467,7 +467,7 @@ function FolderLegend({ colors }: { colors: Map<string, string> }) {
         <div className="flex min-h-6 items-center gap-2">
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: OTHER_COLOR }}
+            style={{ backgroundColor: other }}
           />
           <span className="text-[11px] text-muted-foreground">
             {otherCount} more

@@ -172,6 +172,24 @@ export function ChatPage() {
     [send, sessionId, root]
   );
 
+  /**
+   * A dismissed question asked again (seventh drop, ruling 7). The request
+   * was resolved server-side when the turn ended, so the answer goes out as
+   * an ordinary message — the same path the composer's send takes, minus
+   * attachments and provider (a resumed session is pinned to its own).
+   */
+  const handleAskUserReask = useCallback(
+    (text: string) => {
+      const chat = root.stores.chat.getState();
+      chat.addUserMessage(sessionId, text, "typed");
+      if (!(sessionId === null ? chat.draft : chat.buffers[sessionId])?.isStreaming) {
+        chat.startAssistantMessage(sessionId);
+      }
+      send({ type: "chat_message", text, sessionId: sessionId ?? undefined });
+    },
+    [send, sessionId, root]
+  );
+
   const handleSessionResume = useCallback(
     (resumeSessionId: string) => {
       clearMessages();
@@ -294,6 +312,7 @@ export function ChatPage() {
                   onToolApproval={handleToolApproval}
                   onAskUserSubmit={handleAskUserSubmit}
                   onAskUserCancel={handleAskUserCancel}
+                  onAskUserReask={handleAskUserReask}
                 />
               ))}
             </div>

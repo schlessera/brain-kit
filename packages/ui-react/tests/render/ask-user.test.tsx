@@ -14,10 +14,14 @@ import {
   TYPED_META,
   answeredMeta,
   quoted,
+  recordedAnswers,
 } from "../../src/components/chat/ask-user-card.js";
+import { reaskMessage } from "../../src/components/chat/ask-user-typed.js";
 import {
   ImageMaskFallback,
   ImageMaskResultCard,
+  MASK_NOT_RENDERED,
+  REGION_NOT_RECORDED,
   maskReceiptRows,
 } from "../../src/components/chat/tool-cards/image-mask-card.js";
 
@@ -126,9 +130,9 @@ describe("AskUserCard · pending", () => {
     expect(submitted).toEqual([[{ [QUESTION]: "Alpha" }, { [QUESTION]: { preview: "# Alpha draft" } }]]);
   });
 
-  test("multi-select keeps real checkboxes and joins the picks", () => {
+  test("multi-select rides the kit card: checkboxes in a group, the picks joined", () => {
     const submitted: unknown[] = [];
-    const { getByText, getAllByRole, queryAllByRole } = render(
+    const { getByText, getAllByRole, getByRole, queryAllByRole, queryByRole } = render(
       <AskUserCard
         requestId="req-6"
         questions={multi}
@@ -137,16 +141,26 @@ describe("AskUserCard · pending", () => {
       />
     );
     expect(queryAllByRole("radio")).toHaveLength(0);
-    expect(getAllByRole("checkbox")).toHaveLength(4);
+    expect(queryByRole("radiogroup")).toBeNull();
+    // The kit's group, labelled by the question; three options plus "Other".
+    expect(getByRole("group").getAttribute("aria-labelledby")).toBe("req-6-0-question");
+    const boxes = getAllByRole("checkbox");
+    expect(boxes).toHaveLength(4);
+    // Square marks: the shape is the affordance.
+    for (const box of boxes) expect((box.firstElementChild as HTMLElement).style.borderRadius).toBe("5px");
+    // No native checkbox left behind.
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     fireEvent.click(getByText("Submit"));
     expect(submitted).toHaveLength(0);
     fireEvent.click(getByText("Intro"));
     fireEvent.click(getByText("Notes"));
+    expect(boxes[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(boxes[1]!.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(getByText("Submit"));
     expect(submitted).toEqual([{ "Which sections stay?": "Intro, Notes" }]);
   });
 
-  test("multi-select: Other toggles off again, and a focused option previews", () => {
+  test("multi-select: Other toggles like any row, opens the field, and a focused option previews", () => {
     const withPreview: AskUserQuestion[] = [
       {
         ...multi[0],
@@ -156,15 +170,17 @@ describe("AskUserCard · pending", () => {
         ],
       },
     ];
-    const { getByText, getAllByRole, queryByText } = render(
+    const { getByText, getAllByRole, queryByText, queryByLabelText } = render(
       <AskUserCard requestId="req-7" questions={withPreview} onSubmit={() => {}} onCancel={() => {}} />
     );
-    const boxes = getAllByRole("checkbox") as HTMLInputElement[];
+    const boxes = getAllByRole("checkbox");
     const other = boxes[boxes.length - 1]!;
     fireEvent.click(getByText("Other"));
-    expect(other.checked).toBe(true);
+    expect(other.getAttribute("aria-checked")).toBe("true");
+    expect(queryByLabelText("Your own answer")).not.toBeNull();
     fireEvent.click(getByText("Other"));
-    expect(other.checked).toBe(false);
+    expect(other.getAttribute("aria-checked")).toBe("false");
+    expect(queryByLabelText("Your own answer")).toBeNull();
 
     // The contract's preview follows FOCUS, not selection.
     expect(queryByText("Preview")).toBeNull();
@@ -172,6 +188,24 @@ describe("AskUserCard · pending", () => {
     expect(getByText("Preview")).toBeTruthy();
     fireEvent.focus(boxes[1]!);
     expect(queryByText("Preview")).toBeNull();
+  });
+
+  test("multi-select: a typed Other answer joins the other picks", () => {
+    const submitted: unknown[] = [];
+    const { getByText, getByLabelText } = render(
+      <AskUserCard
+        requestId="req-6b"
+        questions={multi}
+        onSubmit={(_id, answers) => submitted.push(answers)}
+        onCancel={() => {}}
+      />
+    );
+    fireEvent.click(getByText("Method"));
+    fireEvent.click(getByText("Other"));
+    const field = getByLabelText("Your own answer") as HTMLInputElement;
+    field.value = "the appendix";
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(submitted).toEqual([{ "Which sections stay?": "Method, the appendix" }]);
   });
 
   test("single-select: arrowing focus over an option previews it before it is picked", () => {
@@ -269,14 +303,89 @@ describe("AskUserCard · answered, typed, dismissed — all stay in the transcri
     expect(queryByText("Alpha")).toBeNull();
   });
 
-  test("dismissed keeps the question with no options and states the fact", () => {
+  test("a multi-select answer lists every pick, with the count in the head", () => {
     const { getByText, queryByText } = render(
+      <AskUserCard
+        requestId="req-10b"
+        questions={multi}
+        answered={{ "Which sections stay?": "Intro, Notes" }}
+        answeredAt={Date.now()}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />
+    );
+    expect(getByText("Answered · 2 chosen")).toBeTruthy();
+    expect(getByText("Intro")).toBeTruthy();
+    expect(getByText("Notes")).toBeTruthy();
+    expect(queryByText("Method")).toBeNull();
+    expect(getByText("you chose 2 · just now")).toBeTruthy();
+    expect(recordedAnswers(multi[0]!, { "Which sections stay?": "Intro, Notes" })).toEqual(["Intro", "Notes"]);
+    expect(answeredMeta(undefined, 2)).toBe("you chose 2");
+  });
+
+  test("dismissed is the kit's gold fourth state: the fact, no options, no Ask again without a handler", () => {
+    const { getByText, queryByText, queryByRole } = render(
       <AskUserCard requestId="req-11" questions={single} cancelled onSubmit={() => {}} onCancel={() => {}} />
     );
     expect(getByText(QUESTION)).toBeTruthy();
+    expect(getByText("Unanswered — the turn ended")).toBeTruthy();
     expect(getByText(DISMISSED_NOTE)).toBeTruthy();
     expect(queryByText("Alpha")).toBeNull();
     expect(queryByText("Submit")).toBeNull();
+    expect(queryByRole("button")).toBeNull();
+  });
+
+  test("Ask again reopens the card locally, and its Submit sends a composer message, not an ask_user_response", () => {
+    const submitted: unknown[] = [];
+    const cancelled: string[] = [];
+    const reasked: string[] = [];
+    const { getByText, getByRole, queryByText, getAllByRole } = render(
+      <AskUserCard
+        requestId="req-12"
+        questions={single}
+        cancelled
+        onSubmit={(...args) => submitted.push(args)}
+        onCancel={(id) => cancelled.push(id)}
+        onReask={(text) => reasked.push(text)}
+      />
+    );
+    fireEvent.click(getByRole("button", { name: "Ask again" }));
+    // Pending again: the options are back, the lapsed row is gone.
+    expect(getAllByRole("radio")).toHaveLength(3);
+    expect(queryByText(DISMISSED_NOTE)).toBeNull();
+    fireEvent.click(getByText("Beta"));
+    fireEvent.click(getByText("Submit"));
+    expect(submitted).toEqual([]);
+    expect(reasked).toEqual([reaskMessage(single, { [QUESTION]: "Beta" })]);
+    expect(reasked[0]).toContain(QUESTION);
+    expect(reasked[0]).toContain("Beta");
+    // Dismiss on a reopened card closes it again without a cancel nobody can take.
+    expect(cancelled).toEqual([]);
+  });
+
+  test("Dismiss on a reopened card goes back to dismissed, and sends nothing", () => {
+    const cancelled: string[] = [];
+    const { getByText, getByRole, queryByRole } = render(
+      <AskUserCard
+        requestId="req-13"
+        questions={single}
+        cancelled
+        onSubmit={() => {}}
+        onCancel={(id) => cancelled.push(id)}
+        onReask={() => {}}
+      />
+    );
+    fireEvent.click(getByRole("button", { name: "Ask again" }));
+    fireEvent.click(getByText("Dismiss"));
+    expect(getByText(DISMISSED_NOTE)).toBeTruthy();
+    expect(queryByRole("radio")).toBeNull();
+    expect(cancelled).toEqual([]);
+  });
+
+  test("reaskMessage quotes each question with its answer", () => {
+    expect(reaskMessage([{ question: "A?" }, { question: "B?" }], { "A?": "x", "B?": "y, z" })).toBe(
+      "Answering \u201CA?\u201D: x\n\nAnswering \u201CB?\u201D: y, z"
+    );
   });
 });
 
@@ -289,16 +398,37 @@ describe("ImageMaskResultCard", () => {
   };
 
   test("is a receipt over a hatched thumb, from the fields the result carries", () => {
-    const { getByText, container } = render(<ImageMaskResultCard {...payload} />);
+    const { getByText, container, queryByText } = render(<ImageMaskResultCard {...payload} />);
     expect(getByText("Mask drawn")).toBeTruthy();
     expect(getByText("by you")).toBeTruthy();
     expect(getByText("assets/images/house.png")).toBeTruthy();
     expect(getByText("assets/images/house-mask.png · 2 KB")).toBeTruthy();
     expect(container.querySelector("[data-mask-thumb]")).not.toBeNull();
-    expect(container.querySelector("img")).toBeNull();
-    // No region in the payload: no overlay, no coverage claim.
+    // The source is never loaded inline; the MASK is drawn over the hatch
+    // whenever its bytes exist.
+    const overlay = container.querySelector("img[data-mask-overlay]") as HTMLImageElement;
+    expect(overlay).not.toBeNull();
+    expect(overlay.getAttribute("src")).toContain(encodeURIComponent("assets/images/house-mask.png"));
+    expect(overlay.getAttribute("src")).toContain("raw=1");
+    expect(queryByText(MASK_NOT_RENDERED)).toBeNull();
+    // No region in the payload: no drawn rectangle, no coverage claim — and
+    // the absence is STATED on the receipt, in gold, never omitted.
     expect(container.querySelector("[data-mask-region]")).toBeNull();
-    expect(maskReceiptRows(payload).map((r) => r.k)).toEqual(["source", "mask"]);
+    expect(getByText(REGION_NOT_RECORDED)).toBeTruthy();
+    expect(maskReceiptRows(payload).map((r) => [r.k, r.v, r.tone])).toEqual([
+      ["region", REGION_NOT_RECORDED, "gold"],
+      ["source", "assets/images/house.png", undefined],
+      ["mask", "assets/images/house-mask.png · 2 KB", undefined],
+    ]);
+  });
+
+  test("without mask bytes the thumb shows the source alone and says the mask was not rendered", () => {
+    const { getByText, container } = render(<ImageMaskResultCard {...payload} bytes={0} />);
+    expect(container.querySelector("[data-mask-thumb]")).not.toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(getByText(MASK_NOT_RENDERED)).toBeTruthy();
+    expect(getByText(REGION_NOT_RECORDED)).toBeTruthy();
+    expect(getByText("assets/images/house-mask.png · 0 B")).toBeTruthy();
   });
 
   test("draws the region and the coverage only when a region is supplied", () => {

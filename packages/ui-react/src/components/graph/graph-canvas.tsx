@@ -143,6 +143,11 @@ export default function GraphCanvas({
   const ringCanvasRef = useRef<HTMLCanvasElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const theme = useGraphTheme();
+  // The reducers are registered once at mount and read the theme through this
+  // ref, so a theme switch recolours the fade and the selection without
+  // re-instantiating sigma.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const ringCount = layout === "radial" ? rings : 0;
 
   // State the reducers read without re-instantiating sigma.
@@ -179,6 +184,7 @@ export default function GraphCanvas({
       nodeReducer: (node, attrs) => {
         const id = Number(node);
         const s = interactionRef.current;
+        const theme = themeRef.current;
         const active = s.hoveredId ?? s.selectedId;
         const out = { ...attrs } as typeof attrs & {
           forceLabel?: boolean;
@@ -207,6 +213,7 @@ export default function GraphCanvas({
       },
       edgeReducer: (edge, attrs) => {
         const s = interactionRef.current;
+        const theme = themeRef.current;
         const active = s.hoveredId ?? s.selectedId;
         const out = { ...attrs } as typeof attrs & { hidden?: boolean };
         if (active !== null) {
@@ -264,9 +271,25 @@ export default function GraphCanvas({
       renderer.kill();
       sigmaRef.current = null;
     };
-    // Theme is read once per mount (dark-only app).
+    // The theme the settings above close over is the mount-time one; the
+    // effect below swaps them when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A theme switch re-applies the colours sigma was configured with — the
+  // label ink and the two label drawers — in place. Node and edge colours
+  // follow through the restyle effect, whose `nodeColor` and `theme` change
+  // with it; the reducers read `themeRef`.
+  useEffect(() => {
+    const renderer = sigmaRef.current;
+    if (!renderer) return;
+    renderer.setSettings({
+      labelColor: { color: theme.label },
+      defaultDrawNodeLabel: makeDrawNodeLabel(theme),
+      defaultDrawNodeHover: makeDrawNodeHover(theme),
+    });
+    renderer.refresh({ skipIndexation: true });
+  }, [theme]);
 
   // (Re)build the graph when the scene changes.
   useEffect(() => {

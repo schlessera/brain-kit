@@ -1,6 +1,7 @@
 import type { GraphNodePayload } from "@schlessera/brain-ui-sdk/protocol";
 import { communityColor } from "./lib/graph-helpers.js";
 import { NodeCard } from "./node-card.js";
+import { useGraphTheme } from "./use-graph-theme.js";
 import { useNodeActions } from "./use-node-actions.js";
 
 /**
@@ -20,6 +21,7 @@ export function NodePopover({
   communityLabel?: string | null;
 }) {
   const actions = useNodeActions(node);
+  const theme = useGraphTheme();
   const isVirtual = node.virtual === true;
 
   return (
@@ -28,7 +30,7 @@ export function NodePopover({
       title={node.title || node.path}
       path={node.path}
       topic={communityLabel}
-      topicColor={node.community !== undefined ? communityColor(node.community) : undefined}
+      topicColor={node.community !== undefined ? communityColor(node.community, theme.palette) : undefined}
       inDegree={node.inDegree}
       outDegree={node.outDegree}
       distance={node.distance}

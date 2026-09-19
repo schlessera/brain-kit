@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sizeSvgForExport } from "../src/lib/mermaid.js";
+import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit";
 import { mermaidThemeVariables } from "../src/lib/mermaid-theme.js";
 
 describe("sizeSvgForExport", () => {
@@ -38,20 +39,33 @@ describe("sizeSvgForExport", () => {
 });
 
 describe("mermaidThemeVariables", () => {
-  test("both themes carry the app surfaces and the shared series scale", () => {
+  test("both themes carry the kit's diagram surfaces and the slot series scale", () => {
+    // No document here, so every value resolves from the kit's own tables.
     const dark = mermaidThemeVariables("dark");
     const light = mermaidThemeVariables("light");
-    expect(dark.background).toBe("#141619");
-    expect(light.background).toBe("#ffffff");
+    expect(dark.background).toBe(TOKENS["diagram-bg"]);
+    expect(light.background).toBe(LIGHT_TOKENS["diagram-bg"]);
+    expect(dark.textColor).toBe(TOKENS["color-ink"]);
+    expect(light.textColor).toBe(LIGHT_TOKENS["color-ink"]);
+    expect(light.lineColor).toBe(LIGHT_TOKENS["diagram-line"]);
     expect(dark.darkMode).toBe(true);
     expect(light.darkMode).toBe(false);
-    // Series colors are shared so a dark diagram and its shared PNG keep the
-    // same identity per series.
-    expect(dark.pie1).toBe("#3987e5");
-    expect(light.pie1).toBe("#3987e5");
-    expect(dark.cScale0).toBe("#3987e5");
+    // A series keeps its SLOT between a dark diagram and its paper export;
+    // the slot is respelled per theme, never reordered.
+    expect(dark.pie1).toBe(TOKENS["canvas-slot-1"]);
+    expect(light.pie1).toBe(LIGHT_TOKENS["canvas-slot-1"]);
+    expect(dark.cScale0).toBe(TOKENS["canvas-slot-1"]);
+    expect(light.cScale2).toBe(LIGHT_TOKENS["canvas-slot-3"]);
     expect(dark.git7).toBeDefined();
     expect(dark.fillType7).toBeDefined();
+  });
+
+  test("no value is an unresolved light-dark() expression", () => {
+    for (const theme of ["dark", "light"] as const) {
+      for (const value of Object.values(mermaidThemeVariables(theme))) {
+        if (typeof value === "string") expect(value).not.toContain("light-dark(");
+      }
+    }
   });
 
   test("every value is a plain string or boolean", () => {

@@ -1,10 +1,12 @@
-// Standalone text-diff engine behind the Edit tool's diff view: line-level
-// LCS with word-level refinement for single-line change pairs. Pure data —
-// no React; rendering stays in components/chat/tool-views.tsx.
-
-// ------------------------------------------------------------
-// Diff helpers — line-level LCS with word-level refinement
-// ------------------------------------------------------------
+// Standalone line-diff engine behind the Edit tool's diff view: a line-level
+// LCS that merges `old_string` / `new_string` into one signed listing. Pure
+// data — no React; rendering is the kit `DiffBlock` (tinted) in
+// components/chat/tool-views.tsx.
+//
+// There used to be a word-level refinement here (a changed-token highlight
+// inside a single-line change pair). The design's diff has no such thing —
+// the sign column and the row grounds are the whole vocabulary — so it went
+// with the seventh drop rather than surviving as an app-only decoration.
 
 type DiffOp<T> = { kind: "same" | "del" | "ins"; value: T };
 
@@ -50,53 +52,12 @@ function diffSeq<T>(
   return ops;
 }
 
-/** A word token, flagged when it differs from its counterpart line. */
-export type WordToken = { text: string; changed: boolean };
-
-/**
- * Token-level LCS for a single deleted/inserted line pair. Splitting on
- * `/(\s+)/` keeps the whitespace as its own tokens so we can reassemble the
- * line exactly. Unchanged tokens are shared between both sides.
- */
-function wordDiff(oldLine: string, newLine: string): { del: WordToken[]; ins: WordToken[] } {
-  const a = oldLine.split(/(\s+)/);
-  const b = newLine.split(/(\s+)/);
-  // Token-level LCS is O(words²); a pathological minified line would be slow.
-  // Above the cap, skip word refinement and flag the whole line as changed.
-  if (a.length * b.length > 10_000) {
-    return {
-      del: [{ text: oldLine, changed: true }],
-      ins: [{ text: newLine, changed: true }],
-    };
-  }
-  const ops = diffSeq(a, b);
-  const del: WordToken[] = [];
-  const ins: WordToken[] = [];
-  for (const op of ops) {
-    if (op.kind === "same") {
-      del.push({ text: op.value, changed: false });
-      ins.push({ text: op.value, changed: false });
-    } else if (op.kind === "del") {
-      del.push({ text: op.value, changed: true });
-    } else {
-      ins.push({ text: op.value, changed: true });
-    }
-  }
-  return { del, ins };
-}
-
-/** A rendered diff row. `tokens` is set only for word-refined single-line edits. */
-export type DiffRow = {
-  kind: "same" | "del" | "ins";
-  line: string;
-  tokens: WordToken[] | null;
-};
+/** A rendered diff row. */
+export type DiffRow = { kind: "same" | "del" | "ins"; line: string };
 
 /**
  * Merge `old_string`/`new_string` into a single diff: unchanged lines appear
- * once as neutral, deletions/insertions keep the red/green treatment. A change
- * block that is exactly one deleted line against one inserted line gets
- * word-level highlighting.
+ * once as context, deletions before insertions within each change block.
  */
 export function computeDiffRows(oldStr: string, newStr: string): DiffRow[] {
   const oldLines = oldStr.split("\n");
@@ -106,8 +67,8 @@ export function computeDiffRows(oldStr: string, newStr: string): DiffRow[] {
   // back to a naive "all old removed, all new added" diff.
   if (oldLines.length * newLines.length > 250_000) {
     return [
-      ...oldLines.map((line): DiffRow => ({ kind: "del", line, tokens: null })),
-      ...newLines.map((line): DiffRow => ({ kind: "ins", line, tokens: null })),
+      ...oldLines.map((line): DiffRow => ({ kind: "del", line })),
+      ...newLines.map((line): DiffRow => ({ kind: "ins", line })),
     ];
   }
   const ops = diffSeq(oldLines, newLines);
@@ -115,7 +76,7 @@ export function computeDiffRows(oldStr: string, newStr: string): DiffRow[] {
   let idx = 0;
   while (idx < ops.length) {
     if (ops[idx].kind === "same") {
-      rows.push({ kind: "same", line: ops[idx].value, tokens: null });
+      rows.push({ kind: "same", line: ops[idx].value });
       idx++;
       continue;
     }
@@ -127,14 +88,19 @@ export function computeDiffRows(oldStr: string, newStr: string): DiffRow[] {
       else inss.push(ops[idx].value);
       idx++;
     }
-    if (dels.length === 1 && inss.length === 1) {
-      const { del, ins } = wordDiff(dels[0], inss[0]);
-      rows.push({ kind: "del", line: dels[0], tokens: del });
-      rows.push({ kind: "ins", line: inss[0], tokens: ins });
-    } else {
-      for (const d of dels) rows.push({ kind: "del", line: d, tokens: null });
-      for (const s of inss) rows.push({ kind: "ins", line: s, tokens: null });
-    }
+    for (const d of dels) rows.push({ kind: "del", line: d });
+    for (const s of inss) rows.push({ kind: "ins", line: s });
   }
   return rows;
+}
+
+const SIGNS: Record<DiffRow["kind"], string> = { same: " ", del: "-", ins: "+" };
+
+/**
+ * The rows as the signed text the kit `DiffBlock` reads: `- ` / `+ ` / two
+ * spaces before each line, so a context line that itself starts with `-` or
+ * `+` cannot be read as a change.
+ */
+export function diffText(rows: DiffRow[]): string {
+  return rows.map((r) => `${SIGNS[r.kind]} ${r.line}`).join("\n");
 }

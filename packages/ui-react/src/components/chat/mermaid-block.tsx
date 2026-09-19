@@ -2,6 +2,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Code, ChartNetwork, Expand } from "lucide-react";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
+import { useColorScheme } from "../../hooks/use-color-scheme.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { CopyButton } from "./copy-button.js";
 import { buildDiagramShareOptions } from "./mermaid-share.js";
@@ -16,10 +17,15 @@ import { MermaidViewer } from "./mermaid-viewer.js";
  * fails keeps the last good diagram instead of flashing an error. Renders
  * are cached module-wide, so the per-token re-render of a streaming message
  * costs a cache lookup, not a mermaid parse.
+ *
+ * The diagram is drawn for the scheme the page is in — mermaid's variables
+ * are literal colours, so a theme switch is a re-render (cached per scheme),
+ * not a stylesheet change.
  */
 export function MermaidBlock({ source }: { source: string }) {
   const root = useBrainUiRoot();
-  const [svg, setSvg] = useState<string | null>(() => peekMermaidSvg(source));
+  const scheme = useColorScheme();
+  const [svg, setSvg] = useState<string | null>(() => peekMermaidSvg(source, scheme));
   const [showSource, setShowSource] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const latest = useRef(0);
@@ -27,7 +33,7 @@ export function MermaidBlock({ source }: { source: string }) {
 
   useEffect(() => {
     const id = ++latest.current;
-    const cached = peekMermaidSvg(source);
+    const cached = peekMermaidSvg(source, scheme);
     if (cached) {
       setSvg(cached);
       return;
@@ -39,13 +45,13 @@ export function MermaidBlock({ source }: { source: string }) {
     const wait = Date.now() - lastAttempt.current > 400 ? 0 : 150;
     const t = setTimeout(() => {
       lastAttempt.current = Date.now();
-      void renderMermaidSvg(source).then((result) => {
+      void renderMermaidSvg(source, scheme).then((result) => {
         if (latest.current !== id || !result) return;
         setSvg(result);
       });
     }, wait);
     return () => clearTimeout(t);
-  }, [source]);
+  }, [source, scheme]);
 
   const diagramReady = svg !== null;
   const showDiagram = diagramReady && !showSource;

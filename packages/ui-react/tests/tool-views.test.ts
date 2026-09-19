@@ -12,6 +12,8 @@ import {
   splitMatches,
   splitGrepRow,
   parseWebSearchResults,
+  computeDiffRows,
+  diffText,
 } from "../src/components/chat/tool-views";
 
 // Minimal ToolCall factory — only the fields the pure helpers read.
@@ -337,5 +339,24 @@ describe("parseWebSearchResults", () => {
     expect(() => parseWebSearchResults("no links at all, just prose")).not.toThrow();
     expect(parseWebSearchResults("no links at all, just prose")).toEqual([]);
     expect(parseWebSearchResults("")).toEqual([]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// EditDiffView's input: the Edit tool's old/new strings as the signed text
+// the kit DiffBlock (tinted) reads. The rows are the line diff; there is no
+// word-level highlight any more — the sign and the ground are the vocabulary.
+// ----------------------------------------------------------------------------
+
+describe("EditDiffView text", () => {
+  test("old_string / new_string become signed rows for the kit DiffBlock", () => {
+    const text = diffText(computeDiffRows("seats: 40\nvenue: hall", "seats: 24\nvenue: hall"));
+    expect(text.split("\n")).toEqual(["- seats: 40", "+ seats: 24", "  venue: hall"]);
+  });
+
+  test("rows carry no word tokens", () => {
+    for (const row of computeDiffRows("the quick brown fox", "the quick red fox")) {
+      expect(Object.keys(row).sort()).toEqual(["kind", "line"]);
+    }
   });
 });

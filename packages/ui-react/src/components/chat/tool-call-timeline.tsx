@@ -227,17 +227,18 @@ function ToolCallEntry({
 
   return (
     <div className="relative">
-      {/* Timeline dot */}
+      {/* Timeline dot: a bare mark with no content, so it takes the MARK
+          weight — a fill sits at 1.3-1.8:1 on paper at any diameter. */}
       <div
         className={cn(
           "absolute -left-[21px] top-2 h-2.5 w-2.5 rounded-full border-2 border-background",
-          toolCall.status === "streaming" && "bg-primary-fill animate-pulse",
+          toolCall.status === "streaming" && "bg-primary-mark animate-pulse",
           toolCall.status === "pending_approval" &&
-            "bg-primary-fill",
-          toolCall.status === "approved" && "bg-accent-fill",
-          toolCall.status === "denied" && "bg-destructive-fill",
+            "bg-primary-mark",
+          toolCall.status === "approved" && "bg-accent-mark",
+          toolCall.status === "denied" && "bg-destructive-mark",
           toolCall.status === "complete" &&
-            (toolCall.isError ? "bg-destructive-fill" : "bg-accent-fill"),
+            (toolCall.isError ? "bg-destructive-mark" : "bg-accent-mark"),
           !["streaming", "pending_approval", "approved", "denied", "complete"].includes(toolCall.status) && "bg-muted-foreground"
         )}
         style={

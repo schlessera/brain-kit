@@ -13,7 +13,15 @@ import { KeyCap } from "../layout/key-cap.js";
  * three the transcript draws, with the same keys — `a` / `d` while the card
  * holds focus, printed on the buttons, and "Always allow" deliberately
  * without one, carrying its `write_policy` effect chip instead.
+ *
+ * The buttons follow the kit `ApprovalCard`'s rule (seventh drop, ruling 10):
+ * Allow takes the remaining width, Deny is content-sized with a 96 x 44 floor
+ * so it can never become a sliver, and no even split claims the two answers
+ * are equally likely. The title — the tool and its target — is the kit
+ * `ActionCard`'s, which wraps; the target is the record and never truncates.
  */
+const ALLOW_MOUNT = { flex: "1 1 auto", minWidth: 0, width: "auto" } as const;
+const DENY_MOUNT = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" } as const;
 export interface ApprovalCardProps {
   tool: ToolCall;
   /** Where it came from, for the foot line. */
@@ -51,11 +59,11 @@ export function ApprovalCard(p: ApprovalCardProps) {
         chevron={false}
       >
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button label="Allow" icon="confirm" tone="primary" size="sm" block={false} onClick={() => decide(cardOf(), true)} />
+          <Button label="Allow" icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
           {p.tool.approvalKind !== "command" && (
             <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} onClick={() => decide(cardOf(), true, true)} />
           )}
-          <Button label="Deny" icon="deny" tone="danger" size="sm" block={false} onClick={() => decide(cardOf(), false)} />
+          <Button label="Deny" icon="deny" tone="danger" size="sm" center block={false} style={DENY_MOUNT} onClick={() => decide(cardOf(), false)} />
           {p.keys && (
             <span className="ml-auto flex items-center gap-2 text-[10px] text-muted-foreground" aria-hidden="true">
               <span>allow <KeyCap>a</KeyCap></span>

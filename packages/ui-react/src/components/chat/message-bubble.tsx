@@ -39,6 +39,7 @@ export const MessageBubble = memo(function MessageBubble({
   onToolApproval,
   onAskUserSubmit,
   onAskUserCancel,
+  onAskUserReask,
 }: {
   message: ChatMessage;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
@@ -48,6 +49,8 @@ export const MessageBubble = memo(function MessageBubble({
     annotations?: Record<string, AskUserAnnotation>
   ) => void;
   onAskUserCancel: (requestId: string) => void;
+  /** A dismissed question asked again answers by composer message. */
+  onAskUserReask?: (text: string) => void;
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
@@ -82,6 +85,7 @@ export const MessageBubble = memo(function MessageBubble({
           onToolApproval={onToolApproval}
           onAskUserSubmit={onAskUserSubmit}
           onAskUserCancel={onAskUserCancel}
+          onAskUserReask={onAskUserReask}
         />
       )}
     </motion.div>
@@ -180,6 +184,7 @@ function AssistantContent({
   onToolApproval,
   onAskUserSubmit,
   onAskUserCancel,
+  onAskUserReask,
 }: {
   message: ChatMessage;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
@@ -189,6 +194,8 @@ function AssistantContent({
     annotations?: Record<string, AskUserAnnotation>
   ) => void;
   onAskUserCancel: (requestId: string) => void;
+  /** A dismissed question asked again answers by composer message. */
+  onAskUserReask?: (text: string) => void;
 }) {
   const root = useBrainUiRoot();
   const contentRef = useRef<HTMLDivElement>(null);
@@ -253,6 +260,7 @@ function AssistantContent({
                 answeredAt={group.exchange.answeredAt}
                 onSubmit={onAskUserSubmit}
                 onCancel={onAskUserCancel}
+                onReask={onAskUserReask}
               />
             );
           case "text":
@@ -291,6 +299,7 @@ function AssistantContent({
           answeredAt={ex.answeredAt}
           onSubmit={onAskUserSubmit}
           onCancel={onAskUserCancel}
+          onReask={onAskUserReask}
         />
       ))}
 

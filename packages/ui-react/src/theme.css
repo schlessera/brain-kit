@@ -204,7 +204,16 @@
   font-size: 0.85em;
 }
 
-/* ── Brain prose: unified markdown styles ── */
+/* ── Brain prose: unified markdown styles ──
+ *
+ * The tints below are derived from the kit's tokens by the kit's own rule
+ * (seventh drop, ruling 3): a GROUND takes the FILL hue (`--bk-amber-fill`,
+ * `--bk-teal-fill` — a table row's hover at 3%, a blockquote's ground at 4%,
+ * a file link's hover ground at 10%), and a LINE takes the INK hue
+ * (`--bk-color-amber`, `--bk-color-teal` — a link's underline at 30% resting
+ * and 80% hovered, the file link's dotted underline at 40% / 80%). The ink
+ * hue at low alpha reads as dirt on paper; the fill hue at full alpha is a
+ * 1.9:1 line. */
 .brain-prose {
   font-family: var(--font-body);
   font-size: 0.875rem;
@@ -328,7 +337,7 @@
   vertical-align: top;
 }
 .brain-prose tbody tr:hover {
-  background: color-mix(in srgb, var(--bk-color-amber) 3%, transparent);
+  background: color-mix(in srgb, var(--bk-amber-fill) 3%, transparent);
 }
 
 /* Code - inline */
@@ -373,7 +382,7 @@
 /* Blockquotes */
 .brain-prose blockquote {
   border-left: 3px solid var(--bk-color-amber);
-  background: color-mix(in srgb, var(--bk-color-amber) 4%, transparent);
+  background: color-mix(in srgb, var(--bk-amber-fill) 4%, transparent);
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
   border-radius: 0 0.375rem 0.375rem 0;
@@ -414,7 +423,7 @@
 }
 .brain-file-link:hover {
   color: var(--color-foreground);
-  background-color: color-mix(in srgb, var(--bk-color-teal) 10%, transparent);
+  background-color: color-mix(in srgb, var(--bk-teal-fill) 10%, transparent);
   text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 80%, transparent);
 }
 /* Override .brain-prose a styling when it's a file link */
@@ -436,7 +445,7 @@
 .brain-file-link--dir:hover,
 .brain-prose a.brain-file-link--dir:hover {
   color: var(--color-foreground);
-  background-color: color-mix(in srgb, var(--bk-color-amber) 10%, transparent);
+  background-color: color-mix(in srgb, var(--bk-amber-fill) 10%, transparent);
   text-decoration-color: color-mix(in srgb, var(--bk-color-amber) 80%, transparent);
 }
 
@@ -466,7 +475,7 @@
 /* Tree node highlight flash for openDir() navigation */
 @keyframes brain-tree-flash {
   0% {
-    background-color: color-mix(in srgb, var(--bk-color-teal) 35%, transparent);
+    background-color: color-mix(in srgb, var(--bk-teal-fill) 35%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bk-color-teal) 60%, transparent);
   }
   100% {

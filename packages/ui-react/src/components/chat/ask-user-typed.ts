@@ -59,3 +59,19 @@ export function takeComposerTextAsAnswer(
   send({ type: "ask_user_response", requestId: exchange.requestId, answers });
   return true;
 }
+
+/**
+ * The composer message a reopened (dismissed, then "Ask again") card sends
+ * in place of an `ask_user_response`: the server resolved the request when
+ * the turn ended, so the answer has to travel as a normal message that
+ * quotes the question it answers. One block per question, the picks as
+ * they were recorded.
+ */
+export function reaskMessage(
+  questions: readonly Pick<AskUserQuestion, "question">[],
+  answers: Record<string, string>
+): string {
+  return questions
+    .map((q) => `Answering \u201C${q.question}\u201D: ${answers[q.question] ?? ""}`)
+    .join("\n\n");
+}

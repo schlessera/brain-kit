@@ -15,17 +15,18 @@ import {
   MapPin,
   ChevronRight,
 } from "lucide-react";
+import { DiffBlock } from "@schlessera/brain-ui-kit";
 import type { ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { linkifyPaths, FileLink } from "./brain-markdown.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { isInternalRepoPath } from "../../stores/file-store.js";
 import { GET_LOCATION_TOOL_NAME, normalizeToolName } from "../../lib/tool-names.js";
-import { computeDiffRows, type WordToken } from "../../lib/diff.js";
+import { computeDiffRows, diffText } from "../../lib/diff.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 
 // Re-exported so existing imports of the diff engine from this module keep working.
-export { computeDiffRows };
+export { computeDiffRows, diffText };
 export { formatRelativeTime };
 
 // ============================================================
@@ -280,28 +281,17 @@ function PathHeader({ path, badge }: { path: string | null; badge?: string | nul
   );
 }
 
-/** Render a diff line, emphasizing changed word tokens when refined. */
-function DiffLine({ tokens, line, changedClass }: {
-  tokens: WordToken[] | null;
-  line: string;
-  changedClass: string;
-}) {
-  if (!tokens) return <>{line}</>;
-  return (
-    <>
-      {tokens.map((t, i) =>
-        t.changed ? (
-          <span key={i} className={cn("rounded-sm", changedClass)}>
-            {t.text}
-          </span>
-        ) : (
-          <span key={i}>{t.text}</span>
-        )
-      )}
-    </>
-  );
-}
-
+/**
+ * The Edit tool's diff, on the kit `DiffBlock` in its `tinted` mode: this is
+ * the one diff where the lines ARE the decision — an edit the user may still
+ * be asked to approve — so removed rows take the red ground and added rows the
+ * teal one, with the sign column at full tone weight. Long lines wrap with the
+ * kit's hanging indent; nothing scrolls sideways and nothing truncates.
+ *
+ * The app used to add a word-level highlight inside a single changed line
+ * pair. The design's diff has no such thing — the sign and the ground are the
+ * whole vocabulary — so it was dropped with the seventh drop.
+ */
 export function EditDiffView({ tool }: { tool: ToolCall }) {
   const rows = computeDiffRows(str(tool.input.old_string) ?? "", str(tool.input.new_string) ?? "");
   return (
@@ -310,37 +300,8 @@ export function EditDiffView({ tool }: { tool: ToolCall }) {
         path={str(tool.input.file_path)}
         badge={tool.input.replace_all ? "replace all" : null}
       />
-      <div className="max-h-64 overflow-y-auto bg-background/60 py-1 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed">
-        {rows.map((row, i) => {
-          if (row.kind === "same") {
-            return (
-              <div key={`s${i}`} className="flex">
-                <span className="w-5 shrink-0 select-none text-center text-muted-foreground/30"> </span>
-                <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-muted-foreground/70">
-                  {row.line}
-                </span>
-              </div>
-            );
-          }
-          if (row.kind === "del") {
-            return (
-              <div key={`d${i}`} className="flex bg-destructive-fill/10">
-                <span className="w-5 shrink-0 select-none text-center text-destructive/70">-</span>
-                <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-destructive">
-                  <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-destructive-fill/30" />
-                </span>
-              </div>
-            );
-          }
-          return (
-            <div key={`i${i}`} className="flex bg-accent-fill/10">
-              <span className="w-5 shrink-0 select-none text-center text-accent/70">+</span>
-              <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-accent">
-                <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-accent-fill/30" />
-              </span>
-            </div>
-          );
-        })}
+      <div className="max-h-64 overflow-y-auto" data-edit-diff>
+        <DiffBlock tinted variant="inset" text={diffText(rows)} />
       </div>
     </div>
   );
