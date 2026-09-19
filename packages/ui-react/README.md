@@ -146,7 +146,9 @@ names, as the kit names them: `primary`, `accent` and `destructive` are the
 inks — for text, borders and rings, dark on paper — and `primary-fill`,
 `accent-fill` and `destructive-fill` are the fills, the same colour in both
 themes, for backgrounds solid or with an alpha, with `primary-foreground` as
-the ink that sits on a fill. A host that styles its own elements with these
+the ink that sits on a fill, and `primary-mark` / `accent-mark` /
+`destructive-mark` for a status dot, which the kit darkens on paper because
+a fill that small falls under 3:1. A host that styles its own elements with these
 utilities follows the same split; `bg-primary` is the ink and reads as brown
 on paper.
 

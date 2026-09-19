@@ -42,11 +42,11 @@ export function SpanStatusDot({
       className={cn(
         "h-1.5 w-1.5 shrink-0 rounded-full",
         isRunning
-          ? "animate-pulse bg-primary-fill"
+          ? "animate-pulse bg-primary-mark"
           : resolved === "success"
-            ? "bg-accent-fill"
+            ? "bg-accent-mark"
             : isFailureOutcome(resolved) || resolved === "denied"
-              ? "bg-destructive-fill"
+              ? "bg-destructive-mark"
               : "bg-muted-foreground",
         className
       )}

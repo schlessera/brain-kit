@@ -75,9 +75,12 @@
   --color-card: var(--bk-color-surface);
   --color-card-foreground: var(--bk-color-ink);
 
-  /* Primary: amber */
+  /* Primary: amber. The MARK is the kit's third weight, for a dot of six
+     to eight pixels: a fill that small falls under 3:1 on paper, so the
+     kit darkens it (`--bk-amber-mark`) and the app uses it for status dots. */
   --color-primary: var(--bk-color-amber);
   --color-primary-fill: var(--bk-amber-fill);
+  --color-primary-mark: var(--bk-amber-mark);
   --color-primary-foreground: var(--bk-on-fill);
 
   /* Secondary */
@@ -87,11 +90,13 @@
   /* Accent: teal */
   --color-accent: var(--bk-color-teal);
   --color-accent-fill: var(--bk-teal-fill);
+  --color-accent-mark: var(--bk-teal-mark);
   --color-accent-foreground: var(--bk-on-fill);
 
   /* Semantic */
   --color-destructive: var(--bk-color-red);
   --color-destructive-fill: var(--bk-red-fill);
+  --color-destructive-mark: var(--bk-red-mark);
   --color-input: var(--bk-color-edge);
   --color-ring: color-mix(in srgb, var(--bk-color-amber) 50%, transparent);
 }

@@ -1955,3 +1955,17 @@ theme variables are literal hex validated as sets against the dark canvas
 and its labels take the ink, but the node colours are the dark set — legible,
 not validated. A paper set is a design question, not a derivation
 (design-feedback §14).
+
+**The review's three findings, all real.** Codex (gpt-5.6-sol) read the
+diff and found what the sweep cannot: contrast. A six-pixel status dot in
+`bg-*-fill` is 1.9–2.5:1 on paper, under the 3:1 a non-text cue needs — the
+kit's third weight, `--bk-*-mark`, exists for exactly that, so the app has
+`primary-mark` / `accent-mark` / `destructive-mark` and its five dots use
+them. The mask editor's error line sat in `text-destructive` on its
+`bg-black/80` overlay, a dark red on black on paper — it is
+`text-destructive-fill` now, the fill being the same light red in both
+themes. And `text-primary/80` on the share block's format chip over a
+`bg-primary-fill/15` tint fell to 3.5–4:1; it is the full ink. The lesson for
+the gate: a class regex proves the theme reaches an element, not that the
+element reads once it does — contrast on paper still needs eyes or numbers.
+

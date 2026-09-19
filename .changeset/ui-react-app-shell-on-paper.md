@@ -15,7 +15,7 @@ no colour of its own, in either theme.
 Ink and fill are named apart, as the kit names them: `primary`, `accent` and
 `destructive` are the inks (text, borders, rings) and `primary-fill`,
 `accent-fill`, `destructive-fill` are the fills (backgrounds, solid or with an
-alpha), with `primary-foreground` the ink that sits on a fill. A consumer that
+alpha), with `primary-foreground` the ink that sits on a fill, and `primary-mark`, `accent-mark`, `destructive-mark` for a dot of six to eight pixels, where a fill falls under 3:1 on paper. A consumer that
 used `bg-primary` on its own elements should move to `bg-primary-fill`; the
 ink name still exists and is now a dark amber on paper.
 

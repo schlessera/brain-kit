@@ -44,7 +44,7 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
           <span className="truncate font-medium text-primary/90">
             {title ?? "Share"}
           </span>
-          <span className="rounded-full bg-primary-fill/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary/80">
+          <span className="rounded-full bg-primary-fill/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary">
             {format}
           </span>
         </div>

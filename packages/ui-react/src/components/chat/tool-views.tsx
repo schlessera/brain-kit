@@ -232,7 +232,7 @@ export function ToolInputView({ tool }: { tool: ToolCall }) {
     return (
       <div className="flex items-center gap-2 rounded-md bg-background/60 p-2 text-[11px] text-muted-foreground/60">
         <span
-          className="inline-block h-1.5 w-1.5 rounded-full bg-primary-fill"
+          className="inline-block h-1.5 w-1.5 rounded-full bg-primary-mark"
           style={{ animation: "breathe 1.5s ease-in-out infinite" }}
         />
         Preparing input…

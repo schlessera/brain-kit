@@ -445,7 +445,7 @@ function StatusIndicator({
   switch (status) {
     case "streaming":
       return (
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary-fill" />
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary-mark" />
       );
     case "pending_approval":
       return (

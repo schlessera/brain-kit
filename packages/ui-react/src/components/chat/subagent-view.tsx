@@ -88,7 +88,7 @@ export function SubagentView({
           </div>
         </div>
         {running && (
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary-fill" />
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary-mark" />
         )}
       </div>
 
