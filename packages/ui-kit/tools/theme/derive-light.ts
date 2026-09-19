@@ -231,6 +231,33 @@ const SPECIFIED: Record<string, string> = {
   "surface-hover-tint-purple": "rgba(177,151,212,0.17)",
   "surface-hover-tint-blue": "rgba(103,184,227,0.17)",
   "palette-shadow": "rgba(90,78,58,0.35)",
+  // §L6 — the canvas palettes on paper (seventh drop). Slot order unchanged
+  // from the dark set; every mark validated at 3:1 against canvas #ece7dc.
+  "canvas-slot-1": "#a9650e",
+  "canvas-slot-2": "#226d95",
+  "canvas-slot-3": "#227f6c",
+  "canvas-slot-4": "#6b4f9e",
+  "canvas-slot-5": "#b23a32",
+  "canvas-slot-6": "#8a6a10",
+  "canvas-slot-7": "#3f6b2f",
+  "canvas-slot-8": "#9c3d72",
+  "canvas-ramp-1": "#17324f",
+  "canvas-ramp-2": "#174b72",
+  "canvas-ramp-3": "#1a6282",
+  "canvas-ramp-4": "#1d788b",
+  "canvas-ramp-5": "#248d91",
+  "canvas-root": "#8f5408",
+  "canvas-other": "#6f6a61",
+  "canvas-lens-orphan": "#6f6a61",
+  "canvas-lens-unreachable": "#5d4489",
+  "canvas-lens-broken": "#9c2a24",
+  "canvas-lens-stale": "#8a6a10",
+  "diagram-bg": "#f8f5ef",
+  "diagram-node": "#fffefa",
+  "diagram-cluster": "#ece7dc",
+  "diagram-line": "#5f584c",
+  "diagram-cluster-border": "#847c6f",
+  "diagram-text": "#231f1a",
 };
 
 /* ── Derivation ─────────────────────────────────────────────────────────── */

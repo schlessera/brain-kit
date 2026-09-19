@@ -26,10 +26,11 @@ import { accent, color, font, token } from "../tokens.js";
  * No interaction states on the card itself: the card is not pressable, the two
  * buttons inside it are, and each brings wave 1's.
  *
- * THE TWO BUTTONS SPLIT THE ROW, and they have to be told to. `Button` defaults
- * to `block`, which is `width: 100%` plus `flex: none` — full width, and
- * refuses to shrink — so two of them in a flex row each demand the whole row
- * and the second overflows the card.
+ * THE BUTTONS ARE CONTENT-SIZED, WITH A FLOOR, and they have to be told to.
+ * `Button` defaults to `block`, which is `width: 100%` plus `flex: none` —
+ * full width, and refuses to shrink — so two of them in a flex row each
+ * demand the whole row and the second overflows the card. The `style` prop
+ * exists for exactly this.
  *
  * This card shipped with that bug, and the reason it was invisible is the
  * `sc-host` decision rather than anything about Buttons. Under the DC runtime
@@ -37,13 +38,20 @@ import { accent, color, font, token } from "../tokens.js";
  * INSIDE one, so `width: 100%` resolved against a shrink-to-fit box and came
  * out content-sized — measured at 155px and 65px, in a row that did not
  * overflow. Dropping the wrapper made `width: 100%` live for the first time.
- * (It is NOT the deleted `hint-size="50%,36px"`: that is dead on a settled
- * render, in the source and on the page.)
  *
- * `flex: 1 1 0` is a deliberate divergence from what DC actually drew. Its
- * content-sized render was an accident of the wrapper; the 50%/50% the author
- * saw in their editor is the only statement of intent there is, and a wide
- * Allow beside a narrow Deny is the worse of the two.
+ * The port first answered with an even `flex: 1 1 0` split, reading the two
+ * 50% hints as the only statement of intent and calling the content-sized
+ * render an accident of the wrapper. The seventh drop ruled the other way
+ * (ruling 10): "the component is right and the 50/50 drawing was wrong. An
+ * even split claims the two answers are equally likely, which the card has no
+ * business claiming — the agent asked because it expects yes." So Allow
+ * takes the remaining width (`flex: 1 1 auto`), Deny is content-sized
+ * (`flex: 0 0 auto`) with a **96 x 44 floor** so it can never become a
+ * sliver, and the head aligns `flex-start` because the target WRAPS: the
+ * card IS the record — you are granting permission against this exact
+ * string — and a first-ever fetch to a host cut at "…/space…" is the one
+ * string here that must be readable in full. The README's truncation table
+ * lists it beside the receipts.
  */
 export interface ApprovalCardProps {
   /** The real tool name. */
@@ -75,7 +83,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
   };
   const head: CSSProperties = {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 7,
     font: `500 11.5px/1.3 ${font.mono}`,
     color: color.ink,
@@ -86,9 +94,8 @@ export function ApprovalCard(p: ApprovalCardProps) {
     minWidth: 0,
     color: color.inkMute,
     fontWeight: 400,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   };
   const badgeWrap: CSSProperties = { flex: "none", display: "flex" };
   const diffWrap: CSSProperties = { margin: "9px 0 8px" };
@@ -101,8 +108,12 @@ export function ApprovalCard(p: ApprovalCardProps) {
     color: accent.gold.ink,
   };
   const actions: CSSProperties = { display: "flex", gap: 8 };
-  /** An even split, which is what the source's two 50% hints meant. */
-  const half: CSSProperties = { flex: "1 1 0", width: "auto" };
+  /** Allow takes the remaining width; Deny is content-sized with the floor.
+   * `width: auto` because `Button`'s block default would otherwise claim the
+   * whole row. The row's default `align-items: stretch` gives Allow Deny's
+   * height, so the floor levels both. */
+  const allowMount: CSSProperties = { flex: "1 1 auto", minWidth: 0, width: "auto" };
+  const denyMount: CSSProperties = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" };
 
   const diff = p.diff ?? "- seats: 40\n+ seats: 24\n- format: talk (45 min)\n+ format: workshop (90 min)";
   const risk = p.risk ?? "overwrites a field referenced by 2 other docs";
@@ -135,10 +146,10 @@ export function ApprovalCard(p: ApprovalCardProps) {
           size="md"
           center
           effect={p.allowEffect}
-          style={half}
+          style={allowMount}
           onClick={p.onAllow}
         />
-        <Button label={p.denyLabel || "Deny"} tone="danger" size="md" center style={half} onClick={p.onDeny} />
+        <Button label={p.denyLabel || "Deny"} tone="danger" size="md" center style={denyMount} onClick={p.onDeny} />
       </div>
     </div>
   );

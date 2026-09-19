@@ -221,6 +221,14 @@ export const TOKENS = {
   "ask-answer-border-amber": "rgba(224,159,62,0.25)",
   "ask-answer-border-teal": "rgba(91,181,162,0.25)",
   "ask-answer-border-purple": "rgba(177,151,212,0.25)",
+  // Seventh drop. The gold `dismissed` state of AskUserCard (border at 30%,
+  // the lapsed row's ground and hairline) and DiffBlock's `tinted` grounds
+  // (the fill hue at 10%; the sign column takes the tone's INK token).
+  "ask-border-gold": "rgba(234,179,84,0.3)",
+  "ask-lapsed-tint": "rgba(234,179,84,0.06)",
+  "ask-lapsed-border": "rgba(234,179,84,0.35)",
+  "diff-tint-red": "rgba(248,113,113,0.1)",
+  "diff-tint-teal": "rgba(91,181,162,0.1)",
   "mask-region-fill": "rgba(91,181,162,0.28)",
   "notification-bg-rich": "rgba(26,29,34,0.92)",
   "notification-bg-compact": "rgba(20,22,25,0.9)",
@@ -377,6 +385,44 @@ export const TOKENS = {
   "palette-tint-selected-hover": "rgba(224,159,62,0.12)",
   "palette-foot-bg": "rgba(12,14,18,0.5)",
   "palette-shadow": "rgba(0,0,0,0.55)",
+
+  // ── Canvas palettes (seventh drop, §L6) ──────────────────────────────
+  // What the app hands to things it does not draw with CSS: the sigma graph
+  // canvas and the mermaid diagram theme. The dark halves are the sets the
+  // app validated against #0c0e12; the paper halves come from the design,
+  // each at 3:1 against the paper canvas. Slot ORDER is frozen: the order is
+  // the CVD mechanism, so a theme may respell a slot but never reorder one.
+  "canvas-slot-1": "#3987e5",
+  "canvas-slot-2": "#d95926",
+  "canvas-slot-3": "#199e70",
+  "canvas-slot-4": "#c98500",
+  "canvas-slot-5": "#d55181",
+  "canvas-slot-6": "#008300",
+  "canvas-slot-7": "#9085e9",
+  "canvas-slot-8": "#e66767",
+  // The distance ramp, near to far. The dark set reaches for white; the paper
+  // set gives up its light end (3:1 against #ece7dc caps luminance at 0.229)
+  // and keeps its steps.
+  "canvas-ramp-1": "#b7d3f6",
+  "canvas-ramp-2": "#86b6ef",
+  "canvas-ramp-3": "#5598e7",
+  "canvas-ramp-4": "#2a78d6",
+  "canvas-ramp-5": "#184f95",
+  // Fixed roles: the focus node, the recessive long tail, the maintenance lenses.
+  "canvas-root": "#e09f3e",
+  "canvas-other": "#565b66",
+  "canvas-lens-orphan": "#fab219",
+  "canvas-lens-unreachable": "#ec835a",
+  "canvas-lens-broken": "#d03b3b",
+  "canvas-lens-stale": "#86b6ef",
+  // Diagram surfaces: grounds are surfaces, every LINE is information and
+  // takes the 3:1 bar.
+  "diagram-bg": "#141619",
+  "diagram-node": "#1e2128",
+  "diagram-cluster": "#0c0e12",
+  "diagram-line": "#9a96a1",
+  "diagram-cluster-border": "#2a2d35",
+  "diagram-text": "#e8e4df",
 } as const;
 
 export type TokenName = keyof typeof TOKENS;
@@ -560,6 +606,11 @@ export const LIGHT_TOKENS: Record<TokenName, string> = {
   "ask-answer-border-amber": "rgba(127,76,8,0.3)",
   "ask-answer-border-teal": "rgba(21,89,76,0.3)",
   "ask-answer-border-purple": "rgba(93,68,137,0.3)",
+  "ask-border-gold": "rgba(111,84,12,0.35)",
+  "ask-lapsed-tint": "rgba(234,179,84,0.13)",
+  "ask-lapsed-border": "rgba(111,84,12,0.4)",
+  "diff-tint-red": "rgba(248,113,113,0.16)",
+  "diff-tint-teal": "rgba(91,181,162,0.16)",
   "mask-region-fill": "rgba(91,181,162,0.28)",
   "notification-bg-rich": "rgba(255,254,250,0.92)",
   "notification-bg-compact": "rgba(248,245,239,0.9)",
@@ -713,6 +764,31 @@ export const LIGHT_TOKENS: Record<TokenName, string> = {
   "palette-tint-selected-hover": "rgba(224,159,62,0.16)",
   "palette-foot-bg": "rgba(236,231,220,0.5)",
   "palette-shadow": "rgba(90,78,58,0.35)",
+  "canvas-slot-1": "#a9650e",
+  "canvas-slot-2": "#226d95",
+  "canvas-slot-3": "#227f6c",
+  "canvas-slot-4": "#6b4f9e",
+  "canvas-slot-5": "#b23a32",
+  "canvas-slot-6": "#8a6a10",
+  "canvas-slot-7": "#3f6b2f",
+  "canvas-slot-8": "#9c3d72",
+  "canvas-ramp-1": "#17324f",
+  "canvas-ramp-2": "#174b72",
+  "canvas-ramp-3": "#1a6282",
+  "canvas-ramp-4": "#1d788b",
+  "canvas-ramp-5": "#248d91",
+  "canvas-root": "#8f5408",
+  "canvas-other": "#6f6a61",
+  "canvas-lens-orphan": "#6f6a61",
+  "canvas-lens-unreachable": "#5d4489",
+  "canvas-lens-broken": "#9c2a24",
+  "canvas-lens-stale": "#8a6a10",
+  "diagram-bg": "#f8f5ef",
+  "diagram-node": "#fffefa",
+  "diagram-cluster": "#ece7dc",
+  "diagram-line": "#5f584c",
+  "diagram-cluster-border": "#847c6f",
+  "diagram-text": "#231f1a",
 };
 // @light-tokens:end
 
@@ -798,4 +874,33 @@ export const font = {
   display: "'DM Serif Text',Georgia,serif",
   body: "'Plus Jakarta Sans',sans-serif",
   mono: "'JetBrains Mono',ui-monospace,monospace",
+} as const;
+
+/**
+ * The canvas palettes, for a consumer that draws outside the DOM — a WebGL
+ * graph, a diagram theme — and has to READ a token rather than reference it.
+ * These are still `var()` references: resolve them with `getComputedStyle`
+ * where they are used, and split the `light-dark()` on the element's
+ * `color-scheme`. `slots` keeps its order in both themes; that order is the
+ * CVD mechanism, so a theme may respell a slot and never reorder one.
+ */
+export const canvas = {
+  slots: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => token(`canvas-slot-${n}` as TokenName)),
+  ramp: [1, 2, 3, 4, 5].map((n) => token(`canvas-ramp-${n}` as TokenName)),
+  root: token("canvas-root"),
+  other: token("canvas-other"),
+  lens: {
+    orphan: token("canvas-lens-orphan"),
+    unreachable: token("canvas-lens-unreachable"),
+    broken: token("canvas-lens-broken"),
+    stale: token("canvas-lens-stale"),
+  },
+  diagram: {
+    bg: token("diagram-bg"),
+    node: token("diagram-node"),
+    cluster: token("diagram-cluster"),
+    line: token("diagram-line"),
+    clusterBorder: token("diagram-cluster-border"),
+    text: token("diagram-text"),
+  },
 } as const;

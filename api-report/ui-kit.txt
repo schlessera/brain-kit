@@ -99,6 +99,7 @@ export "." (./src/index.ts)
   type IconProps
   InlineToast
   type InlineToastProps
+  LIGHT_TOKENS
   Label
   type LabelProps
   type LabelTone
@@ -180,6 +181,7 @@ export "." (./src/index.ts)
   type SuggestionTone
   Surface
   type SurfaceProps
+  TOKENS
   TabBar
   type TabBarProps
   type TabItem
@@ -190,6 +192,7 @@ export "." (./src/index.ts)
   Toggle
   type ToggleProps
   type ToggleTone
+  type TokenName
   type Tone
   type TraceState
   type TraceStep
@@ -198,6 +201,7 @@ export "." (./src/index.ts)
   TrendChart
   type TrendChartProps
   type ViewState
+  canvas
   color
   font
 

@@ -1,10 +1,11 @@
 import preview from "#.storybook/preview";
 import { expect, fn } from "storybook/test";
 
-import { askOptions, askUser } from "../../fixtures/actions.js";
+import { askOptions, askUser, followAnswers, followOptions, followQuestion, receiptDiff } from "../../fixtures/actions.js";
 import { AskUserCard } from "../../src/decisions/AskUserCard.js";
 import { Receipt } from "../../src/evidence/Receipt.js";
 import { Callout } from "../../src/primitives/Callout.js";
+import { DiffBlock } from "../../src/primitives/DiffBlock.js";
 import { Surface } from "../../src/primitives/Surface.js";
 import { accent, color, font, token } from "../../src/tokens.js";
 import { overflowing, stage, wide } from "../_stage.js";
@@ -19,6 +20,11 @@ import { overflowing, stage, wide } from "../_stage.js";
  * path is not a region: what the user drew has to be visible next to what it
  * was drawn on, or the next answer is arguing from evidence nobody can check.
  *
+ * The seventh drop added to the section: the multi-select shape (pending and
+ * answered), the `dismissed` fourth state, the ruling that an absent region
+ * is STATED absent on the receipt, and the tinted `DiffBlock` for the diff
+ * that is itself the decision.
+ *
  * The mask receipt is COMPOSITION — `Surface`, `Receipt`, `Callout` and a
  * hatched thumb drawn from tokens — which is the catalog's own test that a new
  * surface is assembly work, not design work. The thumb is the same hatch
@@ -32,15 +38,38 @@ const meta = preview.meta({
 });
 
 const options = askOptions.map((o) => ({ ...o, onClick: fn() }));
+const multiOptions = followOptions.map((o) => ({ ...o, onClick: fn() }));
 // The fixture's `tone` is the wide `Tone`; the card takes the three it draws.
 const ask = { prompt: askUser.prompt, question: askUser.question, tag: askUser.tag, tone: "purple" as const };
 
-/** The three states, stacked the way the catalog draws them. */
-function ThreeCards() {
+const rule = { height: 1, background: color.line, width: "100%" } as const;
+
+/** Four states, single and multi, stacked the way the catalog draws them. */
+function TheCards() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
       <AskUserCard {...ask} id="pending" options={options} otherOpen onOtherSubmit={fn()} onPrimary={fn()} onSecondary={fn()} />
+      <div style={rule} />
+      <AskUserCard
+        id="multi-pending"
+        multi
+        tag={followQuestion.tag}
+        question={followQuestion.question}
+        options={multiOptions}
+        primaryLabel="Keep 2"
+        onPrimary={fn()}
+        onSecondary={fn()}
+      />
+      <div style={rule} />
       <AskUserCard {...ask} id="answered" state="answered" answer={askOptions[0].title} answerMeta="you chose this · 2m ago" />
+      <AskUserCard
+        id="multi-answered"
+        state="answered"
+        multi
+        tag={followQuestion.tag}
+        question={followQuestion.question}
+        answers={followAnswers}
+      />
       <AskUserCard
         {...ask}
         id="typed"
@@ -48,6 +77,7 @@ function ThreeCards() {
         answer="“file it with the omens, and tell Eumaeus”"
         answerMeta="taken from your next message · 2m ago"
       />
+      <AskUserCard {...ask} id="dismissed" state="dismissed" prompt={undefined} onAskAgain={fn()} />
     </div>
   );
 }
@@ -129,17 +159,46 @@ function NoMask() {
 /**
  * Pending keeps one focus stop and stays reachable. Answered keeps the decision
  * and drops the alternatives — they were never the record. Typed is the one the
- * app has to handle: the user answered in the composer instead of picking, so
- * the agent binds that message to the question and the card says so, quoting
- * what it took.
+ * app has to handle: the user answered in the composer instead of picking.
+ * Dismissed is the question the turn outlived — gold, because an unanswered
+ * premise may have rotted, and it offers to ask again.
  */
-export const ThreeStates = meta.story({
-  render: () => <ThreeCards />,
-  play: async ({ canvas }) => {
-    // One radiogroup: the two closed exchanges render no options at all.
+export const FourStates = meta.story({
+  render: () => <TheCards />,
+  play: async ({ canvas, canvasElement }) => {
+    // One radiogroup and one checkbox group: the closed exchanges render no
+    // options at all.
     await expect(canvas.getAllByRole("radiogroup")).toHaveLength(1);
     await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+    const group = canvas.getByRole("group");
+    await expect(group).toHaveAccessibleName(followQuestion.question);
+    await expect(canvas.getAllByRole("checkbox")).toHaveLength(3);
     await expect(canvas.getByRole("textbox", { name: "Your own answer" })).toBeInTheDocument();
+    await expect(canvas.getByText("Answered · 2 chosen")).toBeInTheDocument();
+    await expect(canvas.getByText("Unanswered — the turn ended")).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Ask again" })).toBeInTheDocument();
+    // Nothing fades: a past question is not lower-contrast, it is answered.
+    for (const el of canvasElement.querySelectorAll<HTMLElement>("*")) {
+      await expect(getComputedStyle(el).opacity).toBe("1");
+    }
+  },
+});
+
+/**
+ * TINTED is for the one case where the diff is the decision — a tool receipt
+ * whose approval turns on these exact lines. Removed red, added teal, at the
+ * tint rule on the fill hue; the sign column is a mark and takes the tone at
+ * full weight, never 70% alpha. The long context line wraps with a hanging
+ * indent: a diff row is the record, and an ellipsis in evidence is not
+ * evidence.
+ */
+export const TintedDiff = meta.story({
+  render: () => <DiffBlock tinted text={receiptDiff} />,
+  play: async ({ canvasElement }) => {
+    const block = canvasElement.querySelector<HTMLElement>("[data-tinted]")!;
+    await expect(overflowing(block)).toEqual([]);
+    await expect(block.querySelectorAll('[data-sign="-"]')).toHaveLength(2);
+    await expect(block.querySelectorAll('[data-sign="+"]')).toHaveLength(2);
   },
 });
 
@@ -183,11 +242,13 @@ export const TheSection = meta.story({
   render: () => (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 34, alignItems: "flex-start", width: "100%" }}>
       <div style={{ flex: "0 0 390px", display: "flex" }}>
-        <ThreeCards />
+        <TheCards />
       </div>
       <div style={{ flex: "0 0 390px", display: "flex", flexDirection: "column", gap: 12 }}>
         <MaskReceipt />
         <NoMask />
+        <div style={{ ...rule, margin: "2px 0" }} />
+        <DiffBlock tinted text={receiptDiff} />
       </div>
     </div>
   ),

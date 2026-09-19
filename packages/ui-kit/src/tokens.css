@@ -372,6 +372,18 @@
   --bk-ask-answer-border-amber: light-dark(rgba(127,76,8,0.3), rgba(224,159,62,0.25));
   --bk-ask-answer-border-teal: light-dark(rgba(21,89,76,0.3), rgba(91,181,162,0.25));
   --bk-ask-answer-border-purple: light-dark(rgba(93,68,137,0.3), rgba(177,151,212,0.25));
+  /* Seventh drop. A `dismissed` question is gold — the kit's caution case:
+   * the turn ended with nobody answering, and the premise may have rotted.
+   * The card's hairline is gold at 30% like the other accents; the lapsed
+   * row under the question is a 6% gold ground with a 35% gold hairline. */
+  --bk-ask-border-gold: light-dark(rgba(111,84,12,0.35), rgba(234,179,84,0.3));
+  --bk-ask-lapsed-tint: light-dark(rgba(234,179,84,0.13), rgba(234,179,84,0.06));
+  --bk-ask-lapsed-border: light-dark(rgba(111,84,12,0.4), rgba(234,179,84,0.35));
+  /* DiffBlock `tinted`: removed rows on red, added rows on teal, at the
+   * 8-14% tint rule on the FILL hue. Grounds only — the sign column is the
+   * mark and takes the tone's ink token at full weight, never an alpha. */
+  --bk-diff-tint-red: light-dark(rgba(248,113,113,0.16), rgba(248,113,113,0.1));
+  --bk-diff-tint-teal: light-dark(rgba(91,181,162,0.16), rgba(91,181,162,0.1));
   /* The region a user drew over an image, on the mask receipt (catalog §13).
    * Teal because the region is the user's own answer; 28% so the hatched
    * source still shows through it. A `fill`, not a `tint`: nothing is ever
@@ -703,6 +715,58 @@
   --bk-palette-tint-selected-hover: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.12));
   --bk-palette-foot-bg: light-dark(rgba(236,231,220,0.5), rgba(12,14,18,0.5));
   --bk-palette-shadow: light-dark(rgba(90,78,58,0.35), rgba(0,0,0,0.55));
+
+  /* ── Canvas palettes (seventh drop, §L6) ─────────────────────────────
+   *
+   * What the app hands to things it does not draw with CSS: the sigma graph
+   * canvas and the mermaid diagram theme. Both read these with
+   * `getComputedStyle` and split the `light-dark()` themselves, because a
+   * canvas `fillStyle` cannot. The dark halves are the sets the app validated
+   * against #0c0e12 (lightness band, chroma floor, CVD separation); the paper
+   * halves are the design's, each measured at the 3:1 non-text bar against
+   * the paper canvas.
+   *
+   * SLOT ORDER IS FROZEN. The order of the eight categorical slots is what
+   * makes the set CVD-safe, and a viewer comparing a dark screenshot with a
+   * paper one is comparing slot 3 with slot 3. A theme may respell a slot; it
+   * may never reorder one. `tests/canvas-palette.test.ts` measures the sets.
+   *
+   * The ramp runs near to far. On paper it gives up its light end, not its
+   * steps: the 3:1 ceiling against #ece7dc is a luminance of 0.229, so the
+   * five steps run 0.030 to 0.215 at about 1.4x each rather than reaching
+   * for white — the dark set's #b7d3f6 end has no paper equivalent. */
+  --bk-canvas-slot-1: light-dark(#a9650e, #3987e5);
+  --bk-canvas-slot-2: light-dark(#226d95, #d95926);
+  --bk-canvas-slot-3: light-dark(#227f6c, #199e70);
+  --bk-canvas-slot-4: light-dark(#6b4f9e, #c98500);
+  --bk-canvas-slot-5: light-dark(#b23a32, #d55181);
+  --bk-canvas-slot-6: light-dark(#8a6a10, #008300);
+  --bk-canvas-slot-7: light-dark(#3f6b2f, #9085e9);
+  --bk-canvas-slot-8: light-dark(#9c3d72, #e66767);
+  --bk-canvas-ramp-1: light-dark(#17324f, #b7d3f6);
+  --bk-canvas-ramp-2: light-dark(#174b72, #86b6ef);
+  --bk-canvas-ramp-3: light-dark(#1a6282, #5598e7);
+  --bk-canvas-ramp-4: light-dark(#1d788b, #2a78d6);
+  --bk-canvas-ramp-5: light-dark(#248d91, #184f95);
+
+  /* Fixed roles, not categorical: the focus node, the recessive long tail
+   * past the eight slots, and the four maintenance lenses. */
+  --bk-canvas-root: light-dark(#8f5408, #e09f3e);
+  --bk-canvas-other: light-dark(#6f6a61, #565b66);
+  --bk-canvas-lens-orphan: light-dark(#6f6a61, #fab219);
+  --bk-canvas-lens-unreachable: light-dark(#5d4489, #ec835a);
+  --bk-canvas-lens-broken: light-dark(#9c2a24, #d03b3b);
+  --bk-canvas-lens-stale: light-dark(#8a6a10, #86b6ef);
+
+  /* Diagram surfaces: the grounds are surfaces, but every LINE is
+   * information and takes the 3:1 bar. A node's label takes the diagram text
+   * (the ink), never the node's own colour. */
+  --bk-diagram-bg: light-dark(#f8f5ef, #141619);
+  --bk-diagram-node: light-dark(#fffefa, #1e2128);
+  --bk-diagram-cluster: light-dark(#ece7dc, #0c0e12);
+  --bk-diagram-line: light-dark(#5f584c, #9a96a1);
+  --bk-diagram-cluster-border: light-dark(#847c6f, #2a2d35);
+  --bk-diagram-text: light-dark(#231f1a, #e8e4df);
 
   /* ── Light theme ──────────────────────────────────────────────────────
    * Is the first argument of every `light-dark()` above; see the block after

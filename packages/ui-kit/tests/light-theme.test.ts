@@ -100,9 +100,11 @@ describe("light theme", () => {
     // any of them except as `on-fill`, which the design names.
     const darkOnly = ["#0c0e12", "#141619", "#1a1d22", "#1f2229", "#2a2d35", "#e8e4df", "#c0bcb5", "#8a8691", "#9a96a1"];
     // ...and the first light drop's inks, superseded the same day (§19), and
-    // the second drop's teal, purple, red and amber dot, superseded by the
-    // fourth (§20: stacked tints; every dot now stated).
-    darkOnly.push("#6e6659", "#94580a", "#795c0d", "#1f6d96", "#b8362f", "#1a6b5b", "#6b4f9e", "#a52e28", "#c07d12");
+    // the second drop's teal, red and amber dot, superseded by the fourth
+    // (§20: stacked tints; every dot now stated). The second drop's purple
+    // dot, #6b4f9e, is not listed: the seventh drop states it again as the
+    // paper canvas slot 4 (§L6), a categorical mark judged at 3:1.
+    darkOnly.push("#6e6659", "#94580a", "#795c0d", "#1f6d96", "#b8362f", "#1a6b5b", "#a52e28", "#c07d12");
     for (const [name, value] of Object.entries(LIGHT_TOKENS)) {
       for (const hex of darkOnly) expect(`${name}: ${value}`).not.toContain(hex);
     }

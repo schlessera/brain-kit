@@ -14,8 +14,8 @@ import { accent, color, font, token } from "../tokens.js";
  * user's. The same component serves chat inline UI, share intake and Choose
  * actions — only the option list and the button labels change.
  *
- * **A question is an exchange, not a tool call**, so the card has three
- * states and all three stay in the transcript at full contrast. Nothing fades:
+ * **A question is an exchange, not a tool call**, so the card has four
+ * states and all four stay in the transcript at full contrast. Nothing fades:
  * the kit bans opacity de-emphasis, and a past question is not lower-contrast,
  * it is answered.
  *
@@ -31,6 +31,20 @@ import { accent, color, font, token } from "../tokens.js";
  *     claiming the question was never answered; leaving it pending would ask
  *     twice. The border goes neutral: this exchange closed, but not through
  *     this card.
+ *   - `dismissed` — the question the turn outlived. Its own state, not pending
+ *     with a footnote: the head and border say WHO closed it — you (answered),
+ *     you elsewhere (typed), nobody (dismissed, gold, because an unanswered
+ *     premise is the kit's caution case and may have rotted by the time
+ *     anyone returns to it). No options; a lapsed row states the fact and
+ *     offers "Ask again", because the agent stopped needing the answer but
+ *     you may still owe it one. `onAskAgain` is the D20 gate: no handler, no
+ *     button.
+ *
+ * **`multi` is the answer shape, not a control the app happens to need**: the
+ * options become `ChoiceOption multiple` (checkbox, square mark) inside a
+ * `role="group"` labelled by the question, the answered head counts what was
+ * chosen, and `answers` lists every choice as its own row with the meta on
+ * the first. "Other" toggles like any other row.
  *
  * **"Other" opens a real field in place of the Submit row** (`otherOpen`)
  * rather than a modal — a free-text answer is the same exchange, not a new
@@ -68,11 +82,13 @@ export interface AskUserOption {
   onFocus?: () => void;
 }
 
-export type AskUserState = "pending" | "answered" | "typed";
+export type AskUserState = "pending" | "answered" | "typed" | "dismissed";
 
 export interface AskUserCardProps {
   /** Which turn of the exchange this is. See the note above. */
   state?: AskUserState;
+  /** As many as apply: checkboxes in a `group`, every choice listed once answered. */
+  multi?: boolean;
   /** The uppercase mono line above the question. Defaults per state. */
   prompt?: string;
   question?: string;
@@ -87,8 +103,14 @@ export interface AskUserCardProps {
   onOtherSubmit?: (text: string) => void;
   /** What was taken as the answer: the chosen option, or the quoted message. */
   answer?: string;
-  /** Who and when, under the answer. */
+  /** Every answer, one row each — a multi-select's choices. Wins over `answer`. */
+  answers?: string[];
+  /** Who and when, under the (first) answer. */
   answerMeta?: string;
+  /** The lapsed row's note on a `dismissed` card. */
+  lapsedNote?: string;
+  /** "Ask again" on a `dismissed` card. No handler, no button (D20). */
+  onAskAgain?: () => void;
   showActions?: boolean;
   primaryLabel?: string;
   secondaryLabel?: string;
@@ -112,12 +134,18 @@ const ANSWER_BORDERS = {
 
 const ACCENTS = { teal: accent.teal.ink, amber: accent.amber.ink, purple: accent.purple.ink };
 
-const HEAD_ICONS: Record<AskUserState, IconName> = { pending: "ask", answered: "resolved", typed: "thread" };
+const HEAD_ICONS: Record<AskUserState, IconName> = {
+  pending: "ask",
+  answered: "resolved",
+  typed: "thread",
+  dismissed: "later",
+};
 
 const PROMPTS: Record<AskUserState, string> = {
   pending: "Brain needs your input",
   answered: "Answered",
   typed: "Answered in the composer",
+  dismissed: "Unanswered — the turn ended",
 };
 
 const FALLBACK: AskUserOption[] = [
@@ -136,10 +164,13 @@ export function AskUserCard(p: AskUserCardProps) {
   const pending = state === "pending";
   const answered = state === "answered";
   const typed = state === "typed";
+  const lapsed = state === "dismissed";
+  const multi = p.multi === true;
   const tone = p.tone || "teal";
   const base = ACCENTS[tone] || ACCENTS.teal;
   // Typed goes neutral: the exchange closed, but not through this card.
-  const hue = typed ? accent.neutral.ink : base;
+  // Dismissed goes gold: nobody closed it, and the premise may have rotted.
+  const hue = lapsed ? accent.gold.ink : typed ? accent.neutral.ink : base;
   const options = p.options || FALLBACK;
   const eligible = options.map((o) => Boolean(o.onClick));
   const interactive = pending && eligible.includes(true);
@@ -150,16 +181,26 @@ export function AskUserCard(p: AskUserCardProps) {
   const roving = useRoving(eligible, options.findIndex((o) => o.selected === true));
 
   const otherOpen = pending && p.otherOpen === true;
-  const answerText = answered || typed
-    ? (p.answer ?? (answered ? "life/health/appointments.md" : "“put it with the other appointments”"))
-    : null;
-  const answerMeta = p.answerMeta ?? (typed ? "taken from your next message · 2m ago" : "you chose this · 2m ago");
+  const answers: string[] = answered || typed
+    ? (p.answers ?? [p.answer ?? (answered ? "life/health/appointments.md" : "“put it with the other appointments”")])
+    : [];
+  const answerMeta =
+    p.answerMeta ??
+    (typed
+      ? "taken from your next message · 2m ago"
+      : multi
+        ? `you chose ${answers.length} · 2m ago`
+        : "you chose this · 2m ago");
+  const prompt = p.prompt ?? (answered && multi ? `Answered · ${answers.length} chosen` : PROMPTS[state]);
+  const lapsedNote = lapsed ? (p.lapsedNote ?? "the run ended before you answered · nothing was filed") : null;
   // The field stands IN PLACE OF the Submit row (the README's ruling; the
   // DC's renderVals draws both, the ruling wins): Enter is the submit.
   const showActions = pending && !otherOpen && p.showActions !== false;
 
   const box: CSSProperties = {
-    border: `1px solid ${typed ? token("ask-border-neutral") : BORDERS[tone] || BORDERS.teal}`,
+    border: `1px solid ${
+      lapsed ? token("ask-border-gold") : typed ? token("ask-border-neutral") : BORDERS[tone] || BORDERS.teal
+    }`,
     background: color.surface,
     borderRadius: 14,
     padding: "13px 13px 12px",
@@ -217,6 +258,8 @@ export function AskUserCard(p: AskUserCardProps) {
     alignItems: "flex-start",
     gap: 9,
     background: token("inset-well-bg"),
+    // Rows after the first stack with a small gap, as the design draws them.
+    marginTop: 6,
     border: `1px solid ${typed ? color.edge : ANSWER_BORDERS[tone] || ANSWER_BORDERS.teal}`,
     borderRadius: 11,
     padding: "10px 12px",
@@ -224,10 +267,29 @@ export function AskUserCard(p: AskUserCardProps) {
   const answerWrap: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 };
   // A chosen option is a machine fact and sets in mono; a quoted message is
   // something a human wrote, so it is Jakarta in dim ink.
+  // An answer is the record, so it wraps rather than truncating.
   const answerStyle: CSSProperties = typed
-    ? { font: `400 12.5px/1.45 ${font.body}`, color: color.inkDim }
-    : { font: `500 12px/1.4 ${font.mono}`, color: base };
+    ? { font: `400 12.5px/1.45 ${font.body}`, color: color.inkDim, overflowWrap: "anywhere" }
+    : { font: `500 12px/1.4 ${font.mono}`, color: base, overflowWrap: "anywhere" };
   const answerMetaStyle: CSSProperties = { font: `400 9.5px/1.4 ${font.mono}`, color: color.inkMute };
+  // The lapsed row: a gold ground with a gold hairline, the fact in mono
+  // ink-dim, and the offer to ask again at the end of the row.
+  const lapsedRow: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    background: token("ask-lapsed-tint"),
+    border: `1px solid ${token("ask-lapsed-border")}`,
+    borderRadius: 11,
+    padding: "9px 10px 9px 12px",
+  };
+  const lapsedStyle: CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    font: `400 11px/1.5 ${font.mono}`,
+    color: color.inkDim,
+    overflowWrap: "anywhere",
+  };
   const actions: CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 };
 
   function onOtherKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -240,7 +302,7 @@ export function AskUserCard(p: AskUserCardProps) {
     <div style={box}>
       <div style={head}>
         <Icon icon={HEAD_ICONS[state]} size={13} color={hue} />
-        {p.prompt ?? PROMPTS[state]}
+        {prompt}
       </div>
       {p.tag ? (
         <span style={tagWrap}>
@@ -253,7 +315,7 @@ export function AskUserCard(p: AskUserCardProps) {
       {pending ? (
         <div
           style={optionsWrap}
-          role={interactive ? "radiogroup" : undefined}
+          role={interactive ? (multi ? "group" : "radiogroup") : undefined}
           aria-labelledby={interactive ? questionId : undefined}
         >
           {options.map((o, i) => (
@@ -265,6 +327,7 @@ export function AskUserCard(p: AskUserCardProps) {
               mono={o.mono}
               italic={o.italic}
               dim={o.dim}
+              multiple={multi}
               tabStop={interactive ? roving.stop === i : undefined}
               onClick={o.onClick}
               onFocus={
@@ -292,13 +355,20 @@ export function AskUserCard(p: AskUserCardProps) {
           <span style={otherHint} aria-hidden="true">⏎</span>
         </div>
       ) : null}
-      {answerText ? (
-        <div style={answerRow}>
+      {answers.map((text, i) => (
+        <div key={`${text}-${i}`} style={i ? answerRow : { ...answerRow, marginTop: 0 }}>
           <Icon icon={typed ? "chat" : "confirm"} size={14} color={hue} />
           <span style={answerWrap}>
-            <span style={answerStyle}>{answerText}</span>
-            <span style={answerMetaStyle}>{answerMeta}</span>
+            <span style={answerStyle}>{text}</span>
+            {i === 0 ? <span style={answerMetaStyle}>{answerMeta}</span> : null}
           </span>
+        </div>
+      ))}
+      {lapsedNote ? (
+        <div style={lapsedRow}>
+          <Icon icon="later" size={13} color={accent.gold.ink} />
+          <span style={lapsedStyle}>{lapsedNote}</span>
+          {p.onAskAgain ? <Button label="Ask again" tone="quiet" size="sm" block={false} onClick={p.onAskAgain} /> : null}
         </div>
       ) : null}
       {showActions ? (

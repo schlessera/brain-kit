@@ -203,6 +203,29 @@ export const askOptions: AskOption[] = [
   },
 ];
 
+/** The multi-select shape (catalog §13): which threads the digest keeps
+ * following. Two chosen, one not; the answered card lists the two. */
+export const followQuestion = { question: "Which of these should the digest keep following?", tag: "Triage" };
+
+export const followOptions: AskOption[] = [
+  { title: "The suitors' feast thread", subtitle: "Two open questions, one overdue.", selected: true },
+  { title: "Scheria landfall hold", subtitle: "Expires on the 12th.", selected: true },
+  { title: "Laertes' estate scope", subtitle: "Nothing has moved in 24 days." },
+];
+
+export const followAnswers = followOptions.filter((o) => o.selected).map((o) => o.title);
+
+/** The diff a tool receipt's approval turns on — the tinted DiffBlock's
+ * demo in §13. One context line is long enough to wrap at 390px. */
+export const receiptDiff = [
+  "  venue: the great hall at Ithaca",
+  "- seats: 40",
+  "+ seats: 24",
+  "  catering: quoted for the smaller room, deposit unpaid, hold expires on the 12th",
+  "- status: confirmed",
+  "+ status: hold",
+].join("\n");
+
 /** The five dismissal reasons, as pill chips. */
 export const dismissReasons = [
   "Already know this",

@@ -46,6 +46,72 @@ export const Other = Default.extend({
 
 export const WithoutMark = Default.extend({ args: { mark: false } });
 
+/**
+ * `multiple` switches the role radio → checkbox AND the mark round → square
+ * (seventh drop, ruling 6). The shape is the affordance: round means "one of
+ * these", square means "as many as apply", and a user who has to click to
+ * find out has been told nothing. The role travels with the shape.
+ */
+export const Multiple = Default.extend({
+  args: { multiple: true, mono: false, title: "Keep following the eagle omen", subtitle: "Two open questions, one overdue." },
+  play: async ({ canvas, canvasElement }) => {
+    const box = await canvas.findByRole("checkbox");
+    await expect(box).toHaveAttribute("aria-checked", "true");
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    const mark = box.firstElementChild as HTMLElement;
+    await expect(getComputedStyle(mark).borderRadius).toBe("5px");
+    // The single-select mark is round; the difference is the whole point.
+    await expect(canvasElement.querySelector('[role="radio"]')).toBeNull();
+  },
+});
+
+/** The D20 gate holds for `multiple` too: no handler, no `checkbox`, no stop. */
+export const MultipleStatic = Multiple.extend({
+  args: { onClick: undefined },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.queryByRole("checkbox")).toBeNull();
+    await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+    await expect(canvasElement.querySelector("[aria-checked]")).toBeNull();
+  },
+});
+
+/**
+ * A checkbox list walks the same way a radio one does: ↑↓ wrap, Home / End
+ * land on the edges, and the walk is scoped to the enclosing `role="group"`
+ * — the multi-select's group, which is not a `radiogroup`.
+ */
+export const MultipleGroup = meta.story({
+  args: { multiple: true },
+  render: (args) => (
+    <div
+      role="group"
+      aria-label="Which of these should the digest keep following?"
+      style={{ display: "flex", flexDirection: "column", gap: 7, width: "100%" }}
+    >
+      {askOptions.map((o) => (
+        <ChoiceOption {...args} key={o.title} {...o} />
+      ))}
+    </div>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const boxes = await canvas.findAllByRole("checkbox");
+    await expect(boxes).toHaveLength(3);
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    for (const box of boxes) await expect(getComputedStyle(box.firstElementChild!).borderRadius).toBe("5px");
+
+    boxes[0].focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(document.activeElement).toBe(boxes[1]);
+    await userEvent.keyboard("{ArrowUp}");
+    await userEvent.keyboard("{ArrowUp}");
+    await expect(document.activeElement).toBe(boxes[2]);
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(boxes[0]);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(boxes[2]);
+  },
+});
+
 export const Wide = Default.extend({ parameters: wide });
 
 /** The three options of the eagle-omen question, in the `radiogroup` a radio

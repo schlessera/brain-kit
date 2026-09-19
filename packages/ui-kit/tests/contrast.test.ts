@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { LIGHT_TOKENS, TOKENS } from "../src/tokens.js";
+import { contrast, over, parse, type Rgb } from "./_contrast.js";
 
 /**
  * The contrast the kit actually has, measured rather than claimed.
@@ -22,41 +23,6 @@ import { LIGHT_TOKENS, TOKENS } from "../src/tokens.js";
  * to fix in code: a contrast failure is a design decision, and the decision has
  * not been made yet.
  */
-
-type Rgb = [number, number, number];
-
-function parse(value: string): { rgb: Rgb; alpha: number } {
-  if (value.startsWith("#")) {
-    const hex = value.length === 4 ? [...value.slice(1)].map((c) => c + c).join("") : value.slice(1);
-    return { rgb: [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb, alpha: 1 };
-  }
-  const parts = value.match(/rgba?\(([^)]+)\)/)?.[1].split(",").map(Number);
-  if (!parts) throw new Error(`not a colour: ${value}`);
-  return { rgb: [parts[0]!, parts[1]!, parts[2]!], alpha: parts[3] ?? 1 };
-}
-
-/** Source-over compositing, which is what a browser does with a translucent
- * background and what `opacity` does to a whole subtree. Channels are rounded
- * because a rendered pixel is an integer, and the rounding is what makes these
- * numbers reproduce the hex values axe reported (`#64626b` on `#121417`) rather
- * than land a fraction off them. */
-function over(top: { rgb: Rgb; alpha: number }, bottom: Rgb): Rgb {
-  return bottom.map((b, i) => Math.round(top.alpha * top.rgb[i]! + (1 - top.alpha) * b)) as Rgb;
-}
-
-function luminance([r, g, b]: Rgb): number {
-  const [lr, lg, lb] = [r, g, b].map((channel) => {
-    const s = channel / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  }) as Rgb;
-  return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
-}
-
-/** WCAG 2.x contrast, rounded to two places the way axe reports it. */
-function contrast(fg: Rgb, bg: Rgb): number {
-  const [hi, lo] = [luminance(fg), luminance(bg)].sort((a, b) => b - a) as [number, number];
-  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
-}
 
 const T = TOKENS as Record<string, string>;
 const solid = (name: string) => parse(T[name]!).rgb;
@@ -147,11 +113,13 @@ describe("contrast", () => {
     // ground)" at 4.80, which is the same correction the light palette needed
     // (§19). `-tint-`, not `tinted`: the five `action-border-tinted-*` strokes
     // are borders, and the first count of 81 had swept them in as grounds.
+    // 76 became 79 with the seventh drop: the lapsed row's gold ground and
+    // the two tinted-diff grounds, all under the 10% the floor is stated for.
     const tints = Object.keys(T).filter((name) => /(^|-)tint(-|$)/.test(name) && T[name]!.startsWith("rgba"));
     const overSurface = tints.filter((name) => contrast(INK_MUTE, over(parse(T[name]!), SURFACE)) < 4.5);
     const overRaised = tints.filter((name) => contrast(INK_MUTE, over(parse(T[name]!), RAISED)) < 4.5);
 
-    expect(tints.length).toBe(76);
+    expect(tints.length).toBe(79);
     expect(overSurface).toEqual([]);
     expect(overRaised).toEqual([]);
 

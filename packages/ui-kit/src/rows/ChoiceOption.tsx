@@ -9,19 +9,26 @@ import { accent, color, font, token } from "../tokens.js";
  * actions. Selection is teal because the choice belongs to the user, never to
  * the agent.
  *
- * The role is `radio`, not `button`, and that has two consequences the design's
- * key table spells out and this implements:
+ * The role is `radio` — or `checkbox` when `multiple` — not `button`, and that
+ * has two consequences the design's key table spells out and this implements:
  *
  *   **↑↓ moves between options, space picks one.** A radio group is a single
  *   tab stop with arrow keys inside it, so the arrows are handled here rather
  *   than by the caller. Navigation is scoped to the nearest
  *   `[role="radiogroup"]` ancestor — `AskUserCard` renders one — and falls back
  *   to this element's own parent, so a bare column of options still works.
+ *   A `multiple` group is a `[role="group"]` and is scoped the same way.
  *
  *   **A `radio` needs a `radiogroup` around it to be valid ARIA.** This
  *   component cannot render one: it is a single option and the group is the
  *   caller's. Compose it inside `AskUserCard`, or wrap a hand-rolled list in
- *   `role="radiogroup"` with a label.
+ *   `role="radiogroup"` (or `role="group"` for checkboxes) with a label.
+ *
+ * **`multiple` switches the role radio → checkbox AND the mark round →
+ * square** (seventh drop, ruling 6). The shape is the affordance: round means
+ * "one of these", square means "as many as apply", and a user who has to
+ * click to find out which has been told nothing. Never colour alone, never
+ * shape alone either — the role travels with it.
  *
  * Everything — role, `aria-checked`, the tab stop, hover and the ring — is
  * gated on a handler. A list of options with no callbacks is a summary of what
@@ -58,6 +65,8 @@ export interface ChoiceOptionProps {
   italic?: boolean;
   /** Title in muted ink. The design pairs it with `italic` for "Other". */
   dim?: boolean;
+  /** One of many: `checkbox` role and a square mark. Default is one-of-these. */
+  multiple?: boolean;
   /**
    * `false` takes this option OUT of the tab order, leaving it reachable by
    * ↑↓ only. Set by whoever renders the `radiogroup`, for exactly one option
@@ -75,14 +84,16 @@ export interface ChoiceOptionProps {
   onFocus?: () => void;
 }
 
-/** Scoped to the enclosing group, so two groups on one screen stay separate. */
-const GROUP = '[role="radiogroup"]';
-const OPTION = '[role="radio"][tabindex]';
+/** Scoped to the enclosing group, so two groups on one screen stay separate.
+ * Both shapes of group, so a checkbox list walks the same way a radio one does. */
+const GROUP = '[role="radiogroup"], [role="group"]';
+const OPTION = '[role="radio"][tabindex], [role="checkbox"][tabindex]';
 
 export function ChoiceOption(p: ChoiceOptionProps) {
   const sel = p.selected === true;
   const mono = p.mono === true;
   const act = Boolean(p.onClick);
+  const multi = p.multiple === true;
 
   const box: CSSProperties = {
     display: "flex",
@@ -103,12 +114,13 @@ export function ChoiceOption(p: ChoiceOptionProps) {
       "--hv-bd": sel ? token("choice-border-selected") : act ? token("hover-border") : color.edge,
     } as CSSProperties),
   };
-  /** The mark is a 16px filled disc: the teal fill with a canvas glyph in the
-   * dark, the teal INK with a surface glyph on paper — `--bk-choice-mark-bg`. */
+  /** The mark is a 16px filled disc — a rounded square when `multiple` — the
+   * teal fill with a canvas glyph in the dark, the teal INK with a surface
+   * glyph on paper — `--bk-choice-mark-bg`. */
   const mark: CSSProperties = {
     width: 16,
     height: 16,
-    borderRadius: "50%",
+    borderRadius: multi ? 5 : "50%",
     flex: "none",
     marginTop: p.subtitle ? 1 : 0,
     display: "flex",
@@ -158,7 +170,7 @@ export function ChoiceOption(p: ChoiceOptionProps) {
     <div
       style={box}
       className={act ? "bk-row bk-row-border" : undefined}
-      role={act ? "radio" : undefined}
+      role={act ? (multi ? "checkbox" : "radio") : undefined}
       aria-checked={act ? sel : undefined}
       tabIndex={act ? (p.tabStop === false ? -1 : 0) : undefined}
       onClick={p.onClick}

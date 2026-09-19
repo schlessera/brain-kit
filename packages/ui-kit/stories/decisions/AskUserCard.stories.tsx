@@ -1,7 +1,7 @@
 import preview from "#.storybook/preview";
 import { expect, fn } from "storybook/test";
 
-import { askOptions, askUser } from "../../fixtures/actions.js";
+import { askOptions, askUser, followAnswers, followOptions, followQuestion } from "../../fixtures/actions.js";
 import { AskUserCard } from "../../src/decisions/AskUserCard.js";
 import { knownContrastGap, stage, wide } from "../_stage.js";
 
@@ -287,8 +287,110 @@ export const OtherIgnoredOnceAnswered = meta.story({
   },
 });
 
-/** The three states stacked, the way the catalog's §13 shows them. */
-export const ThreeStates = meta.story({
+/**
+ * DISMISSED — the fourth state (seventh drop, ruling 7), not pending with a
+ * note. The head and border say WHO closed the question: you (answered,
+ * accent) · you elsewhere (typed, neutral) · nobody (dismissed, gold, because
+ * an unanswered premise is the kit's caution case and may have rotted). No
+ * options, no Submit; a lapsed row states the fact and offers "Ask again",
+ * because the agent stopped needing the answer but you may still owe it one.
+ */
+export const DismissedState = meta.story({
+  args: { state: "dismissed", prompt: undefined, onAskAgain: fn() },
+  play: async ({ canvas, canvasElement, userEvent, args }) => {
+    await expect(canvas.getByText("Unanswered — the turn ended")).toBeInTheDocument();
+    await expect(canvas.getByText("the run ended before you answered · nothing was filed")).toBeInTheDocument();
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    await expect(canvas.queryByRole("radiogroup")).toBeNull();
+    await expect(canvas.queryByText("Submit")).toBeNull();
+    await expect(canvas.queryByText("Dismiss")).toBeNull();
+    await expectFullContrast(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "Ask again" }));
+    await expect(args.onAskAgain).toHaveBeenCalledTimes(1);
+  },
+});
+
+/** D20: no `onAskAgain`, no button. The lapsed row still states the fact,
+ * and `lapsedNote` overrides its wording. */
+export const DismissedWithoutAskAgain = DismissedState.extend({
+  args: { onAskAgain: undefined, lapsedNote: "the run ended before you answered · the omen went unfiled" },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("the run ended before you answered · the omen went unfiled")).toBeInTheDocument();
+    await expect(canvas.queryByRole("button")).toBeNull();
+  },
+});
+
+/* ── Multi-select (seventh drop, ruling 6) ─────────────────────────────── */
+
+const multiOptions = followOptions.map((o) => ({ ...o, onClick: fn() }));
+
+/**
+ * `multi` is the answer shape, not a control the app happens to need. The
+ * options are `ChoiceOption multiple` — checkbox role, square mark — inside a
+ * `role="group"` labelled by the question (not a `radiogroup`: two checked
+ * radios would be a lie to assistive tech), and the group is still ONE tab
+ * stop with ↑↓ inside it.
+ */
+export const MultiPending = meta.story({
+  args: {
+    multi: true,
+    tone: "teal",
+    prompt: undefined,
+    question: followQuestion.question,
+    tag: followQuestion.tag,
+    options: multiOptions,
+    primaryLabel: "Keep 2",
+  },
+  play: async ({ canvas, canvasElement, userEvent, args }) => {
+    await expect(canvas.queryByRole("radiogroup")).toBeNull();
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    const group = await canvas.findByRole("group");
+    await expect(group).toHaveAccessibleName(followQuestion.question);
+    const boxes = [...group.querySelectorAll<HTMLElement>('[role="checkbox"]')];
+    await expect(boxes).toHaveLength(3);
+    await expect(boxes.filter((b) => b.getAttribute("aria-checked") === "true")).toHaveLength(2);
+    for (const box of boxes) await expect(getComputedStyle(box.firstElementChild!).borderRadius).toBe("5px");
+    await expect(group.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    await expectFullContrast(canvasElement);
+
+    // One stop, arrows inside, space toggles.
+    await userEvent.tab();
+    await expect(group.contains(document.activeElement)).toBe(true);
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await expect(document.activeElement).toBe(boxes[2]);
+    await userEvent.keyboard(" ");
+    await expect(args.options?.[2].onClick).toHaveBeenCalledTimes(1);
+    await userEvent.tab();
+    await expect(group.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/** Answered, multi: the head counts what was chosen, every choice is its own
+ * row, and the meta sits under the first alone. Nothing fades. */
+export const MultiAnswered = meta.story({
+  args: {
+    state: "answered",
+    multi: true,
+    tone: "teal",
+    prompt: undefined,
+    question: followQuestion.question,
+    tag: followQuestion.tag,
+    answers: followAnswers,
+    answerMeta: undefined,
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.getByText("Answered · 2 chosen")).toBeInTheDocument();
+    for (const a of followAnswers) await expect(canvas.getByText(a)).toBeInTheDocument();
+    await expect(canvas.getAllByText(/you chose 2/)).toHaveLength(1);
+    await expect(canvas.queryByRole("checkbox")).toBeNull();
+    await expect(canvas.queryByRole("group")).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expectFullContrast(canvasElement);
+  },
+});
+
+/** The four states stacked, the way the catalog's §13 shows them. */
+export const FourStates = meta.story({
   parameters: wide,
   render: (args) => (
     <>
@@ -302,6 +404,7 @@ export const ThreeStates = meta.story({
         answer="“file it with the omens, and tell Eumaeus”"
         answerMeta="taken from your next message · 2m ago"
       />
+      <AskUserCard {...args} id="dismissed" state="dismissed" prompt={undefined} onAskAgain={fn()} />
     </>
   ),
 });

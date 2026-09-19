@@ -43,9 +43,26 @@ export const NoDiff = Default.extend({ args: { diff: "" } });
 /** No risk line, for an action whose blast radius is the diff itself. */
 export const NoRisk = Default.extend({ args: { risk: "" } });
 
-/** A long target ellipsises rather than pushing the badge off the card. */
+/**
+ * A long target WRAPS. The card IS the record — you are granting permission
+ * against this exact string — so the README's truncation table lists it beside
+ * the receipts: never truncate. A first-ever fetch cut at "…/seventeen…" is a
+ * permission nobody can judge. The badge keeps its place and nothing escapes.
+ */
 export const LongTarget = Default.extend({
-  args: { target: "winds.example.invalid/seventeen-days?from=ogygia&bearing=east-north-east" },
+  args: { target: "winds.example.invalid/seventeen-days/from-ogygia/bearing-east-north-east/keep-the-great-bear-on-the-left-hand" },
+  play: async ({ canvas, canvasElement, args }) => {
+    const card = canvasElement.querySelector("div > div") as HTMLElement;
+    const target = canvas.getByText(args.target!);
+    await expect(overflowing(card)).toEqual([]);
+    await expect(getComputedStyle(target).whiteSpace).toBe("normal");
+    await expect(getComputedStyle(target).textOverflow).not.toBe("ellipsis");
+    // Wrapped onto more than one line: taller than the tool name beside it.
+    const tool = canvas.getByText(args.tool!);
+    await expect(target.getBoundingClientRect().height).toBeGreaterThan(tool.getBoundingClientRect().height * 1.8);
+    // And the full string is in the DOM, not a clipped one.
+    await expect(target.scrollWidth).toBeLessThanOrEqual(target.clientWidth + 1);
+  },
 });
 
 export const Wide = Default.extend({ parameters: wide });
@@ -91,19 +108,36 @@ export const Decided = meta.story({
  * each Button's `width: 100%` resolved against a shrink-to-fit box and measured
  * 155px and 65px. Dropping the wrapper made that declaration live.
  *
- * The fix is the `style` prop wave 1 set aside for exactly this: both buttons
- * take `flex: 1 1 0`, so they split the row evenly, which is what 50%/50% meant.
+ * The fix is the `style` prop wave 1 set aside for exactly this. The port first
+ * split the row evenly; the seventh drop ruled content-sized with a floor, so
+ * the assertion here is only that both fit — the shape is the next story's.
  */
 export const ButtonsFitTheCard = meta.story({
   play: async ({ canvasElement }) => {
     const card = canvasElement.querySelector("div > div") as HTMLElement;
     await expect(overflowing(card)).toEqual([]);
+  },
+});
 
-    // And the split is even, which is the other half of what the hints said.
+/**
+ * CONTENT-SIZED, WITH A FLOOR (seventh drop, ruling 10). An even split claims
+ * the two answers are equally likely, which the card has no business claiming
+ * — the agent asked because it expects yes. Allow takes the remaining width
+ * (`flex: 1 1 auto`); Deny is content-sized (`flex: 0 0 auto`) and can never
+ * become a sliver: never under 96 x 44.
+ */
+export const AllowLeadsDenyHasAFloor = meta.story({
+  play: async ({ canvasElement }) => {
+    const card = canvasElement.querySelector("div > div") as HTMLElement;
     const [allow, deny] = [...card.querySelectorAll<HTMLElement>('[role="button"]')];
-    const a = allow.getBoundingClientRect();
-    const d = deny.getBoundingClientRect();
-    await expect(Math.abs(a.width - d.width)).toBeLessThan(1.5);
+    const a = allow!.getBoundingClientRect();
+    const d = deny!.getBoundingClientRect();
+    await expect(d.width).toBeGreaterThanOrEqual(96);
+    await expect(d.height).toBeGreaterThanOrEqual(44);
+    await expect(a.width).toBeGreaterThan(d.width);
+    await expect(getComputedStyle(allow!).flexGrow).toBe("1");
+    await expect(getComputedStyle(deny!).flexGrow).toBe("0");
+    await expect(overflowing(card)).toEqual([]);
   },
 });
 
