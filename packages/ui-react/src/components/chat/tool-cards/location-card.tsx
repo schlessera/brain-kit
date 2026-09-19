@@ -1,6 +1,8 @@
 /**
  * The `get_current_location` result, drawn on the kit's `MapView` (S9: the
- * first in-chat component rendered end to end from its contract).
+ * first in-chat component rendered end to end from its contract; D37 moved
+ * the span rule, the uncertainty ring, the note and the width cap into the
+ * kit, so the card is now the fetch and the caption).
  *
  * Typed `LocationPayload` — the contract's payload type — so the fields it
  * reads are the fields the handler is contracted to send. The pin, the
@@ -40,10 +42,11 @@ const WIDTH = 330;
 const HEIGHT = 190;
 
 /**
- * The view's span across its width, in kilometres. `MapView`'s default is
- * 1.6 km — a town. A coarse fix (a Wi-Fi or cell position can be a
- * kilometre out) widens it so the uncertainty fits inside the frame rather
- * than the pin sitting confidently in the wrong street.
+ * The view's span across its width, in kilometres — the kit's own rule
+ * (`max(1.6 km, 6 × accuracy)`, D37), repeated here only so the coastline
+ * request covers the box the kit will draw. The kit computes it again from
+ * `accuracyM`; the two must agree, and `tests/location-card.test.ts` pins
+ * this one.
  */
 export function spanFor(accuracyMeters: number): number {
   return Math.max(1.6, (accuracyMeters * 6) / 1000);
@@ -113,24 +116,22 @@ export function LocationResultCard({
   const drawn = paths.length > 0 || land !== undefined;
 
   return (
-    <div className="max-w-[420px]">
-      <MapView
-        pins={[{ lat: latitude, lon: longitude, label: place ?? "Here", meta: accuracy(accuracyMeters), tone: "amber" }]}
-        paths={paths}
-        land={land}
-        spanKm={spanKm}
-        // The place name is the answer; coordinates are the evidence for it,
-        // so they stay visible but quiet rather than leading.
-        title={place ?? "Coordinates only"}
-        subtitle={address && address !== place ? address : note}
-        meta={`${coord(latitude)}, ${coord(longitude)} · ${accuracy(accuracyMeters)} · ${stamp}`}
-        // The credit is the licence's, not the design's: it appears exactly
-        // when OpenStreetMap geometry is on the map.
-        attribution={drawn ? geo?.attribution : undefined}
-      />
-      {note && address && address !== place ? (
-        <div className="mt-1 text-[11px] text-muted-foreground/70">{note}</div>
-      ) : null}
-    </div>
+    // The kit owns the span rule, the uncertainty ring, the note and the
+    // 420px cap (D37); the card passes the payload through.
+    <MapView
+      pins={[{ lat: latitude, lon: longitude, label: place ?? "Here", meta: accuracy(accuracyMeters), tone: "amber" }]}
+      accuracyM={accuracyMeters}
+      paths={paths}
+      land={land}
+      // The place name is the answer; coordinates are the evidence for it,
+      // so they stay visible but quiet rather than leading.
+      title={place ?? "Coordinates only"}
+      subtitle={address && address !== place ? address : undefined}
+      meta={`${coord(latitude)}, ${coord(longitude)} · ${accuracy(accuracyMeters)} · ${stamp}`}
+      note={note}
+      // The credit is the licence's, not the design's: it appears exactly
+      // when OpenStreetMap geometry is on the map.
+      attribution={drawn ? geo?.attribution : undefined}
+    />
   );
 }

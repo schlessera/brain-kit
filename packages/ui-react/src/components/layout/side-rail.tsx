@@ -2,29 +2,28 @@ import { SideRail as KitSideRail, type RailItem } from "@schlessera/brain-ui-kit
 import { useEffect } from "react";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useActivityStore } from "../../stores/activity-store.js";
+import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 
 /**
- * The desktop navigation, on the kit's `SideRail` (S7, the last of the
- * `layout` directory). The kit owns the rail — the one roving tab stop, the
- * amber destination, the badge, the collapsed and expanded widths; this file
- * owns what the destinations DO, which of them is "here", and the ⌘1–⌘5
- * keys the design prints beside them (D36: anything global takes a
- * modifier).
+ * The desktop navigation, on the kit's `SideRail`. The kit owns the rail —
+ * the one roving tab stop, the amber destination, the badge, the collapsed
+ * and expanded widths; this file owns what the destinations DO, which of
+ * them is "here", and the ⌘1–⌘5 keys the design prints beside them (D36:
+ * anything global takes a modifier).
  *
- * Five destinations, as the design draws them and as the phone's bar
- * already chose: Chat, Activity (with the inbox count), Files, Graph and
- * Settings. The old rail also carried New chat, Sync, Whatsup and Sessions;
- * those are actions rather than places, and on desktop they live in the ⌘K
- * palette (`DesktopPalette`), which is where D22 puts anything that is not
- * one of the rail's five.
+ * The five destinations are the design's (D37): Chat · Actions · Files ·
+ * Graph · Settings, the same five and the same order as the phone bar.
+ * Activity is not among them — "what needs me" and "what has been happening"
+ * are two lenses on one queue, so the Actions pane carries a filter and the
+ * badge counts what needs you: pending approvals plus the inbox. The acts
+ * the old rail carried (New chat, Sessions, Sync, the briefing) live in the
+ * ⌘K palette and the Chat header.
  *
  * Widths follow D22's ladder: collapsed to the 60px icon rail below 900px,
  * expanded from 900px up. The rail appears at the same `md` breakpoint the
- * phone bar disappears at, so the two never show together; moving that
- * boundary to the ladder's 480px is a shell-wide change (every pane keys on
- * `md:`) and waits for the desktop screens the design has not drawn yet.
+ * phone bar disappears at, so the two never show together.
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app
@@ -39,15 +38,17 @@ export function SideRail() {
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const inboxCount = useActivityStore((s) => s.inbox.length);
+  const approvalCount = useChatStore((s) => pendingApprovals(s).length);
+  const needsYou = inboxCount + approvalCount;
   const expanded = useMediaQuery("(min-width: 900px)");
 
   const items: RailItem[] = [
     { icon: "brain", label: "Chat", shortcut: "⌘1", onClick: () => setActiveView("chat") },
     {
-      icon: "activity",
-      label: "Activity",
+      icon: "resolved",
+      label: "Actions",
       shortcut: "⌘2",
-      badge: inboxCount > 0 ? (inboxCount > 9 ? "9+" : String(inboxCount)) : undefined,
+      badge: needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
       onClick: () => setActiveView("activity"),
     },
     { icon: "files", label: "Files", shortcut: "⌘3", onClick: toggleFilePanel },

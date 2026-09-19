@@ -19,6 +19,7 @@ import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js
 import { riskHints } from "./risk-hints.js";
 import { useShallow } from "zustand/react/shallow";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
+import { KeyCap } from "../layout/key-cap.js";
 import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
@@ -465,15 +466,3 @@ function StatusIndicator({
   }
 }
 
-/** The printed key on the button it belongs to — "every shortcut is printed
- * where it applies, never hidden in help" (D36). */
-function KeyCap({ children }: { children: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="ml-0.5 rounded border border-current/30 px-1 font-[family-name:var(--font-mono)] text-[9.5px] leading-[1.4] opacity-70"
-    >
-      {children}
-    </span>
-  );
-}

@@ -253,6 +253,25 @@ function revokeAttachmentUrls(messages: ChatMessage[]) {
   }
 }
 
+/**
+ * Every tool call waiting on the user, across every buffer (D37: an approval
+ * that arrived while you were reading something else cannot only exist as a
+ * scroll position — the Actions pane lists it beside the inbox). The key is
+ * the buffer's, so the decision can be resolved on the right transcript.
+ */
+export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): Array<{ key: ChatKey; tool: ToolCall }> {
+  const out: Array<{ key: ChatKey; tool: ToolCall }> = [];
+  const scan = (key: ChatKey, chat: SessionChat | null) => {
+    if (!chat) return;
+    for (const message of chat.messages) {
+      for (const tool of message.toolCalls) if (tool.status === "pending_approval") out.push({ key, tool });
+    }
+  };
+  for (const [id, chat] of Object.entries(state.buffers)) scan(id, chat);
+  scan(null, state.draft);
+  return out;
+}
+
 /** Evict least-recently-touched non-active buffers beyond MAX_BUFFERS. */
 function evictStale(
   buffers: Record<string, SessionChat>,

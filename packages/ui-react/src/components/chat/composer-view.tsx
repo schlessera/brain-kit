@@ -1,28 +1,28 @@
-import { Button, Callout, Chip, Icon } from "@schlessera/brain-ui-kit";
+import { BottomSheet, Button, Callout, Composer as KitComposer, Icon, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
 import { X } from "lucide-react";
 import type { ClipboardEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { cn } from "../../lib/utils.js";
-import { MicButton } from "../voice/mic-button.js";
 
 /**
- * The composer's field, rendered from props (S7, the `chat` directory).
+ * The composer's frame, rendered from props (S7, the `chat` directory).
  * `Composer` is the container: it owns the draft, the attachments and their
  * object URLs, the provider choice, the voice review, the command palette's
- * open state and every store read; this owns how the field looks and which
- * keys mean what inside it.
+ * open state and every store read.
  *
- * The kit's `Composer` is the design's field as a display component, and its
- * API stops at attach / mic / send. The app's field also needs a camera, a
- * stop, a recall, a provider picker, paste-to-attach, a connection-aware
- * placeholder, a desktop-only ⏎ and a CSS-grown textarea whose ref the
- * container focuses — so this view draws the design's field from the kit's
- * primitives (`Icon`, `Button`, `Chip`, `Callout`) around the app's own
- * textarea, on the kit's tokens, rather than forcing the kit component to
- * grow eight props it has no story for.
+ * The field itself is the kit `Composer` (D37: the composer is kit-owned —
+ * it is the one piece of permanent chrome, and a field redrawn per screen is
+ * a component nobody can audit). The kit draws attach · field · mic ·
+ * send/stop, the provider chip in the hint line and the state-driven
+ * placeholder, hint and trailing control. What this frame adds around it is
+ * what the design leaves to the app: the slash-command palette above the
+ * field, the attachment previews and their errors, the attach MENU behind
+ * the paperclip (a docked `BottomSheet` on a phone, a popover on a pointer
+ * screen — capture is a menu, not three more icons), the provider list, and
+ * two keys the kit does not know: ↑ on an empty draft recalls the last
+ * prompt, and esc dismisses the slash palette.
  *
- * Keys: ⏎ sends on a pointer-width screen and inserts a newline on a phone;
- * ⇧⏎ is always a newline; ↑ on an empty draft recalls the last prompt; esc
- * dismisses the command palette. When the palette is open ⏎ belongs to it.
+ * Paste-to-attach is caught here too: the kit's textarea has no paste
+ * handler of its own, and the event bubbles to this frame with its files.
  */
 export interface ComposerAttachment {
   previewUrl: string;
@@ -31,7 +31,7 @@ export interface ComposerAttachment {
 
 export interface ComposerProvider {
   label: string;
-  /** Fixed for this conversation: the trigger is inert and says so. */
+  /** Fixed for this conversation: the chip is text, not a control. */
   locked: boolean;
   menuOpen: boolean;
   options: { id: string; label: string }[];
@@ -40,35 +40,33 @@ export interface ComposerProvider {
 
 export interface ComposerViewProps {
   value: string;
-  placeholder: string;
-  /** No connection: the field and every control are inert. */
-  disabled: boolean;
-  /** A turn is streaming: attach and mic are inert, and with no draft the primary action is Stop. */
-  streaming: boolean;
-  canSend: boolean;
-  hasDraft: boolean;
-  /** "Follows up live" / "Will queue" while a session is running, else null. */
-  followUpHint: string | null;
-  showRecall: boolean;
-  micActive: boolean;
+  state: ComposerState;
+  /** Overrides the state's own placeholder (a connection reason, the host's copy). */
+  placeholder?: string;
+  /** Overrides the state's own hint ("Will queue" while a session runs). */
+  hint?: string;
+  /** The offline reason, printed in the hint row. */
+  blockedWhy?: string;
   paletteOpen: boolean;
   /** The command palette, already rendered by the container, or null. */
   palette: ReactNode;
+  attachMenuOpen: boolean;
   attachments: ComposerAttachment[];
   attachErrors: string[];
   provider: ComposerProvider | null;
   /** The container's ref: it focuses the field after a recall or a voice edit. */
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  frameRef: RefObject<HTMLDivElement | null>;
   /** The container's ref for the provider popover's outside-click dismissal. */
   providerMenuRef: RefObject<HTMLDivElement | null>;
   onChange: (value: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  onPasteFiles: (files: File[]) => void;
-  onAttach: () => void;
-  onCamera: () => void;
-  onRecall: () => void;
+  onSend: () => void;
+  onStop: () => void;
   onMic: () => void;
+  onAttachToggle: () => void;
+  onPickLibrary: () => void;
+  onPickCamera: () => void;
+  onPasteFiles: (files: File[]) => void;
+  onRecall: () => void;
   onEscape: () => void;
   onRemoveAttachment: (index: number) => void;
   onDismissErrors: () => void;
@@ -77,21 +75,13 @@ export interface ComposerViewProps {
 }
 
 export function ComposerView(p: ComposerViewProps) {
-  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      if (p.paletteOpen) return;
-      // A pointer-width screen sends on ⏎; a phone (or a runtime with no
-      // media queries) keeps ⏎ as a newline and sends from the button.
-      if (typeof window.matchMedia === "function" && window.matchMedia("(min-width: 768px)").matches) {
-        e.preventDefault();
-        p.onSubmit();
-      }
-    }
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).tagName !== "TEXTAREA") return;
     if (e.key === "ArrowUp" && !p.value.trim()) p.onRecall();
-    if (e.key === "Escape") p.onEscape();
+    if (e.key === "Escape" && p.paletteOpen) p.onEscape();
   }
 
-  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+  function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const files = e.clipboardData?.files;
     if (!files || files.length === 0) return;
     const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -100,10 +90,17 @@ export function ComposerView(p: ComposerViewProps) {
     p.onPasteFiles(images);
   }
 
-  const inert = p.disabled || p.streaming;
+  const pointer = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(min-width: 768px)").matches;
+  const attachMenu = (
+    <div className="flex flex-col">
+      <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
+      <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />
+      <ListRow variant="group" icon="copy" iconTone="neutral" title="Paste" subtitle="An image on the clipboard pastes straight into the field" last />
+    </div>
+  );
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste}>
       {p.attachErrors.length > 0 && (
         <div className="mb-2 flex items-start gap-2" role="alert">
           <div className="min-w-0 flex-1">
@@ -132,135 +129,66 @@ export function ComposerView(p: ComposerViewProps) {
         </div>
       )}
 
-      <div
-        className={cn(
-          "relative rounded-[20px] border shadow-lg transition-all duration-200",
-          "border-[var(--bk-color-edge)] bg-[var(--bk-color-surface)]",
-          "focus-within:border-[var(--bk-hover-border)] focus-within:shadow-[0_0_20px_var(--bk-composer-voice-glow)]",
-        )}
-      >
-        {p.palette}
+      {p.palette}
 
-        {/* The textarea grows by CSS, not by JavaScript: the wrapper's ::after
-            mirrors the value and sets the row height, so the composer never
-            reads scrollHeight. That read forced a full document layout on
-            every keystroke, and its cost scaled with the transcript. */}
-        <div className="composer-grow" data-value={p.value + " "}>
-          <textarea
-            ref={p.textareaRef}
-            // Where focus lands after the last pending approval is decided
-            // (D36): the thing the reader continues with.
-            data-composer=""
-            value={p.value}
-            onChange={(e) => p.onChange(e.target.value)}
-            onPaste={onPaste}
-            onKeyDown={onKeyDown}
-            placeholder={p.placeholder}
-            aria-label={p.placeholder}
-            disabled={p.disabled}
-            rows={1}
-            className="bk-composer w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50"
-          />
+      {/* The provider list, anchored above the field: the chip that opens it
+          sits in the kit's hint line, so the list is the frame's. */}
+      {p.provider && p.provider.menuOpen && !p.provider.locked && (
+        <div ref={p.providerMenuRef} role="menu" aria-label="Model" className="absolute bottom-full left-4 z-50 mb-1 min-w-[14rem] overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] py-1 shadow-2xl">
+          {p.provider.options.map((o) => (
+            <button
+              key={o.id}
+              role="menuitem"
+              type="button"
+              onClick={() => p.onProviderSelect(o.id)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
+            >
+              <span className={cn("flex w-3.5 shrink-0", o.id === p.provider!.selectedId ? "opacity-100" : "opacity-0")}>
+                <Icon icon="confirm" size={14} color="var(--bk-amber-ink)" />
+              </span>
+              <span className="truncate">{o.label}</span>
+            </button>
+          ))}
         </div>
+      )}
 
-        <div className="flex items-center justify-between px-4 pb-3">
-          <div className="flex min-w-0 items-center gap-3 text-[11px] text-muted-foreground/50">
-            {p.provider && (
-              <div ref={p.providerMenuRef} className="relative">
-                <span title={p.provider.locked ? "Provider is fixed for this conversation" : "Choose model"} className="flex max-w-[9rem] md:max-w-[14rem]">
-                  <Button
-                    label={p.provider.label}
-                    icon={p.provider.locked ? "secure" : "model"}
-                    tone="quiet"
-                    size="sm"
-                    block={false}
-                    disabled={p.provider.locked}
-                    onClick={p.onProviderToggle}
-                  />
-                </span>
-                {p.provider.menuOpen && !p.provider.locked && (
-                  <div
-                    role="menu"
-                    className="absolute bottom-full left-0 z-50 mb-1 min-w-[14rem] overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] py-1 shadow-2xl"
-                  >
-                    {p.provider.options.map((o) => (
-                      <button
-                        key={o.id}
-                        role="menuitem"
-                        type="button"
-                        onClick={() => p.onProviderSelect(o.id)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
-                      >
-                        <span className={cn("flex w-3.5 shrink-0", o.id === p.provider!.selectedId ? "opacity-100" : "opacity-0")}>
-                          <Icon icon="confirm" size={14} color="var(--bk-amber-ink)" />
-                        </span>
-                        <span className="truncate">{o.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {p.followUpHint ? (
-              <Chip label={p.followUpHint} variant="mono" tone="amber" />
-            ) : (
-              <>
-                <span className="hidden sm:inline">
-                  <span className="font-[family-name:var(--font-mono)]">/</span> for commands
-                </span>
-                <span className="hidden md:inline">Shift+Enter for newline</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <ToolButton label="Attach images" icon="attach" disabled={inert} onClick={p.onAttach} />
-            <ToolButton label="Take a photo" icon="image" disabled={inert} onClick={p.onCamera} />
-            {p.showRecall && <ToolButton label="Recall last prompt" icon="revert" onClick={p.onRecall} />}
-            <MicButton active={p.micActive} disabled={inert} onTap={p.onMic} />
-            {p.streaming && !p.hasDraft ? (
-              // Streaming with nothing drafted: the primary action is Stop.
-              <button
-                type="button"
-                onClick={p.onCancel}
-                title="Stop the running turn"
-                aria-label="Stop the running turn"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bk-red-fill)] transition-all duration-150 hover:brightness-110"
-              >
-                <Icon icon="pause" size={15} color="var(--bk-on-fill)" />
-              </button>
-            ) : (
-              // A draft always sends — as a new turn, or a follow-up when a
-              // session is already running.
-              <button
-                type="button"
-                onClick={p.onSubmit}
-                disabled={!p.canSend}
-                title={p.followUpHint ?? "Send"}
-                aria-label="Send"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bk-amber-fill)] transition-all duration-150 hover:brightness-110 disabled:opacity-30"
-              >
-                <Icon icon="send" size={15} color="var(--bk-on-fill)" />
-              </button>
-            )}
+      {/* Capture is a MENU behind the paperclip (D37): a popover on a pointer
+          screen, the kit sheet on a phone. */}
+      {p.attachMenuOpen && pointer && (
+        <div role="menu" aria-label="Attach" className="absolute bottom-full left-4 z-50 mb-1 w-72 overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl">
+          {attachMenu}
+        </div>
+      )}
+      {p.attachMenuOpen && !pointer && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) p.onAttachToggle();
+          }}
+        >
+          <div role="dialog" aria-label="Attach" className="absolute inset-x-0 bottom-0">
+            <BottomSheet title="Attach" subtitle="Photo, camera, or paste." docked>
+              {attachMenu}
+            </BottomSheet>
           </div>
         </div>
-      </div>
+      )}
+
+      <KitComposer
+        variant="send"
+        state={p.state}
+        placeholder={p.placeholder}
+        hint={p.hint}
+        blockedWhy={p.blockedWhy}
+        value={p.value}
+        provider={p.provider?.label}
+        onProvider={p.provider && !p.provider.locked ? p.onProviderToggle : undefined}
+        onChange={p.onChange}
+        onSend={p.onSend}
+        onStop={p.onStop}
+        onAttach={p.onAttachToggle}
+        onMic={p.onMic}
+      />
     </div>
-  );
-}
-
-function ToolButton({ label, icon, disabled, onClick }: { label: string; icon: "attach" | "image" | "revert"; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:bg-surface-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-    >
-      <Icon icon={icon} size={16} />
-    </button>
   );
 }

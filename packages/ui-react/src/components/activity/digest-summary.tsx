@@ -45,7 +45,7 @@ export function DigestSummary(p: DigestSummaryProps) {
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={p.onDismiss} />
-        <Button label="Open Activity" icon="activity" tone="primary" size="sm" block={false} onClick={p.onOpen} />
+        <Button label="Open Actions" icon="resolved" tone="primary" size="sm" block={false} onClick={p.onOpen} />
       </div>
     </div>
   );

@@ -41,7 +41,10 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const root = useBrainUiRoot();
   const [input, setInput] = useState("");
   const [lastPrompt, setLastPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  /** The kit owns the textarea; the frame finds it when a recall or a voice edit needs focus. */
+  const focusField = () => frameRef.current?.querySelector("textarea")?.focus();
 
   // Image attachments. `attachmentsRef` mirrors state so async add/merge logic
   // reads the current set synchronously (avoids stale closures / updater races).
@@ -104,16 +107,18 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
     void loadProviders();
   }, [loadProviders]);
 
-  // Dismiss the provider popover on outside-click / Escape.
+  // Dismiss the provider popover and the attach menu on outside-click / Escape.
   useEffect(() => {
-    if (!providerMenuOpen) return;
+    if (!providerMenuOpen && !attachMenuOpen) return;
     const onDocClick = (e: MouseEvent) => {
-      if (!providerMenuRef.current?.contains(e.target as Node)) {
-        setProviderMenuOpen(false);
-      }
+      if (!providerMenuRef.current?.contains(e.target as Node)) setProviderMenuOpen(false);
+      if (!(e.target as HTMLElement).closest?.('[role="menu"][aria-label="Attach"], [role="dialog"][aria-label="Attach"]')) setAttachMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setProviderMenuOpen(false);
+      if (e.key === "Escape") {
+        setProviderMenuOpen(false);
+        setAttachMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
@@ -121,7 +126,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
-  }, [providerMenuOpen]);
+  }, [providerMenuOpen, attachMenuOpen]);
 
   /**
    * The draft is whatever is visible above the send button: composer text
@@ -244,7 +249,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       void dictation.stop(true);
     } else {
       // Defensive: blur composer so the keyboard never fights the mic sheet on Android
-      textareaRef.current?.blur();
+      frameRef.current?.querySelector("textarea")?.blur();
       // Any existing review text stays put — the new capture appends to it.
       void dictation.start();
     }
@@ -262,7 +267,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   function handleVoiceEdit() {
     setInput((prev) => (prev ? `${prev}\n${reviewText}` : reviewText));
     clearReview();
-    setTimeout(() => textareaRef.current?.focus(), 50);
+    setTimeout(focusField, 50);
   }
 
   function handleVoiceAppend() {
@@ -273,7 +278,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   function handleRecall() {
     if (lastPrompt && !input.trim()) {
       setInput(lastPrompt);
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      setTimeout(focusField, 50);
     }
   }
 
@@ -353,6 +358,18 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
 
         <ComposerView
           value={input}
+          // The kit's `state` drives placeholder, hint and the trailing control
+          // together (D37): streaming shows the stop, reconnecting keeps send
+          // live, offline disables it and keeps the draft.
+          state={
+            wsStatus === "connected"
+              ? isStreaming
+                ? "streaming"
+                : "ready"
+              : wsStatus === "connecting" && connectionIssue === null
+                ? "reconnecting"
+                : "offline"
+          }
           placeholder={
             wsStatus !== "connected"
               ? connectionIssue === "capacity"
@@ -362,15 +379,13 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          disabled={wsStatus !== "connected"}
-          streaming={isStreaming}
-          canSend={canSend}
-          hasDraft={hasDraft}
-          followUpHint={followUpHint}
-          showRecall={Boolean(lastPrompt && !input.trim() && !isStreaming)}
-          micActive={voiceMode === "dictate"}
+          hint={followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          blockedWhy={
+            wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
+          }
           paletteOpen={showCommandPalette}
           palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} onSelect={handleCommand} /> : null}
+          attachMenuOpen={attachMenuOpen}
           attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
           attachErrors={attachErrors}
           provider={
@@ -384,19 +399,28 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
                 }
               : null
           }
-          textareaRef={textareaRef}
+          frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
             setInput(value);
             setPaletteDismissed(false);
           }}
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          onPasteFiles={(files) => void addFiles(files)}
-          onAttach={() => libraryInputRef.current?.click()}
-          onCamera={() => cameraInputRef.current?.click()}
-          onRecall={handleRecall}
+          onSend={() => {
+            if (canSend) handleSubmit();
+          }}
+          onStop={handleCancel}
           onMic={handleMicTap}
+          onAttachToggle={() => setAttachMenuOpen((v) => !v)}
+          onPickLibrary={() => {
+            setAttachMenuOpen(false);
+            libraryInputRef.current?.click();
+          }}
+          onPickCamera={() => {
+            setAttachMenuOpen(false);
+            cameraInputRef.current?.click();
+          }}
+          onPasteFiles={(files) => void addFiles(files)}
+          onRecall={handleRecall}
           onEscape={() => setPaletteDismissed(true)}
           onRemoveAttachment={removeAttachment}
           onDismissErrors={() => setAttachErrors([])}

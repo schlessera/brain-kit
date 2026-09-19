@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 import { ThemeToggle } from "../layout/theme.js";
 import { ShortcutSwitch } from "../layout/shortcut-switch.js";
+import { Callout, Label, Surface } from "@schlessera/brain-ui-kit";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -81,10 +82,21 @@ export function SettingsPanel({
           <span className="text-xs text-muted-foreground">Appearance</span>
           <ThemeToggle />
         </div>
-        {/* The off switch for single-key shortcuts (D36, WCAG 2.1.4): one
-            control, applies everywhere, so it sits beside Appearance. */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
-          <ShortcutSwitch />
+        {/* Settings › Input (D37, as D5 draws it): the off switch for
+            single-key shortcuts as a group row, with the banner that says what
+            turning it off does. One control, applies everywhere, so it sits
+            beside Appearance rather than in a tab. */}
+        <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2">
+          <Label text="Input" icon="capability" />
+          <Surface pad={0}>
+            <ShortcutSwitch />
+          </Surface>
+          <Callout
+            variant="banner"
+            tone="neutral"
+            icon="scope"
+            text="Turning single-key shortcuts off also removes the printed keys from buttons — a key that no longer fires should not be advertised."
+          />
         </div>
 
         <div className="min-h-0 flex-1">

@@ -3641,11 +3641,11 @@ describe("remaining media and lookup root ownership", () => {
 /* ── S5: the first kit consumer, and the theme switch ───────────────────── */
 
 describe("MobileTabBar on the kit TabBar", () => {
-  test("renders the five design slots as a tablist, with the inbox count as the badge", () => {
+  test("renders the five destinations as a tablist, with what needs you as the Actions badge", () => {
     useActivityStore.setState({ inbox: [{ id: "a" }, { id: "b" }, { id: "c" }] as never });
     const view = render(<MobileTabBar />);
     const tabs = view.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "New chat", "Activity3", "Files", "More"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "Actions3", "Files", "Graph", "More"]);
     // Chat is the active view, so Chat is the amber slot and the only selected tab.
     expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
     // The kit's roving tab stop: one slot reachable by Tab, the rest by arrows.
@@ -3653,27 +3653,33 @@ describe("MobileTabBar on the kit TabBar", () => {
     view.unmount();
   });
 
-  test("a slot switches the view, and the More menu opens above the bar and closes on Escape", () => {
+  test("a slot switches the view, and More is the kit sheet with Settings and the acts", () => {
     const view = render(<MobileTabBar />);
-    fireEvent.click(view.getByRole("tab", { name: "Activity" }));
+    fireEvent.click(view.getByRole("tab", { name: "Actions" }));
     expect(useUIStore.getState().activeView).toBe("activity");
-    expect(view.getByRole("tab", { name: "Activity" }).getAttribute("aria-selected")).toBe("true");
-
-    expect(view.queryByRole("menu")).toBeNull();
-    fireEvent.click(view.getByRole("tab", { name: "More" }));
-    const menu = view.getByRole("menu");
-    expect(view.getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Graph", "Sync", "History", "Settings"]);
-    // While the menu is open, More is the amber slot.
-    expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(view.getByRole("menuitem", { name: "Graph" }));
+    expect(view.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(view.getByRole("tab", { name: "Graph" }));
     expect(useUIStore.getState().activeView).toBe("graph");
-    expect(view.queryByRole("menu")).toBeNull();
-    expect(menu.isConnected).toBe(false);
+
+    expect(view.queryByRole("dialog")).toBeNull();
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    const sheet = view.getByRole("dialog", { name: "More" });
+    // Settings, then the acts. Disconnected, so the three that need the host
+    // are rows without a handler — listed with the reason, never omitted.
+    const rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent?.split("Resume")[0]?.split("needs")[0]);
+    expect(rows).toEqual(["Settings", "Sessions"]);
+    expect(sheet.textContent).toContain("Sync the brain");
+    expect(sheet.textContent).toContain("needs the host");
+    // While the sheet is open, More is the amber slot.
+    expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(sheet.querySelector('[role="button"]')!);
+    expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+    expect(view.queryByRole("dialog")).toBeNull();
 
     fireEvent.click(view.getByRole("tab", { name: "More" }));
-    expect(view.getByRole("menu")).toBeTruthy();
+    expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(view.queryByRole("menu")).toBeNull();
+    expect(view.queryByRole("dialog")).toBeNull();
     view.unmount();
   });
 
@@ -3681,11 +3687,11 @@ describe("MobileTabBar on the kit TabBar", () => {
     useActivityStore.setState({ inbox: Array.from({ length: 12 }, (_, i) => ({ id: String(i) })) as never });
     const many = render(<MobileTabBar />);
     // The badge is part of the accessible name, which is the point of it.
-    expect(many.getByRole("tab", { name: "Activity 9+" }).textContent).toBe("Activity9+");
+    expect(many.getByRole("tab", { name: "Actions 9+" }).textContent).toBe("Actions9+");
     many.unmount();
     useActivityStore.setState({ inbox: [] });
     const none = render(<MobileTabBar />);
-    expect(none.getByRole("tab", { name: "Activity" }).textContent).toBe("Activity");
+    expect(none.getByRole("tab", { name: "Actions" }).textContent).toBe("Actions");
     none.unmount();
   });
 });
@@ -3699,7 +3705,7 @@ describe("SideRail on the kit SideRail", () => {
     const tabs = view.getAllByRole("tab");
     // The test window is 1024px wide, so the rail is expanded: label, badge
     // and printed ⌘ key are the row's text.
-    expect(tabs.map((t) => t.textContent)).toEqual(["Chat⌘1", "Activity2⌘2", "Files⌘3", "Graph⌘4", "Settings⌘5"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat⌘1", "Actions2⌘2", "Files⌘3", "Graph⌘4", "Settings⌘5"]);
     expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
     expect(tabs.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
     // Nothing the app cannot back: no spend meter, and the ⌘K cap is the palette's.
@@ -3716,7 +3722,7 @@ describe("SideRail on the kit SideRail", () => {
     try {
       const view = render(<SideRail />);
       const tabs = view.getAllByRole("tab");
-      expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Chat", "Activity", "Files", "Graph", "Settings"]);
+      expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
       expect(tabs.map((t) => t.textContent)).toEqual(["", "", "", "", ""]);
       expect(view.container.textContent).toContain("⌘K");
       expect(view.container.textContent).not.toContain("Command palette");
@@ -3756,25 +3762,29 @@ describe("SideRail on the kit SideRail", () => {
 });
 
 describe("DesktopPalette on the kit CommandPalette", () => {
-  test("⌘K opens it on the selected row, typing filters, ⏎ runs the row and closes, esc closes", () => {
+  test("⌘K opens it with the query focused, typing filters, ⏎ runs the selected row and closes, esc closes", () => {
     const view = render(<DesktopPalette />);
     expect(view.queryByRole("dialog")).toBeNull();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const dialog = view.getByRole("dialog", { name: "Command palette" });
     expect(dialog).toBeTruthy();
     const names = view.getAllByRole("option").map((o) => o.textContent);
-    expect(names.slice(0, 5).map((n) => n?.replace(/⌘\d|⏎/g, ""))).toEqual(["Chat", "Activity", "Files", "Graph", "Settings"]);
-    // Disconnected, so Sync, the briefing and stats are not listed at all.
-    expect(names.some((n) => n?.includes("Sync"))).toBe(false);
+    // Jump to: the five destinations with their keys, then the two acts that move you.
+    expect(names.slice(0, 5).map((n) => n?.replace(/⌘\d|⏎/g, ""))).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
     expect(names.some((n) => n?.includes("New chat"))).toBe(true);
-    expect(document.activeElement).toBe(view.getAllByRole("option")[0]);
+    // Disconnected: Sync, the briefing and stats are listed DISABLED with the
+    // reason, never omitted (D37).
+    const sync = view.getByRole("option", { name: /Sync the brain/ });
+    expect(sync.getAttribute("aria-disabled")).toBe("true");
+    expect(sync.textContent).toContain("needs the host");
+    expect(sync.getAttribute("tabindex")).toBeNull();
+    // The query is a real input, and it holds focus on open.
+    const input = view.getByRole("combobox") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
 
-    fireEvent.keyDown(document.activeElement!, { key: "g" });
-    fireEvent.keyDown(document.activeElement!, { key: "r" });
-    expect(dialog.textContent).toContain("gr");
-    expect(view.getAllByRole("option").map((o) => o.getAttribute("aria-label") ?? o.textContent)).toEqual(["Graph⌘4"]);
-    expect(document.activeElement).toBe(view.getByRole("option"));
-    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    changeControlledInput(input, "gr");
+    expect(view.getAllByRole("option").map((o) => o.textContent)).toEqual(["Graph⌘4"]);
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(useUIStore.getState().activeView).toBe("graph");
     expect(view.queryByRole("dialog")).toBeNull();
 
@@ -3790,8 +3800,8 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     useConnectionStore.setState({ wsStatus: "connected" });
     const view = render(<DesktopPalette />);
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(view.getByRole("option", { name: "Sync the brain, sync" })).toBeTruthy();
-    expect(view.getByRole("option", { name: /Daily briefing/ })).toBeTruthy();
+    expect(view.getByRole("option", { name: "Sync the brain, sync" }).getAttribute("aria-disabled")).not.toBe("true");
+    expect(view.getByRole("option", { name: /Daily briefing/ }).textContent).toContain("spends");
     fireEvent.click(view.getByRole("option", { name: /Daily briefing/ }));
     expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
     expect(view.queryByRole("dialog")).toBeNull();
@@ -3935,7 +3945,11 @@ describe("single-key shortcuts (D36)", () => {
     fireEvent.keyDown(document.activeElement!, { key: "d" });
     await act(flushPromises);
     expect(useActivityStore.getState().inbox).toEqual([]);
-    expect(document.activeElement).toBe(page.getByRole("heading", { name: "Activity", level: 1 }));
+    // The drained section becomes the empty state and its heading takes
+    // focus, with the receipt above it (D37) — never the document top.
+    expect(document.activeElement).toBe(page.getByRole("heading", { name: "Nothing is waiting on you" }));
+    expect(page.getByText("Dismissed")).toBeTruthy();
+    expect(page.getByText("Intent 1")).toBeTruthy();
     page.unmount();
   });
 });
@@ -4599,56 +4613,68 @@ describe("chat views", () => {
 });
 
 describe("ComposerView", () => {
-  const refs = { textareaRef: { current: null }, providerMenuRef: { current: null } };
+  const refs = { frameRef: { current: null }, providerMenuRef: { current: null } };
   const handlers = () => ({
-    onChange: mock((_v: string) => {}), onSubmit: mock(() => {}), onCancel: mock(() => {}), onPasteFiles: mock((_f: File[]) => {}),
-    onAttach: mock(() => {}), onCamera: mock(() => {}), onRecall: mock(() => {}), onMic: mock(() => {}), onEscape: mock(() => {}),
+    onChange: mock((_v: string) => {}), onSend: mock(() => {}), onStop: mock(() => {}), onMic: mock(() => {}), onPasteFiles: mock((_f: File[]) => {}),
+    onAttachToggle: mock(() => {}), onPickLibrary: mock(() => {}), onPickCamera: mock(() => {}), onRecall: mock(() => {}), onEscape: mock(() => {}),
     onRemoveAttachment: mock((_i: number) => {}), onDismissErrors: mock(() => {}), onProviderToggle: mock(() => {}), onProviderSelect: mock((_id: string) => {}),
   });
-  const base = { placeholder: "Ask", disabled: false, streaming: false, canSend: true, hasDraft: true, followUpHint: null, showRecall: false, micActive: false, paletteOpen: false, palette: null, attachments: [], attachErrors: [], provider: null, ...refs };
+  const base = { placeholder: "Ask", state: "ready" as const, paletteOpen: false, palette: null, attachMenuOpen: false, attachments: [], attachErrors: [], provider: null, ...refs };
 
-  test("send, stop, recall, escape and the provider picker route to the container", () => {
+  test("the field is the kit composer: send, provider, attach menu, recall and escape route to the container", () => {
     const h = handlers();
-    const view = render(<ComposerView {...base} value="hello" showRecall provider={{ label: "Fast model", locked: false, menuOpen: true, options: [{ id: "a", label: "Fast model" }, { id: "b", label: "Careful model" }], selectedId: "a" }} {...h} />);
+    const view = render(<ComposerView {...base} value="hello" paletteOpen attachMenuOpen provider={{ label: "Fast model", locked: false, menuOpen: true, options: [{ id: "a", label: "Fast model" }, { id: "b", label: "Careful model" }], selectedId: "a" }} {...h} />);
     fireEvent.click(view.getByRole("button", { name: "Send" }));
-    expect(h.onSubmit).toHaveBeenCalledTimes(1);
+    expect(h.onSend).toHaveBeenCalledTimes(1);
     const field = view.getByLabelText("Ask") as HTMLTextAreaElement;
     changeControlledInput(field, "hello there");
     expect(h.onChange).toHaveBeenCalledWith("hello there");
+    // esc dismisses the slash palette; the kit's own esc only stops a stream.
     fireEvent.keyDown(field, { key: "Escape" });
     expect(h.onEscape).toHaveBeenCalledTimes(1);
-    fireEvent.click(view.getByRole("button", { name: "Recall last prompt" }));
-    expect(h.onRecall).toHaveBeenCalledTimes(1);
-    fireEvent.click(view.getByRole("button", { name: "Attach images" }));
-    fireEvent.click(view.getByRole("button", { name: "Take a photo" }));
-    expect(h.onAttach).toHaveBeenCalledTimes(1);
-    expect(h.onCamera).toHaveBeenCalledTimes(1);
+    // The paperclip is a menu trigger (D37): the menu carries the capture choices.
+    expect(view.getByRole("button", { name: "Attach — photo, camera, file" }).getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, file" }));
+    expect(h.onAttachToggle).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: /^Photo library/ }));
+    fireEvent.click(view.getByRole("button", { name: /^Camera/ }));
+    expect(h.onPickLibrary).toHaveBeenCalledTimes(1);
+    expect(h.onPickCamera).toHaveBeenCalledTimes(1);
+    // The provider chip lives in the kit's hint line; the list is the frame's.
+    fireEvent.click(view.getByRole("button", { name: "Model — Fast model" }));
+    expect(h.onProviderToggle).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByRole("menuitem", { name: "Careful model" }));
     expect(h.onProviderSelect).toHaveBeenCalledWith("b");
-    fireEvent.click(view.getByRole("button", { name: "Fast model" }));
-    expect(h.onProviderToggle).toHaveBeenCalledTimes(1);
     view.unmount();
 
-    const streaming = render(<ComposerView {...base} value="" hasDraft={false} canSend={false} streaming followUpHint="Will queue" provider={{ label: "Pinned model", locked: true, menuOpen: false, options: [], selectedId: null }} {...h} />);
-    fireEvent.click(streaming.getByRole("button", { name: "Stop the running turn" }));
-    expect(h.onCancel).toHaveBeenCalledTimes(1);
+    const empty = render(<ComposerView {...base} value="" {...h} />);
+    fireEvent.keyDown(empty.getByLabelText("Ask"), { key: "ArrowUp" });
+    expect(h.onRecall).toHaveBeenCalledTimes(1);
+    empty.unmount();
+
+    const streaming = render(<ComposerView {...base} value="" state="streaming" hint="Will queue · esc or the stop button ends the run" provider={{ label: "Pinned model", locked: true, menuOpen: false, options: [], selectedId: null }} {...h} />);
+    fireEvent.click(streaming.getByRole("button", { name: "Stop generating" }));
+    expect(h.onStop).toHaveBeenCalledTimes(1);
     expect(streaming.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(streaming.getByText("Will queue")).toBeTruthy();
-    expect(streaming.getByRole("button", { name: "Pinned model" }).getAttribute("aria-disabled")).toBe("true");
-    expect((streaming.getByRole("button", { name: "Attach images" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(streaming.getByText(/Will queue/)).toBeTruthy();
+    // A pinned provider is text, not a control.
+    expect(streaming.queryByRole("button", { name: /Pinned model/ })).toBeNull();
+    expect(streaming.getByText("Pinned model")).toBeTruthy();
     streaming.unmount();
   });
 
   test("attachments, their errors and a lost connection", () => {
     const h = handlers();
-    const view = render(<ComposerView {...base} value="" disabled canSend={false} hasDraft={false} placeholder="Connecting..." attachments={[{ previewUrl: "blob:one", name: "one.png" }]} attachErrors={["big.png: too large"]} {...h} />);
-    expect((view.getByLabelText("Connecting...") as HTMLTextAreaElement).disabled).toBe(true);
+    const view = render(<ComposerView {...base} value="" state="offline" placeholder="Connecting..." blockedWhy="needs the host · your draft is kept" attachments={[{ previewUrl: "blob:one", name: "one.png" }]} attachErrors={["big.png: too large"]} {...h} />);
+    // Offline keeps the draft typeable; only the send is inert, with the reason printed.
+    expect((view.getByLabelText("Connecting...") as HTMLTextAreaElement).readOnly).toBe(false);
+    expect(view.getByText("needs the host · your draft is kept")).toBeTruthy();
     expect(view.getByRole("alert").textContent).toContain("big.png: too large");
     fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
     expect(h.onDismissErrors).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByRole("button", { name: "Remove one.png" }));
     expect(h.onRemoveAttachment).toHaveBeenCalledWith(0);
-    expect((view.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.getByRole("button", { name: "Send — unavailable" }).getAttribute("aria-disabled")).toBe("true");
     view.unmount();
   });
 });

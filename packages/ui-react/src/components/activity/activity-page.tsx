@@ -9,7 +9,9 @@ import type {
   ActivityRunSummary,
 } from "../../lib/api-client.js";
 import { useActivityStore } from "../../stores/activity-store.js";
-import { useChatStore } from "../../stores/chat-store.js";
+import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
+import { EmptyState, FilterRow, InlineToast } from "@schlessera/brain-ui-kit";
+import { ApprovalCard } from "./approval-card.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
 import { RollupCards } from "./activity-rollups.js";
@@ -21,14 +23,19 @@ import { PushToggle } from "./push-toggle.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 
 /**
- * The Activity surface: an INDEX of all agent activity — live runs first,
- * then history — with cost/token rollups. Deliberately not a residence:
- * a session run deep-links back into its chat, a subagent into the drill-in
- * stack; only a cron run (which has no chat around it) details here.
+ * The Actions surface (D37): one queue, three lenses — `needs you` (pending
+ * approvals from every transcript, then the inbox), `running` (live runs),
+ * `done` (history and the rollups). "What needs me" and "what has been
+ * happening" are two lenses on one queue, so the rail has one destination
+ * and this page has a filter. Deliberately not a residence: a session run
+ * deep-links back into its chat, a subagent into the drill-in stack; only a
+ * cron run (which has no chat around it) details here.
  *
  * Live rows ride the index-view activity subscription while this surface is
- * open; history and rollups come from the REST activity API.
+ * open; history and rollups come from the REST activity API. The hash stays
+ * `#/activity` — the route is a contract with push notifications.
  */
+export type ActionsLens = "needs-you" | "running" | "done";
 export function ActivityPage() {
   const root = useBrainUiRoot();
   const api = root.api;
@@ -48,6 +55,27 @@ export function ActivityPage() {
   const [pricingStale, setPricingStale] = useState(false);
 
   const inbox = useActivityStore((s) => s.inbox);
+  // Derived from the buffer references, not selected as a fresh array: a
+  // selector returning a new array every call re-renders without end.
+  const buffers = useChatStore((s) => s.buffers);
+  const draft = useChatStore((s) => s.draft);
+  const approvals = useMemo(() => pendingApprovals({ buffers, draft }), [buffers, draft]);
+  const resolveToolApproval = useChatStore((s) => s.resolveToolApproval);
+  /**
+   * The lens the reader picked, or — until they pick one — the one that has
+   * something in it: what needs you, else what is running, else what is
+   * done. A page that opens on an empty "needs you" when a run is live would
+   * be reassurance in the wrong place.
+   */
+  const [picked, setLens] = useState<ActionsLens | null>(null);
+  /**
+   * The receipt for the last decision, shown above the `EmptyState` that
+   * replaces a drained section (D37): a keyboard user is told "that is
+   * done" instead of being dropped at the document top. No undo yet — the
+   * activity API has no un-acknowledge — so the toast states the effect.
+   */
+  const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string } | null>(null);
+  const [drained, setDrained] = useState(false);
   const loadInbox = useActivityStore((s) => s.loadInbox);
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
   const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
@@ -178,12 +206,29 @@ export function ActivityPage() {
     event.preventDefault();
     if (key === "d") {
       const intent = inbox[here];
-      focusAfterDecision(cards[here]!, INTENT_CARD, "[data-activity-heading]");
-      if (intent) void acknowledgeIntent(intent.id);
+      focusAfterDecision(cards[here]!, INTENT_CARD, "[data-needs-you-heading]");
+      if (intent) dismiss(intent);
       return;
     }
     cards[(here + (key === "j" ? 1 : -1) + cards.length) % cards.length]?.focus();
   }
+
+  function dismiss(intent: ActivityIntent) {
+    setReceipt({ text: "Dismissed", target: intent.title, effect: "acknowledge" });
+    setDrained(inbox.length + approvals.length <= 1);
+    void acknowledgeIntent(intent.id);
+  }
+  function decideApproval(key: string | null, toolUseId: string, approved: boolean, always?: boolean) {
+    const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
+    setReceipt({ text: approved ? (always ? "Always allowed" : "Allowed") : "Denied", target: tool ? tool.name : toolUseId, effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial" });
+    setDrained(inbox.length + approvals.length <= 1);
+    resolveToolApproval(key, toolUseId, approved);
+    if (approved) root.connection.send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) });
+    else root.connection.send({ type: "tool_denial", toolUseId, message: "Denied by user" });
+  }
+  const needsYouCount = inbox.length + approvals.length;
+  const runningCount = liveRoots.length + restLive.length;
+  const lens: ActionsLens = picked ?? (needsYouCount > 0 || drained ? "needs-you" : runningCount > 0 ? "running" : "done");
 
   if (detailRunId) {
     return <RunDetail runId={detailRunId} onBack={() => showDetail(null)} />;
@@ -200,7 +245,7 @@ export function ActivityPage() {
       />
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
         <ActivityIcon className="h-4 w-4 text-muted-foreground" />
-        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Activity</h1>
+        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Actions</h1>
         <div className="ml-auto flex items-center gap-2">
           {pricingStale && (
             <button
@@ -231,78 +276,119 @@ export function ActivityPage() {
           <p className="text-xs text-destructive">Could not load activity: {error}</p>
         )}
 
-        {inbox.length > 0 && (
-          <section>
+        <FilterRow
+          items={[
+            { label: `needs you ${needsYouCount}`, onClick: () => setLens("needs-you") },
+            { label: `running ${runningCount}`, onClick: () => setLens("running") },
+            { label: `done ${history.length}`, onClick: () => setLens("done") },
+          ]}
+          active={lens === "needs-you" ? 0 : lens === "running" ? 1 : 2}
+        />
+
+        {lens === "needs-you" && (
+          <section aria-labelledby="needs-you-heading">
             <div className="mb-2 flex items-center">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Needs attention
+              <h2 id="needs-you-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-needs-you-heading="">
+                Needs you
               </h2>
-              <button
-                type="button"
-                onClick={() => void acknowledgeAllIntents()}
-                className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Dismiss all
-              </button>
+              {inbox.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setReceipt({ text: "Dismissed", target: `${inbox.length} items`, effect: "acknowledge" }); setDrained(approvals.length === 0); void acknowledgeAllIntents(); }}
+                  className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Dismiss all
+                </button>
+              )}
             </div>
-            <div className="space-y-2" onKeyDown={onInboxKeyDown}>
-              {inbox.map((intent) => (
-                <div key={intent.id} data-intent-card="">
-                  <IntentCard
-                    intent={intent}
-                    when={formatRelativeTime(intent.createdAt)}
-                    keyHint={keys}
-                    onOpen={() => {
-                      void acknowledgeIntent(intent.id);
-                      openIntent(intent);
-                    }}
-                    onDismiss={() => void acknowledgeIntent(intent.id)}
-                  />
+            {needsYouCount === 0 ? (
+              <div className="flex flex-col gap-3">
+                {receipt && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
+                {/* A drained section becomes the empty state, and its heading
+                    takes focus after the last decision (D37) — never the
+                    document top. */}
+                <EmptyState variant="caught_up" meta="" focusTitle={drained} />
+              </div>
+            ) : (
+              <>
+                {approvals.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {approvals.map(({ key, tool }) => (
+                      <ApprovalCard
+                        key={tool.id}
+                        tool={tool}
+                        origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
+                        keys={keys}
+                        onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
+                      />
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2" onKeyDown={onInboxKeyDown}>
+                  {inbox.map((intent) => (
+                    <div key={intent.id} data-intent-card="">
+                      <IntentCard
+                        intent={intent}
+                        when={formatRelativeTime(intent.createdAt)}
+                        keyHint={keys}
+                        onOpen={() => {
+                          void acknowledgeIntent(intent.id);
+                          openIntent(intent);
+                        }}
+                        onDismiss={() => dismiss(intent)}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {keys && (
-              <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70">
-                j / k move · d dismiss · ⏎ open
-              </p>
+                {keys && (
+                  <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70">
+                    j / k move · d dismiss · ⏎ open{approvals.length > 0 ? " · a allow" : ""}
+                  </p>
+                )}
+              </>
             )}
           </section>
         )}
 
-        {rollups && <RollupCards rollups={rollups} />}
+        {lens === "running" && (
+          <section>
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Running now
+            </h2>
+            {liveRoots.length === 0 && restLive.length === 0 ? (
+              <p className="text-xs text-muted-foreground/70">Nothing is running.</p>
+            ) : (
+              <div className="space-y-1">
+                {liveRoots.map((span) => (
+                  <LiveRow key={span.runId} span={span} onOpen={openRun} />
+                ))}
+                {restLive.map((run) => (
+                  <RunRow key={run.runId} run={run} onOpen={openRun} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
-        <section>
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Running now
-          </h2>
-          {liveRoots.length === 0 && restLive.length === 0 ? (
-            <p className="text-xs text-muted-foreground/70">Nothing is running.</p>
-          ) : (
-            <div className="space-y-1">
-              {liveRoots.map((span) => (
-                <LiveRow key={span.runId} span={span} onOpen={openRun} />
-              ))}
-              {restLive.map((run) => (
-                <RunRow key={run.runId} run={run} onOpen={openRun} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            History
-          </h2>
-          {history.length === 0 ? (
-            <p className="text-xs text-muted-foreground/70">No recorded runs yet.</p>
-          ) : (
-            <div className="space-y-1">
-              {history.map((run) => (
-                <RunRow key={run.runId} run={run} onOpen={openRun} />
-              ))}
-            </div>
-          )}
-        </section>
+        {lens === "done" && (
+          <>
+            {rollups && <RollupCards rollups={rollups} />}
+            <section>
+              <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                History
+              </h2>
+              {history.length === 0 ? (
+                <p className="text-xs text-muted-foreground/70">No recorded runs yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {history.map((run) => (
+                    <RunRow key={run.runId} run={run} onOpen={openRun} />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </div>
     </div>
   );

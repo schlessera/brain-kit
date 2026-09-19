@@ -19,6 +19,7 @@ import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
 import { useChatCommands } from "./use-chat-commands.js";
+import { Button } from "@schlessera/brain-ui-kit";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -243,6 +244,15 @@ export function ChatPage() {
         open={filePanelOpen}
         onClose={() => setFilePanelOpen(false)}
       />
+
+      {/* New chat is the Chat header's primary action (D37): a tab is a place
+          and starting a chat is an act, so it is neither a rail row nor a bar
+          slot. It only appears once there is a conversation to leave. */}
+      {hasMessages && (
+        <div className="flex shrink-0 items-center justify-end px-4 pt-2 md:px-6">
+          <Button label="New chat" icon="compose" tone="ghost" size="sm" block={false} onClick={clearMessages} />
+        </div>
+      )}
 
       {/* Message area */}
       <div className="relative flex-1 overflow-hidden">

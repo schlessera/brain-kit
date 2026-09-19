@@ -1,162 +1,107 @@
 import { useEffect, useRef, useState } from "react";
-import { TabBar, type TabItem } from "@schlessera/brain-ui-kit";
-import {
-  RefreshCw,
-  History,
-  SlidersHorizontal,
-  Waypoints,
-} from "lucide-react";
+import { BottomSheet, ListRow, TabBar, type TabItem } from "@schlessera/brain-ui-kit";
 import { useUIStore } from "../../stores/ui-store.js";
-import { useChatStore } from "../../stores/chat-store.js";
+import { useChatStore, activeChat, pendingApprovals } from "../../stores/chat-store.js";
 import { useActivityStore } from "../../stores/activity-store.js";
+import { useConnectionStore } from "../../stores/connection-store.js";
+import { useChatCommands } from "../chat/use-chat-commands.js";
 
 /**
- * The phone's bottom navigation, on the kit's `TabBar` (S5: the first kit
- * consumer in the app). Five slots, as the design draws them: Chat, New chat,
- * Activity (with the inbox count), Files, More. The kit owns the bar — the
- * roving tab stop, the amber active slot, the badge, the hit targets; this
- * file owns what the slots DO and the More menu, which is app behaviour the
- * kit has no component for.
+ * The phone's bottom navigation, on the kit's `TabBar`. The five slots are
+ * the desktop rail's five destinations with Settings folded into More (D37):
+ * Chat · Actions · Files · Graph · More. Six into five does not go, and the
+ * one you live in least is the one to fold — never one of the four you live
+ * in. New chat is not a slot: a tab is a place and starting a chat is an
+ * act, so it is the Chat header's primary action and a ⌘K command.
  *
- * The menu is a sibling of the bar, anchored above its right edge, rather
- * than a child of the More slot: a kit tab is a leaf and cannot host it.
+ * More is the kit `BottomSheet`, docked over a scrim, holding Settings and
+ * the acts — Sessions, Sync, Daily briefing, Brain statistics — as kit
+ * `ListRow`s. The sheet is a sibling of the bar rather than a child of the
+ * More slot, because a kit tab is a leaf and cannot host it.
  */
 export function MobileTabBar() {
   const activeView = useUIStore((s) => s.activeView);
   const setActiveView = useUIStore((s) => s.setActiveView);
-  const toggleSessionPanel = useUIStore((s) => s.toggleSessionPanel);
-  const toggleSyncPanel = useUIStore((s) => s.toggleSyncPanel);
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
-  const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
-  const clearMessages = useChatStore((s) => s.clearMessages);
+  const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
+  const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
   const inboxCount = useActivityStore((s) => s.inbox.length);
-
-  /** Chat-scoped panels live in the chat page — surface it before opening them. */
-  function inChat(toggle: () => void) {
-    return () => {
-      if (activeView !== "chat") setActiveView("chat");
-      toggle();
-    };
-  }
+  const approvalCount = useChatStore((s) => pendingApprovals(s).length);
+  const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
+  const connected = useConnectionStore((s) => s.wsStatus === "connected");
+  const runCommand = useChatCommands();
+  const needsYou = inboxCount + approvalCount;
 
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!moreOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false);
-    }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setMoreOpen(false);
     }
-    document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
+    // The sheet's first row takes focus; the More slot gets it back on close.
+    moreRef.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
+    return () => document.removeEventListener("keydown", onKey);
   }, [moreOpen]);
+
+  /** An act from the sheet: close it, land on chat, run. */
+  function act(fn: () => void) {
+    return () => {
+      setMoreOpen(false);
+      setActiveView("chat");
+      fn();
+    };
+  }
 
   const items: TabItem[] = [
     { icon: "brain", label: "Chat", onClick: () => setActiveView("chat") },
     {
-      icon: "compose",
-      label: "New chat",
-      onClick: () => {
-        setMoreOpen(false);
-        setActiveView("chat");
-        clearMessages();
-      },
-    },
-    // Activity holds the tab-bar slot; Graph moved into the More menu — the
-    // phone glance-check ("is real work happening?") is the headline flow
-    // and must stay one tap away (planning decision).
-    {
-      icon: "activity",
-      label: "Activity",
-      badge: inboxCount > 0 ? (inboxCount > 9 ? "9+" : String(inboxCount)) : undefined,
+      icon: "resolved",
+      label: "Actions",
+      badge: needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
       onClick: () => setActiveView("activity"),
     },
     { icon: "files", label: "Files", onClick: toggleFilePanel },
+    { icon: "graph", label: "Graph", onClick: () => setActiveView("graph") },
     { icon: "more", label: "More", onClick: () => setMoreOpen((v) => !v) },
   ];
   // The amber slot. -1 is "none", which the kit renders as no active item
   // and still keeps the bar reachable (its stop falls back to the first
   // eligible slot).
-  const active = moreOpen ? 4 : activeView === "chat" ? 0 : activeView === "activity" ? 2 : -1;
+  const active = moreOpen ? 4 : activeView === "chat" ? 0 : activeView === "activity" ? 1 : activeView === "graph" ? 3 : -1;
+  const quiet = connected && !isStreaming;
 
   return (
     <nav
-      ref={moreRef}
       aria-label="Primary"
       className="md:hidden fixed bottom-0 inset-x-0 z-30 pb-[env(safe-area-inset-bottom)]"
       // The safe-area strip below the bar takes the bar's own ground, from the
       // kit's token so it follows the theme.
       style={{ background: "var(--bk-color-surface)" }}
     >
-      <TabBar items={items} active={active} />
       {moreOpen && (
         <div
-          role="menu"
-          className="absolute bottom-full right-2 z-50 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-surface-overlay py-1 shadow-2xl"
+          className="fixed inset-0 z-40 bg-black/60"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setMoreOpen(false);
+          }}
         >
-          <MoreItem
-            icon={Waypoints}
-            label="Graph"
-            onClick={() => {
-              setMoreOpen(false);
-              setActiveView("graph");
-            }}
-          />
-          <MoreItem
-            icon={RefreshCw}
-            label="Sync"
-            onClick={() => {
-              setMoreOpen(false);
-              inChat(toggleSyncPanel)();
-            }}
-          />
-          <MoreItem
-            icon={History}
-            label="History"
-            onClick={() => {
-              setMoreOpen(false);
-              inChat(toggleSessionPanel)();
-            }}
-          />
-          <MoreItem
-            icon={SlidersHorizontal}
-            label="Settings"
-            onClick={() => {
-              setMoreOpen(false);
-              toggleSettingsPanel();
-            }}
-          />
+          <div ref={moreRef} role="dialog" aria-label="More" className="absolute inset-x-0 bottom-0">
+            <BottomSheet title="More" subtitle="Settings, and the things you run rather than visit." docked>
+              <div className="flex flex-col">
+                <ListRow variant="group" icon="settings" iconTone="neutral" title="Settings" chevron onClick={() => { setMoreOpen(false); setSettingsPanelOpen(true); }} />
+                <ListRow variant="group" icon="history" iconTone="blue" title="Sessions" subtitle="Resume an earlier conversation" chevron onClick={act(() => setSessionPanelOpen(true))} />
+                <ListRow variant="group" icon="repeat" iconTone="amber" title="Sync the brain" subtitle={quiet ? "Pull and push the repository" : "needs the host"} value={quiet ? "sync" : undefined} valueTone="amber" onClick={quiet ? act(() => runCommand("sync")) : undefined} />
+                <ListRow variant="group" icon="sunrise" iconTone="gold" title="Daily briefing" subtitle={quiet ? "What happened since you looked" : "needs the host"} onClick={quiet ? act(() => runCommand("whatsup")) : undefined} />
+                <ListRow variant="group" icon="ledger" iconTone="neutral" title="Brain statistics" subtitle={quiet ? "Documents, tags and links" : "needs the host"} last onClick={quiet ? act(() => runCommand("stats")) : undefined} />
+              </div>
+            </BottomSheet>
+          </div>
         </div>
       )}
+      <TabBar items={items} active={active} />
     </nav>
-  );
-}
-
-function MoreItem({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: typeof Waypoints;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      role="menuitem"
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
-    >
-      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-      {label}
-    </button>
   );
 }
