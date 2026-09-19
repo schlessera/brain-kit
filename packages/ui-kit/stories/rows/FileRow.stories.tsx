@@ -168,3 +168,57 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector("[aria-selected]")).toBeNull();
   },
 });
+
+/**
+ * ← / → FOLD, AND THEY ARE PRINTED. The ARIA tree pattern requires them and
+ * the kit's rule is that a bound key is printed where it applies — the D3
+ * footer reads `← → fold`. An unadvertised key is one nobody uses; an
+ * advertised key that does nothing is worse, so they ship together (sixth
+ * drop, ruling 8). → on a closed folder opens it; ← on an open one closes it.
+ */
+export const Folded = meta.story({
+  args: { kind: "folder", label: "voyage", badge: undefined, meta: "612", onFold: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const row = await canvas.findByRole("treeitem");
+    row.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(args.onFold).toHaveBeenCalledWith(true);
+    // ← on a CLOSED folder is not in the design's table: it does not climb.
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect(args.onFold).toHaveBeenCalledTimes(1);
+  },
+});
+
+export const Unfolded = meta.story({
+  args: { kind: "open", label: "omens", onFold: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const row = await canvas.findByRole("treeitem");
+    row.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect(args.onFold).toHaveBeenCalledWith(false);
+    // → on an OPEN folder does not descend into its children.
+    await userEvent.keyboard("{ArrowRight}");
+    await expect(args.onFold).toHaveBeenCalledTimes(1);
+  },
+});
+
+/** A file has nothing to fold, and a row without `onFold` binds nothing —
+ * the arrow keys fall through untouched. */
+export const NothingToFold = meta.story({
+  args: { kind: "file", label: "day-3651-eagle.md", depth: 1, badge: undefined, meta: "1d", onFold: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const row = await canvas.findByRole("treeitem");
+    row.focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowLeft}");
+    await expect(args.onFold).not.toHaveBeenCalled();
+  },
+});
+
+/** The name carries itself as a `title`: the row OPENS the record, so the
+ * ellipsis is allowed, and a pointer user never has to click to read it. */
+export const NameCarriesATitle = meta.story({
+  args: { kind: "file", label: "the-swineherd-reports-an-eagle-over-the-hall-at-first-light.md", depth: 1, badge: undefined },
+  play: async ({ canvasElement, args }) => {
+    await expect(canvasElement.querySelector(`[title="${args.label}"]`)).not.toBeNull();
+  },
+});

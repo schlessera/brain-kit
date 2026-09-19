@@ -145,7 +145,9 @@ export const VathyHasStreets = Default.extend({
     const lines = [...canvasElement.querySelectorAll<SVGPolylineElement>("polyline")];
     const widths = new Set(lines.map((l) => l.getAttribute("stroke-width")));
     await expect(widths.size).toBe(3);
-    await expect(lines.length).toBeGreaterThan(150);
+    // 118 streets inside the 1.5 x 1.0 envelope (159 under the old square
+    // bleed): the bar is "a block of streets", not the exact count.
+    await expect(lines.length).toBeGreaterThan(100);
     await expect(canvasElement.textContent).toContain("OpenStreetMap");
   },
 });
@@ -386,5 +388,30 @@ export const PinsTrackTheGeometryAtAnyWidth = meta.story({
     // And the pin is at a real position, not both pinned to an edge.
     await expect(narrow.pin).toBeGreaterThan(0.1);
     await expect(narrow.pin).toBeLessThan(0.9);
+  },
+});
+
+/**
+ * THE VIEWPORT IS CLAMPED TO 110-260px, whatever `height` says.
+ *
+ * Aspect is bounded so the server's geometry envelope can be too: a card is
+ * at most 420px wide and its viewport runs 110-260px tall. The widest card
+ * (420x110) draws 1.24x the span across and 0.32x down; the tallest (420x260)
+ * draws 0.77x down. An envelope of 1.5x wide and 1.0x tall therefore covers
+ * every card that can exist — but only if no caller can ask for a viewport
+ * outside it, which is what these two assert. A screen that passed 88 now
+ * renders at 110.
+ */
+export const HeightIsClamped = meta.story({
+  render: (args) => (
+    <>
+      <MapView {...args} height={40} />
+      <MapView {...args} height={400} />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    const viewports = [...canvasElement.querySelectorAll('svg[preserveAspectRatio="none"]')].map((svg) => svg.parentElement!);
+    await expect(viewports).toHaveLength(2);
+    await expect(viewports.map((el) => getComputedStyle(el).height)).toEqual(["110px", "260px"]);
   },
 });

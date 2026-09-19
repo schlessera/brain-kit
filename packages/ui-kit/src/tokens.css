@@ -359,16 +359,28 @@
   --bk-action-border-dashed-red: light-dark(rgba(156,42,36,0.5), rgba(248,113,113,0.45));
   --bk-action-border-dashed-neutral: light-dark(rgba(95,88,76,0.5), rgba(154,150,161,0.45));
 
-  /* AskUserCard. The card's hairline and its uppercase mono heading are the
-   * chosen accent at 30% and 85%. The 85% is the one place in the kit a
-   * FOREGROUND comes from alpha; it is the design's value, and the a11y wave
-   * should measure it at 10px rather than assume it passes. */
+  /* AskUserCard. The card's hairline is the chosen accent at 30%, and its
+   * uppercase mono heading is the accent itself: the sixth drop dropped the
+   * 85% alpha that used to be the one FOREGROUND in the kit taken from alpha.
+   * A `typed` card — answered in the composer rather than on the card — goes
+   * neutral at 35%: the exchange closed, but not through this card. The answer
+   * row's own hairline is the accent at 25%; typed uses `edge`. */
   --bk-ask-border-amber: light-dark(rgba(127,76,8,0.35), rgba(224,159,62,0.3));
   --bk-ask-border-teal: light-dark(rgba(21,89,76,0.35), rgba(91,181,162,0.3));
   --bk-ask-border-purple: light-dark(rgba(93,68,137,0.35), rgba(177,151,212,0.3));
-  --bk-ask-head-amber: light-dark(rgba(127,76,8,0.85), rgba(224,159,62,0.85));
-  --bk-ask-head-teal: light-dark(rgba(21,89,76,0.85), rgba(91,181,162,0.85));
-  --bk-ask-head-purple: light-dark(rgba(93,68,137,0.85), rgba(177,151,212,0.85));
+  --bk-ask-border-neutral: light-dark(rgba(95,88,76,0.4), rgba(154,150,161,0.35));
+  --bk-ask-answer-border-amber: light-dark(rgba(127,76,8,0.3), rgba(224,159,62,0.25));
+  --bk-ask-answer-border-teal: light-dark(rgba(21,89,76,0.3), rgba(91,181,162,0.25));
+  --bk-ask-answer-border-purple: light-dark(rgba(93,68,137,0.3), rgba(177,151,212,0.25));
+  /* The region a user drew over an image, on the mask receipt (catalog §13).
+   * Teal because the region is the user's own answer; 28% so the hatched
+   * source still shows through it. A `fill`, not a `tint`: nothing is ever
+   * set in ink on it — the size chip sits on its own well — so the ink-mute-
+   * over-tint floor does not apply, and the count in `contrast.test.ts` does
+   * not include it. The receipt is composition — Surface, Receipt, Callout —
+   * so this is reached for from the story that composes it rather than from
+   * a component. */
+  --bk-mask-region-fill: rgba(91,181,162,0.28);
 
   /* NotificationCard is the only component that renders OVER something it does
    * not own — a lock screen — so its three grounds are translucent and it is
@@ -1035,17 +1047,20 @@
   outline-offset: -2px;
 }
 
-/* The real inputs inside a `.bk-field`: the composer's textarea and the
- * palette's query. Each suppresses its own ring, because the field shows it,
- * and paints its placeholder in mute ink at full opacity, because a browser's
- * default placeholder is a colour the kit never chose. */
+/* The real inputs inside a `.bk-field`: the composer's textarea, the
+ * palette's query and AskUserCard's "Other" answer. Each suppresses its own
+ * ring, because the field shows it, and paints its placeholder in mute ink at
+ * full opacity, because a browser's default placeholder is a colour the kit
+ * never chose. */
 .bk-composer,
-.bk-palette-query {
+.bk-palette-query,
+.bk-ask-other {
   outline: none;
 }
 
 .bk-composer::placeholder,
-.bk-palette-query::placeholder {
+.bk-palette-query::placeholder,
+.bk-ask-other::placeholder {
   color: var(--bk-color-ink-mute);
   opacity: 1;
 }

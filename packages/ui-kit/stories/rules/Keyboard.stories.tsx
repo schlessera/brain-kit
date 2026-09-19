@@ -88,7 +88,7 @@ export const TheWholeTable = meta.story({
       {/* ListRow — role=button, ⏎ */}
       <ListRow title="First light tomorrow" value="05:30" variant="card" onClick={fn()} />
 
-      {/* FileRow — role=treeitem, inside the tree its role requires */}
+      {/* FileRow — role=treeitem, ⏎ · ←→ fold, inside the tree its role requires */}
       <div role="tree" aria-label="Corpus">
         <FileRow label="omens" kind="open" meta="86" onClick={fn()} />
       </div>

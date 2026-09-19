@@ -122,9 +122,12 @@ export function InlineToast(p: InlineToastProps) {
           minWidth: 0,
           font: `500 11px/1.45 ${font.mono}`,
           color: ink,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          // A receipt IS the record, so its target wraps rather than
+          // ellipsising — unlike a row that opens something, where the full
+          // value is one click away. Half a filename on a receipt is an
+          // unciteable receipt.
+          overflowWrap: "anywhere",
+          whiteSpace: "normal",
         }}
       >
         {p.text ?? "Filed"}

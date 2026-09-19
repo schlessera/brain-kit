@@ -18,6 +18,7 @@ export "." (./src/index.ts)
   AskUserCard
   type AskUserCardProps
   type AskUserOption
+  type AskUserState
   type AttachmentKind
   AttachmentRow
   type AttachmentRowProps

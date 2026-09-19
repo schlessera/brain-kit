@@ -125,7 +125,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
         {/* The design's own defaults for this component name a real company and
             quote its rates. Replaced with this world's, which is the standing
             rule for fixture content and applies to a runtime fallback too. */}
-        <span style={pathStyle}>{p.path ?? "knowledge/scylla.md"}</span>
+        <span style={pathStyle} title={p.path ?? "knowledge/scylla.md"}>{p.path ?? "knowledge/scylla.md"}</span>
         {/* `score` carries a fallback in the source, so an unset score still
             renders one — it is content the card cannot be understood without,
             which is the design's own test for which props get a fallback. */}

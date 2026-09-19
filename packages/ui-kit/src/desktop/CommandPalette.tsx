@@ -389,6 +389,7 @@ export function CommandPalette(p: CommandPaletteProps) {
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                       }}
+                      title={it.label}
                     >
                       {it.label}
                     </span>

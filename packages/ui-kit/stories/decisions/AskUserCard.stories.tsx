@@ -184,3 +184,124 @@ export const AnUnansweredQuestionIsStillReachable = meta.story({
     await expect(document.activeElement).toBe(group.querySelector('[role="radio"]'));
   },
 });
+
+/* ── The three states of the exchange (sixth drop) ─────────────────────── */
+
+/** No opacity anywhere in the card: a past question is not lower-contrast,
+ * it is answered. Read off the rendered tree so a fade on any wrapper fails. */
+async function expectFullContrast(root: HTMLElement) {
+  for (const el of [root, ...root.querySelectorAll<HTMLElement>("*")]) {
+    await expect(`${el.tagName.toLowerCase()} opacity ${getComputedStyle(el).opacity}`).toBe(
+      `${el.tagName.toLowerCase()} opacity 1`,
+    );
+  }
+}
+
+/**
+ * ANSWERED. The chosen answer, checked and in the accent, with when. The
+ * options are GONE, not dimmed — the alternatives were never the record, the
+ * decision was — and so are the buttons. The card keeps its tinted border so
+ * the exchange is still findable by scanning colour.
+ */
+export const AnsweredState = meta.story({
+  args: {
+    state: "answered",
+    prompt: undefined,
+    answer: askOptions[0].title,
+    answerMeta: "you chose this · 2m ago",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    await expect(canvas.queryByRole("radiogroup")).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvas.queryByText("Submit")).toBeNull();
+    await expect(canvas.getByText(askOptions[0].title)).toBeInTheDocument();
+    await expect(canvas.getByText("Answered")).toBeInTheDocument();
+    await expectFullContrast(canvasElement);
+  },
+});
+
+/**
+ * TYPED. The user answered in the composer instead of picking, so the agent
+ * bound that message to the question and the card quotes what it took. Dropping
+ * the card would leave the transcript claiming the question was never
+ * answered; leaving it pending would ask twice. Neutral border: the exchange
+ * closed, but not through this card.
+ */
+export const TypedState = meta.story({
+  args: {
+    state: "typed",
+    prompt: undefined,
+    answer: "“file it with the omens, and tell Eumaeus”",
+    answerMeta: "taken from your next message · 2m ago",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.queryByRole("radio")).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvas.queryByText("Dismiss")).toBeNull();
+    await expect(canvas.getByText("Answered in the composer")).toBeInTheDocument();
+    await expect(canvas.getByText("“file it with the omens, and tell Eumaeus”")).toBeInTheDocument();
+    await expectFullContrast(canvasElement);
+  },
+});
+
+/** Pending is the default, and it keeps full contrast too — the three states
+ * differ in what they show, never in how loud they are. */
+export const PendingState = meta.story({
+  args: { state: "pending" },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+    await expect(canvas.getAllByRole("button")).toHaveLength(2);
+    await expectFullContrast(canvasElement);
+  },
+});
+
+/**
+ * "OTHER" OPENS A REAL FIELD in place of the Submit row rather than a modal:
+ * a free-text answer is the same exchange, not a new one. Enter submits the
+ * text through `onOtherSubmit`. The field only exists while pending — a closed
+ * exchange takes no answer.
+ */
+export const OtherOpen = meta.story({
+  args: { otherOpen: true, otherPlaceholder: "Type where it should go…", onOtherSubmit: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const input = await canvas.findByRole("textbox", { name: "Your own answer" });
+    await expect(input).toHaveAttribute("placeholder", "Type where it should go…");
+    // The Submit row gave its place to the field.
+    await expect(canvas.queryByText("Submit")).toBeNull();
+    await expect(canvas.queryByText("Dismiss")).toBeNull();
+    // The options are still there: the field is an answer, not a state change.
+    await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+
+    await userEvent.type(input, "put it with the other omens{Enter}");
+    await expect(args.onOtherSubmit).toHaveBeenCalledWith("put it with the other omens");
+  },
+});
+
+/** `otherOpen` on a closed exchange draws nothing: the field belongs to the
+ * pending state alone. */
+export const OtherIgnoredOnceAnswered = meta.story({
+  args: { state: "answered", otherOpen: true, answer: askOptions[0].title },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByRole("textbox")).toBeNull();
+  },
+});
+
+/** The three states stacked, the way the catalog's §13 shows them. */
+export const ThreeStates = meta.story({
+  parameters: wide,
+  render: (args) => (
+    <>
+      <AskUserCard {...args} id="pending" otherOpen />
+      <AskUserCard {...args} id="answered" state="answered" prompt={undefined} answer={askOptions[0].title} answerMeta="you chose this · 2m ago" />
+      <AskUserCard
+        {...args}
+        id="typed"
+        state="typed"
+        prompt={undefined}
+        answer="“file it with the omens, and tell Eumaeus”"
+        answerMeta="taken from your next message · 2m ago"
+      />
+    </>
+  ),
+});

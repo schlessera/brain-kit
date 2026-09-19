@@ -242,7 +242,12 @@ export function MapView(p: MapViewProps) {
   }, []);
 
   const W = measured ?? (Number(p.width) || 330);
-  const H = Number(p.height) || 170;
+  // Aspect is bounded so the server's geometry envelope can be too: a card is
+  // at most 420px wide and its viewport runs 110-260px tall. The widest card
+  // (420x110) draws 1.24x the span across and 0.32x down; the tallest
+  // (420x260) draws 0.77x down. An envelope of 1.5x wide and 1.0x tall
+  // therefore covers every card that can exist.
+  const H = Math.max(110, Math.min(260, Number(p.height) || 170));
 
   if (p.pins && !Array.isArray(p.pins)) warnOnce("MapView: `pins` is not an array; the single-pin fallback will draw instead.");
   if (p.paths && !Array.isArray(p.paths)) warnOnce("MapView: `paths` is not an array; no route will draw.");

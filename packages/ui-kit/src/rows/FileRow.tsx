@@ -69,6 +69,9 @@ export interface FileRowProps {
   /** Makes the error state's retry real. See the note above. */
   onStateAction?: () => void;
   onClick?: () => void;
+  /** → on a closed folder calls `onFold(true)`; ← on an open one calls
+   * `onFold(false)`. Bound only when passed, and only on a `treeitem`. */
+  onFold?: (open: boolean) => void;
 }
 
 const TONES: Record<Tone, string> = {
@@ -146,18 +149,26 @@ export function FileRow(p: FileRowProps) {
     color: p.metaTone ? TONES[p.metaTone] : color.inkMute,
   };
 
-  // The design's key table also gives FileRow ←→ to fold, which this component
-  // has no callback for: `kind` is a prop, and there is no `onToggle` in the
-  // source's prop table to route an arrow key to. Adding one would widen the
-  // API during a port, so it is recorded in `.plan/PLAN.md` for the wave that
-  // builds the tree rather than invented here. ↑↓ and Home/End move between
-  // the sibling rows of whatever container the caller stacked them in (the
-  // fourth drop's answer to design-feedback §11: "Home / End wherever a
-  // roving tab stop exists … and the file tree").
+  // ←→ fold. The sixth drop's ruling: "Bind ← / → and print them. The ARIA
+  // tree pattern requires them and the kit's rule is that a bound key is
+  // printed where it applies… An unadvertised key is one nobody uses; an
+  // advertised key that does nothing is worse — so they ship together." So
+  // the D3 footer's `← → fold` and this binding are one feature. Only the two
+  // cells of the design's table exist: → opens a closed folder, ← closes an
+  // open one. → on an open folder does not descend and ← on a file does not
+  // climb to its parent — neither is in the table, so neither is bound. ↑↓
+  // and Home/End move between the sibling rows of whatever container the
+  // caller stacked them in (the fourth drop's answer to design-feedback §11:
+  // "Home / End wherever a roving tab stop exists … and the file tree").
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       p.onClick?.();
+      return;
+    }
+    if (p.onFold && ((event.key === "ArrowRight" && kind === "folder") || (event.key === "ArrowLeft" && open))) {
+      event.preventDefault();
+      p.onFold(event.key === "ArrowRight");
       return;
     }
     const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
@@ -185,7 +196,10 @@ export function FileRow(p: FileRowProps) {
         size={isFolder ? 16 : 14}
         color={open ? token("file-icon-open") : active ? accent.amber.ink : color.inkMute}
       />
-      <span style={nameStyle}>{p.label ?? "notes"}</span>
+      {/* The row OPENS the record, so the ellipsis is allowed — and the full
+       * name rides along as a `title`, so a pointer user never has to click
+       * to read it. */}
+      <span style={nameStyle} title={p.label ?? "notes"}>{p.label ?? "notes"}</span>
       {p.badge ? <Chip label={p.badge} variant="count" tone="red" /> : null}
       {p.flag ? <StatusDot tone={p.flag} pulse={false} size={6} /> : null}
       {p.meta ? <span style={metaStyle}>{p.meta}</span> : null}

@@ -148,7 +148,7 @@ export function ListRow(p: ListRowProps) {
     >
       {p.icon ? <Icon icon={p.icon} size={Number(p.iconSize) || (v === "launcher" ? 19 : 17)} color={tone} /> : null}
       <span style={textWrap}>
-        <span style={titleStyle} id={titleId}>{p.title ?? "Tomorrow morning"}</span>
+        <span style={titleStyle} id={titleId} title={p.title ?? "Tomorrow morning"}>{p.title ?? "Tomorrow morning"}</span>
         {p.subtitle ? <span style={subStyle}>{p.subtitle}</span> : null}
       </span>
       {p.value ? <span style={valueStyle}>{p.value}</span> : null}

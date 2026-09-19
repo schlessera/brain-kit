@@ -3,7 +3,7 @@ import { expect, fn } from "storybook/test";
 
 import { toasts } from "../../fixtures/actions.js";
 import { InlineToast } from "../../src/conversation/InlineToast.js";
-import { stage, wide } from "../_stage.js";
+import { overflowing, stage, wide } from "../_stage.js";
 
 const meta = preview.meta({
   title: "Conversation/InlineToast",
@@ -122,5 +122,29 @@ export const Static = meta.story({
     await expect(canvas.queryByRole("button")).toBeNull();
     await expect(canvasElement.querySelector(".bk-undo")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+  },
+});
+
+/**
+ * A RECEIPT IS THE RECORD, so its target wraps rather than ellipsising —
+ * unlike a row that opens something, where the full value is one click away.
+ * Half a filename on a receipt is an unciteable receipt, so the long path here
+ * has to be fully on screen: nothing clipped, nothing past the edge, and the
+ * effect chip and Undo still beside it.
+ */
+export const LongTargetWraps = meta.story({
+  args: {
+    text: "Filed",
+    target: "voyage/ithaca/omens/day-3651-eagle-over-the-hall-reported-by-the-swineherd-at-first-light.md",
+    effect: "write_note",
+  },
+  play: async ({ canvas, canvasElement, args }) => {
+    const toast = canvasElement.querySelector<HTMLElement>('[aria-live="polite"]')!;
+    await expect(overflowing(toast)).toEqual([]);
+    const text = canvas.getByText(args.target!).parentElement!;
+    await expect(getComputedStyle(text).textOverflow).not.toBe("ellipsis");
+    await expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth + 1);
+    // Wrapped, so the line box is taller than one line.
+    await expect(text.getBoundingClientRect().height).toBeGreaterThan(20);
   },
 });

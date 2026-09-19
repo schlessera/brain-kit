@@ -131,7 +131,7 @@ export function TraceSteps(p: TraceStepsProps) {
               {rail ? <span style={markerStyle}>{MARKS[st] || MARKS.done}</span> : null}
               {rail ? null : <StatusDot tone={DOTS[st] || "teal"} pulse={live} size={6} />}
               <b style={toolStyle}>{s.tool}</b>
-              <span style={textStyle}>{s.text ? ` ${s.text}` : ""}</span>
+              <span style={textStyle} title={s.text}>{s.text ? ` ${s.text}` : ""}</span>
               {s.time ? <span style={{ flex: "none", color: color.inkMute }}>{s.time}</span> : null}
             </div>
             {s.output ? <div style={outputStyle}>{s.output}</div> : null}

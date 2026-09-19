@@ -82,6 +82,11 @@ export function overflowing(container: HTMLElement, selector = "*"): string[] {
     out.push(`content is ${container.scrollWidth}px wide inside a ${container.clientWidth}px box`);
   }
   for (const el of container.querySelectorAll<HTMLElement>(selector)) {
+    // Content inside an <svg> is clipped to the svg's own viewport by default,
+    // so a polyline whose geometry runs past the map card cannot escape the
+    // frame; the <svg> element itself is still measured. MapView's paths are
+    // fetched wider than the card on purpose (the 1.5 x 1.0 envelope).
+    if ((el as unknown as { ownerSVGElement?: unknown }).ownerSVGElement) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0) continue;
     const name = `<${el.tagName.toLowerCase()}>${(el.textContent ?? "").trim().slice(0, 24)}`;
