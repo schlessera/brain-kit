@@ -1,6 +1,35 @@
-# Design-file fetch — re-fetched 2026-09-18
+# Design-file fetch — re-fetched 2026-09-19
 
-All 66 files of the 2026-09-18 drop are on disk. Nothing outstanding.
+All 66 files are on disk (same 66 paths as the 2026-09-18 drop; the fifth drop
+changed ten of them in place). Nothing outstanding.
+
+## Fifth pass, 2026-09-19 — the desktop screens and the navigation answers
+
+Re-fetched after the maintainer forwarded the fifth round of questions. **Ten
+files changed**: `README.md` (new sections: Navigation: five destinations,
+The palette's contents, The composer is kit-owned, Snooze and the third
+button, Focus after the last decision, The off switch, Location fixes, Three
+values the palette owed, One closing row per answer; the Desktop section now
+lists six layouts), `Brain Kit Desktop.dc.html` (21 KB → 49 KB: D3 Files, D4
+Activity-as-Actions-lens, D5 Settings, D6 Graph, D7 scale-up rules — the
+1440/1280 pane rule), `Brain Kit.dc.html` (§11 keys table: `a / d` while
+focused, `s` only if nothing blocks; §12 chat screen ends in SuggestionChips;
+weekly review carries an InlineToast; TabBar `active=1`), `Brain Kit
+Light.dc.html` (neutral fill `#a59d8f` stated; `well-on-fill` is
+`rgba(255,255,255,.28)` in both themes), `CommandPalette` (real `<input>`,
+`cost` and `why` rows, scrolling list, aria-modal), `Composer` (kit-owned:
+`state`, provider chip, recall chips, attach menu, stop), `MapView`
+(`accuracyM` ring, `note` inside the card, `maxWidth` 420, span
+`max(1.6, 6×accuracy)`), `SideRail` / `TabBar` (Chat · Actions · Files ·
+Graph · Settings/More), `Toggle` (comment only: no fallback name). Digested
+in `design/desktop.md` and `design-feedback.md` ("The fifth drop"); decided as
+D37.
+
+**Harvest trap found this pass:** the extractor reads the persisted
+`tool-results/` first and the transcript second, so an OLDER inline copy of a
+file in the transcript overwrites a NEWER persisted one. After running it,
+re-apply the persisted results (newest by mtime) on top. The three catalogs
+are the files this bites, because they are the ones large enough to persist.
 
 **Where:** a `design-import/design/` directory under the session's own
 project directory outside the repo (the path is in the session's environment

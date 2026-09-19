@@ -633,6 +633,31 @@ Sequenced after the component waves but **before** step 2. Not optional.
       (`brain-single-key-shortcuts`); modifier shortcuts are not governed by
       it. `s` (snooze) has no app action yet and is not bound
 
+### Wave 9 — the fifth drop: the desktop is drawn, the navigation is settled (D37)
+- [x] Kit: `CommandPalette` real input, `cost`/`why` rows, scrolling list
+- [x] Kit: `MapView` `accuracyM` ring, `note`, `maxWidth`, span rule
+- [x] Kit: `Composer` kit-owned — `state`, provider chip, recall chips,
+      attach menu, stop, offline reason
+- [x] Kit: `TabBar` / `SideRail` defaults and fixtures are the five
+      destinations; the §12 chat screen ends in `SuggestionChips`; the weekly
+      review carries the `InlineToast` receipt; screens' `TabBar` active is
+      Actions
+- [x] Kit: visual baselines regenerated in the container after the above
+- [x] App: rail and phone bar re-mapped (Chat · Actions · Files · Graph ·
+      Settings / More); More is the kit `BottomSheet` with Settings and the
+      acts; New chat moves to the Chat header and the palette
+- [x] App: Activity → Actions with `needs you · running · done`; pending
+      approvals listed beside the inbox; the drained section becomes
+      `EmptyState` with the receipt above it
+- [x] App: palette regrouped Jump to · Ask · Run, cost chip, disabled rows
+      with the reason, real input
+- [x] App: composer on the kit `Composer` with an app-owned attach sheet
+- [x] App: location card passes `accuracyM` / `note` through; own span rule
+      and note line removed
+- [x] App: Settings › Input as D5 draws it (`ListRow` toggles + the banner)
+- [ ] App: desktop layouts D3–D6 and the 480/900/1280 ladder (Files, Actions,
+      Settings, Graph); the 1440 four-pane rule
+
 ## Open questions
 
 - [x] Does the catalog's foundations section introduce a light theme beyond

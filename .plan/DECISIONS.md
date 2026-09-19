@@ -1827,3 +1827,39 @@ reach the edges of every roving group (`focusEdge`, beside `focusSibling`),
 and the printed keys are ordinary label text. The kit does not bind `a`, `d`,
 `s`, `j` or `k` itself: which card is "focused" for the purpose of a letter
 key is the list's knowledge, not the card's.
+
+
+## 2026-09-19 — D37: five destinations everywhere, and the desktop is drawn
+
+The fifth drop answered the eleven questions the maintainer forwarded
+(`design-feedback.md`, "The fifth drop"; the pane spec is in
+`design/desktop.md`). The decisions that bind the app:
+
+1. **The destinations are Chat · Actions · Files · Graph · Settings**, ⌘1–⌘5,
+   on the rail and the phone bar alike. Activity is the `done` lens of
+   Actions (`needs you · running · done`), not a place; the Activity page
+   becomes the Actions page with the filter, inbox pinned above the run log.
+   Graph is a destination. The phone bar folds Settings into More, which is
+   the kit `BottomSheet` holding Settings and the acts. New chat is the Chat
+   header's primary action and a palette row, never a slot. This supersedes
+   the S7 rail mapping (Chat · Activity · Files · Graph · Settings) and the
+   phone bar's New chat slot.
+2. **A four-pane screen needs 1440.** 1280 gets rail + list + detail. The
+   ladder's 480/900/1280 defaults stand; above 480 the rail may be collapsed
+   by the user and it sticks.
+3. **The palette groups by what ⏎ does** (Jump to · Ask · Run), spending is
+   an effect (a gold cost chip), and an unservable command is disabled with
+   its reason rather than omitted. The query is a real input.
+4. **The composer is kit-owned.** The app's `ComposerView` retires; the app
+   keeps only the attach sheet, the provider list and the handlers.
+5. **No snooze on a blocking approval**; "Always allow" has no key.
+6. **Focus after the last decision in a list goes to the `EmptyState` heading
+   that replaces the section, with the `InlineToast` receipt above it**; the
+   composer in a transcript. The page heading is a fallback only where no
+   empty state can exist.
+7. **Location:** the kit `MapView` owns the span rule, the accuracy ring,
+   the note and the 420px cap; the app passes the payload through.
+8. **One closing row per answer:** chips while live, `FeedbackRow` later.
+
+Not followed: ⌘N for New chat (the browser owns it; no key is printed), and
+undo on the inbox receipt until the activity API can un-acknowledge.

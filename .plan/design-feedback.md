@@ -1174,3 +1174,119 @@ Recorded, not blocking:
 All twenty visual baselines regenerated in the container: the ink move
 touches every dark screenshot. 544 stories on dark, 544 on paper, no
 exceptions left in either project.
+
+
+---
+
+# The fifth drop — 2026-09-19, the desktop and the navigation
+
+The maintainer forwarded eleven questions (the desktop ladder, the rail's
+five, the palette's contents, the location map, snooze, focus after the last
+decision, the off switch, the composer, the More menu, three palette values,
+and where §10's components belong). The design answered all eleven in one
+drop. Statuses, and what the kit and the app do about each:
+
+## 1. Desktop screens for Files, Activity and Settings — DRAWN
+
+`Brain Kit Desktop.dc.html` D3–D6, all at 1440 or 1280, and D7 restates the
+ladder with one new rule: **a four-pane screen needs 1440**; at 1280 a screen
+gets rail + list + detail only. Pane contents per screen are in
+`design/desktop.md`. Files' evidence rail holds frontmatter (`Receipt`) then
+backlinks (`RelatedFiles`) then provenance (`Callout mono`); Activity is the
+Actions pane on its `done` filter with the run's `TraceSteps(list)` on the
+right; Settings is a 216px section column with the form at a 720 measure;
+Graph keeps the app's WebGL canvas and takes kit controls, a `ContactCard`
+node card and an `EmptyState` whose emptiness is a finding.
+
+## 2. The rail's five — ANSWERED: Chat · Actions · Files · Graph · Settings
+
+Activity is not a destination: it is the `done` lens of Actions, whose
+`FilterRow` is `needs you · running · done`. Actions keeps its own pane even
+though approvals also appear inline — the transcript copy and the Actions row
+are the same item in two places, and resolving either resolves both. Graph is
+a destination, not a Files mode, and ⌘K reaches it too. The phone bar is the
+same five with Settings folded into More (a kit `BottomSheet`, docked, holding
+Settings plus the acts: Sessions, Sync, Daily briefing, Brain statistics).
+New chat is not a slot: it is the primary action in the Chat header and a ⌘K
+command. **App consequence:** the Activity page becomes the Actions page with
+the filter; the rail and the bar re-map; the More menu becomes a sheet.
+
+## 3. The palette's contents — ANSWERED, with two new row kinds
+
+Groups are what ⏎ *does*: Jump to (New chat, Sessions, a file, a graph view),
+Ask (Search, Statistics, a question), Run (Sync, Daily briefing, Add a note).
+Sync carries `effect: sync`; the briefing carries a **cost chip** `~$0.12`
+(spending is an effect even when nothing is written); Add a note is bare. A
+command the host cannot serve is **shown disabled with the mono reason**,
+never omitted. The query is a **real `<input>`**. Kit: `PaletteItem.cost`,
+`PaletteItem.why`, `onQueryChange`, scrolling list, combobox semantics.
+
+## 4. The location map — ANSWERED
+
+Span = `max(1.6 km, 6 × accuracy)`, stated as a max. The uncertainty is drawn
+as a ring at true scale (10% amber fill, 45% hairline), not below 14px
+across. `note` renders inside the card under a hairline, in Jakarta. 420px
+cap confirmed as `maxWidth`. Kit: `MapView.accuracyM`, `note`, `maxWidth`.
+The app's own `spanFor`, note line and wrapper go.
+
+## 5. Snooze — ANSWERED: none on a blocking approval
+
+Blocking kinds (`approval`, `choose`, `dead-letter`, `quarantined`): `a` / `d`
+only; the third button is "Always allow", which **deliberately has no key**
+(a letter that grants standing permission by reflex is the one footgun in the
+vocabulary) and prints its `write_policy` effect chip instead. Non-blocking
+kinds (`fyi`, `suggestion`, `unverified`): `a` · `d` · `s`. The kit's keys
+table now reads `a / d while focused · s only if nothing blocks`.
+
+## 6. Focus after the last decision — ANSWERED, one correction to the app
+
+Transcript → the composer (confirmed). A list or inbox section → the section
+is **replaced by `EmptyState` and its heading takes focus, with the
+`InlineToast` receipt above it**; the page heading is the fallback only where
+no empty state can exist. The app's inbox currently drops to the page
+heading and must change.
+
+## 7. The off switch — CONFIRMED, one ruling
+
+Settings › **Input**, beside Appearance, kit `Toggle`, the copy as shipped.
+When off, the printed keys disappear (as shipped). D5 draws the Input section
+as a `Surface` of group `ListRow`s with toggles plus a neutral banner
+`Callout` explaining the rule.
+
+## 8. The composer — ANSWERED: kit-owned
+
+Row order attach · field · mic · send/stop; capture is a **menu** behind
+attach; the provider picker is a mono chip in the hint line; recall chips sit
+above the field; `state` (ready · streaming · reconnecting · offline) drives
+placeholder, hint and the trailing control together, with the offline reason
+printed and the draft kept. Kit: `Composer.state`, `provider`/`onProvider`,
+`recall`/`onRecallRemove`, `onStop`, `blockedWhy`. The app's own
+`ComposerView` retires in favour of the kit component plus an app-owned
+attach sheet.
+
+## 9. The More menu — ANSWERED: the kit `BottomSheet`, docked
+
+Settings plus the acts. Not drawn as its own catalog figure yet (known gap).
+
+## 10. Three values — CLOSED
+
+Neutral fill on paper `#a59d8f` (the kit's value, now stated); `well-on-fill`
+`rgba(255,255,255,.28)` in both themes (the kit followed the component;
+the light table was wrong); `Toggle` has no fallback name (the kit warns
+and the gate fails, as it already did).
+
+## 11. §10 components on the screens — ANSWERED: one closing row per answer
+
+Chips while it is the live answer, `FeedbackRow` once you have moved past
+it; the two never stack. The §12 chat screen ends in `SuggestionChips`; the
+weekly review carries the `InlineToast` receipt for the last policy written
+under the card asking for the next one. Kit screens follow.
+
+## Not followed, and why
+
+- **⌘N for New chat** (the palette's default row prints it): the browser owns
+  ⌘N / Ctrl+N and a page cannot intercept it in Chrome. The app prints no key
+  on New chat; it stays a header action and a palette row.
+- **Inbox undo.** The receipt after a dismissal cannot offer undo until the
+  activity API has an un-acknowledge; until then the toast states the effect
+  without an undo control (`InlineToast undoLabel=""`).

@@ -119,3 +119,79 @@ The rules, verbatim where it matters:
   are the spec for the desktop half of D16 when `ui-react` moves onto the kit
   (S5–S7), and the 720px measure, the evidence rail and the four-button row are
   what that migration should reproduce.
+
+
+---
+
+# The fifth drop — 2026-09-19: six layouts, and the navigation settled
+
+Source: `kit/Brain Kit Desktop.dc.html` as re-fetched 2026-09-19 (21 KB →
+49 KB). D1 and D2 are unchanged; D3–D6 are new; D7 is the scale-up section,
+renumbered. The README's Desktop, Navigation, Palette and Composer sections
+carry the rules in prose; this digest is the pane-by-pane spec the app
+migration reproduces.
+
+## The new pane rule
+
+**A four-pane screen needs 1440.** Rail + list + detail + evidence at 1280
+leaves the detail ~350px, narrower than a three-button decision row (D4's row
+measured 519px and sheared its `write_policy` chip). So D1, D3, D4, D6 are
+drawn at 1440; 1280 gets rail + list + detail (D2 with the palette, D5 with
+its section column). Any decision-button row carries `flex-wrap`; a
+`FilterRow` in a 272px pane fits three pills, not four. Above 480 the user may
+collapse the rail at any width and it sticks; the ladder sets only the
+default.
+
+| Screen | Rail | List | Detail | Evidence rail |
+|---|---|---|---|---|
+| D3 Files, 1440 | active 2 | 300px: serif "Files" + `4,812 docs` meta, `FilterRow` (all / notes / talks / …), `FileRow` tree (folder rows with `meta` counts, `flag`/`metaTone` gold for stale, the open file `active`), footer `j / k move · ← → fold` | `ScreenHeader nav` (path as title, `2.1 kB · edited 4m ago by researcher · 1 pending edit`, amber subtitle, no back, `menu` trailing) · 720 measure: serif title, amber `Callout` (contradiction + pending edit), prose with inline entity mentions, `Label "Pending edit"` amber + `DiffBlock boxed` | 320px `#0e1014`: `Label "Frontmatter" scope · 7 keys` + `Receipt` (rows, keyWidth 72) · `Label "Linked from" files teal · 4 backlinks` + `RelatedFiles` · `Label "Provenance" secure` + `Callout boxed mono neutral` (git · hash · host · date) |
+| D4 Activity, 1440 | active 1 | 360px: serif "Actions" + `41 runs today · $1.90`, `FilterRow` active 2 (`needs you · running · done`), `Label "Needs you" approval amber · 2` + `ActionCard`s (dead-letter `rightMeta="selected"`, fyi `rightMeta="d"`), `Label "Runs" activity · today` + `AgentRunCard`s (`progress={null}`) + `QueueItemRow scheduled`, footer `j / k move · d dismiss` | `ScreenHeader nav` (run name, `run #… · dead-lettered 06:10 · backoff exhausted` red) · 720 measure: red `Callout`, `Receipt` (footnote "no partial writes · the ledger is untouched", keyWidth 84), `Label "Attempts on elapsed time" steps · 3` + `LaneChart`, button row `flex-wrap`: `Retry now` primary lg `enqueue` · `Dismiss · d` quiet lg · `Quarantine the source` danger lg `write_policy` | 300px: `Label "Trace" steps · attempt 3` + `TraceSteps list` · `Label "What it was holding" thread · 1` + `QueueItemRow failed` · `InlineToast` "Last decision · ledger_sync · enqueue" amber with Undo |
+| D5 Settings, 1280 | active 4, width 188 | 216px section column: serif "Settings", rows of `Icon` + label + mono meta (Appearance & input, Models, Skills, Security, Devices & agents …), footer `brain.local · v0.1` / `4,812 docs indexed` | `ScreenHeader nav` ("Appearance & input", "applies on this device only", no back, no trailing) · 720 measure: `Label "Appearance" settings` + `Surface pad=0` of group `ListRow`s (Theme `value=system`, Density `value=comfortable`) · `Label "Input" capability` + `Surface pad=0` (Single-key shortcuts `toggle` amber with the mono hint as `subMono` subtitle · Hold to talk `toggle` · Ask before writing files `toggle`) · neutral banner `Callout` "Turning single-key shortcuts off also removes the printed keys from buttons — a key that no longer fires should not be advertised." · `Label "Spend" wallet · this month` + `Surface label="Ceiling"` with `Meter bar` + `BarList` | — |
+| D6 Graph, 1440 | active 3 | 264px controls: serif "Graph", `Label "Mode"` + `FilterRow` (modes), `Label "Direction"` + `FilterRow` active 2, `Surface pad=0` (Depth `value="2 hops"`, Mark stale `toggle` amber, Untrusted only `toggle` purple), mono footer `34 of 4,812 nodes drawn` / `2-hop · both directions` | `ScreenHeader nav` ("Around Nordwind", `company · 34 nodes · 2 hops`, `search` trailing) · the app's canvas (kit `GraphView` stands in at `minHeight 560`) with a mono caption `canvas is app-drawn (WebGL) · colour = entity type · click a node to load its card` | 340px: `Label "Selected node" capability` + `ContactCard` with actions · `Label "Edges" files teal · 9` + `RelatedFiles` |
+
+The graph's empty state, drawn beside D6 at 520px: `EmptyState no-results`,
+title "Nothing links to this yet", body "This note has no edges in either
+direction. Ask a question that mentions it and the graph fills in as the
+answer cites things.", meta `0 edges · indexed 4m ago`, primary "Ask about
+it" (`ask`), pad 22. "Emptiness is a finding" — no reassurance copy.
+
+## Navigation, settled (D37)
+
+**Chat · Actions · Files · Graph · Settings**, ⌘1–⌘5, same order on the rail
+and the phone bar. Activity is not a destination but the `done` lens of
+Actions (`needs you · running · done`); D2 and D4 are one screen with the
+filter moved, and inbox items pin above the run log. Actions keeps its own
+pane although approvals also appear inline: the transcript copy and the
+Actions row are the same item in two places. Graph is a destination and a ⌘K
+target ("you almost always want the graph *around something*"). The phone bar
+folds Settings into More — the kit `BottomSheet`, docked, holding Settings and
+the acts (Sessions, Sync, Daily briefing, Brain statistics). New chat is the
+primary action in the Chat header and a ⌘K row, never a slot.
+
+## The palette's contents
+
+Groups by what ⏎ does: Jump to (New chat, Sessions, a file, a graph view) ·
+Ask (Search the brain, Brain statistics, a question) · Run (Sync `effect:
+sync`, Daily briefing `cost: ~$0.12`, Add a note bare — the form's submit
+carries `write_note`). Unservable commands are shown disabled with the mono
+reason ("needs the host"), never omitted. The query is a real `<input>`.
+
+## The composer, kit-owned
+
+attach · field · mic · send/stop. Capture is a menu behind attach
+(`BottomSheet` on phone, popover on desktop). Provider picker: a mono chip in
+the hint line. Recall chips above the field. `state` drives placeholder, hint
+and trailing control: ready (amber send) · streaming (red stop, field still
+typeable) · reconnecting (send live, queues locally) · offline (send disabled
+with the reason, draft kept).
+
+## Smaller rulings
+
+Snooze: none on a blocking card; `s` only on `fyi` / `suggestion` /
+`unverified`; "Always allow" has no key and prints `write_policy`. Focus
+after the last decision: composer in a transcript; in a list, the drained
+section becomes `EmptyState` (heading focused) with the `InlineToast` receipt
+above. Off switch: Settings › Input, printed keys vanish when off. Location:
+span `max(1.6, 6×accuracy)`, ring at true scale (none below 14px), `note`
+inside the card, `maxWidth` 420. One closing row per answer: chips live,
+`FeedbackRow` later.
