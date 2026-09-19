@@ -252,7 +252,7 @@ export function ActivityPage() {
       <section
         aria-label="Actions queue"
         className={cn(
-          "min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:shrink-0 laptop:border-r laptop:border-border-subtle",
+          "min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:flex-none laptop:border-r laptop:border-border-subtle",
           detailRunId ? "hidden" : "flex flex-1"
         )}
       >
