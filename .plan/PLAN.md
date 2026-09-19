@@ -348,12 +348,14 @@ Sequenced after the component waves but **before** step 2. Not optional.
       test that a new surface is assembly work, not design work" — if any needs
       a new component or a one-off style, the component set is wrong and we fix
       the set, not the screen.
-- [ ] **Do Weekly review first** — deepest nesting (`PhoneFrame > Surface >
+- [x] **Do Weekly review first** — deepest nesting (`PhoneFrame > Surface >
       Meter/BarList`, `PhoneFrame > ActionCard > Button`), so it exercises the
       `sc-host` layout risk hardest
-- [ ] §11 predates §10, so none of the four use `SuggestionChips` or
-      `InlineToast`. Rebuilt as designed; where §10 components should now appear
-      is still open, and is design iteration rather than port work
+- [x] §11 predates §10, so none of the four used `SuggestionChips` or
+      `InlineToast`. The fifth drop (D37) placed them: Chat answer closes with
+      `SuggestionChips` (one closing row per answer, `FeedbackRow` only once the
+      answer is no longer live), Weekly review carries an `InlineToast` for the
+      reversible action. Both screens and their baselines follow
 
 ### Wave 6 — D3 tool contracts
 - [x] `ToolComponentContract { name, description, input, payload }` in
@@ -428,8 +430,12 @@ Sequenced after the component waves but **before** step 2. Not optional.
       a research one
 - [ ] `troy` and `messina` were generated before `land` existed and carry no
       `land` key; the loader treats that as "no fill", which is also the right
-      answer for a mainland bbox. Regenerate when Overpass is healthy — it was
-      returning 504s throughout
+      answer for a mainland bbox (both are mainland views, so a regeneration
+      adds no `land` either). Regenerated twice on 2026-09-19 with Overpass
+      healthy: the current road tier returns the full network at 27–91 m/px,
+      8.1 and 11.9 KB gzipped against 0.7 and 3.5 KB committed, and the set
+      breaks the 28 KB guard. Not kept either time. The real follow-up is a
+      coarser road filter at the coarse tiers in `generate.ts`, not a re-run
 - [ ] Pin-label collision needs a design answer: two pins 6 km apart at a 9 km
       span overlap, and a long label clips at phone width
 
