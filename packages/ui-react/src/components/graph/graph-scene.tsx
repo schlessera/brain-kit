@@ -28,11 +28,13 @@ import {
   buildQuery,
   communityColor,
   distanceColor,
+  entityKind,
+  entityLegend,
   groupCommunities,
   matchScene,
   topLevelDir,
 } from "./lib/graph-helpers.js";
-import { useGraphTheme } from "./use-graph-theme.js";
+import { useGraphTheme, type EntityColors } from "./use-graph-theme.js";
 import { cn } from "../../lib/utils.js";
 
 /** Client force layout is a fallback for repos whose FA2 layout was skipped —
@@ -76,28 +78,49 @@ export function SceneBody() {
     [subgraph.nodes]
   );
 
+  // The colouring rule (sixth pass §7) applies to the two modes drawn
+  // around a focus node; Clusters IS the topic colouring. The focus node
+  // (Discovery's root, Local's centre — distance 0, or the virtual root)
+  // wears the amber of "the thing in focus" under every rule, as the kit's
+  // `GraphView` draws it.
+  const focused = mode === "discovery" || mode === "local";
+  const rule = focused ? discoveryColorBy : "topic";
+
   const folderColors = useMemo(
     () =>
-      mode === "discovery" && discoveryColorBy === "folder"
+      focused && rule === "folder"
         ? assignFolderColors(subgraph.nodes.map((n) => n.path))
         : null,
-    [mode, discoveryColorBy, subgraph.nodes]
+    [focused, rule, subgraph.nodes]
   );
 
   const nodeColor = useMemo(() => {
-    if (mode === "discovery") {
-      if (folderColors) {
+    const isFocus = (node: GraphNodePayload) => node.virtual === true || (focused && node.distance === 0);
+    if (focused) {
+      if (rule === "folder" && folderColors) {
         return (node: GraphNodePayload) =>
-          node.virtual
+          isFocus(node)
             ? theme.nodeSelected
             : (folderColors.get(topLevelDir(node.path)) ?? OTHER_COLOR);
       }
+      if (rule === "entity") {
+        return (node: GraphNodePayload) =>
+          isFocus(node) ? theme.entity.focus : entityColor(node.type, theme.entity);
+      }
+      if (rule === "topic") {
+        return (node: GraphNodePayload) =>
+          isFocus(node)
+            ? theme.nodeSelected
+            : node.community !== undefined
+              ? communityColor(node.community)
+              : OTHER_COLOR;
+      }
       return (node: GraphNodePayload) =>
-        node.virtual ? theme.nodeSelected : distanceColor(node.distance ?? maxDistance);
+        isFocus(node) ? theme.nodeSelected : distanceColor(node.distance ?? maxDistance);
     }
     return (node: GraphNodePayload) =>
       node.community !== undefined ? communityColor(node.community) : theme.node;
-  }, [mode, folderColors, maxDistance, theme]);
+  }, [focused, rule, folderColors, maxDistance, theme]);
 
   const centerId = useMemo(
     () =>
@@ -166,9 +189,18 @@ export function SceneBody() {
 
       <GraphControls />
 
+      {/* The legend redraws per rule (sixth pass §7): it names what the
+          canvas is doing right now, never a constant. */}
       {mode === "clusters" && <ClusterLegend />}
-      {mode === "discovery" && folderColors && (
+      {focused && rule === "folder" && folderColors && (
         <FolderLegend colors={folderColors} />
+      )}
+      {focused && rule === "entity" && (
+        <EntityLegend nodes={subgraph.nodes} colors={theme.entity} />
+      )}
+      {focused && rule === "topic" && <TopicLegend nodes={subgraph.nodes} />}
+      {focused && rule === "distance" && (
+        <DistanceLegend maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} />
       )}
       {mode === "discovery" && (
         <UnreachableTray count={subgraph.unreachableCount} />
@@ -278,6 +310,113 @@ function ClusterLegend() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The kit's entity colour for a document type; neutral for the rest. */
+function entityColor(type: string, colors: EntityColors): string {
+  const kind = entityKind(type);
+  return kind ? colors[kind] : colors.other;
+}
+
+/**
+ * Colour-by-entity: the document types in the scene, the three entity kinds
+ * in their kit colours first, every other type in the neutral ink under its
+ * own name. The focus node is listed as what it is — amber, "focus" — so the
+ * one node whose colour is not its type is accounted for.
+ */
+function EntityLegend({ nodes, colors }: { nodes: GraphNodePayload[]; colors: EntityColors }) {
+  const rows = useMemo(() => entityLegend(nodes), [nodes]);
+  return (
+    <div
+      className="absolute left-3 top-3 z-10 w-48 rounded-xl border border-border bg-surface-overlay/95 px-3 py-2 shadow-xl backdrop-blur"
+      data-legend="entity"
+    >
+      <div className="mb-1 text-xs font-medium text-foreground">Entity type</div>
+      <LegendRow color={colors.focus} label="focus" mono={false} />
+      {rows.map((row) => (
+        <LegendRow
+          key={row.type}
+          color={row.kind ? colors[row.kind] : colors.other}
+          label={row.type}
+          count={row.count}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Colour-by-topic outside Clusters mode: read-only — the topic FILTER is
+ * Clusters' own — listing the communities present in this scene. A corpus
+ * with no computed topics says so rather than showing an empty box.
+ */
+function TopicLegend({ nodes }: { nodes: GraphNodePayload[] }) {
+  const meta = useGraphStore((s) => s.meta);
+  const rows = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const node of nodes) {
+      if (node.community === undefined || node.virtual) continue;
+      counts.set(node.community, (counts.get(node.community) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0] - b[0]).slice(0, 8);
+  }, [nodes]);
+  return (
+    <div
+      className="absolute left-3 top-3 z-10 w-48 rounded-xl border border-border bg-surface-overlay/95 px-3 py-2 shadow-xl backdrop-blur"
+      data-legend="topic"
+    >
+      <div className="mb-1 text-xs font-medium text-foreground">Topics</div>
+      {rows.length === 0 ? (
+        <div className="font-mono text-[10px] text-muted-foreground">
+          no topics computed · run <Mono>brain sync</Mono>
+        </div>
+      ) : (
+        rows.map(([community, count]) => (
+          <LegendRow
+            key={community}
+            color={communityColor(community)}
+            label={meta?.communities.find((c) => c.community === community)?.label ?? `Topic ${community + 1}`}
+            count={count}
+            mono={false}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Colour-by-distance: the amber focus, then the ramp one hop at a time. */
+function DistanceLegend({ maxDistance, focus }: { maxDistance: number; focus: "root" | "centre" }) {
+  const hops = Array.from({ length: Math.min(maxDistance, 5) }, (_, i) => i + 1);
+  return (
+    <div
+      className="absolute left-3 top-3 z-10 w-48 rounded-xl border border-border bg-surface-overlay/95 px-3 py-2 shadow-xl backdrop-blur"
+      data-legend="distance"
+    >
+      <div className="mb-1 text-xs font-medium text-foreground">Distance</div>
+      <LegendRow color={distanceColor(0)} label={focus} mono={false} />
+      {hops.map((hop) => (
+        <LegendRow
+          key={hop}
+          color={distanceColor(hop)}
+          label={hop === 5 && maxDistance > 5 ? `${hop}+ hops` : `${hop} hop${hop === 1 ? "" : "s"}`}
+          mono={false}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LegendRow({ color, label, count, mono = true }: { color: string; label: string; count?: number; mono?: boolean }) {
+  return (
+    <div className="flex min-h-6 items-center gap-2">
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+      <span className={cn("min-w-0 flex-1 truncate text-muted-foreground", mono ? "font-mono text-[11px]" : "text-[11px]")}>
+        {label}
+      </span>
+      {count !== undefined && <span className="shrink-0 text-[10px] text-muted-foreground">{count}</span>}
     </div>
   );
 }

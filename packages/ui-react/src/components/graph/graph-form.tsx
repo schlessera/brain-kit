@@ -1,5 +1,6 @@
 import { FilterRow, Label, ListRow, Surface, Toggle } from "@schlessera/brain-ui-kit";
 import { useId, type ReactNode } from "react";
+import { cn } from "../../lib/utils.js";
 
 /**
  * The graph options form's primitives, on the kit (S7, the `graph`
@@ -100,6 +101,52 @@ export function ToggleRow({
     />
   );
 }
+
+/**
+ * A switch the host cannot serve yet, drawn anyway (the sixth pass, §3b:
+ * "until that exists the control is drawn but disabled with its reason, the
+ * same rule the palette follows"). The reason prints in mono where the
+ * subtitle would go, and the switch is the kit `Toggle` in its disabled
+ * state — `aria-disabled`, out of the tab order, dimmed by the kit's own
+ * rule, never a bare opacity on the row. It keeps its role and its name,
+ * because a control the reader is told about should also be one a screen
+ * reader can find. The no-op handler is what gives it the role: the kit
+ * gates every operable trait on a handler, and "disabled" is a state of an
+ * operable switch, not the absence of one.
+ */
+export function DisabledToggleRow({
+  label,
+  reason,
+  tone = "amber",
+  last = false,
+}: {
+  label: string;
+  /** Mono, printed under the title: "needs provenance". */
+  reason: string;
+  tone?: "amber" | "teal" | "purple";
+  last?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div
+      className={cn(
+        "flex min-h-14 w-full items-center justify-between gap-3 px-3.5 py-2.5",
+        !last && "border-b border-border"
+      )}
+      data-disabled-row=""
+    >
+      <div className="flex min-w-0 flex-col gap-1">
+        <span id={id} className="text-[13px] text-foreground">
+          {label}
+        </span>
+        <span className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">{reason}</span>
+      </div>
+      <Toggle on={false} tone={tone} labelledBy={id} disabled onClick={noop} />
+    </div>
+  );
+}
+
+function noop() {}
 
 /**
  * A row whose trailing mono value is the current choice and whose click

@@ -11,6 +11,22 @@ export interface GraphTheme {
   edgeHighlight: string;
   label: string;
   labelMuted: string;
+  /**
+   * The kit's entity colours (its `GraphView`, `PathRef` and inline
+   * mentions): teal a person, blue a company, purple a project, amber the
+   * focus node, and the neutral ink for any other document type. Read from
+   * the kit's `tokens.css` custom properties, which the app's `theme.css`
+   * imports, so the canvas and the kit never disagree on what teal is.
+   */
+  entity: EntityColors;
+}
+
+export interface EntityColors {
+  person: string;
+  company: string;
+  project: string;
+  focus: string;
+  other: string;
 }
 
 const FALLBACK: GraphTheme = {
@@ -22,6 +38,13 @@ const FALLBACK: GraphTheme = {
   edgeHighlight: "#5bb5a2",
   label: "#e8e4df",
   labelMuted: "#9a96a1",
+  entity: {
+    person: "#5bb5a2",
+    company: "#67b8e3",
+    project: "#b197d4",
+    focus: "#e09f3e",
+    other: "#9a96a1",
+  },
 };
 
 /**
@@ -46,6 +69,15 @@ export function useGraphTheme(): GraphTheme {
       edgeHighlight: token("--color-accent", FALLBACK.edgeHighlight),
       label: token("--color-foreground", FALLBACK.label),
       labelMuted: token("--color-muted-foreground", FALLBACK.labelMuted),
+      entity: {
+        person: token("--bk-teal-fill", FALLBACK.entity.person),
+        company: token("--bk-blue-fill", FALLBACK.entity.company),
+        project: token("--bk-purple-fill", FALLBACK.entity.project),
+        focus: token("--bk-amber-fill", FALLBACK.entity.focus),
+        // The kit's neutral is a `light-dark()` expression, which WebGL
+        // cannot parse; the app's muted ink is the same value resolved.
+        other: token("--color-muted-foreground", FALLBACK.entity.other),
+      },
     };
   }, []);
 }

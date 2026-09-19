@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { TriangleAlert } from "lucide-react";
 import { EmptyState, ScreenHeader } from "@schlessera/brain-ui-kit";
 
-import { useGraphStore, type GraphMode } from "../../stores/graph-store.js";
+import { useGraphStore, type DiscoveryColorBy, type GraphMode } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { FilePanel } from "../files/file-panel.js";
@@ -192,10 +192,20 @@ function SceneHeader() {
   );
 }
 
+const RULE_LABEL: Record<DiscoveryColorBy, string> = {
+  topic: "topic",
+  distance: "distance",
+  folder: "folder",
+  entity: "entity type",
+};
+
 /**
- * The mono line under the canvas. The colour rule is read from what the
- * canvas draws today — topic clusters, or distance/folder in Discovery — so
- * the caption never claims a rule the scene does not follow.
+ * The mono line under the canvas names the ACTIVE colouring rule (sixth
+ * pass §7: "a caption bound to a constant while the control says otherwise
+ * is a lie in a legend"). Read from the same state the scene colours by —
+ * the Colour control in Discovery and Local, topic in Clusters (uniform
+ * when no topics were computed) — so the caption never claims a rule the
+ * scene does not follow.
  */
 function CanvasCaption() {
   const mode = useGraphStore((s) => s.mode);
@@ -203,7 +213,7 @@ function CanvasCaption() {
   const hasTopics = useGraphStore((s) => (s.meta?.communities.length ?? 0) > 0);
   if (mode === "maintenance") return null;
   const rule =
-    mode === "discovery" ? colorBy : hasTopics ? "topic" : "uniform";
+    mode === "discovery" || mode === "local" ? RULE_LABEL[colorBy] : hasTopics ? "topic" : "uniform";
   return (
     <p className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
       canvas is app-drawn · colour = {rule} · click a node to load its card

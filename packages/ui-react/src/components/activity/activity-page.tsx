@@ -77,10 +77,22 @@ export function ActivityPage() {
    */
   const [picked, setLens] = useState<ActionsLens | null>(null);
   /**
-   * The receipt for the last decision, shown above the `EmptyState` that
-   * replaces a drained section (D37): a keyboard user is told "that is
-   * done" instead of being dropped at the document top. No undo yet — the
-   * activity API has no un-acknowledge — so the toast states the effect.
+   * The receipt for the last DECISION — Allowed, Always allowed, Denied —
+   * shown above the `EmptyState` that replaces a drained section (D37) and
+   * in the evidence rail: a keyboard user is told "that is done" instead of
+   * being dropped at the document top. A decision earns a toast by the
+   * sixth pass's own criterion (§4: "a toast is for effects you can take
+   * back or that happen out of sight"): its effect happens in the run, out
+   * of sight, and the card leaving says nothing about what the run did
+   * with the answer.
+   *
+   * A DISMISSAL sets no receipt. Acknowledging an inbox item is neither —
+   * it cannot be taken back (the activity API has no un-acknowledge) and
+   * the row vanishing under the cursor is the whole effect. An `InlineToast`
+   * whose point is Undo, shipped without Undo, "teaches that the kit's
+   * receipts are decorative"; so until un-acknowledge exists, dismissal is
+   * silent and the row leaving the list is the receipt. Grow un-acknowledge
+   * and the toast returns with its Undo.
    */
   const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string } | null>(null);
   const [drained, setDrained] = useState(false);
@@ -221,10 +233,15 @@ export function ActivityPage() {
     cards[(here + (key === "j" ? 1 : -1) + cards.length) % cards.length]?.focus();
   }
 
+  /** Silent by rule (see `receipt`): the row leaving is the receipt. `drained`
+   * still flips so the empty state's heading takes focus after the last one. */
   function dismiss(intent: ActivityIntent) {
-    setReceipt({ text: "Dismissed", target: intent.title, effect: "acknowledge" });
     setDrained(inbox.length + approvals.length <= 1);
     void acknowledgeIntent(intent.id);
+  }
+  function dismissAll() {
+    setDrained(approvals.length === 0);
+    void acknowledgeAllIntents();
   }
   function decideApproval(key: string | null, toolUseId: string, approved: boolean, always?: boolean) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
@@ -307,7 +324,7 @@ export function ActivityPage() {
                 {inbox.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => { setReceipt({ text: "Dismissed", target: `${inbox.length} items`, effect: "acknowledge" }); setDrained(approvals.length === 0); void acknowledgeAllIntents(); }}
+                    onClick={dismissAll}
                     className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
                   >
                     Dismiss all

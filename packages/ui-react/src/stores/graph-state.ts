@@ -47,7 +47,15 @@ export interface MaintenanceParams {
 }
 
 export type SizeBy = "degree" | "pagerank";
-export type DiscoveryColorBy = "distance" | "folder";
+/**
+ * The colouring rule for a scene drawn around a focus node — Discovery's
+ * root or Local's centre (the field keeps its Discovery name; Local joined
+ * it when the rule grew). The sixth pass §7: "entity-type joins the
+ * colouring modes (topic · distance · folder · entity), because it is the
+ * one mapping shared with `PathRef`, `GraphView` and inline mentions."
+ * Clusters mode is the topic colouring itself and takes no rule.
+ */
+export type DiscoveryColorBy = "topic" | "distance" | "folder" | "entity";
 
 /** Which finding sections are visible — a client-side filter, no refetch. */
 export interface MaintenanceFilters {

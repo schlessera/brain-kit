@@ -39,10 +39,23 @@ export interface TreeRowProps {
   highlighted: boolean;
   /** A folder's listing failed; shown under the row with a retry. */
   error?: string;
+  /**
+   * Days since the file was modified, given only when past the staleness
+   * threshold (`staleness.ts`). D3 draws it as the gold left-edge dot and
+   * the mono `stale 38d` meta, the same two marks the design's `1e` screen
+   * uses; the container decides from `mtime`, the row only prints.
+   */
+  staleDays?: number;
   children?: ReactNode;
   onClick: () => void;
   onRetry?: () => void;
   onHighlightShown?: () => void;
+  /**
+   * The kit `FileRow` binds → on a closed folder to `onFold(true)` and ← on
+   * an open one to `onFold(false)` (sixth pass §8: the ARIA tree pattern
+   * requires them, and the footer prints them). Folders only.
+   */
+  onFold?: (open: boolean) => void;
 }
 
 /** How long the reveal flash runs before the request is cleared. */
@@ -66,8 +79,11 @@ export function TreeRow(p: TreeRowProps) {
           kind={p.kind}
           depth={p.depth}
           active={p.active}
-          meta={p.loading ? "loading…" : undefined}
+          meta={p.loading ? "loading…" : p.staleDays !== undefined ? `stale ${p.staleDays}d` : undefined}
+          metaTone={!p.loading && p.staleDays !== undefined ? "gold" : undefined}
+          flag={p.staleDays !== undefined ? "gold" : undefined}
           onClick={p.onClick}
+          onFold={p.onFold}
         />
       </div>
       {p.error ? (

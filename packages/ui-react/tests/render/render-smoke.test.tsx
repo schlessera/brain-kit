@@ -1953,8 +1953,9 @@ describe("contract-bound tool renderers", () => {
     // The pin is drawn by the kit's MapView from the payload's coordinates.
     expect(result.baseElement.querySelector("svg")).toBeTruthy();
 
-    // One request, for the box the map draws, at the map's own width; the
-    // fix is inside it.
+    // One request, for the envelope of every box the map can draw, with the
+    // width scaled by the same 1.5 the box is (the server's tolerance and tier
+    // come from the box's width over that many pixels); the fix is inside it.
     await waitFor(() => expect(requests).toHaveLength(1));
     const url = new URL(requests[0]!, "http://localhost");
     expect(url.pathname.endsWith("/geo/coastline")).toBe(true);
@@ -1963,7 +1964,7 @@ describe("contract-bound tool renderers", () => {
     expect(e).toBeGreaterThan(fix.longitude);
     expect(s).toBeLessThan(fix.latitude);
     expect(n).toBeGreaterThan(fix.latitude);
-    expect(url.searchParams.get("width")).toBe("330");
+    expect(url.searchParams.get("width")).toBe("495");
 
     // The geometry lands as paths and land, and the credit comes with it.
     await waitFor(() => expect(result.baseElement.textContent).toContain("OpenStreetMap contributors"));
@@ -3951,10 +3952,11 @@ describe("single-key shortcuts (D36)", () => {
     await act(flushPromises);
     expect(useActivityStore.getState().inbox).toEqual([]);
     // The drained section becomes the empty state and its heading takes
-    // focus, with the receipt above it (D37) — never the document top.
+    // focus (D37) — never the document top. No receipt: dismissal without
+    // undo is silent (sixth pass §4), the row leaving is the receipt.
     expect(document.activeElement).toBe(page.getByRole("heading", { name: "Nothing is waiting on you" }));
-    expect(page.getByText("Dismissed")).toBeTruthy();
-    expect(page.getByText("Intent 1")).toBeTruthy();
+    expect(page.queryByText("Dismissed")).toBeNull();
+    expect(page.queryByText("Intent 1")).toBeNull();
     page.unmount();
   });
 });
@@ -3983,10 +3985,12 @@ describe("desktop panes (D37)", () => {
     await act(flushPromises);
     const pane = view.getByRole("dialog", { name: "Files" });
     expect(pane.textContent).toContain("Files");
-    expect(pane.textContent).toContain("j / k move");
+    expect(pane.textContent).toContain("j / k move · ← → fold · ⏎ open");
     // The design's backlinks and provenance have no data behind them: not drawn.
     expect(pane.textContent).not.toContain("Linked from");
     expect(pane.textContent).not.toContain("Provenance");
+    // The rail column is mounted with no file open (sixth pass §3a), empty.
+    expect(view.getByRole("complementary", { name: "Evidence" }).textContent).toBe("");
     fireEvent.click(view.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     view.unmount();

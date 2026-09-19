@@ -309,3 +309,37 @@ export function matchScene(
   }
   return matches;
 }
+
+// --- Entity colouring ---------------------------------------------------------
+
+/**
+ * The kit's entity mapping (its `GraphView`, `PathRef` and inline mentions):
+ * which document types wear which of the three entity colours. Every other
+ * type — note, journal, study, whatever the taxonomy names — takes the
+ * neutral ink and is listed in the legend under its own name, because a
+ * legend that hides a type is a legend that lies about a node.
+ */
+export type EntityKind = "person" | "company" | "project";
+
+export function entityKind(type: string): EntityKind | null {
+  return type === "person" || type === "company" || type === "project" ? type : null;
+}
+
+/** The scene's document types, entity kinds first in the kit's order, then
+ * the rest by count. Each carries how many nodes wear it. */
+export function entityLegend(nodes: { type: string; virtual?: boolean }[]): { type: string; kind: EntityKind | null; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.virtual) continue;
+    counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+  }
+  const order: string[] = ["person", "company", "project"];
+  return [...counts.entries()]
+    .map(([type, count]) => ({ type, kind: entityKind(type), count }))
+    .sort((a, b) => {
+      const ia = order.indexOf(a.type);
+      const ib = order.indexOf(b.type);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? order.length : ia) - (ib === -1 ? order.length : ib);
+      return b.count - a.count || a.type.localeCompare(b.type);
+    });
+}

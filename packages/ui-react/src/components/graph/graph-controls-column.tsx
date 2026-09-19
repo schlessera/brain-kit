@@ -1,6 +1,6 @@
 import { useGraphStore, type GraphMode } from "../../stores/graph-store.js";
 import { ControlsBody } from "./graph-controls.js";
-import { Field, Segmented } from "./graph-form.js";
+import { DisabledToggleRow, Field, Rows, Segmented } from "./graph-form.js";
 
 export const MODES: { value: GraphMode; label: string }[] = [
   { value: "clusters", label: "Clusters" },
@@ -37,6 +37,17 @@ export function GraphControlsColumn() {
           />
         </Field>
         <ControlsBody />
+        {/* D6's switches, drawn but disabled with their reasons (sixth pass
+            §3b, the palette's rule). A scene node carries no `mtime` and no
+            provenance record — `GraphNodePayload` has type, degrees,
+            community, distance — so neither switch can fire here yet; the
+            footer's gold line says the same thing. */}
+        {mode !== "maintenance" && (
+          <Rows>
+            <DisabledToggleRow label="Mark stale" reason="needs mtime" tone="amber" />
+            <DisabledToggleRow label="Untrusted only" reason="needs provenance" tone="purple" last />
+          </Rows>
+        )}
       </div>
       <ColumnFooter />
     </aside>
@@ -64,6 +75,12 @@ function ColumnFooter() {
     <div className="flex flex-col gap-0.5 border-t border-border px-4 py-3 font-mono text-[10px] text-muted-foreground">
       <span>{first}</span>
       <span>{second}</span>
+      {/* True of every scene the API serves today: nodes carry no mtime and
+          no provenance. Printed in gold, as D6 draws it, and only while it
+          is true — the switches above are disabled for the same reasons. */}
+      {mode !== "maintenance" && (
+        <span className="text-[var(--bk-gold-ink)]">stale needs mtime · untrusted needs provenance</span>
+      )}
     </div>
   );
 }

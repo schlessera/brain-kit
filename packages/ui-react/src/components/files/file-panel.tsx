@@ -10,6 +10,8 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
 import { formatSize } from "./file-viewer-frame.js";
+import { DisabledToggleRow } from "../graph/graph-form.js";
+import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
 
 /** Matches the `duration-300` slide-out below. */
 const SLIDE_OUT_MS = 300;
@@ -162,23 +164,40 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
  * changes with the width.
  *
  * The tree's title carries no document count: the file store has no total,
- * and the design's `4,812 docs` is not something to make up. The footer's
- * keys are printed only while single-key shortcuts are on (D37 — a key that
- * does not fire is not advertised). `FileRow` already moves focus with ↑↓
- * and Home/End on its own, so nothing here binds movement a second time.
+ * and the design's `4,812 docs` is not something to make up.
+ *
+ * The footer prints the keys that fire. `j` / `k` are single-key letters
+ * and go with the Settings off switch (D37 — a key that does not fire is
+ * not advertised); `← →` and `⏎` are not letters, the switch does not
+ * cover them, and the kit `FileRow` binds them regardless — so they print
+ * regardless. `FileRow` already moves focus with ↑↓ and Home/End on its
+ * own, so nothing here binds movement a second time.
+ *
+ * The evidence rail (sixth pass §3a): each block is independent and simply
+ * absent when its data does not exist, but the COLUMN stays — "a pane count
+ * that changes as you click through files is a worse defect than a sparse
+ * rail." So the rail mounts with the panes, empty until a file is open, and
+ * a file with no frontmatter shows only the blocks it has.
  */
 function FilePanes({ onClose }: { onClose: () => void }) {
   const currentPath = useFileStore((s) => s.currentPath);
   const content = useFileStore((s) => s.currentContent);
   const singleKeyShortcuts = useUIStore((s) => s.singleKeyShortcuts);
+  const loaded = content !== null && content.path === currentPath ? content : null;
 
   const frontmatter: ReceiptRow[] =
-    content?.kind === "markdown"
-      ? splitFrontmatter(content.content ?? "").fields.map((f) => ({
+    loaded?.kind === "markdown"
+      ? splitFrontmatter(loaded.content ?? "").fields.map((f) => ({
           k: f.key,
           v: f.list ? f.list.join(", ") : f.value || "—",
         }))
       : [];
+
+  // Stale (sixth pass §3b): `mtime` is on every file the server serves, in
+  // milliseconds; the threshold is `STALE_AFTER_DAYS`. Past it the block
+  // turns gold — the same tone the tree's dot wears.
+  const modified = loaded ? ageInDays(loaded.mtime) : null;
+  const stale = modified !== null && modified >= STALE_AFTER_DAYS;
 
   return (
     <div
@@ -191,10 +210,16 @@ function FilePanes({ onClose }: { onClose: () => void }) {
         <div className="shrink-0 px-4 pb-2 pt-4">
           <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground">Files</h2>
         </div>
+        {/* Untrusted only (sixth pass §3b): needs the provenance record —
+            origin, who, when — which no file carries yet. Drawn, disabled,
+            with its reason, never dropped: it is one of the two facts that
+            decide whether an answer may cite a file. */}
+        <div className="shrink-0 border-b border-border">
+          <DisabledToggleRow label="Untrusted only" reason="needs provenance" tone="purple" last />
+        </div>
         {/* `j` / `k` move between tree items while one holds focus (D36:
-            focus-scoped, printed where they apply); the kit `FileRow` already
-            owns ↑↓, Home and End. Fold on ←→ is not bound yet, so it is not
-            advertised. */}
+            focus-scoped, printed where they apply); the kit `FileRow` owns
+            ↑↓, Home, End and the ← → fold. */}
         <div
           className="min-h-0 flex-1 overflow-y-auto"
           onKeyDown={(e) => {
@@ -212,11 +237,9 @@ function FilePanes({ onClose }: { onClose: () => void }) {
             <FileTree />
           </Suspense>
         </div>
-        {singleKeyShortcuts && (
-          <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
-            j / k move {"·"} ⏎ open
-          </div>
-        )}
+        <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
+          {singleKeyShortcuts ? "j / k move · " : ""}← → fold · ⏎ open
+        </div>
       </aside>
 
       {/* Reading pane */}
@@ -226,7 +249,7 @@ function FilePanes({ onClose }: { onClose: () => void }) {
             <ScreenHeader
               variant="nav"
               title={currentPath ?? "Files"}
-              subtitle={content && content.path === currentPath ? formatSize(content.size) : undefined}
+              subtitle={loaded ? formatSize(loaded.size) : undefined}
               back={false}
               divider={false}
             />
@@ -244,22 +267,29 @@ function FilePanes({ onClose }: { onClose: () => void }) {
         </div>
       </section>
 
-      {/* Evidence rail, from `wide:` only (the four-pane rule, D37 §2) */}
-      <aside className="hidden w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-background px-4 py-4 wide:flex">
-        {currentPath && (
-          <div className="flex flex-col gap-2">
-            <Label
-              text="Frontmatter"
-              icon="scope"
-              meta={frontmatter.length ? `${frontmatter.length} ${frontmatter.length === 1 ? "key" : "keys"}` : undefined}
-            />
-            {frontmatter.length ? (
-              <Receipt rows={frontmatter} keyWidth={72} />
-            ) : (
-              <div className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
-                {content?.kind === "markdown" ? "no frontmatter" : "not a markdown file"}
-              </div>
-            )}
+      {/* Evidence rail, from `wide:` only (the four-pane rule, D37 §2).
+          Always in the tree once the panes are: the column never collapses. */}
+      <aside
+        aria-label="Evidence"
+        className="hidden w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-background px-4 py-4 wide:flex"
+      >
+        {frontmatter.length > 0 && (
+          <div className="flex flex-col gap-2" data-rail-block="frontmatter">
+            <Label text="Frontmatter" icon="scope" meta={`${frontmatter.length} ${frontmatter.length === 1 ? "key" : "keys"}`} />
+            <Receipt rows={frontmatter} keyWidth={72} />
+          </div>
+        )}
+        {modified !== null && (
+          <div className="flex flex-col gap-2" data-rail-block="modified" data-stale={stale ? "" : undefined}>
+            <Label text="Modified" icon="history" tone={stale ? "gold" : undefined} meta={stale ? "stale" : undefined} />
+            <div
+              className={cn(
+                "font-[family-name:var(--font-mono)] text-[10px]",
+                stale ? "text-[var(--bk-gold-ink)]" : "text-muted-foreground"
+              )}
+            >
+              modified {formatAge(modified)} · {stale ? "stale past" : "stale after"} {STALE_AFTER_DAYS}
+            </div>
           </div>
         )}
         {/* The design also draws "Linked from" (backlinks) and "Provenance"

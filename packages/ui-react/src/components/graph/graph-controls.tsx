@@ -75,9 +75,35 @@ export function ControlsBody() {
       <SceneSearch />
       {mode === "local" && <LocalControls />}
       {mode === "discovery" && <DiscoveryControls />}
+      {(mode === "local" || mode === "discovery") && <ColourControls />}
       {mode === "clusters" && <ClustersControls />}
       {mode === "maintenance" && <MaintenanceControls />}
     </div>
+  );
+}
+
+/** The four colourings, in the design's order. */
+export const COLOUR_RULES: { value: DiscoveryColorBy; label: string }[] = [
+  { value: "topic", label: "Topic" },
+  { value: "distance", label: "Distance" },
+  { value: "folder", label: "Folder" },
+  { value: "entity", label: "Entity" },
+];
+
+/**
+ * D6's `Label "Colour"` + `FilterRow` (topic · distance · folder · entity),
+ * for the two modes drawn around a focus node. Every rule is servable from
+ * what a node carries — `community`, `distance`, `path`, `type` — so none is
+ * disabled; a corpus with no computed topics colours everything neutral
+ * under "Topic" and the legend says so, rather than hiding the rule.
+ */
+function ColourControls() {
+  const colorBy = useGraphStore((s) => s.discoveryColorBy);
+  const setColorBy = useGraphStore((s) => s.setDiscoveryColorBy);
+  return (
+    <Field label="Colour">
+      <Segmented options={COLOUR_RULES} value={colorBy} onChange={(v) => setColorBy(v as DiscoveryColorBy)} />
+    </Field>
   );
 }
 
@@ -149,8 +175,6 @@ function LocalControls() {
 function DiscoveryControls() {
   const discovery = useGraphStore((s) => s.discovery);
   const setDiscoveryParams = useGraphStore((s) => s.setDiscoveryParams);
-  const colorBy = useGraphStore((s) => s.discoveryColorBy);
-  const setColorBy = useGraphStore((s) => s.setDiscoveryColorBy);
   const defaultRoot = useGraphStore((s) => s.meta?.defaultRoot ?? null);
 
   return (
@@ -178,16 +202,6 @@ function DiscoveryControls() {
           value={discovery.maxDepth}
           onChange={(e) => setDiscoveryParams({ maxDepth: Number(e.target.value) })}
           className="w-full accent-(--color-primary)"
-        />
-      </Field>
-      <Field label="Color by">
-        <Segmented
-          options={[
-            { value: "distance", label: "Distance" },
-            { value: "folder", label: "Folder" },
-          ]}
-          value={colorBy}
-          onChange={(v) => setColorBy(v as DiscoveryColorBy)}
         />
       </Field>
       {/* Direction is only meaningful with an explicit root: the default-root
