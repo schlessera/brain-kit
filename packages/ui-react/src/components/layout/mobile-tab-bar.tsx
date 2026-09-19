@@ -76,7 +76,7 @@ export function MobileTabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="md:hidden fixed bottom-0 inset-x-0 z-30 pb-[env(safe-area-inset-bottom)]"
+      className="tablet:hidden fixed bottom-0 inset-x-0 z-30 pb-[env(safe-area-inset-bottom)]"
       // The safe-area strip below the bar takes the bar's own ground, from the
       // kit's token so it follows the theme.
       style={{ background: "var(--bk-color-surface)" }}

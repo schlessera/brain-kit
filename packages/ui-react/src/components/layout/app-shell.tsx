@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div
           className={cn("filament", isStreaming && "filament--active")}
         />
-        <main className="flex flex-1 flex-col overflow-hidden pb-16 md:pb-0">
+        <main className="flex flex-1 flex-col overflow-hidden pb-16 tablet:pb-0">
           {children}
         </main>
       </div>

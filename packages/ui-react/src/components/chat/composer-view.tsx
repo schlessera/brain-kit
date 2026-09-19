@@ -90,7 +90,7 @@ export function ComposerView(p: ComposerViewProps) {
     p.onPasteFiles(images);
   }
 
-  const pointer = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(min-width: 768px)").matches;
+  const pointer = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(min-width: 900px)").matches;
   const attachMenu = (
     <div className="flex flex-col">
       <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />

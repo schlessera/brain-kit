@@ -21,9 +21,10 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
  * the old rail carried (New chat, Sessions, Sync, the briefing) live in the
  * ⌘K palette and the Chat header.
  *
- * Widths follow D22's ladder: collapsed to the 60px icon rail below 900px,
- * expanded from 900px up. The rail appears at the same `md` breakpoint the
- * phone bar disappears at, so the two never show together.
+ * Widths follow D22's ladder: the phone bar to 479px, this rail collapsed
+ * to 60px from 480 (`tablet:`), expanded to 208px from 900 (`laptop:`). The
+ * rail appears at the breakpoint the phone bar disappears at, so the two
+ * never show together.
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app
@@ -73,7 +74,7 @@ export function SideRail() {
   });
 
   return (
-    <nav aria-label="Primary" className="hidden md:flex shrink-0">
+    <nav aria-label="Primary" className="hidden tablet:flex shrink-0">
       <KitSideRail
         items={items}
         active={active}

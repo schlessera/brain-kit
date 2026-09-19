@@ -18,6 +18,15 @@
 @import "@schlessera/brain-ui-kit/tokens.css";
 
 @theme {
+  /* D22's ladder (D37 confirmed it): the phone bar to 479, the collapsed rail
+     from 480, the expanded rail from 900, and a fourth pane from 1280 — with
+     the rule that a four-pane screen needs 1440. `md:` stays Tailwind's 768 for
+     content paddings; navigation and panes key on these. */
+  --breakpoint-tablet: 480px;
+  --breakpoint-laptop: 900px;
+  --breakpoint-desktop: 1280px;
+  --breakpoint-wide: 1440px;
+
   /* Backgrounds - warm-tinted darks */
   --color-background: #0c0e12;
   --color-surface: #141619;

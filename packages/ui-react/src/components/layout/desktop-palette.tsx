@@ -126,7 +126,7 @@ export function DesktopPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 hidden md:block bg-black/60"
+      className="fixed inset-0 z-50 hidden tablet:block bg-black/60"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
