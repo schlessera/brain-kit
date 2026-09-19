@@ -685,6 +685,25 @@ Sequenced after the component waves but **before** step 2. Not optional.
       names the colour rule the canvas actually uses (topic / distance /
       folder), not "entity type", because that is what it does
 
+### Wave 10 — the sixth drop: the rulings (D38)
+- [ ] Kit: `AskUserCard` `state` pending / answered / typed, the Other
+      field, stories; catalog §13 as a story (three states + the mask
+      receipt)
+- [ ] Kit: `MapView` height clamped 110–260; `InlineToast` target wraps;
+      `title` on the ellipsised spans of rows that open a record;
+      `FileRow.onFold` bound to `← →`
+- [ ] Kit: three more screens — Actions triage, File viewer, First run
+- [ ] Kit: the fetch envelope 1.5× wide by 1.0× tall; all six geo fixtures
+      regenerated; the app's runtime envelope matched
+- [ ] Kit: visual baselines regenerated in the container after the above
+- [ ] App: `ask_user` on the kit card, three states; a composer send while
+      a question is pending is the answer; the mask result as a receipt
+- [ ] App: Files rail never collapses; stale from `mtime`; Untrusted drawn
+      disabled; `← →` fold wired and printed
+- [ ] App: dismissal is silent; approval decisions keep their receipt
+- [ ] App: graph `entity` colouring mode with a per-mode legend, or drawn
+      disabled with the reason if the data has no entity type
+
 ## Open questions
 
 - [x] Does the catalog's foundations section introduce a light theme beyond

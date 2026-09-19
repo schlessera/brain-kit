@@ -195,3 +195,19 @@ above. Off switch: Settings › Input, printed keys vanish when off. Location:
 span `max(1.6, 6×accuracy)`, ring at true scale (none below 14px), `note`
 inside the card, `maxWidth` 420. One closing row per answer: chips live,
 `FeedbackRow` later.
+
+# The sixth drop — 2026-09-19: two amendments
+
+- **D3's evidence rail never collapses.** "Each block is independent — a
+  block whose data does not exist is simply absent, and the rail itself never
+  collapses: a pane count that changes as you click through files is worse
+  than a rail with one block in it." Stale is built from `mtime`; Untrusted
+  is drawn disabled with "needs provenance".
+- **D6 gains a `Colour` control**: `Label "Colour"` + `FilterRow` topic ·
+  distance · folder · entity, and the caption reads "the caption names the
+  ACTIVE colouring rule, not a constant". The controls' footer prints, in
+  gold, "stale needs mtime · untrusted needs provenance".
+
+The keyboard question in "What this settles" above was answered by the
+fourth drop (D36: focus-scoped, with the off switch); the paragraph is kept
+as written for the record.

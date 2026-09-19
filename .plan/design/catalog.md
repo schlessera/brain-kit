@@ -421,3 +421,14 @@ card is tint +.04; Toggle carries a name; focus after a decision. The three
 bare toggles in §1 gained visible labels ("Ask before writing files",
 "Announce resolutions", "Single-key shortcuts" — the last is the Settings off
 switch D36 names). See design-feedback "The fourth drop" and D35/D36.
+
+## §13 added by the sixth drop (2026-09-19)
+
+"A question is an exchange · a mask is a receipt." Left: `AskUserCard` in its
+three states (pending with the Other field open; answered; typed). Right: the
+`request_image_mask` result — a `Surface "Mask drawn"` holding a hatched thumb
+with a teal dashed region and a size chip, stacked above a `Receipt` (region ·
+covers · source · mask, `keyWidth` 58), then the failure `Callout` (red, boxed,
+mono). The §12 chat screen also lost three demo rows (a `QuoteCard`, a
+`Callout` banner, a `QueueItemRow`) in the same edit. See design-feedback "The
+sixth drop" §1–2 and the new "Where truncation is allowed" rule.

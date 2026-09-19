@@ -1863,3 +1863,35 @@ The fifth drop answered the eleven questions the maintainer forwarded
 
 Not followed: ⌘N for New chat (the browser owns it; no key is printed), and
 undo on the inbox receipt until the activity API can un-acknowledge.
+
+## 2026-09-19 — D38: the sixth drop's rulings
+
+The design answered the twelve questions the fifth drop left open
+(`design-feedback.md`, "The sixth drop"). The decisions that bind the kit and
+the app:
+
+1. **A question is an exchange.** `AskUserCard` has three states — pending,
+   answered, typed — and all three stay in the transcript at full contrast.
+   A composer send while a question is pending IS the answer: the app binds
+   it to the question and does not send it as a message. Nothing rolls up.
+2. **A mask is a receipt.** Source thumb, the region in teal, a `Receipt`
+   of the facts, stacked; a dismissed mask is stated as a fact in red mono,
+   never silently "whole image".
+3. **The Files rail never collapses**; blocks are absent without data.
+   Stale is built from `mtime` and a threshold; Untrusted is drawn disabled
+   with its reason until provenance exists. Both are features.
+4. **No receipt without undo.** Dismissal is silent until un-acknowledge
+   exists. Approval decisions keep their receipt: the effect is out of
+   sight, which is the ruling's own test.
+5. **New chat has no key**; unknown cost says `spends`, no chip when a
+   command cannot spend.
+6. **The graph caption names the active rule, and entity is a fourth mode.**
+7. **`← →` fold on tree rows, bound and printed together.**
+8. **The closing row flips on the next user message.**
+9. **Map cards are bounded (≤420 wide, 110–260 tall) and the fetch
+   envelope is 1.5× wide by 1.0× tall.**
+10. **Truncation is allowed only on rows that OPEN the record**, carried as
+    `title`; a row that IS the record wraps.
+11. **The neutral fill and the alpha derivation rule are the design's.**
+12. **Three more screens after the acceptance four:** Actions triage, File
+    viewer, First run.

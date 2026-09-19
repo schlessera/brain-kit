@@ -1,7 +1,27 @@
-# Design-file fetch — re-fetched 2026-09-19
+# Design-file fetch — re-fetched 2026-09-19 (sixth pass)
 
 All 66 files are on disk (same 66 paths as the 2026-09-18 drop; the fifth drop
-changed ten of them in place). Nothing outstanding.
+changed ten of them in place, the sixth eight). Nothing outstanding.
+
+## Sixth pass, 2026-09-19 — the rulings
+
+Re-fetched after the maintainer forwarded the twelve remaining questions.
+Same 66 paths. **Eight files changed**: `README.md` (two new sections:
+"Sixth pass — rulings", "Where truncation is allowed"), `AskUserCard`
+(`state` pending/answered/typed, `otherOpen` field, `answer`/`answerMeta`),
+`MapView` (height clamped 110–260 with the envelope arithmetic), `InlineToast`
+(the target wraps, `overflow-wrap: anywhere`), `FileRow` and `TraceSteps`
+(`title` on the ellipsised span), `Brain Kit.dc.html` (new §13 "A question is
+an exchange · a mask is a receipt"; three demo rows dropped from §12),
+`Brain Kit Desktop.dc.html` (D3 rail-never-collapses sentence; D6 `Colour`
+FilterRow topic · distance · folder · entity and the gold "stale needs mtime
+· untrusted needs provenance" footer). Fetched selectively this time: the
+README first, then only the files its rulings name plus the ones the
+truncation rule lists; `GraphView`, `Receipt`, `ListRow`, `SearchResultCard`,
+`CommandPalette`, `QuoteCard`, `EmptyState`, `Composer`, `Brain Kit Light`
+were fetched and are unchanged. Digested in `design-feedback.md` ("The sixth
+drop"); decided as D38. The harvest trap below still applies and was
+re-applied.
 
 ## Fifth pass, 2026-09-19 — the desktop screens and the navigation answers
 

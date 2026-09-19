@@ -1290,3 +1290,113 @@ under the card asking for the next one. Kit screens follow.
 - **Inbox undo.** The receipt after a dismissal cannot offer undo until the
   activity API has an un-acknowledge; until then the toast states the effect
   without an undo control (`InlineToast undoLabel=""`).
+
+# The sixth drop — 2026-09-19, the rulings
+
+The maintainer forwarded twelve questions (the ones the fifth drop left open
+plus what implementing it found). The design answered all twelve as rulings
+in the README ("Sixth pass — rulings") and one new rule ("Where truncation
+is allowed"), with catalog §13 drawn for the first two and D3/D6 amended.
+Eight files changed: `README.md`, `AskUserCard` (three states, the Other
+field), `MapView` (the 110–260 height clamp), `InlineToast` (the target
+wraps), `FileRow` and `TraceSteps` (`title` on the ellipsised span), `Brain
+Kit.dc.html` (§13), `Brain Kit Desktop.dc.html` (D3 rail rule, D6 colour
+modes). Statuses, and what the kit and the app do about each:
+
+## 1. `ask_user` — ANSWERED: an exchange with three states
+
+`AskUserCard` gains `state`: `pending` (options, one focus stop) ·
+`answered` (the chosen answer in mono teal, the alternatives GONE, not
+dimmed — "they were never the record") · `typed` (the user answered in the
+composer; the card quotes what it took, neutral border). All three stay in
+the transcript at full contrast; nothing rolls up. "Other" opens a real
+field in place of the Submit row. Kit: the prop and the stories. App: the
+hand-drawn card with its collapsed summary row retires for the kit card,
+and a composer send while a question is pending becomes the answer rather
+than a new message.
+
+## 2. `request_image_mask` — ANSWERED: a receipt, not a path
+
+The source thumb (hatched, never a remote image inline) with the drawn
+region over it in teal, stacked ABOVE a `Receipt` (region · covers · source
+· mask). Failure is a fact in a red mono `Callout` — "no mask drawn ·
+dismissed after 2 prompts — the agent continued on the whole image and said
+so" — not a dialog. The app renders what its result actually carries and
+no more.
+
+## 3. The Files rail — ANSWERED: the column stays, both controls are features
+
+(a) A rail with one block is correct; each block is independent and absent
+without data, but the column never collapses ("a pane count that changes
+as you click through files is worse than a sparse rail"). (b) Stale needs
+only `mtime` and a threshold — build it. Untrusted needs the provenance
+record — drawn but disabled with its reason until it exists, the palette's
+own rule. Neither is dropped.
+
+## 4. Dismissal without undo — ANSWERED: no toast
+
+As-is rejected (a receipt whose point is undo, shipped without undo,
+"teaches that the kit's receipts are decorative"); two-step confirm
+rejected. Dismissal is silent — the row leaving the list is the receipt —
+until un-acknowledge exists. The app keeps the receipt for approval
+decisions, whose effect happens in the run, out of sight: the ruling's own
+criterion for a toast.
+
+## 5. New chat keeps no key — BLESSED
+
+"A shortcut you have to look up is a menu item with extra steps." ⌘K, type
+"new".
+
+## 6. Unknown cost says `spends` — BLESSED, as a vocabulary
+
+`~$0.12` with an estimate · `spends` without · no chip when the command
+cannot spend. Never `$0.00`, never blank. Gold in both cases. The app
+already does this.
+
+## 7. The graph caption — CONFIRMED, and entity joins the modes
+
+The caption names the active rule ("a caption bound to a constant while
+the control says otherwise is a lie in a legend"). Entity type becomes a
+fourth colouring mode (topic · distance · folder · entity), because it is
+the mapping shared with `PathRef` and inline mentions; the legend redraws
+per mode. D6 adds `Label "Colour"` + `FilterRow`.
+
+## 8. Fold keys — ANSWERED: bind and print
+
+`← →` fold on `treeitem` rows, printed in the D3 footer beside `j / k`.
+"An unadvertised key is one nobody uses; an advertised key that does
+nothing is worse — so they ship together." Kit: `FileRow.onFold`.
+
+## 9. The closing row flips on the next user message — ANSWERED
+
+Not scroll, not a timer, not never. The app has no suggestion chips or
+feedback row on answers yet; the trigger is recorded for when it does.
+
+## 10. Map aspect — BOUNDED
+
+A card is at most 420 wide and its viewport 110–260 tall, clamped in
+`MapView`. An envelope of 1.5× wide by 1.0× tall covers every card; the
+generator's symmetric 2.4× shrinks to it and all six fixtures regenerate.
+
+## 11. Neutral fill and the alphas — BLESSED
+
+`#a59d8f` paper / `#9a96a1` dark, and the derivation rule is the design:
+tints are the fill hue at 8–14%, a toned card's hover +.04, a chip +.07, a
+well over a fill `rgba(255,255,255,.28)` in both themes, borders on tinted
+grounds the ink hue at 25–40%. "Anything a rule cannot produce is a mistake,
+not a value — report it rather than adding it." Nothing to change; the
+generator's `SPECIFIED` table stays the only place a light value is typed.
+
+## 12. Three more screens, in order — ANSWERED
+
+Actions triage (phone) · File viewer (phone) · First run. The remaining
+thirteen are reference only. Built as stories in the screens group.
+
+## New rule: where truncation is allowed
+
+The line is whether the row IS the record (`InlineToast`, `MapView` labels,
+`QuoteCard` citations, a `Receipt` value: never truncate, wrap or cluster)
+or OPENS the record (`FileRow`, `TraceSteps`, `SearchResultCard`, `ListRow`,
+palette rows: ellipsis allowed, carried as `title`). A `Receipt` value column
+under ~160px means change the layout, not the break rule — which is why §13
+stacks the thumb above the receipt.
