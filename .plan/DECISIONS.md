@@ -1895,3 +1895,63 @@ the app:
 11. **The neutral fill and the alpha derivation rule are the design's.**
 12. **Three more screens after the acceptance four:** Actions triage, File
     viewer, First run.
+
+## 2026-09-19 — D39: the app draws no colour of its own — `@theme inline` over `--bk-*`, ink and fill named apart
+
+Asked to make sure the main screens are tested in light mode, the first thing
+checked was the app shell itself, in a real browser at 1440 with
+`data-theme="light"` set: the kit's cards turned to paper and the page around
+them stayed `#0c0e12`. The cause was `packages/ui-react/src/theme.css`: its
+`@theme` block held literal dark hex for `--color-background`,
+`--color-surface`, `--color-foreground` and every other utility colour, so
+`bg-background` and `text-foreground` — 150-odd uses — were the one place the
+`light-dark()` switch (D32) could not reach. Two prose blocks
+(`.brain-prose`, `.whatsup-briefing`) and the filament carried the same hex.
+Four component files used Tailwind's own palette (`text-amber-100`,
+`bg-amber-950/90`, `text-emerald-200/90`): light text for a dark ground, which
+vanishes on paper.
+
+**The decision.** The app declares no colour. Every `--color-*` utility is
+`var(--bk-*)`, in a `@theme inline` block so the utility carries the token
+itself and it resolves where it is used, not on `:root` — the same reason the
+kit's `PhoneFrame theme="paper"` nests. The prose blocks and the filament use
+the tokens by name (`--bk-filament-edge` / `-core` are the design's own two
+stops), and the four alpha tints in the prose are `color-mix()` of the ink
+hue, which is the kit's own rule for a border or a decoration on a tinted
+ground; there is no paper value typed anywhere in the app, so
+`tools/theme/derive-light.ts` stays the only place one lives.
+
+**Ink and fill are two names.** The kit keeps them apart — `--bk-color-amber`
+is `light-dark(#7f4c08, #e09f3e)`, the ink; `--bk-amber-fill` is `#e09f3e` in
+both themes, the fill — and one Tailwind name cannot serve both: with
+`--color-primary` as the ink, `bg-primary` on a button is dark brown on paper.
+So `primary`, `accent` and `destructive` are the inks (`text-`, `border-`,
+`ring-`, `accent-`) and `primary-fill`, `accent-fill`, `destructive-fill` are
+the fills (`bg-`, solid or with an alpha), with `--bk-on-fill` as
+`primary-foreground` / `accent-foreground`. Thirty-nine `bg-` sites renamed.
+The surfaces map onto the kit's four (canvas, surface, raised, line/edge);
+`surface-overlay`, which was one step above raised in the dark set, is
+`raised` now — the kit has no fifth surface, and the app should not invent
+one.
+
+**Proof, and its limit.** `packages/ui-react/tests/theme-neutral.test.ts` is
+the gate: no hex or rgb literal in `theme.css`; every `--color-*` is a kit
+token or a `color-mix` of one and none is declared in the plain `@theme`
+block; no Tailwind palette class anywhere in `src/`; solid black or white
+only in the two files whose ground is not the theme's (the mask editor's
+controls on a photograph, the HTML viewer's iframe); a hex in source only in
+the six files that draw outside the DOM, each with its reason, and the
+allowlist itself checked against the tree so it cannot go stale. That is
+static. The runtime proof was the browser sweep — computed background,
+border and text colour of every rendered element on Chat, Actions, Files,
+Graph and Settings, in both themes, at 1440 — which is not a test because the
+app has no browser harness; the kit's light visual baselines and the
+`storybook-light` project cover the kit, and the shell's light rendering
+rests on this gate plus the sweep recorded in the handoff.
+
+**What stays dark, on purpose.** The sigma canvas palettes and the mermaid
+theme variables are literal hex validated as sets against the dark canvas
+(CVD order, lightness band). On paper the graph draws on `--bk-color-canvas`
+and its labels take the ink, but the node colours are the dark set — legible,
+not validated. A paper set is a design question, not a derivation
+(design-feedback §14).

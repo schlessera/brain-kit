@@ -1400,3 +1400,27 @@ or OPENS the record (`FileRow`, `TraceSteps`, `SearchResultCard`, `ListRow`,
 palette rows: ellipsis allowed, carried as `title`). A `Receipt` value column
 under ~160px means change the layout, not the break rule — which is why §13
 stacks the thumb above the receipt.
+
+# The app shell on paper — 2026-09-19
+
+## 14. The graph and mermaid palettes have no paper set — OPEN
+
+D39 put the app shell on the kit's tokens, so every surface, border and
+text colour in the app now follows `[data-theme]`. Two things still carry
+literal colours because they are drawn outside the DOM and were validated as
+sets against `#0c0e12`: the sigma canvas palettes (eight categorical slots in
+CVD order, the five-step distance ramp, the four maintenance lenses) and the
+mermaid theme variables. On paper the canvas is `#ece7dc` and the labels
+take the ink, and the node colours are still the dark set — readable, but
+never run through the dataviz validator against paper, and the light end of
+the distance ramp (`#b7d3f6`) is close to the canvas. Question for the
+designer: a paper set for the eight slots and the ramp, in the same slot
+order (the order is the CVD mechanism), or a rule that says the dark set
+stands on both grounds.
+
+Also for the record, not a question: the app's prose block had four alpha
+tints typed as `rgba(224,159,62,…)`. They are `color-mix()` of the amber
+ink now, which follows the rule stated in §11 for a decoration on a ground
+("borders on tinted grounds the ink hue at 25–40%") — but a link underline at
+30% and a table-row hover at 3% were never in the design's list, so they are
+derived, not designed, like the 264 in §18.

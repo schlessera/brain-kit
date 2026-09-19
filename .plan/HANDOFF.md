@@ -767,6 +767,9 @@ Remaining in S7: the desktop rail, which waits for the D16 mapping.
   designer's value; none is a decision.
 - Whether the even 50/50 split on `ApprovalCard`'s buttons stands, or reverts to
   the content-sized render DC actually draws (155/65). One property, two nodes.
+- §14: the sigma and mermaid palettes are literal hex validated against the
+  dark canvas only. On paper they still draw, unvalidated. A paper set in the
+  same slot order, or a ruling that the dark set stands — the designer's call.
 
 ## The accessibility gate, and what it does not see
 
@@ -977,3 +980,34 @@ Final non-design verification: `bun run test` — **3142 pass / 41 skip /
 0 fail** across 234 files. Typecheck, UI React package build and all seven lint
 gates pass; the existing dictation cleanup-ref warning remains. No versioning
 or publishing was performed.
+
+## The app shell on paper, 2026-09-19
+
+Asked to make sure the main screens have light-mode tests. The kit already
+had them — `storybook-light` runs every story on paper with axe at `error`,
+and the seven screens have light visual baselines — so the check went to the
+app shell in a real browser, and the shell was dark under
+`data-theme="light"`. `theme.css` held literal hex in its `@theme` block; D39
+records the fix (every utility over `--bk-*`, `@theme inline`, ink and fill
+named apart) and `packages/ui-react/tests/theme-neutral.test.ts` is the gate.
+
+**The runtime sweep, for the next time.** The app has no browser harness, so
+the proof that the shell renders on paper was a sweep in the consumer's dev
+server at 1440: set `document.documentElement.dataset.theme`, click each of
+the five tabs, and for every rendered element read `getComputedStyle` —
+background, top border, text — and count values from the other theme's set
+(dark: `#0c0e12 #141619 #1a1d22 #1e2128 #2a2d35 #1f2229`, light text
+`#e8e4df #c0bcb5 #9a96a1`; paper: `#ece7dc #f8f5ef #fffefa`, ink `#231f1a
+#554f45 #5f584c`). Zero in both directions on all five screens. The consumer
+resolves `@schlessera/brain-ui-react/theme.css` to `dist/`, so `bun run build`
+first and restart its Vite — it did not pick up the rebuilt file on its own,
+and the first sweep after the fix read the stale CSS.
+
+**Traps.** Tailwind v4 does emit `bg-surface` for a `var()`-valued
+`--color-surface` (the kit's own `theme.css` comment says it cannot classify
+one; observed otherwise on 4.3.3 — `.bg-surface{background-color:var(--bk-color-surface)}`
+is in `dist/styles.css`, and the alpha forms come out as `color-mix` under
+`@supports`). `@theme inline` matters for `light-dark()`: without it the
+token would be read on `:root`. A `g`-flagged regex reused in `toMatch`
+keeps its `lastIndex` and fails on the second file — the gate makes a fresh
+copy.

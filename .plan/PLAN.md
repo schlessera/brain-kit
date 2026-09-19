@@ -704,6 +704,24 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] App: graph `entity` colouring mode with a per-mode legend, or drawn
       disabled with the reason if the data has no entity type
 
+### Wave 11 — the app shell on paper (D39)
+- [x] App: `theme.css` declares every `--color-*` utility over `--bk-*`,
+      `@theme inline`; the prose blocks and the filament use the tokens by
+      name; no hex or rgb literal remains in the file
+- [x] App: ink and fill named apart — `primary` / `accent` / `destructive`
+      are inks, `*-fill` are fills, `primary-foreground` is `on-fill`;
+      thirty-nine `bg-` sites renamed
+- [x] App: the four files on Tailwind's palette (connection gate, diff
+      view, search mark, mask editor's error line) moved to token utilities
+- [x] App: `tests/theme-neutral.test.ts` — the static gate (no literal in
+      `theme.css`, no palette class in `src/`, hex only in the six canvas
+      files with a reason, the allowlist checked against the tree)
+- [x] Runtime sweep at 1440 in both themes: every rendered element's
+      computed background, border and text on Chat, Actions, Files, Graph,
+      Settings — zero dark values on paper, zero paper values on dark
+- [ ] Design: a paper set for the sigma and mermaid palettes, or a ruling
+      that the dark set stands on both grounds (design-feedback §14)
+
 ## Open questions
 
 - [x] Does the catalog's foundations section introduce a light theme beyond
