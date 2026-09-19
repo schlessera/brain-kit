@@ -194,6 +194,133 @@ export const NoCreditWithoutGeometry = Default.extend({
 });
 
 /**
+ * The map's own SVG — the first in the card. The foot row's Icon is an SVG
+ * too, and `graph` draws a `<circle>`, so "no ring" has to be asked of the
+ * drawing rather than of the card.
+ */
+function mapSvg(root: HTMLElement): SVGSVGElement {
+  return root.querySelector("svg")!;
+}
+
+/** The scale bar's label and its drawn length, which together give metres
+ * per CSS pixel — read from the render, not from the arithmetic. The length
+ * is the CONTENT width: the two end caps are 1px borders outside it, and the
+ * percentage the bar claims is the content. */
+function scale(root: HTMLElement): { text: string; px: number } {
+  const bar = [...root.querySelectorAll<HTMLElement>("span")].find(
+    (el) => getComputedStyle(el).height === "3px",
+  )!;
+  return { text: bar.nextElementSibling!.textContent!.trim(), px: parseFloat(getComputedStyle(bar).width) };
+}
+
+/** An SVG length as the reader sees it: the viewBox is the projection's own
+ * width, which is the card's once it has been measured and the 330 fallback
+ * before that, so the ratio is what converts either to CSS pixels. */
+function cssPx(svg: SVGSVGElement, units: number): number {
+  return units * (svg.getBoundingClientRect().width / svg.viewBox.baseVal.width);
+}
+
+/**
+ * THE UNCERTAINTY IS DRAWN.
+ *
+ * A pin without it claims a precision the fix does not have, so `accuracyM`
+ * is a ring around the first pin at true projected scale — amber at 10%
+ * with a 45% hairline, under the route and over the graticule. The span
+ * becomes `max(spanKm, 6 × accuracyM)`, a max rather than a "coarse" branch,
+ * which is what widens the frame from the 1.6 km default to 3.6 km here and
+ * moves the scale bar from 500 m to 1 km. The play compares that against
+ * the same pin with no accuracy, and checks the ring's radius against the
+ * scale bar rather than against the prop: both are drawn on the same scale,
+ * so the ring converts back through the bar to the metres it claims.
+ */
+export const AccuracyRing = meta.story({
+  args: { ...ithacaMap, spanKm: undefined, accuracyM: 600 },
+  render: (args) => (
+    <>
+      <div style={{ width: "100%" }} data-testid="coarse">
+        <MapView {...args} />
+      </div>
+      <div style={{ width: "100%" }} data-testid="exact">
+        <MapView {...args} accuracyM={undefined} />
+      </div>
+    </>
+  ),
+  play: async ({ canvas }) => {
+    const coarse = canvas.getByTestId("coarse");
+    const exact = canvas.getByTestId("exact");
+    const rings = mapSvg(coarse).querySelectorAll("circle");
+    await expect(rings).toHaveLength(1);
+    await expect(mapSvg(exact).querySelectorAll("circle")).toHaveLength(0);
+
+    // The ring and the bar are drawn on the same scale, so the ring's radius
+    // ON SCREEN, against the bar's length on screen, is the 600 m it claims.
+    const bar = scale(coarse);
+    const metres = bar.text.endsWith("km") ? parseFloat(bar.text) * 1000 : parseFloat(bar.text);
+    const mPerPx = metres / bar.px;
+    const r = cssPx(mapSvg(coarse), Number(rings[0].getAttribute("r")));
+    await expect(Math.abs(r - 600 / mPerPx)).toBeLessThan(1);
+    await expect(r * 2).toBeGreaterThanOrEqual(14);
+
+    // And the span widened: six radii is 3.6 km against a 1.6 km default.
+    await expect(bar.text).toBe("1 km");
+    await expect(scale(exact).text).toBe("500 m");
+  },
+});
+
+/**
+ * A FIX TOO PRECISE TO DRAW. At 1.6 km across, 20 m is seven pixels of ring
+ * — inside the pin's own glow — so nothing is drawn: at that size the pin
+ * already is the uncertainty. The 14px floor is in
+ * `tests/mapview-projection.test.tsx`; this is the render agreeing.
+ */
+export const AccuracyTooFineToDraw = Default.extend({
+  args: { ...ithacaMap, spanKm: undefined, accuracyM: 20 },
+  play: async ({ canvasElement }) => {
+    await expect(mapSvg(canvasElement).querySelectorAll("circle")).toHaveLength(0);
+    await expect(scale(canvasElement).text).toBe("500 m");
+  },
+});
+
+/**
+ * THE AGENT'S OWN SENTENCE, inside the card. Prose in the body font — not the
+ * mono line, which is machine fact — under a hairline below the foot row,
+ * because a loose line under a card belongs to nothing and the transcript
+ * already reads a gap as a new block.
+ */
+export const WithNote = Default.extend({
+  args: {
+    ...ithacaMap,
+    accuracyM: 350,
+    note: "The fix is the harbour front rather than the hall itself; the hall is a street back from the quay, and the 350 m the phone gave covers both.",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const note = await canvas.findByText(/The fix is the harbour front/);
+    // Inside the card: the note's parent is the card, and the card is the
+    // map's grandparent.
+    await expect(note.parentElement).toBe(mapSvg(canvasElement).parentElement!.parentElement);
+    // Under the foot row, which is the element before it.
+    await expect(note.previousElementSibling!.textContent).toContain("Ithaca");
+  },
+});
+
+/**
+ * CAPPED AT 420. Past that the graticule spaces out into decoration and the
+ * card starts competing with the answer it belongs to; narrower panes get
+ * 100%. Measured in the unconstrained stage, where the cap is the only thing
+ * stopping the card at the canvas edge.
+ */
+export const MaxWidth = Default.extend({
+  parameters: wide,
+  play: async ({ canvasElement }) => {
+    const card = mapSvg(canvasElement).parentElement!.parentElement!;
+    await expect(card.getBoundingClientRect().width).toBeLessThanOrEqual(420);
+    // Not merely narrow: it is at the cap, with the stage wider than that.
+    await expect(canvasElement.getBoundingClientRect().width).toBeGreaterThan(420);
+    await expect(card.getBoundingClientRect().width).toBeGreaterThan(400);
+  },
+});
+
+/**
  * A PIN STAYS ON ITS OWN COASTLINE AT EVERY WIDTH.
  *
  * The SVG scales to the card's fluid width; the pins and graticule labels are

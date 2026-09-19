@@ -9,8 +9,11 @@ const meta = preview.meta({
   component: Composer,
   decorators: [stage],
   parameters: { stageWidth: 390 },
-  args: { variant: "send", hint: "/ for commands" },
-  argTypes: { variant: { control: "select", options: ["send", "voice", "plain"] } },
+  args: { variant: "send" },
+  argTypes: {
+    variant: { control: "select", options: ["send", "voice", "plain"] },
+    state: { control: "select", options: ["ready", "streaming", "reconnecting", "offline"] },
+  },
 });
 
 /**
@@ -27,9 +30,10 @@ export const Default = meta.story({});
 
 /** The composer as primary navigation: hold to talk. The button throws a glow
  * the send button does not, because it is the action of a whole screen. */
-export const Voice = Default.extend({ args: { variant: "voice", hint: undefined } });
+export const Voice = Default.extend({ args: { variant: "voice", hint: "" } });
 
-/** Read-only surfaces get the field with no send affordance. */
+/** Read-only surfaces get the field with no send affordance and no attach
+ * menu: there is nothing to attach a capture to. */
 export const Plain = Default.extend({ args: { variant: "plain" } });
 
 export const NoAttach = Default.extend({ args: { attach: false } });
@@ -129,3 +133,172 @@ export const Static = meta.story({
     await expect(await canvas.findByRole("textbox")).toBeTruthy();
   },
 });
+
+/* ── The fifth drop: state, provider, recall ──────────────────────────── */
+
+/**
+ * `state` drives placeholder, hint and the trailing control TOGETHER, so a
+ * connection state can never be half-applied. While a run is live the amber
+ * send becomes a red stop, the field stays typeable (you may add to the
+ * question), and `esc` inside it is the same stop.
+ */
+export const Streaming = meta.story({
+  args: { state: "streaming", value: "and the harbour?", onChange: fn(), onSend: fn(), onStop: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const stop = await canvas.findByRole("button", { name: "Stop generating" });
+    await expect(canvas.queryByRole("button", { name: /^Send/ })).toBeNull();
+    const field = await canvas.findByRole("textbox");
+    await expect(field).not.toHaveAttribute("readonly");
+    await expect(field).toHaveAccessibleName("Add to the question while it works…");
+
+    await userEvent.click(stop);
+    await expect(args.onStop).toHaveBeenCalledTimes(1);
+
+    field.focus();
+    await userEvent.keyboard("{Escape}");
+    await expect(args.onStop).toHaveBeenCalledTimes(2);
+  },
+});
+
+/** The stop disc exists only while streaming: every other state has the send. */
+export const StopOnlyWhileStreaming = meta.story({
+  args: { state: "ready", onSend: fn(), onStop: fn() },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByRole("button", { name: "Stop generating" })).toBeNull();
+    await expect(await canvas.findByRole("button", { name: "Send" })).toBeTruthy();
+  },
+});
+
+/** Send stays live while the host is being reached again: the question queues
+ * locally and goes when the host answers, and the hint says exactly that. */
+export const Reconnecting = meta.story({
+  args: { state: "reconnecting", value: "hello", onChange: fn(), onSend: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    await expect(await canvas.findByText("queued locally · sends when the host answers")).toBeTruthy();
+    await userEvent.click(await canvas.findByRole("button", { name: "Send" }));
+    await expect(args.onSend).toHaveBeenCalledWith("hello");
+  },
+});
+
+/**
+ * Offline is the kit's disabled rule applied to the send: dimmed, inert,
+ * `aria-disabled`, out of the tab order, and still NAMED so what is missing is
+ * announced. The reason sits in the hint row in gold mono, and the draft stays
+ * in the field — ⏎ does not send it and nothing discards it.
+ */
+export const Offline = meta.story({
+  args: { state: "offline", value: "kept draft", onChange: fn(), onSend: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const send = await canvas.findByRole("button", { name: "Send — unavailable" });
+    await expect(send).toHaveAttribute("aria-disabled", "true");
+    await expect(send).toHaveAttribute("tabindex", "-1");
+    await expect(send).toHaveStyle({ opacity: "0.45" });
+    await expect(await canvas.findByText("needs the host · your draft is kept")).toBeTruthy();
+
+    const field = await canvas.findByRole("textbox");
+    await expect(field).toHaveValue("kept draft");
+    field.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onSend).not.toHaveBeenCalled();
+  },
+});
+
+/** An explicit `blockedWhy` replaces the offline default; explicit
+ * `placeholder` and `hint` override their state defaults the same way. */
+export const OfflineWithReason = Offline.extend({
+  args: { blockedWhy: "the host is asleep · try again in a minute", hint: "draft kept" },
+  play: async ({ canvas }) => {
+    await expect(await canvas.findByText("the host is asleep · try again in a minute")).toBeTruthy();
+    await expect(await canvas.findByText("draft kept")).toBeTruthy();
+    await expect(canvas.queryByText("needs the host · your draft is kept")).toBeNull();
+  },
+});
+
+/** The model sits in the hint row, not the field row: a state you change
+ * rarely belongs on the status line. With `onProvider` it is a listbox
+ * trigger named after the model. */
+export const Provider = meta.story({
+  args: { provider: "local · 8b", onProvider: fn(), onSend: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const chip = await canvas.findByRole("button", { name: "Model — local · 8b" });
+    await expect(chip).toHaveAttribute("aria-haspopup", "listbox");
+    await expect(chip).toHaveTextContent("local · 8b");
+    await userEvent.click(chip);
+    await expect(args.onProvider).toHaveBeenCalled();
+  },
+});
+
+/** D20 for the chip: without `onProvider` the model is text on the status
+ * line, not a control. */
+export const ProviderStatic = meta.story({
+  args: { provider: "local · 8b" },
+  play: async ({ canvas }) => {
+    await expect(await canvas.findByText("local · 8b")).toBeTruthy();
+    await expect(canvas.queryByRole("button")).toBeNull();
+  },
+});
+
+/** Recalled context sits ABOVE the field because it is content, not a
+ * control. Purple by default — recalled context is an untrusted origin — and
+ * each chip's × is a real "Remove" button when the app can act on it. */
+export const Recall = meta.story({
+  args: {
+    recall: [
+      { label: "Ithaca harbour thread" },
+      { label: "circe.md", icon: "file", tone: "teal" },
+      { label: "the Vathy shoreline", icon: "image", tone: "amber" },
+    ],
+    onRecallRemove: fn(),
+    onSend: fn(),
+  },
+  play: async ({ canvas, userEvent, args }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Remove circe.md" }));
+    await expect(args.onRecallRemove).toHaveBeenCalledWith(1);
+  },
+});
+
+/** Without `onRecallRemove` the × is the glyph the design draws: no role, no
+ * tab stop. The chips are still there, because the context still is. */
+export const RecallStatic = meta.story({
+  args: { recall: [{ label: "Ithaca harbour thread" }, { label: "circe.md", icon: "file", tone: "teal" }] },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(await canvas.findByText("Ithaca harbour thread")).toBeTruthy();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvasElement.querySelectorAll("[tabindex]")).toHaveLength(0);
+  },
+});
+
+/** The attach control is a MENU trigger, not a file input: capture (camera,
+ * photo, file, paste) is one menu behind one glyph so the field stays the
+ * subject of the row. Row order is attach · field · mic · send. */
+export const AttachIsAMenu = meta.story({
+  args: { onAttach: fn(), onMic: fn(), onSend: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const attach = await canvas.findByRole("button", { name: "Attach — photo, camera, file" });
+    await expect(attach).toHaveAttribute("aria-haspopup", "menu");
+    const names = (await canvas.findAllByRole("button")).map((b) => b.getAttribute("aria-label"));
+    await expect(names).toEqual(["Attach — photo, camera, file", "Dictate", "Send"]);
+    await userEvent.click(attach);
+    await expect(args.onAttach).toHaveBeenCalled();
+  },
+});
+
+/** Everything the fifth drop added, in one frame: the busy field with its
+ * recalled context, the model on the status line, and the run's stop. */
+export const Loaded = meta.story({
+  args: {
+    state: "streaming",
+    provider: "local · 8b",
+    onProvider: fn(),
+    recall: [{ label: "Ithaca harbour thread" }, { label: "circe.md", icon: "file", tone: "teal" }],
+    onRecallRemove: fn(),
+    value: "and the harbour?",
+    onChange: fn(),
+    onSend: fn(),
+    onStop: fn(),
+    onAttach: fn(),
+    onMic: fn(),
+  },
+});
+
+export const LoadedWide = Loaded.extend({ parameters: wide });

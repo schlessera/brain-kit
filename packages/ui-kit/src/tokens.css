@@ -457,6 +457,15 @@
   --bk-map-pin-border-red: light-dark(rgba(156,42,36,0.4), rgba(248,113,113,0.35));
   --bk-map-pin-border-neutral: light-dark(rgba(95,88,76,0.4), rgba(154,150,161,0.35));
 
+  /* The fix's uncertainty, drawn as a ring at true projected scale around the
+   * first pin: a pin without it claims a precision the fix does not have.
+   * Amber, because it is about the pin and not about any tone a caller chose:
+   * the ground at 10% and a hairline at 45%, both faint enough that a route
+   * drawn across the ring still reads as the subject. Below 14px across it is
+   * not drawn at all — at that size it sits inside the pin's own glow. */
+  --bk-map-accuracy-fill: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.1));
+  --bk-map-accuracy-ring: light-dark(rgba(127,76,8,0.5), rgba(224,159,62,0.45));
+
   /* StepList. The rail below a DONE step is teal at 40%; below any other step
    * it is the plain `edge` hairline and reaches for that token directly. The
    * current step's bubble sits at 14%, above the tint band, because it is a
@@ -1017,11 +1026,26 @@
   outline-offset: 2px;
 }
 
-.bk-composer {
+/* The same ring drawn INSIDE, for a field that is a full-width row of an
+ * `overflow: hidden` surface rather than a rounded control with padding
+ * around it. `CommandPalette`'s query row is one: it is the top strip of the
+ * dialog, so a +2 ring would be clipped on three sides. -2 is `.bk-row`'s
+ * offset, for `.bk-row`'s reason. */
+.bk-field-inset:has(:focus-visible) {
+  outline-offset: -2px;
+}
+
+/* The real inputs inside a `.bk-field`: the composer's textarea and the
+ * palette's query. Each suppresses its own ring, because the field shows it,
+ * and paints its placeholder in mute ink at full opacity, because a browser's
+ * default placeholder is a colour the kit never chose. */
+.bk-composer,
+.bk-palette-query {
   outline: none;
 }
 
-.bk-composer::placeholder {
+.bk-composer::placeholder,
+.bk-palette-query::placeholder {
   color: var(--bk-color-ink-mute);
   opacity: 1;
 }

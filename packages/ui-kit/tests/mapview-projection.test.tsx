@@ -349,3 +349,116 @@ describe("the rendered projection", () => {
     expect(Math.round(scaleBarPx(html, 330)!)).toBe(44);
   });
 });
+
+/**
+ * The map's own SVG — the first one in the card. The foot row's `graph` Icon
+ * is an SVG too, and it draws a `<circle>`, so a search over the whole card
+ * finds a "ring" on a map that has none.
+ */
+function mapSvg(html: string): string {
+  return html.slice(0, html.indexOf("</svg>"));
+}
+
+/** The accuracy ring's radius, in the SVG's own units, or null when not drawn. */
+function ringPx(html: string): number | null {
+  const match = mapSvg(html).match(/<circle [^>]*r="([\d.]+)"/);
+  return match ? Number(match[1]) : null;
+}
+
+describe("the accuracy ring", () => {
+  // One pin at Ithaca, 330 wide. With a single pin the latitude axis is
+  // degenerate and the aspect correction grows IT, so the longitude axis is
+  // exactly the span plus its 12% margins each side. The cos(lat) in the span
+  // cancels the one in the scale, and what is left is metres-per-pixel =
+  // span × 1.24 × (111.32 / 111) / 330 — the span converts a degree at 111 km
+  // and the scale bar at 111.32 — which is 3.768 m/px per kilometre of span.
+  // Every expectation below is that arithmetic, done by hand.
+  const ithaca = (props: { spanKm?: number; accuracyM?: number }) =>
+    renderToStaticMarkup(<MapView width={330} height={170} pins={[{ ...ITHACA, label: "Vathy" }]} {...props} />);
+
+  test("the span is max(spanKm, 6 × accuracyM) — a max, not a branch", () => {
+    // 1000 m of uncertainty widens the 1.6 km default to 6 km: 22.61 m/px,
+    // so 22% of the width is 1.64 km and the nearest nice distance is 2 km,
+    // drawn 88.4px wide — twice the 44px it is at 12 km, as it should be.
+    const widened = ithaca({ accuracyM: 1000 });
+    expect(widened).toContain(">2 km<");
+    expect(Math.round(scaleBarPx(widened, 330)!)).toBe(88);
+
+    // The same fix at a span already wider than six radii changes NOTHING:
+    // the bar is the 44px the 12 km test above pins, and the ring is drawn
+    // at that scale rather than pulling the view in to fit itself.
+    const kept = ithaca({ spanKm: 12, accuracyM: 1000 });
+    expect(Math.round(scaleBarPx(kept, 330)!)).toBe(44);
+    // 45.22 m/px, so the same 1000 m is a 22.1px radius.
+    expect(ringPx(kept)).toBeCloseTo(22.1, 1);
+  });
+
+  test("the ring is drawn at true projected scale around the first pin", () => {
+    const html = ithaca({ accuracyM: 1000 });
+    // 6 km at 3.768 m/px per km is 22.61 m/px; 1000 m is 44.2px of radius.
+    expect(ringPx(html)).toBeCloseTo(44.2, 1);
+    // Centred on the pin, which sits at the middle of a box built around it.
+    expect(html).toMatch(/<circle [^>]*cx="165.0"/);
+    expect(html).toMatch(/<circle [^>]*cy="85.0"/);
+    // Independently of the arithmetic above: the scale bar and the ring are
+    // drawn on the same scale, so the ring converts back through the bar to
+    // the metres it claims.
+    const metresPerPx = 2000 / scaleBarPx(html, 330)!;
+    expect(ringPx(html)! * metresPerPx).toBeCloseTo(1000, -1);
+    // One ring, a hairline, and it must not scale with the card.
+    expect(mapSvg(html).match(/<circle /g)).toHaveLength(1);
+    expect(mapSvg(html)).toMatch(/<circle [^>]*vector-effect="non-scaling-stroke"/);
+  });
+
+  test("below 14px across it is not drawn: the pin already is the uncertainty", () => {
+    // At the 1.6 km default the scale is 6.03 m/px. 40 m is 13.3px across —
+    // not drawn; 45 m is 14.9px — drawn. The span rule does not move here:
+    // six radii of either is far under 1.6 km.
+    expect(ringPx(ithaca({ accuracyM: 40 }))).toBeNull();
+    expect(mapSvg(ithaca({ accuracyM: 40 }))).not.toContain("<circle");
+    expect(ringPx(ithaca({ accuracyM: 45 }))).toBeCloseTo(7.5, 1);
+    // And no accuracy at all draws nothing, rather than a ring of radius 0.
+    expect(mapSvg(ithaca({}))).not.toContain("<circle");
+    expect(mapSvg(ithaca({ accuracyM: 0 }))).not.toContain("<circle");
+  });
+
+  test("the ring sits above the graticule and the land, under the route", () => {
+    const html = renderToStaticMarkup(
+      <MapView
+        width={330}
+        height={170}
+        accuracyM={500}
+        pins={[{ ...ITHACA, label: "Vathy" }]}
+        land={{ rings: [[[20.7, 38.36], [20.74, 38.36], [20.74, 38.37], [20.7, 38.36]]] }}
+        paths={[{ coords: [[20.71, 38.36], [20.73, 38.37]] }]}
+      />,
+    );
+    const at = (needle: string) => mapSvg(html).indexOf(needle);
+    expect(at("<line")).toBeLessThan(at("<circle"));
+    expect(at("fill-rule=\"evenodd\"")).toBeLessThan(at("<circle"));
+    expect(at("<circle")).toBeLessThan(at("<polyline"));
+  });
+});
+
+describe("the card", () => {
+  test("is capped at 420 by default, and `maxWidth` moves the cap", () => {
+    const html = renderToStaticMarkup(<MapView width={330} pins={[{ ...ITHACA }]} />);
+    expect(html).toContain("width:100%;max-width:420px");
+    const wider = renderToStaticMarkup(<MapView width={330} maxWidth={560} pins={[{ ...ITHACA }]} />);
+    expect(wider).toContain("width:100%;max-width:560px");
+  });
+
+  test("a `note` renders inside the card, under the foot row, and nothing renders without one", () => {
+    const html = renderToStaticMarkup(
+      <MapView width={330} pins={[{ ...ITHACA, label: "Vathy" }]} note="The fix is the harbour front; the hall is a street back." />,
+    );
+    expect(html).toContain("The fix is the harbour front; the hall is a street back.");
+    // After the foot row's `meta`, which is the last thing the row renders,
+    // and before the card's closing tag.
+    expect(html.indexOf("628 km")).toBeLessThan(html.indexOf("The fix is the harbour front"));
+    expect(html.endsWith("</div></div>")).toBe(true);
+    expect(html).toContain("font:400 11.5px/1.55");
+    const bare = renderToStaticMarkup(<MapView width={330} pins={[{ ...ITHACA, label: "Vathy" }]} />);
+    expect(bare).not.toContain("11.5px");
+  });
+});

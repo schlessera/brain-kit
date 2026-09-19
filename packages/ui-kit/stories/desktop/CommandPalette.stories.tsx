@@ -3,7 +3,7 @@ import { expect, fn } from "storybook/test";
 
 import { documentCount } from "../../fixtures/files.js";
 import { CommandPalette, type PaletteGroup } from "../../src/desktop/CommandPalette.js";
-import { overflowing, stage } from "../_stage.js";
+import { overflowing, ROW_RING, ring, stage } from "../_stage.js";
 
 const GROUPS: PaletteGroup[] = [
   {
@@ -26,6 +26,41 @@ const GROUPS: PaletteGroup[] = [
 const wired = (): PaletteGroup[] =>
   GROUPS.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it, onClick: fn() })) }));
 
+/** The design's own default, in the Odyssey's words: a spend, a write, and
+ * three rows the host cannot serve right now. Every row wired, including the
+ * disabled ones, so that the contract "a disabled row never runs" has
+ * something to assert against. */
+const HOST_DOWN: PaletteGroup[] = [
+  {
+    label: "Jump to",
+    items: [
+      { icon: "thread", label: "New chat", tone: "amber", shortcut: "⌘N" },
+      { icon: "file", label: "knowledge/scylla.md", tone: "teal" },
+      { icon: "history", label: "Sessions", tone: "neutral" },
+      { icon: "graph", label: "The graph around Ithaca", tone: "purple", shortcut: "⌘4" },
+    ],
+  },
+  {
+    label: "Ask",
+    items: [
+      { icon: "ask", label: "What did I promise Penelope?", tone: "neutral" },
+      { icon: "search", label: "Search the brain for “crew count”", tone: "neutral" },
+      { icon: "activity", label: "Brain statistics", tone: "neutral", why: "needs the host" },
+    ],
+  },
+  {
+    label: "Run",
+    items: [
+      { icon: "retry", label: "Sync the brain", tone: "amber", effect: "sync", why: "needs the host" },
+      { icon: "digest", label: "Daily briefing", tone: "gold", cost: "~$0.12", why: "needs the host" },
+      { icon: "edit", label: "Add a note", tone: "neutral" },
+    ],
+  },
+];
+
+const hostDown = (): PaletteGroup[] =>
+  HOST_DOWN.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it, onClick: fn() })) }));
+
 const meta = preview.meta({
   title: "Desktop/CommandPalette",
   component: CommandPalette,
@@ -36,10 +71,11 @@ const meta = preview.meta({
     groups: wired(),
     selected: 0,
     footMeta: `${documentCount.toLocaleString("en-US")} docs · 0.2s`,
+    onQueryChange: fn(),
     onSelect: fn(),
     onClose: fn(),
   },
-  argTypes: { selected: { control: { type: "range", min: 0, max: 4, step: 1 } } },
+  argTypes: { selected: { control: { type: "range", min: 0, max: 9, step: 1 } } },
 });
 
 /**
@@ -210,7 +246,7 @@ export const LongLabelsClip = meta.story({
  * hover state.
  */
 export const Static = meta.story({
-  args: { groups: GROUPS, onSelect: undefined, onClose: undefined },
+  args: { groups: GROUPS, onQueryChange: undefined, onSelect: undefined, onClose: undefined },
   play: async ({ canvas, canvasElement }) => {
     await expect(await canvas.findByRole("dialog")).toBeTruthy();
     await expect(canvas.queryByRole("listbox")).toBeNull();
@@ -219,5 +255,172 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(await canvas.findByText("enqueue")).toBeTruthy();
     await expect(await canvas.findByText("reindex")).toBeTruthy();
+    // The query is still a real input — read-only rather than fake, as the
+    // composer's is — so it still focuses and still announces itself.
+    const input = await canvas.findByRole<HTMLInputElement>("combobox");
+    await expect(input.readOnly).toBe(true);
+  },
+});
+
+/**
+ * The query is a real `<input role="combobox">` that owns the listbox. A
+ * drawn caret over overlay keystroke capture loses IME, autocorrect, selection
+ * and paste; a real input keeps them, and `onQueryChange` is what makes it
+ * editable. It is CONTROLLED: what is typed goes to the app and comes back as
+ * `query`, so with a mock handler the field reads what the args say.
+ */
+export const TypedQuery = meta.story({
+  args: { query: "" },
+  play: async ({ canvas, userEvent, args }) => {
+    const input = await canvas.findByRole<HTMLInputElement>("combobox", {
+      name: "Search places, questions and commands",
+    });
+    await expect(input.tagName).toBe("INPUT");
+    await expect(input.readOnly).toBe(false);
+    await expect(input).toHaveAttribute("aria-expanded", "true");
+    const list = await canvas.findByRole("listbox");
+    await expect(input.getAttribute("aria-controls")).toBe(list.id);
+    await expect(input).toHaveAttribute("placeholder", "Where to, what to ask, what to run…");
+
+    await userEvent.click(input);
+    await userEvent.keyboard("s");
+    await expect(args.onQueryChange).toHaveBeenCalledWith("s");
+    // Typing into the field runs nothing and moves nothing.
+    await expect(args.onSelect).not.toHaveBeenCalled();
+    await expect(args.groups?.[0].items[0].onClick).not.toHaveBeenCalled();
+    // esc still closes from inside the field.
+    await userEvent.keyboard("{Escape}");
+    await expect(args.onClose).toHaveBeenCalled();
+  },
+});
+
+/** The focus ring is on the ROW around the input, drawn inside, because the
+ * row is the top strip of a dialog that clips. */
+export const QueryRing = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const input = await canvas.findByRole("combobox");
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(input);
+    await expect(ring(input.closest(".bk-field")!)).toEqual(ROW_RING);
+    await expect(ring(input).style).toBe("none");
+  },
+});
+
+/**
+ * A command the host cannot currently serve is shown DISABLED with the reason,
+ * never omitted: dropping rows while the socket is down teaches that the
+ * palette's contents are a guess. `why` is the whole rule — the reason is
+ * printed and announced, the row has no tab stop and no click, and ↑↓ step
+ * over it as if it were not there while its flat index still counts.
+ */
+export const DisabledRowsAreSkipped = meta.story({
+  args: { groups: hostDown(), query: "" },
+  play: async ({ canvas, userEvent, args }) => {
+    const options = await canvas.findAllByRole("option");
+    await expect(options).toHaveLength(10);
+    const off = options.filter((o) => o.getAttribute("aria-disabled") === "true");
+    await expect(off).toHaveLength(3);
+    for (const row of off) {
+      await expect(row).toHaveAttribute("aria-selected", "false");
+      await expect(row.hasAttribute("tabindex")).toBe(false);
+      await expect(row.classList.contains("bk-row")).toBe(false);
+      await expect(getComputedStyle(row).opacity).toBe("0.45");
+      await expect(row).toHaveAccessibleName(/, needs the host$/);
+      await expect(row.textContent).toContain("needs the host");
+    }
+    // A click on a disabled row runs nothing.
+    await userEvent.click(off[0]);
+    await expect(args.groups?.[1].items[2].onClick).not.toHaveBeenCalled();
+
+    // From "Search the brain" (5), ↓ skips "Brain statistics" (6), "Sync" (7)
+    // and "Daily briefing" (8) and lands on "Add a note" (9).
+    options[5].focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(args.onSelect).toHaveBeenLastCalledWith(9);
+    await expect(document.activeElement).toBe(options[9]);
+    // And ↑ from there steps back over the same three.
+    await userEvent.keyboard("{ArrowUp}");
+    await expect(args.onSelect).toHaveBeenLastCalledWith(5);
+    await expect(document.activeElement).toBe(options[5]);
+    // End lands on the last ENABLED row, not the last row.
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(options[9]);
+  },
+});
+
+/** A `selected` that lands on a disabled row falls through to the next
+ * enabled one, so the roving tab stop always has somewhere to sit. */
+export const SelectionFallsThroughDisabled = meta.story({
+  args: { groups: hostDown(), query: "", selected: 7 },
+  play: async ({ canvas }) => {
+    const options = await canvas.findAllByRole("option");
+    await expect(options[7]).toHaveAttribute("aria-selected", "false");
+    await expect(options[9]).toHaveAttribute("aria-selected", "true");
+    await expect(options.filter((o) => o.tabIndex === 0)).toEqual([options[9]]);
+  },
+});
+
+/**
+ * Anything that SPENDS shows a cost chip — gold, mono, `~$` — because spending
+ * money is an effect even when nothing is written. It rides in the accessible
+ * name the way the effect chip does, and a spend is set in mono like a write.
+ */
+export const CostChip = meta.story({
+  args: {
+    query: "",
+    groups: [
+      {
+        label: "Run",
+        items: [
+          { icon: "digest", label: "Daily briefing", tone: "gold", cost: "~$0.12", onClick: fn() },
+          { icon: "edit", label: "Add a note", tone: "neutral", onClick: fn() },
+        ],
+      },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const chip = await canvas.findByText("~$0.12");
+    await expect(getComputedStyle(chip).fontFamily).toContain("JetBrains Mono");
+    const [briefing, note] = await canvas.findAllByRole("option");
+    await expect(briefing).toHaveAccessibleName("Daily briefing, ~$0.12");
+    await expect(getComputedStyle(await canvas.findByText("Daily briefing")).fontFamily).toContain("JetBrains Mono");
+    // Opening a form is not an effect: the bare row carries no chip.
+    await expect(note.textContent).toBe("Add a note");
+  },
+});
+
+/** The list scrolls past `maxHeight` rather than clipping, so a row is never
+ * both cut and unreachable. Ten rows at 180px is a scroll, and End reaches
+ * the bottom of it. */
+export const Scrolls = meta.story({
+  args: { groups: hostDown(), query: "", maxHeight: 180 },
+  play: async ({ canvas, userEvent }) => {
+    const list = await canvas.findByRole("listbox");
+    await expect(getComputedStyle(list).overflowY).toBe("auto");
+    await expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
+    const options = await canvas.findAllByRole("option");
+    options[0].focus();
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(options[9]);
+    await expect(list.scrollTop).toBeGreaterThan(0);
+  },
+});
+
+/**
+ * The design's default: what the palette shows with no `groups` at all, and
+ * so with no handlers on any row. That makes it the picture rather than a
+ * listbox, and a picture that scrolls has no keyboard path into it, which axe
+ * rightly refuses; the ten fallback rows are taller than the default 320, so
+ * this story gives them the room. An app never renders this: its rows carry
+ * `onClick`, and a listbox of options scrolls with its focus.
+ */
+export const Fallback = meta.story({
+  args: { groups: undefined, query: "scylla", selected: 1, maxHeight: 440 },
+  play: async ({ canvas }) => {
+    await expect(await canvas.findByText("↑↓ move · ⏎ run · home/end ends · esc closes")).toBeTruthy();
+    await expect(await canvas.findByText("⌘N")).toBeTruthy();
+    await expect(await canvas.findByText("sync")).toBeTruthy();
+    await expect(await canvas.findByText("~$0.12")).toBeTruthy();
+    await expect(await canvas.findAllByText("needs the host")).toHaveLength(3);
   },
 });

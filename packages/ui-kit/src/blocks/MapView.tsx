@@ -69,6 +69,32 @@ export interface MapViewProps {
   /** Minimum span in kilometres. The view widens past it to fit the pins. */
   spanKm?: number;
   /**
+   * The fix's uncertainty, in metres — a radius around the FIRST pin.
+   *
+   * Two things follow from it. The span becomes `max(spanKm, 6 × accuracyM)`,
+   * a max rather than a "coarse" branch, so there is no threshold to argue
+   * about and a 30 m fix and a 2 km fix get the same rule; six is the smallest
+   * multiple that leaves the ring under two-thirds of the frame once the
+   * margins are taken. And the uncertainty is DRAWN, at true projected scale,
+   * because a pin without it claims a precision the fix does not have. Below
+   * 14px across it is not drawn: at that size the ring sits inside the pin's
+   * own glow, and the pin already is the uncertainty.
+   */
+  accuracyM?: number;
+  /**
+   * The agent's own sentence about the fix. Prose in the body font — not the
+   * mono line, which is machine fact — inside the card under a hairline rather
+   * than floating beneath it: a loose line under a card belongs to nothing,
+   * and a transcript already reads a gap as a new block.
+   */
+  note?: string;
+  /**
+   * The card's cap, default 420. Past that the graticule spaces out into
+   * decoration and the card starts competing with the answer it belongs to.
+   * Narrower panes get 100%.
+   */
+  maxWidth?: number;
+  /**
    * Pins whose projected centres land within this many pixels of an
    * already-placed pin are absorbed into it: the survivor's label gains `+N`
    * and the absorbed pins draw nothing. Default 34. "Resolved by clustering,
@@ -246,7 +272,11 @@ export function MapView(p: MapViewProps) {
 
   const lons = src.map((s) => s.lon);
   const lats = src.map((s) => s.lat);
-  const spanKm = Number(p.spanKm) || 1.6;
+  // THE SPAN RULE. The frame's job is to contain the uncertainty with room
+  // left to read it, so the span is the larger of the caller's minimum and six
+  // times the accuracy radius. A max, not a branch: see `accuracyM`.
+  const accM = Math.max(0, Number(p.accuracyM) || 0);
+  const spanKm = Math.max(Number(p.spanKm) || 1.6, (accM * 6) / 1000);
 
   // 111 km per degree of latitude. Longitude shrinks by cos(lat), floored at
   // 0.2 so a high-latitude view does not blow the box up to a hemisphere.
@@ -436,6 +466,13 @@ export function MapView(p: MapViewProps) {
   const rawM = mPerPx * target;
   const niceM = NICE_METRES.reduce((a, b) => (Math.abs(b - rawM) < Math.abs(a - rawM) ? b : a), 50);
 
+  // The uncertainty ring, in the SVG's own coordinate space: `mPerPx` is
+  // metres per viewBox unit, and the viewBox is the measured width, so this
+  // radius is the ring's true size on the same drawing the scale bar measures.
+  // A `vector-effect="non-scaling-stroke"` hairline, like the graticule's.
+  const ringPx = accM / mPerPx;
+  const ring = accM > 0 && ringPx * 2 >= 14 ? { cx: px(src[0].lon), cy: py(src[0].lat), r: ringPx } : null;
+
   // The footer's stand-in content. Ithaca is the destination behind every open
   // loop in this world, and `meta` is what the source's was: how far the pin is
   // from the person reading the card. 628 km is the great-circle distance from
@@ -454,6 +491,7 @@ export function MapView(p: MapViewProps) {
     overflow: "hidden",
     boxSizing: "border-box",
     width: "100%",
+    maxWidth: Number(p.maxWidth) || 420,
     flex: "none",
   };
   const viewport: CSSProperties = {
@@ -503,6 +541,20 @@ export function MapView(p: MapViewProps) {
               // Even-odd, so a ring inside a ring is a hole. See `MapLand`.
               fillRule="evenodd"
               stroke="none"
+            />
+          ) : null}
+          {/* Above the graticule and the land, under the route: the tint has
+           * to read over the ground it sits on, and a path drawn across the
+           * ring still has to read as the subject. */}
+          {ring ? (
+            <circle
+              cx={ring.cx.toFixed(1)}
+              cy={ring.cy.toFixed(1)}
+              r={ring.r.toFixed(1)}
+              fill={token("map-accuracy-fill")}
+              stroke={token("map-accuracy-ring")}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
             />
           ) : null}
           {paths.map((path, i) => (
@@ -717,6 +769,19 @@ export function MapView(p: MapViewProps) {
               {meta}
             </span>
           ) : null}
+        </div>
+      ) : null}
+      {p.note ? (
+        <div
+          style={{
+            padding: "9px 12px 10px",
+            borderTop: `1px solid ${color.line}`,
+            font: `400 11.5px/1.55 ${font.body}`,
+            color: color.inkDim,
+            textWrap: "pretty",
+          }}
+        >
+          {p.note}
         </div>
       ) : null}
     </div>

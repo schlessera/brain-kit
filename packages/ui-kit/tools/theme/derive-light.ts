@@ -134,7 +134,7 @@ const LIGHT_RGB: Record<string, Rgb> = {
 
 /** Tokens that are a FILL of the accent (a ground, a bar, a glow) rather than
  * a stroke. Everything not matched here is treated as ink-hue. */
-const FILL_ROLE = /(tint|-bar-|hatch|fade|glow|pin-ring|voice|mark-bg|-bg-)/;
+const FILL_ROLE = /(tint|-bar-|hatch|fade|glow|pin-ring|accuracy-fill|voice|mark-bg|-bg-)/;
 
 /** Tokens whose canvas-hue alpha is a light GROUND on paper, by name. */
 const CANVAS_HUE_AS: Record<string, string> = {

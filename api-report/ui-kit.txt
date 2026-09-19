@@ -49,6 +49,8 @@ export "." (./src/index.ts)
   type ComparisonTableProps
   Composer
   type ComposerProps
+  type ComposerRecall
+  type ComposerState
   type ComposerVariant
   type ContactAction
   ContactCard

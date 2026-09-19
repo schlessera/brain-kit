@@ -192,7 +192,7 @@ export {
 
 /* Chrome — the frame a screen is assembled inside. */
 export { BottomSheet, type BottomSheetProps } from "./chrome/BottomSheet.js";
-export { Composer, type ComposerProps } from "./chrome/Composer.js";
+export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
 export { MessageBubble, type MessageBubbleProps } from "./chrome/MessageBubble.js";
 export { ScreenBody, type ScreenBodyProps } from "./chrome/ScreenBody.js";
 export { ScreenHeader, type ScreenHeaderProps } from "./chrome/ScreenHeader.js";
