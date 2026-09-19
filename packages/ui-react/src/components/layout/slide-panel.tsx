@@ -74,8 +74,11 @@ export function SlidePanel({
       <div
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)]",
-          "transform transition-transform duration-300 ease-out",
-          open ? "translate-x-0" : "translate-x-full",
+          "transform transition-[transform,box-shadow] duration-300 ease-out",
+          // A closed drawer sits just past the right edge, and its 48px shadow
+          // would still bleed into the viewport: the shadow fades with the
+          // slide, and a closed drawer takes no clicks.
+          open ? "translate-x-0" : "translate-x-full shadow-none pointer-events-none",
           wide ? "w-full md:w-[480px]" : "w-full md:w-80"
         )}
       >

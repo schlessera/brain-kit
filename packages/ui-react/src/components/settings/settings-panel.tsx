@@ -170,9 +170,16 @@ function SettingsPane({
   const appName = useBrainUiRoot().config.appName;
   return (
     <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane">
+      {/* The kit header is `width: 100%`; it needs a shrinking flex child
+          around it, or it fills the row and pushes Close past the viewport
+          (the Files pane wraps its header the same way). */}
       <div className="flex shrink-0 items-center border-b border-border pr-3">
-        <ScreenHeader variant="nav" title="Settings" back={false} divider={false} />
-        <Button label="Close" tone="quiet" size="sm" block={false} onClick={onClose} />
+        <div className="min-w-0 flex-1">
+          <ScreenHeader variant="nav" title="Settings" back={false} divider={false} />
+        </div>
+        <div className="shrink-0">
+          <Button label="Close" icon="dismiss" tone="quiet" size="sm" block={false} onClick={onClose} />
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
