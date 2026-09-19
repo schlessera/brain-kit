@@ -210,7 +210,7 @@ export function MaskEditor({
         />
       </div>
 
-      {error && <div className="px-3 pb-1 text-center text-sm text-red-300">{error}</div>}
+      {error && <div className="px-3 pb-1 text-center text-sm text-destructive">{error}</div>}
 
       <div className="flex items-center gap-3 p-3">
         <label className="flex flex-1 items-center gap-2 text-xs text-white/80">

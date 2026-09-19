@@ -231,13 +231,13 @@ function ToolCallEntry({
       <div
         className={cn(
           "absolute -left-[21px] top-2 h-2.5 w-2.5 rounded-full border-2 border-background",
-          toolCall.status === "streaming" && "bg-primary animate-pulse",
+          toolCall.status === "streaming" && "bg-primary-fill animate-pulse",
           toolCall.status === "pending_approval" &&
-            "bg-primary",
-          toolCall.status === "approved" && "bg-accent",
-          toolCall.status === "denied" && "bg-destructive",
+            "bg-primary-fill",
+          toolCall.status === "approved" && "bg-accent-fill",
+          toolCall.status === "denied" && "bg-destructive-fill",
           toolCall.status === "complete" &&
-            (toolCall.isError ? "bg-destructive" : "bg-accent"),
+            (toolCall.isError ? "bg-destructive-fill" : "bg-accent-fill"),
           !["streaming", "pending_approval", "approved", "denied", "complete"].includes(toolCall.status) && "bg-muted-foreground"
         )}
         style={
@@ -298,7 +298,7 @@ function ToolCallEntry({
               className={cn(
                 "mt-1 rounded-lg p-3 space-y-2",
                 isPending
-                  ? "border-2 border-primary/40 bg-primary/5"
+                  ? "border-2 border-primary/40 bg-primary-fill/5"
                   : "border border-border-subtle bg-surface"
               )}
             >
@@ -327,7 +327,7 @@ function ToolCallEntry({
                 >
                   <button
                     onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true)}
-                    className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110"
+                    className="flex items-center gap-1.5 rounded-lg bg-primary-fill px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110"
                   >
                     <Check className="h-3 w-3" />
                     Allow
@@ -337,7 +337,7 @@ function ToolCallEntry({
                     <button
                       onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true, true)}
                       title={`Allow ${toolCall.name} without asking from now on (revocable in Settings → Models)`}
-                      className="flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                      className="flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-fill/10"
                     >
                       <Check className="h-3 w-3" />
                       Always allow
@@ -345,7 +345,7 @@ function ToolCallEntry({
                   )}
                   <button
                     onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), false)}
-                    className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive-fill/10"
                   >
                     <X className="h-3 w-3" />
                     Deny
@@ -424,7 +424,7 @@ function RiskHints({
   const hints = riskHints(toolCall, semantics);
   if (hints.length === 0) return null;
   return (
-    <div className="space-y-0.5 text-[11px] text-amber-400">
+    <div className="space-y-0.5 text-[11px] text-primary">
       {hints.map((hint) => (
         <div key={hint} className="flex items-center gap-1.5">
           <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -445,11 +445,11 @@ function StatusIndicator({
   switch (status) {
     case "streaming":
       return (
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary-fill" />
       );
     case "pending_approval":
       return (
-        <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+        <span className="rounded bg-primary-fill/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
           Approval needed
         </span>
       );

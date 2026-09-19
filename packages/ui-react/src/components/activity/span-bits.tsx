@@ -42,11 +42,11 @@ export function SpanStatusDot({
       className={cn(
         "h-1.5 w-1.5 shrink-0 rounded-full",
         isRunning
-          ? "animate-pulse bg-primary"
+          ? "animate-pulse bg-primary-fill"
           : resolved === "success"
-            ? "bg-accent"
+            ? "bg-accent-fill"
             : isFailureOutcome(resolved) || resolved === "denied"
-              ? "bg-destructive"
+              ? "bg-destructive-fill"
               : "bg-muted-foreground",
         className
       )}
@@ -242,7 +242,7 @@ export function CountBadge({ count, className }: { count: number; className?: st
   return (
     <span
       className={cn(
-        "absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white",
+        "absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive-fill px-1 text-[9px] font-semibold text-primary-foreground",
         className
       )}
     >

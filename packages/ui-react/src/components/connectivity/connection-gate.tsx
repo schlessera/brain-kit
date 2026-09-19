@@ -230,7 +230,7 @@ function OfflineBanner({
         >
           <div
             role="status"
-            className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-950/90 px-4 py-1.5 text-xs text-amber-200 shadow-lg backdrop-blur"
+            className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/30 bg-surface-raised/90 px-4 py-1.5 text-xs text-primary shadow-lg backdrop-blur"
           >
             {issue === "forbidden" ? (
               <ShieldAlert className="h-3.5 w-3.5" />
@@ -242,13 +242,13 @@ function OfflineBanner({
               <button
                 type="button"
                 onClick={root.connection.reconnectNow}
-                className="font-medium underline underline-offset-2 hover:text-amber-100"
+                className="font-medium underline underline-offset-2 hover:text-foreground"
               >
                 Retry now
               </button>
             )}
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-primary-fill"
               style={{ animation: "breathe 2s ease-in-out infinite" }}
             />
           </div>

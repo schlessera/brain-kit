@@ -37,21 +37,21 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
   );
 
   return (
-    <div className="my-4 overflow-hidden rounded-lg border border-primary/30 bg-primary/[0.04]">
-      <div className="flex items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-3 py-2">
+    <div className="my-4 overflow-hidden rounded-lg border border-primary/30 bg-primary-fill/[0.04]">
+      <div className="flex items-center justify-between gap-3 border-b border-primary/20 bg-primary-fill/[0.06] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           <Share2 className="h-3.5 w-3.5 shrink-0 text-primary/80" />
           <span className="truncate font-medium text-primary/90">
             {title ?? "Share"}
           </span>
-          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary/80">
+          <span className="rounded-full bg-primary-fill/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary/80">
             {format}
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => void primary.run()}
-            className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="rounded-md bg-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
             {primary.label}
           </button>

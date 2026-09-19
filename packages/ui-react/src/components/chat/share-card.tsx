@@ -106,7 +106,7 @@ function ShareCard({
           type="button"
           onClick={onConfirm}
           disabled={busy}
-          className="flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          className="flex items-center gap-2 rounded-lg bg-primary-fill px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           Add to brain
@@ -145,7 +145,7 @@ export function ShareIntake() {
   return (
     <>
       {error && (
-        <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
+        <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive-fill/5 px-3 py-2 text-[11px] text-destructive">
           <div className="flex-1">{error}</div>
           <button
             type="button"

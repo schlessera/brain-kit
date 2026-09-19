@@ -89,12 +89,12 @@ export function DictationSheet({
               {/* Pulse only once capture is actually live — a "connecting" dot
                   must not imply the mic is already open. */}
               {!connecting && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-fill opacity-75" />
               )}
               <span
                 className={cn(
                   "relative inline-flex h-2 w-2 rounded-full",
-                  connecting ? "bg-muted-foreground/50" : "bg-primary"
+                  connecting ? "bg-muted-foreground/50" : "bg-primary-fill"
                 )}
               />
             </span>
@@ -135,7 +135,7 @@ export function DictationSheet({
         {/* Transcript */}
         <div ref={transcriptRef} className="flex-1 overflow-y-auto px-6 pb-6">
           {error ? (
-            <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
+            <div className="rounded-lg bg-destructive-fill/10 p-4 text-sm text-destructive">
               {error}
             </div>
           ) : (
@@ -160,7 +160,7 @@ export function DictationSheet({
           <button
             onClick={onStop}
             disabled={draining}
-            className="flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-primary text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:opacity-60 disabled:cursor-progress"
+            className="flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-primary-fill text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:opacity-60 disabled:cursor-progress"
           >
             <Mic className="h-5 w-5" />
             <span className="text-sm font-semibold uppercase tracking-wider">
@@ -208,7 +208,7 @@ function Waveform({ level }: { level: number }) {
           <span
             key={i}
             style={{ height: `${h}px` }}
-            className="w-1.5 rounded-full bg-primary transition-[height] duration-75 ease-linear"
+            className="w-1.5 rounded-full bg-primary-fill transition-[height] duration-75 ease-linear"
           />
         );
       })}

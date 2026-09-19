@@ -55,7 +55,7 @@ export function ReviewCard({
         <button
           type="button"
           onClick={onSend}
-          className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.98]"
+          className="flex h-10 items-center gap-2 rounded-xl bg-primary-fill px-5 text-sm font-semibold text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.98]"
         >
           <Send className="h-4 w-4" />
           Send

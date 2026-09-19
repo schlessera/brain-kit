@@ -88,7 +88,7 @@ export function SubagentView({
           </div>
         </div>
         {running && (
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary-fill" />
         )}
       </div>
 
@@ -96,7 +96,7 @@ export function SubagentView({
         {approvalsHere.map((tool) => (
           <div
             key={tool.id}
-            className="rounded-lg border-2 border-primary/40 bg-primary/5 p-3 text-xs"
+            className="rounded-lg border-2 border-primary/40 bg-primary-fill/5 p-3 text-xs"
           >
             <div className="mb-2 font-medium">
               Approval needed: {getToolLabel(tool.name)}
@@ -105,13 +105,13 @@ export function SubagentView({
               <div className="flex gap-2">
                 <button
                   onClick={() => onApproval(tool.id, true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:brightness-110"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary-fill px-4 py-1.5 text-xs font-medium text-primary-foreground hover:brightness-110"
                 >
                   <Check className="h-3 w-3" /> Allow
                 </button>
                 <button
                   onClick={() => onApproval(tool.id, false)}
-                  className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                  className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive hover:bg-destructive-fill/10"
                 >
                   <X className="h-3 w-3" /> Deny
                 </button>

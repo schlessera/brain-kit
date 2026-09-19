@@ -138,6 +138,18 @@ its HTML before the stylesheet:
 <script>document.documentElement.dataset.theme = localStorage.getItem("brain-theme") || "dark";</script>
 ```
 
+The app types no colour of its own. Every utility colour `theme.css`
+declares (`bg-surface`, `text-foreground`, `border-border`, …) is one of the
+kit's `--bk-*` tokens, declared `@theme inline`, so the same attribute
+switches the shell and the kit components inside it. Accents come in two
+names, as the kit names them: `primary`, `accent` and `destructive` are the
+inks — for text, borders and rings, dark on paper — and `primary-fill`,
+`accent-fill` and `destructive-fill` are the fills, the same colour in both
+themes, for backgrounds solid or with an alpha, with `primary-foreground` as
+the ink that sits on a fill. A host that styles its own elements with these
+utilities follows the same split; `bg-primary` is the ink and reads as brown
+on paper.
+
 ## Multi-session state
 
 `useChatStore` keeps a transcript buffer **per session** plus a draft buffer

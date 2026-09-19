@@ -120,7 +120,7 @@ function OneTimeCredential({
           type="button"
           disabled={!saved}
           onClick={onDone}
-          className="mt-3 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
+          className="mt-3 w-full rounded-lg bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
         >
           Done
         </button>

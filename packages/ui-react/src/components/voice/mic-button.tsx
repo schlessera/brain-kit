@@ -20,7 +20,7 @@ export function MicButton({
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150",
         active
-          ? "bg-primary text-primary-foreground animate-pulse"
+          ? "bg-primary-fill text-primary-foreground animate-pulse"
           : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
         disabled && "opacity-30 cursor-not-allowed"
       )}

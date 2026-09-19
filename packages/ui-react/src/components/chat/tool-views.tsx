@@ -232,7 +232,7 @@ export function ToolInputView({ tool }: { tool: ToolCall }) {
     return (
       <div className="flex items-center gap-2 rounded-md bg-background/60 p-2 text-[11px] text-muted-foreground/60">
         <span
-          className="inline-block h-1.5 w-1.5 rounded-full bg-primary"
+          className="inline-block h-1.5 w-1.5 rounded-full bg-primary-fill"
           style={{ animation: "breathe 1.5s ease-in-out infinite" }}
         />
         Preparing input…
@@ -272,7 +272,7 @@ function PathHeader({ path, badge }: { path: string | null; badge?: string | nul
         {path ? fileLabel(path) : "unknown file"}
       </span>
       {badge && (
-        <span className="ml-auto shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+        <span className="ml-auto shrink-0 rounded bg-primary-fill/15 px-1.5 py-0.5 text-[10px] text-primary">
           {badge}
         </span>
       )}
@@ -324,19 +324,19 @@ export function EditDiffView({ tool }: { tool: ToolCall }) {
           }
           if (row.kind === "del") {
             return (
-              <div key={`d${i}`} className="flex bg-red-500/10">
-                <span className="w-5 shrink-0 select-none text-center text-red-400/70">-</span>
-                <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-red-200/90">
-                  <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-red-500/30" />
+              <div key={`d${i}`} className="flex bg-destructive-fill/10">
+                <span className="w-5 shrink-0 select-none text-center text-destructive/70">-</span>
+                <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-destructive">
+                  <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-destructive-fill/30" />
                 </span>
               </div>
             );
           }
           return (
-            <div key={`i${i}`} className="flex bg-emerald-500/10">
-              <span className="w-5 shrink-0 select-none text-center text-emerald-400/70">+</span>
-              <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-emerald-200/90">
-                <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-emerald-500/30" />
+            <div key={`i${i}`} className="flex bg-accent-fill/10">
+              <span className="w-5 shrink-0 select-none text-center text-accent/70">+</span>
+              <span className="min-w-0 whitespace-pre-wrap break-all pr-2 text-accent">
+                <DiffLine tokens={row.tokens} line={row.line} changedClass="bg-accent-fill/30" />
               </span>
             </div>
           );
@@ -391,7 +391,7 @@ export function BashCommandView({ tool }: { tool: ToolCall }) {
               className={cn(
                 "rounded px-1.5 py-0.5 text-[10px]",
                 f === "sandbox disabled"
-                  ? "bg-destructive/15 text-destructive"
+                  ? "bg-destructive-fill/15 text-destructive"
                   : "bg-surface-raised text-muted-foreground"
               )}
             >
@@ -500,7 +500,7 @@ export function ClampedPre({ text, isError }: { text: string; isError?: boolean 
           className={cn(
             "overflow-x-auto rounded-md p-2 pr-7 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed",
             isError
-              ? "bg-destructive/10 text-destructive"
+              ? "bg-destructive-fill/10 text-destructive"
               : "bg-background/60 text-muted-foreground"
           )}
         >
@@ -635,7 +635,7 @@ export function FileRowsView({ output, pattern }: { output: string; pattern?: st
         {prefix && <span>{linkifyPaths(prefix)}</span>}
         {splitMatches(content, re).map((seg, i) =>
           seg.match ? (
-            <mark key={i} className="rounded-sm bg-amber-400/25 px-0.5 text-amber-100">
+            <mark key={i} className="rounded-sm bg-primary-fill/25 px-0.5 text-foreground">
               {seg.text}
             </mark>
           ) : (

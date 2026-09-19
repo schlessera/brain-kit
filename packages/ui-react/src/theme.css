@@ -27,38 +27,6 @@
   --breakpoint-desktop: 1280px;
   --breakpoint-wide: 1440px;
 
-  /* Backgrounds - warm-tinted darks */
-  --color-background: #0c0e12;
-  --color-surface: #141619;
-  --color-surface-raised: #1a1d22;
-  --color-surface-overlay: #1e2128;
-
-  /* Borders */
-  --color-border: #2a2d35;
-  --color-border-subtle: #1f2229;
-
-  /* Text hierarchy */
-  --color-foreground: #e8e4df;
-  --color-muted: #141619;
-  --color-muted-foreground: #9a96a1;
-  --color-card: #141619;
-  --color-card-foreground: #e8e4df;
-
-  /* Primary: Amber */
-  --color-primary: #e09f3e;
-  --color-primary-foreground: #0c0e12;
-
-  /* Secondary */
-  --color-secondary: #1a1d22;
-  --color-secondary-foreground: #e8e4df;
-  --color-accent: #5bb5a2;
-  --color-accent-foreground: #0c0e12;
-
-  /* Semantic */
-  --color-destructive: #f87171;
-  --color-input: #2a2d35;
-  --color-ring: #e09f3e80;
-
   /* Radius */
   --radius: 0.5rem;
 
@@ -68,15 +36,75 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
+/*
+ * Colour. Every utility colour is the kit's token, and nothing else: the
+ * tokens are `light-dark()` pairs switched by `color-scheme` under
+ * `[data-theme]` (kit D32), so a literal hex here would be the one colour
+ * in the app that stays dark on paper — which is exactly what these were
+ * until the app shell was checked in light. `@theme inline` makes each
+ * utility carry `var(--bk-*)` itself rather than a `--color-*` alias on
+ * `:root`, so the token resolves where it is used and a light subtree
+ * inside a dark page keeps working.
+ *
+ * Two names per accent, because the kit has two: the INK (`--bk-color-amber`,
+ * a dark amber on paper) is for text, borders and rings — `text-primary`,
+ * `border-primary` — and the FILL (`--bk-amber-fill`, the same amber in
+ * both themes) is for solid or tinted backgrounds — `bg-primary-fill`,
+ * `bg-primary-fill/10` — with `--bk-on-fill` as the foreground that sits
+ * on it. One name serving both is how a solid amber button turned into dark
+ * brown on paper.
+ *
+ * `tests/theme-neutral.test.ts` holds this file to the rule: no hex, no
+ * rgb literal, only `var(--bk-*)` or a `color-mix()` of one.
+ */
+@theme inline {
+  /* Surfaces, from the canvas up */
+  --color-background: var(--bk-color-canvas);
+  --color-surface: var(--bk-color-surface);
+  --color-surface-raised: var(--bk-color-raised);
+  --color-surface-overlay: var(--bk-color-raised);
+
+  /* Borders */
+  --color-border: var(--bk-color-edge);
+  --color-border-subtle: var(--bk-color-line);
+
+  /* Text hierarchy */
+  --color-foreground: var(--bk-color-ink);
+  --color-muted: var(--bk-color-surface);
+  --color-muted-foreground: var(--bk-color-ink-mute);
+  --color-card: var(--bk-color-surface);
+  --color-card-foreground: var(--bk-color-ink);
+
+  /* Primary: amber */
+  --color-primary: var(--bk-color-amber);
+  --color-primary-fill: var(--bk-amber-fill);
+  --color-primary-foreground: var(--bk-on-fill);
+
+  /* Secondary */
+  --color-secondary: var(--bk-color-raised);
+  --color-secondary-foreground: var(--bk-color-ink);
+
+  /* Accent: teal */
+  --color-accent: var(--bk-color-teal);
+  --color-accent-fill: var(--bk-teal-fill);
+  --color-accent-foreground: var(--bk-on-fill);
+
+  /* Semantic */
+  --color-destructive: var(--bk-color-red);
+  --color-destructive-fill: var(--bk-red-fill);
+  --color-input: var(--bk-color-edge);
+  --color-ring: color-mix(in srgb, var(--bk-color-amber) 50%, transparent);
+}
+
 /* Amber filament line */
 .filament {
   height: 1px;
   background: linear-gradient(
     to right,
     transparent 0%,
-    #e09f3e 30%,
-    #eab354 50%,
-    #e09f3e 70%,
+    var(--bk-filament-edge) 30%,
+    var(--bk-filament-core) 50%,
+    var(--bk-filament-edge) 70%,
     transparent 100%
   );
   opacity: 0.7;
@@ -87,13 +115,13 @@
   opacity: 1;
   height: 2px;
   background:
-    radial-gradient(circle at center, #eab354 0%, transparent 40%) no-repeat,
+    radial-gradient(circle at center, var(--bk-filament-core) 0%, transparent 40%) no-repeat,
     linear-gradient(
       to right,
       transparent 0%,
-      #e09f3e 30%,
-      #eab354 50%,
-      #e09f3e 70%,
+      var(--bk-filament-edge) 30%,
+      var(--bk-filament-core) 50%,
+      var(--bk-filament-edge) 70%,
       transparent 100%
     );
   background-size:
@@ -125,10 +153,10 @@
   font-family: var(--font-body);
   font-size: 0.875rem;
   line-height: 1.7;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
 }
 .whatsup-briefing h2 {
-  color: #5bb5a2;
+  color: var(--bk-color-teal);
   font-family: var(--font-display);
   font-size: 0.9rem;
   font-weight: 400;
@@ -136,7 +164,7 @@
   padding-bottom: 0.375rem;
   margin-bottom: 0.5rem;
   margin-top: 1.5rem;
-  border-bottom: 1px solid #2a2d35;
+  border-bottom: 1px solid var(--bk-color-edge);
 }
 .whatsup-briefing h2:first-child {
   margin-top: 0;
@@ -144,29 +172,29 @@
 
 /* Entity color-coding */
 .whatsup-briefing .entity-co {
-  color: #67b8e3;
+  color: var(--bk-color-blue);
   font-weight: 600;
 }
 .whatsup-briefing .entity-p {
-  color: #5bb5a2;
+  color: var(--bk-color-teal);
   font-weight: 600;
 }
 .whatsup-briefing .entity-proj {
-  color: #b197d4;
+  color: var(--bk-color-purple);
   font-weight: 600;
 }
 .whatsup-briefing .entity-ev {
-  color: #e09f3e;
+  color: var(--bk-color-amber);
   font-weight: 600;
 }
 .whatsup-briefing .entity-d {
-  color: #67b8e3;
+  color: var(--bk-color-blue);
 }
 .whatsup-briefing .entity-st {
-  color: #eab354;
+  color: var(--bk-color-gold);
 }
 .whatsup-briefing .entity-f {
-  color: #9a96a1;
+  color: var(--bk-color-ink-mute);
   font-family: var(--font-mono);
   font-size: 0.85em;
 }
@@ -176,7 +204,7 @@
   font-family: var(--font-body);
   font-size: 0.875rem;
   line-height: 1.7;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
 }
 
 /* Headings */
@@ -184,7 +212,7 @@
   font-family: var(--font-display);
   font-size: 1.5rem;
   font-weight: 400;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
   margin-top: 2rem;
   margin-bottom: 0.75rem;
 }
@@ -192,17 +220,17 @@
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 400;
-  color: #e09f3e;
+  color: var(--bk-color-amber);
   margin-top: 1.75rem;
   margin-bottom: 0.5rem;
   padding-bottom: 0.375rem;
-  border-bottom: 1px solid #2a2d35;
+  border-bottom: 1px solid var(--bk-color-edge);
 }
 .brain-prose h3 {
   font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 600;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
   margin-top: 1.5rem;
   margin-bottom: 0.375rem;
 }
@@ -210,7 +238,7 @@
   font-family: var(--font-body);
   font-size: 0.875rem;
   font-weight: 600;
-  color: #9a96a1;
+  color: var(--bk-color-ink-mute);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-top: 1.25rem;
@@ -229,23 +257,23 @@
 /* Bold / italic */
 .brain-prose strong {
   font-weight: 600;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
 }
 .brain-prose em {
   font-style: italic;
-  color: #c0bcb5;
+  color: var(--bk-color-ink-dim);
 }
 
 /* Links */
 .brain-prose a {
-  color: #e09f3e;
+  color: var(--bk-color-amber);
   text-decoration: underline;
-  text-decoration-color: rgba(224, 159, 62, 0.3);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-amber) 30%, transparent);
   text-underline-offset: 2px;
   transition: color 0.15s;
 }
 .brain-prose a:hover {
-  color: rgba(224, 159, 62, 0.8);
+  color: color-mix(in srgb, var(--bk-color-amber) 80%, transparent);
 }
 
 /* Lists */
@@ -267,7 +295,7 @@
   padding-left: 0.25rem;
 }
 .brain-prose li::marker {
-  color: #5bb5a2;
+  color: var(--bk-color-teal);
 }
 
 /* Tables */
@@ -284,28 +312,28 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9a96a1;
+  color: var(--bk-color-ink-mute);
   padding: 0.5rem 0.75rem;
-  border-bottom: 2px solid #2a2d35;
-  background: #141619;
+  border-bottom: 2px solid var(--bk-color-edge);
+  background: var(--bk-color-surface);
 }
 .brain-prose tbody td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #1f2229;
+  border-bottom: 1px solid var(--bk-color-line);
   vertical-align: top;
 }
 .brain-prose tbody tr:hover {
-  background: rgba(224, 159, 62, 0.03);
+  background: color-mix(in srgb, var(--bk-color-amber) 3%, transparent);
 }
 
 /* Code - inline */
 .brain-prose :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.8em;
-  background: #1a1d22;
+  background: var(--bk-color-raised);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
-  color: #e8e4df;
+  color: var(--bk-color-ink);
 }
 
 /* Code - blocks */
@@ -313,8 +341,8 @@
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.6;
-  background: #141619;
-  border: 1px solid #2a2d35;
+  background: var(--bk-color-surface);
+  border: 1px solid var(--bk-color-edge);
   border-radius: 0.5rem;
   padding: 1rem;
   overflow-x: auto;
@@ -339,14 +367,14 @@
 
 /* Blockquotes */
 .brain-prose blockquote {
-  border-left: 3px solid #e09f3e;
-  background: rgba(224, 159, 62, 0.04);
+  border-left: 3px solid var(--bk-color-amber);
+  background: color-mix(in srgb, var(--bk-color-amber) 4%, transparent);
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
   border-radius: 0 0.375rem 0.375rem 0;
 }
 .brain-prose blockquote p {
-  color: #c0bcb5;
+  color: var(--bk-color-ink-dim);
   font-style: italic;
 }
 
@@ -354,7 +382,7 @@
 .brain-prose hr {
   border: none;
   height: 1px;
-  background: linear-gradient(to right, transparent, #2a2d35 20%, #2a2d35 80%, transparent);
+  background: linear-gradient(to right, transparent, var(--bk-color-edge) 20%, var(--bk-color-edge) 80%, transparent);
   margin: 1.5rem 0;
 }
 
@@ -370,7 +398,7 @@
   color: var(--color-accent);
   text-decoration: underline;
   text-decoration-style: dotted;
-  text-decoration-color: rgba(91, 181, 162, 0.4);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 40%, transparent);
   text-underline-offset: 3px;
   font-family: var(--font-mono);
   font-size: 0.95em;
@@ -381,30 +409,30 @@
 }
 .brain-file-link:hover {
   color: var(--color-foreground);
-  background-color: rgba(91, 181, 162, 0.1);
-  text-decoration-color: rgba(91, 181, 162, 0.8);
+  background-color: color-mix(in srgb, var(--bk-color-teal) 10%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 80%, transparent);
 }
 /* Override .brain-prose a styling when it's a file link */
 .brain-prose a.brain-file-link {
   color: var(--color-accent);
-  text-decoration-color: rgba(91, 181, 162, 0.4);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 40%, transparent);
 }
 .brain-prose a.brain-file-link:hover {
   color: var(--color-foreground);
-  text-decoration-color: rgba(91, 181, 162, 0.8);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 80%, transparent);
 }
 
 /* Directory links read slightly differently — italic + folder-cue color */
 .brain-file-link--dir,
 .brain-prose a.brain-file-link--dir {
   color: var(--color-primary);
-  text-decoration-color: rgba(224, 159, 62, 0.4);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-amber) 40%, transparent);
 }
 .brain-file-link--dir:hover,
 .brain-prose a.brain-file-link--dir:hover {
   color: var(--color-foreground);
-  background-color: rgba(224, 159, 62, 0.1);
-  text-decoration-color: rgba(224, 159, 62, 0.8);
+  background-color: color-mix(in srgb, var(--bk-color-amber) 10%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-amber) 80%, transparent);
 }
 
 /* Wikilinks — match file-link styling but use a subtle bracket cue */
@@ -419,7 +447,7 @@
   color: var(--color-muted-foreground);
   text-decoration: underline;
   text-decoration-style: dotted;
-  text-decoration-color: rgba(138, 134, 145, 0.5);
+  text-decoration-color: color-mix(in srgb, var(--bk-color-ink-mute) 50%, transparent);
   text-underline-offset: 3px;
   cursor: help;
 }
@@ -433,8 +461,8 @@
 /* Tree node highlight flash for openDir() navigation */
 @keyframes brain-tree-flash {
   0% {
-    background-color: rgba(91, 181, 162, 0.35);
-    box-shadow: inset 0 0 0 1px rgba(91, 181, 162, 0.6);
+    background-color: color-mix(in srgb, var(--bk-color-teal) 35%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bk-color-teal) 60%, transparent);
   }
   100% {
     background-color: transparent;

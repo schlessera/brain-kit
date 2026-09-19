@@ -281,7 +281,7 @@ export function ActivityPage() {
               <button
                 type="button"
                 onClick={() => openSettings("models")}
-                className="flex items-center gap-1 rounded-md p-1.5 text-amber-500 transition-colors hover:bg-surface-raised hover:text-amber-400"
+                className="flex items-center gap-1 rounded-md p-1.5 text-primary transition-colors hover:bg-surface-raised hover:text-primary/80"
                 aria-label="Pricing refresh is failing — costs may use stale rates. Open Settings"
                 title="Pricing refresh is failing — costs may use stale rates. Open Settings"
               >

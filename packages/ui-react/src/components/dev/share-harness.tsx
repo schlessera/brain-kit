@@ -143,7 +143,7 @@ export function ShareHarness({
         <button
           type="button"
           onClick={() => void send()}
-          className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          className="flex items-center justify-center gap-2 rounded-lg bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground"
         >
           <Send className="h-4 w-4" />
           Share it
@@ -151,7 +151,7 @@ export function ShareHarness({
       </div>
 
       {error && (
-        <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+        <p className="rounded-lg border border-destructive/40 bg-destructive-fill/10 p-3 text-sm">
           {error}
         </p>
       )}
