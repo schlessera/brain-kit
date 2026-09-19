@@ -1424,3 +1424,96 @@ ink now, which follows the rule stated in §11 for a decoration on a ground
 ("borders on tinted grounds the ink hue at 25–40%") — but a link underline at
 30% and a table-row hover at 3% were never in the design's list, so they are
 derived, not designed, like the 264 in §18.
+
+# The seventh drop — 2026-09-19, the answers on paper
+
+The maintainer forwarded ten questions (§14 and the ones the app shell's
+paper check raised); the design answered all ten in one drop. README "Seventh
+pass — rulings"; `Brain Kit Light.dc.html` gained §L6; `DiffBlock`,
+`ChoiceOption`, `AskUserCard`, `ApprovalCard` changed; the catalog's §13
+gained three cards and a tinted diff.
+
+## 14. The canvas palettes — RESOLVED, a paper set (§L6)
+
+The dark set does not stand: the ramp's light end measured 1.4:1 on paper.
+Values, slot order unchanged, each at the 3:1 non-text bar against `#ece7dc`:
+slots `#a9650e #226d95 #227f6c #6b4f9e #b23a32 #8a6a10 #3f6b2f #9c3d72`
+(3.74–5.26); ramp `#17324f #174b72 #1a6282 #1d788b #248d91` (10.64 → 3.21);
+root `#8f5408`, other `#6f6a61`; lenses orphan `#6f6a61` · unreachable
+`#5d4489` · broken `#9c2a24` · stale `#8a6a10`; diagram surfaces bg `#f8f5ef`
+· node `#fffefa` · cluster `#ece7dc` · line and node border `#5f584c` ·
+cluster border `#847c6f` · text `#231f1a`. Two rules stated: the ramp gave up
+its light end, not its steps (five steps 0.030 → 0.215 luminance at ~1.4×,
+`#b7d3f6` has no paper equivalent and must not be approximated); a node's
+label takes `--ink`, never the node's own colour. Slots may be respelled per
+theme, never re-ordered.
+
+## 15. No fifth surface — CONFIRMED
+
+Overlays sit on `raised`. `#1e2128` over `#1a1d22` is 1.09:1: "not a step,
+just a number"; a popover is separated by its shadow and edge, which the kit
+owns. A surface nobody can see is a token that will drift.
+
+## 16. Prose tints — BLESSED, with the general rule
+
+"Grounds take the fill hue, lines take the ink hue." Link underline ink hue
+30% rest / 80% hover; row hover fill hue 3%; blockquote ground fill hue 4%;
+file-link teal underline 40% / 80%, hover ground 10%. The app had put the
+grounds on the ink hue; corrected.
+
+## 17. A bare mark takes the mark value at every size — RULED
+
+Not a size threshold: an accent fill sits at 1.3–1.8:1 on paper canvas at any
+diameter. Fill is legal only under near-black content or behind a ≥3:1
+border. The five app dots on `--bk-*-mark` are correct.
+
+## 18. The diff is `DiffBlock` with a `tinted` mode — DRAWN
+
+Monochrome stays the default. Tinted is for the one case where the diff IS
+the decision: removed red, added teal, grounds at the 8–14% tint rule on the
+fill hue, the sign column at full tone weight ("a 70%-alpha mark is the
+alpha-ink ban wearing a different hat"), long lines wrap with a hanging
+indent — a diff row is the record, and an ellipsis in evidence is not
+evidence. The app's own diff view, and its word-level highlight, are
+superseded by the kit block.
+
+## 19. `ChoiceOption` gains `multiple` — DRAWN
+
+Role radio → checkbox, mark round → square (radius 5): the shape is the
+affordance, and the role travels with it. `AskUserCard` takes `multi`, the
+answered state lists every choice ("Answered · N chosen"), Other toggles
+like any row. Multi-select does not stay app-drawn.
+
+## 20. `dismissed` is a fourth state — DRAWN
+
+Head and border say who closed the question: you (answered, teal), you
+elsewhere (typed, neutral), nobody (dismissed, gold — an unanswered premise
+is the caution case and may have rotted). A gold lapsed row carries the note
+("the run ended before you answered · nothing was filed") and an "Ask again"
+quiet button: the agent stopped needing the answer, but you may still owe
+one.
+
+## 21. State the absence — RULED
+
+"region not recorded", never an omitted row: a load-bearing fact that
+disappears cannot be told from a whole-image mask. Draw the mask over the
+thumb whenever the bytes exist; when they do not, the thumb shows the source
+with a mono line saying the mask was not rendered.
+
+## 22. Desktop screens on paper — the token swap is the spec
+
+No paper renders of the five desktop screens: seven screens already prove
+the swap, and D32 makes it a value substitution with no layout consequence.
+The maintainer's screenshots are the record. A layout difference between a
+paper and a dark desktop screenshot is a bug in token routing, not a missing
+drawing.
+
+## 23. `ApprovalCard` — content-sized, with a floor
+
+The component was right and the 50/50 drawing was wrong: an even split claims
+the two answers are equally likely. Allow takes the remaining width
+(`flex: 1 1 auto`), Deny is content-sized (`flex: 0 0 auto`) with a 96×44
+floor. Also new in the truncation table: the card's target IS the record
+(you grant permission against that exact string) and wraps, never
+ellipsises — "a first-ever fetch to a domain cut at `…/space…` is a
+permission nobody can judge."

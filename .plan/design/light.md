@@ -247,3 +247,21 @@ amber `#94580a`, gold `#795c0d`, blue `#1f6d96`, red `#b8362f` — each stated a
 5.1–5.4 against the surface and measured at 4.59–4.72 on the bare canvas, under
 4.5 on any tint over it. Teal, purple and every base/fill value were unchanged
 by the revision.
+
+## §L6 — the canvas palettes on paper (seventh drop, 2026-09-19)
+
+The one place the kit hands colour to something it does not draw. Every
+value at the 3:1 non-text bar against canvas `#ece7dc`, slot order identical
+to dark:
+
+| Group | Paper values (ratio vs canvas) |
+| --- | --- |
+| slots 1–8 | `#a9650e` 3.74 · `#226d95` 4.62 · `#227f6c` 3.94 · `#6b4f9e` 5.26 · `#b23a32` 4.81 · `#8a6a10` 4.10 · `#3f6b2f` 5.08 · `#9c3d72` 5.12 |
+| distance ramp | `#17324f` 10.64 · `#174b72` 7.40 · `#1a6282` 5.49 · `#1d788b` 4.15 · `#248d91` 3.21 |
+| root · other | `#8f5408` 4.95 · `#6f6a61` 4.36 |
+| lenses | orphan `#6f6a61` · unreachable `#5d4489` · broken `#9c2a24` · stale `#8a6a10` |
+| diagram surfaces | bg `#f8f5ef` · node fill `#fffefa` · cluster `#ece7dc` · line and node border `#5f584c` 5.70 · cluster border `#847c6f` 3.34 · text `#231f1a` |
+
+Rules: a node is a mark, not text (3:1, but judged — the dark set never was on
+paper); labels take `--ink`; the ramp gave up its light end, not its steps;
+slot order is frozen; fill is never a bare mark on paper.

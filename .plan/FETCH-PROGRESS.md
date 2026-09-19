@@ -153,3 +153,23 @@ Re-fetch with `DesignSync get_file` from the main session, project
 extractor. The three digests under `design/` (`catalog.md`, `light.md`,
 `desktop.md`) plus `screens.md` and `runtime-to-react.md` carry everything the
 kit was built from, so a re-fetch is only needed to diff a NEW drop.
+
+## Seventh pass, 2026-09-19 — the answers on paper
+
+Re-fetched after the maintainer forwarded ten questions. **Seven files
+changed** (plus trailing-newline noise in `support.js`, the desktop catalog
+and the mobile source): `README.md` (new "Seventh pass — rulings";
+`DiffBlock`, `ChoiceOption`, `AskUserCard` table rows; `ApprovalCard`'s
+target added to the truncation table), `DiffBlock` (`tinted`),
+`ChoiceOption` (`multiple`), `AskUserCard` (`dismissed`, `multi`,
+`answers[]`, the lapsed row), `ApprovalCard` (Allow flex / Deny floor, the
+target wraps), `Brain Kit.dc.html` (§13: multi pending, multi answered,
+dismissed, DiffBlock tinted), `Brain Kit Light.dc.html` (§L6 canvas
+palettes). Fetched selectively: the README first, then the files its
+rulings name; `Receipt`, `GraphView`, `StatusDot` fetched and unchanged.
+Digested in `design-feedback.md` ("The seventh drop"), `design/light.md`
+§L6, `design/catalog.md`; decided as D40.
+
+**Harvest note:** re-applying persisted `tool-results` must go OLDEST first
+(`ls -tr`), the same order the extractor uses — newest-first let an older
+persisted copy of the light catalog overwrite the one just fetched.

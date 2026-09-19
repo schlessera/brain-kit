@@ -1969,3 +1969,38 @@ themes. And `text-primary/80` on the share block's format chip over a
 the gate: a class regex proves the theme reaches an element, not that the
 element reads once it does — contrast on paper still needs eyes or numbers.
 
+
+## 2026-09-19 — D40: the seventh drop's rulings — canvas palettes are tokens, the diff and the checkbox are the kit's
+
+Ten questions, ten rulings (design-feedback "The seventh drop", §14–§23).
+Binding:
+
+1. **The canvas palettes are kit tokens** with a paper half from §L6:
+   `--bk-canvas-slot-1…8`, `--bk-canvas-ramp-1…5`, `--bk-canvas-root`,
+   `--bk-canvas-other`, `--bk-canvas-lens-*`, `--bk-diagram-*`. Slot order is
+   frozen across themes. The app resolves a `light-dark()` token to the half
+   matching the document's `color-scheme` before handing it to sigma or
+   mermaid — canvas `fillStyle` cannot read the function — and re-resolves
+   when the theme changes. Labels take the ink, never the node's colour.
+2. **No fifth surface.** `surface-overlay` stays `raised` (D39 confirmed).
+3. **Grounds take the fill hue, lines take the ink hue** — the general rule
+   for any derived tint, prose included.
+4. **A bare mark takes the mark value at every size.** Fill only under
+   near-black content or behind a ≥3:1 border.
+5. **`DiffBlock` has a `tinted` mode**; the app's diff view renders through
+   it and its word-level highlight is gone (no design equivalent).
+6. **`ChoiceOption.multiple`** (checkbox role, square mark) and
+   **`AskUserCard.multi`** with `answers[]`; the app's own checkboxes are
+   gone.
+7. **`AskUserCard` has a fourth state, `dismissed`** (gold, lapsed row, "Ask
+   again" behind `onAskAgain`). The app reopens the card locally; a submit
+   from a reopened card is a normal composer message quoting the question,
+   since the server's request is already resolved.
+8. **State the absence**: the mask receipt reads "region not recorded"; the
+   mask is drawn over the thumb when its bytes exist, else the thumb says
+   the mask was not rendered.
+9. **The token swap is the spec** for desktop screens on paper; the
+   maintainer's screenshots are the record.
+10. **`ApprovalCard`: Allow `flex: 1 1 auto`, Deny content-sized with a
+    96×44 floor; the target wraps.** The kit's earlier 50/50 divergence is
+    withdrawn.

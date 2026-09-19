@@ -432,3 +432,12 @@ covers · source · mask, `keyWidth` 58), then the failure `Callout` (red, boxed
 mono). The §12 chat screen also lost three demo rows (a `QuoteCard`, a
 `Callout` banner, a `QueueItemRow`) in the same edit. See design-feedback "The
 sixth drop" §1–2 and the new "Where truncation is allowed" rule.
+
+## §13 as amended by the seventh drop (2026-09-19)
+
+"AskUserCard · four states · single and multi": the pending multi card
+("Which of these should the digest keep following?", three options, two
+selected, primary "Keep 2"), the answered multi card listing both choices,
+and the dismissed card (gold, lapsed row, Ask again). The mask receipt's
+failure note gains the "region not recorded" rule. A new row "DiffBlock ·
+tinted" shows a six-line receipt diff with a long wrapping context line.

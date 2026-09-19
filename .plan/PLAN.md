@@ -719,8 +719,29 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] Runtime sweep at 1440 in both themes: every rendered element's
       computed background, border and text on Chat, Actions, Files, Graph,
       Settings — zero dark values on paper, zero paper values on dark
-- [ ] Design: a paper set for the sigma and mermaid palettes, or a ruling
-      that the dark set stands on both grounds (design-feedback §14)
+- [x] Design: a paper set for the sigma and mermaid palettes — §L6, the
+      seventh drop (design-feedback §14)
+
+### Wave 12 — the seventh drop: the answers on paper (D40)
+- [ ] Kit: canvas palette tokens (`canvas-slot-*`, `canvas-ramp-*`, root,
+      other, lenses, `diagram-*`) with §L6 paper halves through the
+      generator's `SPECIFIED` table; a 3:1 test on both grounds; slot order
+      documented as frozen
+- [ ] Kit: `DiffBlock.tinted`; `ChoiceOption.multiple`; `AskUserCard`
+      `multi` / `answers[]` / `dismissed` / `onAskAgain`; `ApprovalCard`
+      Allow flex, Deny 96×44 floor, wrapping target; stories in both themes;
+      §13 catalog rows
+- [ ] App: the graph theme resolves `light-dark()` by the document's
+      `color-scheme` and re-resolves on theme change; palettes from the kit
+      tokens; labels in ink; mermaid on the §L6 surfaces
+- [ ] App: prose grounds on the fill hue, lines on the ink hue; bare marks
+      audited
+- [ ] App: multi-select on kit options; `dismissed` with Ask again; the
+      mask receipt states the absent region and draws the mask when it has
+      it; the diff view through `DiffBlock tinted`; approval buttons per
+      rule
+- [ ] Visual baselines regenerated in the container; live sweep of Graph in
+      both themes
 
 ## Open questions
 
