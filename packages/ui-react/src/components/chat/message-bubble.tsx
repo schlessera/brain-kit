@@ -249,7 +249,8 @@ function AssistantContent({
                 questions={group.exchange.questions}
                 answered={group.exchange.answers}
                 cancelled={group.exchange.cancelled}
-                live={message.isStreaming}
+                typed={group.exchange.typed}
+                answeredAt={group.exchange.answeredAt}
                 onSubmit={onAskUserSubmit}
                 onCancel={onAskUserCancel}
               />
@@ -286,7 +287,8 @@ function AssistantContent({
           questions={ex.questions}
           answered={ex.answers}
           cancelled={ex.cancelled}
-          live={message.isStreaming}
+          typed={ex.typed}
+          answeredAt={ex.answeredAt}
           onSubmit={onAskUserSubmit}
           onCancel={onAskUserCancel}
         />

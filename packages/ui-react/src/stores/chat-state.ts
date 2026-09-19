@@ -73,6 +73,20 @@ export interface AskUserExchange {
   answers?: Record<string, string>;
   annotations?: Record<string, AskUserAnnotation>;
   cancelled?: boolean;
+  /**
+   * The user answered in the composer instead of choosing an option, and the
+   * composer text was bound to the question (D38 §1: the card then quotes what
+   * it took, with a neutral border). Live-only: the `ask_user` tool output the
+   * server persists is `{answers, annotations}` and carries no such flag, so a
+   * resumed transcript rebuilds a typed exchange as a plain `answered` one.
+   */
+  typed?: boolean;
+  /**
+   * When the answer was submitted, from this client's clock. Absent on
+   * history-loaded exchanges — the persisted tool output carries no time, and
+   * the card shows none rather than one it made up.
+   */
+  answeredAt?: number;
 }
 
 /**
@@ -175,7 +189,9 @@ export interface ChatState {
     key: ChatKey,
     requestId: string,
     answers: Record<string, string>,
-    annotations?: Record<string, AskUserAnnotation>
+    annotations?: Record<string, AskUserAnnotation>,
+    /** `true` when the answer was taken from the composer, not an option. */
+    typed?: boolean
   ) => void;
   cancelAskUser: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
@@ -568,10 +584,13 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           return { messages: msgs, askUser: exchange };
         }),
 
-      submitAskUserAnswers: (key, requestId, answers, annotations) =>
+      submitAskUserAnswers: (key, requestId, answers, annotations, typed) =>
         mutateBuffer(key, (chat) => {
+          const answeredAt = Date.now();
           const update = (e: AskUserExchange): AskUserExchange =>
-            e.requestId === requestId ? { ...e, answers, annotations } : e;
+            e.requestId === requestId
+              ? { ...e, answers, annotations, answeredAt, ...(typed ? { typed: true } : {}) }
+              : e;
           const msgs = chat.messages.map((m) =>
             m.askUserExchanges?.some((e) => e.requestId === requestId)
               ? { ...m, askUserExchanges: m.askUserExchanges.map(update) }

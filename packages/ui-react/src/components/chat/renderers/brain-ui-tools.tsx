@@ -8,9 +8,13 @@
 // tool on pi fell through to the generic JSON view.
 
 import type { RendererPack } from "@schlessera/brain-ui-sdk/client";
-import { GET_CURRENT_LOCATION_CONTRACT } from "@schlessera/brain-ui-sdk/client";
-import { MapPin } from "lucide-react";
+import {
+  GET_CURRENT_LOCATION_CONTRACT,
+  REQUEST_IMAGE_MASK_CONTRACT,
+} from "@schlessera/brain-ui-sdk/client";
+import { MapPin, Scissors } from "lucide-react";
 import { LocationResultCard } from "../tool-cards/location-card.js";
+import { ImageMaskResultCard, ImageMaskFallback } from "../tool-cards/image-mask-card.js";
 import { ClampedPre } from "../tool-views.js";
 import { bind } from "./bind.js";
 
@@ -25,6 +29,15 @@ export const brainUiToolPack: RendererPack = {
       // message, not a payload — the reader needs to see WHY there is no fix.
       Fallback: ({ tool }) =>
         tool.output ? <ClampedPre text={tool.output} isError={tool.isError} /> : null,
+    }),
+    ...bind(REQUEST_IMAGE_MASK_CONTRACT, ImageMaskResultCard, {
+      icon: Scissors,
+      label: "Mask",
+      summary: (payload) => payload.imagePath,
+      meta: (payload) => `mask ${payload.maskPath}`,
+      // A declined mask is an error with a message, not a payload. The fact
+      // belongs in the transcript in red, from the result's own words.
+      Fallback: ImageMaskFallback,
     }),
   ],
 };

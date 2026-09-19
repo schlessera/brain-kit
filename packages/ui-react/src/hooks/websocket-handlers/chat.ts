@@ -59,7 +59,16 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
   };
 }
 
-/** Rebuild ask_user exchanges from a resumed message's tool calls. */
+/**
+ * Rebuild ask_user exchanges from a resumed message's tool calls.
+ *
+ * The persisted tool output is `{answers, annotations}` (Claude) or the bare
+ * answers map (pi). Neither carries whether the answer was chosen from the
+ * options or typed into the composer (`AskUserExchange.typed`), nor when it
+ * was given, so a resumed exchange comes back as a plain `answered` one with
+ * no time. Carrying `typed` would mean widening the `ask_user` response —
+ * a `CONTRACT:` change — not guessing here.
+ */
 function isBareAnswersMap(v: unknown): v is Record<string, string> {
   return (
     !!v &&

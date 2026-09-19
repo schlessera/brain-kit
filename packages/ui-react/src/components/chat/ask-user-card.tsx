@@ -1,41 +1,91 @@
+/**
+ * The `ask_user` exchange, one kit `AskUserCard` per question (D38 §1).
+ *
+ * An exchange is not a tool card. It has three states and all three stay in
+ * the transcript at full contrast — nothing rolls up or fades, because a
+ * question the agent asked is part of the record whichever way it was
+ * answered:
+ *
+ *   `pending`  — the options, one focus stop, Submit / Dismiss. "Other"
+ *                opens the kit's free-text field in place of the Submit row:
+ *                a typed alternative is the same exchange, not a new one.
+ *   `answered` — the chosen answer in mono teal, with when. The alternatives
+ *                are GONE, not dimmed: they were never the record.
+ *   `typed`    — the user answered in the composer instead. The card quotes
+ *                what it took, under a neutral border.
+ *
+ * A dismissed question is a fourth fact the kit has no state for yet: it
+ * renders as the pending head with no options, no actions and a neutral note.
+ *
+ * The exchange's answers are keyed by question text and submitted together,
+ * so the action row sits on the LAST question's card and gathers every
+ * question's selection. Multi-select questions keep the app's own checkbox
+ * rows: the kit's `ChoiceOption` is a radio, and a radio that stays checked
+ * beside another checked radio is a lie to assistive tech.
+ */
+
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Check,
-  X,
-  MessageCircleQuestion,
-  ChevronRight,
-  ChevronUp,
-} from "lucide-react";
+  AskUserCard as KitAskUserCard,
+  Button,
+  Callout,
+  Chip,
+  Surface,
+  type AskUserOption as KitAskUserOption,
+} from "@schlessera/brain-ui-kit";
 import type {
   AskUserQuestion,
-  AskUserOption,
   AskUserAnnotation,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainMarkdown } from "./brain-markdown.js";
-import { cn } from "../../lib/utils.js";
+import { formatRelativeTime } from "../../lib/format-time.js";
 
 const OTHER_LABEL = "Other";
 
 interface PerQuestionState {
   /** Picked option labels (single-select keeps only the latest). */
   selected: string[];
-  /** Free-text content when "Other" is selected. */
+  /** The kit's free-text field is open in place of the Submit row. */
+  otherOpen: boolean;
+  /** A free-text answer already taken from the field (multi-question only). */
   otherText: string;
-  /** Currently focused option index — drives the preview pane. */
-  focusedIndex: number | null;
 }
 
 function defaultState(): PerQuestionState {
-  return { selected: [], otherText: "", focusedIndex: null };
+  return { selected: [], otherOpen: false, otherText: "" };
 }
+
+/** The answer the exchange recorded for one question, as the card shows it. */
+export function recordedAnswer(
+  question: AskUserQuestion,
+  answers: Record<string, string> | undefined
+): string {
+  return answers?.[question.question] ?? "";
+}
+
+/** "you chose this · 3m ago", or just "you chose this" when no time is known. */
+export function answeredMeta(answeredAt: number | undefined): string {
+  return answeredAt === undefined
+    ? "you chose this"
+    : `you chose this · ${formatRelativeTime(answeredAt)}`;
+}
+
+export const TYPED_META = "taken from your next message";
+
+/** The typed answer is the user's own words, so the card quotes them. */
+export function quoted(text: string): string {
+  return text ? `\u201C${text}\u201D` : "";
+}
+export const DISMISSED_NOTE = "dismissed · the agent got no answer";
 
 export function AskUserCard({
   requestId,
   questions,
   answered,
   cancelled,
-  live = false,
+  typed,
+  answeredAt,
   onSubmit,
   onCancel,
 }: {
@@ -43,8 +93,10 @@ export function AskUserCard({
   questions: AskUserQuestion[];
   answered?: Record<string, string>;
   cancelled?: boolean;
-  /** Parent message still streaming — keeps an expanded card open until it ends. */
-  live?: boolean;
+  /** The answer was typed into the composer rather than chosen. */
+  typed?: boolean;
+  /** When the answer was given; absent on resumed history. */
+  answeredAt?: number;
   onSubmit: (
     requestId: string,
     answers: Record<string, string>,
@@ -53,23 +105,13 @@ export function AskUserCard({
   onCancel: (requestId: string) => void;
 }) {
   const root = useBrainUiRoot();
+  const prompt = `${root.config.assistantName} needs your input`;
 
-  // Independent per-question state
   const [state, setState] = useState<PerQuestionState[]>(() =>
     questions.map(() => defaultState())
   );
 
-  // Once answered/dismissed, the card rolls up to a one-line summary that
-  // scrolls away with the rest of the turn. It stays open while unanswered
-  // (it's an active prompt) and re-collapses when the streaming turn ends.
-  const [collapsed, setCollapsed] = useState(true);
-  const prevLive = useRef(live);
-  useEffect(() => {
-    if (prevLive.current && !live) setCollapsed(true);
-    prevLive.current = live;
-  }, [live]);
-
-  // Re-initialise if the question set changes (new requestId arriving)
+  // Re-initialise if the question set changes (new requestId arriving).
   const lastRequestId = useRef(requestId);
   useEffect(() => {
     if (lastRequestId.current !== requestId) {
@@ -78,120 +120,58 @@ export function AskUserCard({
     }
   }, [requestId, questions]);
 
-  // If we already have answers (from prior submit), force-fill state for display
-  const lockedAnswers = answered ?? null;
-  const isLocked = !!lockedAnswers || !!cancelled;
+  const isLocked = !!answered || !!cancelled;
 
-  const filledState = useMemo<PerQuestionState[]>(() => {
-    if (!lockedAnswers) return state;
-    return questions.map((q) => {
-      const raw = lockedAnswers[q.question] ?? "";
-      const labels = q.multiSelect
-        ? raw
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : raw
-          ? [raw]
-          : [];
-      // If the saved label isn't a known option, treat as "Other"
-      const knownLabels = new Set(q.options.map((o) => o.label));
-      const selected = labels.filter((l) => knownLabels.has(l));
-      const otherLabels = labels.filter((l) => !knownLabels.has(l));
-      const finalSelected = otherLabels.length
-        ? [...selected, OTHER_LABEL]
-        : selected;
-      return {
-        selected: finalSelected,
-        otherText: otherLabels.join(", "),
-        focusedIndex: null,
-      };
-    });
-  }, [lockedAnswers, questions, state]);
-
-  // Collapsed once locked: a compact, expandable summary that behaves like a
-  // finished tool-timeline row instead of a full card pinned in place.
-  if (isLocked && collapsed) {
-    return (
-      <AskUserSummaryRow
-        questions={questions}
-        answers={lockedAnswers}
-        cancelled={!!cancelled}
-        onExpand={() => setCollapsed(false)}
-      />
-    );
-  }
-
-  function toggleOption(qi: number, label: string) {
+  function pick(qi: number, label: string) {
     if (isLocked) return;
-    setState((prev) => {
-      const next = prev.map((s, i) => {
+    setState((prev) =>
+      prev.map((s, i) => {
         if (i !== qi) return s;
         const q = questions[qi];
-        if (q.multiSelect) {
-          const has = s.selected.includes(label);
-          return {
-            ...s,
-            selected: has
-              ? s.selected.filter((l) => l !== label)
-              : [...s.selected, label],
-          };
+        if (label === OTHER_LABEL) {
+          return q.multiSelect
+            ? { ...s, otherOpen: true, selected: toggled(s.selected, OTHER_LABEL, true) }
+            : { ...s, otherOpen: true, selected: [OTHER_LABEL] };
         }
         return {
           ...s,
-          selected: s.selected[0] === label ? [] : [label],
+          otherOpen: false,
+          selected: q.multiSelect
+            ? toggled(s.selected, label)
+            : s.selected[0] === label
+              ? []
+              : [label],
         };
-      });
-      return next;
-    });
-  }
-
-  function setFocus(qi: number, idx: number | null) {
-    if (isLocked) return;
-    setState((prev) =>
-      prev.map((s, i) => (i === qi ? { ...s, focusedIndex: idx } : s))
+      })
     );
   }
 
-  function setOtherText(qi: number, text: string) {
-    if (isLocked) return;
-    setState((prev) =>
-      prev.map((s, i) => (i === qi ? { ...s, otherText: text } : s))
+  function answerFor(qi: number, s: PerQuestionState): string[] {
+    return s.selected.flatMap((label) =>
+      label === OTHER_LABEL ? (s.otherText.trim() ? [s.otherText.trim()] : []) : [label]
     );
   }
 
-  const canSubmit = !isLocked && questions.every((_q, i) => {
-    const s = state[i];
-    if (s.selected.length === 0) return false;
-    if (s.selected.includes(OTHER_LABEL) && !s.otherText.trim()) return false;
-    return true;
-  });
+  const complete = questions.every((_q, i) => answerFor(i, state[i]).length > 0);
 
-  function handleSubmit() {
-    if (!canSubmit) return;
+  function submit(override?: { qi: number; text: string }) {
     const answers: Record<string, string> = {};
     const annotations: Record<string, AskUserAnnotation> = {};
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
-      const s = state[i];
-      const labels: string[] = [];
-      let usedOther = false;
-      for (const sel of s.selected) {
-        if (sel === OTHER_LABEL) {
-          if (s.otherText.trim()) labels.push(s.otherText.trim());
-          usedOther = true;
-        } else {
-          labels.push(sel);
-        }
-      }
-      answers[q.question] = q.multiSelect ? labels.join(", ") : (labels[0] ?? "");
+      const s =
+        override && override.qi === i
+          ? { ...state[i], selected: [OTHER_LABEL], otherText: override.text }
+          : state[i];
+      const labels = answerFor(i, s);
+      if (labels.length === 0) return;
+      answers[q.question] = q.multiSelect ? labels.join(", ") : labels[0];
 
-      // Capture preview from a single non-other selection for annotations
-      if (!usedOther && !q.multiSelect && s.selected.length === 1) {
+      // A single chosen option with a preview travels as an annotation, so
+      // the agent sees what the user saw.
+      if (!q.multiSelect && s.selected.length === 1 && s.selected[0] !== OTHER_LABEL) {
         const picked = q.options.find((o) => o.label === s.selected[0]);
-        if (picked?.preview) {
-          annotations[q.question] = { preview: picked.preview };
-        }
+        if (picked?.preview) annotations[q.question] = { preview: picked.preview };
       }
     }
     onSubmit(
@@ -201,252 +181,242 @@ export function AskUserCard({
     );
   }
 
-  function handleCancel() {
-    onCancel(requestId);
+  /**
+   * The kit's Other field submitted. With one question that IS the answer;
+   * with several, the text is held for that question and the last card's
+   * Submit sends everything together.
+   */
+  function takeOther(qi: number, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isLocked) return;
+    if (questions.length === 1) {
+      submit({ qi, text: trimmed });
+      return;
+    }
+    setState((prev) =>
+      prev.map((s, i) => (i === qi ? { ...s, otherOpen: false, otherText: trimmed } : s))
+    );
   }
 
   return (
-    <div className="rounded-xl border border-accent/30 bg-surface px-4 py-4 shadow-[0_0_0_1px_rgba(91,181,162,0.08)]">
-      <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-wider text-accent/80">
-        <MessageCircleQuestion className="h-3.5 w-3.5" />
-        <span className="font-[family-name:var(--font-mono)]">
-          {isLocked
-            ? cancelled
-              ? "Dismissed"
-              : "You answered"
-            : `${root.config.assistantName} needs your input`}
-        </span>
-        {isLocked && (
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            className="ml-auto flex items-center gap-1 text-[11px] normal-case tracking-normal text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-          >
-            <ChevronUp className="h-3 w-3" />
-            Collapse
-          </button>
-        )}
-      </div>
+    <div className="space-y-3">
+      {questions.map((q, qi) => {
+        const isLast = qi === questions.length - 1;
+        const id = `${requestId}-${qi}`;
 
-      <div className="space-y-5">
-        {questions.map((q, qi) => (
-          <QuestionBlock
-            key={qi}
-            question={q}
-            state={filledState[qi]}
-            locked={isLocked}
-            onToggleOption={(label) => toggleOption(qi, label)}
-            onFocus={(idx) => setFocus(qi, idx)}
-            onOtherChange={(t) => setOtherText(qi, t)}
-          />
-        ))}
-      </div>
+        if (answered) {
+          const answer = recordedAnswer(q, answered);
+          return (
+            <KitAskUserCard
+              key={id}
+              id={id}
+              state={typed ? "typed" : "answered"}
+              tag={q.header}
+              question={q.question}
+              options={[]}
+              showActions={false}
+              // The kit prints the answer as given; a typed one is a quote.
+              answer={typed ? quoted(answer) : answer}
+              answerMeta={typed ? TYPED_META : answeredMeta(answeredAt)}
+            />
+          );
+        }
 
-      {!isLocked && (
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-            Dismiss
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-medium transition-all",
-              canSubmit
-                ? "bg-accent text-accent-foreground hover:brightness-110"
-                : "bg-surface-raised text-muted-foreground/40 cursor-not-allowed"
-            )}
-          >
-            <Check className="h-3.5 w-3.5" />
-            Submit
-          </button>
-        </div>
-      )}
+        if (cancelled) {
+          // The kit has no `dismissed` state (reported as a gap): the pending
+          // head with the options gone, and the fact as a neutral note.
+          return (
+            <div key={id} className="space-y-2">
+              <KitAskUserCard
+                id={id}
+                state="pending"
+                tone="teal"
+                prompt="Question dismissed"
+                tag={q.header}
+                question={q.question}
+                options={[]}
+                showActions={false}
+              />
+              <Callout tone="neutral" variant="boxed" mono text={DISMISSED_NOTE} />
+            </div>
+          );
+        }
+
+        const s = state[qi];
+        const selectedOption =
+          s.selected.length === 1 && s.selected[0] !== OTHER_LABEL
+            ? q.options.find((o) => o.label === s.selected[0])
+            : undefined;
+
+        if (q.multiSelect) {
+          return (
+            <MultiSelectQuestion
+              key={id}
+              id={id}
+              prompt={prompt}
+              question={q}
+              selected={s.selected}
+              otherText={s.otherText}
+              onToggle={(label) => pick(qi, label)}
+              onOtherChange={(text) =>
+                setState((prev) =>
+                  prev.map((st, i) => (i === qi ? { ...st, otherText: text } : st))
+                )
+              }
+              showActions={isLast}
+              canSubmit={complete}
+              onSubmit={() => submit()}
+              onCancel={() => onCancel(requestId)}
+            />
+          );
+        }
+
+        const options: KitAskUserOption[] = [
+          ...q.options.map((o) => ({
+            title: o.label,
+            subtitle: o.description,
+            selected: s.selected.includes(o.label),
+            onClick: () => pick(qi, o.label),
+          })),
+          {
+            title: OTHER_LABEL,
+            subtitle: s.otherText || "Provide a custom answer.",
+            italic: !s.otherText,
+            dim: !s.otherText,
+            selected: s.selected.includes(OTHER_LABEL),
+            onClick: () => pick(qi, OTHER_LABEL),
+          },
+        ];
+
+        return (
+          <div key={id} className="space-y-2">
+            <KitAskUserCard
+              id={id}
+              state="pending"
+              prompt={prompt}
+              tag={q.header}
+              question={q.question}
+              options={options}
+              otherOpen={s.otherOpen}
+              otherPlaceholder="Type your answer…"
+              onOtherSubmit={(text) => takeOther(qi, text)}
+              showActions={isLast}
+              // The kit's action row cannot be disabled from here; an
+              // incomplete Submit is a no-op rather than a partial answer.
+              onPrimary={() => (complete ? submit() : undefined)}
+              onSecondary={() => onCancel(requestId)}
+            />
+            {selectedOption?.preview ? (
+              <Surface label="Preview" labelIcon="file" pad={10}>
+                <BrainMarkdown content={selectedOption.preview} className="brain-prose text-xs" />
+              </Surface>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/** One-line, expandable stand-in for an answered/dismissed question. */
-function AskUserSummaryRow({
-  questions,
-  answers,
-  cancelled,
-  onExpand,
-}: {
-  questions: AskUserQuestion[];
-  answers: Record<string, string> | null;
-  cancelled: boolean;
-  onExpand: () => void;
-}) {
-  const detail = cancelled
-    ? "Dismissed"
-    : questions
-        .map((q) => {
-          const a = answers?.[q.question];
-          return a ? `${q.header}: ${a}` : q.header;
-        })
-        .join(" · ");
-  return (
-    <button
-      type="button"
-      onClick={onExpand}
-      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
-    >
-      <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-accent/70" />
-      <span className="min-w-0 truncate font-[family-name:var(--font-mono)]">
-        {!cancelled && <span className="text-accent/70">Answered · </span>}
-        {detail}
-      </span>
-      <ChevronRight className="h-3 w-3 shrink-0" />
-    </button>
-  );
+function toggled(list: string[], label: string, on?: boolean): string[] {
+  const has = list.includes(label);
+  if (on === true) return has ? list : [...list, label];
+  return has ? list.filter((l) => l !== label) : [...list, label];
 }
 
-function QuestionBlock({
+/**
+ * A multi-select question. The kit's `ChoiceOption` is a radio, so the rows
+ * here are real checkboxes inside a kit `Surface` carrying the same head; the
+ * actions are kit buttons. Reported as a kit gap.
+ */
+function MultiSelectQuestion({
+  id,
+  prompt,
   question,
-  state,
-  locked,
-  onToggleOption,
-  onFocus,
+  selected,
+  otherText,
+  onToggle,
   onOtherChange,
+  showActions,
+  canSubmit,
+  onSubmit,
+  onCancel,
 }: {
+  id: string;
+  prompt: string;
   question: AskUserQuestion;
-  state: PerQuestionState;
-  locked: boolean;
-  onToggleOption: (label: string) => void;
-  onFocus: (idx: number | null) => void;
+  selected: string[];
+  otherText: string;
+  onToggle: (label: string) => void;
   onOtherChange: (text: string) => void;
+  showActions: boolean;
+  canSubmit: boolean;
+  onSubmit: () => void;
+  onCancel: () => void;
 }) {
-  const optionsWithOther: Array<AskUserOption & { isOther?: boolean }> = [
-    ...question.options,
-    { label: OTHER_LABEL, description: "Provide a custom answer.", isOther: true },
+  const otherOn = selected.includes(OTHER_LABEL);
+  const rows = [
+    ...question.options.map((o) => ({ label: o.label, description: o.description })),
+    { label: OTHER_LABEL, description: "Provide a custom answer." },
   ];
-
-  const focusedOption =
-    state.focusedIndex !== null ? optionsWithOther[state.focusedIndex] : null;
-  const previewToShow =
-    focusedOption?.preview ??
-    (state.selected.length === 1 && !state.selected.includes(OTHER_LABEL)
-      ? question.options.find((o) => o.label === state.selected[0])?.preview
-      : undefined);
-
   return (
-    <div>
+    <Surface tone="teal" label={prompt} labelIcon="ask" pad={13} radius={14}>
       <div className="mb-2 flex items-center gap-2">
-        <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-accent">
-          {question.header}
-        </span>
-        {question.multiSelect && (
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
-            multi-select
-          </span>
-        )}
+        <Chip label={question.header} tone="teal" variant="soft" caps />
+        <Chip label="pick any" tone="neutral" variant="soft" caps />
       </div>
-      <div className="mb-3 text-sm leading-relaxed text-foreground">
+      <div id={`${id}-question`} className="mb-2.5 text-[13px] leading-[1.55] text-foreground">
         {question.question}
       </div>
-
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <ul className="space-y-1.5">
-          {optionsWithOther.map((opt, idx) => {
-            const selected = state.selected.includes(opt.label);
-            return (
-              <li key={opt.label}>
-                <button
-                  type="button"
-                  onClick={() => onToggleOption(opt.label)}
-                  onMouseEnter={() => onFocus(idx)}
-                  onFocus={() => onFocus(idx)}
-                  disabled={locked}
-                  className={cn(
-                    "group flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                    selected
-                      ? "border-accent/60 bg-accent/10"
-                      : "border-border bg-background hover:bg-surface-raised",
-                    locked && "cursor-default opacity-90"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                      question.multiSelect ? "rounded-sm" : "rounded-full",
-                      selected
-                        ? "border-accent bg-accent text-accent-foreground"
-                        : "border-border bg-background"
-                    )}
-                  >
-                    {selected && <Check className="h-3 w-3" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "block text-sm font-medium",
-                        opt.isOther
-                          ? "italic text-muted-foreground group-hover:text-foreground"
-                          : "text-foreground"
-                      )}
-                    >
-                      {opt.label}
-                    </span>
-                    {opt.description && (
-                      <span className="block text-xs leading-snug text-muted-foreground">
-                        {opt.description}
-                      </span>
-                    )}
-                  </span>
-                </button>
-                {opt.isOther && state.selected.includes(OTHER_LABEL) && (
-                  <textarea
-                    value={state.otherText}
-                    onChange={(e) => onOtherChange(e.target.value)}
-                    disabled={locked}
-                    placeholder="Type your answer..."
-                    rows={2}
-                    className="mt-1.5 w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-accent/60 focus:outline-none"
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-
-        {previewToShow && (
-          <div className="hidden min-w-0 md:block">
-            <div className="rounded-lg border border-border bg-background p-3">
-              <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/60 font-[family-name:var(--font-mono)]">
-                Preview
-              </div>
-              <BrainMarkdown
-                content={previewToShow}
-                className="brain-prose text-xs"
+      <div role="group" aria-labelledby={`${id}-question`} className="space-y-1.5">
+        {rows.map((row) => {
+          const on = selected.includes(row.label);
+          return (
+            <label
+              key={row.label}
+              className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-background px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => onToggle(row.label)}
+                className="mt-0.5 h-4 w-4 accent-accent"
               />
-            </div>
-          </div>
-        )}
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-foreground">{row.label}</span>
+                {row.description ? (
+                  <span className="block text-xs leading-snug text-muted-foreground">
+                    {row.description}
+                  </span>
+                ) : null}
+              </span>
+            </label>
+          );
+        })}
       </div>
-
-      {/* Mobile preview drops below the options when a preview exists */}
-      {previewToShow && (
-        <div className="mt-2 md:hidden">
-          <details className="rounded-lg border border-border bg-background">
-            <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-              Preview
-            </summary>
-            <div className="border-t border-border px-3 py-2">
-              <BrainMarkdown
-                content={previewToShow}
-                className="brain-prose text-xs"
-              />
-            </div>
-          </details>
+      {otherOn ? (
+        <textarea
+          value={otherText}
+          onChange={(e) => onOtherChange(e.target.value)}
+          placeholder="Type your answer…"
+          rows={2}
+          aria-label="Other answer"
+          className="mt-2 w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-accent/60 focus:outline-none"
+        />
+      ) : null}
+      {showActions ? (
+        <div className="mt-3 flex justify-end gap-2">
+          <Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={onCancel} />
+          <Button
+            label="Submit"
+            tone="affirm"
+            size="sm"
+            block={false}
+            disabled={!canSubmit}
+            onClick={onSubmit}
+          />
         </div>
-      )}
-    </div>
+      ) : null}
+    </Surface>
   );
 }

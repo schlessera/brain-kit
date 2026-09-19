@@ -19,6 +19,7 @@ import { useDictation } from "../../voice/use-dictation.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
+import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -194,6 +195,20 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
     const text = draftText();
     const hasAttachments = attachments.length > 0;
     if ((!text && !hasAttachments) || wsStatus !== "connected") return;
+
+    // A send while a question is pending is the ANSWER to it, not a new
+    // message (D38 §1): the text binds to the question, the card quotes it,
+    // and nothing goes out as `chat_message`. Attachments are not an answer
+    // to a question, so a send that carries one stays a message.
+    if (
+      text &&
+      !hasAttachments &&
+      takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, send)
+    ) {
+      setInput("");
+      clearReview();
+      return;
+    }
 
     if (text) setLastPrompt(text);
     const messageAttachments = attachments.map((a) => ({
