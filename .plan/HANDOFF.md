@@ -1011,3 +1011,45 @@ is in `dist/styles.css`, and the alpha forms come out as `color-mix` under
 token would be read on `:root`. A `g`-flagged regex reused in `toMatch`
 keeps its `lastIndex` and fails on the second file — the gate makes a fresh
 copy.
+
+## The seventh drop — the answers on paper, 2026-09-19
+
+Ten questions forwarded, ten rulings back (`design-feedback.md` "The seventh
+drop" §14–§23; D40). Built in one pass by two agents working the same tree
+(kit components + app chat; canvas tokens + graph/mermaid/prose), then
+reviewed by Codex, four findings, all fixed.
+
+- **The canvas palettes are kit tokens** (`--bk-canvas-*`, `--bk-diagram-*`)
+  with §L6 paper halves in the generator's `SPECIFIED` table.
+  `tests/canvas-palette.test.ts` measures every value against its canvas;
+  three dark values sit under 3:1 by design (`canvas-ramp-5`,
+  `canvas-other`, `diagram-cluster-border`) and are named as exceptions, not
+  skipped. Slot order is frozen across themes.
+- **The real regression this drop found:** since D39, `getComputedStyle`
+  returns a token as the literal text `light-dark(a, b)`, which canvas
+  `fillStyle` rejects and WebGL cannot parse — the graph's node labels drew
+  in the canvas default black on the DARK ground. `lib/light-dark.ts` splits
+  a token on the scheme in force; `hooks/use-color-scheme.ts` follows the
+  store's preference and, under `system`, the OS; `useGraphTheme` and the
+  mermaid block re-resolve on a switch. Verified live: dark labels in
+  `#e8e4df`, paper legend slots `rgb(169,101,14)` and on, labels in ink.
+  Setting `data-theme` by hand in devtools does NOT re-resolve the canvas —
+  the hook keys off the store; use the Settings toggle or `brain-theme` in
+  storage and reload.
+- **Multi-select and dismissed ride the kit card.** Ask again reopens the
+  card locally; a submit from a reopened card is a normal composer message
+  quoting the question (`reaskMessage`), because the server's request is
+  already resolved. Multi answers are still persisted as one `", "`-joined
+  string, split on the same seam by `recordedAnswers`.
+- **The diff view renders through `DiffBlock tinted`.** The app's word-level
+  highlight is gone (no design equivalent); `lib/diff.ts` is line LCS plus
+  `diffText()`.
+- **Trap:** `tests/render/ask-user.test.tsx` passes in the directory run and
+  fails two "Other + Enter" tests when run as a single file — a React value
+  tracker error under a freshly registered happy-dom. Pre-existing before
+  this drop (it fails at `54f9c6b` too). Run the directory, not the file,
+  until someone finds the ordering dependency.
+- **Trap:** the design's own `DiffBlock` source strips one character from a
+  context line; a unified diff spells a context line as a blank sign plus a
+  separator, so the kit strips two. A deliberate one-line divergence,
+  commented in `diffRows`.

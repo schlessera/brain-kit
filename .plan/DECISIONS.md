@@ -2004,3 +2004,13 @@ Binding:
 10. **`ApprovalCard`: Allow `flex: 1 1 auto`, Deny content-sized with a
     96×44 floor; the target wraps.** The kit's earlier 50/50 divergence is
     withdrawn.
+
+**The review's four findings, all real.** Codex (gpt-5.6-sol) on the three
+commits: multi-select closed the Other field when a neighbour was picked
+(fixed: it stays open while Other is on); a reopened question stayed pending
+after its message went out (fixed: it closes again); the mask receipt
+trusted a byte count as proof the browser had the PNG (fixed: fill and
+label only after `load`, "mask not rendered" on `error`); and the kit's
+`diffRows` stripped one character from a context line where a unified diff
+carries two, so context rows sat a cell to the right (fixed; a recorded
+divergence from the design's source, which has the same off-by-one).
