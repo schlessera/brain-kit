@@ -6,17 +6,29 @@ import { cn } from "../../lib/utils.js";
 /** Matches the `duration-300` slide-out below. */
 const SLIDE_OUT_MS = 300;
 
+/**
+ * `drawer` slides in from the right over a backdrop and draws its own header.
+ * `pane` (D5, from `laptop:` up) is the design's settings PANE: a fixed layer
+ * over the content area, offset by the rail's width, with no backdrop and no
+ * header of its own — the children draw the header row, because a pane's
+ * chrome is a `ScreenHeader`, not a drawer's title bar. It renders nothing
+ * while closed: there is no slide to outlive.
+ */
+export type SlidePanelMode = "drawer" | "pane";
+
 export function SlidePanel({
   open,
   onClose,
   title,
   wide,
+  mode = "drawer",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   wide?: boolean;
+  mode?: SlidePanelMode;
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -35,6 +47,18 @@ export function SlidePanel({
    * preserved anything worth keeping.
    */
   const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
+
+  if (mode === "pane") {
+    if (!open) return null;
+    return (
+      <section
+        aria-label={title}
+        className="fixed top-0 bottom-0 right-0 tablet:left-[60px] laptop:left-[208px] z-40 flex flex-col overflow-hidden bg-surface"
+      >
+        {children}
+      </section>
+    );
+  }
 
   return (
     <>

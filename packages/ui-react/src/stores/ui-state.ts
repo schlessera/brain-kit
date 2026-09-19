@@ -16,8 +16,12 @@ function isThemePreference(value: unknown): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
 }
 
-/** Which tab the settings panel opens on. */
-export type SettingsTab = "models" | "skills" | "security" | "devices";
+/**
+ * Which section the settings surface shows. `appearance` (D5: theme and
+ * input) is a section column row from `laptop:` up only; the phone strip
+ * keeps those controls above its tabs and folds the value to `models`.
+ */
+export type SettingsTab = "appearance" | "models" | "skills" | "security" | "devices";
 
 /** Full-screen surface currently shown inside the AppShell. */
 export type ActiveView = "chat" | "graph" | "activity";

@@ -4,9 +4,11 @@ import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
+import { useBrainUiRoot } from "../../root-context.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { ThemeToggle } from "../layout/theme.js";
 import { ShortcutSwitch } from "../layout/shortcut-switch.js";
-import { Callout, Label, Surface } from "@schlessera/brain-ui-kit";
+import { Button, Callout, Icon, Label, ScreenHeader, Surface, type IconName } from "@schlessera/brain-ui-kit";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -20,7 +22,10 @@ const PasskeyTab = lazy(() => import("./passkey-tab.js").then((m) => ({ default:
 const DevicesAgentsTab = lazy(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
 const SkillsTab = lazy(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
 
-const TABS: Array<{ id: SettingsTab; label: string; icon: typeof KeyRound }> = [
+/** The phone strip's tabs. Appearance and input sit above the strip there. */
+type StripTab = Exclude<SettingsTab, "appearance">;
+
+const TABS: Array<{ id: StripTab; label: string; icon: typeof KeyRound }> = [
   { id: "models", label: "Models", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", icon: Puzzle },
   { id: "security", label: "Security", icon: KeyRound },
@@ -28,9 +33,32 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof KeyRound }> = [
 ];
 
 /**
- * The settings surface: one panel, one entry point in the menus, a tab per
- * area. Only the selected tab is mounted — each fetches its own data on becoming
- * active, so switching tabs (or reopening the panel) always shows current state.
+ * D5's section column, from `laptop:` up. The mono meta names what the
+ * section holds; it is not a count, because the column has no data of its
+ * own to count.
+ */
+const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; icon: IconName }> = [
+  { id: "appearance", label: "Appearance & input", meta: "this device", icon: "settings" },
+  { id: "models", label: "Models", meta: "providers", icon: "model" },
+  { id: "skills", label: "Skills", meta: "catalog", icon: "capability" },
+  { id: "security", label: "Security", meta: "passkeys", icon: "passkey" },
+  { id: "devices", label: "Devices & agents", meta: "credentials", icon: "agent" },
+];
+
+/** The rail is expanded from here (`laptop:`), and Settings becomes a pane. */
+const PANE_QUERY = "(min-width: 900px)";
+
+/**
+ * The settings surface: one panel, one entry point in the menus, a section
+ * per area. Only the selected section is mounted — each fetches its own data
+ * on becoming active, so switching (or reopening the panel) always shows
+ * current state.
+ *
+ * Two shapes. Below `laptop:` the drawer with its tab strip, unchanged: the
+ * theme toggle and the single-key switch sit above the tabs. From `laptop:`
+ * up it is D5's pane over the content area: a header row, a 216px section
+ * column, and the section's form at a 720px measure. There, Appearance &
+ * input is a section of its own.
  */
 export function SettingsPanel({
   open,
@@ -44,32 +72,51 @@ export function SettingsPanel({
   const mintPending = usePrincipalStore((s) => s.mintPending);
   const oneTimeCredential = usePrincipalStore((s) => s.oneTimeCredential);
   const credentialProtected = mintPending || oneTimeCredential !== null;
+  const pane = useMediaQuery(PANE_QUERY);
 
   function closeIfSafe() {
     if (!credentialProtected) onClose();
   }
 
+  function select(id: SettingsTab) {
+    if (!credentialProtected) setTab(id);
+  }
+
+  if (pane) {
+    return (
+      <SettingsPane
+        open={open}
+        tab={tab}
+        credentialProtected={credentialProtected}
+        onSelect={select}
+        onClose={closeIfSafe}
+      />
+    );
+  }
+
+  // The strip has no Appearance tab: a pane selection that survives a resize
+  // down lands on the first tab, and the controls it named are right above.
+  const stripTab: StripTab = tab === "appearance" ? "models" : tab;
+
   return (
     <SlidePanel open={open} onClose={closeIfSafe} title="Settings" wide>
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 gap-1 border-b border-border px-2 pt-2">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.map(({ id, label, icon: TabIcon }) => (
             <button
               key={id}
-              onClick={() => {
-                if (!credentialProtected) setTab(id);
-              }}
-              disabled={credentialProtected && tab !== id}
-              aria-selected={tab === id}
+              onClick={() => select(id)}
+              disabled={credentialProtected && stripTab !== id}
+              aria-selected={stripTab === id}
               role="tab"
               className={cn(
                 "flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                tab === id
+                stripTab === id
                   ? "border-b-2 border-primary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <TabIcon className="h-3.5 w-3.5" />
               {label}
             </button>
           ))}
@@ -91,28 +138,158 @@ export function SettingsPanel({
           <Surface pad={0}>
             <ShortcutSwitch />
           </Surface>
-          <Callout
-            variant="banner"
-            tone="neutral"
-            icon="scope"
-            text="Turning single-key shortcuts off also removes the printed keys from buttons — a key that no longer fires should not be advertised."
-          />
+          <ShortcutBanner />
         </div>
 
         <div className="min-h-0 flex-1">
-          <Suspense fallback={null}>
-            {tab === "models" ? (
-              <ModelsTab active={open && tab === "models"} />
-            ) : tab === "skills" ? (
-              <SkillsTab active={open && tab === "skills"} />
-            ) : tab === "security" ? (
-              <PasskeyTab active={open && tab === "security"} />
-            ) : (
-              <DevicesAgentsTab active={open && tab === "devices"} />
-            )}
-          </Suspense>
+          <SectionBody tab={stripTab} open={open} />
         </div>
       </div>
     </SlidePanel>
+  );
+}
+
+/**
+ * D5 from `laptop:` up: the pane. The header row carries the serif title and
+ * the close control; under it the section column and the form area share the
+ * height, and only the form area scrolls.
+ */
+function SettingsPane({
+  open,
+  tab,
+  credentialProtected,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  tab: SettingsTab;
+  credentialProtected: boolean;
+  onSelect: (tab: SettingsTab) => void;
+  onClose: () => void;
+}) {
+  const appName = useBrainUiRoot().config.appName;
+  return (
+    <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane">
+      <div className="flex shrink-0 items-center border-b border-border pr-3">
+        <ScreenHeader variant="nav" title="Settings" back={false} divider={false} />
+        <Button label="Close" tone="quiet" size="sm" block={false} onClick={onClose} />
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        <nav aria-label="Settings sections" className="flex w-[216px] shrink-0 flex-col border-r border-border">
+          <div role="tablist" aria-orientation="vertical" className="flex flex-1 flex-col gap-0.5 p-2">
+            {SECTIONS.map(({ id, label, meta, icon }) => {
+              const selected = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  // The name is the label alone: the mono meta beside it is a
+                  // descriptor, and a test or a screen reader asking for
+                  // "Security" should find it.
+                  aria-label={label}
+                  disabled={credentialProtected && !selected}
+                  onClick={() => onSelect(id)}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    selected ? "bg-surface-raised" : "hover:bg-surface-raised"
+                  )}
+                >
+                  <Icon icon={icon} size={16} color={selected ? "var(--bk-amber-ink)" : "var(--bk-color-ink-mute)"} />
+                  <span
+                    className={cn("min-w-0 flex-1 truncate text-[12.5px] font-semibold", !selected && "text-foreground")}
+                    style={selected ? { color: "var(--bk-amber-ink)" } : undefined}
+                  >
+                    {label}
+                  </span>
+                  <span className="shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
+                    {meta}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="shrink-0 border-t border-border px-4 py-3 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
+            {appName}
+          </div>
+        </nav>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex h-full max-w-[720px] flex-col">
+            {tab === "appearance" ? (
+              <AppearanceSection />
+            ) : (
+              <SectionBody tab={tab} open={open} />
+            )}
+          </div>
+        </div>
+      </div>
+    </SlidePanel>
+  );
+}
+
+/**
+ * D5's first section, as the drop draws it: the theme under "Appearance",
+ * the single-key switch and its banner under "Input". Both controls apply to
+ * this device only, which the header says.
+ */
+function AppearanceSection() {
+  return (
+    <div className="flex flex-col">
+      <ScreenHeader
+        variant="nav"
+        title="Appearance & input"
+        subtitle="applies on this device only"
+        back={false}
+        divider={false}
+      />
+      <div className="flex flex-col gap-2 px-4 pb-4">
+        <Label text="Appearance" icon="settings" />
+        <Surface pad={0}>
+          <div className="flex items-center gap-3 px-3 py-3">
+            <Icon icon="settings" size={17} color="var(--bk-color-ink-mute)" />
+            <span className="min-w-0 flex-1 text-[12.5px] font-semibold text-foreground">Theme</span>
+            <ThemeToggle />
+          </div>
+        </Surface>
+      </div>
+      <div className="flex flex-col gap-2 px-4 pb-4">
+        <Label text="Input" icon="capability" />
+        <Surface pad={0}>
+          <ShortcutSwitch />
+        </Surface>
+        <ShortcutBanner />
+      </div>
+    </div>
+  );
+}
+
+function ShortcutBanner() {
+  return (
+    <Callout
+      variant="banner"
+      tone="neutral"
+      icon="scope"
+      text="Turning single-key shortcuts off also removes the printed keys from buttons — a key that no longer fires should not be advertised."
+    />
+  );
+}
+
+/** The lazily fetched section, mounted only while it is the selected one. */
+function SectionBody({ tab, open }: { tab: StripTab; open: boolean }) {
+  return (
+    <Suspense fallback={null}>
+      {tab === "models" ? (
+        <ModelsTab active={open} />
+      ) : tab === "skills" ? (
+        <SkillsTab active={open} />
+      ) : tab === "security" ? (
+        <PasskeyTab active={open} />
+      ) : (
+        <DevicesAgentsTab active={open} />
+      )}
+    </Suspense>
   );
 }

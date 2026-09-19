@@ -655,8 +655,19 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] App: location card passes `accuracyM` / `note` through; own span rule
       and note line removed
 - [x] App: Settings › Input as D5 draws it (`ListRow` toggles + the banner)
-- [ ] App: desktop layouts D3–D6 and the 480/900/1280 ladder (Files, Actions,
-      Settings, Graph); the 1440 four-pane rule
+- [x] App: the 480/900/1280/1440 ladder (`tablet:` / `laptop:` /
+      `desktop:` / `wide:` in `theme.css`); the rail from 480, expanded from
+      900; a four-pane screen needs `wide:`
+- [x] App: desktop panes D3–D6 from `laptop:` up — Settings as a pane with a
+      216px section column and a 720 measure (`SlidePanel mode="pane"`,
+      "Appearance & input" as a section); Files as tree 300 · reading 720 ·
+      frontmatter rail at `wide:` (backlinks and provenance omitted: no API);
+      Actions as list 360 · detail · trace rail at `wide:` (`RunDetail
+      embedded`, `RunTraceSteps`); Graph as controls column 264 · canvas with
+      a `ScreenHeader` and caption · `ContactCard` node rail with the
+      neighbour list at `wide:`, and the orphan `EmptyState`. The caption
+      names the colour rule the canvas actually uses (topic / distance /
+      folder), not "entity type", because that is what it does
 
 ## Open questions
 

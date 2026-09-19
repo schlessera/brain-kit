@@ -582,6 +582,45 @@ run the `storybook-light` project as well.
   the host's job; `ui-react`'s README gives the line. The kit needs no theme
   context. `design/desktop.md` is the spec for the desktop half of D16.
 
+## The fifth drop — the desktop drawn, the navigation settled, 2026-09-19
+
+The maintainer forwarded eleven questions; the design answered all of them
+in one drop (`design-feedback.md` "The fifth drop", `design/desktop.md`
+"The fifth drop", D37). What a fresh session needs to know:
+
+- **Five destinations everywhere: Chat · Actions · Files · Graph · Settings.**
+  Activity is the `done` lens of Actions, not a place. The app's
+  `activeView` value is still `"activity"` and the hash is still `#/activity`
+  (a contract with push links); only the label and the page changed. The
+  phone bar folds Settings into More, which is the kit `BottomSheet`.
+- **The Actions page has three lenses** (`needs you · running · done`) and
+  lists pending tool approvals from EVERY transcript beside the inbox
+  (`pendingApprovals()` in `chat-state.ts`, derived from the buffer
+  references — never select it as a fresh array, that loops). The lens
+  defaults to the populated one; a drained `needs you` becomes the
+  `EmptyState` with its heading focused and the receipt above.
+- **The composer is the kit `Composer`** with an app frame around it
+  (`composer-view.tsx`): slash palette, attachment previews, the attach
+  menu (sheet on a phone, popover from `laptop:`), the provider list, ↑
+  recall, esc for the palette, paste-to-attach caught on the frame. The
+  kit's `state` drives placeholder/hint/send-or-stop; the app overrides the
+  placeholder with the connection reasons the tests expect.
+- **The palette groups by what ⏎ does** (Jump to · Ask · Run). Unservable
+  rows are `why: "needs the host"` (disabled), never omitted. The briefing's
+  cost chip says `spends` — the app has no estimate; do not invent one.
+- **The breakpoint ladder is live**: `tablet:` 480, `laptop:` 900,
+  `desktop:` 1280, `wide:` 1440 in `theme.css`. The rail shows from 480
+  (collapsed) and expands at 900; a four-pane screen needs `wide:`.
+- **Desktop panes (D3–D6)** are rendered by the existing panels/pages from
+  `laptop:` up (Settings and Files stay panels because the HOST composes
+  views); see the per-directory files. The evidence rails omit what the app
+  has no data for (backlinks, git provenance) with a comment saying so.
+- **Not followed:** ⌘N for New chat (the browser owns it) and undo on the
+  inbox receipt (no un-acknowledge API).
+- **Harvest trap:** the design extractor lets an older inline transcript
+  copy overwrite a newer persisted one — re-apply the persisted results by
+  mtime after running it (`FETCH-PROGRESS.md`).
+
 ## The fourth drop — the answers — and S6 progress, 2026-09-18
 
 The design answered every open question in one drop (`design-feedback.md`,
