@@ -410,6 +410,9 @@ describe("ImageMaskResultCard", () => {
     expect(overlay).not.toBeNull();
     expect(overlay.getAttribute("src")).toContain(encodeURIComponent("assets/images/house-mask.png"));
     expect(overlay.getAttribute("src")).toContain("raw=1");
+    // The DOM here cannot fetch the PNG (it reports an error for the URL);
+    // the load event stands in for the browser having it.
+    fireEvent.load(overlay);
     expect(queryByText(MASK_NOT_RENDERED)).toBeNull();
     // No region in the payload: no drawn rectangle, no coverage claim — and
     // the absence is STATED on the receipt, in gold, never omitted.
@@ -420,6 +423,24 @@ describe("ImageMaskResultCard", () => {
       ["source", "assets/images/house.png", undefined],
       ["mask", "assets/images/house-mask.png · 2 KB", undefined],
     ]);
+  });
+
+  test("the teal fill appears only once the mask PNG has loaded, and a failed load says so", () => {
+    const { container, queryByText } = render(<ImageMaskResultCard {...payload} />);
+    const overlay = container.querySelector("img[data-mask-overlay]") as HTMLImageElement;
+    // Until the browser has the bytes there is no fill and no claim of one.
+    expect(overlay.hasAttribute("data-mask-shown")).toBe(false);
+    fireEvent.load(overlay);
+    expect((container.querySelector("img[data-mask-overlay]") as HTMLImageElement).hasAttribute("data-mask-shown")).toBe(true);
+    expect(queryByText(MASK_NOT_RENDERED)).toBeNull();
+
+    // A mask the files route cannot serve — removed since, or a path it
+    // refuses — is stated, not dressed up as a whole-image mask.
+    const failed = render(<ImageMaskResultCard {...payload} maskPath="assets/images/gone-mask.png" />);
+    const gone = failed.container.querySelector("img[data-mask-overlay]") as HTMLImageElement;
+    fireEvent.error(gone);
+    expect(failed.container.querySelector("[data-mask-shown]")).toBeNull();
+    expect(failed.getByText(MASK_NOT_RENDERED)).toBeTruthy();
   });
 
   test("without mask bytes the thumb shows the source alone and says the mask was not rendered", () => {

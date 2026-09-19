@@ -51,7 +51,12 @@ const TINT: Record<Sign, { bg: string; fg: string }> = {
 export function diffRows(text: string): { sign: Sign; text: string }[] {
   return text.split("\n").map((line) => {
     const sign: Sign = line[0] === "-" || line[0] === "+" ? (line[0] as Sign) : " ";
-    return { sign, text: line.slice(sign === " " ? 0 : 1).replace(/^ /, "") };
+    // A unified diff spells a context line as a blank sign and a separator,
+    // so it consumes the same two characters as a signed line does; the
+    // design's source consumed one, which indented every context row by a
+    // cell. A line with no sign at all is taken whole.
+    const body = line[0] === " " || sign !== " " ? line.slice(1) : line;
+    return { sign, text: body.replace(/^ /, "") };
   });
 }
 

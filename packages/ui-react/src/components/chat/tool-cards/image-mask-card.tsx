@@ -25,7 +25,7 @@
  * states it in a red boxed mono `Callout` from the result's own words.
  */
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { Callout, Receipt, Surface, color, font, type ReceiptRow } from "@schlessera/brain-ui-kit";
 import type { ImageMaskPayload, ToolCallView } from "@schlessera/brain-ui-sdk/client";
 import { useBrainUiRoot } from "../../../root-context.js";
@@ -64,7 +64,24 @@ export function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean 
  * the mask image over both when `maskUrl` is given. Exported for the view
  * test; the bound card computes `maskUrl` from the payload.
  */
-export function MaskThumb({ region, label, maskUrl }: { region?: MaskRegion; label: string; maskUrl?: string }) {
+export function MaskThumb({
+  region,
+  label,
+  maskUrl,
+  maskShown,
+  onMaskLoad,
+  onMaskError,
+}: {
+  region?: MaskRegion;
+  label: string;
+  maskUrl?: string;
+  /** The teal fill sits under the mask only once the PNG has loaded: until
+   * then, or after a failure, a full teal frame would read as a whole-image
+   * mask that was never drawn. */
+  maskShown?: boolean;
+  onMaskLoad?: () => void;
+  onMaskError?: () => void;
+}) {
   const frame: CSSProperties = {
     position: "relative",
     width: "100%",
@@ -103,8 +120,16 @@ export function MaskThumb({ region, label, maskUrl }: { region?: MaskRegion; lab
       {drawn ? <div style={drawn} data-mask-region /> : null}
       {maskUrl ? (
         <>
-          <div style={fill} aria-hidden="true" />
-          <img src={maskUrl} alt="" style={overlay} data-mask-overlay />
+          {maskShown ? <div style={fill} aria-hidden="true" /> : null}
+          <img
+            src={maskUrl}
+            alt=""
+            style={{ ...overlay, visibility: maskShown ? "visible" : "hidden" }}
+            data-mask-overlay
+            data-mask-shown={maskShown ? "" : undefined}
+            onLoad={onMaskLoad}
+            onError={onMaskError}
+          />
         </>
       ) : null}
     </div>
@@ -137,10 +162,15 @@ function pct(fraction: number): string {
 export function ImageMaskResultCard(payload: ImageMaskPayload & { region?: MaskRegion }) {
   const root = useBrainUiRoot();
   const region = payload.region;
-  const rendered = hasMaskBytes(payload);
-  const maskUrl = rendered
+  const hasBytes = hasMaskBytes(payload);
+  const maskUrl = hasBytes
     ? `${root.apiBase()}/files/content?path=${encodeURIComponent(payload.maskPath)}&raw=1`
     : undefined;
+  // The bytes say a mask was written; only the browser can say it loaded.
+  // A file gone since, or a path the raw route refuses, must not leave a
+  // full teal frame standing in for a mask nobody can see.
+  const [maskState, setMaskState] = useState<"loading" | "shown" | "failed">("loading");
+  const rendered = hasBytes && maskState === "shown";
   const note: CSSProperties = { font: `400 10.5px/1.5 ${font.mono}`, color: color.inkMute };
   return (
     <Surface tone="teal" label="Mask drawn" labelIcon="confirm" meta="by you" pad={12}>
@@ -148,13 +178,16 @@ export function ImageMaskResultCard(payload: ImageMaskPayload & { region?: MaskR
         <MaskThumb
           region={region}
           maskUrl={maskUrl}
+          maskShown={rendered}
+          onMaskLoad={() => setMaskState("shown")}
+          onMaskError={() => setMaskState("failed")}
           label={
             rendered
               ? `Mask ${payload.maskPath} over the source ${payload.imagePath}`
               : `Source ${payload.imagePath}; the mask is in ${payload.maskPath}`
           }
         />
-        {rendered ? null : <div style={note}>{MASK_NOT_RENDERED}</div>}
+        {!hasBytes || maskState === "failed" ? <div style={note}>{MASK_NOT_RENDERED}</div> : null}
         <Receipt keyWidth={58} rows={maskReceiptRows(payload, region)} />
       </div>
     </Surface>

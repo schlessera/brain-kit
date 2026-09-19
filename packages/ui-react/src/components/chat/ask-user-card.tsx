@@ -191,9 +191,12 @@ export function AskUserCard({
           }
           return { ...s, otherOpen: true, selected: [OTHER_LABEL] };
         }
+        // Multi-select: Other stays open while it is on — picking another
+        // row beside it must not close the field and strand an empty custom
+        // answer. Single-select: any other pick replaces Other.
         return {
           ...s,
-          otherOpen: false,
+          otherOpen: q.multiSelect ? s.selected.includes(OTHER_LABEL) : false,
           selected: q.multiSelect
             ? toggled(s.selected, label)
             : s.selected[0] === label
@@ -246,8 +249,10 @@ export function AskUserCard({
       }
     }
     if (reopened) {
-      // The request is gone server-side; the answer is a message now.
+      // The request is gone server-side; the answer is a message now — and
+      // the card closes again, or Submit would send it twice.
       onReask?.(reaskMessage(questions, answers));
+      setReopened(false);
       return;
     }
     onSubmit(
