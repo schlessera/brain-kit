@@ -38,13 +38,14 @@
  * what makes the ODbL obligation unavoidable rather than a choice. See
  * `fixtures/geo/LICENSE`.
  *
- * ## The bbox is larger than the scene, on purpose
+ * ## The bbox is larger than the scene, on purpose — and no longer square
  *
  * `MapView` grows its short axis to the card's aspect and then adds a margin,
  * so geometry clipped to the scene's own span would stop short of the drawn
- * viewport and leave the coastline ending in mid-air at the edges. `BLEED`
+ * viewport and leave the coastline ending in mid-air at the edges. The bleed
  * covers it; everything past the viewport is clipped by the SVG at render time
- * and costs only bytes.
+ * and costs only bytes. How MANY bytes is the point of `BLEED_ACROSS` and
+ * `BLEED_DOWN` being two numbers rather than one — see their comment.
  */
 import { detailFor, fetchCoastline, type BBox, type MapDetail } from "@schlessera/brain-ui-sdk/server";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -55,10 +56,32 @@ import { join } from "node:path";
  * component's `W` default. */
 const RENDER_WIDTH = 330;
 
-/** How far past the scene's own span to fetch. A wide card can legitimately ask
- * for twice the span in one direction once the short axis has grown to match
- * its aspect, and the margins come on top of that. */
-const BLEED = 2.4;
+/**
+ * How far past the scene's own span to fetch, per axis, as a multiple of
+ * `spanKm`. The box is centred on the scene, so each axis reaches half of its
+ * factor from the centre: 0.75 spans east and west, 0.5 spans north and south.
+ *
+ * It used to be a square of 2.4 spans on BOTH axes, on the theory that a card
+ * of any aspect might grow either axis. Measured on Messina's raw major-road
+ * ways, only 23% of that square's vertices fell inside anything a card draws,
+ * and a regeneration of Troy and Messina through the road tier came back at
+ * 11.9 and 8.1 KB gzipped against 3.5 and 0.7 committed, breaking the set's
+ * 28 KB guard (`tests/geo-fixtures.test.ts`). The ruling (README, sixth pass,
+ * §10) bounded the aspect instead: a card is at most 420px wide and its
+ * viewport 110-260px tall, clamped in `MapView`.
+ *
+ * The arithmetic, from `MapView`'s own bbox: with the pins inside the span,
+ * the span is the longitude range, 12% margins are added each side, and the
+ * short axis is then WIDENED to the card's aspect at one scale — so a card
+ * draws 1.24 spans across at any width, and 1.24 × H/W spans down. The widest
+ * case, 420×110, draws 0.32 down; the tallest, 420×260, draws 0.77 down; the
+ * default render width at the tallest height, 330×260, draws 0.98. So 1.0
+ * down covers every card at least 322px wide, and 1.5 across leaves 0.13 of a
+ * span past the drawn edge on each side. A scene whose pins spread wider than
+ * its span grows the box beyond this, and none of the fixture scenes does.
+ */
+const BLEED_ACROSS = 1.5;
+const BLEED_DOWN = 1.0;
 
 /** OSM asks an SDK to identify itself; a browser cannot, but this script can. */
 const USER_AGENT = "brain-kit-fixtures/1.0 (+https://github.com/schlessera/brain-kit)";
@@ -136,14 +159,16 @@ function isEmpty(result: { coastline: unknown[]; roads: unknown[]; streets: unkn
 }
 
 function harvest(location: Location, box: BBox) {
-  // The bbox is BLEED times the scene, so at the scene's own scale it would be
-  // drawn across BLEED times the render width. Passing the bare render width
-  // makes metres-per-pixel come out BLEED times too coarse, which simplifies
-  // away detail the scene can show and — worse — picks a detail tier for a view
-  // two and a half times larger than the one anyone looks at. Vathy asked for
-  // streets and got roads exactly this way.
+  // The bbox is BLEED_ACROSS times the scene's width, so at the scene's own
+  // scale it would be drawn across BLEED_ACROSS times the render width. Passing
+  // the bare render width makes metres-per-pixel come out BLEED_ACROSS times
+  // too coarse, which simplifies away detail the scene can show and — worse —
+  // picks a detail tier for a view half again larger than the one anyone looks
+  // at. Vathy asked for streets and got roads exactly this way. Only the
+  // horizontal factor matters here: the tolerance and the tier are both taken
+  // from the box's WIDTH (`toleranceMetres`).
   return fetchCoastline(
-    { bbox: box, widthPx: Math.round(RENDER_WIDTH * BLEED), detail: location.detail },
+    { bbox: box, widthPx: Math.round(RENDER_WIDTH * BLEED_ACROSS), detail: location.detail },
     {
       enabled: true,
       url: OVERPASS_URL,
@@ -156,11 +181,10 @@ function harvest(location: Location, box: BBox) {
 /** `[west, south, east, north]`. */
 function bbox(location: Location): BBox {
   const [lon, lat] = location.center;
-  const halfKm = (location.spanKm * BLEED) / 2;
-  const dLat = halfKm / KM_PER_DEGREE_LAT;
+  const dLat = (location.spanKm * BLEED_DOWN) / 2 / KM_PER_DEGREE_LAT;
   // Longitude degrees shrink with latitude; at 36-40 degrees that is a 20-25%
   // difference, which is the whole island at these spans.
-  const dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  const dLon = (location.spanKm * BLEED_ACROSS) / 2 / KM_PER_DEGREE_LAT / Math.cos((lat * Math.PI) / 180);
   return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
 
@@ -178,12 +202,6 @@ async function main() {
     first = false;
 
     const box = bbox(location);
-    // The bbox is BLEED times the scene, so it would be drawn across BLEED
-    // times the render width at the scene's own scale. Passing the bare render
-    // width instead makes metres-per-pixel come out BLEED times too coarse,
-    // which simplifies away detail the scene can show and — worse — picks a
-    // detail tier for a view two and a half times larger than the one anyone
-    // will look at. Vathy asked for streets and got roads exactly this way.
     // `fetchCoastline` degrades to empty geometry on ANY failure, which is
     // right for a chat surface — a plainer map beats a message that will not
     // render — and leaves this script unable to tell "Overpass is busy" from
@@ -234,7 +252,7 @@ async function main() {
         `${String(result.land.length).padStart(3)} land · ` +
         `${String(verts).padStart(5)} verts · ${(bytes / 1024).toFixed(1)} KB gz · ` +
         `${result.toleranceM} m/px` +
-        (detailFor(box, Math.round(RENDER_WIDTH * BLEED)) === result.detail ? "" : " (forced)"),
+        (detailFor(box, Math.round(RENDER_WIDTH * BLEED_ACROSS)) === result.detail ? "" : " (forced)"),
     );
   }
 }

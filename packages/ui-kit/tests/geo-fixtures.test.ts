@@ -57,19 +57,24 @@ describe("the geometry is geometry", () => {
     test(`${id}: the geometry surrounds the centre it claims`, () => {
       // Catches the failure a basin check cannot: geometry that is real, inside
       // the Mediterranean, and a hundred kilometres from the place it is
-      // labelled as. The generator fetches a square 2.4 times the scene's
-      // width, so each AXIS can reach 1.2 spans from the centre. A radial
-      // one-span bound wrongly rejects the bleed and the square's corners.
+      // labelled as. The generator fetches an envelope 1.5 times the scene's
+      // width across and 1.0 times it down — every frame a bounded card can
+      // draw, and nothing past it — so a stroke can reach 0.75 spans east or
+      // west of the centre and 0.5 spans north or south. A radial one-span
+      // bound wrongly rejects the bleed and the box's corners; the old square
+      // 1.2-span bound would let a regeneration with the symmetric bleed back
+      // in unnoticed, and that bleed is what tripled the bytes.
       // Four-decimal rounding can move a boundary coordinate by about 6 m.
       // Land rings stay whole for SVG clipping, so only strokes are bounded.
       const [lon, lat] = fixture.center;
-      const allowedKm = fixture.spanKm * 1.2 + 0.01;
+      const acrossKm = fixture.spanKm * 0.75 + 0.01;
+      const downKm = fixture.spanKm * 0.5 + 0.01;
       const far: string[] = [];
       for (const line of [...fixture.coastline, ...fixture.roads, ...(fixture.streets ?? [])]) {
         for (const [pLon, pLat] of line) {
           const dLatKm = (pLat - lat) * 111;
           const dLonKm = (pLon - lon) * 111 * Math.cos((lat * Math.PI) / 180);
-          if (Math.abs(dLatKm) > allowedKm || Math.abs(dLonKm) > allowedKm) {
+          if (Math.abs(dLatKm) > downKm || Math.abs(dLonKm) > acrossKm) {
             far.push(`${dLonKm.toFixed(2)},${dLatKm.toFixed(2)} km from ${id}'s centre`);
           }
         }
@@ -115,14 +120,18 @@ describe("the geometry is geometry", () => {
     // side is water, and that is the first thing a reader needs.
     //
     // The bound was 24 KB for five locations; Vathy, the street-tier demo,
-    // is a sixth at 4.4 KB (159 streets), so it is 28 KB now. The honest
+    // is a sixth (4.4 KB and 159 streets under the old square bleed, 2.3 KB
+    // and 118 streets under the 1.5 x 1.0 envelope), so it is 28 KB. The honest
     // comparison is not tile-for-tile anyway: a raster map needs a SET of
     // tiles per theme, which D25 measured at 400-700 KB across two asset
     // sets. What this guards is a blow-up — an unfiltered regeneration put
     // Corfu alone at 17.7 KB by keeping 467 rings, most of them outside the
     // view or smaller than a pixel, and a 2026-09-19 regeneration of Troy and
     // Messina through the current road tier came back at 11.5 and 7.9 KB
-    // (three and ten times their committed size) and was not kept.
+    // (three and ten times their committed size) and was not kept. The
+    // envelope was the lever, not the road filter: with 1.5 x 1.0 (sixth
+    // pass, S10) all six regenerate to 24.8 KB together, Messina with its
+    // full road tier at 2.8 KB.
     const bytes = geoIds.reduce(
       (total, id) => total + gzipSync(new TextEncoder().encode(JSON.stringify(geo[id]))).length,
       0,

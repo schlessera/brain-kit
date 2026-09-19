@@ -16,16 +16,20 @@ describe("spanFor", () => {
 });
 
 describe("viewBox", () => {
-  test("is centred on the pin, wider east-west than the span by the map's margin", () => {
+  test("is centred on the pin and covers 1.5 spans across by 1.0 down", () => {
     const [w, s, e, n] = viewBox(38.3653, 20.7169, 1.6);
     expect((w + e) / 2).toBeCloseTo(20.7169, 6);
     expect((s + n) / 2).toBeCloseTo(38.3653, 6);
-    // 1.6 km at 38°N is 0.0184° of longitude; 24% more for the margins.
-    const degLon = (1.6 / 111 / Math.cos((38.3653 * Math.PI) / 180)) * 1.24;
+    // The envelope of every frame MapView can draw for the pin (the kit's
+    // ruling: 420px wide at most, 110-260px tall): 1.24 spans across for the
+    // margins, with a quarter span of slack; 1.0 down covers 1.24 × H/W at
+    // the card's 170px default height from 211px wide up. Same rule as the
+    // kit's fixture generator, so the card and the fixtures fetch alike.
+    const degLon = (1.6 / 111 / Math.cos((38.3653 * Math.PI) / 180)) * 1.5;
     expect(e - w).toBeCloseTo(degLon, 6);
-    // The height follows the card's aspect, not the span.
+    expect(n - s).toBeCloseTo(1.6 / 111, 6);
+    // Down is less than across in degrees at any latitude north of the equator.
     expect(n - s).toBeLessThan(e - w);
-    expect(n - s).toBeGreaterThan(0);
   });
   test("is never wider than the server accepts, even at a coarse fix near the pole", () => {
     const [w, s, e, n] = viewBox(84, 10, 400);

@@ -14,10 +14,13 @@
  * route, an Overpass outage — leaves a map with a correct pin, a graticule
  * and a true scale bar, which is a good locator on its own.
  *
- * The bounding box asked for is the box `MapView` will draw: `spanKm` across
- * the width, the height in proportion to the card, plus the component's own
- * margins. The server bleeds well past it, so a slightly different frame is
- * a cache hit rather than a fresh request to a shared service.
+ * The bounding box asked for is the envelope of every box `MapView` can draw
+ * for the pin — 1.5 spans across, 1.0 down, the same rule the kit's fixture
+ * generator uses (`viewBox` says why those numbers). The server clips to the
+ * box it is given and quantises its cache key to ~110 m, so the request has
+ * to cover the drawn frame itself; and because the envelope is a function of
+ * the pin and the span alone, the same fix at any card width is one cache
+ * entry rather than a fresh request to a shared service.
  */
 
 import { MapView, type MapLand, type MapPath } from "@schlessera/brain-ui-kit";
@@ -37,9 +40,21 @@ function accuracy(meters: number): string {
     : `±${Math.round(meters)} m`;
 }
 
-/** `MapView`'s own default projection width and card height. */
+/** `MapView`'s own default projection width. */
 const WIDTH = 330;
-const HEIGHT = 190;
+
+/**
+ * How far past the span to fetch, per axis, as a multiple of `spanKm`. The
+ * kit's ruling (README, sixth pass, §10) bounds a card at 420px wide with a
+ * viewport of 110-260px, and `MapView` draws a single pin as 1.24 spans across
+ * (12% margins each side) at any width and 1.24 × H/W spans down: 0.32 for
+ * 420×110, 0.77 for 420×260, and this card leaves the height at its 170
+ * default, so 1.0 down covers it at any width from 211px up. The square
+ * 2.4-span bleed this replaced fetched geometry of which only 23% could ever
+ * be drawn (measured on the kit's Messina fixture).
+ */
+const BLEED_ACROSS = 1.5;
+const BLEED_DOWN = 1.0;
 
 /**
  * The view's span across its width, in kilometres — the kit's own rule
@@ -53,16 +68,14 @@ export function spanFor(accuracyMeters: number): number {
 }
 
 /**
- * The bbox `MapView` draws for one pin, as `[west, south, east, north]`. The
- * same arithmetic as the component's: the span sets the longitude range at
- * the pin's latitude, the card's aspect sets the latitude range, and the
- * 12% / 14% margins are added on each side. Clamped to the server's 5°
- * limit and to the poles.
+ * The box to fetch for one pin, as `[west, south, east, north]`: the span at
+ * the pin's latitude, grown to the envelope above and centred on the pin.
+ * Clamped to the server's 5° limit and to the poles.
  */
 export function viewBox(lat: number, lon: number, spanKm: number): [number, number, number, number] {
   const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
-  const degLon = Math.min(4.5, (spanKm / 111 / cos) * 1.24);
-  const degLat = Math.min(4.5, (spanKm / 111) * (HEIGHT / WIDTH) * 1.28);
+  const degLon = Math.min(4.5, (spanKm / 111 / cos) * BLEED_ACROSS);
+  const degLat = Math.min(4.5, (spanKm / 111) * BLEED_DOWN);
   const west = Math.max(-180, lon - degLon / 2);
   const east = Math.min(180, lon + degLon / 2);
   const south = Math.max(-89, lat - degLat / 2);
@@ -95,8 +108,17 @@ export function LocationResultCard({
   useEffect(() => {
     const controller = new AbortController();
     setGeo(null);
+    // The box is BLEED_ACROSS times the drawn span, so the width sent with it
+    // is BLEED_ACROSS times the drawn width: the server takes its tolerance
+    // and its detail tier from the box's width over that many pixels, and the
+    // bare 330 would ask for a view half again coarser than the one drawn —
+    // a 2 km span asking for streets and getting roads. The server buckets
+    // 495 up to 660, which errs on the fine side, never towards an empty map.
     api
-      .geoCoastline(viewBox(latitude, longitude, spanKm), { width: WIDTH, signal: controller.signal })
+      .geoCoastline(viewBox(latitude, longitude, spanKm), {
+        width: WIDTH * BLEED_ACROSS,
+        signal: controller.signal,
+      })
       .then((result) => {
         if (!controller.signal.aborted) setGeo(result);
       })
