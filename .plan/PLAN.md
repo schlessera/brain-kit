@@ -319,9 +319,11 @@ Sequenced after the component waves but **before** step 2. Not optional.
       implementation
 - [x] Fixes a real bug: `FilterRow` fired `items[n]` with an index from the DOM
       walk, which only visits interactive pills
-- [ ] `Home` / `End` deliberately NOT added — ARIA recommends them, the design's
-      role-and-keys table does not list them, D4 says no more than the design.
-      A question for the designer
+- [x] `Home` / `End` were deliberately NOT added at first — ARIA recommends
+      them, the design's role-and-keys table did not list them, D4 says no more
+      than the design. The fourth drop's keyboard answer (D36) listed them, so
+      they reach the edges of every roving group now (`focusEdge` in
+      `internal/roving.ts`), asserted by every arrow-key story
 
 ### Wave 5 — assembly (the acceptance test)
 - [x] **Done.** All four screens rebuilt from `ui-kit` alone; the component set
@@ -434,8 +436,16 @@ Sequenced after the component waves but **before** step 2. Not optional.
       adds no `land` either). Regenerated twice on 2026-09-19 with Overpass
       healthy: the current road tier returns the full network at 27–91 m/px,
       8.1 and 11.9 KB gzipped against 0.7 and 3.5 KB committed, and the set
-      breaks the 28 KB guard. Not kept either time. The real follow-up is a
-      coarser road filter at the coarse tiers in `generate.ts`, not a re-run
+      breaks the 28 KB guard. Not kept either time. Measured on Messina's raw
+      ways: only 23% of the major-road vertices fall inside the scene plus a
+      20% margin; the other 77% is `BLEED` (2.4× the span on BOTH axes) while
+      `MapView` draws the span × 1.24 across the width and at most ~0.65 of it
+      vertically for any card it has. The lever is therefore an asymmetric
+      bleed (about 1.5× wide, 1.0× tall) rather than a coarser road filter;
+      dropping `secondary` alone would save 43% of raw vertices and lose real
+      geometry. Not done yet because a bleed change regenerates all six
+      fixtures and every map baseline (container only), a wider blast radius
+      than the two fixtures deserve on their own
 - [ ] Pin-label collision needs a design answer: two pins 6 km apart at a 9 km
       span overlap, and a long label clips at phone width
 
