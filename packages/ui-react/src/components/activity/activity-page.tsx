@@ -10,13 +10,14 @@ import type {
 } from "../../lib/api-client.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
-import { EmptyState, FilterRow, InlineToast } from "@schlessera/brain-ui-kit";
+import { EmptyState, FilterRow, InlineToast, Label } from "@schlessera/brain-ui-kit";
+import { cn } from "../../lib/utils.js";
 import { ApprovalCard } from "./approval-card.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
 import { RollupCards } from "./activity-rollups.js";
 import { LiveRow, RunRow } from "./activity-run-list.js";
-import { RunDetail } from "./activity-run-detail.js";
+import { RunDetail, RunTraceSteps } from "./activity-run-detail.js";
 import { IntentCard } from "./activity-views.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { PushToggle } from "./push-toggle.js";
@@ -34,6 +35,13 @@ import { SettingsPanel } from "../settings/settings-panel.js";
  * Live rows ride the index-view activity subscription while this surface is
  * open; history and rollups come from the REST activity API. The hash stays
  * `#/activity` — the route is a contract with push notifications.
+ *
+ * Panes (D4): below `laptop:` the run detail replaces the queue, as on the
+ * phone. From `laptop:` the queue is a 360px list column beside the detail
+ * pane, and from `wide:` a 300px evidence rail on the right carries the
+ * run's trace and the last decision's receipt. Each pane scrolls on its own.
+ * The detail is one element at every width — the list hides under it below
+ * `laptop:` — so a deep link selects the same run everywhere.
  */
 export type ActionsLens = "needs-you" | "running" | "done";
 export function ActivityPage() {
@@ -230,12 +238,8 @@ export function ActivityPage() {
   const runningCount = liveRoots.length + restLive.length;
   const lens: ActionsLens = picked ?? (needsYouCount > 0 || drained ? "needs-you" : runningCount > 0 ? "running" : "done");
 
-  if (detailRunId) {
-    return <RunDetail runId={detailRunId} onBack={() => showDetail(null)} />;
-  }
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-1 flex-col laptop:flex-row">
       {/* Hosted here like GraphPage does: the chat page (the usual host) is
           hidden while this view is active, so the staleness deep-link below
           needs its own panel mount. */}
@@ -243,153 +247,210 @@ export function ActivityPage() {
         open={settingsPanelOpen}
         onClose={() => setSettingsPanelOpen(false)}
       />
-      <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <ActivityIcon className="h-4 w-4 text-muted-foreground" />
-        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Actions</h1>
-        <div className="ml-auto flex items-center gap-2">
-          {pricingStale && (
-            <button
-              type="button"
-              onClick={() => openSettings("models")}
-              className="flex items-center gap-1 rounded-md p-1.5 text-amber-500 transition-colors hover:bg-surface-raised hover:text-amber-400"
-              aria-label="Pricing refresh is failing — costs may use stale rates. Open Settings"
-              title="Pricing refresh is failing — costs may use stale rates. Open Settings"
-            >
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span className="hidden text-[10px] sm:inline">Pricing stale</span>
-            </button>
-          )}
-          <PushToggle />
-        </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          aria-label="Refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <div className="mx-auto w-full max-w-3xl space-y-6 p-4">
-        {error && (
-          <p className="text-xs text-destructive">Could not load activity: {error}</p>
+      {/* The list column. Below `laptop:` it is the whole page and an open
+          detail replaces it; from `laptop:` it is 360px beside the detail. */}
+      <section
+        aria-label="Actions queue"
+        className={cn(
+          "min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:shrink-0 laptop:border-r laptop:border-border-subtle",
+          detailRunId ? "hidden" : "flex flex-1"
         )}
+      >
+        <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+          <ActivityIcon className="h-4 w-4 text-muted-foreground" />
+          <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Actions</h1>
+          <div className="ml-auto flex items-center gap-2">
+            {pricingStale && (
+              <button
+                type="button"
+                onClick={() => openSettings("models")}
+                className="flex items-center gap-1 rounded-md p-1.5 text-amber-500 transition-colors hover:bg-surface-raised hover:text-amber-400"
+                aria-label="Pricing refresh is failing — costs may use stale rates. Open Settings"
+                title="Pricing refresh is failing — costs may use stale rates. Open Settings"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span className="hidden text-[10px] sm:inline">Pricing stale</span>
+              </button>
+            )}
+            <PushToggle />
+          </div>
+          <button
+            type="button"
+            onClick={refresh}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+            aria-label="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
-        <FilterRow
-          items={[
-            { label: `needs you ${needsYouCount}`, onClick: () => setLens("needs-you") },
-            { label: `running ${runningCount}`, onClick: () => setLens("running") },
-            { label: `done ${history.length}`, onClick: () => setLens("done") },
-          ]}
-          active={lens === "needs-you" ? 0 : lens === "running" ? 1 : 2}
-        />
+        <div className="mx-auto w-full max-w-3xl space-y-6 p-4 laptop:max-w-none">
+          {error && (
+            <p className="text-xs text-destructive">Could not load activity: {error}</p>
+          )}
 
-        {lens === "needs-you" && (
-          <section aria-labelledby="needs-you-heading">
-            <div className="mb-2 flex items-center">
-              <h2 id="needs-you-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-needs-you-heading="">
-                Needs you
-              </h2>
-              {inbox.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setReceipt({ text: "Dismissed", target: `${inbox.length} items`, effect: "acknowledge" }); setDrained(approvals.length === 0); void acknowledgeAllIntents(); }}
-                  className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Dismiss all
-                </button>
-              )}
-            </div>
-            {needsYouCount === 0 ? (
-              <div className="flex flex-col gap-3">
-                {receipt && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
-                {/* A drained section becomes the empty state, and its heading
-                    takes focus after the last decision (D37) — never the
-                    document top. */}
-                <EmptyState variant="caught_up" meta="" focusTitle={drained} />
+          <FilterRow
+            items={[
+              { label: `needs you ${needsYouCount}`, onClick: () => setLens("needs-you") },
+              { label: `running ${runningCount}`, onClick: () => setLens("running") },
+              { label: `done ${history.length}`, onClick: () => setLens("done") },
+            ]}
+            active={lens === "needs-you" ? 0 : lens === "running" ? 1 : 2}
+          />
+
+          {lens === "needs-you" && (
+            <section aria-labelledby="needs-you-heading">
+              <div className="mb-2 flex items-center">
+                <h2 id="needs-you-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-needs-you-heading="">
+                  Needs you
+                </h2>
+                {inbox.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setReceipt({ text: "Dismissed", target: `${inbox.length} items`, effect: "acknowledge" }); setDrained(approvals.length === 0); void acknowledgeAllIntents(); }}
+                    className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Dismiss all
+                  </button>
+                )}
               </div>
-            ) : (
-              <>
-                {approvals.length > 0 && (
-                  <div className="mb-3 space-y-2">
-                    {approvals.map(({ key, tool }) => (
-                      <ApprovalCard
-                        key={tool.id}
-                        tool={tool}
-                        origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
-                        keys={keys}
-                        onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
-                      />
+              {needsYouCount === 0 ? (
+                <div className="flex flex-col gap-3">
+                  {receipt && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
+                  {/* A drained section becomes the empty state, and its heading
+                      takes focus after the last decision (D37) — never the
+                      document top. */}
+                  <EmptyState variant="caught_up" meta="" focusTitle={drained} />
+                </div>
+              ) : (
+                <>
+                  {approvals.length > 0 && (
+                    <div className="mb-3 space-y-2">
+                      {approvals.map(({ key, tool }) => (
+                        <ApprovalCard
+                          key={tool.id}
+                          tool={tool}
+                          origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
+                          keys={keys}
+                          onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-2" onKeyDown={onInboxKeyDown}>
+                    {inbox.map((intent) => (
+                      <div key={intent.id} data-intent-card="">
+                        <IntentCard
+                          intent={intent}
+                          when={formatRelativeTime(intent.createdAt)}
+                          keyHint={keys}
+                          onOpen={() => {
+                            void acknowledgeIntent(intent.id);
+                            openIntent(intent);
+                          }}
+                          onDismiss={() => dismiss(intent)}
+                        />
+                      </div>
                     ))}
                   </div>
-                )}
-                <div className="space-y-2" onKeyDown={onInboxKeyDown}>
-                  {inbox.map((intent) => (
-                    <div key={intent.id} data-intent-card="">
-                      <IntentCard
-                        intent={intent}
-                        when={formatRelativeTime(intent.createdAt)}
-                        keyHint={keys}
-                        onOpen={() => {
-                          void acknowledgeIntent(intent.id);
-                          openIntent(intent);
-                        }}
-                        onDismiss={() => dismiss(intent)}
-                      />
-                    </div>
-                  ))}
-                </div>
-                {keys && (
-                  <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70">
-                    j / k move · d dismiss · ⏎ open{approvals.length > 0 ? " · a allow" : ""}
-                  </p>
-                )}
-              </>
-            )}
-          </section>
-        )}
+                  {keys && (
+                    <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:hidden">
+                      j / k move · d dismiss · ⏎ open{approvals.length > 0 ? " · a allow" : ""}
+                    </p>
+                  )}
+                </>
+              )}
+            </section>
+          )}
 
-        {lens === "running" && (
-          <section>
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Running now
-            </h2>
-            {liveRoots.length === 0 && restLive.length === 0 ? (
-              <p className="text-xs text-muted-foreground/70">Nothing is running.</p>
-            ) : (
-              <div className="space-y-1">
-                {liveRoots.map((span) => (
-                  <LiveRow key={span.runId} span={span} onOpen={openRun} />
-                ))}
-                {restLive.map((run) => (
-                  <RunRow key={run.runId} run={run} onOpen={openRun} />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {lens === "done" && (
-          <>
-            {rollups && <RollupCards rollups={rollups} />}
+          {lens === "running" && (
             <section>
               <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                History
+                Running now
               </h2>
-              {history.length === 0 ? (
-                <p className="text-xs text-muted-foreground/70">No recorded runs yet.</p>
+              {liveRoots.length === 0 && restLive.length === 0 ? (
+                <p className="text-xs text-muted-foreground/70">Nothing is running.</p>
               ) : (
                 <div className="space-y-1">
-                  {history.map((run) => (
+                  {liveRoots.map((span) => (
+                    <LiveRow key={span.runId} span={span} onOpen={openRun} />
+                  ))}
+                  {restLive.map((run) => (
                     <RunRow key={run.runId} run={run} onOpen={openRun} />
                   ))}
                 </div>
               )}
             </section>
-          </>
+          )}
+
+          {lens === "done" && (
+            <>
+              {rollups && <RollupCards rollups={rollups} />}
+              <section>
+                <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  History
+                </h2>
+                {history.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/70">No recorded runs yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {history.map((run) => (
+                      <RunRow key={run.runId} run={run} onOpen={openRun} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+        {/* The column's footer (D4): the printed keys, pinned under the list
+            from `laptop:`. Only while the keys can fire — they act inside the
+            inbox list — so a lens without cards advertises nothing. */}
+        {keys && lens === "needs-you" && inbox.length > 0 && (
+          <p className="sticky bottom-0 mt-auto hidden border-t border-border-subtle bg-background px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:block">
+            j / k move · d dismiss
+          </p>
+        )}
+      </section>
+
+      {/* The detail pane. Below `laptop:` it shows only with a selection and
+          takes the whole page; from `laptop:` it is always there, holding the
+          selected run or the prompt to pick one. */}
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", detailRunId ? "flex" : "hidden laptop:flex")}>
+        {detailRunId ? (
+          <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded />
+        ) : (
+          <div className="flex h-full items-center justify-center overflow-y-auto p-4">
+            <EmptyState
+              variant="quiet"
+              title="Pick a run"
+              body="Its trace, attempts and what it was holding show here."
+              meta=""
+              minHeight={0}
+            />
+          </div>
         )}
       </div>
+
+      {/* The evidence rail, `wide:` only: the run's trace as a record, and
+          the receipt for the last decision made on this page. */}
+      {detailRunId && (
+        <aside
+          aria-label="Run evidence"
+          className="hidden min-h-0 w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border-subtle bg-surface p-4 wide:flex"
+        >
+          <div className="flex flex-col gap-2">
+            <Label text="Trace" icon="steps" meta="this run" />
+            <RunTraceSteps runId={detailRunId} />
+          </div>
+          {receipt && (
+            <div className="flex flex-col gap-2">
+              <Label text="Last decision" icon="resolved" />
+              <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />
+            </div>
+          )}
+        </aside>
+      )}
     </div>
   );
 }

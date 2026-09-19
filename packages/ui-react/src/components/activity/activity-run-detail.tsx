@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
+import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
+import { TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
 
 import type { ActivityRunRollup } from "../../lib/api-client.js";
 import {
@@ -28,8 +29,21 @@ import { RunRollupReceipt } from "./activity-views.js";
  * view of one run: its rollup header, the span tree with per-span usage,
  * attributes and recorded events, and a raw-trace escape hatch for anything
  * the rendered view does not have an opinion about.
+ *
+ * `embedded` is the D4 desktop pane: the Actions list sits beside this view
+ * from `laptop:` up, so the back chevron only renders below that width, and
+ * from `wide:` the span tree moves out to the page's evidence rail
+ * (`RunTraceSteps`) — the same store slice, fetched once here.
  */
-export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
+export function RunDetail({
+  runId,
+  onBack,
+  embedded = false,
+}: {
+  runId: string;
+  onBack: () => void;
+  embedded?: boolean;
+}) {
   const api = useBrainApi();
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const events = useActivityStore(useShallow((s) => runEvents(s, runId)));
@@ -100,7 +114,10 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
         <button
           type="button"
           onClick={onBack}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+          className={cn(
+            "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground",
+            embedded && "laptop:hidden"
+          )}
           aria-label="Back"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -134,9 +151,11 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
             <pre className="mt-2 overflow-x-auto text-[11px]">{JSON.stringify(pruned, null, 2)}</pre>
           </div>
         )}
-        {streamed.map((span) => (
-          <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} />
-        ))}
+        <div className={cn("space-y-1", embedded && "wide:hidden")}>
+          {streamed.map((span) => (
+            <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} />
+          ))}
+        </div>
         {!pruned && !missing && streamed.length === 0 && (
           <p className="text-xs text-muted-foreground">No spans recorded for this run.</p>
         )}
@@ -164,6 +183,42 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
       </div>
     </div>
   );
+}
+
+/**
+ * The run's trace as the kit's list timeline, for the D4 evidence rail. Reads
+ * the store slice `RunDetail` filled — no second fetch — and stays a record:
+ * the rail's steps do not expand, the escape hatch for that is the detail's
+ * raw trace.
+ */
+export function RunTraceSteps({ runId }: { runId: string }) {
+  const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
+  const steps = useMemo<TraceStep[]>(
+    () =>
+      streamed.map((span) => ({
+        state: traceState(span),
+        tool: spanToolLabel(span),
+        text: span.outcomeReason ?? (span.kind !== "tool" ? span.kind : undefined),
+        time:
+          span.endedAt !== undefined
+            ? formatDuration(span.endedAt - (span.waitUntil ?? span.startedAt))
+            : undefined,
+      })),
+    [streamed]
+  );
+  if (steps.length === 0) {
+    return <p className="text-xs text-muted-foreground/70">No spans recorded for this run.</p>;
+  }
+  return <TraceSteps variant="list" steps={steps} />;
+}
+
+/** Same boundary `toolState` draws for the run cards: open is active, a
+ * failure outcome is failed and any other non-success outcome (cancelled,
+ * skipped) is skipped. */
+function traceState(span: ActivitySpan): TraceStep["state"] {
+  if (span.outcome === undefined || span.outcome === null) return "active";
+  if (span.outcome === "success") return "done";
+  return isFailureOutcome(span.outcome) ? "failed" : "skipped";
 }
 
 /**
