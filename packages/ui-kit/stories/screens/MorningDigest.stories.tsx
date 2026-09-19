@@ -75,7 +75,7 @@ export const MorningDigest = meta.story({
 
         <Callout variant="banner" tone="teal" icon="resolved" mono text={digestFootnote} />
       </ScreenBody>
-      <TabBar items={tabs.map((t) => ({ ...t, onClick: fn() }))} active={2} />
+      <TabBar items={tabs.map((t) => ({ ...t, onClick: fn() }))} active={1} />
     </>
   ),
 });

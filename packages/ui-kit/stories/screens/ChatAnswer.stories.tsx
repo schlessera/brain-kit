@@ -5,18 +5,18 @@ import { tabs } from "../../fixtures/files.js";
 import { forecastQuote, straitSteps } from "../../fixtures/notes.js";
 import { straitMap } from "../../fixtures/places.js";
 import { researcherTrace } from "../../fixtures/runs.js";
-import { answerStats, answerTrace, feedbackQuestion, userMessage } from "../../fixtures/search.js";
+import { answerStats, answerTrace, suggestions, userMessage } from "../../fixtures/search.js";
 import { Disclosure } from "../../src/blocks/Disclosure.js";
 import { MapView } from "../../src/blocks/MapView.js";
 import { QuoteCard } from "../../src/blocks/QuoteCard.js";
 import { StatTiles } from "../../src/blocks/StatTiles.js";
 import { StepList } from "../../src/blocks/StepList.js";
-import { FeedbackRow } from "../../src/blocks/FeedbackRow.js";
 import { Composer } from "../../src/chrome/Composer.js";
 import { MessageBubble } from "../../src/chrome/MessageBubble.js";
 import { ScreenBody } from "../../src/chrome/ScreenBody.js";
 import { ScreenHeader } from "../../src/chrome/ScreenHeader.js";
 import { TabBar } from "../../src/chrome/TabBar.js";
+import { SuggestionChips } from "../../src/conversation/SuggestionChips.js";
 import { TraceSteps } from "../../src/evidence/TraceSteps.js";
 import { phone } from "../_phone.js";
 import { overflowing, unreachable } from "../_stage.js";
@@ -24,7 +24,9 @@ import { overflowing, unreachable } from "../_stage.js";
 /**
  * §11.2 — CHAT ANSWER, FULLY STRUCTURED. The catalog's own summary is the
  * whole specification: *"MessageBubble + Disclosure + StatTiles + QuoteCard +
- * StepList + MapView + FeedbackRow — **no prose paragraph anywhere**."*
+ * StepList + MapView + SuggestionChips — **no prose paragraph anywhere**."* The
+ * chips took FeedbackRow's slot in the fifth drop: an answer gets one closing
+ * row, never two.
  *
  * That last clause is the point and it is the thing to keep. The answer to
  * "where did Circe warn me about Scylla, and did I tell the crew?" is four
@@ -56,7 +58,7 @@ import { overflowing, unreachable } from "../_stage.js";
  * `"connected · local"`. Naming the transport is personal infrastructure, and
  * AGENTS.md's first hard rule has no exempt directories.
  */
-const on = { up: fn(), down: fn(), send: fn(), attach: fn() };
+const on = { send: fn(), attach: fn() };
 
 const meta = preview.meta({
   title: "Screens/Chat answer",
@@ -109,7 +111,10 @@ export const ChatAnswer = meta.story({
           height={88}
         />
 
-        <FeedbackRow question={feedbackQuestion} onUp={on.up} onDown={on.down} />
+        {/* One closing row per answer, never two (D37): chips while this is
+         * the live answer, because they offer the next move; FeedbackRow only
+         * once the reader has moved past it and a grade is all that is left. */}
+        <SuggestionChips label="" items={suggestions.slice(0, 3).map((s) => ({ ...s, onClick: fn() }))} />
       </ScreenBody>
       <Composer variant="send" hint="/ for commands" onSend={on.send} onAttach={on.attach} />
       <TabBar items={tabs.map((t) => ({ ...t, onClick: fn() }))} active={0} />
@@ -153,9 +158,10 @@ export const NoProseParagraphAnywhere = ChatAnswer.extend({
     }
     // The map names the two hazards by their real coordinates' labels.
     for (const pin of straitMap.pins) await expect(await canvas.findAllByText(pin.label!)).not.toHaveLength(0);
-    // And the answer asks whether it answered, which is the one question the
-    // design permits — never "Was this helpful?".
-    await expect(await canvas.findByText(feedbackQuestion)).toBeTruthy();
+    // And the answer closes with the next moves, phrased as prompts the reader
+    // could have typed — one closing row, never a feedback row stacked on it.
+    for (const chip of suggestions.slice(0, 3)) await expect(await canvas.findByText(chip.label)).toBeTruthy();
+    await expect(canvas.queryByRole("button", { name: /that was right/ })).toBeNull();
   },
 });
 

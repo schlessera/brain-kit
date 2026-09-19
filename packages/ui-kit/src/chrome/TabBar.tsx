@@ -84,11 +84,18 @@ export interface TabBarProps {
   active?: number;
 }
 
+/**
+ * The same five destinations as the desktop rail, in the same order, with
+ * Settings folded into More: six into five does not go, and the one you
+ * live in least is the one to fold. Activity is not a slot — it is the
+ * all-runs lens of Actions (see `SideRail`). New chat is not a slot either:
+ * a tab is a place, and starting a chat is an act.
+ */
 const FALLBACK: TabItem[] = [
   { icon: "brain", label: "Chat" },
   { icon: "resolved", label: "Actions", badge: "6" },
-  { icon: "activity", label: "Activity" },
   { icon: "files", label: "Files" },
+  { icon: "graph", label: "Graph" },
   { icon: "more", label: "More" },
 ];
 

@@ -137,13 +137,18 @@ export const linkPreview = {
 
 /* --------------------------------------------------------------- chrome */
 
-/** The five tab slots. Actions carries the only badge. */
+/**
+ * The five tab slots: the desktop rail's five destinations with Settings
+ * folded into More, because six into five does not go and Settings is the
+ * one you live in least (D37). Actions carries the only badge; Activity is
+ * not a slot — it is the all-runs lens of Actions.
+ */
 export const tabs: TabItem[] = [
-  { icon: "chat", label: "Brain" },
+  { icon: "brain", label: "Chat" },
   { icon: "approval", label: "Actions", badge: "3" },
-  { icon: "activity", label: "Activity" },
   { icon: "files", label: "Files" },
-  { icon: "settings", label: "Settings" },
+  { icon: "graph", label: "Graph" },
+  { icon: "more", label: "More" },
 ];
 
 /** The launcher rows on the first-run screen. */

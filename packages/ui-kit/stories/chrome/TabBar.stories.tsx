@@ -7,8 +7,8 @@ import { stage } from "../_stage.js";
 const ITEMS: TabItem[] = [
   { icon: "brain", label: "Chat" },
   { icon: "resolved", label: "Actions", badge: "6" },
-  { icon: "activity", label: "Activity" },
   { icon: "files", label: "Files" },
+  { icon: "graph", label: "Graph" },
   { icon: "more", label: "More" },
 ];
 

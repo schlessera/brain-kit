@@ -1,6 +1,7 @@
 import preview from "#.storybook/preview";
 import { expect, fn } from "storybook/test";
 
+import { toasts } from "../../fixtures/actions.js";
 import { tabs } from "../../fixtures/files.js";
 import { weekSpend, weekSpendMeter } from "../../fixtures/money.js";
 import {
@@ -16,6 +17,7 @@ import { ScreenBody } from "../../src/chrome/ScreenBody.js";
 import { ScreenHeader } from "../../src/chrome/ScreenHeader.js";
 import { TabBar } from "../../src/chrome/TabBar.js";
 import { ActionCard } from "../../src/decisions/ActionCard.js";
+import { InlineToast } from "../../src/conversation/InlineToast.js";
 import { BarList } from "../../src/evidence/BarList.js";
 import { Button } from "../../src/primitives/Button.js";
 import { Callout } from "../../src/primitives/Callout.js";
@@ -77,6 +79,7 @@ const on = {
   filter: () => fn(),
   writeRule: fn(),
   notYet: fn(),
+  revert: fn(),
   changes: [fn(), fn()],
   carried: [fn(), fn(), fn()],
   tab: fn(),
@@ -148,6 +151,10 @@ export const WeeklyReview = meta.story({
             />
           </div>
         </ActionCard>
+        {/* The receipt for the LAST policy written sits under the card asking
+         * for the next one (D37): what saying yes looks like is on screen
+         * while you decide, and the undo is the point. */}
+        <InlineToast {...toasts[2]!} undoLabel="Revert" onUndo={on.revert} />
 
         <Label text="Carried into next week" meta={String(weekCarriedCount)} />
         {/* `marginTop: auto` rather than the catalog's `flex: 1` spacer div:
@@ -161,7 +168,7 @@ export const WeeklyReview = meta.story({
 
         <Callout variant="banner" tone="neutral" icon="digest" mono text={weekFootnote} />
       </ScreenBody>
-      <TabBar items={tabs.map((t) => ({ ...t, onClick: fn() }))} active={2} />
+      <TabBar items={tabs.map((t) => ({ ...t, onClick: fn() }))} active={1} />
     </>
   ),
 });
@@ -221,7 +228,7 @@ export const TheButtonRowSplitsEvenly = WeeklyReview.extend({
 export const EveryComponentTheCatalogNames = WeeklyReview.extend({
   play: async ({ canvas, canvasElement }) => {
     // ScreenHeader, FilterRow, Surface x2, Meter, BarList, Label x2, ListRow
-    // x5, ActionCard, Button x2, Callout, TabBar.
+    // x5, ActionCard, Button x2, InlineToast, Callout, TabBar.
     await expect(await canvas.findByText("This week")).toBeTruthy();
     await expect(await canvas.findByText(weekHeaderMeta)).toBeTruthy();
     await expect(await canvas.findByText(weekFilters[0]!)).toBeTruthy();
@@ -281,12 +288,14 @@ export const TheWholeScreenByKeyboard = WeeklyReview.extend({
       // of the accessible name, not decoration beside it.
       "button:Write rulewrite_poli",
       "button:Not yet",
+      // The receipt's undo — the toast under the card is a control, not a note.
+      "button:Revert",
       // The three carried items.
       "button:Fetch the wind forec",
       "button:Where the eagle omen",
       "button:wind: west, holds 17",
       // The tab bar: one stop, on the active destination.
-      "tab:Activity",
+      "tab:Actions3",
     ]);
   },
 });

@@ -83,8 +83,8 @@ export interface SideRailProps {
 const FALLBACK: RailItem[] = [
   { icon: "brain", label: "Chat", shortcut: "1" },
   { icon: "resolved", label: "Actions", badge: "6", shortcut: "2" },
-  { icon: "activity", label: "Activity", shortcut: "3" },
-  { icon: "files", label: "Files", shortcut: "4" },
+  { icon: "files", label: "Files", shortcut: "3" },
+  { icon: "graph", label: "Graph", shortcut: "4" },
   { icon: "settings", label: "Settings", shortcut: "5" },
 ];
 
