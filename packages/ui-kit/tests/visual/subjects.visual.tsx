@@ -93,7 +93,10 @@ import * as approvalCard from "../../stories/decisions/ApprovalCard.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
 import * as meter from "../../stories/primitives/Meter.stories.js";
+import * as actionsTriage from "../../stories/screens/ActionsTriage.stories.js";
 import * as chatAnswer from "../../stories/screens/ChatAnswer.stories.js";
+import * as fileViewer from "../../stories/screens/FileViewer.stories.js";
+import * as firstRun from "../../stories/screens/FirstRun.stories.js";
 import * as morningDigest from "../../stories/screens/MorningDigest.stories.js";
 import * as runDetail from "../../stories/screens/RunDetail.stories.js";
 import * as weeklyReview from "../../stories/screens/WeeklyReview.stories.js";
@@ -153,6 +156,24 @@ test("screen: run detail", async () => {
   await looksRight(runDetail.RunDetail, "screen-run-detail");
 });
 
+/* ── The three after the acceptance set ───────────────────────────────────── */
+// The sixth-pass ruling's next three, in its order (§12). Not the gate — the
+// four above stay the gate — but composition all the same, and two of them
+// carry the kit's widest content: a real diff on the triage list, and a tree
+// that has to open inside a 390px frame.
+
+test("screen: actions triage", async () => {
+  await looksRight(actionsTriage.ActionsTriage, "screen-actions-triage");
+});
+
+test("screen: file viewer", async () => {
+  await looksRight(fileViewer.FileViewer, "screen-file-viewer");
+});
+
+test("screen: first run", async () => {
+  await looksRight(firstRun.FirstRun, "screen-first-run");
+});
+
 /* ── The same four, on paper ──────────────────────────────────────────────── */
 // The light theme is a value swap and never a layout change (D32) — so the
 // light screens are the same subjects, and a light baseline catches the one
@@ -172,6 +193,18 @@ test("screen: weekly review, light", async () => {
 
 test("screen: run detail, light", async () => {
   await looksRightOnPaper(runDetail.RunDetail, "screen-run-detail");
+});
+
+test("screen: actions triage, light", async () => {
+  await looksRightOnPaper(actionsTriage.ActionsTriage, "screen-actions-triage");
+});
+
+test("screen: file viewer, light", async () => {
+  await looksRightOnPaper(fileViewer.FileViewer, "screen-file-viewer");
+});
+
+test("screen: first run, light", async () => {
+  await looksRightOnPaper(firstRun.FirstRun, "screen-first-run");
 });
 
 /* ── The components that paint ────────────────────────────────────────────── */

@@ -6,6 +6,7 @@
 // and a screenshot of the first-run screen can never disagree about how big
 // this brain is.
 
+import { notes } from "./notes.js";
 import { DAYS_SINCE_TROY } from "./time.js";
 import type { FilterItem, IconKey, RelatedFile, TabItem, Tone } from "./types.js";
 
@@ -45,6 +46,30 @@ export const fileTree: FileNode[] = [
   { label: "notes", kind: "folder", depth: 0, meta: "4" },
   { label: "goals", kind: "folder", depth: 0, meta: "1" },
 ];
+
+/**
+ * The tree as the viewer shows it at phone width: the open folder and its
+ * files, nothing else. The desktop rail (D3) shows the whole tree beside the
+ * document; at 390px there is no beside, so the rail collapses to the one
+ * folder the open document is in, behind a disclosure. The folder's count is
+ * the real one -- 63 decisions -- and the three files are the three the world
+ * has written down, which is why the disclosure's label says "3 of 63".
+ */
+export const viewerTree: FileNode[] = [
+  { label: "decisions", kind: "open", depth: 0, meta: "63" },
+  ...notes
+    .filter((n) => n.kind === "decision")
+    .map<FileNode>((n) => ({
+      label: n.path.slice(n.path.lastIndexOf("/") + 1),
+      kind: "file",
+      depth: 1,
+      meta: n.updated,
+      active: n.id === "note:scylla-decision",
+    })),
+];
+
+/** The label on the disclosure that holds `viewerTree`. */
+export const viewerTreeLabel = `decisions/ · ${viewerTree.length - 1} of ${viewerTree[0]!.meta}`;
 
 /**
  * Document counts per top-level folder. Kept beside the tree rather than
@@ -172,6 +197,18 @@ export const launchers: { title: string; subtitle: string; icon: IconKey; tone: 
     tone: "purple",
   },
 ];
+
+/**
+ * The install prompt, which the first-run screen puts LAST: "you earn it after
+ * one useful answer". One sentence, one verb.
+ */
+export const installPrompt = {
+  text: "Add Brain to your home screen -- share sheet, offline reads and push updates.",
+  label: "Install",
+};
+
+/** The mono hint under the first-run composer. The slash is a real key. */
+export const firstRunHint = "/ for commands · hold the mic to dictate";
 
 /** The backlinks panel on the file viewer. */
 export const backlinks: RelatedFile[] = [

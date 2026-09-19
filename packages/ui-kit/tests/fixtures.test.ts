@@ -233,6 +233,39 @@ describe("cross-references", () => {
     }
   });
 
+  // The file viewer's tree and prose are the same world as the notes: the
+  // tree's rows are the decisions `notes.ts` holds, the open row is the
+  // document being viewed, and every link in its prose resolves.
+  test("the file viewer opens a document that exists, in a folder that holds it", () => {
+    const known = new Set([
+      ...notes.notes.map((n) => n.path),
+      ...people.people.map((p) => p.path),
+      ...projects.projects.map((p) => p.path),
+      projects.goal.path,
+    ]);
+    const doc = notes.viewerDocument;
+    expect(known.has(doc.note.path)).toBe(true);
+    for (const para of doc.paragraphs) {
+      if (para.link) expect(known.has(para.link)).toBe(true);
+    }
+    for (const q of doc.questions) expect(q.state).toBe("todo");
+
+    const [folder, ...rows] = files.viewerTree;
+    expect(folder!.kind).toBe("open");
+    expect(folder!.depth).toBe(0);
+    expect(Number(folder!.meta)).toBe(files.folderCounts.decisions);
+    const decisions = notes.notes.filter((n) => n.kind === "decision");
+    expect(rows).toHaveLength(decisions.length);
+    for (const row of rows) {
+      expect(row.depth).toBe(1);
+      expect(decisions.some((n) => n.path.endsWith(`/${row.label}`))).toBe(true);
+    }
+    const active = rows.filter((r) => r.active);
+    expect(active).toHaveLength(1);
+    expect(doc.note.path.endsWith(`/${active[0]!.label}`)).toBe(true);
+    expect(files.viewerTreeLabel).toContain(`${rows.length} of ${folder!.meta}`);
+  });
+
   test("every note tag is in the world's tag vocabulary", () => {
     const vocabulary = new Set<string>(notes.tags);
     for (const n of notes.notes) for (const t of n.tags) expect(vocabulary.has(t)).toBe(true);
@@ -277,6 +310,27 @@ describe("the ledgers balance", () => {
     // Two of the three carried items are the two unanswered decisions; the
     // third is a stale premise, which was never a decision to begin with.
     expect(week.weekCarriedCount).toBe(week.weekDecisionsCarried + 1);
+  });
+
+  // The Actions list reports on the same cards `actions.ts` carries, so every
+  // count on it is derivable from them: the header counts the decisions, the
+  // strip counts the FYIs, and the cap meter's `open` is both together.
+  test("the actions list closes on itself", () => {
+    const { actionsWaiting, actionsFyis, actionThreads, actionPolicies, actionsCap } = actions;
+    expect(actionsCap.open).toBe(actionsWaiting.length + actionsFyis.length);
+    expect(actionsCap.pct).toBe(Math.round((actionsCap.open / actionsCap.cap) * 100));
+    expect(actionsCap.valueText).toBe(`${actionsCap.open} / ${actionsCap.cap} open`);
+    expect(actions.actionsHeaderMeta).toContain(String(actionsWaiting.length));
+    expect(actions.actionsFyiStrip).toContain(String(actionsFyis.length));
+    // The snoozed count is the weekly review's carried decisions; the two
+    // files cannot import each other, so the equality is held here.
+    expect(actions.actionsSnoozedCount).toBe(week.weekDecisionsCarried);
+    // Every waiting decision is on the list exactly once: under its thread, or
+    // under "Policies", never both and never neither.
+    const listed = [...actionThreads.flatMap((t) => t.items), ...actionPolicies];
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed.length).toBe(actionsWaiting.length);
+    for (const t of actionThreads) expect(t.items.length).toBeGreaterThan(0);
   });
 
   test("the weekly review's percentage is computed, not typed", () => {

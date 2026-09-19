@@ -294,6 +294,49 @@ export const frontmatterChips: { k: string; v: string; tone?: Tone }[] = [
 ];
 
 /**
+ * The document the file viewer opens: the strait decision, as prose.
+ *
+ * The kit has no prose component (`.plan/design/catalog.md` §4 records the
+ * type contract the viewer implies), so this is the document broken into the
+ * shapes the kit does have: paragraphs with one live wiki-link each, an
+ * editorial aside, and the open questions as a checklist. Every link resolves
+ * to a path in `notes` above, and `backlinks` in `files.ts` are the documents
+ * that point back at this one.
+ */
+export interface ViewerParagraph {
+  /** The prose up to the link. */
+  before: string;
+  /** A wiki-link, by target path. Resolves, like every link in this file. */
+  link?: string;
+  /** The prose after the link. */
+  after?: string;
+}
+
+export const viewerDocument = {
+  note: noteById["note:scylla-decision"]!,
+  heading: "The count",
+  paragraphs: [
+    {
+      before: "Circe named both before we were out of the bay. Under Scylla the loss is six men and certain -- ",
+      link: "knowledge/scylla.md",
+      after: " -- and over Charybdis it is the ship and every man on it, three times a day.",
+    },
+    {
+      before: "Decided: Scylla. Held the Calabrian shore close enough to touch it, and nobody stopped rowing. The six are counted in ",
+      link: "crew/_index.md",
+      after: ".",
+    },
+  ] satisfies ViewerParagraph[],
+  aside: "The crew were told about Charybdis and not about Scylla. Six men rowed past a thing they had not been warned of, and that is the part still worth arguing about.",
+  questions: [
+    { title: "Would the six have rowed if they had known?", state: "todo" },
+    { title: "Does the oath on Thrinacia trace back to this silence?", state: "todo" },
+  ] satisfies Step[],
+  askLabel: "Ask about this file",
+  saveLabel: "Save",
+};
+
+/**
  * The sentence a `QuoteCard` puts on screen, with the locator that lets the
  * reader check it. This is the quote the whole cattle decision contradicts.
  */

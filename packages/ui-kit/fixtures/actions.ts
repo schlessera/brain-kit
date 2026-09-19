@@ -119,8 +119,59 @@ export const actions: ActionFixture[] = [
   },
 ];
 
-/** Cap pressure, stated as a quiet meter rather than as an error. */
-export const actionsCap = { open: 6, cap: 60, valueText: "6 / 60 open" };
+/* ------------------------------------------------------------- the list */
+
+/**
+ * Everything on the list that asks for a decision. The FYI is not waiting on
+ * anyone -- it sits in its own non-decision strip -- and the suggestion is a
+ * rule offer the weekly review carries rather than an escalation, so neither
+ * counts. What is left is the five kinds that need a person.
+ */
+export const actionsWaiting: ActionFixture[] = actions.filter((a) => a.kind !== "fyi" && a.kind !== "suggestion");
+
+/** The FYIs, for the strip under the decisions. */
+export const actionsFyis: ActionFixture[] = actions.filter((a) => a.kind === "fyi");
+
+/**
+ * Snoozed decisions are off the list by definition, so the count cannot be
+ * derived from the cards on it. It is the two the weekly review carries as
+ * "snoozed 2d" and "snoozed 4d" (`week.ts` cannot be imported from here
+ * without a cycle; `tests/fixtures.test.ts` holds the two equal).
+ */
+export const actionsSnoozedCount = 2;
+
+/** The header's teal meta line: two counts, no adjectives. */
+export const actionsHeaderMeta = `${actionsWaiting.length} waiting · ${actionsSnoozedCount} snoozed`;
+
+/** The non-decision strip under the list. */
+export const actionsFyiStrip = `${actionsFyis.length} FYI${actionsFyis.length === 1 ? "" : "s"} · no reply needed`;
+
+/**
+ * The list groups by thread, in this order, and the quarantined policy is
+ * NOT under its thread: a policy file that changed outside the brain is not
+ * an open loop in anything, so the design gives it its own "Policies" label.
+ */
+export const actionThreads: { label: string; items: ActionFixture[] }[] = ["Route home", "The hall"].map(
+  (label) => ({ label, items: actionsWaiting.filter((a) => a.thread === label && a.kind !== "quarantined") })
+);
+
+export const actionPolicies: ActionFixture[] = actionsWaiting.filter((a) => a.kind === "quarantined");
+
+/**
+ * Cap pressure, stated as a quiet meter rather than as an error. `open` is
+ * every card on the list, decision or not -- the five waiting plus the FYI --
+ * and the test holds it to that sum so the meter cannot say six while the
+ * list shows seven.
+ */
+const OPEN = 6;
+const CAP = 60;
+export const actionsCap = {
+  open: OPEN,
+  cap: CAP,
+  valueText: `${OPEN} / ${CAP} open`,
+  /** 0-100, for `Meter`. */
+  pct: Math.round((OPEN / CAP) * 100),
+};
 
 /* ------------------------------------------------------------- ask + choose */
 
