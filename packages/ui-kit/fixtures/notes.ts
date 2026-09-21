@@ -296,7 +296,7 @@ export const frontmatterChips: { k: string; v: string; tone?: Tone }[] = [
 /**
  * The document the file viewer opens: the strait decision, as prose.
  *
- * The kit has no prose component (`.plan/design/catalog.md` §4 records the
+ * The kit has no prose component (the design source's catalog records the
  * type contract the viewer implies), so this is the document broken into the
  * shapes the kit does have: paragraphs with one live wiki-link each, an
  * editorial aside, and the open questions as a checklist. Every link resolves

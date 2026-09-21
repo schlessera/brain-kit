@@ -101,7 +101,7 @@ export function AgentRunCard(p: AgentRunCardProps) {
   // consulted when the prop is defined — dead code that reads as live. The
   // behaviour is unchanged and render parity is unaffected; only the source
   // text is. **Do not "fix" the gate to reach it** without reading
-  // `.plan/design-feedback.md` §3: whether a propless card should draw a meter
+  // `docs/decisions/design-feedback.md` §3: whether a propless card should draw a meter
   // at 72 or no meter at all is a design question, and the answer decides
   // which of the two lines is the defect.
   const showProgress = p.progress !== null && p.progress !== undefined;

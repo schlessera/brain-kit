@@ -1,0 +1,59 @@
+name: Spike
+description: A time-boxed investigation whose deliverable is a written decision, not code.
+title: "Spike: <the question>"
+labels: ["type: spike"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A spike exists because a decision cannot be made from what is known.
+        It closes when the decision is written down — under `docs/decisions/`
+        if it binds future work — not when someone feels informed.
+
+        Throwaway code is allowed and expected. Shipping it is not.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: The question
+      description: Stated so that an answer is recognisable. "Can X do Y under Z?" beats "investigate X".
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What is blocked on the answer
+      description: The work that cannot start, or the design that cannot be chosen, until this is settled.
+    validations:
+      required: true
+
+  - type: textarea
+    id: method
+    attributes:
+      label: How it gets answered
+      description: >-
+        What would have to be measured or built to know. Say explicitly what
+        counts as evidence — this repo's standard is that a predicate-only unit
+        test proves nothing about a runtime.
+    validations:
+      required: true
+
+  - type: input
+    id: timebox
+    attributes:
+      label: Time box
+      description: How long before this stops and reports whatever it has.
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: Deliverable
+      value: |
+        - [ ] A written answer, with the measurements that support it.
+        - [ ] A decision record, if the answer binds future work.
+        - [ ] The follow-up tasks it implies, filed and linked.
+    validations:
+      required: true

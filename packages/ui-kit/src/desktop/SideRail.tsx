@@ -36,7 +36,7 @@ import { accent, color, font, token } from "../tokens.js";
  * the same reason as {@link TabBar} — arrowing onto Files must not navigate to
  * Files. Before this the rail cost five tab presses and the mobile bar cost
  * five more, which is the ten a screen carrying both used to spend before any
- * content (`.plan/design-feedback.md` §11).
+ * content (`docs/decisions/design-feedback.md` §11).
  *
  * The wordmark, the spend meter and the ⌘K cap are not controls and were never
  * tab stops, so the rail is one stop in total.

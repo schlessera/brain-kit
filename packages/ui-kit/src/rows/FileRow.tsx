@@ -36,7 +36,7 @@ import type { FileKind, Tone, ViewState } from "../types.js";
  * and no call site could have fixed it, because the container it would need
  * does not exist. The design's own role table names `button` / `treeitem` for
  * this component and never mentions `option`, so `treeitem` is also the reading
- * that matches the spec. `.plan/design-feedback.md` records the divergence.
+ * that matches the spec. `docs/decisions/design-feedback.md` records the divergence.
  *
  * `aria-expanded` still tells a folder from a file, which is the distinction
  * the role was carrying, and it is the attribute a tree is read by anyway.

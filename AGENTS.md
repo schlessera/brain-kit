@@ -6,11 +6,14 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 ## Read first
 
 1. [README.md](README.md) — what this is and how the packages fit together.
-2. [ROADMAP.md](ROADMAP.md) — current state, the decisions that bind new work,
-   and what is planned. Read the "What binds future work" section before
-   proposing anything structural.
-3. [CONTRIBUTING.md](CONTRIBUTING.md) — how to run things and what gets merged.
-4. The doc for whatever you touch under [docs/](docs/README.md).
+2. [ROADMAP.md](ROADMAP.md) — current state and the decisions that bind new
+   work. Read "What binds future work" before proposing anything structural.
+3. [docs/process/github.md](docs/process/github.md) — where work lives, what the
+   labels and milestones mean, and what you are expected to do before writing
+   code against an issue.
+4. [CONTRIBUTING.md](CONTRIBUTING.md) — how to run things and what gets merged.
+5. The doc for whatever you touch under [docs/](docs/README.md), and the
+   decision record for it under [docs/decisions/](docs/decisions/README.md).
 
 ## Hard rules
 
@@ -33,6 +36,14 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 - **Markdown is the source of truth; `brain.db` is disposable.** `brain index
   --force` regenerates everything. Never design anything that writes `brain.db`
   as authoritative state.
+- **Planned work lives in the issue tracker, not in a markdown file.** Do not
+  add a status field, a unit checklist or a progress log to a document in this
+  repo. Four plans carried those and every reader had to work out which lines
+  were still true. `docs/decisions/` records why; `docs/plans/` holds design for
+  work that is not built; GitHub holds everything that is open.
+- **Nothing that describes a real deployment goes in this repo.** Image layout,
+  hosts, proxies, operator runbooks and production incidents belong in the
+  private `brain-ui` repo. This one is public.
 - **Skills orchestrate, the CLI executes.** Deterministic logic belongs in a
   `brain` subcommand with `--json` output; SKILL.md files hold interview logic
   and judgment only.
@@ -101,3 +112,40 @@ are the reasoning behind it.
   Asserted by `tests/release-manifest.test.ts`.
 - Publishing needs interactive auth, so the final `bun run release` runs from a
   human's terminal.
+
+## Working through GitHub
+
+Planned work is in the issue tracker. Before writing code against an issue:
+read it, read its epic, check it against "What binds future work" in
+[ROADMAP.md](ROADMAP.md) and the relevant
+[decision record](docs/decisions/README.md), and **verify that the `file:line`
+citations in the issue still point at what it claims** — issue bodies do not
+move when code does.
+
+The procedure, with the commands, is the repo-local `github` skill
+(`.agents/skills/github/`). The agreement it implements — labels, milestones,
+the project board, the lifecycle, which of the two repositories an issue belongs
+in — is [docs/process/github.md](docs/process/github.md).
+
+Two things that are easy to get wrong:
+
+- **This repository is public.** Anything that would have to describe a real
+  deployment goes in the private `brain-ui` repo instead. Run an issue body
+  through the same gate the tree is held to before filing it; the `github`
+  skill shows how.
+- **Work found mid-session gets filed, not fixed and not forgotten** — and an
+  issue with no acceptance criteria is a note, so do not label it
+  `agent-ready`.
+
+## Repo-local skills
+
+They live in `.agents/skills/` and are symlinked into `.claude/skills/`.
+
+| Skill | Load it before |
+| --- | --- |
+| `release` | Versioning, publishing, or changing what a release ships. |
+| `github` | Filing, triaging, picking up or closing work in either tracker. |
+
+A skill records what actually works. When one of them is wrong — a command that
+changed, a limit that bit, an API shape that moved — fix it in the same PR that
+found it.

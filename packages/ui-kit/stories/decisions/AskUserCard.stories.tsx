@@ -27,7 +27,7 @@ const meta = preview.meta({
   // Every story here shows a SELECTED option, and a selected option's detail
   // line is ink-mute on the teal selection tint: 4.36:1, against a 4.5 floor.
   // The card is not doing anything unusual — this is the ink ramp meeting a
-  // tint, which is §5 in `.plan/design-feedback.md`, and it is the reason
+  // tint, which is §5 in `docs/decisions/design-feedback.md`, and it is the reason
   // the gap is at the meta rather than on nine separate stories.
   parameters: knownContrastGap(
     "ChoiceOption's detail line is ink-mute on the teal selection tint: 4.36:1. See design-feedback §5 — the ink floor is measured on a BARE ground and the kit rarely has one.",

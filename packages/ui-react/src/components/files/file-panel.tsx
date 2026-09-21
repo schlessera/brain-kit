@@ -155,7 +155,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
 }
 
 /**
- * D3 (the fifth drop, `.plan/design/desktop.md`): from `laptop:` up Files is
+ * D3 (the fifth design drop): from `laptop:` up Files is
  * not a drawer but a layer of panes over the content area, beside the rail —
  * a 300px tree, the reading pane at a 720px measure, and from `wide:` a
  * 320px evidence rail. No backdrop: the rail stays reachable, and the layer

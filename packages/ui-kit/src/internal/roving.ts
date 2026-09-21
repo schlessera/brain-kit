@@ -8,7 +8,7 @@ import { useState } from "react";
  * arrow keys move inside it. Waves 2-4 shipped the arrow keys but left every
  * item at `tabIndex={0}`, so the arrows were redundant with Tab and a screen
  * carrying both nav components cost **ten tab presses before any content**
- * (`.plan/design-feedback.md` §11, measured in `stories/rules/Keyboard.stories`).
+ * (`docs/decisions/design-feedback.md` §11, measured in `stories/rules/Keyboard.stories`).
  *
  * ## The hazard this module exists to make unreachable
  *

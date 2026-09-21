@@ -15,7 +15,7 @@ import { accent, color, font } from "../tokens.js";
  *
  * **DO NOT "RESTORE PARITY" BY DELETING `onOpenChange`.** The controlled mode
  * is a DELIBERATE divergence from the design, decided by the maintainer and
- * recorded as D27 in `.plan/DECISIONS.md`. The reasoning is in that entry; the
+ * recorded as D27 in `docs/decisions/design-kit.md`. The reasoning is in that entry; the
  * short version is that two real cases in this app are unreachable without it.
  *
  *   1. UNCONTROLLED — neither prop. Starts closed, toggles itself.

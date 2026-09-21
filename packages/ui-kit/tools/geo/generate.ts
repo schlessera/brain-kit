@@ -28,7 +28,7 @@
  * for two short, well-defined algorithms was the wrong trade for a server, and
  * having made the call once there was no reason to keep it here either.
  *
- * ## Why this data at all (D25, measured in `.plan/research/map-tiles.md`)
+ * ## Why this data at all (D25, measured in `docs/decisions/map-geometry.md`)
  *
  * The map is static and must still be recognisable. Natural Earth is public
  * domain and would have been the easy answer; it is 5-10x too coarse at these

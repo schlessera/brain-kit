@@ -5,7 +5,8 @@
  * component and hole, and `sc-for` logged a list that was not an array. React
  * renders nothing and says nothing, so a component that is silently short a
  * row, or an icon key with a typo in it, looks merely empty.
- * (`.plan/design/runtime-to-react.md` §8.5.)
+ * This is why the kit warns at all: the design system's own runtime logged
+ * these, and porting to React silently dropped the diagnostic.
  *
  * Warn-once, keyed on the message: `renderVals()` runs on every render, so an
  * unguarded warn inside one would repeat for the life of the page.

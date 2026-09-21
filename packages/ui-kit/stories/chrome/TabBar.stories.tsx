@@ -240,7 +240,7 @@ export const MixedGating = meta.story({
  * order with the arrow keys moving inside it. Until this landed every slot was
  * `tabIndex={0}`, so a screen carrying this and a `SideRail` cost **ten tab
  * presses before any content** and the ←→ keys were redundant with Tab rather
- * than being the way you move (`.plan/design-feedback.md` §11).
+ * than being the way you move (`docs/decisions/design-feedback.md` §11).
  *
  * The stop is the ACTIVE slot, so tabbing in puts you where you already are.
  */

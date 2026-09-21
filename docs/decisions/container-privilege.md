@@ -1,12 +1,23 @@
-# Container UID spike: the 0.35.0 design
+# Decision — the container's privilege model
 
-**Status:** design record for U24; no runtime code ships in 0.33.0.
+How the server and the agent are meant to be separated inside the deployment
+container, and the two measurements that decided it.
 
-**Investigated source:** brain-kit `e8b8d9ea4985`, brain-ui
+Nothing here ships in this repository: the container lives in the private
+`brain-ui` deployment shell, and the work is tracked there. What *is* here is
+the reason the design looks like this, and the part that reaches into these
+packages — the pi backend's in-process `initContext` call, and the exec wrapper
+the backends need.
+
+**Investigated against:** brain-kit `e8b8d9ea4985`, the shell at
 `99c1e98139df`, installed `@earendil-works/pi-coding-agent` 0.84.4 and
-`@anthropic-ai/claude-agent-sdk` 0.3.265. The pi line numbers named in the
-hardening plan still match this installed version. No container was built or
-run for this record.
+`@anthropic-ai/claude-agent-sdk` 0.3.265. **No container was built or run for
+this record** — the measurements below that were taken live are marked as such,
+and the C helper's source is unbuilt.
+
+**Read the proof-plan corrections at the end before using any sequence here as
+an acceptance criterion.** Four of them were found to be defective by review,
+and each would have passed against a broken implementation.
 
 ## Decision
 

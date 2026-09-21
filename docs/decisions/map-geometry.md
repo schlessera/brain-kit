@@ -1,4 +1,18 @@
-# Making `MapView` recognisable — tiles, vector geometry, and what to ship
+# Decision — map geometry, not map tiles
+
+Why `MapView` draws real coastline and street geometry from OpenStreetMap data
+committed as fixtures, rather than fetching raster or vector tiles. Recorded as
+D25 in [design-kit.md](design-kit.md); this is the research behind it.
+
+`packages/ui-kit/tools/geo/generate.ts` cites this document, because the
+generator's tiering and size budget only make sense against it.
+
+Note the licence boundary it creates: geographic data under
+`packages/ui-kit/fixtures/geo/` is **ODbL, not MIT** — see the LICENSE in that
+directory.
+
+---
+
 
 Researched 2026-09-15. Licensing, pricing and API claims were checked against the
 provider's own page or the npm registry on that date; URLs cited inline. The

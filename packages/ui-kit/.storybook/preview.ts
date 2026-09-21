@@ -34,12 +34,12 @@ export default definePreview({
     // violation FIRST. It does: a bare `<img>` with no alt added to `Callout`
     // passed 503/503 at `'todo'` and failed six stories with
     // "Images must have alternative text (image-alt)" at `'error'`. The
-    // measurement is in `.plan/PLAN.md`'s wave 1b notes.
+    // The measurement is recorded in `docs/decisions/design-kit.md`.
     //
     // A story may disable ONE RULE for a reason it states, through
     // `knownContrastGap()` in `stories/_stage.tsx`. Four contrast findings use
     // it; all four are design decisions recorded in
-    // `.plan/design-feedback.md`, with their measured ratios asserted in
+    // `docs/decisions/design-feedback.md`, with their measured ratios asserted in
     // `tests/contrast.test.ts` so that the day a token moves, a test says so.
     // Nothing else may switch a rule off.
     // THE GATE, in BOTH themes. `'error'` fails the Vitest run on any axe

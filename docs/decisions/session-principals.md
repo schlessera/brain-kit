@@ -1,7 +1,12 @@
-# Give the session a principal
+# Decision — a session carries a principal
 
-Status: draft (revision 3, review-complete) · Owner: maintainer · Target: `@schlessera/brain-ui-server`, `@schlessera/brain-ui-react`
+Why a session has a named, revocable, expiring identity instead of one global
+cookie epoch. Shipped in 0.35.0; this is the design record, not a status file.
 
+Before this, `bumpSessionsEpoch()` was the only instrument of revocation, so
+cutting off one agent signed out every device — and nothing was attributable.
+The migration that advanced the legacy epoch once, and what that means for a
+rollback, is the part most worth reading before touching auth.
 ## Summary
 
 A brain-ui session carries no identity. The signed cookie is
@@ -44,26 +49,6 @@ agent the owner's cookie — indistinguishable from the owner, revocable only by
 logging the owner out — or re-opening password login as break-glass, which adds
 a public credential path for everyone. Both were used during the 2026-09-09
 incident; neither should be the standing answer.
-
-## Requirements
-
-R1. Every authenticated path resolves a principal: HTTP, the WebSocket upgrade,
-and every consequential frame on an open socket.
-R2. Revoking one principal stops it — cookie fails, sockets close, queued
-unstarted work is discarded, later frames refused — and touches no other.
-R3. "Sign out everywhere" still exists and stays the meaning of the existing
-`POST /api/auth/logout` that shipped clients already call.
-R4. The request log and activity record attribute work to a principal, including
-who answered an approval and who sent a follow-up — not only who started a turn.
-R5. The owner can mint a principal for an agent, see it listed with last use and
-expiry, and revoke it, from the UI.
-R6. No new credential type, no new header requirement, no change to the WS
-upgrade's authentication.
-R7. Fail closed: unknown, revoked, expired or malformed cookies rejected; a
-corrupt row refuses rather than degrading to valid.
-R8. Nothing is attributed to the owner by default; unattributable work is
-recorded as unattributed.
-R9. Only an **owner** principal can mint or revoke principals.
 
 ## Non-goals
 
@@ -125,7 +110,7 @@ ships. Validity becomes: **signature valid ∧ row exists ∧ `revoked_at IS NUL
 `now < expires_at`**.
 
 This reverses the hardening plan's decision 3, *"Sessions epoch, not a session
-table"* (`docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md:359`) — said
+table"* (decision 3 in [hardening.md](hardening.md)) — said
 out loud, because that decision was correct for what it solved. The epoch bought
 global invalidation with no schema; it cannot buy per-actor revocation or
 attribution, which is what this plan is for.
@@ -223,47 +208,6 @@ revoked_at = now WHERE revoked_at IS NULL`); the caller-only operation is a new
 endpoint, so the shipped button (`passkey-tab.tsx:166-175`) does not silently
 become "sign out this device".
 
-## Implementation units
-
-| # | Unit | Package(s) | Size |
-| --- | --- | --- | --- |
-| U1 | Migration 011 `principals` + store (create, resolve, touch, revoke, revoke-all, revoke-by-credential, prune, cap) | ui-server | S |
-| U2 | Cookie = signed id: mint, verify (signature → row → revoked → expired), reject v1 | ui-server | S |
-| U3 | `authGuard` / `isWsAuthorized` resolve and expose the principal; request-log attribution; throttled `last_seen_at` | ui-server | S |
-| U4 | Login paths create principals with lineage and bounded UA labels; credential re-check after verification; pruning and cap | ui-server | M |
-| U5 | Revocation boundary: the six-file plumbing chain above, `ClientSet.closeFor`, queued-follow-up discard, **activity-subscription re-keying on `ws.raw`** | ui-server | L |
-| U6 | Owner-only principal routes (mounted after the guard): mint returning the value once, list, delete; audit log; disabled in ambient modes | ui-server | M |
-| U7 | Attribution: span `principal_id`, rollup `principal_id` (migration 012), responder identity on approvals and follow-ups, wire mapping, contract note | ui-server | M |
-| U8 | UI "Devices & agents": list, revoke, mint form with one-time copy; migrate the existing "Sign out everywhere" button | ui-react | M |
-| U9 | Push subscriptions bound to a principal, unbound on revocation; documented residual for already-sent notifications | ui-server, ui-sdk | S |
-| U10 | Docs: `docs/hosting/README.md` (agent access, revocation, version-transition procedure), both SECURITY.md files (what a principal is **not**), ui-server README; changeset naming the exported-API change | ui-server, brain-ui | S |
-
-**U1 detail.** `NOT NULL` on the primary key is load-bearing: SQLite accepts a
-NULL `TEXT PRIMARY KEY` (verified — `INSERT … VALUES (NULL, …)` succeeds).
-
-```sql
-CREATE TABLE principals (
-  id            TEXT PRIMARY KEY NOT NULL,  -- 22 chars base64url, server-generated
-  kind          TEXT NOT NULL CHECK (kind IN ('owner','agent','ambient','system')),
-  auth_method   TEXT NOT NULL CHECK (auth_method IN ('password','passkey','delegated','ambient')),
-  label         TEXT NOT NULL,              -- ≤64 chars, never rendered as HTML
-  credential_id TEXT,                       -- passkey_credentials.id, else NULL
-  created_by    TEXT,                       -- minting principal, for delegation
-  created_at    INTEGER NOT NULL,
-  expires_at    INTEGER NOT NULL,
-  last_seen_at  INTEGER,
-  revoked_at    INTEGER
-);
-CREATE INDEX idx_principals_live ON principals(revoked_at, expires_at);
-```
-
-Migrations are recorded by filename after applying (`db/client.ts:39`), so U7's
-column ships as its own file (012) — never appended here.
-
-**U6 detail.** Do not reimplement hono's HMAC: take the value from
-`generateSignedCookie`, read between `=` and `;`, `decodeURIComponent` it, and
-round-trip it through `getSignedCookie` in a test.
-
 ## System-wide impact
 
 - **Sessions:** one forced re-login on upgrade.
@@ -280,64 +224,3 @@ round-trip it through `getSignedCookie` in a test.
 - **Per-request cost:** one primary-key read on local WAL SQLite, plus a
   `last_seen_at` write only when >60s stale.
 
-## Risks
-
-| Risk | Mitigation |
-| --- | --- |
-| A verifier bug locks the owner out | Every rejection asserted and shown red first: v1 payload, unknown id, revoked, expired, malformed, corrupt row, encoded delimiters, duplicate cookie header. Recovery is roll back to known-good code plus targeted row repair — **not** secret rotation, which does not repair a broken verifier |
-| **Rollback revives pre-upgrade cookies** | A v1 cookie dead under v2 becomes valid again under v1 code, because v2's revocations never touch the old counter. For the one release the settings row is retained, sign-out-everywhere **also** bumps it; the runbook additionally repeats 0.32.0's instruction to rotate `COOKIE_SECRET` when crossing the format boundary, with an upgrade → rollback → re-upgrade test |
-| Selective revocation looks complete but is not | U5's acceptance criteria are the boundary cases: an already-dispatched frame, a queued follow-up, a pending approval, an in-flight turn start, an activity subscription, a push subscription |
-| An agent escalates through the mint route | R9's owner-only check, `created_by` recorded, and the SECURITY.md sentence that a hostile principal is a secret-rotation problem, not a revocation problem |
-| A minted value leaks | Server-enforced `expires_at` (7 days default), `last_seen_at` visible, single-row revocation, shown once, never logged |
-| Row growth | Prune by `expires_at`/`revoked_at` on login and boot plus a live-principal cap — successful logins do not consume the limiter's failure budget (`auth.ts:624`), so nothing else bounds creation |
-| Attribution lost to retention | Rollup `principal_id` (Key decision 7) |
-| Naming collision | "Session" already means chat session (`app.ts:369`, `activity_spans.session_id`, `SessionCatalog`, the ui-react sidebar). Table and routes are `principals`; the UI says "Devices & agents" |
-
-## Open questions — answered by review
-
-| Q | Answer |
-| --- | --- |
-| Q1 per login or per credential | **Per login, tagged with `credential_id`.** Revocation is reached for as "that phone / that agent"; per-credential identity is what passkey deletion gets from the tag |
-| Q2 keep the global epoch | **No — drop it as an authority** (Key decision 1). Keep writing the settings row for one release as a downgrade guard, then delete it |
-| Q3 agent TTL | **7 days** via `expires_at`, owner-settable at mint up to the 30-day owner TTL, no renewal endpoint — renewal is minting a new one, a human step by design |
-| Q4 abort running turns | **No.** Drop the revoked principal's queued follow-ups, record the revocation, leave running work running |
-| Q5 bearer transport | **Not now, and cheap later**: accept `Authorization: Bearer <same value>` only when no cookie is present, same verifier. No origin exemption is needed — `middleware/origin.ts:82` already admits header-less clients, which the plan previously got wrong |
-| Q6 cache the resolution | **No.** One primary-key read on local WAL SQLite is microseconds; a cache reintroduces exactly the staleness window this plan exists to close. Throttle the write instead |
-
-## Review record
-
-- **2026-09-14, revision 1 drafted.**
-- **2026-09-14, revision 1 → 2, gpt-6-astra** (read-only; SOUND WITH CHANGES).
-  Verified all twelve context rows; corrected three claims (`ClientSet` is
-  ui-server, passkey registration calls neither helper, the integration contract
-  does cover WS/activity). Blockers folded: agent TTL had no authoritative
-  representation; dropping the passkey-delete global bump would strand that
-  credential's sessions; "close the socket" is not a revocation boundary; a
-  rollback across the cookie format revives credentials. Should-fixes folded:
-  logout keeps its "everywhere" meaning for cached clients, the mint route must
-  not `Set-Cookie`, push subscriptions bound to a principal, attribution
-  surviving retention, responder identity on approvals, pruning by expiry with a
-  cap, `NOT NULL` on the primary key (SQLite accepts a NULL one — verified), and
-  that secret rotation does not repair a broken verifier. It also surfaced the
-  pre-existing activity-subscription leak.
-- **2026-09-14, revision 2 → 3, Claude Fable 5.1** (SOUND WITH CHANGES).
-  Independently verified the same citations plus hono's signature format. Three
-  blockers: two revocation mechanisms for one concept (the epoch **and** a row
-  per login) leaving dead-but-unpruned rows and silently reversing hardening
-  decision 3; no plumbing named for per-actor socket close or turn attribution;
-  and any principal — including an agent — able to mint or revoke principals.
-  Should-fixes folded: mint router mounted after the guard and built on
-  `generateSignedCookie`, credential-scoped passkey revocation, rollup
-  `principal_id`, signature-before-row-lookup, proxy-mode identity as the
-  ambient label, the wrong origin-policy premise, the retained-epoch downgrade
-  guard, the existing "Sign out everywhere" button, no abort on revoke, and the
-  `principals` naming. Nits folded: throttled `last_seen_at`, bounded
-  non-HTML labels, the exported-API note, migration numbering, and that a
-  revoked device reaches the login screen through `/api/vpn-check`, not the
-  close code.
-- **Where the reviewers disagreed:** astra recommended keeping the global epoch
-  as an O(1) everywhere-switch; Fable recommended deleting it. Resolved in
-  Fable's favour on authority — two mechanisms for one concept is precisely how
-  the UI comes to show a live row the verifier treats as dead — while keeping
-  astra's rollback concern by writing (never reading) the settings row for one
-  release as a downgrade guard.

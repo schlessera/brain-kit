@@ -1,10 +1,21 @@
 ---
-title: "feat: Async collaboration — Queue and Actions"
-type: feat
-status: draft
+title: "Async collaboration — Queue and Actions"
 date: 2026-08-26
-origin: docs/brainstorms/2026-08-26-async-collaboration-requirements.md
+origin: async-collaboration-requirements.md
 ---
+
+> **Designed and reviewed; not built, and not scheduled.** Tracked as an epic in
+> the issue tracker — see [`../process/github.md`](../process/github.md). This
+> document carries no status: if you want to know what is done, the issue
+> tracker is the only place that answers that honestly.
+>
+> One piece did ship ahead of the rest: the triage evaluation harness (U18).
+> Two gaps in it have their own issues.
+>
+> Two things in the running app share a *name* with this design and are not it.
+> The **Actions** page is the observability layer's failure inbox, and the
+> `inbox` wire data describes notification intents. Neither is the resolution
+> engine below.
 
 # feat: Async collaboration — Queue and Actions
 
@@ -1406,7 +1417,7 @@ miss escalations fails it
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-08-26-async-collaboration-requirements.md](../brainstorms/2026-08-26-async-collaboration-requirements.md)
+- **Origin document:** [async-collaboration-requirements.md](async-collaboration-requirements.md)
 - Independent review: gpt-5.6-sol, read-only against the code, 2026-08-26 — findings folded
   into origin revision 2 and reflected here in U2 (state machines), U4 (reservations),
   U7 (effect union, checkpoint order), U9 (aggregate row), U10 (policy denial), U15
@@ -1414,6 +1425,6 @@ miss escalations fails it
 - Related code: `packages/ui-server/src/activity/{store,stream,runtime,recorder,notify}.ts`,
   `packages/ui-server/src/ws/{bridge,run-session}.ts`,
   `packages/ui-backend-claude/src/backend.ts`, `packages/ui-server/src/share/staging.ts`
-- Related plans: `docs/plans/2026-08-24-001-feat-agent-observability-plan.md` (the layer this
-  builds on), `docs/plans/2026-08-25-001-feat-cost-tracking-plan.md` (the accounting this
+- Related: [`../decisions/agent-observability.md`](../decisions/agent-observability.md) (the layer this
+  builds on), [`../decisions/cost-tracking.md`](../decisions/cost-tracking.md) (the accounting this
   enforces against)

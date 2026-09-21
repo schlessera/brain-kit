@@ -18,8 +18,12 @@ chrome and desktop navigation. Four assembled screens exercise the kit in
 Storybook: Morning Digest, Chat Answer, Weekly Review and Run Detail. Browser
 interaction/accessibility checks and curated visual baselines run in CI.
 
-The live `ui-react` application has not yet migrated onto the kit. See
-`.plan/HANDOFF.md` for current progress and `.plan/PLAN.md` for the wave checklist.
+`@schlessera/brain-ui-react` consumes the kit: its chat, files, settings, graph
+and desktop surfaces are assembled from these components. Why the kit is shaped
+the way it is — the component API, the tokens, the light theme, the
+accessibility gate — is in `docs/decisions/design-kit.md`, and the measured
+design divergences several components ship on purpose are in
+`docs/decisions/design-feedback.md`.
 
 ## Styles
 
@@ -91,7 +95,7 @@ no story carries a `../../.storybook/preview` path.
 
 `parameters.a11y.test` is `'error'`: axe violations fail the browser suite in
 CI. The gate was verified with a seeded violation. Known palette contrast gaps
-have explicit, story-scoped exceptions recorded in `.plan/design-feedback.md`;
+have explicit, story-scoped exceptions recorded in `docs/decisions/design-feedback.md`;
 a green suite does not mean those design issues are resolved. Keyboard groups
 use roving tab stops, and reduced-motion behavior is checked in the browser.
 

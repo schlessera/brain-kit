@@ -152,7 +152,7 @@ export const TheWholeTable = meta.story({
       // the roving tabindex a `tablist` is supposed to use, which made the
       // design's arrow keys redundant with Tab rather than the way you move.
       // Two presses now, and the list is what proves it: a count would have
-      // said something changed, this says what. (`.plan/design-feedback.md`
+      // said something changed, this says what. (`docs/decisions/design-feedback.md`
       // §11; `useRoving` carries the reasoning and the hazard.)
       "tab:Actions",
       // Composer is two stops, not one: the field and its send button.
