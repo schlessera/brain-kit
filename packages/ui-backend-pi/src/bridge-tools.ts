@@ -12,10 +12,14 @@ import {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  SHOW_BLOCK_DESCRIPTION,
+  SHOW_BLOCK_INPUT_SCHEMA,
+  SHOW_BLOCK_TOOL_NAME,
   handleAskUser,
   handleGetCurrentLocation,
   handleQueryActivity,
   handleRequestImageMask,
+  handleShowBlock,
   piMaskFilename,
   piReportedMaskPath,
   toolInputJsonSchema,
@@ -164,7 +168,20 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
-  const tools: ToolDefinition[] = [askUser];
+  const showBlock = {
+    name: SHOW_BLOCK_TOOL_NAME,
+    label: "Show block",
+    description: SHOW_BLOCK_DESCRIPTION,
+    parameters: toPiParameters(SHOW_BLOCK_INPUT_SCHEMA),
+    async execute(_id: string, input: unknown) {
+      // No bridge and no capability: the block is data the model authored,
+      // validated here and echoed as the payload the client renders.
+      const payload = handleShowBlock(SHOW_BLOCK_INPUT_SCHEMA.parse(input));
+      return textResult(JSON.stringify(payload), payload);
+    },
+  } satisfies ToolDefinition;
+
+  const tools: ToolDefinition[] = [askUser, showBlock];
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
@@ -184,4 +201,7 @@ export {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  SHOW_BLOCK_DESCRIPTION,
+  SHOW_BLOCK_INPUT_SCHEMA,
+  SHOW_BLOCK_TOOL_NAME,
 };

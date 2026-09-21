@@ -1,5 +1,6 @@
 /**
- * The four chat-UI bridge tools, declared as contracts.
+ * The chat-UI bridge tools, declared as contracts. `show_block` is declared
+ * in `./blocks.ts` and joins the set below.
  *
  * This file holds only the DECLARATIVE half — name, description, input schema,
  * payload schema, prompt brief — so the browser can import it without pulling
@@ -12,6 +13,7 @@
 import { z } from "zod";
 
 import type { AskUserAnnotation, AskUserQuestion } from "../protocol.js";
+import { SHOW_BLOCK_CONTRACT } from "./blocks.js";
 import {
   defineToolComponentContract,
   defineToolContract,
@@ -308,6 +310,7 @@ export const BRIDGE_TOOL_CONTRACTS = [
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
+  SHOW_BLOCK_CONTRACT,
 ] as const;
 
 export type BridgeToolAdapter = ToolAdapter;
@@ -318,9 +321,10 @@ const names = [
   GET_CURRENT_LOCATION_CONTRACT.name,
   REQUEST_IMAGE_MASK_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,
+  SHOW_BLOCK_CONTRACT.name,
 ] as const;
 
-/** The four auto-allowed bridge tools and the names each backend exposes. */
+/** The auto-allowed bridge tools and the names each backend exposes. */
 export const BRIDGE_TOOL_POSTURE = Object.freeze({
   names,
   claudePrefix: "mcp__brain-ui__" as const,

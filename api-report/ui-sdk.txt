@@ -172,16 +172,31 @@ export "./client" (./src/client/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  BARS_BLOCK_SCHEMA
+  BLOCK_CONTACT_KINDS
+  BLOCK_CONTACT_TONES
+  BLOCK_DELTA_TONES
+  BLOCK_KINDS
+  BLOCK_QUOTE_TONES
+  BLOCK_SCHEMA
+  BLOCK_STEP_STATES
+  BLOCK_STEP_VARIANTS
+  BLOCK_TONES
+  BLOCK_VALUE_TONES
   BRIDGE_MCP_PREFIX
   BRIDGE_TOOL_CONTRACTS
   BRIDGE_TOOL_POSTURE
   type BillingMode
+  type Block
+  type BlockKind
   type BrainSearchResult
   type BrainStats
   BrainUiClient
   type BrainUiClientOptions
   type BridgeToolAdapter
   type BridgeToolName
+  COMPARISON_BLOCK_SCHEMA
+  CONTACT_BLOCK_SCHEMA
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -246,7 +261,9 @@ export "./client" (./src/client/index.ts)
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
+  QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -256,6 +273,7 @@ export "./client" (./src/client/index.ts)
   type RenderRequest
   type RendererPack
   type RequestImageMaskInput
+  SCHEDULE_BLOCK_SCHEMA
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -266,9 +284,16 @@ export "./client" (./src/client/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SHOW_BLOCK_CONTRACT
+  SHOW_BLOCK_DESCRIPTION
+  SHOW_BLOCK_INPUT_SCHEMA
+  SHOW_BLOCK_PAYLOAD_SCHEMA
+  SHOW_BLOCK_TOOL_NAME
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STATS_BLOCK_SCHEMA
+  STEPS_BLOCK_SCHEMA
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -300,9 +325,14 @@ export "./client" (./src/client/index.ts)
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
+  type ShowBlockInput
+  type ShowBlockPayload
   type SpeechCapabilities
   type SystemStatus
+  TABLE_BLOCK_SCHEMA
   THINKING_LEVELS
+  TIMELINE_BLOCK_SCHEMA
+  TREND_BLOCK_SCHEMA
   type ThinkingLevel
   type ToolAdapter
   type ToolCallView
@@ -564,7 +594,18 @@ export "./server" (./src/server/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  BARS_BLOCK_SCHEMA
   type BBox
+  BLOCK_CONTACT_KINDS
+  BLOCK_CONTACT_TONES
+  BLOCK_DELTA_TONES
+  BLOCK_KINDS
+  BLOCK_QUOTE_TONES
+  BLOCK_SCHEMA
+  BLOCK_STEP_STATES
+  BLOCK_STEP_VARIANTS
+  BLOCK_TONES
+  BLOCK_VALUE_TONES
   BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
   BRIDGE_MCP_PREFIX
@@ -590,10 +631,14 @@ export "./server" (./src/server/index.ts)
   type BackendSettingsHooks
   type BackendSettingsReaders
   type BillingMode
+  type Block
+  type BlockKind
   type BrainSearchResult
   type BrainStats
   type BridgeToolAdapter
   type BridgeToolName
+  COMPARISON_BLOCK_SCHEMA
+  CONTACT_BLOCK_SCHEMA
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -675,7 +720,9 @@ export "./server" (./src/server/index.ts)
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
+  QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -687,6 +734,7 @@ export "./server" (./src/server/index.ts)
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
+  SCHEDULE_BLOCK_SCHEMA
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -697,9 +745,16 @@ export "./server" (./src/server/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SHOW_BLOCK_CONTRACT
+  SHOW_BLOCK_DESCRIPTION
+  SHOW_BLOCK_INPUT_SCHEMA
+  SHOW_BLOCK_PAYLOAD_SCHEMA
+  SHOW_BLOCK_TOOL_NAME
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STATS_BLOCK_SCHEMA
+  STEPS_BLOCK_SCHEMA
   SUBPROCESS_ENV
   type ServerActivityDelta
   type ServerActivitySnapshot
@@ -731,6 +786,8 @@ export "./server" (./src/server/index.ts)
   type ShareIntakeResult
   type ShareStagingManifest
   type SharedFileMeta
+  type ShowBlockInput
+  type ShowBlockPayload
   type SpeechCapabilities
   type SpeechProvider
   type SpeechSession
@@ -738,7 +795,10 @@ export "./server" (./src/server/index.ts)
   type SubprocessEnvAudience
   type SurfaceTools
   type SystemStatus
+  TABLE_BLOCK_SCHEMA
   THINKING_LEVELS
+  TIMELINE_BLOCK_SCHEMA
+  TREND_BLOCK_SCHEMA
   type ThinkingLevel
   type ToolAdapter
   type ToolComponentContract
@@ -786,6 +846,7 @@ export "./server" (./src/server/index.ts)
   handleGetCurrentLocation
   handleQueryActivity
   handleRequestImageMask
+  handleShowBlock
   hasWebSearchCredential
   isBillingMode
   isFailureOutcome
@@ -864,11 +925,26 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_TOOL_NAME
   type AskUserInput
   type AskUserPayload
+  BARS_BLOCK_SCHEMA
+  BLOCK_CONTACT_KINDS
+  BLOCK_CONTACT_TONES
+  BLOCK_DELTA_TONES
+  BLOCK_KINDS
+  BLOCK_QUOTE_TONES
+  BLOCK_SCHEMA
+  BLOCK_STEP_STATES
+  BLOCK_STEP_VARIANTS
+  BLOCK_TONES
+  BLOCK_VALUE_TONES
   BRIDGE_MCP_PREFIX
   BRIDGE_TOOL_CONTRACTS
   BRIDGE_TOOL_POSTURE
+  type Block
+  type BlockKind
   type BridgeToolAdapter
   type BridgeToolName
+  COMPARISON_BLOCK_SCHEMA
+  CONTACT_BLOCK_SCHEMA
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
@@ -882,12 +958,27 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
+  QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
   type RequestImageMaskInput
+  SCHEDULE_BLOCK_SCHEMA
+  SHOW_BLOCK_CONTRACT
+  SHOW_BLOCK_DESCRIPTION
+  SHOW_BLOCK_INPUT_SCHEMA
+  SHOW_BLOCK_PAYLOAD_SCHEMA
+  SHOW_BLOCK_TOOL_NAME
+  STATS_BLOCK_SCHEMA
+  STEPS_BLOCK_SCHEMA
+  type ShowBlockInput
+  type ShowBlockPayload
+  TABLE_BLOCK_SCHEMA
+  TIMELINE_BLOCK_SCHEMA
+  TREND_BLOCK_SCHEMA
   type ToolAdapter
   type ToolComponentContract
   type ToolContract

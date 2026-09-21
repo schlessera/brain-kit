@@ -25,3 +25,4 @@ export {
 } from "./contract.js";
 
 export * from "./bridge.js";
+export * from "./blocks.js";

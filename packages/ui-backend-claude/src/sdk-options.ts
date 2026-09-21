@@ -14,6 +14,7 @@ import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { envSnapshot } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
+import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
@@ -51,6 +52,10 @@ export function createClaudeSdkTurn(options: {
   // Read-only over the host's own record — strictly narrower than the
   // file/tool access the model already has.
   if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
+  // No side effect and no host handler: the block is part of the answer, and
+  // an approval card for drawing a table would be the surface asking
+  // permission to answer.
+  allowed.push(SHOW_BLOCK_TOOL_NAME);
 
   const append = buildAppend(
     backend,
@@ -60,6 +65,7 @@ export function createClaudeSdkTurn(options: {
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
       activity: Boolean(queryActivity),
+      block: true,
     },
     req.turnBudgetMs
   );
@@ -106,19 +112,18 @@ export function createClaudeSdkTurn(options: {
     sdkOptions.pathToClaudeCodeExecutable = backend.claudeCodePath;
   }
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
-  if (askUser || getLocation || requestMask || queryActivity) {
-    // Named only when the bridge actually provides a handler — the MCP server
-    // and each corresponding allowlist entry are registered together.
-    sdkOptions.mcpServers = {
-      "brain-ui": createBrainUiMcpServer({
-        askUser,
-        getLocation,
-        requestMask,
-        queryActivity,
-        brainPath: backend.brainPath,
-      }),
-    };
-  }
+  // The bridge tools are registered only when the bridge provides their
+  // handler, each together with its allowlist entry; `show_block` needs no
+  // handler, so the server itself is always present.
+  sdkOptions.mcpServers = {
+    "brain-ui": createBrainUiMcpServer({
+      askUser,
+      getLocation,
+      requestMask,
+      queryActivity,
+      brainPath: backend.brainPath,
+    }),
+  };
   sdkOptions.env = childEnv;
 
   return {
@@ -133,7 +138,13 @@ export function createClaudeSdkTurn(options: {
 function buildAppend(
   options: ClaudeBackendOptions,
   client: ClientEnvironment | undefined,
-  tools: { askUser: boolean; location: boolean; mask: boolean; activity: boolean },
+  tools: {
+    askUser: boolean;
+    location: boolean;
+    mask: boolean;
+    activity: boolean;
+    block: boolean;
+  },
   turnBudgetMs: number | undefined
 ): string {
   // An explicit override is used verbatim; the default is rebuilt per turn so
@@ -148,6 +159,7 @@ function buildAppend(
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,
+        block: tools.block && SHOW_BLOCK_TOOL_NAME,
       },
     })
   );

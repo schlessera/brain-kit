@@ -8,6 +8,8 @@ import {
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
+  SHOW_BLOCK_CONTRACT,
+  BLOCK_KINDS,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
@@ -41,6 +43,7 @@ describe("the contract list is the single source", () => {
         location: GET_CURRENT_LOCATION_CONTRACT.name,
         mask: REQUEST_IMAGE_MASK_CONTRACT.name,
         activity: QUERY_ACTIVITY_CONTRACT.name,
+        block: SHOW_BLOCK_CONTRACT.name,
       },
     });
     for (const contract of BRIDGE_TOOL_CONTRACTS) {
@@ -59,6 +62,7 @@ describe("the contract list is the single source", () => {
     expect(prompt).toContain(ASK_USER_CONTRACT.brief(ASK_USER_CONTRACT.name));
     expect(prompt).not.toContain("get_current_location");
     expect(prompt).not.toContain("request_image_mask");
+    expect(prompt).not.toContain("show_block");
   });
 
   test("toolBriefLines keeps contract order and skips the undeclared", () => {
@@ -69,7 +73,66 @@ describe("the contract list is the single source", () => {
       ASK_USER_CONTRACT.brief(ASK_USER_CONTRACT.name),
       GET_CURRENT_LOCATION_CONTRACT.brief(GET_CURRENT_LOCATION_CONTRACT.name),
       REQUEST_IMAGE_MASK_CONTRACT.brief(REQUEST_IMAGE_MASK_CONTRACT.name),
+      SHOW_BLOCK_CONTRACT.brief(SHOW_BLOCK_CONTRACT.name),
     ]);
+  });
+});
+
+describe("show_block", () => {
+  test("the brief rides every turn, so it stays under fifteen lines and names every kind", () => {
+    const brief = SHOW_BLOCK_CONTRACT.brief("show_block");
+    expect(brief.split("\n").length).toBeLessThan(15);
+    for (const kind of BLOCK_KINDS) expect(brief).toContain(`\`${kind}\``);
+  });
+
+  test("the description carries the shape rules once, and names every kind", () => {
+    const description = SHOW_BLOCK_CONTRACT.description;
+    for (const kind of BLOCK_KINDS) expect(description).toContain(`${kind}:`);
+    expect(description).toContain("at most one column recommended");
+    expect(description).toContain("no arithmetic");
+  });
+
+  test("the eleven kinds, in brief order", () => {
+    expect(BLOCK_KINDS).toEqual([
+      "comparison",
+      "stats",
+      "trend",
+      "table",
+      "bars",
+      "receipt",
+      "steps",
+      "timeline",
+      "schedule",
+      "quote",
+      "contact",
+    ]);
+  });
+
+  test("the payload is the input: a valid block round-trips, a wrong one is null", () => {
+    const block = {
+      kind: "comparison" as const,
+      columns: [{ label: "Ithaca", recommended: true }, { label: "Pylos" }],
+      rows: [{ label: "Days at sea", cells: ["0", { v: "4", tone: "red" as const }] }],
+      footnote: "Home costs nothing to reach.",
+    };
+    expect(
+      parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block }))
+    ).toEqual({ block });
+    expect(
+      parseToolPayload(
+        SHOW_BLOCK_CONTRACT,
+        JSON.stringify({ block: { kind: "comparison", columns: [], rows: [] } })
+      )
+    ).toBeNull();
+    expect(
+      parseToolPayload(
+        SHOW_BLOCK_CONTRACT,
+        JSON.stringify({ block: { kind: "trend", values: [1, 2], tone: "pink" } })
+      )
+    ).toBeNull();
+    expect(
+      parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block: { kind: "map" } }))
+    ).toBeNull();
   });
 });
 

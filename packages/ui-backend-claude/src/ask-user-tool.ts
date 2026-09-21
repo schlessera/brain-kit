@@ -16,6 +16,7 @@ import {
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
+import { createShowBlockTool } from "./show-block-tool.js";
 
 /**
  * Bridge for the built-in `AskUserQuestion` tool.
@@ -80,7 +81,8 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
 /**
  * The in-process MCP server for this backend's own tools. Registered under the
  * `brain-ui` name, so its tools are exposed to Claude as `mcp__brain-ui__*`.
- * Tools are registered only when the host supplies the matching handler.
+ * Tools are registered only when the host supplies the matching handler;
+ * `show_block` needs none, so it is always registered.
  */
 export function createBrainUiMcpServer(handlers: {
   askUser?: AskUserHandler;
@@ -90,7 +92,7 @@ export function createBrainUiMcpServer(handlers: {
   /** Required alongside requestMask: the mask is written into this repo. */
   brainPath?: string;
 }) {
-  const tools: SdkMcpToolDefinition<any>[] = [];
+  const tools: SdkMcpToolDefinition<any>[] = [createShowBlockTool()];
   if (handlers.getLocation) tools.push(createLocationTool(handlers.getLocation));
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
   if (handlers.requestMask && handlers.brainPath) {

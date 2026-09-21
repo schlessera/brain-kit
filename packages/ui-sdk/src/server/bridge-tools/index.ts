@@ -20,4 +20,6 @@ export type { ImageMaskHandlerOptions } from "./mask.js";
 
 export { handleQueryActivity, wrapUntrustedData } from "./activity.js";
 
+export { handleShowBlock } from "./show-block.js";
+
 export { resolveInRepo } from "./resolve-in-repo.js";

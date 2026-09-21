@@ -72,9 +72,11 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
-The four bridge tools are declared once as **tool contracts** in
+`show_block` (side-effect free, always registered) renders one of the kit's
+answer blocks inline in the answer; it validates its argument and echoes it.
+The five bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
-`/client`); their names and Claude-side input schemas are unchanged.
+`/client`); their names and Claude-side input schemas are stable.
 
 ### Tool component contracts
 
@@ -87,6 +89,31 @@ tool's result is meant to be rendered as a component rather than read as text:
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
+| `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer |
+
+`show_block`'s `block` is a discriminated union on `kind`. Each variant
+mirrors the props of the kit component that draws it; tone values are the
+kit's `Tone` / `ValueTone` / `DeltaTone` sets, and every value is a
+pre-formatted string because the blocks do no arithmetic:
+
+| `kind` | Shape | Drawn by |
+|---|---|---|
+| `comparison` | `columns[2..4]{label, note?, tone?, recommended?}`, `rows[]{label, cells[](string \| {v, tone?})}`, `corner?`, `footnote?` | `ComparisonTable` |
+| `stats` | `tiles[1..8]{label, value, meta?, icon?, tone?}` | `StatTiles` |
+| `trend` | `label?`, `value?`, `delta?`, `deltaTone?`, `values[2..]`, `ticks?[]`, `tone?` | `TrendChart` |
+| `table` | `columns[1..6]{label, align?}`, `rows[]{cells[]{v, tone?, mono?, bold?}}` | `DataTable` |
+| `bars` | `rows[1..12]{label, pct 0-100, value, tone?}` | `BarList` |
+| `receipt` | `title?`, `titleIcon?`, `titleTone?`, `rows[]{k, v, tone?}`, `diff?`, `footnote?` | `Receipt` |
+| `steps` | `steps[]{title, detail?, meta?, code?, state?}`, `variant?` | `StepList` |
+| `timeline` | `items[]{time, title, detail?, meta?, tone?, pulse?}` | `TimelineList` |
+| `schedule` | `groups[]{day, meta?, items[]{time, title, detail?, tag?, tone?}}` | `ScheduleList` |
+| `quote` | `quote`, `source?`, `locator?`, `note?`, `tone?`, `icon?` | `QuoteCard` |
+| `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
+
+Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
+`timeWidth`, …) are not part of the contract: the surface decides them.
+`icon` fields are the kit's semantic icon keys; a key the kit does not know
+is dropped rather than rejected.
 
 Rules a consumer may rely on:
 

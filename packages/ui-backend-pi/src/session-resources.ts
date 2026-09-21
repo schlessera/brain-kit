@@ -153,6 +153,8 @@ function buildAppend(
         location: env.caps.location && "get_current_location",
         activity: env.caps.activity && "query_activity",
         mask: env.caps.mask && "request_image_mask",
+        // Always registered: it needs nothing from the bridge.
+        block: "show_block",
       },
       // How THIS backend executes: sessions persist in-process (no per-turn
       // subprocess), sibling tool calls run concurrently, and the fan-out tool

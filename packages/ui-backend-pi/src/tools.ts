@@ -126,6 +126,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   ask_user: "read",
   get_current_location: "read",
   query_activity: "read",
+  // Echoes the block it was given; the surface draws it. Touches nothing.
+  show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
   // itself — nothing happens unless the user paints and confirms.
   request_image_mask: "mutate",

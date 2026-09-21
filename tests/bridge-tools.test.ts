@@ -20,6 +20,7 @@ import * as claudeAsk from "../packages/ui-backend-claude/src/ask-user-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
+import * as claudeBlock from "../packages/ui-backend-claude/src/show-block-tool";
 import * as pi from "../packages/ui-backend-pi/src/bridge-tools";
 
 type Adapter = "claude" | "pi";
@@ -30,7 +31,19 @@ type SnapshotEntry = {
   symlinkResultSha256?: string;
   rootSymlinkResultSha256?: string;
 };
-type Snapshot = Record<Adapter, Record<ToolName, SnapshotEntry>>;
+/**
+ * The four tools the snapshot fixtures were captured over. `show_block` came
+ * later (D41) and has no "before"; its bytes are asserted by the contract
+ * tests below rather than by a fixture.
+ */
+const SNAPSHOT_NAMES = [
+  "ask_user",
+  "get_current_location",
+  "request_image_mask",
+  "query_activity",
+] as const;
+type SnapshotName = (typeof SNAPSHOT_NAMES)[number];
+type Snapshot = Record<Adapter, Record<SnapshotName, SnapshotEntry>>;
 
 const VALID_INPUTS: Record<ToolName, unknown> = {
   ask_user: {
@@ -49,6 +62,15 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   get_current_location: { highAccuracy: false },
   request_image_mask: { imagePath: "x.png" },
   query_activity: { scope: "running" },
+  show_block: {
+    block: {
+      kind: "stats",
+      tiles: [
+        { label: "Ships", value: "12", meta: "of 12" },
+        { label: "Days", value: "9", tone: "amber" },
+      ],
+    },
+  },
 };
 
 function sha256(value: string): string {
@@ -98,6 +120,7 @@ function makeAdapters(root: string) {
       }),
       claudeMask.createMaskTool(bridge.requestMask, root),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
+      claudeBlock.createShowBlockTool(),
     ] as any[],
     pi: pi.createPiBridgeTools({
       brainPath: root,
@@ -118,7 +141,7 @@ async function currentSnapshot(): Promise<Snapshot> {
     const adapters = makeAdapters(root);
     const snapshot = { claude: {}, pi: {} } as Snapshot;
     for (const adapter of ["claude", "pi"] as const) {
-      for (const name of shared.BRIDGE_TOOL_POSTURE.names) {
+      for (const name of SNAPSHOT_NAMES) {
         const definition = adapters[adapter].find((item) => item.name === name)!;
         let schema: unknown;
         if (adapter === "claude") {
@@ -219,6 +242,14 @@ describe("bridge tool adapter identity", () => {
         claudeActivity.QUERY_ACTIVITY_INPUT_SCHEMA,
         pi.QUERY_ACTIVITY_DESCRIPTION,
         pi.QUERY_ACTIVITY_INPUT_SCHEMA,
+      ],
+      [
+        shared.SHOW_BLOCK_DESCRIPTION,
+        shared.SHOW_BLOCK_INPUT_SCHEMA,
+        claudeBlock.SHOW_BLOCK_DESCRIPTION,
+        claudeBlock.SHOW_BLOCK_INPUT_SCHEMA,
+        pi.SHOW_BLOCK_DESCRIPTION,
+        pi.SHOW_BLOCK_INPUT_SCHEMA,
       ],
     ] as const;
     for (const [description, schema, claudeDescription, claudeSchema, piDescription, piSchema] of cases) {
@@ -454,6 +485,15 @@ describe("bridge tool adapter validation", () => {
     get_current_location: [{ highAccuracy: "yes" }],
     request_image_mask: [{ imagePath: 42 }],
     query_activity: [{ scope: "all" }, { scope: "recent", hoursBack: "24" }],
+    show_block: [
+      { block: { kind: "map" } },
+      { block: { kind: "stats", tiles: [] } },
+      { block: { kind: "comparison", columns: [{ label: "only one" }], rows: [] } },
+      { block: { kind: "trend", values: [1] } },
+      { block: { kind: "bars", rows: [{ label: "x", pct: 140, value: "1" }] } },
+      { block: { kind: "quote", quote: "x", tone: "red" } },
+      { kind: "stats", tiles: [{ label: "x", value: "1" }] },
+    ],
   };
 
   test("valid input succeeds and invalid input fails through both envelopes", async () => {
@@ -571,6 +611,7 @@ describe("tool results parse through their contracts", () => {
     shared.ASK_USER_CONTRACT,
     shared.GET_CURRENT_LOCATION_CONTRACT,
     shared.REQUEST_IMAGE_MASK_CONTRACT,
+    shared.SHOW_BLOCK_CONTRACT,
   ] as const;
 
   test("every payload tool's output parses, on both adapters", async () => {

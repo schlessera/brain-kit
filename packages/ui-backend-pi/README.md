@@ -118,6 +118,7 @@ the gate, so confirm patterns always see the command as the model wrote it.
 | `ask_user` | read | auto-allow | routes to `bridge.askUser` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
+| `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
 | `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | `safeResolve`; writes `<image>.mask.png` |
 | `write_file` | mutate | auto-allow | `safeResolve` inside repo |
 | `edit_file` | mutate | auto-allow | `safeResolve`; `old_string` must be unique |

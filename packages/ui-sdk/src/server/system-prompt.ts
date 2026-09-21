@@ -5,6 +5,7 @@ import {
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
+  SHOW_BLOCK_CONTRACT,
   toolBriefLines,
   type BridgeToolName,
 } from "../tool-contracts/index.js";
@@ -174,6 +175,8 @@ export interface SurfaceTools {
   mask?: string | false;
   /** Name of the activity-record query tool, or false when absent. */
   activity?: string | false;
+  /** Name of the inline answer-block tool, or false when absent. */
+  block?: string | false;
 }
 
 /**
@@ -186,6 +189,7 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [GET_CURRENT_LOCATION_CONTRACT.name]: "location",
   [REQUEST_IMAGE_MASK_CONTRACT.name]: "mask",
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",
+  [SHOW_BLOCK_CONTRACT.name]: "block",
 };
 
 /**

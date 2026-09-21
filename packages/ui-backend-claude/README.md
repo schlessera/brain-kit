@@ -100,8 +100,11 @@ surface to the model as `mcp__brain-ui__*`:
 - `mcp__brain-ui__get_current_location` — mirrors the ask-user bridge for
   browser geolocation: the host emits a `location_request` to the client, the
   browser answers, and the fix is returned to the model.
+- `mcp__brain-ui__show_block` — renders one of the kit's answer blocks (a
+  comparison table, stat tiles, a trend chart, …) inline in the answer. It
+  needs nothing from the host, so it is always registered and auto-allowed.
 
-Each is appended to the allowlist only when the host actually provides its
+Each bridge tool is appended to the allowlist only when the host actually provides its
 bridge, so a host without them never advertises the tool at all.
 
 ## Capabilities
