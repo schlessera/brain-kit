@@ -103,6 +103,11 @@ describe("AskUserCard · pending", () => {
     expect(queryByLabelText("Your own answer")).toBeNull();
     fireEvent.click(getByText("Other"));
     const field = getByLabelText("Your own answer") as HTMLInputElement;
+    // Focus first, as a typing user has. react-dom is CommonJS and reads
+    // `canUseDOM` when it is first evaluated, which can precede this file's
+    // DOM registration; it then takes its input-event polyfill, which
+    // resolves a keydown through the focused element and throws on none.
+    fireEvent.focus(field);
     field.value = "neither, merge them";
     fireEvent.keyDown(field, { key: "Enter" });
     expect(submitted).toEqual([["req-4", { [QUESTION]: "neither, merge them" }]]);
@@ -204,6 +209,7 @@ describe("AskUserCard · pending", () => {
     fireEvent.click(getByText("Other"));
     const field = getByLabelText("Your own answer") as HTMLInputElement;
     field.value = "the appendix";
+    fireEvent.focus(field);
     fireEvent.keyDown(field, { key: "Enter" });
     expect(submitted).toEqual([{ "Which sections stay?": "Method, the appendix" }]);
   });

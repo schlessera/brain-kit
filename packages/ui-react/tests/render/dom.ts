@@ -13,7 +13,11 @@
 //      during the link phase, before ANY ESM module body — so anything a CJS
 //      module binds at load time (e.g. @testing-library/dom's `screen`)
 //      predates the DOM. Render tests therefore use the queries returned by
-//      `render()`, never `screen`.
+//      `render()`, never `screen`. The same holds for react-dom's own
+//      `canUseDOM`: evaluated before the DOM, it takes the input-event
+//      polyfill, which resolves a keydown through the FOCUSED element and
+//      throws when none is. A test that presses a key in a field focuses
+//      the field first, as a typing user has.
 //   2. The importing test file calls `afterAll(unregisterDom)`, which restores
 //      the pre-registration globals before the next test file loads.
 //   3. Because the module cache means step 1 runs only once per process, all
