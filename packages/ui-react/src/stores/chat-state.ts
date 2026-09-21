@@ -211,6 +211,12 @@ export interface ChatState {
    * finished — never to a newer message still streaming.
    */
   setMessageBlocks: (key: ChatKey, blocks: MessageBlock[], turnId?: string) => void;
+  /**
+   * Record the host-minted turn on the streaming assistant message, from
+   * the first scoped frame. The composer opens the message optimistically
+   * before any turn exists, so the id arrives with the deltas.
+   */
+  stampTurn: (key: ChatKey, turnId: string) => void;
   setStreaming: (key: ChatKey, streaming: boolean) => void;
   /** Replace a session's transcript (first replayed history chunk). Creates the buffer. */
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;
@@ -652,7 +658,11 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               }
             }
           }
-          if (index === -1 && !turnId) {
+          if (index === -1) {
+            // No message carries the turn (an optimistic message opened by
+            // the composer, or a frame without one): the last assistant
+            // message, but only once it has finished — never a follow-up
+            // still streaming.
             for (let i = msgs.length - 1; i >= 0; i--) {
               if (msgs[i].role === "assistant") {
                 if (!msgs[i].isStreaming) index = i;
@@ -664,6 +674,11 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           msgs[index] = { ...msgs[index], blocks };
           return { messages: msgs };
         }),
+
+      stampTurn: (key, turnId) =>
+        mutateLastAssistant(key, (last) =>
+          last.isStreaming && !last.turnId ? { ...last, turnId } : last
+        ),
 
       setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),
 

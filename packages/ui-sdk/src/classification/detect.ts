@@ -121,11 +121,13 @@ export function parseMarkdown(text: string): Root {
 /**
  * Inline markup the kit's cells cannot hold. A candidate carrying any is
  * left as markdown: flattening a link to its text would lose the link, and
- * the plain render is not wrong, only less shaped.
+ * the plain render is not wrong, only less shaped. Emphasis and code spans
+ * flatten to their text with nothing lost but a face, so they pass — the
+ * model writes `**Key**: \`value\`` far more often than it writes links.
  */
 function hasRichInline(node: Node): boolean {
   const type = node.type;
-  if (type === "link" || type === "image" || type === "html" || type === "inlineCode") return true;
+  if (type === "link" || type === "image" || type === "html") return true;
   return Array.isArray(node.children) && node.children.some((child) => hasRichInline(child));
 }
 
@@ -224,7 +226,9 @@ function kvRows(lines: string[]): Array<{ k: string; v: string }> | null {
   for (const line of lines) {
     const match = KV_LINE.exec(line.trim());
     if (!match) return null;
-    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: match[3]!.trim() });
+    // Read from the raw source (the `**` around the key is the signal), so
+    // a code span's backticks are still here; the kit's cells are plain text.
+    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: match[3]!.replace(/`/g, "").trim() });
   }
   return rows.length >= 2 ? rows : null;
 }

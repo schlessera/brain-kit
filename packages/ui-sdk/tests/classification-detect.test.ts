@@ -48,7 +48,18 @@ describe("detectCandidates", () => {
     expect(
       detectCandidates("| a | b |\n|---|---|\n| [x](https://example.test) | 1 |")
     ).toEqual([]);
-    expect(detectCandidates("| a | b |\n|---|---|\n| `code` | 1 |")).toEqual([]);
+    expect(detectCandidates("| a | b |\n|---|---|\n| ![x](a.png) | 1 |")).toEqual([]);
+  });
+
+  test("a code span or emphasis in a cell flattens to its text and the candidate stands", () => {
+    const [table] = detectCandidates("| a | b |\n|---|---|\n| `bun run` | **1** |");
+    expect(table?.kind).toBe("table");
+    if (table?.kind !== "table") return;
+    expect(table.rows).toEqual([["bun run", "1"]]);
+    const [run] = detectCandidates("- **Startup**: ~10ms\n- **TypeScript**: runs `.ts` natively");
+    expect(run?.kind).toBe("kv_run");
+    if (run?.kind !== "kv_run") return;
+    expect(run.rows[1]).toEqual({ k: "TypeScript", v: "runs .ts natively" });
   });
 
   test("an ordered list keeps the first paragraph as title and the rest as detail", () => {

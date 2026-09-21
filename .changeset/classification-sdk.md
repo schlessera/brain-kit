@@ -12,3 +12,7 @@ key-value runs with exact character spans — and the catalogue that
 generates one classifier request from the candidates and turns the answers
 back into D41's `Block` union, re-validated against the block schema. No
 network here: the transport is the server's.
+
+Code spans and emphasis inside a candidate flatten to their text; only
+links, images and raw HTML keep a candidate as markdown, since those are
+the inline forms whose meaning a plain cell would lose.

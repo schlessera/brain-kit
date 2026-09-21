@@ -56,11 +56,26 @@ describe("setMessageBlocks", () => {
     expect(messages()[0].blocks).toEqual([BLOCK]);
   });
 
-  test("a turn no message carries attaches nowhere", () => {
+  test("a turn no message carries falls back to the finished last message, never a streaming one", () => {
     const store = useChatStore.getState();
-    store.startAssistantMessage(null, "turn-1");
-    store.finishAssistantMessage(null);
+    // The composer opens the message before any turn exists.
+    store.startAssistantMessage(null);
+    store.appendText(null, "Words.");
     store.setMessageBlocks(null, [BLOCK], "turn-9");
     expect(messages()[0].blocks).toBeUndefined();
+    store.finishAssistantMessage(null);
+    store.setMessageBlocks(null, [BLOCK], "turn-9");
+    expect(messages()[0].blocks).toEqual([BLOCK]);
+  });
+
+  test("stampTurn records the turn on the streaming message once, from the first scoped frame", () => {
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.stampTurn(null, "turn-1");
+    store.stampTurn(null, "turn-2");
+    expect(messages()[0].turnId).toBe("turn-1");
+    store.finishAssistantMessage(null);
+    store.stampTurn(null, "turn-3");
+    expect(messages()[0].turnId).toBe("turn-1");
   });
 });

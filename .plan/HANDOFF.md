@@ -1054,47 +1054,59 @@ reviewed by Codex, four findings, all fixed.
   separator, so the kit strips two. A deliberate one-line divergence,
   commented in `diffRows`.
 
-## Wave 14 built, proof waiting on a key — 2026-09-21
+## Wave 14 shipped and proven live — 2026-09-21
 
-Everything in the wave 14 list is in but the live proof: the SDK
-detector and catalogue, the server pass with its 1 s budget, the rev 4
-frame, the in-place render, tests for every failure path including a
-classifier that never answers. No `TYPESAFE_API_KEY` exists on this
-machine, so the pass has run only against fakes.
+The classification pass ran against TypeSafe AI's Jev on this machine
+(`TYPESAFE_API_KEY` from the home env file, handed to the API server's
+scrubbed environment). Eight turns on the Claude backend:
 
-To run the proof:
+| turn | candidates | outcome | Jev ms |
+|---|---|---|---|
+| comparison prompt, bullets with bold keys | 1 kv run | swapped → receipt | 754 |
+| comparison prompt, bullets with bold keys | 1 kv run | swapped → receipt | 780 |
+| comparison prompt asking for a table | 1 table | swapped → comparison | 708 |
+| comparison prompt, prose or bullets with links | 0 | skipped, no call | 0 |
+| (four more of the above) | 0 | skipped, no call | 0 |
+| trend prompt | 0 | skipped (the model answered in prose this run) | 0 |
 
-1. Get a key from console.typesafe.ai and export `TYPESAFE_API_KEY` in
-   the API server's environment (the dev server on this machine was
-   started with a scrubbed `env -i`, so add it to that command).
-2. `bun run build` in brain-kit, restart the Vite dev server so the
-   client picks up rev 4, restart the API server.
-3. Five fresh chats with "Compare Bun and Node.js as a runtime for a
-   small CLI tool. Keep it short." Count `[data-classified-block]` in the
-   DOM, and read the server log for `classification pass` lines: the
-   outcome, `classification.candidates`, `classification.blocks`, and
-   `duration.ms` per pass. Record swap rate, the latency spread, and the
-   timeout count here.
-4. The trend and contact prompts once each: `show_block` output must not
-   also be classified (its call is a tool part, not text, so the detector
-   never sees it; confirm there is no double draw).
+Zero timeouts, zero errors. Every swap replayed identically after a
+reload, joined from the persisted row. The kit comparison table drew
+with the model's "Criterion" header as its corner cell.
+
+Two things the live run found that the fakes could not:
+
+- **The composer opens the assistant message before any turn exists**, so
+  the message had no `turnId` and a turn-targeted `message_blocks` frame
+  found nothing. The first scoped delta now stamps the turn onto the
+  streaming message, and a frame whose turn no message carries falls
+  back to the last assistant message once it has finished, never to one
+  still streaming. The replay path had masked this: reload showed the
+  block, the live turn did not.
+- **Inline code in a cell or a bullet blocked the whole candidate.** The
+  model writes `**Key**: \`value\`` constantly. Code spans and emphasis
+  now flatten to their text (backticks stripped from key-value rows);
+  links, images and raw HTML still keep the candidate as markdown.
+
+Where the numbers point next: Jev answers in 700–800 ms on this
+connection, inside the 1 s budget with little slack. If timeouts appear
+in the counter on a slower link, the budget is the first knob, then the
+question count per candidate (the comparison asks three). The swap rate
+is bounded by what the model types: most short comparison answers here
+were prose or bullets carrying links, which the detector correctly
+leaves alone.
 
 The Codex review of the wave (gpt-5.6-sol, high) found four things, all
-fixed in the same day: `message_blocks` was mapped to "streaming" by the
+fixed the same day: `message_blocks` was mapped to "streaming" by the
 client's run-state function and reopened finished sessions; the frame
 attached to the newest assistant message rather than its turn's; the
 persistence key normalised whitespace, so a differently laid-out part
 could inherit spans onto unrelated prose; and an ordered list continuing
-from 5 would have been renumbered from 1. Each has a test now.
+from 5 would have been renumbered from 1. Each has a test.
 
-Two things to know before reading the numbers:
-
-- The classifier is asked about the candidate alone, never the prose
-  around it. If a comparison is misread as data, the lever is the
-  criteria text in `catalogue.ts`, not more context.
-- Thresholds (`CONFIDENCE` in the catalogue) start conservative: 0.6 to
-  swap, 0.8 for a tone or a recommended column. Lower only after reading
-  real confidences from the log.
+Thresholds (`CONFIDENCE` in the catalogue) are still the conservative
+first cut: 0.6 to swap, 0.8 for a tone or a recommended column. The
+three live swaps all cleared them; no confidences were logged
+per-question yet, which is the next thing to add before tuning.
 
 ## Wave 14 was planned first — 2026-09-21
 

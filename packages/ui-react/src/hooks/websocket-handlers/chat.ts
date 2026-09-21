@@ -130,12 +130,14 @@ export const chatFrameHandlers = {
     if (!context.buffer()?.isStreaming) {
       context.state.startAssistantMessage(context.key, context.frameTurnId);
     }
+    if (context.frameTurnId) context.state.stampTurn(context.key, context.frameTurnId);
     context.enqueueDelta(context.key, "text", msg.text);
   },
   thinking_delta: (msg, context) => {
     if (!context.buffer()?.isStreaming) {
       context.state.startAssistantMessage(context.key, context.frameTurnId);
     }
+    if (context.frameTurnId) context.state.stampTurn(context.key, context.frameTurnId);
     context.enqueueDelta(context.key, "thinking", msg.text);
   },
   tool_use_start: (msg, context) => {

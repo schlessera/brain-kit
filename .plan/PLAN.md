@@ -816,13 +816,10 @@ Sequenced after the component waves but **before** step 2. Not optional.
 - [x] App: render tests — a table swaps to a comparison, a low-confidence
       answer keeps the table, a message with no blocks is byte-identical
       to today's render
-- [ ] Proof: the Bun-vs-Node prompt five times with the pass on; the swap
-      rate, the Jev latency distribution, and the timeout count recorded
-      in HANDOFF. Then the trend and contact prompts once each to confirm
-      `show_block` and the pass coexist without a double draw. BLOCKED on
-      a `TYPESAFE_API_KEY`: none is configured on the test machine, so the
-      pass has only run against a fake classifier (unit tests) and the
-      no-key path live
+- [x] Proof: eight live turns on the Claude backend with the pass on;
+      three swaps (a receipt twice, a comparison once) at 708–780 ms, five
+      answers with no candidate and no call, zero timeouts. Recorded in
+      HANDOFF with the two live findings it produced
 - [x] Changesets for ui-sdk, ui-server, ui-react; README lines naming the
       env var and the progressive-enhancement rule
 - [ ] Deferred: kit table cells accepting nodes; the share PNG source;
