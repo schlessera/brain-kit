@@ -85,7 +85,22 @@ export const KIT_AREA_LABELS: LabelSpec[] = [
   area("docs", "The docs/ tree and the README / AGENTS / CONTRIBUTING surfaces."),
 ];
 
-/** brain-ui is the deployment shell: a container, a bin entry, branding. */
+/**
+ * brain-template generates a brain: markdown, config, skills. No runtime of
+ * its own, so its areas are the things a generated repository actually holds.
+ */
+export const TEMPLATE_AREA_LABELS: LabelSpec[] = [
+  area("config", "brain.config.ts, the taxonomy it declares, and the environment contract."),
+  area("skills", "The workflow skills a generated brain ships with."),
+  area("onboarding", "/brain-init and the first-run path, from clone to first search."),
+  area("ci", "CI workflows and the sync from brain-kit's template/ directory."),
+  area("docs", "The README and whatever else a new user reads first."),
+];
+
+/**
+ * The deployment shell's areas. Shared by the private instance and by the
+ * hosting template extracted from it, because they are the same shape.
+ */
 export const UI_AREA_LABELS: LabelSpec[] = [
   area("container", "Dockerfile, supervisord, users and ownership, the image's toolchain."),
   area("deploy", "Compose files, the host, reverse proxying, TLS, backups."),
@@ -221,15 +236,39 @@ export const UI_CROSS_REPO_LABELS: LabelSpec[] = [
  */
 export const OBSOLETE_LABELS = ["bug", "enhancement", "documentation", "invalid"];
 
-export type RepoKind = "brain-kit" | "brain-ui";
+export type RepoKind =
+  | "brain-kit"
+  | "brain-ui"
+  | "brain-template"
+  | "brain-hosting-template";
+
+const AREAS: Record<RepoKind, LabelSpec[]> = {
+  "brain-kit": KIT_AREA_LABELS,
+  "brain-ui": UI_AREA_LABELS,
+  "brain-template": TEMPLATE_AREA_LABELS,
+  // The hosting template is the extraction of the private shell, so it
+  // inherits the shell's vocabulary rather than inventing a parallel one.
+  "brain-hosting-template": UI_AREA_LABELS,
+};
+
+/**
+ * Every repository but brain-kit points back at it, because brain-kit owns the
+ * behaviour and the other three are places it is deployed or generated from.
+ */
+const CROSS_REPO: Record<RepoKind, LabelSpec[]> = {
+  "brain-kit": KIT_CROSS_REPO_LABELS,
+  "brain-ui": UI_CROSS_REPO_LABELS,
+  "brain-template": UI_CROSS_REPO_LABELS,
+  "brain-hosting-template": UI_CROSS_REPO_LABELS,
+};
 
 export function labelsFor(repo: RepoKind): LabelSpec[] {
   return [
     ...TYPE_LABELS,
-    ...(repo === "brain-kit" ? KIT_AREA_LABELS : UI_AREA_LABELS),
+    ...AREAS[repo],
     ...PRIORITY_LABELS,
     ...NEEDS_LABELS,
     ...META_LABELS,
-    ...(repo === "brain-kit" ? KIT_CROSS_REPO_LABELS : UI_CROSS_REPO_LABELS),
+    ...CROSS_REPO[repo],
   ];
 }

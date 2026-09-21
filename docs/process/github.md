@@ -28,17 +28,45 @@ every reader had to work out which lines were still true. Decisions moved to
 `docs/decisions/`; open work moved to issues; progress logs were not worth
 keeping once the work shipped.
 
-## Repository split
+## The four repositories
 
-brain-kit is public and owns every line of behaviour. `brain-ui` is private and
-owns the deployment shell: the Dockerfile, the bin entry, branding, the host.
+brain-kit is public and owns every line of behaviour. The other three exist
+because a knowledge base, the thing that hosts it, and one person's actual
+running copy are different objects with different lifetimes.
 
-Work that lands in this repo gets an issue here, written for a stranger. Work
-that would have to describe a real deployment — image layout, users and
-ownership, the host, the proxy — gets an issue in `brain-ui` instead. When both
-are needed, each repo gets its own issue and both carry the `upstream:` label
-pointing at the other. **A brain-kit issue never restates a deployment detail to
-save a click.**
+| Repository | Owns | Visibility |
+| --- | --- | --- |
+| **brain-kit** | Every line of behaviour. The published packages. | public |
+| **brain-template** | The starting point for *your brain*: config, skills, empty content. Generated from `template/` here. | public when it is real |
+| **brain-hosting-template** | The starting point for *self-hosting*: container, compose, proxy, branding, over the published packages. | public when it is real |
+| **brain-ui** | One person's actual deployment. An instance, not a product. | **private, permanently** |
+
+`brain-ui` is the odd one and the one to get right. It is not "the hosting
+repo" — it is somebody's running installation, with their host, their branding
+and their data. It is where the hosting template will be extracted *from*, and
+it is where a production incident gets written down. **Nothing in a public
+repository should link to it or depend on it existing.**
+
+### Where an issue goes
+
+Ask what the issue is actually about:
+
+- **Behaviour** — what the CLI, the server, the UI or a package *does*. →
+  brain-kit, always. Even when the symptom was seen in a deployment.
+- **What a generated brain contains** — a config key, a skill, the onboarding
+  interview, what the first clone looks like. → brain-template.
+- **What a generated host contains** — the Dockerfile, the compose file, the
+  proxy, the environment contract. → brain-hosting-template.
+- **One deployment's reality** — its host, its data, an incident on it, a
+  migration of its volumes. → brain-ui.
+
+When a change needs two of them, each gets its own issue and both carry the
+`upstream:` label pointing at the other. **A public issue never restates a
+private deployment detail to save a click.**
+
+Before creating or editing an issue in a public repository, run its body
+through the same gate the tree is held to — the `github` skill
+(`.agents/skills/github/`) has the command.
 
 ## Labels
 
@@ -97,11 +125,23 @@ to happen.
 | Track | The roadmap theme, matching the epics |
 | Priority | Mirrors the `priority:` label, so the board can sort |
 | Size | XS/S/M/L — a rough estimate of one sitting versus several |
-| Target | A date, for the roadmap view only. Intent, never a commitment |
+| Start / Target | Two dates, for the roadmap view only. Intent, never a commitment — an item with neither does not appear there, which is the right default |
 
 `Ready` is the one that matters: it means the issue has been read, it is not
 blocked, and it can be picked up now. An agent picking work should filter
-`Status: Ready` + `agent-ready` and take the top item by priority.
+`Status: Ready` and take the top item by priority.
+
+**Status is derived, not typed.** `bun scripts/sync-project.ts --apply`
+computes `Backlog`, `Ready` and `In review` from the labels and from whether an
+open PR says it closes the issue — so closing a blocker makes its dependant
+Ready without anyone remembering to move a card. `In progress` and `Done` are
+statements about a person or an agent rather than about labels, so the script
+reads them and leaves them alone.
+
+That is what the `blocked` label is for, and why it is worth applying: four of
+the container issues and two of the template ones are `agent-ready` and *not*
+pickable, because each waits on the one before it. Without `blocked` they would
+sit in the Ready view as traps.
 
 ## The lifecycle
 

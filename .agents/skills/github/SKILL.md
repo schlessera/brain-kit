@@ -11,27 +11,38 @@ is the agreement it implements** — read that first if you are deciding
 *whether* something should be an issue. Read this when you are about to run a
 command.
 
-Two repositories, one workflow:
+Four repositories, one workflow:
 
 | Repo | Visibility | Owns |
 | --- | --- | --- |
 | `schlessera/brain-kit` | public | Every line of behaviour. The packages. |
-| `schlessera/brain-ui` | private | The deployment shell: container, bin entry, branding, host. |
+| `schlessera/brain-template` | public when real | The starting point for a brain: config, skills, empty content. |
+| `schlessera/brain-hosting-template` | public when real | The starting point for self-hosting: container, compose, proxy. |
+| `schlessera/brain-ui` | **private, permanently** | One person's actual deployment. An instance, not a product. |
 
 ## Which repo
 
-Ask one question: **would writing this issue honestly require describing a real
-deployment?** Image layout, users and ownership, the host, the proxy, a
-production incident, an operator's runbook — that is `brain-ui`. Everything else
-is `brain-kit`.
+Ask what the issue is **about**, not where the symptom appeared:
 
-When a change needs both, file two issues and cross-link them with the
-`upstream:` labels. **A brain-kit issue never restates a deployment detail to
-save the reader a click.** brain-kit is public; assume a stranger reads every
-word.
+- **Behaviour** — what the CLI, the server, the UI or a package does →
+  `brain-kit`, always. A bug seen in a deployment is still a package bug.
+- **What a generated brain contains** — a config key, a skill, the onboarding
+  interview → `brain-template`.
+- **What a generated host contains** — the Dockerfile, compose, the proxy, the
+  environment contract → `brain-hosting-template`.
+- **One deployment's reality** — its host, its data, an incident on it →
+  `brain-ui`.
 
-Before creating or editing a brain-kit issue, run its body through the same gate
-the tree is held to:
+`brain-ui` is the one to get right. It is not "the hosting repo"; it is
+somebody's running installation, and the hosting template will be extracted
+*from* it. **Nothing public links to it or depends on it existing.**
+
+When a change needs two repos, file two issues and cross-link them with the
+`upstream:` labels. A public issue never restates a private deployment detail
+to save the reader a click.
+
+Before creating or editing an issue in any public repository, run its body
+through the same gate the tree is held to:
 
 ```sh
 bun -e 'import {scanText} from "./scripts/check-leakage.ts";

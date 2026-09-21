@@ -39,7 +39,9 @@ const REPOS = ["schlessera/brain-kit", "schlessera/brain-ui"] as const;
  * something a label can answer.
  */
 const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
-  Distribution: [{ epics: [26], also: [], repo: "schlessera/brain-kit" }],
+  // Getting the thing into somebody else's hands: the two templates, and the
+  // documentation that has to stop pointing at a private installation.
+  Distribution: [{ epics: [26, 70], also: [69], repo: "schlessera/brain-kit" }],
   Hardening: [
     { epics: [], also: [38], repo: "schlessera/brain-kit" },
     { epics: [19], also: [], repo: "schlessera/brain-ui" },
@@ -102,6 +104,25 @@ async function ensureProject(apply: boolean): Promise<Project> {
   return created;
 }
 
+/** What each item currently carries, keyed by issue URL. */
+async function boardValues(
+  projectNumber: number,
+): Promise<Map<string, Record<string, string | undefined>>> {
+  const raw = await gh([
+    "project", "item-list", String(projectNumber), "--owner", OWNER,
+    "--format", "json", "--limit", "500",
+  ]);
+  type Row = { status?: string; priority?: string; track?: string; content?: { url?: string } };
+  return new Map(
+    (JSON.parse(raw).items as Row[])
+      .filter((item) => item.content?.url)
+      .map((item) => [
+        item.content!.url!,
+        { Status: item.status, Priority: item.priority, Track: item.track },
+      ]),
+  );
+}
+
 /** The items actually on the board, keyed by issue URL. */
 async function boardItems(projectNumber: number): Promise<Map<string, string>> {
   const raw = await gh([
@@ -149,7 +170,17 @@ function wantedFields(): { name: string; dataType: string; options?: string[] }[
     { name: "Priority", dataType: "SINGLE_SELECT", options: priorities },
     { name: "Track", dataType: "SINGLE_SELECT", options: Object.keys(TRACKS) },
     { name: "Size", dataType: "SINGLE_SELECT", options: SIZES },
-    // Intent, never a commitment — it is what the roadmap layout positions on.
+    // The roadmap layout's two ends. Both are intent, never a commitment.
+    //
+    // Two fields rather than one because the roadmap's date picker will not
+    // take the same field for start and target — choosing it for one clears
+    // the other. With only `Target` an item renders as a point; with both it
+    // renders as a bar, which is what makes a roadmap readable at a glance.
+    //
+    // An item with neither simply does not appear on that view, which is the
+    // right default: most issues here are not scheduled, and inventing a date
+    // to make a chart look full is how a roadmap stops being believed.
+    { name: "Start", dataType: "DATE" },
     { name: "Target", dataType: "DATE" },
   ];
 }
@@ -229,6 +260,55 @@ export function trackFor(
   return undefined;
 }
 
+/**
+ * Status the board can derive, and the ones it must not touch.
+ *
+ * `In progress` and `Done` are statements about a human or an agent, not about
+ * the issue's labels, so a re-run leaves them exactly as it found them. The
+ * other three are derived, and re-deriving them on every run is the point:
+ * close a blocker and its dependant becomes Ready without anyone remembering.
+ */
+const DERIVED_STATUSES = new Set(["Backlog", "Ready", "In review"]);
+
+export function statusFor(
+  issue: { labels: { name: string }[] },
+  hasOpenPullRequest: boolean,
+): string {
+  const labels = issue.labels.map((label) => label.name);
+  // An issue with a PR open against it is in review whatever its labels say.
+  if (hasOpenPullRequest) return "In review";
+  // An epic is never worked directly, so it is never Ready.
+  if (labels.includes("epic")) return "Backlog";
+  // `Ready` means pickable RIGHT NOW. A `needs:` label or a sibling blocker
+  // makes it not that, and a Ready filter that hands an agent a blocked issue
+  // is worse than no filter at all.
+  const blocked = labels.includes("blocked") || labels.some((l) => l.startsWith("needs: "));
+  if (blocked) return "Backlog";
+  return labels.includes("agent-ready") ? "Ready" : "Backlog";
+}
+
+/**
+ * Issues an open PR says it closes, as `owner/repo#number`.
+ *
+ * Read from the PR bodies rather than from GitHub's linked-issue field,
+ * because `Closes #n` in the body is what actually closes the issue on merge
+ * and is therefore the thing that is true.
+ */
+async function issuesUnderReview(): Promise<Set<string>> {
+  const under = new Set<string>();
+  for (const repo of REPOS) {
+    const raw = await gh([
+      "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", "number,body",
+    ]);
+    for (const pr of JSON.parse(raw) as { body?: string }[]) {
+      for (const match of (pr.body ?? "").matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
+        under.add(`${repo}#${match[1]}`);
+      }
+    }
+  }
+  return under;
+}
+
 export function priorityFor(issue: { labels: { name: string }[] }): string | undefined {
   const label = issue.labels.find((l) => l.name.startsWith("priority: "));
   return label?.name.replace("priority: ", "").toUpperCase();
@@ -290,6 +370,8 @@ if (import.meta.main) {
 
   const membership = await buildMembership();
   const issues = await openIssues();
+  const underReview = await issuesUnderReview();
+  const currentValues = await boardValues(project.number);
 
   let added = 0;
   let edited = 0;
@@ -318,12 +400,24 @@ if (import.meta.main) {
       added++;
     }
 
+    const current = currentValues.get(issue.url)?.Status;
+    // Never drag an item out of a status a person put it in.
+    const wantedStatus =
+      current === undefined || DERIVED_STATUSES.has(current)
+        ? statusFor(issue, underReview.has(`${issue.repo}#${issue.number}`))
+        : undefined;
+
     const assignments: { field: string; value: string | undefined }[] = [
       { field: "Priority", value: priorityFor(issue) },
       { field: "Track", value: trackFor(issue, membership) },
+      { field: "Status", value: wantedStatus },
     ];
     for (const { field, value } of assignments) {
       if (!value) continue;
+      // Skip a write that would change nothing. Three fields across 44 items
+      // is 132 API calls per run otherwise, all of them saying what the board
+      // already says.
+      if (currentValues.get(issue.url)?.[field] === value) continue;
       const definition = byName.get(field);
       const option = definition?.options?.find((o) => o.name === value);
       if (!definition || !option) continue;

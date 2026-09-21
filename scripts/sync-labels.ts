@@ -22,11 +22,13 @@ interface ExistingLabel {
   description: string;
 }
 
+const KNOWN: RepoKind[] = ["brain-kit", "brain-ui", "brain-template", "brain-hosting-template"];
+
 function repoKind(repo: string): RepoKind {
-  const name = repo.split("/").pop() ?? repo;
-  if (name === "brain-kit" || name === "brain-ui") return name;
+  const name = (repo.split("/").pop() ?? repo) as RepoKind;
+  if (KNOWN.includes(name)) return name;
   throw new Error(
-    `Unknown repository ${repo}: the taxonomy defines area labels for brain-kit and brain-ui only.`,
+    `Unknown repository ${repo}: the taxonomy defines area labels for ${KNOWN.join(", ")}.`,
   );
 }
 

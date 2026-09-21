@@ -43,7 +43,9 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
   work that is not built; GitHub holds everything that is open.
 - **Nothing that describes a real deployment goes in this repo.** Image layout,
   hosts, proxies, operator runbooks and production incidents belong in the
-  private `brain-ui` repo. This one is public.
+  private `brain-ui` repo, which is one person's running installation rather
+  than a product. This one is public. What a *self-hoster* would need belongs
+  in `brain-hosting-template`, written for a stranger.
 - **Skills orchestrate, the CLI executes.** Deterministic logic belongs in a
   `brain` subcommand with `--json` output; SKILL.md files hold interview logic
   and judgment only.
@@ -129,10 +131,12 @@ in — is [docs/process/github.md](docs/process/github.md).
 
 Two things that are easy to get wrong:
 
-- **This repository is public.** Anything that would have to describe a real
-  deployment goes in the private `brain-ui` repo instead. Run an issue body
-  through the same gate the tree is held to before filing it; the `github`
-  skill shows how.
+- **This repository is public, and it is one of four.** brain-kit owns
+  behaviour; `brain-template` and `brain-hosting-template` own what a user
+  generates; `brain-ui` is one private installation. Anything that would have
+  to describe a real deployment goes to `brain-ui`. Run an issue body through
+  the same gate the tree is held to before filing it; the `github` skill shows
+  how, and `docs/process/github.md` has the routing rule.
 - **Work found mid-session gets filed, not fixed and not forgotten** — and an
   issue with no acceptance criteria is a note, so do not label it
   `agent-ready`.
