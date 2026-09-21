@@ -1089,8 +1089,10 @@ Two things the live run found that the fakes could not:
 
 Where the numbers point next: Jev answers in 700–800 ms on this
 connection. The budget was 1 s during the run, which left no room for
-the retry; it is 2 s now (the user's call, the same day). If timeouts
-still appear in the counter on a slower link, the next knob is the
+the retry; it is 2 s now (the user's call, the same day), and a breaker
+skips the pass after three consecutive failures with a backoff that
+doubles from 30 s to 30 minutes, so a bad link costs one probe per
+window. If timeouts still appear in the counter, the next knob is the
 question count per candidate (the comparison asks three). The swap rate
 is bounded by what the model types: most short comparison answers here
 were prose or bullets carrying links, which the detector correctly

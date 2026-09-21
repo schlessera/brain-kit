@@ -6,6 +6,13 @@
  * A timeout, a non-2xx status, a malformed body, or a missing key all
  * resolve to `null` with an outcome the caller counts; nothing here throws
  * into a turn, and nothing here is awaited by anything that renders.
+ *
+ * A classifier that keeps failing is not asked: after a few consecutive
+ * failures the client opens a breaker and skips calls for a backoff that
+ * doubles on every further failure, up to a cap. When the backoff passes,
+ * ONE call goes through as the probe; it succeeding closes the breaker and
+ * resets the backoff. A dead vendor or a bad link then costs one probe per
+ * window rather than a budget's worth of waiting on every answer.
  */
 
 import type {
@@ -30,7 +37,16 @@ export type JevOutcome =
   | "http_error"
   | "network_error"
   | "bad_response"
-  | "no_key";
+  | "no_key"
+  /** Skipped without a call: the breaker is open after consecutive failures. */
+  | "circuit_open";
+
+/** Consecutive failures that open the breaker. */
+export const BREAKER_FAILURES = 3;
+/** First backoff once open; doubles per further failure. */
+export const BREAKER_BASE_MS = 30_000;
+/** The backoff never grows past this. */
+export const BREAKER_MAX_MS = 30 * 60_000;
 
 export interface JevResult {
   outcome: JevOutcome;
@@ -59,6 +75,8 @@ export interface JevClient {
   /** Enabled means a key is configured; the pass is skipped otherwise. */
   readonly enabled: boolean;
   classify(request: ClassificationRequest): Promise<JevResult>;
+  /** The breaker's state, for the record and for tests. */
+  breaker(): { open: boolean; consecutiveFailures: number; retryAt: number | null };
 }
 
 const RETRY_STATUSES = new Set([429, 529]);
@@ -104,16 +122,60 @@ export function createJevClient(options: JevClientOptions): JevClient {
     return isAnswers(answers) ? { kind: "ok", answers } : { kind: "bad" };
   }
 
+  // The breaker. `consecutiveFailures` counts every outcome that is not an
+  // answer; `retryAt` is set while open and is when the next probe may go.
+  let consecutiveFailures = 0;
+  let retryAt: number | null = null;
+  let backoffMs = BREAKER_BASE_MS;
+
+  function recordFailure(outcome: JevOutcome): void {
+    consecutiveFailures++;
+    if (consecutiveFailures < BREAKER_FAILURES) return;
+    // Open, or stay open with a longer wait: the first opening waits the
+    // base, each failed probe doubles it up to the cap.
+    const wait = consecutiveFailures === BREAKER_FAILURES ? BREAKER_BASE_MS : backoffMs;
+    retryAt = now() + wait;
+    backoffMs = Math.min(wait * 2, BREAKER_MAX_MS);
+    options.log?.emit({
+      severityText: "WARN",
+      body: consecutiveFailures === BREAKER_FAILURES ? "classifier breaker opened" : "classifier probe failed; breaker stays open",
+      attributes: {
+        "classification.outcome": outcome,
+        "classification.consecutive_failures": consecutiveFailures,
+        "classification.retry_in_ms": wait,
+      },
+    });
+  }
+
+  function recordSuccess(): void {
+    if (retryAt !== null) {
+      options.log?.emit({
+        severityText: "INFO",
+        body: "classifier breaker closed",
+        attributes: { "classification.consecutive_failures": consecutiveFailures },
+      });
+    }
+    consecutiveFailures = 0;
+    retryAt = null;
+    backoffMs = BREAKER_BASE_MS;
+  }
+
   return {
     enabled: apiKey !== null,
+    breaker: () => ({ open: retryAt !== null && now() < retryAt, consecutiveFailures, retryAt }),
     async classify(request) {
       const startedAt = now();
       const done = (outcome: JevOutcome, answers: ClassificationAnswers | null, status?: number): JevResult => {
         const result: JevResult = { outcome, answers, durationMs: now() - startedAt };
         if (status !== undefined) result.status = status;
+        if (outcome === "answered") recordSuccess();
+        else if (outcome !== "no_key" && outcome !== "circuit_open") recordFailure(outcome);
         return result;
       };
       if (!apiKey) return done("no_key", null);
+      // Open breaker: skip without a call until the backoff has passed; the
+      // first call after that is the probe.
+      if (retryAt !== null && now() < retryAt) return done("circuit_open", null);
       const body = JSON.stringify(request);
       // One deadline for the whole call, retry included: the budget is the
       // reader's, not the vendor's.

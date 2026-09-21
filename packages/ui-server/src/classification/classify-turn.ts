@@ -98,7 +98,13 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
     passes?.add(1, { outcome: entry.outcome });
     if (entry.outcome !== "skipped_no_candidates") latency?.record(entry.durationMs);
     deps.log.emit({
-      severityText: entry.outcome === "swapped" || entry.outcome === "kept" || entry.outcome === "skipped_no_candidates" ? "INFO" : "WARN",
+      severityText:
+        entry.outcome === "swapped" ||
+        entry.outcome === "kept" ||
+        entry.outcome === "skipped_no_candidates" ||
+        entry.outcome === "circuit_open"
+          ? "INFO"
+          : "WARN",
       body: "classification pass",
       attributes: {
         "session.id": sessionId,

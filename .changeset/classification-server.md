@@ -12,6 +12,10 @@ Progressive enhancement is a hard rule: the whole call, one retry on
 429/529 included, runs inside a 2 s budget, and a timeout, an error, a
 missing key, or a low-confidence answer all leave the markdown exactly as
 it streamed. No turn waits on the pass. Outcomes and latency are metered.
+A classifier that keeps failing is not asked: after three consecutive
+failures a breaker opens and the pass is skipped for 30 s, doubling on
+each failed probe up to 30 minutes, so a dead vendor or a bad link costs
+one probe per window rather than a budget's worth of waiting per answer.
 
 Persisted blocks are keyed by the exact text of the part, never a
 whitespace-normalised form: the spans are offsets into that text, and a

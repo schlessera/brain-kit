@@ -122,6 +122,82 @@ describe("the timed client", () => {
   });
 });
 
+describe("the breaker", () => {
+  const req = { model: "jev-latest", state: {}, questions: {} };
+
+  function failingClient(clock: { t: number }, log?: { emit: (e: unknown) => void }) {
+    let calls = 0;
+    const client = createJevClient({
+      apiKey: "k",
+      now: () => clock.t,
+      fetch: async () => { calls++; throw new TypeError("fetch failed"); },
+      log: log as never,
+    });
+    return { client, calls: () => calls };
+  }
+
+  test("three consecutive failures open it; the next calls are skipped without a request", async () => {
+    const clock = { t: 1_000_000 };
+    const { client, calls } = failingClient(clock);
+    for (let i = 0; i < 3; i++) expect((await client.classify(req)).outcome).toBe("network_error");
+    expect(client.breaker()).toEqual({ open: true, consecutiveFailures: 3, retryAt: clock.t + 30_000 });
+    expect((await client.classify(req)).outcome).toBe("circuit_open");
+    expect((await client.classify(req)).outcome).toBe("circuit_open");
+    expect(calls()).toBe(3);
+  });
+
+  test("after the backoff one probe goes through; a failed probe doubles the wait, up to the cap", async () => {
+    const clock = { t: 1_000_000 };
+    const { client, calls } = failingClient(clock);
+    for (let i = 0; i < 3; i++) await client.classify(req);
+    clock.t += 30_000;
+    expect((await client.classify(req)).outcome).toBe("network_error");
+    expect(calls()).toBe(4);
+    expect(client.breaker().retryAt).toBe(clock.t + 60_000);
+    expect((await client.classify(req)).outcome).toBe("circuit_open");
+    clock.t += 60_000;
+    await client.classify(req);
+    expect(client.breaker().retryAt).toBe(clock.t + 120_000);
+    // Doubling stops at the cap.
+    for (let i = 0; i < 12; i++) {
+      clock.t = client.breaker().retryAt!;
+      await client.classify(req);
+    }
+    expect(client.breaker().retryAt! - clock.t).toBe(30 * 60_000);
+  });
+
+  test("a successful probe closes it and resets the backoff", async () => {
+    const clock = { t: 1_000_000 };
+    let fail = true;
+    const client = createJevClient({
+      apiKey: "k",
+      now: () => clock.t,
+      fetch: async () => { if (fail) throw new TypeError("down"); return jsonResponse({ answers: GOOD_ANSWERS }); },
+    });
+    for (let i = 0; i < 3; i++) await client.classify(req);
+    expect(client.breaker().open).toBe(true);
+    clock.t += 30_000;
+    fail = false;
+    expect((await client.classify(req)).outcome).toBe("answered");
+    expect(client.breaker()).toEqual({ open: false, consecutiveFailures: 0, retryAt: null });
+    // Back at the base: three fresh failures wait 30 s again, not the doubled figure.
+    fail = true;
+    for (let i = 0; i < 3; i++) await client.classify(req);
+    expect(client.breaker().retryAt).toBe(clock.t + 30_000);
+  });
+
+  test("timeouts, rate limits and bad responses count; a missing key does not", async () => {
+    const clock = { t: 0 };
+    const rateLimited = createJevClient({ apiKey: "k", now: () => clock.t, fetch: async () => jsonResponse({}, 429) });
+    for (let i = 0; i < 3; i++) expect((await rateLimited.classify(req)).outcome).toBe("rate_limited");
+    expect(rateLimited.breaker().open).toBe(true);
+
+    const noKey = createJevClient({ apiKey: null, now: () => clock.t, fetch: async () => jsonResponse({}) });
+    for (let i = 0; i < 5; i++) await noKey.classify(req);
+    expect(noKey.breaker().open).toBe(false);
+  });
+});
+
 describe("the text collector mirrors the client's parts", () => {
   const frame = (msg: Record<string, unknown>): ServerMessage =>
     ({ sessionId: "s", ...msg }) as unknown as ServerMessage;
@@ -225,19 +301,23 @@ describe("the pass", () => {
     for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) unlinkSync(path + suffix);
   });
 
-  function classifier(jev: JevClient) {
-    return createTurnClassifier({ jev, db: () => db, log: silentLog });
+  function classifier(jev: Omit<JevClient, "breaker">) {
+    return createTurnClassifier({
+      jev: { breaker: () => ({ open: false, consecutiveFailures: 0, retryAt: null }), ...jev },
+      db: () => db,
+      log: silentLog,
+    });
   }
 
   test("prose makes no call at all", async () => {
     let calls = 0;
-    const jev: JevClient = { enabled: true, classify: async () => { calls++; return { outcome: "answered", answers: {}, durationMs: 1 }; } };
+    const jev = { enabled: true, classify: async () => { calls++; return { outcome: "answered" as const, answers: {}, durationMs: 1 }; } };
     expect(await classifier(jev).run("s", ["Only prose.", "More prose."])).toEqual([]);
     expect(calls).toBe(0);
   });
 
   test("a good answer yields anchored blocks and persists them for replay", async () => {
-    const jev: JevClient = {
+    const jev: Omit<JevClient, "breaker"> = {
       enabled: true,
       classify: async (request) => {
         expect(Object.keys(request.state)).toEqual(["p0c0"]);
@@ -254,9 +334,9 @@ describe("the pass", () => {
 
   test("a timeout, an error, a low-confidence answer and a throwing client all leave the markdown", async () => {
     const text = `Intro.\n\n${COMPARISON}`;
-    const timedOut: JevClient = { enabled: true, classify: async () => ({ outcome: "timeout", answers: null, durationMs: 1000 }) };
+    const timedOut: Omit<JevClient, "breaker"> = { enabled: true, classify: async () => ({ outcome: "timeout", answers: null, durationMs: 1000 }) };
     expect(await classifier(timedOut).run("s", [text])).toEqual([]);
-    const lowConfidence: JevClient = {
+    const lowConfidence: Omit<JevClient, "breaker"> = {
       enabled: true,
       classify: async () => ({
         outcome: "answered",
@@ -265,13 +345,13 @@ describe("the pass", () => {
       }),
     };
     expect(await classifier(lowConfidence).run("s", [text])).toEqual([]);
-    const throwing: JevClient = { enabled: true, classify: async () => { throw new Error("boom"); } };
+    const throwing: Omit<JevClient, "breaker"> = { enabled: true, classify: async () => { throw new Error("boom"); } };
     expect(await classifier(throwing).run("s", [text])).toEqual([]);
     expect(loadMessageBlocks(db, "s", text)).toEqual([]);
   });
 
   test("without a key the pass does nothing, but persisted blocks still replay", async () => {
-    const disabled: JevClient = { enabled: false, classify: async () => ({ outcome: "no_key", answers: null, durationMs: 0 }) };
+    const disabled: Omit<JevClient, "breaker"> = { enabled: false, classify: async () => ({ outcome: "no_key", answers: null, durationMs: 0 }) };
     const c = classifier(disabled);
     expect(c.enabled).toBe(false);
     expect(await c.run("s", [COMPARISON])).toEqual([]);

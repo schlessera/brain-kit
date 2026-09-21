@@ -1,4 +1,7 @@
 export {
+  BREAKER_BASE_MS,
+  BREAKER_FAILURES,
+  BREAKER_MAX_MS,
   JEV_ENDPOINT,
   JEV_TIMEOUT_MS,
   createJevClient,

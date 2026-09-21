@@ -272,7 +272,11 @@ markdown stays exactly as it streamed. No turn waits on the pass and no
 answer can render worse for it having been asked. Outcomes are counted
 (`classification.passes` by outcome, `classification.latency_ms`) so a slow
 or failing classifier shows up in the server's record, not in the reader's
-experience.
+experience. A classifier that keeps failing is not asked: after three
+consecutive failures (timeouts, rate limits, errors, malformed answers) a
+breaker opens and every pass is skipped without a call for 30 s; each
+failed probe after that doubles the wait, up to 30 minutes; one answered
+probe closes it and resets the backoff. Openings and closings are logged.
 
 ## Versioning
 

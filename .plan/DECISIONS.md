@@ -2157,7 +2157,12 @@ in one call, with the code doing every extraction and every render.
    answer below the confidence threshold, or a candidate the transform
    cannot map all mean the same thing: the markdown stays. Nothing about
    an answer waits on Jev, and nothing about an answer can be worse for
-   Jev having been asked.
+   Jev having been asked. A classifier that keeps failing is not asked
+   (added 2026-09-21, the user's call): after three consecutive failures
+   the client opens a breaker and skips the pass for 30 s, doubling on
+   every failed probe up to 30 minutes, and one answered probe closes it.
+   Bad connectivity then costs one probe per window, never a budget's
+   worth of waiting on every answer.
 3. **Code extracts, Jev judges, code renders.** Every answer is a
    `choice` or a `noul` over things the surface can name from the text:
    which shape, which header is the recommended column (or none), which
