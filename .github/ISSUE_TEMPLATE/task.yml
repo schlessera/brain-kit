@@ -1,0 +1,88 @@
+name: Task
+description: One unit of work — the size a single agent session or sitting can finish.
+title: "<area>: <what changes, in the imperative>"
+labels: ["agent-ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A task is the unit this repo schedules, reviews and closes. If it needs
+        more than one sitting, it is an Epic with sub-issues instead.
+
+        Fill every section. The body is the brief a coding agent works from —
+        an agent cannot ask you what you meant, and a task that omits its
+        acceptance criteria gets an implementation nobody can check.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        What exists today, and why this needs to change. Name the files and
+        symbols involved with repo-relative paths, so the reader does not start
+        by searching. Link the decision or plan this came from.
+      placeholder: |
+        `packages/ui-server/src/foo.ts:120` resolves the path before the guard
+        runs, so a symlinked root is classified as external. Decided in
+        docs/decisions/0007-....md.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What this change does. One bullet per behaviour that moves.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: >-
+        What a reasonable reader might assume is included and is not. This is
+        the section that stops an agent from widening the diff.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >-
+        A checklist, each item independently verifiable by someone who did not
+        write the code. "Works correctly" is not a criterion; "a symlinked root
+        resolves to the same decision as its target, with a test that fails
+        before the change" is.
+      value: |
+        - [ ]
+        - [ ] A test covering this fails on the tree before the change and passes after.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: The exact commands that prove it, and anything that must be checked by hand.
+      value: |
+        ```sh
+        bun run test
+        bun run typecheck
+        bun run lint
+        ```
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Contract impact
+      description: >-
+        The machine surface — CLI `--json` shapes, MCP tool names and schemas,
+        `schema_version`, frontmatter semantics — is the compatibility contract
+        (docs/integration-contract.md).
+      options:
+        - label: This touches the integration contract, so it needs the `contract` label, a `CONTRACT:` commit prefix, and the doc updated in the same commit.
+        - label: This changes a published package's behaviour, so it needs a changeset.

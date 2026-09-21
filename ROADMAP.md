@@ -1,8 +1,21 @@
 # Roadmap
 
-Where brain-kit stands, what binds future work, and what is planned next.
-Everything here is a statement of intent by a solo maintainer, not a commitment
-with dates.
+Where brain-kit stands, and what binds future work.
+
+**What is planned lives in the issue tracker, not here.** This file used to
+carry a "Next" and a "Later" list, and both drifted — at one point it named a
+release for work that shipped something else entirely. A roadmap that has to be
+edited by hand to stay true is a roadmap that is quietly false most of the time.
+
+- **[Issues](https://github.com/schlessera/brain-kit/issues)** — everything
+  planned, at the size it gets worked.
+- **[The project board](https://github.com/users/schlessera/projects/1)** —
+  the same work with a state and a theme. The roadmap view is the closest thing
+  to a timeline this project has, and it is intent rather than commitment.
+- **[docs/process/github.md](docs/process/github.md)** — what the labels,
+  milestones and board fields mean.
+
+Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
@@ -33,17 +46,14 @@ What that means in practice:
 - **It is dogfooded.** The maintainer's own brain runs the published packages
   as dependencies — there is no vendored copy of the toolchain anywhere.
 - **Sessions run in parallel** (protocol rev 2), capped by configuration, with
-  per-turn permission gating and host-minted turn ids.
+  per-turn permission gating and host-minted turn ids. A session carries a
+  named, revocable principal.
 - **Search degrades gracefully.** FTS5 works with no keys at all; embeddings
-  are additive.
+  are additive. The same rule holds up the stack: the answer-classification
+  pass is progressive enhancement, and the surface works with no key for it.
 
-Test baseline: 1512 pass / 24 skip / 0 fail in this repo (`bun run test`),
-104 pass / 3 skip / 0 fail in `brain-ui`. Integration tests are keyless and run
-against the fixture corpus in `packages/core/fixtures/corpus/`.
-
-Run the suite through `bun run test`, not a bare `bun test packages tests` — the
-script supplies `--timeout 30000`, and the CLI onboarding tests spawn a real
-`brain` process per assertion, which does not fit the 5s default.
+For whether the suite is green, read CI. A test count written down here is a
+number that is wrong by the next commit.
 
 ## What binds future work
 
@@ -74,65 +84,8 @@ when it was made — not a preference.
    by onboarding rather than shipped by us.
 7. **Extension interfaces are `@experimental` until 1.0.**
 
-## Next
-
-Roughly in order. Items move down as they land.
-
-- **Hardening roadmap (four releases: 0.32.0 Boundary, 0.33.0 Kit owns the
-  app, 0.34.0 One backend seam, and Least privilege container — which now ships
-  as 0.36.0, because 0.35.0 went to session principals).** Closes
-  every finding of the 2026-09-06 layer review — CSRF on JSON POSTs outside
-  password mode, stateless sessions, login lockout, the agent's inherited
-  environment, cron and crontab logic living in the shell, the `claude | pi`
-  registry and duplicated bridge tools, and the packaging/docs tail. Findings:
-  [docs/brainstorms/2026-09-06-layer-review-findings.md](docs/brainstorms/2026-09-06-layer-review-findings.md);
-  plan with per-unit status and progress log:
-  [docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md](docs/plans/2026-09-07-001-chore-hardening-roadmap-plan.md).
-  Each release keeps to one runtime blast radius; only the last has a data
-  step. **0.32.0 Boundary shipped on 2026-09-08** — the HTTP origin policy and
-  JSON media-type gate, server-side session invalidation, a failure-counting
-  login limiter, body and WebSocket connection caps, frame headers,
-  share-staging containment, and server-only secrets stripped from every
-  subprocess. **0.33.0 Kit owns the app shipped on 2026-09-09** — the
-  `brain-ui-cron` bin with the crontab and `/etc/environment` emitters, core
-  `--` end-of-options with a CLI-version boot probe, the service-worker policy
-  and shell hooks in the SDK, registration on mount, protocol/schema type
-  equality, pinned installers and the sshd program out of the app container.
-  **0.33.1** followed with the per-audience subprocess allowlist and a
-  WebSocket origin fix (a proxy that forwards `wss` as the upgrade scheme made
-  every browser handshake fail the origin comparison). **0.34.0 One backend
-  seam** is prepared: a published contract harness, characterization tests on
-  both backends, one permission decision core, split factories, the four bridge
-  tools defined once in the SDK, and self-describing backend descriptors the
-  registry iterates; **0.34.1** carries the dispatcher, store and page splits.
-  Least privilege container is next, designed by the U24 spike; it ships as
-  **0.36.0** because 0.35.0 was taken by session principals (a named, revocable,
-  expiring identity per session — plan
-  [docs/plans/2026-09-14-001-feat-session-principals-plan.md](docs/plans/2026-09-14-001-feat-session-principals-plan.md)).
-- **A real `brain-template` repo.** `docs/quickstart.md`, `template/README.md`,
-  and this repo's README all point users at `schlessera/brain-template`, which
-  does not exist yet — `template/` here is its source. Publishing it (marked as
-  a GitHub template repo, pinned to the current package version) is the single
-  biggest gap between the docs and reality.
-- **Integration and e2e tests in CI.** CI currently runs typecheck, unit tests,
-  the keyless Tier-0 e2e funnel, and the leakage gate. The `brain-ui`
-  integration suite additionally needs a populated brain; its spawns now honor a
-  `BRAIN_PATH` override, so pointing them at a fixture corpus is the remaining
-  work. Until that lands, those suites only run locally.
-- **Voice phase 2** — streaming conversation rather than tap-to-dictate. Open
-  questions (turn-taking, TTS provider, how a live conversation maps onto turn
-  approval) are tracked in the `brain-ui` roadmap.
-
-## Later
-
-Not scheduled, and each needs a driving use case before it starts.
-
-- Additional modules: travel as a standalone module, a content/publishing
-  module.
-- Module-contributed MCP tools.
-- Per-session backend switching in the chat UI.
-- A community provider promoted to a built-in — that only happens once one has
-  real users.
+Why each of these looks the way it does, and what was rejected on the way, is in
+[docs/decisions/](docs/decisions/README.md).
 
 ## Deliberately not doing
 
@@ -143,3 +96,11 @@ Not scheduled, and each needs a driving use case before it starts.
 - Framework rewrites and editor plugins.
 - A hosted service. Self-hosting is the model; see
   [docs/hosting/README.md](docs/hosting/README.md).
+
+A request for one of these is a legitimate thing to open a
+[discussion](https://github.com/schlessera/brain-kit/discussions) about, and not
+a thing to open an issue about. The answer will probably still be no.
+
+---
+
+This is a statement of intent by a solo maintainer, not a commitment with dates.

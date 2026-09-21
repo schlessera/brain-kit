@@ -123,7 +123,7 @@ export const Retried = ErrorState.extend({
  * the file rows and `aria-required-children` on the tree holding them. The
  * design's own role table says `button` / `treeitem` and never mentions
  * `option`, so this also moves the port back towards the spec.
- * `.plan/design-feedback.md` records it.
+ * `docs/decisions/design-feedback.md` records it.
  */
 export const Roles = meta.story({
   render: (args) => (

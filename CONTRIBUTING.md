@@ -4,6 +4,20 @@ brain-kit is maintained by one person. Contributions are welcome; expectations
 are calibrated accordingly — reviews may take days, and scope is guarded
 deliberately.
 
+**Start at the [issues](https://github.com/schlessera/brain-kit/issues).**
+Everything planned is there, at the size it gets worked;
+[`docs/process/github.md`](docs/process/github.md) explains what the labels and
+milestones mean and what the lifecycle is. `good first issue` and `help wanted`
+mean what they say.
+
+Before proposing something structural, read "What binds future work" in
+[ROADMAP.md](ROADMAP.md) and the relevant record in
+[`docs/decisions/`](docs/decisions/README.md) — several things that look like
+obvious improvements were considered and rejected for reasons written down
+there. Open a
+[discussion](https://github.com/schlessera/brain-kit/discussions) rather than an
+issue when you are not sure.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.3.5 — `brain doctor` warns below 1.3.5, citing
@@ -80,11 +94,6 @@ deployment-specific patterns.
 `bun run version` (changesets), then `bun run release`. The step-by-step
 checklist is the repo-local `release` skill (`.agents/skills/release/`), which
 agents load automatically; what follows is why it says what it says.
-
-For the 0.33.0 deployment, bump the brain repo's `@schlessera/brain` pin to
-0.33.0 or newer and refresh its lockfile before deploying brain-ui. The
-ui-server's positional separator requires the matching core parser. Rolling
-the image back does not roll back that repo-owned pin; manage it separately.
 
 `bun run version` chains `rm bun.lock && bun install` after `changeset version`,
 and that second half is not optional: bun resolves `workspace:*` pins from the

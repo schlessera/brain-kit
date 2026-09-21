@@ -40,7 +40,7 @@
  *     no text: the DC standalone page sets no body font.
  *   - `display: inline-flex` becoming `flex`: the sc-host decision. Without the
  *     wrapper the component root is itself the flex item, and flex items are
- *     blockified. See `.plan/PLAN.md`, Wave 1 notes.
+ *     blockified. See the sc-host decision in `docs/decisions/design-kit.md`.
  */
 
 import { spawnSync } from "child_process";

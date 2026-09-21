@@ -7,7 +7,7 @@
 //      depends on their shape.
 //   2. KIT SHAPES   — StatTile, TimelineItem, MapPin, TraceStep, ... one
 //      interface per array-valued prop in the design drop. These are
-//      reproduced from `.plan/design/catalog.md` and the `data-props` blocks
+//      reproduced from the design source's component catalog and its `data-props` blocks
 //      of the 56 `*.dc.html` component files, so that a fixture which
 //      typechecks here is assignable to the component when it lands.
 //

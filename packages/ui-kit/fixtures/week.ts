@@ -88,7 +88,7 @@ const suggestion = actions.find((a) => a.kind === "suggestion")!;
  * effect chip, sharing a row at phone width, has ~136px of content box -- and
  * the chip claims about half of it, because the chip names what the tap DOES
  * and is the half that must not be abbreviated. Recorded in
- * `.plan/design-feedback.md`; the component no longer spills when it happens,
+ * `docs/decisions/design-feedback.md`; the component no longer spills when it happens,
  * but the label still has to fit.
  */
 export const weekSuggestion = {

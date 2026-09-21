@@ -1,0 +1,60 @@
+name: Bug
+description: Something does not behave the way it is documented.
+title: "<area>: <what goes wrong>"
+labels: ["type: fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        brain-kit is maintained by one person. A report that can be reproduced
+        gets fixed; one that cannot gets the `needs: repro` label and waits.
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: The observed behaviour, with the exact error text or output if there is any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-should-happen
+    attributes:
+      label: What should happen instead
+      description: And where that is documented, if it is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >-
+        The smallest sequence that shows it. Against the fixture corpus in
+        `packages/core/fixtures/corpus/` if you can — a repro that needs your
+        own brain is one the maintainer cannot run.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`brain --version`, or the package version if this is a library."
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Bun version, OS, and anything unusual about the setup.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suspicion
+    attributes:
+      label: Where you think it lives
+      description: Optional. A file path or a hypothesis saves the first half hour.

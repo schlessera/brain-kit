@@ -1,50 +1,31 @@
-# Brain Kit UI — locked decisions
+# Decisions — the design kit and the chat surface
 
-Source of record for the Storybook/design-kit effort. Append-only: supersede
-entries, do not rewrite history.
+Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
+way they are. D1 through D42, dated, with the alternatives that were rejected
+and the measurements that decided them.
 
-## 2026-09-15 — kickoff decisions (confirmed by the maintainer)
+**Append-only. Supersede an entry; do not rewrite one.** An entry that turned
+out to be wrong is more useful with its correction underneath it than deleted —
+several below were superseded exactly that way, and the pair is the record.
 
-| # | Decision | Chosen | Rejected alternatives |
-|---|----------|--------|-----------------------|
-| D1 | Package layout | Single new `packages/ui-kit` with `.storybook/` inside it. Published package; storybook devDeps excluded from `files[]`. `packages/ui-react` rewires to consume it in step 2. | Separate `ui-storybook` app package; Storybook inside existing `ui-react` |
-| D2 | Test depth | Interaction tests (play functions) + accessibility tests (addon-a11y/axe, failing CI) + self-hosted visual regression (Playwright screenshots, baselines committed) | Chromatic (paid/hosted) |
-| D3 | In-chat component API | Tool call renders a component: LLM calls a brain MCP tool, the tool result carries a typed payload the chat surface renders. Schemas are the contract. | Fenced markdown blocks; both; renderer-only polish |
-| D4 | Scope of step 1 | Everything present in `kit/Brain Kit.dc.html`, and no more — plus the state variations needed for real coverage (loading / empty / error / mobile). Do not invent components the design does not show. | Full ui-react surface coverage; core-chat-only vertical slice |
+This is a decision log, not a status file. What is *open* lives in the issue
+tracker; see [`docs/process/github.md`](../process/github.md). The hard rules
+every change must respect are in [`AGENTS.md`](../../AGENTS.md), and the
+decisions that bind the project as a whole are in
+[`ROADMAP.md`](../../ROADMAP.md) under "What binds future work" — this file does
+not restate either, because a second copy of a rule is a copy that drifts.
 
-## Binding repo rules that constrain this work
-
-From `AGENTS.md` — these are not negotiable and every wave must respect them:
-
-- **No personal data anywhere in the tree.** Fixtures use the fictional persona
-  "Alex Example". CI runs a leakage gate over the whole tree with no exempt
-  directories — Storybook fixtures are in scope.
-- **Contract stability.** CLI `--json` shapes, MCP tool names and schemas,
-  `schema_version` and frontmatter semantics are the compatibility contract
-  (`docs/integration-contract.md`). New in-chat MCP tools mean a `CONTRACT:`
-  commit and a doc update in the same commit.
-- **No new seams.** Extension interfaces only where a second implementation is
-  plausible within a year.
-- **Skills orchestrate, the CLI executes.**
-- **No raw control or invisible characters in source** — `bun run lint` gates it.
-- **A new package must be added to `scripts/publish.ts` and `scripts/build.ts`**
-  — both drive hardcoded lists. Asserted by `tests/release-manifest.test.ts`.
-  `ui-kit` must be added to both, or it is silently skipped at release and its
-  dependents ship pinned to a version nobody published.
-- All `@schlessera/brain-*` packages version in lockstep.
-- Tests: `bun run test` (supplies `--timeout 30000`). Never add a test that
-  needs an API key or the network.
-
-## Open questions
-
-- [ ] Awaiting `kit/Brain Kit.dc.html` (blocked on `/design-login`) before the
-      component inventory can be finalised.
+One trap worth knowing before you edit this file: **it is inside the leakage
+gate.** `scripts/check-leakage.ts` scans the whole tree, untracked files
+included, and there are no exempt directories. Absolute home-directory paths and
+decisions attributed to a person by name both trip it. Use repo-relative paths,
+and attribute to "the maintainer".
 
 ## Constraints discovered during research
 
-- **`.plan/` is inside the leakage gate, and this bit us.** `scripts/check-leakage.ts`
-  scans the whole tree *including untracked files*, and `.plan/` is not
-  gitignored. Two ways to trip it, both observed:
+- **These documents are inside the leakage gate, and this bit us.**
+  `scripts/check-leakage.ts` scans the whole tree *including untracked files*,
+  and there are no exempt directories. Two ways to trip it, both observed:
   1. An absolute home-directory path — the home path contains a banned personal
      string. Use repo-relative paths everywhere.
   2. **Attributing a decision to a person by name.** Six lines in these very
@@ -52,7 +33,7 @@ From `AGENTS.md` — these are not negotiable and every wave must respect them:
      otherwise clean. Fixed by attributing to the role instead. (Writing the
      note about this mistake, with the name quoted as the example, failed the
      gate a second time — the gate does not care about context.)
-  **Standing rule: in anything under `.plan/`, refer to people by role, never by
+  **Standing rule: in any document in this repository, refer to people by role, never by
   name.** Run `bun scripts/check-leakage.ts` before committing plan docs — it is
   the same gate CI runs, and it has no exempt directories.
 - **There is no bundler in this repo today.** `ui-react` builds with plain `tsc`
@@ -137,7 +118,7 @@ it is allowed under D5 but must be deliberate and versioned, never incidental.
 
 ## 2026-09-15 — Storybook stack decisions
 
-Grounded in `.plan/research/storybook-2026.md`, whose findings were *executed*,
+Grounded in a Storybook-stack research pass whose findings were *executed*,
 not read: a throwaway two-package Bun workspace was built and `storybook build`,
 `storybook dev` and browser-mode Vitest were all run green under Bun 1.3.14.
 
@@ -221,7 +202,7 @@ own agent skills, `bunx storybook skills` (`stories`, `write-story`, `setup`).
 
 ## 2026-09-15 — state architecture (proposal, pending independent review)
 
-Full proposal: `.plan/architecture/state.md`. Summarised here; **not yet ratified**
+The full proposal is not kept — the shipped stores are the answer. Summarised here; **not yet ratified**
 — it goes to an independent gpt-6-astra review before any code moves.
 
 **D13 (proposed) — layered answer, not a single pattern.** The four pains do not
@@ -539,7 +520,7 @@ What the a11y wave owns:
 Requirement: **every piece of test, Storybook, CI, local-dev and example data is
 artificial.** No real personal data and nothing from the real knowledge base, at
 any point, in any of those places. Options researched in
-`.plan/fixtures/universe-options.md`; world choice still open.
+a fixture-world options pass; the world chosen was the Odyssey (D19).
 
 Three findings that are settled regardless of which world wins.
 
@@ -958,7 +939,7 @@ Decisions made inside the wave that bind later ones:
 
 Maintainer's constraint: the map stays **static — no panning, no zooming** — but
 must be **recognisable**, not the "radar view" the graticule alone produces.
-Research and measurements in `.plan/research/map-tiles.md`.
+Research and measurements in [map-geometry.md](map-geometry.md).
 
 **Decision: ship simplified OSM coastline as fixture data and let `MapView`'s
 existing projection draw it as SVG polylines.** No tiles, no network at render
@@ -1502,7 +1483,7 @@ policy rather than an old one.
 Action: keep the behaviour, delete the dead operand, and comment why, so nobody
 later "fixes" the gate to use a fallback that was never reachable. Render parity
 is unaffected — it is source text, not output. Add it to
-`.plan/design-feedback.md` as a source defect.
+`design-feedback.md` as a source defect.
 
 ## 2026-09-15 — D17 is closed: the accessibility gate is real
 
@@ -1542,7 +1523,7 @@ rest.
 
 ### What remains a documented gap
 
-Ten entries, `.plan/design-feedback.md` §§4-13. The four contrast ones (§§4-7)
+Ten entries, `design-feedback.md` §§4-13. The four contrast ones (§§4-7)
 each carry a computed assertion in `tests/contrast.test.ts`, so they fail when a
 token moves; §11's cost is asserted as a literal tab-order list. The four that
 matter most:

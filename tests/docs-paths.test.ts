@@ -56,18 +56,45 @@ const DOC_FILES = [
 ];
 
 /**
- * Planning artifacts are exempt for the same reason `.agents/plans/` is: a
- * plan names files it intends to CREATE and quotes paths from other repos,
- * and a brainstorm predates the layout entirely. Demanding those resolve
- * would fail every plan before its first implementation commit.
+ * Directories whose PATH CITATIONS are exempt — their links are still checked.
+ *
+ * Two kinds of document cite a path that is not meant to resolve today:
+ *
+ * - A **plan** names files it intends to create and quotes paths from other
+ *   repos. Demanding those resolve would fail every plan before its first
+ *   implementation commit.
+ * - A **decision record** cites the code as it was when the decision was made,
+ *   often with a line range, and often in the private deployment-shell repo.
+ *   Those records are append-only by rule — you supersede an entry, you do not
+ *   rewrite one — so a gate that demanded they track the current tree would be
+ *   demanding the one edit the records forbid.
+ *
+ * Their links are a different matter: a broken link between two records is a
+ * plain defect, so the link test below covers every document.
  */
-const EXEMPT_DIRS = new Set(["plans", "brainstorms"]);
+const CITATION_EXEMPT_DIRS = new Set(["plans", "brainstorms", "decisions"]);
+
+/**
+ * Inline code spans and fenced blocks, blanked out.
+ *
+ * Without this the link test reads Overpass QL — `way["natural"="coastline"](bbox)`
+ * — as a markdown link to a file called `bbox`. Any bracket-then-paren syntax
+ * inside a code span does the same.
+ */
+function withoutCode(body: string): string {
+  return body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+}
+
+/** `path.ts:12` and `path.ts:12-40` are citations of a path, not of a file. */
+function withoutLineSuffix(target: string): string {
+  return target.replace(/:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/, "");
+}
 
 function markdownFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!EXEMPT_DIRS.has(entry.name)) markdownFiles(path, found);
+      markdownFiles(path, found);
     } else if (entry.name.endsWith(".md")) found.push(path);
   }
   return found;
@@ -78,6 +105,11 @@ const files = [
   ...DOC_ROOTS.flatMap((d) => markdownFiles(join(ROOT, d)).map((f) => relative(ROOT, f))),
 ];
 
+/** The subset whose path citations are expected to describe the tree today. */
+const citationFiles = files.filter(
+  (file) => !file.split("/").some((segment) => CITATION_EXEMPT_DIRS.has(segment)),
+);
+
 describe("documentation paths", () => {
   test("there are docs to check", () => {
     expect(files.length).toBeGreaterThan(10);
@@ -86,7 +118,7 @@ describe("documentation paths", () => {
   test("every relative markdown link resolves", () => {
     const broken: string[] = [];
     for (const file of files) {
-      const body = readFileSync(join(ROOT, file), "utf8");
+      const body = withoutCode(readFileSync(join(ROOT, file), "utf8"));
       for (const match of body.matchAll(/\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)/g)) {
         const target = match[1];
         if (/^(https?:|mailto:|data:|#)/.test(target)) continue;
@@ -105,10 +137,10 @@ describe("documentation paths", () => {
       "g"
     );
     const broken: string[] = [];
-    for (const file of files) {
+    for (const file of citationFiles) {
       const body = readFileSync(join(ROOT, file), "utf8");
       for (const match of body.matchAll(pattern)) {
-        const target = match[1].replace(/[.,;:]+$/, "");
+        const target = withoutLineSuffix(match[1].replace(/[.,;:]+$/, ""));
         if (target.includes("*") || target.includes("<") || target.includes("…")) continue;
         const resolved = join(ROOT, target);
         if (!existsSync(resolved)) broken.push(`${file} -> ${target}`);
@@ -133,7 +165,7 @@ describe("documentation paths", () => {
 
   test("a documented directory is a directory and a documented file is a file", () => {
     const wrongKind: string[] = [];
-    for (const file of files) {
+    for (const file of citationFiles) {
       const body = readFileSync(join(ROOT, file), "utf8");
       for (const match of body.matchAll(/`([^`\s]+\/)`/g)) {
         const target = match[1];

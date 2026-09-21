@@ -10,7 +10,7 @@
  * still distinct, the focus node was still heavier. There was no assertion that
  * could have failed. `LaneChart` drew one continuous run as two butted bars,
  * against the only argument the component makes. Both were found by a person
- * looking at Storybook (`.plan/design-feedback.md` §15).
+ * looking at Storybook (`docs/decisions/design-feedback.md` §15).
  *
  * That is the class this file covers and nothing else does: **defects in what
  * was painted, invisible to assertions about props, roles, counts and computed

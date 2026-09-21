@@ -13,8 +13,8 @@ import type { Decorator } from "@storybook/react-vite";
  * parameters but CONCATENATES decorators — so a second decorator could only
  * wrap the first, never replace it.
  *
- * `alignItems: flex-start` is the sc-host decision made visible (see
- * `.plan/PLAN.md`, Wave 1 notes). Ported components render no wrapper, so the
+ * `alignItems: flex-start` is the sc-host decision made visible (recorded in
+ * `docs/decisions/design-kit.md`). Ported components render no wrapper, so the
  * component's own root is the flex item: a block component declaring
  * `width: 100%` fills the column, and an `inline-flex` primitive shrink-wraps.
  * Both are the design's own declarations, now load-bearing.
@@ -103,7 +103,7 @@ export function overflowing(container: HTMLElement, selector = "*"): string[] {
 /**
  * The one sanctioned way to let a story past the a11y gate, and the reason it
  * is a function rather than a literal: every call site has to name the
- * `.plan/design-feedback.md` entry that explains itself.
+ * `docs/decisions/design-feedback.md` entry that explains itself.
  *
  * Wave 1b put `parameters.a11y.test` at `'error'`. Four contrast failures
  * survived that flip, and all four are DESIGN decisions rather than port bugs —

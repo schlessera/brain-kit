@@ -1,12 +1,23 @@
-# Design feedback — defects and gaps found by implementing the kit
+# Decisions — design defects found by building the kit
 
-Things the port found that need a DESIGNER'S answer rather than a workaround in
-code. Each entry states the problem, the measurement or the evidence behind it,
-why the obvious fix is wrong, and the specific decision being asked for.
+Things the port found that needed a **designer's** answer rather than a
+workaround in code. Each entry states the problem, the measurement or evidence
+behind it, why the obvious fix is wrong, and the decision that was asked for —
+followed, in most cases, by the ruling that settled it.
 
-Nothing here has been patched in `ui-kit`. Where a defect ships, it ships as
-designed with a test documenting exactly how far off it is — that is the honest
-state, and it means the moment the design moves, the test fails and tells us.
+This is a decision record, not an open-questions list. Source files across
+`packages/ui-kit` cite sections here by number, because several components ship
+a measured divergence from their design on purpose: where a defect ships, it
+ships as designed with a test documenting exactly how far off it is. That is the
+honest state, and it means the moment the design moves, the test fails and says
+so.
+
+`packages/ui-kit/tests/contrast.test.ts` is the durable half of §§4–7 — it
+recomputes every figure from the tokens rather than waiting for a rendered
+pixel, which is how it catches what the accessibility gate cannot see.
+
+See also [design-kit.md](design-kit.md) for the decisions D1–D42 that these
+rulings fed into.
 
 ---
 

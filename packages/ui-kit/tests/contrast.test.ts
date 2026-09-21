@@ -13,7 +13,7 @@ import { contrast, over, parse, type Rgb } from "./_contrast.js";
  * a tint, a raised ground or an `opacity` between it and that bare surface.
  * Each of those pushes it under 4.5:1.
  *
- * This file is the durable half of `.plan/design-feedback.md` §§4-7. The
+ * This file is the durable half of `docs/decisions/design-feedback.md` §§4-7. The
  * numbers below are computed from the tokens so that THE MOMENT A TOKEN MOVES,
  * THIS TEST FAILS AND SAYS BY HOW MUCH. A comment would not have done that.
  *

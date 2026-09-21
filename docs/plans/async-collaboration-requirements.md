@@ -1,6 +1,7 @@
 ---
 date: 2026-08-26
 topic: async-collaboration
+plan: async-collaboration.md
 revision: 2
 ---
 

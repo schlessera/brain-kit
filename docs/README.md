@@ -23,6 +23,14 @@ understand the model. The rest is reference.
 | [hosting/README.md](hosting/README.md) | Self-host overview: brain-ui, `/brain-host`, auth modes, the honest cost table, encryption reality, and backups. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, `brain.db` reads, and versioning rules. |
 
+## Working on brain-kit itself
+
+| Doc | What's in it |
+| --- | --- |
+| [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
+| [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
+| [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
+
 ## See also
 
 - The agent contract (`@schlessera/brain/CONTRACT.md`) — the Layer-1 rules imported

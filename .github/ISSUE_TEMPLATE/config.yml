@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/schlessera/brain-kit/security/advisories/new
+    about: Report privately. Do not open a public issue — see SECURITY.md for the threat model and what is in scope.
+  - name: Question, or an idea that is not a work item yet
+    url: https://github.com/schlessera/brain-kit/discussions
+    about: Ask before building. Framework rewrites, storage backends and new seams are answered here before they are coded.
+  - name: The chat UI's deployment shell
+    url: https://github.com/schlessera/brain-ui
+    about: Dockerfile, hosting and branding live in brain-ui. Everything the chat UI does lives in this repo.

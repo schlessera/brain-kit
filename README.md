@@ -1,7 +1,8 @@
 # brain-kit
 
 > **Status: early, solo-maintained, extension interfaces marked `@experimental` until 1.0.**
-> Current state and what is planned next: [ROADMAP.md](ROADMAP.md).
+> Where this stands and what binds new work: [ROADMAP.md](ROADMAP.md).
+> What is planned: the [issues](https://github.com/schlessera/brain-kit/issues).
 
 A private, file-first knowledge base your AI agent actually operates — not a note app with an
 AI plugin.
@@ -55,7 +56,8 @@ packages/ui-kit              @schlessera/brain-ui-kit — presentational design 
 packages/ui-react            @schlessera/brain-ui-react — React chat/files/voice components,
                              stores, WS transport; prebuilt JS + precompiled CSS
 template/                    source for the brain-template repo (user starting point)
-docs/                        quickstart, concepts, CLI, MCP, hosting, modules, extending
+docs/                        quickstart, concepts, CLI, MCP, hosting, modules, extending,
+                             plus decisions/ (why), plans/ (unbuilt design) and process/
 ```
 
 The chat UI ships from a separate repo, `schlessera/brain-ui` — a thin deployment
@@ -77,7 +79,9 @@ bun run typecheck
 - [docs/README.md](docs/README.md) — the full documentation index.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — prerequisites, running the code, what gets merged.
 - [SECURITY.md](SECURITY.md) — threat model and how to report.
-- [ROADMAP.md](ROADMAP.md) — current state, binding decisions, what is planned.
+- [ROADMAP.md](ROADMAP.md) — where this stands and the decisions that bind new work.
+- [docs/process/github.md](docs/process/github.md) — how work is tracked: labels, milestones, the board.
+- [docs/decisions/](docs/decisions/README.md) — why things are the way they are.
 - [schlessera/brain-ui](https://github.com/schlessera/brain-ui) — the deployment shell for the chat UI.
 
 ## License
