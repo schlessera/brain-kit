@@ -349,6 +349,7 @@ export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
   "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card or a contact card.",
+  "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
   "comparison: the reader is choosing between 2-4 options. Three columns fit a phone; use four only when the reader is on a wide screen. Mark at most one column recommended, and then give a footnote that states what the recommendation costs.",
@@ -382,15 +383,15 @@ export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   input: SHOW_BLOCK_INPUT_SCHEMA,
   payload: SHOW_BLOCK_PAYLOAD_SCHEMA,
   brief: (name) =>
-    `- **Draw the shape of the answer with \`${name}\`.** It renders one block
-  inline where you call it. Reach for it when a shape beats prose: a
-  \`comparison\` when the reader is choosing between options; \`stats\` for
-  three or four headline figures; a \`trend\` for one figure over time; a
-  \`table\` for records; \`bars\` for shares of a whole; a \`receipt\` for
-  what a tool or a change did; \`steps\` for a procedure; a \`timeline\` for
-  what happened when; a \`schedule\` for what is coming; a \`quote\` when the
-  words themselves are the evidence; a \`contact\` when the answer is a
-  person, a company or a project. Write the prose around the block, never
-  the block's contents again in prose, and never a markdown table where a
-  block fits.`,
+    `- **Never write a markdown table; call \`${name}\` instead.** It renders
+  one block inline where you call it, and a table you would have typed is a
+  \`comparison\` (the reader is choosing between options) or a \`table\`
+  (records). Reach for it whenever a shape beats prose: \`stats\` for three
+  or four headline figures; a \`trend\` for one figure over time; \`bars\`
+  for shares of a whole; a \`receipt\` for what a tool or a change did;
+  \`steps\` for a procedure; a \`timeline\` for what happened when; a
+  \`schedule\` for what is coming; a \`quote\` when the words themselves are
+  the evidence; a \`contact\` when the answer is a person, a company or a
+  project. Write the prose around the block, never the block's contents
+  again in prose.`,
 });

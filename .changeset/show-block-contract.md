@@ -14,3 +14,8 @@ and the auto-allow posture, `SurfaceTools` gains `block`, and the generated
 prompt paragraph carries a brief that says when a block beats prose while the
 description carries the shape rules. The schema's tone lists are exported as
 runtime constants so a consumer can assert them against the kit's unions.
+
+The brief leads with the one rule the model most often breaks — never a
+markdown table, call the tool — and the description opens with the same
+redirect, because a table the model would have typed is a `comparison` or
+a `table` block that was not drawn.

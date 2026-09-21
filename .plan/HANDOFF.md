@@ -1063,26 +1063,35 @@ commit with the doc table, four changesets. D41 records the two shape
 adjustments made while building (the union sits under `block` and
 discriminates on `kind`; `ContactCard`'s `kind` travels as `contactKind`).
 
-**Measured block rate, Claude backend, one run each, no retries:**
+**Measured block rate, Claude backend:**
 
-| prompt | block? | what the model did |
-|---|---|---|
-| "Compare Bun and Node.js as a runtime for a small CLI tool. Keep it short." | no | a markdown table with six rows, then two prose paragraphs |
-| "How did the number of notes in this brain trend over the last months? Show me the trend." | yes, `trend` | read git history with Bash, computed the running total, called the tool once; the chart rendered inline between the trace and the summary |
-| "Who is the person this brain belongs to?" | yes, `contact` | searched the brain, called the tool once; the card rendered inline |
+| prompt | runs | block | what the model did |
+|---|---|---|---|
+| "Compare Bun and Node.js as a runtime for a small CLI tool. Keep it short." | 4 | 0 | a markdown table every time, six rows, then prose |
+| the same without "Keep it short" | 1 | 0 | prose sections, then a smaller markdown table |
+| "How did the number of notes in this brain trend over the last months? Show me the trend." | 1 | 1, `trend` | read git history with Bash, computed the running total, called the tool once; the chart rendered inline |
+| "Who is the person this brain belongs to?" | 1 | 1, `contact` | searched the brain, called the tool once; the card rendered inline |
 
-Two of three. The miss is the one the brief names first and most plainly
-— "a `comparison` when the reader is choosing between options" — and the
-model drew the exact thing the brief forbids ("never a markdown table
-where a block fits"). One sample is not a rate; before touching the brief,
-run the comparison prompt five times and see whether the miss repeats.
-If it does, the likely lever is the description rather than the brief:
-the model reads the tool description when it considers the tool, and a
-comparison is the block it can most easily produce as markdown without
-considering any tool. A sentence at the top of the description saying
-that a markdown table in an answer is a comparison block that was not
-drawn may be enough. Do not add lines to the brief for this; it rides
-every turn.
+The comparison miss is not a prompt-wording problem. The brief was revised
+mid-run to LEAD with the rule ("Never write a markdown table; call
+`show_block` instead"), and the description gained a first-line "if you
+are about to write a markdown table, stop and call this" sentence; two of
+the five comparison runs were after that change. A meta-prompt in a fresh
+chat then quoted the revised sentence back verbatim, so the model reads
+the rule, and it still typed the table. The revised brief stays (twelve
+lines, no worse), but the next lever is structural, not textual, and it
+is a separate decision:
+
+- Render GFM tables in `MarkdownContent` through the kit's `DataTable`
+  (or `ComparisonTable` when the first column reads as criteria). The
+  model's habit becomes harmless because the surface draws what it typed
+  in the kit's shape; `show_block` stays the path for everything a table
+  cannot carry (tones, a recommended column, a footnote). This is a
+  markdown-surface change with no prompt cost and no contract change.
+- Or a `PreToolUse`-style nudge on the Claude side is not available for
+  text output, so there is no server-side hook to intercept a table.
+
+Trend and contact are one run each, which is a demonstration, not a rate.
 
 **pi is unmeasured.** The test deployment (`brain-ui` on this machine)
 configures only the Claude backend, so the pi rate is an open item, not a
