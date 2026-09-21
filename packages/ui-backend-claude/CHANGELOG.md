@@ -1,5 +1,26 @@
 # @schlessera/brain-backend-claude
 
+## 0.36.0
+
+### Minor Changes
+
+- edb547b: Both backends register `show_block` and auto-allow it. It needs nothing from
+  the host bridge, so it is always present: the Claude backend's `brain-ui` MCP
+  server now exists on every turn (as `mcp__brain-ui__show_block`), and pi's
+  bridge tool list carries it unconditionally, classed `read` in the risk table
+  because it touches nothing. The system-prompt brief names it on both.
+
+### Patch Changes
+
+- Updated dependencies [9827a47]
+- Updated dependencies [bbc90ab]
+- Updated dependencies [6b57843]
+- Updated dependencies [b3a3ffd]
+- Updated dependencies [2c9e5d3]
+- Updated dependencies [edb547b]
+- Updated dependencies [f5512f7]
+  - @schlessera/brain-ui-sdk@0.36.0
+
 ## 0.35.0
 
 ### Patch Changes

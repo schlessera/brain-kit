@@ -1,5 +1,181 @@
 # @schlessera/brain-ui-sdk
 
+## 0.36.0
+
+### Minor Changes
+
+- 9827a47: `message_blocks` (protocol rev 4, additive) and the classification module
+  (D42). A host may classify a finished turn's assistant markdown into the
+  kit's answer blocks and send one `message_blocks` frame after the turn's
+  `result`; replayed history carries the same objects on `blocks`. The SDK
+  holds the deterministic half — `detectCandidates` walks a text part's
+  markdown for tables, ordered lists, timed lists, blockquotes and
+  key-value runs with exact character spans — and the catalogue that
+  generates one classifier request from the candidates and turns the answers
+  back into D41's `Block` union, re-validated against the block schema. No
+  network here: the transport is the server's.
+
+  Code spans and emphasis inside a candidate flatten to their text; only
+  links, images and raw HTML keep a candidate as markdown, since those are
+  the inline forms whose meaning a plain cell would lose.
+
+- bbc90ab: Map geometry for anywhere, not just the five fixture locations.
+
+  `MapView` draws whatever `[lon, lat]` paths it is handed and fetches nothing —
+  that is D13 and it stays that way. What was missing was the other half: a
+  server that can produce those paths for an arbitrary place. Without it the kit
+  had real coastline for five Mediterranean islands and a bare graticule
+  everywhere else, which is a demo rather than a feature.
+
+  `@schlessera/brain-ui-sdk/server` gains `fetchCoastline` and the pure geometry
+  behind it — `clipLine` (Liang-Barsky), `simplify` (Douglas-Peucker),
+  `toleranceMetres` and `prepare`. The build-time fixture pipeline shells out to
+  mapshaper, which is 15 MB and 31 dependencies for exactly two operations;
+  pulling that into a server to run per request would be the wrong trade. What
+  must NOT be hand-rolled is polygon ring closure, which D25 measured getting
+  three of five locations wrong — that is fill, and this does not attempt it.
+
+  Validated against the tool it replaces rather than assumed: the same Overpass
+  response through both pipelines gives **identical extents to four decimal
+  places**, with 16% more vertices and more separate polylines because mapshaper
+  joins contiguous ways.
+
+  `@schlessera/brain-ui-server` gains `GET /api/geo/coastline?bbox=w,s,e,n`,
+  fetched once and cached on disk forever. The cache is not an optimisation, it
+  is what makes using a free shared service defensible: Overpass's usage policy
+  is written for light interactive use, and one request per place ever is that.
+  Coastlines do not move, so there is deliberately no TTL. Keys are quantised to
+  ~110 m and bucketed by render width so near-identical views share an entry, and
+  concurrent requests for one place collapse to a single fetch.
+
+  It cannot return a 500. Every failure path is empty geometry with a 200,
+  because a map without coastline is still a correct locator and a 500 is a chat
+  message that will not render. An empty result is never cached, so an outage
+  does not become permanent.
+
+  Four new environment variables, all optional: `BRAIN_UI_COASTLINE`,
+  `OVERPASS_URL`, `OVERPASS_USER_AGENT`, `COASTLINE_CACHE_DIR`.
+
+- 6b57843: Add UI roots and a React provider with independent stores, persistence, request
+  caches, renderer/ASR registries and WebSocket lifetimes. Store hooks select from
+  the nearest provider; connection handlers close over that same root. Multiple
+  consumers share one socket within a root, and disposing it releases its resources.
+
+  Add an ASR registry factory to the SDK. The default application entry points
+  remain available. Component API/config migration is still in progress, so this
+  does not yet make the entire application safe for separate backends in one page.
+
+- b3a3ffd: Map geometry picks its detail from how much ground fits on screen.
+
+  A coastline is the right answer for a region and the wrong one for a street: at
+  a kilometre across, a shoreline is one curve at the edge and the map is empty
+  except for its own pins. `fetchCoastline` now chooses between three tiers —
+  shape only, the road network, every street — and the caller does not ask, so it
+  cannot get it wrong.
+
+  The thresholds are the same one-pixel reasoning the simplification tolerance
+  uses, applied to the SPACING of a feature class rather than to its detail.
+  Major roads sit roughly a kilometre apart and read as a network below ~40 m/px;
+  minor streets sit roughly a hundred metres apart and need ~8 m/px before they
+  are twelve pixels apart. `detailFor(bbox, widthPx)` is the rule, and `detail`
+  on the request forces a finer tier for the one case a size rule cannot see — a
+  single shoreline curve at a span the rule calls coastline-sized.
+
+  Each tier's query now degrades on its own. The street tier is three sequential
+  requests and a free service under load refuses them individually; all-or-nothing
+  threw away a perfectly good coastline because the minor streets timed out. The
+  result reports `partial` when that happens, and the server route declines to
+  cache a partial — the cache has no TTL, so a bad afternoon would otherwise
+  become a street map that never gets its streets.
+
+  `GET /api/geo/coastline` takes `detail=` and keys its cache by tier: the same
+  box at the same width can legitimately be asked for at two levels, and serving
+  the coarse one for the fine request draws an empty map.
+
+- 2c9e5d3: MapView: a subtle land fill, and a projection that no longer stretches.
+
+  **Land.** A coastline stroke says where the edge is and not which side of it is
+  water, which is the first thing a reader needs. `MapView` gains a `land` prop —
+  separate from `paths`, because a route is a line somebody travelled and land is
+  the ground it was travelled over — drawn as one `<path>` with `fill-rule:
+evenodd` so a lagoon inside an island comes out as a hole. `--bk-map-land` is 6%
+  white; 3.5% was tried first and was genuinely invisible.
+
+  Islands only, and that is a measured decision rather than a limitation accepted
+  by default. An island's coastline stitches head-to-tail into a closed loop and
+  is land beyond argument; a mainland shore has to be closed against the viewport,
+  which D25 measured getting three of five locations wrong. Verified before
+  building that OSM's land-on-the-left winding holds — 486 of 486 closed rings
+  counter-clockwise — so the mainland case is now a contained second step rather
+  than a research problem.
+
+  `@schlessera/brain-ui-sdk/server` gains `closedRings` and `prepareLand`. Ring
+  simplification splits at the two most distant vertices so the loop cannot be
+  opened, and land is built from RAW ways: clipping and simplifying both move
+  endpoints, and a way whose endpoint moved no longer meets its neighbour.
+
+  **The projection.** It mapped longitude across the full width and latitude
+  across the full height independently, so a degree of each stopped being the same
+  distance on screen — an island got wider as the window did and the scale bar was
+  only true east-west. The projection is now built for the width the card actually
+  is, and the bbox is expanded on its short axis until one pixel is the same
+  distance both ways. Expanded, never cropped: a wider card shows more ground at
+  the same scale rather than the same ground stretched.
+
+  `spanKm` consequently means the span across the WIDTH. Applied to both axes it
+  made a card captioned "18 km" draw forty, because with one scale a minimum on
+  the short axis lets the long one show roughly twice it.
+
+- edb547b: `show_block`: the kit's answer blocks reach the model through one tool (D41).
+
+  A new tool component contract, `SHOW_BLOCK_CONTRACT`, whose argument is a
+  discriminated union of eleven data-only blocks — `comparison`, `stats`,
+  `trend`, `table`, `bars`, `receipt`, `steps`, `timeline`, `schedule`, `quote`
+  and `contact` — each mirroring the props of the kit component that draws it.
+  The tool has no side effect: `handleShowBlock` validates and echoes, so the
+  payload is the input and it needs no bridge. It joins `BRIDGE_TOOL_CONTRACTS`
+  and the auto-allow posture, `SurfaceTools` gains `block`, and the generated
+  prompt paragraph carries a brief that says when a block beats prose while the
+  description carries the shape rules. The schema's tone lists are exported as
+  runtime constants so a consumer can assert them against the kit's unions.
+
+  The brief leads with the one rule the model most often breaks — never a
+  markdown table, call the tool — and the description opens with the same
+  redirect, because a table the model would have typed is a `comparison` or
+  a `table` block that was not drawn.
+
+- f5512f7: Tool component contracts: one declaration per tool, read by both halves.
+
+  A tool that renders as a component was previously described in four places at
+  once — a name constant, a description constant, an input schema, a payload
+  interface the handler happened to return, and a hand-written paragraph in the
+  system prompt. Nothing tied them together, so a tool could be schema'd and
+  never described to the model, and a renderer could be typed for a payload the
+  handler had stopped sending.
+
+  `@schlessera/brain-ui-sdk/tool-contracts` is now the single declaration:
+  `{ name, description, input, brief }`, plus `payload` for a tool whose result
+  is meant to be drawn rather than read. It is React-free and free of node
+  built-ins, so the server builds its tool definitions and prompt brief from the
+  same object the browser parses payloads with. The four bridge tools —
+  `ask_user`, `get_current_location`, `request_image_mask`, `query_activity` —
+  are declared there; the handlers stay in `/server` and both barrels re-export
+  the contracts, so backend import sites are unchanged.
+
+  What this closes:
+
+  - The prompt's tool paragraph is GENERATED from the contract list. Adding a
+    contract without deciding how a backend declares its tool is a `tsc` error.
+  - Payload schemas are bound to their interfaces in both directions by a
+    compile-time equality test, so a schema that drifts from what the handler
+    returns fails the typecheck rather than a renderer at runtime.
+  - `pi`'s `request_image_mask` now serialises its payload into `output` like
+    every other payload tool, instead of reporting a sentence. That is a
+    deliberate change to what the model sees, and it carries the `note` field pi
+    used to drop.
+  - Both backends convert input schemas through one helper, so the same tool
+    advertises the same JSON Schema on either adapter.
+
 ## 0.35.0
 
 ### Minor Changes

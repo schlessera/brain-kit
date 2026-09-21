@@ -1,5 +1,322 @@
 # @schlessera/brain-ui-react
 
+## 0.36.0
+
+### Minor Changes
+
+- da15281: `ask_user` is an exchange, and a mask is a receipt (D38 §1, §2).
+
+  The hand-drawn ask-user card with its collapsed summary row retires for the
+  kit `AskUserCard`, one per question, in the three states the design ruled:
+  `pending` (options, one focus stop; "Other" opens the kit's field in place of
+  the Submit row), `answered` (the chosen answer with when — the alternatives
+  are gone, not dimmed, because they were never the record) and `typed`. All
+  three stay in the transcript at full contrast; nothing rolls up. A dismissed
+  question keeps its card with no options and a neutral note.
+
+  `typed` is new behaviour: a composer send while a single-question exchange is
+  pending is the ANSWER to it. The text goes out as `ask_user_response` and the
+  card quotes what it took under a neutral border — nothing is sent as a chat
+  message. A multi-question prompt keeps its cards' own Submit (the server
+  resolves the whole request on the first response, so binding a typed reply to
+  one question would strand the rest). Option previews follow focus, as the
+  contract says, in both single- and multi-select questions. The exchange records `typed` and
+  `answeredAt`; both are live-only, because the persisted tool output carries
+  neither, so a resumed transcript shows a typed answer as a plain answered one
+  with no time rather than one it made up.
+
+  `request_image_mask` renders through its contract like the location card: a
+  hatched source thumb (no remote image inline) above a kit `Receipt` with the
+  rows its payload actually carries — source and mask — and a red mono
+  `Callout` stating a declined mask from the result's own words. The design
+  also draws a region and a coverage figure; the payload has neither yet, and
+  the card invents neither.
+
+- e738d3e: In-chat tool results render from their contract, on every backend.
+
+  `bind(contract, Component)` types a component as the contract's payload and
+  parses the tool's `output` through the same schema before rendering it. Drift
+  is a `tsc` error — binding a component the payload does not fit, or reading a
+  field the tool stopped sending, both fail the typecheck — and a result that
+  does not parse falls back to its raw output rather than blanking the row, which
+  is what a denial, a timeout or an older server actually produces.
+
+  The first binding is `get_current_location`, which also closes a real gap: it
+  had a renderer only under Claude's `mcp__brain-ui__` name, so the identical
+  tool on the pi backend rendered as raw JSON and a resumed transcript carrying
+  the pre-rename prefix did too. A bound contract registers every spelling of its
+  name, globally, because the tool is the chat UI's own rather than any one
+  backend's.
+
+  `isLocationTool` is gone with it — it was never called, and it could only ever
+  recognise one of the three names.
+
+- babc668: Classified blocks render in place (D42). `MarkdownContent` takes the
+  `message_blocks` a host sends after a turn, cuts the text part at each
+  block's span, and draws the kit block between the markdown pieces through
+  the same `BlockCard` that renders `show_block`. History carries the blocks
+  on replay. A message without blocks renders exactly as before; a span that
+  does not fit the text is ignored rather than rendered blank.
+
+  A `message_blocks` frame is targeted by the turn it belongs to, since a
+  queued follow-up may have opened a newer assistant message by the time the
+  pass returns, and it never reopens a finished session's running badge.
+
+  The first scoped delta stamps the host's turn id onto the assistant
+  message the composer opened optimistically, so the turn-targeted frame
+  finds it; a frame whose turn no message carries lands on the last
+  finished assistant message, never a streaming one.
+
+- 6b57843: Add independent UI configuration and REST client factories with per-request URL resolution for isolated UI roots.
+- 6b57843: Add UI roots and a React provider with independent stores, persistence, request
+  caches, renderer/ASR registries and WebSocket lifetimes. Store hooks select from
+  the nearest provider; connection handlers close over that same root. Multiple
+  consumers share one socket within a root, and disposing it releases its resources.
+
+  Add an ASR registry factory to the SDK. The default application entry points
+  remain available. Component API/config migration is still in progress, so this
+  does not yet make the entire application safe for separate backends in one page.
+
+- 7e829a8: A `show_block` result renders as the kit block it names, inline in the answer.
+
+  `BlockCard` is one switch typed by the contract's payload, handing each
+  variant to its kit component — `ComparisonTable`, `StatTiles`, `TrendChart`,
+  `DataTable`, `BarList`, `Receipt`, `StepList`, `TimelineList`,
+  `ScheduleList`, `QuoteCard`, `ContactCard` — so a schema field the kit does
+  not accept is a `tsc` error, and a type-level test holds the schema's tone
+  lists equal to the kit's unions. The transcript draws a parsed block at the
+  call's chronological position, the way an `ask_user` exchange is drawn, rather
+  than inside the tool timeline; a call whose result does not parse (a rejected
+  argument, an older server) stays in the timeline, where the bound fallback
+  shows the result's own words. The collapsed summary reads the shape:
+  `comparison · 3 columns · 4 rows`. Icon keys the kit does not know are
+  dropped before they reach the kit, which would otherwise draw an empty box.
+
+  Omitted optional text fields are handed to the kit as empty strings: the kit
+  ports the design's demo defaults, so a quote with no source would otherwise
+  cite the fixture world's forecast and a contact with no label would be
+  Penelope. Icon keys are checked as own properties, so `constructor` is not
+  an icon.
+
+- b1e7640: The app shell follows the light theme (D39).
+
+  `theme.css` declared every utility colour as a literal dark hex, so under
+  `data-theme="light"` the kit's cards turned to paper while the page, the rail
+  and every `bg-surface` / `text-foreground` element around them stayed dark.
+  Every `--color-*` is now the kit's own `--bk-*` token, declared `@theme
+inline` so the utility carries the token and it resolves where it is used;
+  the prose blocks and the filament use the tokens by name too. The app types
+  no colour of its own, in either theme.
+
+  Ink and fill are named apart, as the kit names them: `primary`, `accent` and
+  `destructive` are the inks (text, borders, rings) and `primary-fill`,
+  `accent-fill`, `destructive-fill` are the fills (backgrounds, solid or with an
+  alpha), with `primary-foreground` the ink that sits on a fill, and `primary-mark`, `accent-mark`, `destructive-mark` for a dot of six to eight pixels, where a fill falls under 3:1 on paper. A consumer that
+  used `bg-primary` on its own elements should move to `bg-primary-fill`; the
+  ink name still exists and is now a dark amber on paper.
+
+  The four component files that used Tailwind's palette (`text-amber-100`,
+  `bg-amber-950/90`, the diff's red and emerald) use token utilities instead.
+  `tests/theme-neutral.test.ts` holds the package to this: no hex or rgb
+  literal in `theme.css`, no palette class in `src/`, and a hex in source only
+  in the files that draw on a canvas, each with a written reason.
+
+- 84f26d1: The graph canvas and mermaid diagrams follow the theme, from the kit's canvas
+  palette (seventh drop, rulings 1, 3 and 4).
+
+  A real regression first. `useGraphTheme` read the kit's tokens with
+  `getComputedStyle` and handed the strings to sigma; since the kit's light
+  theme every token is a `light-dark(<paper>, <dark>)` expression, which a
+  custom property returns verbatim and a canvas `fillStyle` silently rejects.
+  Checked in a browser, the dark theme's node labels were drawing in the canvas
+  default black on the dark ground, with a black outline — unreadable — and the
+  paper theme's labels were black by the same accident. `lib/light-dark.ts` now
+  splits the expression on the scheme in force; `useColorScheme` follows the
+  store's preference and, under `system`, the OS, so the hook re-resolves on a
+  switch and the canvas re-applies the label ink, the label drawers and every
+  node and edge colour in place. Labels always take the ink, never a node's
+  colour.
+
+  The palettes are the kit's `--bk-canvas-*` tokens, read for the theme:
+  `communityColor`, `distanceColor` and `assignFolderColors` take the resolved
+  palette from `useGraphTheme().palette` rather than module constants, the
+  maintenance lenses come from the same place, and the legends and the node
+  card read the same values as the canvas. On paper the nodes wear the
+  design's paper set at 3:1 against the canvas; slot order is unchanged.
+  `mermaidThemeVariables` builds both themes from the kit's diagram surfaces,
+  the slot series and the accent inks, so a diagram in the transcript is drawn
+  for the scheme the page is in (re-rendered on a switch, cached per scheme)
+  and a shared export takes the paper surfaces. A bar that carries near-black
+  text — an active, done or critical task — is a fill, never an ink.
+  Three source files that used to carry hex literals carry none now, and the
+  theme gate's allowlist is down to the two files whose colours are not the
+  theme's.
+
+  Prose tints follow the kit's rule: a ground takes the fill hue (the table
+  row's hover, the blockquote's ground, a file link's hover ground) and a line
+  takes the ink hue (a link's underline at rest and hovered, the file link's
+  dotted underline). And a bare mark takes the mark value at every size: the
+  timeline's status dot, the dictation sheet's live dot, its pulse ring and its
+  level bars move from `bg-*-fill` to `bg-*-mark`, because an accent fill sits
+  under 3:1 on paper at any diameter. Buttons and badges that put
+  `text-primary-foreground` content on a fill are unchanged.
+
+- 4d28f20: The desktop, on the design's ladder: the phone bar to 479px, the rail
+  collapsed from 480 and expanded from 900, a fourth pane from 1440. From
+  `laptop:` up Settings is a pane with a 216px section column and a 720px
+  measure; Files is tree · reading · frontmatter rail; Actions is list ·
+  detail · trace rail; Graph is controls column · canvas · node rail with the
+  selected node as a `ContactCard`. Below `laptop:` every screen keeps its
+  phone shape.
+- 004935e: The desktop rail is the kit's `SideRail`: five destinations (Chat, Activity
+  with the inbox count, Files, Graph, Settings) reachable by ⌘1–⌘5 or Ctrl,
+  collapsed to the 60px icon rail below 900px and expanded above, with the
+  socket state on the wordmark's line. The actions the old rail carried — New
+  chat, Sessions, Sync, the daily briefing, Search, Add a note, Statistics —
+  move to a ⌘K palette on the kit's `CommandPalette`, which filters as you
+  type, runs the selected row on ⏎ and closes on esc; Sync shows its effect
+  chip, and the commands that need the socket are left out while it is down.
+
+  `theme.css` now imports the kit's `tokens.css` itself, so a Tailwind consumer
+  that imports only `theme.css` gets the `--bk-*` values the kit components
+  read; before, such a consumer rendered every kit surface colourless.
+
+- 4f36ba3: Five destinations everywhere (D37): Chat · Actions · Files · Graph · Settings
+  on the rail and the phone bar, with Settings folded into More — a kit
+  `BottomSheet` holding Settings and the acts (Sessions, Sync, Daily briefing,
+  Brain statistics). Activity becomes Actions: one queue with three lenses
+  (`needs you` — pending approvals from every transcript, then the inbox;
+  `running`; `done`), and a drained section becomes the empty state whose
+  heading takes focus, with the receipt above it. New chat is the Chat header's
+  action and a palette row. The ⌘K palette groups by what ⏎ does (Jump to ·
+  Ask · Run), prints a cost chip on the briefing, shows unservable commands
+  disabled with their reason, and types into a real input. The composer is the
+  kit `Composer`: capture is a menu behind the paperclip, the provider chip
+  sits in the hint line, and the connection state drives placeholder, hint and
+  send/stop together. The location card passes accuracy and note through to
+  the kit map. Settings › Input carries the single-key switch as the design
+  draws it.
+- 427b735: First step of the app onto the design kit: `@schlessera/brain-ui-kit` is a
+  dependency, its `tokens.css` is part of the app stylesheet, and the phone's
+  bottom navigation is the kit's `TabBar` (roving tab stop, amber active slot,
+  red inbox badge; the More menu stays app-owned). Settings gains a three-way
+  theme toggle (system / paper / dark), persisted per root and written to
+  `<html data-theme>` by `AppShell`.
+- d257ee1: The `get_current_location` result is a map. The card renders the kit's
+  `MapView` with the fix as its pin, widens the view when the accuracy is
+  coarse, and fetches the shoreline and roads around the fix from the server's
+  `/geo/coastline` route, credited to OpenStreetMap when geometry is drawn. With
+  no server, an older server or an outage the map keeps its pin, graticule and
+  scale bar. The API client gains `geoCoastline(bbox, { width, signal })`, and
+  the kit exports the `MapLand` type beside `MapPath` and `MapPin`.
+- aaedb6a: The six fetch-on-mount components are split into a container that owns the
+  request and its cancellation, and a view rendered from props on kit
+  primitives: `PushToggle` renders `PushSwitch`, `LoginScreen` renders
+  `LoginForm`, `WebSearchSection` renders `WebSearchChain`, `PasskeyTab` renders
+  `PasskeyList`, `SkillsTab` renders `SkillsList` and `SkillEditor`, `AddPanel`
+  renders `AddForm`, and the sync and briefing panels render `StreamingOutput`
+  and `BriefingOutput`. Switches are the kit's `Toggle`; buttons are the kit's
+  `Button`; loading and empty states are the kit's `Placeholder`. The muted
+  foreground colour follows the kit's floor to `#9a96a1`.
+- 84f26d1: The chat surfaces follow the design's seventh drop.
+
+  - Multi-select `ask_user` questions render on the kit `AskUserCard` with `multi`: checkbox options in a labelled group, "Other" toggling like any row and opening the free-text field while it is on, previews following focus as before. The app's own checkbox rows are gone. An answered multi-select lists every pick and counts them in the head; a typed "Other" answer joins the other picks instead of replacing them.
+  - A dismissed question is the kit's gold `dismissed` state rather than a pending head with a note, and it offers "Ask again". The server resolved the request when the turn ended, so asking again reopens the card locally; a submit from a reopened card goes out as an ordinary composer message that quotes the question and the chosen answer(s), and its Dismiss closes it again without sending anything.
+  - The `request_image_mask` receipt states an absent region instead of omitting the row: `region · region not recorded`, in gold. When the result reports mask bytes, the mask file is drawn over the hatched thumb from the files API, with the teal region fill showing through its transparent pixels; when it reports none, the thumb shows the source alone under a mono "mask not rendered" line.
+  - The Edit tool's diff renders through the kit `DiffBlock` in its tinted mode. The app's word-level highlight inside a changed line pair had no equivalent in the design — the sign column and the row grounds are its whole vocabulary — so it was dropped, and `lib/diff.ts` is a line diff plus `diffText`, the signed text the kit reads.
+  - The Actions page's approval card applies the same button rule as the kit card: Allow takes the remaining width, Deny is content-sized with a 96 x 44 floor. Its title already wraps.
+
+- d94ddf9: Single-key shortcuts, focus-scoped. `a` and `d` decide the in-chat approval
+  card that holds focus and are printed on its Allow and Deny buttons; `j` and
+  `k` move between the Activity inbox's cards and `d` dismisses the focused
+  one, printed in the list's footer. A decision hands focus to the next card,
+  else the previous, else the composer or the page heading. Settings gains an
+  off switch for the letters (WCAG 2.1.4), persisted per root; ⌘K and ⌘1–⌘5
+  are not governed by it.
+- 6b212a7: The sixth drop's pane rulings (D38 §3, §4, §7, §8).
+
+  The Files evidence rail never collapses: with a file open the column stays
+  mounted and each block is drawn only when its data exists. A Modified block
+  is built from the file's own `mtime` against a 30-day threshold (the design
+  gives no number; the constant is named) and turns gold past it, and the tree
+  marks a stale file the same way. "Untrusted only" is drawn disabled with its
+  reason — provenance does not exist yet — never omitted. The tree binds `←` /
+  `→` to fold through the kit `FileRow`'s new `onFold`, and the footer prints
+  `← → fold · ⏎ open` regardless of the single-key switch, since arrows are not
+  single keys.
+
+  Dismissing inbox items is silent: no receipt without undo. Approval decisions
+  keep theirs, because their effect happens in the run, out of sight.
+
+  The graph's colouring modes gain `entity` (person · company · project, the
+  kit's own entity tones) beside topic, distance and folder; the caption and
+  the legend follow the active rule.
+
+### Patch Changes
+
+- b9e2390: The map's fetch envelope is 1.5 spans across by 1.0 down (D38 §9), replacing
+  the square 2.4-span bleed of which only 23% could ever be drawn. The kit's
+  fixture generator and the app's live location card share the rule; all six
+  geo fixtures were regenerated and the set stays under its size guard.
+- 5405fce: Bind activity lists, run details, digests, device management and remembered tool
+  grants to their UI root. Ignore responses from previous roots and superseded
+  activity refreshes, clear old detail metadata, and preserve delayed one-time
+  credentials in the root that issued them.
+- 632f439: Bind login and passkey management to their UI instance's API and configuration.
+  Ignore stale login and credential-management responses after switching instances,
+  and prevent superseded passkey ceremonies from submitting verification results.
+- 77c35a6: Bind media, sharing, branding and remaining session/graph requests to the UI root, and discard stale completion state.
+- 886273f: Bind model settings and pi account flows to their UI root. Preserve queued model
+  write ordering across root switches, reject stale catalog and login responses,
+  and stop cancelled or inactive login polls from replacing a newer flow.
+- 20ee5c9: Bind push controls and post-login subscription registration to their UI instance.
+  Ignore stale browser and server responses, reset connection-gate probe/retry
+  state on instance changes, and require an explicit Enable click before replacing
+  a browser subscription bound to a different server key.
+- 6f86c62: Bind search, capture, sync and briefing requests to their UI root. Switching
+  roots clears stale results and capture completions; cancelling or replacing a
+  stream closes its reader without allowing old responses to overwrite the new
+  panel or disable its Cancel button.
+- 67e37c5: Bind skill management and web-search settings to their UI root. Clear drafts
+  when switching roots and ignore late loads, saves, installs and failures so
+  another root's editor, API-key draft and pending state remain intact.
+- 6230c26: The Settings pane's Close button is inside the viewport again: the kit
+  `ScreenHeader` is `width: 100%`, so it needs a shrinking flex child around it
+  in the header row, as the Files pane already had. A closed drawer no longer
+  casts its 48px shadow into the viewport from just past the right edge: the
+  shadow fades with the slide-out, and a closed drawer takes no pointer events.
+- Updated dependencies [9827a47]
+- Updated dependencies [bbc90ab]
+- Updated dependencies [6b57843]
+- Updated dependencies [b3a3ffd]
+- Updated dependencies [b9e2390]
+- Updated dependencies [2c9e5d3]
+- Updated dependencies [edb547b]
+- Updated dependencies [f5512f7]
+- Updated dependencies [9e5469c]
+- Updated dependencies [43d7014]
+- Updated dependencies [1d67cf1]
+- Updated dependencies [9d5c255]
+- Updated dependencies [7e829a8]
+- Updated dependencies [79dd9cb]
+- Updated dependencies [84af26d]
+- Updated dependencies [2a58a6f]
+- Updated dependencies [bc3a26d]
+- Updated dependencies [b5a64a1]
+- Updated dependencies [c516e43]
+- Updated dependencies [2a58a6f]
+- Updated dependencies [c659605]
+- Updated dependencies [86a79f2]
+- Updated dependencies [2a58a6f]
+- Updated dependencies [1d67cf1]
+- Updated dependencies [192f004]
+- Updated dependencies [d8e3103]
+- Updated dependencies [e878d87]
+- Updated dependencies [2a58a6f]
+- Updated dependencies [d257ee1]
+  - @schlessera/brain-ui-sdk@0.36.0
+  - @schlessera/brain-ui-kit@0.36.0
+
 ## 0.35.0
 
 ### Minor Changes

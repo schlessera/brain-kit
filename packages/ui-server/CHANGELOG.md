@@ -1,5 +1,77 @@
 # @schlessera/brain-ui-server
 
+## 0.36.0
+
+### Minor Changes
+
+- 804c94a: The classification pass (D42): with `TYPESAFE_API_KEY` set, one call to
+  TypeSafe AI's Jev per finished turn, and only when the assistant text holds
+  a candidate, decides which of the kit's answer blocks each markdown table,
+  list, quote or key-value run is. The result is one `message_blocks` frame
+  after the turn's `result`, persisted per text part so history replays it.
+
+  Progressive enhancement is a hard rule: the whole call, one retry on
+  429/529 included, runs inside a 2 s budget, and a timeout, an error, a
+  missing key, or a low-confidence answer all leave the markdown exactly as
+  it streamed. No turn waits on the pass. Outcomes and latency are metered.
+  A classifier that keeps failing is not asked: after three consecutive
+  failures a breaker opens and the pass is skipped for 30 s, doubling on
+  each failed probe up to 30 minutes, so a dead vendor or a bad link costs
+  one probe per window rather than a budget's worth of waiting per answer.
+
+  Persisted blocks are keyed by the exact text of the part, never a
+  whitespace-normalised form: the spans are offsets into that text, and a
+  differently laid-out part must not inherit them.
+
+- bbc90ab: Map geometry for anywhere, not just the five fixture locations.
+
+  `MapView` draws whatever `[lon, lat]` paths it is handed and fetches nothing —
+  that is D13 and it stays that way. What was missing was the other half: a
+  server that can produce those paths for an arbitrary place. Without it the kit
+  had real coastline for five Mediterranean islands and a bare graticule
+  everywhere else, which is a demo rather than a feature.
+
+  `@schlessera/brain-ui-sdk/server` gains `fetchCoastline` and the pure geometry
+  behind it — `clipLine` (Liang-Barsky), `simplify` (Douglas-Peucker),
+  `toleranceMetres` and `prepare`. The build-time fixture pipeline shells out to
+  mapshaper, which is 15 MB and 31 dependencies for exactly two operations;
+  pulling that into a server to run per request would be the wrong trade. What
+  must NOT be hand-rolled is polygon ring closure, which D25 measured getting
+  three of five locations wrong — that is fill, and this does not attempt it.
+
+  Validated against the tool it replaces rather than assumed: the same Overpass
+  response through both pipelines gives **identical extents to four decimal
+  places**, with 16% more vertices and more separate polylines because mapshaper
+  joins contiguous ways.
+
+  `@schlessera/brain-ui-server` gains `GET /api/geo/coastline?bbox=w,s,e,n`,
+  fetched once and cached on disk forever. The cache is not an optimisation, it
+  is what makes using a free shared service defensible: Overpass's usage policy
+  is written for light interactive use, and one request per place ever is that.
+  Coastlines do not move, so there is deliberately no TTL. Keys are quantised to
+  ~110 m and bucketed by render width so near-identical views share an entry, and
+  concurrent requests for one place collapse to a single fetch.
+
+  It cannot return a 500. Every failure path is empty geometry with a 200,
+  because a map without coastline is still a correct locator and a 500 is a chat
+  message that will not render. An empty result is never cached, so an outage
+  does not become permanent.
+
+  Four new environment variables, all optional: `BRAIN_UI_COASTLINE`,
+  `OVERPASS_URL`, `OVERPASS_USER_AGENT`, `COASTLINE_CACHE_DIR`.
+
+### Patch Changes
+
+- Updated dependencies [9827a47]
+- Updated dependencies [bbc90ab]
+- Updated dependencies [6b57843]
+- Updated dependencies [b3a3ffd]
+- Updated dependencies [2c9e5d3]
+- Updated dependencies [edb547b]
+- Updated dependencies [f5512f7]
+  - @schlessera/brain-ui-sdk@0.36.0
+  - @schlessera/brain-render-template@0.36.0
+
 ## 0.35.0
 
 ### Minor Changes
