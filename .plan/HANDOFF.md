@@ -1054,7 +1054,41 @@ reviewed by Codex, four findings, all fixed.
   separator, so the kit strips two. A deliberate one-line divergence,
   commented in `diffRows`.
 
-## Wave 14 is planned, not started — 2026-09-21
+## Wave 14 built, proof waiting on a key — 2026-09-21
+
+Everything in the wave 14 list is in but the live proof: the SDK
+detector and catalogue, the server pass with its 1 s budget, the rev 4
+frame, the in-place render, tests for every failure path including a
+classifier that never answers. No `TYPESAFE_API_KEY` exists on this
+machine, so the pass has run only against fakes.
+
+To run the proof:
+
+1. Get a key from console.typesafe.ai and export `TYPESAFE_API_KEY` in
+   the API server's environment (the dev server on this machine was
+   started with a scrubbed `env -i`, so add it to that command).
+2. `bun run build` in brain-kit, restart the Vite dev server so the
+   client picks up rev 4, restart the API server.
+3. Five fresh chats with "Compare Bun and Node.js as a runtime for a
+   small CLI tool. Keep it short." Count `[data-classified-block]` in the
+   DOM, and read the server log for `classification pass` lines: the
+   outcome, `classification.candidates`, `classification.blocks`, and
+   `duration.ms` per pass. Record swap rate, the latency spread, and the
+   timeout count here.
+4. The trend and contact prompts once each: `show_block` output must not
+   also be classified (its call is a tool part, not text, so the detector
+   never sees it; confirm there is no double draw).
+
+Two things to know before reading the numbers:
+
+- The classifier is asked about the candidate alone, never the prose
+  around it. If a comparison is misread as data, the lever is the
+  criteria text in `catalogue.ts`, not more context.
+- Thresholds (`CONFIDENCE` in the catalogue) start conservative: 0.6 to
+  swap, 0.8 for a tone or a recommended column. Lower only after reading
+  real confidences from the log.
+
+## Wave 14 was planned first — 2026-09-21
 
 D42 and the wave 14 list are the brief: one Jev pass per answer, only
 when the AST holds candidates, after the stream, with a 1 s timeout and
