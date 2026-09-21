@@ -217,6 +217,19 @@ afterEach(() => {
     settingsTab: "models",
     theme: "dark",
   });
+  // The chat store was the one this file never reset, and it leaked the
+  // thing hardest to see: `activeChat(state).isStreaming`. Nothing renders it
+  // directly, but several surfaces gate on it — `desktop-palette.tsx:77`
+  // turns an enabled row into "a turn is running" — so a test that left a
+  // buffer streaming changed what a LATER test's queries could find, and only
+  // when the two happened to run in that order. That is what made the
+  // DesktopPalette effect-chip test pass locally and fail on CI.
+  //
+  // Replace rather than merge: a partial reset leaves whichever buffer the
+  // previous test created, and `activeChat` reads through `activeSessionId`
+  // into `buffers`, so clearing one without the other still resolves to a
+  // stale chat.
+  useChatStore.setState(useChatStore.getInitialState(), true);
   delete document.documentElement.dataset.theme;
   useConnectionStore.setState({
     wsStatus: "disconnected",
@@ -3804,6 +3817,12 @@ describe("DesktopPalette on the kit CommandPalette", () => {
 
   test("with the socket live and no turn streaming, Sync carries its effect chip in its name", () => {
     useConnectionStore.setState({ wsStatus: "connected" });
+    // Both halves of the precondition, stated. `why` in desktop-palette.tsx
+    // needs `connected` AND `!isStreaming`, and this test used to set only the
+    // first — so it passed on whatever the previous test left behind. The
+    // afterEach above now clears the chat store, and this asserts the state
+    // the title claims rather than trusting it.
+    expect(activeChat(useChatStore.getState()).isStreaming).toBe(false);
     const view = render(<DesktopPalette />);
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(view.getByRole("option", { name: "Sync the brain, sync" }).getAttribute("aria-disabled")).not.toBe("true");
