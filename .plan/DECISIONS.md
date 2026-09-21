@@ -2149,8 +2149,10 @@ in one call, with the code doing every extraction and every render.
 2. **Progressive enhancement, never a dependency.** The answer streams
    and renders as markdown exactly as today; the pass runs after the
    stream ends and, when it returns, the client swaps classified blocks
-   in at their AST positions. The call carries a **1 s timeout**
-   (`AbortSignal.timeout(1000)`), one retry on 429/529 inside that
+   in at their AST positions. The call carries a **2 s timeout**
+   (`AbortSignal.timeout(2000)`; planned at 1 s, raised the same day the
+   live run measured Jev at 700–800 ms, which left no room for the
+   retry), one retry on 429/529 inside that
    budget, and no other retry. A timeout, an error, a missing key, an
    answer below the confidence threshold, or a candidate the transform
    cannot map all mean the same thing: the markdown stays. Nothing about

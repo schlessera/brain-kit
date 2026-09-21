@@ -797,7 +797,7 @@ Sequenced after the component waves but **before** step 2. Not optional.
       excludes `show_block` output, and returns an empty list for most
       answers. Unit tests per kind, plus the empty case
 - [x] Server: `classification/jev-client.ts` in ui-server — `@typesafe-ai/sdk`
-      behind a thin client with `AbortSignal.timeout(1000)`, one retry on
+      behind a thin client with `AbortSignal.timeout(2000)`, one retry on
       429/529 inside the budget, a counter and a log line per outcome
       (`skipped_no_candidates`, `swapped`, `kept_low_confidence`,
       `timeout`, `error`, `no_key`). `TYPESAFE_API_KEY` in the env schema,

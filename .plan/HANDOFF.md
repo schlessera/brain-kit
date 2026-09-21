@@ -1088,8 +1088,9 @@ Two things the live run found that the fakes could not:
   links, images and raw HTML still keep the candidate as markdown.
 
 Where the numbers point next: Jev answers in 700–800 ms on this
-connection, inside the 1 s budget with little slack. If timeouts appear
-in the counter on a slower link, the budget is the first knob, then the
+connection. The budget was 1 s during the run, which left no room for
+the retry; it is 2 s now (the user's call, the same day). If timeouts
+still appear in the counter on a slower link, the next knob is the
 question count per candidate (the comparison asks three). The swap rate
 is bounded by what the model types: most short comparison answers here
 were prose or bullets carrying links, which the detector correctly
@@ -1111,7 +1112,7 @@ per-question yet, which is the next thing to add before tuning.
 ## Wave 14 was planned first — 2026-09-21
 
 D42 and the wave 14 list are the brief: one Jev pass per answer, only
-when the AST holds candidates, after the stream, with a 1 s timeout and
+when the AST holds candidates, after the stream, with a 2 s timeout and
 markdown as the fallback for every failure. Three things to hold onto:
 
 - Progressive enhancement is a hard rule, not a preference. No code path

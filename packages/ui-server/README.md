@@ -266,7 +266,7 @@ persisted per text part so history replays the same blocks without a second
 call.
 
 The pass is progressive enhancement and nothing else. The whole call, one
-retry on 429/529 included, runs inside a 1 s budget; a timeout, an error, a
+retry on 429/529 included, runs inside a 2 s budget; a timeout, an error, a
 missing key, or an answer below the confidence threshold all mean the
 markdown stays exactly as it streamed. No turn waits on the pass and no
 answer can render worse for it having been asked. Outcomes are counted

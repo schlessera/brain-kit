@@ -280,7 +280,7 @@ Rules a consumer may rely on:
 
 - **The pass is progressive enhancement.** A turn's `result` never waits on
   it; the frame is absent, not late, when the classifier is unconfigured,
-  times out (the host's budget is about a second), errors, or answers below
+  times out (the host's budget is two seconds), errors, or answers below
   threshold. A consumer that renders markdown and ignores the frame is
   correct.
 - **Spans are exact for the text the host saw.** A span that does not fit

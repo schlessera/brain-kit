@@ -2,7 +2,7 @@
  * The transport to the classifier (D42 §2): one request, one budget.
  *
  * Progressive enhancement is the rule, so the whole call — one attempt plus
- * one retry on 429/529 — lives inside a single deadline (1 s by default).
+ * one retry on 429/529 — lives inside a single deadline (2 s by default).
  * A timeout, a non-2xx status, a malformed body, or a missing key all
  * resolve to `null` with an outcome the caller counts; nothing here throws
  * into a turn, and nothing here is awaited by anything that renders.
@@ -16,8 +16,12 @@ import type { Logger } from "@opentelemetry/api-logs";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 
-/** The budget one pass gets, end to end. The user's rule: about a second. */
-export const JEV_TIMEOUT_MS = 1000;
+/**
+ * The budget one pass gets, end to end. Raised from 1 s on 2026-09-21 after
+ * the live run measured Jev at 700–800 ms on this connection: a second left
+ * no room for the retry, and the pass is still nothing the answer waits on.
+ */
+export const JEV_TIMEOUT_MS = 2000;
 
 export type JevOutcome =
   | "answered"
