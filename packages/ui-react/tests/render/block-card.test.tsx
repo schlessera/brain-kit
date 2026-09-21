@@ -166,10 +166,41 @@ describe("BlockCard", () => {
     });
   }
 
+  test("a sparse block shows nothing the model did not say — never the kit's demo defaults", () => {
+    // The kit ports the design's demo defaults for optional text props; a
+    // block that omits them must not inherit the Odysseus fixture world.
+    const sparse: Block[] = [
+      { kind: "quote", quote: "Only these words." },
+      { kind: "contact", label: "Eurycleia" },
+      { kind: "trend", values: [1, 2, 3] },
+      { kind: "receipt", rows: [{ k: "k", v: "v" }] },
+      { kind: "comparison", columns: [{ label: "A" }, { label: "B" }], rows: [{ label: "r", cells: ["1", "2"] }] },
+    ];
+    for (const block of sparse) {
+      const { container } = render(<BlockCard block={block} />);
+      const shown = container.textContent ?? "";
+      expect(shown).not.toContain("teiresias");
+      expect(shown).not.toContain("line 12");
+      expect(shown).not.toContain("Penelope");
+      expect(shown).not.toContain("Ithaca");
+      expect(shown).not.toContain("Spend");
+      expect(shown).not.toContain("$8.50");
+      expect(shown).not.toContain("Capability");
+      expect(shown).not.toContain("standing grant");
+      expect(shown).not.toContain("Six men");
+      expect(shown).not.toContain("open threads");
+      expect(shown).not.toContain("Thu");
+      cleanup();
+    }
+  });
+
   test("an icon key the kit does not know is dropped, a known one passes", () => {
     expect(kitIcon("wallet")).toBe("wallet");
     expect(kitIcon("not-a-kit-icon")).toBeUndefined();
     expect(kitIcon(undefined)).toBeUndefined();
+    // Inherited keys are not icons: `"constructor" in ICONS` is true.
+    expect(kitIcon("constructor")).toBeUndefined();
+    expect(kitIcon("__proto__")).toBeUndefined();
     // The stats payload above carries one of each; both tiles render.
     const { container } = render(<BlockCard block={BLOCKS.stats} />);
     expect(container.textContent).toContain("Days");

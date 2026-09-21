@@ -16,3 +16,9 @@ argument, an older server) stays in the timeline, where the bound fallback
 shows the result's own words. The collapsed summary reads the shape:
 `comparison · 3 columns · 4 rows`. Icon keys the kit does not know are
 dropped before they reach the kit, which would otherwise draw an empty box.
+
+Omitted optional text fields are handed to the kit as empty strings: the kit
+ports the design's demo defaults, so a quote with no source would otherwise
+cite the fixture world's forecast and a contact with no label would be
+Penelope. Icon keys are checked as own properties, so `constructor` is not
+an icon.

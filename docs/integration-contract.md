@@ -113,7 +113,10 @@ pre-formatted string because the blocks do no arithmetic:
 Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
 `timeWidth`, …) are not part of the contract: the surface decides them.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
-is dropped rather than rejected.
+is dropped rather than rejected. `show_block` is the one payload parsed with
+its **input** schema rather than a loose one: the payload is the model's own
+argument echoed back, so a field the client's schema does not know is dropped
+from the rendered block rather than kept, and the block still renders.
 
 Rules a consumer may rely on:
 

@@ -364,7 +364,14 @@ export const SHOW_BLOCK_INPUT_SCHEMA = z.object({
 
 export type ShowBlockInput = z.infer<typeof SHOW_BLOCK_INPUT_SCHEMA>;
 
-/** The payload is the input: the handler validates and echoes. */
+/**
+ * The payload is the input: the handler validates and echoes. That makes this
+ * the one payload parsed with a strict tree (`z.object` strips unknown keys)
+ * rather than a loose one: the payload is the model's own argument, so there
+ * is no server-added field to preserve, and an older client parsing a newer
+ * variant field drops it from the rendered block and still renders. Stated
+ * in `docs/integration-contract.md` next to the additive-payload rule.
+ */
 export const SHOW_BLOCK_PAYLOAD_SCHEMA = SHOW_BLOCK_INPUT_SCHEMA;
 
 export type ShowBlockPayload = ShowBlockInput;

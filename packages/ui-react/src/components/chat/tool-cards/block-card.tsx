@@ -8,8 +8,14 @@
  *
  * Icons come from the model as strings; the kit's `Icon` renders an empty
  * box for a key it does not know, so unknown keys are dropped before the
- * prop is handed on. Everything else is passed through untouched: the
- * schema already rejected what the kit cannot draw.
+ * prop is handed on. Optional TEXT props are the other translation: the kit
+ * ports the design's demo defaults, so a `QuoteCard` with no `source` names
+ * a forecast from the Odysseus fixture world and a `ContactCard` with no
+ * `label` is Penelope, and omitted `facts` or `ticks` draw a demo list. Each
+ * of those components honours an empty string or an empty array as
+ * "cleared", so an omitted field is handed on as `""` or `[]` rather than
+ * `undefined`. Everything else is passed through untouched: the schema
+ * already rejected what the kit cannot draw.
  */
 
 import {
@@ -31,8 +37,14 @@ import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 
 /** A kit icon key, or nothing when the model named one the kit lacks. */
 export function kitIcon(name: string | undefined): IconName | undefined {
-  return name !== undefined && name in ICONS ? (name as IconName) : undefined;
+  // An own-property check: `"constructor" in ICONS` is true through the
+  // prototype, and the kit would then try to render a function that is not
+  // a component.
+  return name !== undefined && Object.hasOwn(ICONS, name) ? (name as IconName) : undefined;
 }
+
+/** An omitted optional text prop, cleared rather than left to the kit's demo default. */
+const text = (value: string | undefined): string => value ?? "";
 
 /** The collapsed one-liner for the trace: `comparison · 3 columns · 4 rows`. */
 export function blockSummary({ block }: ShowBlockPayload): string {
@@ -66,8 +78,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
 function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
     case "comparison": {
-      const { kind: _kind, ...props } = block;
-      return <ComparisonTable {...props} />;
+      const { kind: _kind, footnote, ...props } = block;
+      return <ComparisonTable {...props} footnote={text(footnote)} />;
     }
     case "stats":
       return (
@@ -76,8 +88,8 @@ function BlockView({ block }: { block: Block }) {
         />
       );
     case "trend": {
-      const { kind: _kind, ...props } = block;
-      return <TrendChart {...props} />;
+      const { kind: _kind, label, value, ticks, ...props } = block;
+      return <TrendChart {...props} label={text(label)} value={text(value)} ticks={ticks ?? []} />;
     }
     case "table": {
       const { kind: _kind, ...props } = block;
@@ -86,8 +98,15 @@ function BlockView({ block }: { block: Block }) {
     case "bars":
       return <BarList rows={block.rows} />;
     case "receipt": {
-      const { kind: _kind, titleIcon, ...props } = block;
-      return <Receipt {...props} titleIcon={kitIcon(titleIcon)} />;
+      const { kind: _kind, title, titleIcon, footnote, ...props } = block;
+      return (
+        <Receipt
+          {...props}
+          title={text(title)}
+          titleIcon={kitIcon(titleIcon)}
+          footnote={text(footnote)}
+        />
+      );
     }
     case "steps": {
       const { kind: _kind, ...props } = block;
@@ -98,12 +117,20 @@ function BlockView({ block }: { block: Block }) {
     case "schedule":
       return <ScheduleList groups={block.groups} />;
     case "quote": {
-      const { kind: _kind, icon, ...props } = block;
-      return <QuoteCard {...props} icon={kitIcon(icon)} />;
+      const { kind: _kind, icon, source, locator, note, ...props } = block;
+      return (
+        <QuoteCard
+          {...props}
+          source={text(source)}
+          locator={text(locator)}
+          note={text(note)}
+          icon={kitIcon(icon)}
+        />
+      );
     }
     case "contact": {
-      const { kind: _kind, contactKind, ...props } = block;
-      return <ContactCard {...props} kind={contactKind} />;
+      const { kind: _kind, contactKind, role, facts, ...props } = block;
+      return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
     }
   }
 }
