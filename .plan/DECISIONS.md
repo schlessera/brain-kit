@@ -2014,3 +2014,86 @@ label only after `load`, "mask not rendered" on `error`); and the kit's
 `diffRows` stripped one character from a context line where a unified diff
 carries two, so context rows sat a cell to the right (fixed; a recorded
 divergence from the design's source, which has the same off-by-one).
+
+## 2026-09-21 — D41: the answer blocks reach the model through one tool, `show_block`
+
+**Question.** The kit holds the design's §08 and §10 answer blocks —
+`ComparisonTable`, `StatTiles`, `TrendChart`, `DataTable`, `BarList`,
+`Receipt`, `StepList`, `TimelineList`, `ScheduleList`, `QuoteCard`,
+`ContactCard` and more — and the app renders none of them from an answer.
+The model can reach markdown (tables, fences, wikilinks, the share block) and
+the four bridge tools; nothing tells it a comparison table exists, and it has
+no way to emit one. Asked on 2026-09-21: do the agent's instructions, skills
+and tools cover the inline components? They do not. This is the wave that
+closes it, on the seam D3 already settled.
+
+**Decision.**
+
+1. **One tool, a union of blocks.** A single contract, `show_block`, whose
+   input is a zod discriminated union on `block`: `comparison`, `stats`,
+   `trend`, `table`, `bars`, `receipt`, `steps`, `timeline`, `schedule`,
+   `quote`, `contact`. Its payload is the same schema: the handler validates
+   and echoes, and the client renders the echoed payload through `bind()`.
+   One tool keeps the prompt to one paragraph and the contract count at
+   five; per-block tools would ride a dozen paragraphs on every turn for
+   guidance that belongs in the tool description, which the model reads
+   once per session.
+2. **Data only, no handlers.** A block variant carries only what
+   serialises. `ContactCard` ships its facts and no actions;
+   `LinkPreviewCard` (needs a URL the kit prop has no home for),
+   `Disclosure` (a body the model would author as markdown), `FeedbackRow`
+   (a rating that must be recorded somewhere) and `SuggestionChips`
+   (follow-ups that send through the composer) each need a handler or a
+   second decision and wait for one. `MapView` already arrives through
+   `get_current_location`; agent-authored pins are a later variant.
+   `CodeBlock` is the markdown fence. `SearchResultCard`, `TraceSteps`,
+   `DigestCard`, `StreamingAnswer` are the surface's own evidence and never
+   the model's to draw.
+3. **A block is part of the answer, not a step in the trace.** In the
+   transcript it renders inline at the tool call's chronological position,
+   the way `ask_user` does, not inside the collapsible tool timeline. In the
+   Actions trace it stays an ordinary tool step, because it was one; the
+   recorder does not change.
+4. **The schema mirrors the kit's props and drift is a `tsc` error.** The
+   block renderer is one switch typed by the contract's payload, handing
+   each variant to its kit component. A kit prop the schema does not carry,
+   or a schema field the kit does not accept, fails typecheck in both
+   directions, as `bind()` promised in wave 6. Tone enums in the schema are
+   the kit's `Tone` / `ValueTone` / `DeltaTone` sets and a test asserts the
+   lists are equal.
+5. **Side-effect free, so auto-allowed and bridge-free.** The handler needs
+   no browser and no turn bridge; it lives in `ui-sdk/server` as
+   `handleShowBlock` and both backends call it. It joins the auto-allow
+   posture like the other bridge tools: an approval card for drawing a
+   table would be the surface asking permission to answer.
+6. **The brief says WHEN, the description says HOW.** The generated prompt
+   line names the tool and the eleven blocks with one clause each on when a
+   block beats prose: a comparison when the reader is choosing, tiles for
+   three to four headline figures, a trend for one figure over time, a table
+   for records, bars for shares of a whole, a receipt for what a tool did,
+   steps for a procedure, a timeline for what happened when, a schedule for
+   what is coming, a quote when the words themselves are the evidence, a
+   contact when the answer is a person. The description carries the
+   per-block shape rules the design set: at most three comparison columns
+   under 700px, tiles in threes, values pre-formatted because the kit does
+   no arithmetic, `recommended` on at most one column and only with a
+   footnote that states the cost.
+7. **It is a `CONTRACT:` commit.** A new tool name and payload in the
+   chat-UI tool table of `docs/integration-contract.md`, in the same commit.
+
+**Alternatives refused.**
+
+- *Fenced blocks* (` ```brain-comparison ` with JSON inside): D3 refused
+  this in 2026-09-15 and the reasons hold — no schema the model is handed,
+  no description it reads, partial JSON while streaming, and the renderer
+  becomes the validator.
+- *Per-block tools*: eleven briefs on every turn, and eleven entries in
+  every backend's allow list and renderer pack, to say what one union says.
+- *A brain MCP tool in core*: the block is a fact about the surface, not
+  the brain. Core has no chat.
+
+**Not decided here.** The share-as-image path renders the last text group
+only; a block inside the message is not in the PNG. That is the share
+renderer's question and waits for it. Whether the model actually reaches for
+the tool is measured, not assumed: wave 13 ends with three canned prompts on
+each backend and the block rate recorded.

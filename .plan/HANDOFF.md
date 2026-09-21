@@ -1053,3 +1053,17 @@ reviewed by Codex, four findings, all fixed.
   context line; a unified diff spells a context line as a blank sign plus a
   separator, so the kit strips two. A deliberate one-line divergence,
   commented in `diffRows`.
+
+## Wave 13 is planned, not started — 2026-09-21
+
+D41 and the wave 13 list in PLAN.md are the whole brief: one `show_block`
+tool, a union of eleven data-only blocks, echoed as its own payload and
+rendered inline through `bind()`. Two things to hold onto when picking it up:
+
+- The tone enums in the new schema must be the kit's own lists, asserted
+  by a test, not retyped; the design's `dim` / `neutral` history in
+  design-feedback shows how those sets drift.
+- The brief rides every turn. Write the "when" clauses first, count the
+  lines, and put every shape rule in the description instead. The proof at
+  the end of the wave is a measured block rate on canned prompts, on both
+  backends, not a reading of the prose.
