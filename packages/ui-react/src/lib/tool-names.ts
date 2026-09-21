@@ -8,6 +8,7 @@
 import {
   ASK_USER_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
+  SHOW_BLOCK_CONTRACT,
   visibleToolName,
 } from "@schlessera/brain-ui-sdk/client";
 
@@ -39,6 +40,15 @@ export const isAskUserTool = (name: string | undefined): boolean =>
   !!name &&
   (normalizeToolName(name) === ASK_USER_TOOL_NAME ||
     name === PI_ASK_USER_TOOL_NAME);
+
+const SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
+const PI_SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "pi");
+
+/** A `show_block` call, under either backend's spelling (D41). */
+export const isShowBlockTool = (name: string | undefined): boolean =>
+  !!name &&
+  (normalizeToolName(name) === SHOW_BLOCK_TOOL_NAME ||
+    name === PI_SHOW_BLOCK_TOOL_NAME);
 
 // `isLocationTool` used to live here and was never called: the location result
 // is rendered by the contract-bound renderer now, which matches every spelling

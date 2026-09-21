@@ -11,8 +11,10 @@ import type { RendererPack } from "@schlessera/brain-ui-sdk/client";
 import {
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
+  SHOW_BLOCK_CONTRACT,
 } from "@schlessera/brain-ui-sdk/client";
-import { MapPin, Scissors } from "lucide-react";
+import { LayoutGrid, MapPin, Scissors } from "lucide-react";
+import { BlockCard, blockSummary } from "../tool-cards/block-card.js";
 import { LocationResultCard } from "../tool-cards/location-card.js";
 import { ImageMaskResultCard, ImageMaskFallback } from "../tool-cards/image-mask-card.js";
 import { ClampedPre } from "../tool-views.js";
@@ -38,6 +40,17 @@ export const brainUiToolPack: RendererPack = {
       // A declined mask is an error with a message, not a payload. The fact
       // belongs in the transcript in red, from the result's own words.
       Fallback: ImageMaskFallback,
+    }),
+    // Rendered inline at the call's position by the transcript, not in the
+    // timeline; this binding is what the timeline uses when the payload does
+    // not parse (a rejected call, an older server), so the fact reaches the
+    // reader in the result's own words rather than as a blank.
+    ...bind(SHOW_BLOCK_CONTRACT, BlockCard, {
+      icon: LayoutGrid,
+      label: "Block",
+      summary: (payload) => blockSummary(payload),
+      Fallback: ({ tool }) =>
+        tool.output ? <ClampedPre text={tool.output} isError={tool.isError} /> : null,
     }),
   ],
 };

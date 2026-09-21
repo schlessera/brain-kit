@@ -195,6 +195,15 @@ current root's registries. Imports are inert. Repeated registration is safe;
 resetting one root's registry leaves other roots untouched. This is build-time
 composition, with no runtime plugin loading.
 
+The chat UI's own tools render from their SDK contracts through
+`bind(contract, Component)`: `get_current_location` as a map card,
+`request_image_mask` as a receipt, and `show_block` as one of the kit's answer
+blocks (comparison table, stat tiles, trend chart, data table, bar list,
+receipt, step list, timeline, schedule, quote card, contact card). A block is
+part of the answer, so the transcript draws it inline where the model called
+it rather than inside the tool timeline; a call whose result does not parse
+stays in the timeline with the result's own words.
+
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.

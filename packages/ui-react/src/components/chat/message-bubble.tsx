@@ -11,7 +11,9 @@ import { ToolCallTimeline } from "./tool-call-timeline.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
-import { isAskUserTool } from "../../lib/tool-names.js";
+import { isAskUserTool, isShowBlockTool } from "../../lib/tool-names.js";
+import { BlockCard } from "./tool-cards/block-card.js";
+import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 import { motion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
@@ -132,7 +134,8 @@ type PartGroup =
   | { kind: "thinking"; text: string; isLast: boolean }
   | { kind: "text"; text: string; isLast: boolean; isLastText: boolean }
   | { kind: "tools"; toolCalls: ToolCall[]; isLast: boolean }
-  | { kind: "askUser"; exchange: AskUserExchange; isLast: boolean };
+  | { kind: "askUser"; exchange: AskUserExchange; isLast: boolean }
+  | { kind: "block"; payload: ShowBlockPayload; isLast: boolean };
 
 function groupParts(
   parts: MessagePart[],
@@ -156,6 +159,17 @@ function groupParts(
           groups.push({ kind: "askUser", exchange, isLast: false });
         }
         continue;
+      }
+      if (isShowBlockTool(tool.name)) {
+        // A block is part of the answer, not a step in the trace (D41): it
+        // renders inline where it was called. Until the echo arrives, and
+        // when it does not parse (a rejected call, an older server), the
+        // call stays in the timeline, where its bound fallback states why.
+        const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
+        if (payload) {
+          groups.push({ kind: "block", payload, isLast: false });
+          continue;
+        }
       }
       const last = groups[groups.length - 1];
       if (last?.kind === "tools") {
@@ -248,6 +262,8 @@ function AssistantContent({
                 live={message.isStreaming}
               />
             );
+          case "block":
+            return <BlockCard key={i} {...group.payload} />;
           case "askUser":
             return (
               <AskUserCard

@@ -46,6 +46,7 @@ export type {
   ComposerVariant,
   FeedbackValue,
   FileKind,
+  InkTone,
   LabelTone,
   ListRowVariant,
   MessageRole,
@@ -63,6 +64,7 @@ export type {
   Tone,
   ToggleTone,
   TraceState,
+  ValueTone,
   ViewState,
 } from "./types.js";
 

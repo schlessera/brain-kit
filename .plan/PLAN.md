@@ -744,7 +744,7 @@ Sequenced after the component waves but **before** step 2. Not optional.
       both themes
 
 ### Wave 13 — the answer blocks reach the model (D41)
-- [ ] SDK: `SHOW_BLOCK_CONTRACT` in `ui-sdk/src/tool-contracts/blocks.ts`:
+- [x] SDK: `SHOW_BLOCK_CONTRACT` in `ui-sdk/src/tool-contracts/blocks.ts`:
       the discriminated union on `block` for the eleven data-only variants,
       each schema mirroring the kit's props (labels, cells, tones, the
       `recommended` column, the footnote); `payload` is the input schema;
@@ -752,26 +752,27 @@ Sequenced after the component waves but **before** step 2. Not optional.
       `BRIDGE_TOOL_CONTRACTS`, so the prompt test, the posture and the
       renderer pack pick it up; `SurfaceTools` gains `block`, and both
       backends' tool-flag records gain it, or `tsc` says so
-- [ ] SDK: tone enums are the kit's sets. A test asserts the schema's
-      `Tone` / `ValueTone` / `DeltaTone` lists equal the kit's exports
-- [ ] SDK: the brief (one paragraph, the eleven "when" clauses) and the
+- [x] SDK: tone enums are the kit's sets. A type-level test in ui-react
+      (`tests/block-contract.test-d.ts`) asserts the schema's lists equal the
+      kit's unions in both directions; the kit now exports `ValueTone`
+- [x] SDK: the brief (one paragraph, the eleven "when" clauses) and the
       description (the shape rules: three comparison columns under 700px,
       tiles in threes, pre-formatted values, one `recommended` with a
       footnote). Measure the brief: it rides every turn, so it stays under
       fifteen lines
-- [ ] Backends: Claude registers it on the `brain-ui` MCP server, pi in
+- [x] Backends: Claude registers it on the `brain-ui` MCP server, pi in
       `bridge-tools.ts`; both auto-allow it through the posture; the flag
       defaults on because nothing has to be capable. `tests/bridge-tools.test.ts`
       parses the echoed output through the contract on both adapters
-- [ ] App: `bind(SHOW_BLOCK_CONTRACT, BlockCard)` in `brain-ui-tools.tsx`,
+- [x] App: `bind(SHOW_BLOCK_CONTRACT, BlockCard)` in `brain-ui-tools.tsx`,
       where `BlockCard` is the switch onto the kit components; `groupParts`
       gains a `block` group rendered inline at the call's position; the
       timeline never sees it. A collapsed summary for the Actions trace
       (`comparison · 3 columns · 4 rows`)
-- [ ] App: render tests per variant, plus the fallback for a payload that
+- [x] App: render tests per variant, plus the fallback for a payload that
       fails the schema (an older server, a hand-written call) — the generic
       view, never a blank
-- [ ] Docs: `CONTRACT:` commit with the new row in
+- [x] Docs: `CONTRACT:` commit with the new row in
       `docs/integration-contract.md`'s tool table and a payload sketch per
       variant; `packages/ui-react/README.md` names the tool; changesets for
       ui-sdk, both backends, ui-react

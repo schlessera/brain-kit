@@ -97,6 +97,7 @@ export "." (./src/index.ts)
   Icon
   type IconName
   type IconProps
+  type InkTone
   InlineToast
   type InlineToastProps
   LIGHT_TOKENS
@@ -200,6 +201,7 @@ export "." (./src/index.ts)
   type TraceStepsProps
   TrendChart
   type TrendChartProps
+  type ValueTone
   type ViewState
   canvas
   color

@@ -2097,3 +2097,12 @@ only; a block inside the message is not in the PNG. That is the share
 renderer's question and waits for it. Whether the model actually reaches for
 the tool is measured, not assumed: wave 13 ends with three canned prompts on
 each backend and the block rate recorded.
+
+**Built 2026-09-21, two adjustments.** The union sits under a `block`
+argument and discriminates on `kind`, not at the root on `block`: the Claude
+SDK's `tool()` takes a raw object shape, so the argument root must be an
+object. `ContactCard`'s `kind` prop travels as `contactKind`, because `kind`
+is the discriminator. The tone-equality test is type-level and lives in
+ui-react (`tests/block-contract.test-d.ts`), the one package that depends on
+both the kit and the SDK — the kit exports types, not lists, so equality can
+only be asserted where both are in scope.
