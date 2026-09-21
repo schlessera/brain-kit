@@ -4,9 +4,14 @@
  * HTML reaching ws:// endpoints because request interception cannot see the
  * handshake) was invisible to a predicate test and only showed up here.
  *
- * Skipped when no Chrome/Chromium is installed.
+ * Whether this file runs is a DECISION, not a side effect of what the machine
+ * happens to have installed. `BRAIN_REQUIRE_CHROME=1` — which CI sets — turns
+ * a missing Chrome into a failed test file. Without it a missing Chrome skips
+ * the file and says so on stderr, because a green run that silently exercised
+ * none of this is the failure mode `describe.skipIf` was always going to
+ * produce (#66).
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 
 import { createRenderer } from "../src/renderer";
@@ -19,7 +24,30 @@ const CHROME_CANDIDATES = [
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
 ];
-const hasChrome = CHROME_CANDIDATES.some((p) => p && existsSync(p));
+const chromePath = CHROME_CANDIDATES.find((p) => p && existsSync(p));
+const hasChrome = Boolean(chromePath);
+
+if (!hasChrome && process.env.BRAIN_REQUIRE_CHROME === "1") {
+  // Thrown at module scope so bun reports the FILE as failing: an image that
+  // stops shipping Chrome must break the build, not quietly narrow it.
+  throw new Error(
+    "BRAIN_REQUIRE_CHROME=1, but no Chrome/Chromium executable was found. " +
+      `Looked at: ${CHROME_CANDIDATES.filter(Boolean).join(", ")}. ` +
+      "Install google-chrome-stable or point PUPPETEER_EXECUTABLE_PATH at a binary."
+  );
+}
+if (!hasChrome) {
+  console.warn(
+    "\n*** SKIPPING the puppeteer runtime tests — no Chrome/Chromium found. ***\n" +
+      "*** The renderer's isolation posture is NOT covered by this run.     ***\n"
+  );
+}
+
+/**
+ * Wide enough that a slow cold launch is reported as a number rather than
+ * converted into a timeout. Nothing asserts against it; see the warm-up.
+ */
+const WARMUP_BUDGET_MS = 120_000;
 
 const renderers: Array<{ shutdown(): Promise<void> }> = [];
 afterAll(async () => {
@@ -27,10 +55,58 @@ afterAll(async () => {
 });
 
 function renderer(opts: Parameters<typeof createRenderer>[0] = {}) {
+  // 20s is ~10x the warm cost of the slowest render below. It is a bound on a
+  // RENDER, which is why the process's first Chrome launch is paid in the
+  // warm-up instead of here.
   const r = createRenderer({ renderTimeoutMs: 20_000, ...opts });
   renderers.push(r);
   return r;
 }
+
+/**
+ * The first Chrome launch on a machine is not a render, and charging it to a
+ * render budget is what made this file fail intermittently at exactly
+ * `renderTimeoutMs` (#66). Measured on ubuntu-latest across six CI runs, the
+ * first test took 1.3s, 1.4s, 1.4s, 6.8s, 10.7s and then >20s — while every
+ * launch after it, in the same job and each in its own browser, stayed
+ * between 0.4s and 2.3s.
+ *
+ * Those seven later launches carry identical flags, which is what rules the
+ * alternatives out: the DNS blackhole, the sandbox and /dev/shm are all
+ * per-launch, so any of them would have cost all eight. What is left is the
+ * cost a machine pays once and then shares — page cache for the binary and
+ * its libraries, fontconfig's cache — and it lands on whichever render asks
+ * for a browser first.
+ *
+ * So pay it once, here, outside every assertion, and print what it cost so a
+ * CI log records the launch time on that runner rather than leaving it to be
+ * inferred from a failure.
+ */
+beforeAll(async () => {
+  if (!hasChrome) return;
+  const warm = createRenderer({ renderTimeoutMs: WARMUP_BUDGET_MS });
+  const startedAt = Date.now();
+  try {
+    await warm.renderPng({ html: "<html><body>warm-up</body></html>" });
+    console.log(
+      `[renderer] cold Chrome launch + first render: ${Date.now() - startedAt}ms ` +
+        `(${chromePath})`
+    );
+  } catch (error) {
+    // A failing hook is reported by bun as "(fail) (unnamed)" and the tests it
+    // guards vanish from the count rather than failing — which is the silent
+    // hole again, one step further in: the binary exists, so nothing skipped,
+    // but it could not be launched. Carry the meaning in the message, since
+    // the label cannot.
+    throw new Error(
+      `The renderer warm-up could not launch Chrome at ${chromePath}, so NONE of ` +
+        `the runtime policy tests below ran and the renderer's isolation posture ` +
+        `is unproven by this run. Cause: ${error instanceof Error ? error.message : error}`
+    );
+  } finally {
+    await warm.shutdown();
+  }
+}, WARMUP_BUDGET_MS + 30_000);
 
 describe.skipIf(!hasChrome)("renderer runtime policy", () => {
   test("renders a PNG (real Buffer) and a PDF", async () => {
