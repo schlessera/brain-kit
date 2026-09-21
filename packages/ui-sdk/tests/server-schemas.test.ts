@@ -87,6 +87,19 @@ const SAMPLES: ServerMessage[] = [
     seq: 2,
     event: { spanId: "sp1", eventIndex: 1, ts: 3, eventType: "text", payload: "more" },
   },
+  {
+    type: "message_blocks",
+    sessionId: "s1",
+    blocks: [
+      {
+        partIndex: 0,
+        start: 12,
+        end: 80,
+        block: { kind: "quote", quote: "Sing to me of the man, Muse." },
+        confidence: 0.91,
+      },
+    ],
+  },
 ];
 
 describe("coverage", () => {

@@ -14,6 +14,8 @@ import type {
   ClientToolApproval,
   ClientToolDenial,
   ServerActivityDelta,
+  ServerMessageBlocks,
+  MessageBlock,
   ServerActivitySnapshot,
   ServerAskUserRequest,
   ServerError,
@@ -48,6 +50,8 @@ import {
   clientToolApprovalSchema,
   clientToolDenialSchema,
   serverActivityDeltaSchema,
+  serverMessageBlocksSchema,
+  messageBlockSchema,
   serverActivitySnapshotSchema,
   serverAskUserRequestSchema,
   serverErrorSchema,
@@ -164,6 +168,10 @@ type ServerActivitySnapshotMatches = Assert<
 type ServerActivityDeltaMatches = Assert<
   SchemaEqualsProtocol<typeof serverActivityDeltaSchema, ServerActivityDelta>
 >;
+type ServerMessageBlocksMatches = Assert<
+  SchemaEqualsProtocol<typeof serverMessageBlocksSchema, ServerMessageBlocks>
+>;
+type MessageBlockMatches = Assert<SchemaEqualsProtocol<typeof messageBlockSchema, MessageBlock>>;
 
 // Negative fixture: removing a nested optional member must make the guard fail.
 type AskUserRequestWithoutPreview = {
@@ -248,6 +256,8 @@ export type ProtocolSchemaAssertions = [
   ServerMaskRequestMatches,
   ServerActivitySnapshotMatches,
   ServerActivityDeltaMatches,
+  ServerMessageBlocksMatches,
+  MessageBlockMatches,
   MissingNestedMemberMustFail,
   ReadonlyArrayDriftMustFail,
 ];

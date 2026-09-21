@@ -96,6 +96,7 @@ export * from "./bridge-tools/index.js";
 // payload schemas, prompt briefs. Server-side importers get both halves from
 // this one module; the browser imports the contracts alone.
 export * from "../tool-contracts/index.js";
+export * from "../classification/index.js";
 
 export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 

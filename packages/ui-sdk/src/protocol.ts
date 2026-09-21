@@ -26,6 +26,8 @@
  * it; `sessionId` is optional for wire compatibility with single-session
  * servers, but multi-session servers MUST set it on every scoped frame.
  */
+import type { Block } from "./tool-contracts/blocks.js";
+
 export interface SessionScoped {
   sessionId?: string;
   /**
@@ -39,7 +41,7 @@ export interface SessionScoped {
 }
 
 /** Protocol revision spoken by this ui-sdk build. Additions never bump it; only semantics changes do. */
-export const PROTOCOL_REV = 3;
+export const PROTOCOL_REV = 4;
 
 /**
  * What each revision added, and what a peer declaring it promises.
@@ -253,7 +255,8 @@ export type ServerMessage =
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
-  | ServerActivityDelta;
+  | ServerActivityDelta
+  | ServerMessageBlocks;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -309,6 +312,44 @@ export interface SessionHistoryMessage {
   parts?: MessagePart[];
   /** Number of image attachments on a user message (data not replayed). */
   attachmentCount?: number;
+  /**
+   * Blocks the surface classified out of this message's text (rev 4,
+   * additive; D42). Persisted server-side and joined back on replay, so
+   * history renders as the live turn did without a second pass.
+   */
+  blocks?: MessageBlock[];
+}
+
+/**
+ * One block the surface drew in place of a span of markdown (D42). Anchored
+ * to a TEXT part by its ordinal among the message's text parts and to the
+ * character span inside that part's text; the client cuts the part at the
+ * span and renders the block there. `block` is the same union `show_block`
+ * carries, so one renderer draws both.
+ */
+export interface MessageBlock {
+  /** Ordinal among the message's `text` parts, 0-based. */
+  partIndex: number;
+  /** Character offset in the part's text where the replaced span starts. */
+  start: number;
+  /** Character offset where it ends, exclusive. */
+  end: number;
+  block: Block;
+  /** The classifier's confidence in the shape, 0–1. */
+  confidence: number;
+}
+
+/**
+ * The blocks classified out of the turn's assistant message (rev 4,
+ * additive; D42). Sent AFTER the turn's `result`, never before, and only
+ * when the pass yielded at least one block: an answer never waits on it, and
+ * a client that does not know the frame renders the markdown it already
+ * has.
+ */
+export interface ServerMessageBlocks extends SessionScoped {
+  type: "message_blocks";
+  sessionId: string;
+  blocks: MessageBlock[];
 }
 
 export interface ServerTextDelta extends SessionScoped {

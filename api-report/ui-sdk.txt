@@ -67,6 +67,7 @@ export "." (./src/index.ts)
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
+  type MessageBlock
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -101,6 +102,7 @@ export "." (./src/index.ts)
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
+  type ServerMessageBlocks
   type ServerResultMessage
   type ServerSessionHistory
   type ServerSessionInfo
@@ -246,6 +248,7 @@ export "./client" (./src/client/index.ts)
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
+  type MessageBlock
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -303,6 +306,7 @@ export "./client" (./src/client/index.ts)
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
+  type ServerMessageBlocks
   type ServerResultMessage
   type ServerSessionHistory
   type ServerSessionInfo
@@ -441,6 +445,7 @@ export "./protocol" (./src/protocol.ts)
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
+  type MessageBlock
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -475,6 +480,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
+  type ServerMessageBlocks
   type ServerResultMessage
   type ServerSessionHistory
   type ServerSessionInfo
@@ -539,6 +545,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  messageBlockSchema
   parseClientMessage
   parseServerMessage
   serverActivityDeltaSchema
@@ -548,6 +555,7 @@ export "./schemas" (./src/schemas.ts)
   serverHelloSchema
   serverLocationRequestSchema
   serverMaskRequestSchema
+  serverMessageBlocksSchema
   serverMessageSchema
   serverResultSchema
   serverSessionHistorySchema
@@ -633,14 +641,29 @@ export "./server" (./src/server/index.ts)
   type BillingMode
   type Block
   type BlockKind
+  type BlockquoteCandidate
   type BrainSearchResult
   type BrainStats
   type BridgeToolAdapter
   type BridgeToolName
+  CANDIDATE_KINDS
+  CLASSIFIER_MODEL
   COMPARISON_BLOCK_SCHEMA
+  CONFIDENCE
   CONTACT_BLOCK_SCHEMA
+  type Candidate
+  type CandidateKind
+  type CandidateSpan
   type ChatImageAttachment
   type ChatSession
+  type ChoiceAnswer
+  type ChoiceQuestion
+  type ClassificationAnswer
+  type ClassificationAnswers
+  type ClassificationPlan
+  type ClassificationQuestion
+  type ClassificationRequest
+  type Classified
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
@@ -692,6 +715,7 @@ export "./server" (./src/server/index.ts)
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskHandlerOptions
   type ImageMaskPayload
+  type KeyValueRunCandidate
   type KeyedLock
   type Keyterm
   LOCATION_PAYLOAD_SCHEMA
@@ -703,17 +727,22 @@ export "./server" (./src/server/index.ts)
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
   type MapDetail
+  type MessageBlock
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  type NoulAnswer
+  type NoulQuestion
   OSM_ATTRIBUTION
+  type OrderedListCandidate
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PermissionDecision
   type PermissionRequest
+  type PlannedCandidate
   type PronunciationOverride
   type ProviderInfo
   QUERY_ACTIVITY_CONTRACT
@@ -764,6 +793,7 @@ export "./server" (./src/server/index.ts)
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
+  type ServerMessageBlocks
   type ServerResultMessage
   type ServerSessionHistory
   type ServerSessionInfo
@@ -799,7 +829,9 @@ export "./server" (./src/server/index.ts)
   THINKING_LEVELS
   TIMELINE_BLOCK_SCHEMA
   TREND_BLOCK_SCHEMA
+  type TableCandidate
   type ThinkingLevel
+  type TimedListCandidate
   type ToolAdapter
   type ToolComponentContract
   type ToolContract
@@ -820,6 +852,7 @@ export "./server" (./src/server/index.ts)
   type WebSearchProviderSpec
   type WikilinkMapResponse
   type WriteLock
+  applyClassification
   bashCommand
   bashLockKey
   bridgeContractForToolName
@@ -840,6 +873,7 @@ export "./server" (./src/server/index.ts)
   defineToolComponentContract
   defineToolContract
   detailFor
+  detectCandidates
   fetchCoastline
   filterSubprocessEnv
   handleAskUser
@@ -851,12 +885,16 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  normalizePartText
+  parseMarkdown
   parseSubprocessEnvExtra
   parseToolPayload
   piMaskFilename
   piReportedMaskPath
+  planClassification
   prepare
   prepareLand
+  questionsFor
   readWebSearchOverride
   readWebSearchRouting
   requestToolPermission
@@ -871,6 +909,7 @@ export "./server" (./src/server/index.ts)
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
+  transformCandidate
   visibleToolName
   webSearchBrief
   webSearchProvider

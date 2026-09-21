@@ -187,7 +187,7 @@ exported from `@schlessera/brain` — and that test fails when this document, th
 
 ### Revision negotiation
 
-`PROTOCOL_REV` is **3**. A client announces what it speaks with a `client_hello`
+`PROTOCOL_REV` is **4**. A client announces what it speaks with a `client_hello`
 as its first frame; a host that does not understand the frame ignores it, and a
 client that never sends one is treated as rev 2.
 
@@ -199,6 +199,9 @@ applies rev-3 rules only to connections that declared rev 3:
   A client declaring 3 MUST echo; a reply without one is refused, because it
   cannot be correlated to the turn that raised the request. Clients that
   declare nothing keep the rev-2 tolerance indefinitely.
+- **rev 4** — `message_blocks` and the `blocks` field on history messages
+  (additive, see below). Nothing is required of a client; one that does not
+  know the frame drops it and renders the markdown it already has.
 
 A host must never REQUIRE `client_hello`, and must not refuse a client
 declaring a revision it does not recognise — it holds it to the newest rules it
@@ -248,6 +251,42 @@ historical snapshots taken when the rollup is first written, so consumers must
 not join them back to the live principal record or expect later label changes
 and principal pruning to rewrite history. Older clients may ignore all three
 fields.
+
+### Classified blocks (rev 4, additive)
+
+A host may run a classification pass over a finished turn's assistant text
+(D42): a deterministic walk finds candidates — a GFM table, an ordered list,
+a bullet list whose items open with a time, a blockquote, a run of
+key-colon-value lines — and one call to a classifier decides which of the
+kit's answer blocks each candidate is, if any. What comes back is one
+`message_blocks` frame, sent AFTER the turn's `result` and only when at
+least one block was classified:
+
+```
+{ type: "message_blocks", sessionId, blocks: MessageBlock[] }
+MessageBlock = { partIndex, start, end, block, confidence }
+```
+
+`partIndex` is the block's ordinal among the message's `text` parts;
+`start`/`end` are character offsets in that part's text, end exclusive; the
+client cuts the part at the span and renders `block` there. `block` is the
+same union `show_block` carries, so a consumer renders both with one
+component. `confidence` is the classifier's, 0–1, already above the host's
+threshold. Replayed history carries the same objects on
+`SessionHistoryMessage.blocks`, joined by the host from what it persisted,
+so a consumer never classifies twice.
+
+Rules a consumer may rely on:
+
+- **The pass is progressive enhancement.** A turn's `result` never waits on
+  it; the frame is absent, not late, when the classifier is unconfigured,
+  times out (the host's budget is about a second), errors, or answers below
+  threshold. A consumer that renders markdown and ignores the frame is
+  correct.
+- **Spans are exact for the text the host saw.** A span that does not fit
+  the text a consumer holds must be ignored, never rendered blank.
+- **Blocks contain only what the text carried.** The classifier chooses a
+  shape and a tone; it never invents a footnote, a figure, or a source line.
 
 ## File-layer contracts
 

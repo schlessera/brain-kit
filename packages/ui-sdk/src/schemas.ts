@@ -17,6 +17,8 @@
 
 import { z } from "zod";
 
+import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
+
 import type {
   AskUserAnnotation,
   ClientHello,
@@ -29,6 +31,8 @@ import type {
   ServerMaskRequest,
   ServerMessage,
   ServerResultMessage,
+  MessageBlock,
+  ServerMessageBlocks,
   ServerSessionHistory,
   ServerSessionInfo,
   ServerStatus,
@@ -501,6 +505,14 @@ const messagePartSchema = z.discriminatedUnion("kind", [
   z.looseObject({ kind: z.literal("tool"), toolIndex: z.number() }),
 ]) satisfies z.ZodType<MessagePart>;
 
+export const messageBlockSchema = z.looseObject({
+  partIndex: z.number().int().min(0),
+  start: z.number().int().min(0),
+  end: z.number().int().min(0),
+  block: BLOCK_SCHEMA,
+  confidence: z.number().min(0).max(1),
+}) satisfies z.ZodType<MessageBlock>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -516,6 +528,7 @@ const historyMessageSchema = z.looseObject({
   ),
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
+  blocks: z.array(messageBlockSchema).optional(),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -738,6 +751,13 @@ export const serverActivityDeltaSchema = z.looseObject({
   event: activitySpanEventSchema.optional(),
 }) satisfies z.ZodType<ServerActivityDelta>;
 
+export const serverMessageBlocksSchema = z.looseObject({
+  type: z.literal("message_blocks"),
+  sessionId: z.string().max(MAX_ID_CHARS),
+  blocks: z.array(messageBlockSchema),
+  turnId: z.string().max(MAX_ID_CHARS).optional(),
+}) satisfies z.ZodType<ServerMessageBlocks>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverHelloSchema,
   serverTextDeltaSchema,
@@ -757,6 +777,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverMaskRequestSchema,
   serverActivitySnapshotSchema,
   serverActivityDeltaSchema,
+  serverMessageBlocksSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**
