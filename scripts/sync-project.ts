@@ -45,7 +45,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     { epics: [19], also: [], repo: "schlessera/brain-ui" },
   ],
   Reliability: [
-    { epics: [], also: [30, 31, 52, 53], repo: "schlessera/brain-kit" },
+    { epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" },
     { epics: [], also: [25], repo: "schlessera/brain-ui" },
   ],
   "Design system": [
@@ -79,21 +79,47 @@ async function gh(args: string[]): Promise<string> {
   return stdout;
 }
 
-async function ensureProject(apply: boolean): Promise<{ number: number; id: string }> {
+interface Project {
+  number: number;
+  id: string;
+  url?: string;
+}
+
+async function ensureProject(apply: boolean): Promise<Project> {
   const raw = await gh(["project", "list", "--owner", OWNER, "--format", "json", "--limit", "100"]);
-  const existing = (JSON.parse(raw).projects as { number: number; id: string; title: string }[]).find(
-    (project) => project.title === TITLE,
-  );
-  if (existing) return { number: existing.number, id: existing.id };
+  const existing = (
+    JSON.parse(raw).projects as (Project & { title: string })[]
+  ).find((project) => project.title === TITLE);
+  if (existing) return existing;
   if (!apply) {
     console.log(`would create project "${TITLE}"`);
     return { number: -1, id: "" };
   }
   const created = JSON.parse(
     await gh(["project", "create", "--owner", OWNER, "--title", TITLE, "--format", "json"]),
-  ) as { number: number; id: string };
+  ) as Project;
   console.log(`created project #${created.number}`);
   return created;
+}
+
+/** The items actually on the board, keyed by issue URL. */
+async function boardItems(projectNumber: number): Promise<Map<string, string>> {
+  const raw = await gh([
+    "project",
+    "item-list",
+    String(projectNumber),
+    "--owner",
+    OWNER,
+    "--format",
+    "json",
+    "--limit",
+    "500",
+  ]);
+  return new Map(
+    (JSON.parse(raw).items as { id: string; content?: { url?: string } }[])
+      .filter((item) => item.content?.url)
+      .map((item) => [item.content!.url!, item.id]),
+  );
 }
 
 async function listFields(projectNumber: number): Promise<ProjectField[]> {
@@ -260,24 +286,7 @@ if (import.meta.main) {
   const fields = await ensureFields(project.number, apply);
   const byName = new Map(fields.map((field) => [field.name, field]));
 
-  const existingRaw = apply || fields.length > 0
-    ? await gh([
-        "project",
-        "item-list",
-        String(project.number),
-        "--owner",
-        OWNER,
-        "--format",
-        "json",
-        "--limit",
-        "500",
-      ])
-    : '{"items":[]}';
-  const existing = new Map(
-    (JSON.parse(existingRaw).items as { id: string; content?: { url?: string } }[])
-      .filter((item) => item.content?.url)
-      .map((item) => [item.content!.url!, item.id]),
-  );
+  const existing = await boardItems(project.number);
 
   const membership = await buildMembership();
   const issues = await openIssues();
@@ -343,6 +352,23 @@ if (import.meta.main) {
     process.exit(0);
   }
 
+  // Count what is on the BOARD, not what was asked for. The first real run of
+  // this script reported 44 added and 31 landed: `item-add` returns before the
+  // item is listable, so an add issued against a stale listing is a silent
+  // no-op. Re-running fixes it, which is the point of the whole script being
+  // idempotent — but only if it says so rather than claiming success.
+  const onBoard = await boardItems(project.number);
+  const missing = issues.filter((issue) => !onBoard.has(issue.url));
+  if (missing.length > 0) {
+    console.log(
+      `\n${missing.length} issue(s) did not land. This is expected on a first run; ` +
+        `run the script again and they will be picked up:\n` +
+        missing.map((issue) => `  ${issue.repo}#${issue.number}`).join("\n"),
+    );
+  } else {
+    console.log(`All ${issues.length} open issue(s) are on the board.`);
+  }
+
   console.log(`
 Two things this script cannot do — finish them once, in the web UI:
 
@@ -356,5 +382,5 @@ Two things this script cannot do — finish them once, in the web UI:
        Ready      — table, filter: status:Ready label:agent-ready, sorted by Priority
        Epics      — table, filter: label:epic
 
-https://github.com/orgs/${OWNER}/projects/${project.number}`);
+${project.url ?? `https://github.com/users/${OWNER}/projects/${project.number}`}`);
 }

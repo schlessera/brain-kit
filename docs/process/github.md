@@ -87,7 +87,7 @@ milestones, and its sub-issues carry the milestones individually.
 
 ## The project board
 
-One project, **brain-kit roadmap**, spanning both repositories. It adds the two
+One project, [**brain-kit roadmap**](https://github.com/users/schlessera/projects/1), spanning both repositories. It adds the two
 things labels cannot express: where an item is in flight, and when it is meant
 to happen.
 

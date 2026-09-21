@@ -9,7 +9,7 @@ edited by hand to stay true is a roadmap that is quietly false most of the time.
 
 - **[Issues](https://github.com/schlessera/brain-kit/issues)** — everything
   planned, at the size it gets worked.
-- **[The project board](https://github.com/schlessera/brain-kit/projects)** —
+- **[The project board](https://github.com/users/schlessera/projects/1)** —
   the same work with a state and a theme. The roadmap view is the closest thing
   to a timeline this project has, and it is intent rather than commitment.
 - **[docs/process/github.md](docs/process/github.md)** — what the labels,
