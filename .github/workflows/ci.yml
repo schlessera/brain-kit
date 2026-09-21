@@ -347,6 +347,14 @@ jobs:
       options: --ipc=host
     steps:
       - uses: actions/checkout@v4
+      - name: unzip, which setup-bun needs and this image does not have
+        # `setup-bun` downloads a .zip and shells out to `unzip` to extract it.
+        # The playwright image ships neither, so the action failed with
+        # "Unable to locate executable file: unzip" BEFORE bun was installed —
+        # which meant this whole job, and with it the accessibility gate and
+        # every visual baseline, ran nowhere at all. The job's own comment
+        # below explains why that matters; it happened again anyway.
+        run: apt-get update && apt-get install -y --no-install-recommends unzip
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
