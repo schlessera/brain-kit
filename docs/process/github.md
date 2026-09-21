@@ -101,7 +101,19 @@ to happen.
 
 `Ready` is the one that matters: it means the issue has been read, it is not
 blocked, and it can be picked up now. An agent picking work should filter
-`Status: Ready` + `agent-ready` and take the top item by priority.
+`Status: Ready` and take the top item by priority.
+
+**Status is derived, not typed.** `bun scripts/sync-project.ts --apply`
+computes `Backlog`, `Ready` and `In review` from the labels and from whether an
+open PR says it closes the issue — so closing a blocker makes its dependant
+Ready without anyone remembering to move a card. `In progress` and `Done` are
+statements about a person or an agent rather than about labels, so the script
+reads them and leaves them alone.
+
+That is what the `blocked` label is for, and why it is worth applying: four of
+the container issues and two of the template ones are `agent-ready` and *not*
+pickable, because each waits on the one before it. Without `blocked` they would
+sit in the Ready view as traps.
 
 ## The lifecycle
 
