@@ -15,10 +15,10 @@ import {
 } from "../scripts/labels.ts";
 import { planActions } from "../scripts/sync-labels.ts";
 
-const BOTH_REPOS = ["brain-kit", "brain-ui"] as const;
+const ALL_REPOS = ["brain-kit", "brain-ui", "brain-template", "brain-hosting-template"] as const;
 
 describe("label taxonomy", () => {
-  for (const repo of BOTH_REPOS) {
+  for (const repo of ALL_REPOS) {
     const labels = labelsFor(repo);
 
     test(`${repo}: every name is unique`, () => {
@@ -61,7 +61,7 @@ describe("label taxonomy", () => {
     const namespaced = (prefix: keyof typeof NAMESPACE_COLORS, labels: LabelSpec[]) =>
       labels.filter((label) => label.name.startsWith(`${prefix}: `));
 
-    for (const repo of BOTH_REPOS) {
+    for (const repo of ALL_REPOS) {
       const labels = labelsFor(repo);
       for (const prefix of Object.keys(NAMESPACE_COLORS) as (keyof typeof NAMESPACE_COLORS)[]) {
         const group = namespaced(prefix, labels);
@@ -113,13 +113,28 @@ describe("label taxonomy", () => {
     }
   });
 
-  test("the two repos do not share an area vocabulary", () => {
-    // brain-kit's areas are packages; brain-ui's are deployment surfaces. The
+  test("the kit and the shell do not share an area vocabulary", () => {
+    // brain-kit's areas are packages; the shell's are deployment surfaces. The
     // overlap is deliberate and small — ci and docs exist in both.
     const kit = new Set(KIT_AREA_LABELS.map((label) => label.name));
     const shell = new Set(UI_AREA_LABELS.map((label) => label.name));
     const shared = [...kit].filter((name) => shell.has(name));
     expect(shared.sort()).toEqual(["area: ci", "area: docs"]);
+  });
+
+  test("the hosting template speaks the shell's vocabulary, not its own", () => {
+    // It IS the extraction of the shell. A parallel vocabulary for the same
+    // shape would mean translating every issue that moves between them.
+    expect(labelsFor("brain-hosting-template").filter((l) => l.name.startsWith("area: "))).toEqual(
+      UI_AREA_LABELS,
+    );
+  });
+
+  test("every repository can say where an issue lands", () => {
+    for (const repo of ALL_REPOS) {
+      const areas = labelsFor(repo).filter((label) => label.name.startsWith("area: "));
+      expect(areas.length).toBeGreaterThan(2);
+    }
   });
 });
 
