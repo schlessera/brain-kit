@@ -24,8 +24,16 @@ issue when you are not sure.
   CVE-2026-24910.
 - A local Chrome or Chromium for the puppeteer runtime tests
   (`packages/ui-render-puppeteer/tests/runtime.test.ts`). Without one those
-  tests **silently skip** (`describe.skipIf`), so a green run on a
-  Chrome-less machine has not exercised the renderer.
+  tests skip, so a green **local** run on a Chrome-less machine has not
+  exercised the renderer — the run says so in a banner rather than leaving you
+  to notice.
+
+  CI does not get that option. The `test` job resolves Chrome, prints its
+  version into the log, fails if it finds none, and sets
+  `BRAIN_REQUIRE_CHROME=1`, which makes the test file throw instead of skip.
+  This is where the renderer's isolation posture is proven and the only place
+  it is: `renderer.test.ts` covers the allowlist predicate, which missed the
+  WebSocket bypass, and `crash-recovery.test.ts` drives a fake browser.
 
 ## Running the code
 
