@@ -2,6 +2,7 @@ import { resolve } from "path";
 
 import { assertPublishArtifacts } from "./check-dist.js";
 import { assertPublishPins } from "./check-publish-pins.js";
+import { publishTemplate } from "./publish-template.js";
 
 const packages = [
   // Ahead of core and ui-server, both of which depend on it: publishing a
@@ -237,7 +238,27 @@ async function main(): Promise<void> {
     stdout: "inherit",
     stderr: "inherit",
   });
-  process.exit(await tag.exited);
+  const tagExit = await tag.exited;
+  if (tagExit !== 0) process.exit(tagExit);
+
+  // Last, and here rather than in a runbook: the published template repository
+  // is what `gh repo create --template` hands a new user, and it has to pin a
+  // version the registry already serves. Running it from the release means it
+  // runs from the version this release published, not from whatever `main`
+  // holds by the time somebody remembers. A failure here leaves the packages
+  // published and the tag written — re-run `bun scripts/publish-template.ts`
+  // alone, it is idempotent.
+  try {
+    await publishTemplate();
+  } catch (error) {
+    console.error(
+      `Packages are published and tagged, but the template repository was not ` +
+        `updated: ${error instanceof Error ? error.message : error}\n` +
+        `Fix the cause and re-run \`bun scripts/publish-template.ts\`.`
+    );
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 if (import.meta.main) await main();

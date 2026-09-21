@@ -84,7 +84,7 @@ revert (`git checkout -- . && git clean -fd`), fix the cause, and version again
 ## Publishing
 
 ```sh
-bun run release        # build, publish all packages, then `changeset tag`
+bun run release        # build, publish, `changeset tag`, publish the template
 git push origin main --follow-tags
 ```
 
@@ -111,6 +111,14 @@ git push origin main --follow-tags
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
+- **The template repository goes out as the last step of `bun run release`**,
+  after the registry has confirmed every package. It has to be last: a clone of
+  `schlessera/brain-template` runs `bun install` against the pin in
+  `template/package.json`, so publishing it before the packages are live hands a
+  new user a brain that cannot install. If that step is the one that fails, the
+  packages are published and tagged and only the template is behind — re-run
+  `bun scripts/publish-template.ts` on its own. It is idempotent, and
+  `--dry-run` prints the file list without touching the remote.
 
 ## After publishing
 

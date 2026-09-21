@@ -14,6 +14,10 @@ const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
 
 import { ALLOWED_EDGES } from "./allowed-edges";
+import {
+  TEMPLATE_EXCLUDES,
+  templateFilesToPublish,
+} from "../scripts/publish-template";
 
 interface Manifest {
   name: string;
@@ -387,5 +391,61 @@ describe("pi dependency pins are coherent", () => {
       // Exact pins only: a range here re-opens the nested-copy hazard.
       expect(version).toMatch(/^\d+\.\d+\.\d+$/);
     }
+  });
+});
+
+// The published template repository is generated from `template/`, and three
+// documents send a new user straight at it. Two things can go wrong silently:
+// a development-only file ships, or the release stops publishing the template
+// at all and the repository drifts back to whatever it held last.
+describe("the published template", () => {
+  test("ships exactly this file list", async () => {
+    // A golden, not a filter: adding anything to `template/` fails here until
+    // someone decides whether a user should get it or whether it belongs in
+    // TEMPLATE_EXCLUDES. That decision is the point — a "development-only file
+    // does not ship" rule enforced by a filter only catches the files somebody
+    // already thought of.
+    expect(await templateFilesToPublish()).toEqual([
+      ".agents/skills/.gitkeep",
+      ".asset-cache.jsonl",
+      ".claude/settings.json",
+      ".context-cache.jsonl",
+      ".env.example",
+      ".gitignore",
+      ".mcp.json",
+      "CLAUDE.md",
+      "README.md",
+      "brain.config.ts",
+      "context/.gitkeep",
+      "me/.gitkeep",
+      "notes/hello-brain.md",
+      "package.json",
+    ]);
+  });
+
+  test("excludes the maintainer note, and that file is really there", () => {
+    expect(TEMPLATE_EXCLUDES).toContain("README-template-dev.md");
+    // An exclusion for a file that no longer exists is an exclusion nobody is
+    // maintaining.
+    for (const excluded of TEMPLATE_EXCLUDES) {
+      expect(existsSync(join(ROOT, "template", excluded))).toBe(true);
+    }
+  });
+
+  test("the sidecar caches ship empty, which is the contract brain index expects", () => {
+    for (const sidecar of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+      expect(readFileSync(join(ROOT, "template", sidecar), "utf8")).toBe("");
+    }
+  });
+
+  test("the release publishes it, rather than a runbook asking someone to", () => {
+    // `bun run release` is the only thing that knows which version went out.
+    const publish = readFileSync(join(ROOT, "scripts/publish.ts"), "utf8");
+    expect(publish).toContain("publishTemplate");
+  });
+
+  test("the release skill names the step", () => {
+    const skill = readFileSync(join(ROOT, ".agents/skills/release/SKILL.md"), "utf8");
+    expect(skill).toContain("publish-template.ts");
   });
 });
