@@ -1054,6 +1054,22 @@ reviewed by Codex, four findings, all fixed.
   separator, so the kit strips two. A deliberate one-line divergence,
   commented in `diffRows`.
 
+## Wave 14 is planned, not started — 2026-09-21
+
+D42 and the wave 14 list are the brief: one Jev pass per answer, only
+when the AST holds candidates, after the stream, with a 1 s timeout and
+markdown as the fallback for every failure. Three things to hold onto:
+
+- Progressive enhancement is a hard rule, not a preference. No code path
+  may make an answer wait on Jev or render worse because Jev was asked.
+  Test the timeout path explicitly, with a fake client that never
+  resolves.
+- Jev reads literally and does no arithmetic. Every question names a
+  thing the surface extracted; nothing asks Jev to count rows, compare
+  dates, or produce a string.
+- Verify the SDK against the registry before pinning: it is a week old
+  (0.6.0 on 2026-09-15) and rate limits are "adjusting dynamically".
+
 ## Wave 13 shipped — 2026-09-21
 
 `show_block` is built end to end: contract and handler in ui-sdk, both

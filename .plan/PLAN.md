@@ -785,6 +785,46 @@ Sequenced after the component waves but **before** step 2. Not optional.
       rating; `Disclosure` over a markdown body; `LinkPreviewCard` once the
       kit has a URL prop; agent-authored map pins; blocks in the share PNG
 
+### Wave 14 — the surface classifies what the model typed (D42)
+- [ ] SDK: `classification/catalogue.ts` — the candidate kinds, each with
+      its Jev questions (generated into one `systemOne` request) and its
+      transform `(candidate, answers) => Block | null`; the `Block` is
+      D41's union, so the transform is typed by the same schema the
+      renderer is. Fixtures in the Odysseus world: one markdown sample
+      per kind with the expected candidate extraction
+- [ ] SDK: `classification/detect.ts` — the deterministic AST walk that
+      yields candidates with stable anchors (block index + source span),
+      excludes `show_block` output, and returns an empty list for most
+      answers. Unit tests per kind, plus the empty case
+- [ ] Server: `classification/jev.ts` in ui-server — `@typesafe-ai/sdk`
+      behind a thin client with `AbortSignal.timeout(1000)`, one retry on
+      429/529 inside the budget, a counter and a log line per outcome
+      (`skipped_no_candidates`, `swapped`, `kept_low_confidence`,
+      `timeout`, `error`, `no_key`). `TYPESAFE_API_KEY` in the env schema,
+      absent = pass disabled, no warning at startup beyond the audience
+      line
+- [ ] Server: the pass runs after the result frame, never before; emits
+      `ServerMessageBlocks` and persists `blocks` on the message. A
+      cancelled or failed turn skips the pass
+- [ ] Protocol: `ServerMessageBlocks` frame and the `blocks` history field,
+      `PROTOCOL_REV` 4, schema + type-equality tests, `CONTRACT:` commit
+      with the frame in `docs/integration-contract.md`
+- [ ] App: `MarkdownContent` takes `blocks`; a classified anchor renders
+      `BlockCard` in place of the markdown node, the rest renders as
+      today. The swap animates as a settle, not a flash. History renders
+      from the persisted field
+- [ ] App: render tests — a table swaps to a comparison, a low-confidence
+      answer keeps the table, a message with no blocks is byte-identical
+      to today's render
+- [ ] Proof: the Bun-vs-Node prompt five times with the pass on; the swap
+      rate, the Jev latency distribution, and the timeout count recorded
+      in HANDOFF. Then the trend and contact prompts once each to confirm
+      `show_block` and the pass coexist without a double draw
+- [ ] Changesets for ui-sdk, ui-server, ui-react; README lines naming the
+      env var and the progressive-enhancement rule
+- [ ] Deferred: kit table cells accepting nodes; the share PNG source;
+      retiring the `show_block` brief if the tool's use rate stays low
+
 ## Open questions
 
 - [x] Does the catalog's foundations section introduce a light theme beyond

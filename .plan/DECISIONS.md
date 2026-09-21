@@ -2106,3 +2106,107 @@ is the discriminator. The tone-equality test is type-level and lives in
 ui-react (`tests/block-contract.test-d.ts`), the one package that depends on
 both the kit and the SDK — the kit exports types, not lists, so equality can
 only be asserted where both are in scope.
+
+## 2026-09-21 — D42: the surface classifies what the model typed, once per answer, through Jev
+
+**Question.** Wave 13 measured the comparison prompt at 0 of 5: the model
+reads "never write a markdown table; call `show_block`" back verbatim and
+types the table anyway. Prompt text is not the lever. The surface can
+still draw what it typed in the kit's shape, if something decides which
+shape — a markdown table is a comparison, a data table, or neither; an
+ordered list is a recipe, a checklist, or events in time; a run of
+key-colon-value lines is a receipt, three stat tiles, or a person. Those
+are judgments, not parses, and the user wants them made by Jev, TypeSafe
+AI's System One model, which answers typed questions with calibrated
+probabilities and generates no text.
+
+**What Jev is, verified 2026-09-21.** `POST https://api.typesafe.ai/v1/systemone`,
+model `jev-latest` (jev-1.13.0), bearer key from `TYPESAFE_API_KEY`;
+`@typesafe-ai/sdk` 0.6.0 on npm, MIT, Node 20+. One request carries a
+`state` (string, object or array, text only, 32k tokens) and a map of
+named questions — `choice` over up to 255 options with per-option
+probabilities and a confidence, `score` over 2–10 rubric levels, `noul`
+as a 0–1 — all evaluated in parallel against the same state; "adding more
+questions usually has little effect on response time". Latency 70–500 ms,
+$0.042 per MTok in, output free. Documented rough edges: literal reading,
+no arithmetic or counting, accuracy falls with irrelevant state, no
+guarantee two phrasings agree. Their own "structure recovery" cookbook is
+this design: one choice question per block with speculative companions,
+in one call, with the code doing every extraction and every render.
+
+**Decision.**
+
+1. **One pass per answer, and only when warranted.** At turn end the
+   server walks the markdown AST of the assistant message and collects
+   CANDIDATES deterministically: GFM tables, ordered and task lists,
+   blockquotes, key-colon-value runs, bullet lists whose items open with
+   a time or a day, number series. Blocks already drawn by `show_block`
+   are excluded. No candidates, no call — the common case. Candidates
+   go in one Jev request as `{ items: [{ id, kind, text, headers?,
+   rows? }] }`, never the whole answer, because irrelevant state costs
+   accuracy; questions are per item with speculative companions read
+   only when the primary answer makes them relevant.
+2. **Progressive enhancement, never a dependency.** The answer streams
+   and renders as markdown exactly as today; the pass runs after the
+   stream ends and, when it returns, the client swaps classified blocks
+   in at their AST positions. The call carries a **1 s timeout**
+   (`AbortSignal.timeout(1000)`), one retry on 429/529 inside that
+   budget, and no other retry. A timeout, an error, a missing key, an
+   answer below the confidence threshold, or a candidate the transform
+   cannot map all mean the same thing: the markdown stays. Nothing about
+   an answer waits on Jev, and nothing about an answer can be worse for
+   Jev having been asked.
+3. **Code extracts, Jev judges, code renders.** Every answer is a
+   `choice` or a `noul` over things the surface can name from the text:
+   which shape, which header is the recommended column (or none), which
+   tone from the kit's fixed sets, whether the first column names
+   criteria. Nothing Jev cannot answer from the text is invented — no
+   footnote, no delta figure, no source line the text does not carry —
+   the same rule the sparse-block fix set in wave 13. The transform's
+   output is a `Block` from D41's union, rendered by `BlockCard`; the
+   surface learns no new component.
+4. **Server side, backend-agnostic, persisted.** The pass lives in
+   ui-server at the point the turn's result frame is emitted, so pi and
+   Claude get it alike and the key never reaches a browser. Results
+   persist with the message (a `blocks` array of `{ anchor, block,
+   confidence }`), so history renders identically without a second
+   call, and a rerun of the pass is a maintenance action, not a render
+   step. On the wire it is one additive frame after the result frame,
+   `ServerMessageBlocks`, and a message-history field: `PROTOCOL_REV`
+   4, a `CONTRACT:` commit.
+5. **Confidence gates the swap.** Start at 0.6 for a swap and 0.8 for a
+   tone; below that the block stays markdown and the answer records why.
+   Thresholds are measured on the transcript corpus, not assumed —
+   TypeSafe calibrates the probabilities, we pick where to act.
+6. **The catalogue is the contract.** The candidate kinds, the questions
+   asked of each, and the transform from answers to `Block` are one
+   table in ui-sdk (`classification/catalogue.ts`), so a new kind is one
+   row plus its transform, and the prompt to Jev is generated from it —
+   the same move D3 made for tool briefs. First cut: table →
+   comparison | data | plain (+ recommended header, + criteria-column
+   noul); ordered list → steps | plain (+ variant); bullet list → schedule
+   | timeline | plain; key-value run → receipt | stats | contact | plain
+   (+ contact kind, + per-row value tone); blockquote → quote | plain
+   (+ quote tone, + "next line is the source" noul); number series →
+   trend | plain (+ delta tone).
+
+**Alternatives refused.**
+
+- *Deterministic heuristics alone*: they separate a table from prose but
+  not a comparison from a data table or a recipe from a timeline, and
+  every rule is a future bug report. Heuristics stay for what they are
+  good at — finding candidates — and hand the judgment on.
+- *Asking the answering model to classify its own output*: a second
+  frontier call per answer, seconds not milliseconds, and it generates
+  text that must be parsed.
+- *Client-side classification*: the key would ship to the browser.
+- *Blocking the render on the pass*: refused by the user's own rule and
+  by wave 13's — a table the reader can see beats a kit table 400 ms
+  later.
+
+**Not decided here.** Whether `show_block` is still worth its brief once
+the net exists (measure the tool's use rate after wave 14). Cells with
+inline markup render plain until the kit's table cells accept nodes,
+which is the kit's decision. Whether the pass should also run over the
+share PNG's source.
+
