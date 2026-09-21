@@ -97,7 +97,7 @@ to happen.
 | Track | The roadmap theme, matching the epics |
 | Priority | Mirrors the `priority:` label, so the board can sort |
 | Size | XS/S/M/L — a rough estimate of one sitting versus several |
-| Target | A date, for the roadmap view only. Intent, never a commitment |
+| Start / Target | Two dates, for the roadmap view only. Intent, never a commitment — an item with neither does not appear there, which is the right default |
 
 `Ready` is the one that matters: it means the issue has been read, it is not
 blocked, and it can be picked up now. An agent picking work should filter
