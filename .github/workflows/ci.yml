@@ -210,7 +210,17 @@ jobs:
           # One line per subcommand, so adding a subcommand does not silently
           # stop this from asserting anything. The `run` line is the one the
           # container crontab is written against, so it is matched in full.
-          grep -qF 'usage: brain-ui-cron run <job-name> -- <command...>' <<< "$CRON_USAGE"
+          #
+          # Matching in full means this has to move when the line does, and it
+          # did not: `--subprocess-env-extra` was added to `run` by the 0.33.1
+          # per-audience allowlist and this string was left behind, so the job
+          # failed from then until the lockfile break started masking it.
+          # The emitter's own byte-exact goldens are in
+          # packages/ui-server/tests/cron-emit.test.ts; this assertion is about
+          # the packed bin's advertised interface.
+          grep -qF \
+            'usage: brain-ui-cron run [--subprocess-env-extra <names>] <job-name> -- <command...>' \
+            <<< "$CRON_USAGE"
           for sub in digest crontab environment; do
             grep -qE "^ *brain-ui-cron $sub( |$)" <<< "$CRON_USAGE"
           done
