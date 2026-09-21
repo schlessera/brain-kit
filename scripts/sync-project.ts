@@ -168,7 +168,17 @@ function wantedFields(): { name: string; dataType: string; options?: string[] }[
     { name: "Priority", dataType: "SINGLE_SELECT", options: priorities },
     { name: "Track", dataType: "SINGLE_SELECT", options: Object.keys(TRACKS) },
     { name: "Size", dataType: "SINGLE_SELECT", options: SIZES },
-    // Intent, never a commitment — it is what the roadmap layout positions on.
+    // The roadmap layout's two ends. Both are intent, never a commitment.
+    //
+    // Two fields rather than one because the roadmap's date picker will not
+    // take the same field for start and target — choosing it for one clears
+    // the other. With only `Target` an item renders as a point; with both it
+    // renders as a bar, which is what makes a roadmap readable at a glance.
+    //
+    // An item with neither simply does not appear on that view, which is the
+    // right default: most issues here are not scheduled, and inventing a date
+    // to make a chart look full is how a roadmap stops being believed.
+    { name: "Start", dataType: "DATE" },
     { name: "Target", dataType: "DATE" },
   ];
 }
