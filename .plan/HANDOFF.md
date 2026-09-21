@@ -1054,7 +1054,53 @@ reviewed by Codex, four findings, all fixed.
   separator, so the kit strips two. A deliberate one-line divergence,
   commented in `diffRows`.
 
-## Wave 13 is planned, not started — 2026-09-21
+## Wave 13 shipped — 2026-09-21
+
+`show_block` is built end to end: contract and handler in ui-sdk, both
+backends registering and auto-allowing it, `BlockCard` in ui-react drawing
+the eleven variants inline, render tests per variant, the `CONTRACT:`
+commit with the doc table, four changesets. D41 records the two shape
+adjustments made while building (the union sits under `block` and
+discriminates on `kind`; `ContactCard`'s `kind` travels as `contactKind`).
+
+**Measured block rate, Claude backend, one run each, no retries:**
+
+| prompt | block? | what the model did |
+|---|---|---|
+| "Compare Bun and Node.js as a runtime for a small CLI tool. Keep it short." | no | a markdown table with six rows, then two prose paragraphs |
+| "How did the number of notes in this brain trend over the last months? Show me the trend." | yes, `trend` | read git history with Bash, computed the running total, called the tool once; the chart rendered inline between the trace and the summary |
+| "Who is the person this brain belongs to?" | yes, `contact` | searched the brain, called the tool once; the card rendered inline |
+
+Two of three. The miss is the one the brief names first and most plainly
+— "a `comparison` when the reader is choosing between options" — and the
+model drew the exact thing the brief forbids ("never a markdown table
+where a block fits"). One sample is not a rate; before touching the brief,
+run the comparison prompt five times and see whether the miss repeats.
+If it does, the likely lever is the description rather than the brief:
+the model reads the tool description when it considers the tool, and a
+comparison is the block it can most easily produce as markdown without
+considering any tool. A sentence at the top of the description saying
+that a markdown table in an answer is a comparison block that was not
+drawn may be enough. Do not add lines to the brief for this; it rides
+every turn.
+
+**pi is unmeasured.** The test deployment (`brain-ui` on this machine)
+configures only the Claude backend, so the pi rate is an open item, not a
+pass.
+
+**Two traps met on the way, for whoever runs the proof next:**
+
+- The consumer app resolves the backends from npm, not from the workspace
+  links, so a freshly built backend change is invisible until
+  `brain-ui/server/node_modules/@schlessera/brain-backend-{claude,pi}` are
+  pointed at the workspace packages (they were, by symlink, for this run;
+  the kit, react and sdk packages were already linked).
+- Starting the API server from inside a Claude Code session hands it that
+  session's `CLAUDE*` environment, and the Agent SDK then fails to locate
+  its native binary. Start it with a scrubbed environment and an explicit
+  `CLAUDE_CODE_PATH` pointing at the SDK's bundled binary.
+
+## Wave 13 was planned first — 2026-09-21
 
 D41 and the wave 13 list in PLAN.md are the whole brief: one `show_block`
 tool, a union of eleven data-only blocks, echoed as its own payload and

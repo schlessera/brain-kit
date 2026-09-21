@@ -776,9 +776,10 @@ Sequenced after the component waves but **before** step 2. Not optional.
       `docs/integration-contract.md`'s tool table and a payload sketch per
       variant; `packages/ui-react/README.md` names the tool; changesets for
       ui-sdk, both backends, ui-react
-- [ ] Proof: three canned prompts on each backend ("compare X and Y",
-      "how did Z trend this month", "who is N") and the block rate recorded
-      in HANDOFF, so the brief is judged on whether the model reaches for it
+- [x] Proof: three canned prompts on the Claude backend ("compare X and Y",
+      "how did Z trend this month", "who is N"); block rate 2 of 3, recorded
+      in HANDOFF. pi is not configured in the test deployment, so its rate
+      is unmeasured
 - [ ] Deferred, each behind its own decision: `SuggestionChips` as
       agent-authored follow-ups; `FeedbackRow` with a place to record the
       rating; `Disclosure` over a markdown body; `LinkPreviewCard` once the
