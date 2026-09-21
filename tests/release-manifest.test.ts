@@ -140,6 +140,16 @@ describe("release manifests", () => {
     for (const sub of subcommands) {
       expect(smokeTest.includes(sub)).toBe(true);
     }
+
+    // The subcommand-name check above is too weak on its own, and it was: the
+    // workflow greps the `run` line with `grep -qF`, in full, and
+    // `--subprocess-env-extra` was added to that line by the 0.33.1 allowlist
+    // without the workflow moving. Every name still appeared, so this test
+    // stayed green while the pack job failed on the real string. Assert the
+    // line the workflow actually matches.
+    const runLine = usage.split("\n")[0]!;
+    expect(runLine).toContain("brain-ui-cron run");
+    expect(smokeTest).toContain(runLine);
   });
 
   // A new package added to packages/ but not to these hardcoded lists is
