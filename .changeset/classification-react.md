@@ -8,3 +8,7 @@ block's span, and draws the kit block between the markdown pieces through
 the same `BlockCard` that renders `show_block`. History carries the blocks
 on replay. A message without blocks renders exactly as before; a span that
 does not fit the text is ignored rather than rendered blank.
+
+A `message_blocks` frame is targeted by the turn it belongs to, since a
+queued follow-up may have opened a newer assistant message by the time the
+pass returns, and it never reopens a finished session's running badge.

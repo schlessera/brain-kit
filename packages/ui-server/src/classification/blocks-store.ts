@@ -1,22 +1,24 @@
 /**
  * Where classified blocks live between the turn and its replay (D42 §4).
  *
- * A text part is keyed by the session and a hash of its normalised text:
- * the part arrives once as streamed deltas and again from the backend's
- * transcript on resume, and both must find the same blocks. The join on
- * replay rewrites each block's `partIndex` to the part's ordinal in the
- * replayed message, so a message whose parts were split differently by the
- * backend's history still anchors correctly.
+ * A text part is keyed by the session and a hash of its EXACT text: the
+ * part arrives once as streamed deltas and again from the backend's
+ * transcript on resume, both backends replay the text byte for byte, and
+ * the stored spans are offsets into that exact text — a key that forgave
+ * whitespace would let a differently laid-out part inherit spans that land
+ * on unrelated prose. Two identical parts in one session share a
+ * classification, which is the same text getting the same answer. The join
+ * on replay rewrites each block's `partIndex` to the part's ordinal in the
+ * replayed message.
  */
 
 import type { Database } from "bun:sqlite";
 import type { MessageBlock, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { messageBlockSchema } from "@schlessera/brain-ui-sdk/schemas";
-import { normalizePartText } from "@schlessera/brain-ui-sdk/server";
 
 /** The key one text part gets. Exported so the writer and the joiner agree by construction. */
 export function partHash(text: string): string {
-  return new Bun.CryptoHasher("sha256").update(normalizePartText(text)).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
 }
 
 export function saveMessageBlocks(

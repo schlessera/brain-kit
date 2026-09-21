@@ -35,7 +35,6 @@ export {
 export {
   CLASSIFIER_MODEL,
   applyClassification,
-  normalizePartText,
   planClassification,
   type ClassificationPlan,
   type ClassificationRequest,

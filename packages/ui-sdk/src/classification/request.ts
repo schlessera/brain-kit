@@ -100,12 +100,3 @@ export function applyClassification(
   }
   return out;
 }
-
-/**
- * The text of one part with whitespace runs collapsed, hashed by the caller.
- * A part arrives twice — streamed as deltas, then replayed from the
- * backend's own transcript — and the two must key the same blocks.
- */
-export function normalizePartText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}

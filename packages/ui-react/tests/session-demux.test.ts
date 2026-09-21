@@ -65,6 +65,27 @@ describe("session demux (handleServerMessage)", () => {
     expect(state.buffers["B"].isStreaming).toBe(true);
   });
 
+  test("message_blocks arrives after the result and never reopens a finished session", () => {
+    const store = useChatStore.getState();
+    store.setMessages("A", []);
+    store.setActiveSession("A");
+    handleServerMessage({ type: "text_delta", text: "Words.", sessionId: "A", turnId: "t1" } as ServerMessage);
+    flushChatDeltas();
+    handleServerMessage({ type: "result", sessionId: "A", turnId: "t1", costUsd: 0, durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+    // An idle session has no badge entry at all.
+    expect(useChatStore.getState().runStates["A"]).not.toBe("streaming");
+    handleServerMessage({
+      type: "message_blocks",
+      sessionId: "A",
+      turnId: "t1",
+      blocks: [{ partIndex: 0, start: 0, end: 6, block: { kind: "quote", quote: "Words." }, confidence: 0.9 }],
+    } as ServerMessage);
+    const state = useChatStore.getState();
+    expect(state.runStates["A"]).not.toBe("streaming");
+    const assistant = state.buffers["A"].messages.find((m) => m.role === "assistant");
+    expect(assistant?.blocks?.[0]?.block).toEqual({ kind: "quote", quote: "Words." });
+  });
+
   test("a scoped frame for a session with no buffer only updates its badge", () => {
     useChatStore.getState().setActiveSession("A");
     handleServerMessage({ type: "text_delta", text: "ghost", sessionId: "Z" } as ServerMessage);

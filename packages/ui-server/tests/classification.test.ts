@@ -163,14 +163,16 @@ describe("the blocks store and the history join", () => {
 
   const block = { partIndex: 0, start: 0, end: 5, block: { kind: "quote" as const, quote: "Words." }, confidence: 0.9 };
 
-  test("the key ignores the whitespace differences between a stream and a replay", () => {
-    expect(partHash("a  b\n\nc ")).toBe(partHash(" a b c"));
+  test("the key is the exact text: a differently laid-out part must not inherit spans", () => {
+    expect(partHash("a b c")).toBe(partHash("a b c"));
+    expect(partHash("**A:** 1\n**B:** 2")).not.toBe(partHash("**A:** 1 **B:** 2"));
     expect(partHash("a b c")).not.toBe(partHash("a b d"));
   });
 
   test("blocks round-trip, are re-validated on the way out, and an unknown row is empty", () => {
     saveMessageBlocks(db, "s1", "Words. And more.", [block]);
-    expect(loadMessageBlocks(db, "s1", "Words.  And more.")).toEqual([block]);
+    expect(loadMessageBlocks(db, "s1", "Words. And more.")).toEqual([block]);
+    expect(loadMessageBlocks(db, "s1", "Words.  And more.")).toEqual([]);
     expect(loadMessageBlocks(db, "s1", "Other text")).toEqual([]);
     expect(loadMessageBlocks(db, "s2", "Words. And more.")).toEqual([]);
     // A newer server's block kind this one cannot draw is dropped, not rendered blank.

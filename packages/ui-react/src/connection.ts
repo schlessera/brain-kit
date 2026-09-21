@@ -143,6 +143,7 @@ export function createWebSocketClient(root: BrainUiServices) {
         stores: root.stores,
         state,
         frameSessionId: undefined,
+        frameTurnId: undefined,
         key,
         buffer: () => (key === null ? state.draft : state.buffers[key]),
         enqueueDelta,
@@ -166,7 +167,12 @@ export function createWebSocketClient(root: BrainUiServices) {
       // along so the session's badge can show WHY it is queued deep.
       const queueNote =
         msg.type === "status" && msg.status === "queued" ? msg.detail : undefined;
-      state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
+      // `message_blocks` arrives AFTER the turn's result (D42); it must not
+      // reopen a finished session, and it must not touch a queued follow-up
+      // that may already be running, so it takes no part in run state.
+      if (msg.type !== "message_blocks") {
+        state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
+      }
     }
 
     // Resolve the target buffer key for this frame.
@@ -205,6 +211,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       stores: root.stores,
       state,
       frameSessionId,
+      frameTurnId: (msg as { turnId?: string }).turnId,
       key,
       buffer,
       enqueueDelta,

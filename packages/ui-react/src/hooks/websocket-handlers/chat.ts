@@ -128,13 +128,13 @@ export const chatFrameHandlers = {
     // Opening the bubble stays immediate — the first token should show a
     // message starting, and every later delta needs isStreaming to be true.
     if (!context.buffer()?.isStreaming) {
-      context.state.startAssistantMessage(context.key);
+      context.state.startAssistantMessage(context.key, context.frameTurnId);
     }
     context.enqueueDelta(context.key, "text", msg.text);
   },
   thinking_delta: (msg, context) => {
     if (!context.buffer()?.isStreaming) {
-      context.state.startAssistantMessage(context.key);
+      context.state.startAssistantMessage(context.key, context.frameTurnId);
     }
     context.enqueueDelta(context.key, "thinking", msg.text);
   },
@@ -183,8 +183,10 @@ export const chatFrameHandlers = {
   message_blocks: (msg, context) => {
     // Arrives after `result`, for the turn's own assistant message. An
     // answer never waits on it: the markdown is already on screen, and this
-    // only says which spans to draw as blocks (D42).
-    context.state.setMessageBlocks(context.key, msg.blocks);
+    // only says which spans to draw as blocks (D42). Targeted by the turn
+    // the frame belongs to: a queued follow-up may already have opened a
+    // newer assistant message by the time the pass returns.
+    context.state.setMessageBlocks(context.key, msg.blocks, context.frameTurnId);
   },
   session_history: (msg, context) => {
     const converted = msg.messages.map(convertHistoryMessage);

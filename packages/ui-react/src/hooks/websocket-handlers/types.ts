@@ -9,6 +9,8 @@ export interface DispatchContext {
   state: ChatState;
   stores: BrainStores;
   frameSessionId: string | undefined;
+  /** The host-minted turn the frame belongs to, when scoped (rev 2+). */
+  frameTurnId: string | undefined;
   key: ChatKey;
   buffer: () => SessionChat | null | undefined;
   enqueueDelta: (key: ChatKey, kind: "text" | "thinking", text: string) => void;

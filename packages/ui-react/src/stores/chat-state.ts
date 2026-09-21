@@ -43,6 +43,8 @@ export interface ChatMessage {
    * result, or with the replayed history; absent means plain markdown.
    */
   blocks?: MessageBlock[];
+  /** The host-minted turn that produced this assistant message, when known. */
+  turnId?: string;
 }
 
 export interface MessageAttachment {
@@ -170,7 +172,7 @@ export interface ChatState {
     source?: MessageSource,
     attachments?: MessageAttachment[]
   ) => void;
-  startAssistantMessage: (key: ChatKey) => void;
+  startAssistantMessage: (key: ChatKey, turnId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;
   appendThinking: (key: ChatKey, text: string) => void;
   startToolCall: (key: ChatKey, toolUseId: string, toolName: string) => void;
@@ -203,8 +205,12 @@ export interface ChatState {
   cancelAskUser: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
   finishAssistantMessage: (key: ChatKey) => void;
-  /** Attach the classified blocks to the session's last assistant message (D42). */
-  setMessageBlocks: (key: ChatKey, blocks: MessageBlock[]) => void;
+  /**
+   * Attach classified blocks (D42) to the assistant message of `turnId`, or,
+   * when the turn is unknown, to the last assistant message only if it has
+   * finished — never to a newer message still streaming.
+   */
+  setMessageBlocks: (key: ChatKey, blocks: MessageBlock[], turnId?: string) => void;
   setStreaming: (key: ChatKey, streaming: boolean) => void;
   /** Replace a session's transcript (first replayed history chunk). Creates the buffer. */
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;
@@ -442,7 +448,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           true
         ),
 
-      startAssistantMessage: (key) =>
+      startAssistantMessage: (key, turnId) =>
         mutateBuffer(key, (chat) => ({
           messages: [
             ...chat.messages,
@@ -455,6 +461,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               parts: [],
               isStreaming: true,
               timestamp: Date.now(),
+              ...(turnId ? { turnId } : {}),
             },
           ],
           isStreaming: true,
@@ -633,8 +640,30 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           () => ({ isStreaming: false })
         ),
 
-      setMessageBlocks: (key, blocks) =>
-        mutateLastAssistant(key, (last) => ({ ...last, blocks })),
+      setMessageBlocks: (key, blocks, turnId) =>
+        mutateBuffer(key, (chat) => {
+          const msgs = [...chat.messages];
+          let index = -1;
+          if (turnId) {
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === "assistant" && msgs[i].turnId === turnId) {
+                index = i;
+                break;
+              }
+            }
+          }
+          if (index === -1 && !turnId) {
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === "assistant") {
+                if (!msgs[i].isStreaming) index = i;
+                break;
+              }
+            }
+          }
+          if (index === -1) return {};
+          msgs[index] = { ...msgs[index], blocks };
+          return { messages: msgs };
+        }),
 
       setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),
 

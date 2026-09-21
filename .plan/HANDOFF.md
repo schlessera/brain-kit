@@ -1079,6 +1079,14 @@ To run the proof:
    also be classified (its call is a tool part, not text, so the detector
    never sees it; confirm there is no double draw).
 
+The Codex review of the wave (gpt-5.6-sol, high) found four things, all
+fixed in the same day: `message_blocks` was mapped to "streaming" by the
+client's run-state function and reopened finished sessions; the frame
+attached to the newest assistant message rather than its turn's; the
+persistence key normalised whitespace, so a differently laid-out part
+could inherit spans onto unrelated prose; and an ordered list continuing
+from 5 would have been renumbered from 1. Each has a test now.
+
 Two things to know before reading the numbers:
 
 - The classifier is asked about the candidate alone, never the prose

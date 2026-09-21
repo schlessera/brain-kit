@@ -40,6 +40,7 @@ interface ListItem extends Node {
 interface List extends Node {
   type: "list";
   ordered?: boolean | null;
+  start?: number | null;
   children: ListItem[];
 }
 interface TableRow extends Node {
@@ -177,6 +178,9 @@ function orderedListCandidate(
   span: CandidateSpan
 ): OrderedListCandidate | null {
   if (node.children.length < 2) return null;
+  // A list continuing from 5 is numbered 5, 6 in markdown; `StepList` counts
+  // from 1, so such a list stays as it is rather than being renumbered.
+  if (typeof node.start === "number" && node.start !== 1) return null;
   const items: OrderedListCandidate["items"] = [];
   for (const item of node.children) {
     const parts = itemParts(item);

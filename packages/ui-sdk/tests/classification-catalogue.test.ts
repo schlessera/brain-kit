@@ -8,7 +8,6 @@ import {
   CONFIDENCE,
   applyClassification,
   detectCandidates,
-  normalizePartText,
   planClassification,
   questionsFor,
   transformCandidate,
@@ -214,9 +213,5 @@ describe("planning and applying one pass", () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ partIndex: 0, confidence: 0.9, block: { kind: "comparison" } });
     expect(parts[0]!.slice(blocks[0]!.start, blocks[0]!.end)).toBe(COMPARISON);
-  });
-
-  test("the part-text key survives the whitespace differences between a stream and a replay", () => {
-    expect(normalizePartText("a  b\n\nc ")).toBe(normalizePartText(" a b c"));
   });
 });

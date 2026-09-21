@@ -72,8 +72,9 @@ describe("detectCandidates", () => {
     ]);
   });
 
-  test("a single-item list is not a candidate", () => {
+  test("a single-item list is not a candidate, nor is a list continuing from a later number", () => {
     expect(detectCandidates("1. Alone")).toEqual([]);
+    expect(detectCandidates("5. Fifth\n6. Sixth")).toEqual([]);
   });
 
   test("a bullet list whose items open with times is a timed list", () => {

@@ -12,3 +12,7 @@ Progressive enhancement is a hard rule: the whole call, one retry on
 429/529 included, runs inside a 1 s budget, and a timeout, an error, a
 missing key, or a low-confidence answer all leave the markdown exactly as
 it streamed. No turn waits on the pass. Outcomes and latency are metered.
+
+Persisted blocks are keyed by the exact text of the part, never a
+whitespace-normalised form: the spans are offsets into that text, and a
+differently laid-out part must not inherit them.
