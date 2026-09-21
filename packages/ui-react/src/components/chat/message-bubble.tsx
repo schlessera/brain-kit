@@ -132,7 +132,7 @@ function UserAttachments({ message }: { message: ChatMessage }) {
  */
 type PartGroup =
   | { kind: "thinking"; text: string; isLast: boolean }
-  | { kind: "text"; text: string; isLast: boolean; isLastText: boolean }
+  | { kind: "text"; text: string; isLast: boolean; isLastText: boolean; textIndex: number }
   | { kind: "tools"; toolCalls: ToolCall[]; isLast: boolean }
   | { kind: "askUser"; exchange: AskUserExchange; isLast: boolean }
   | { kind: "block"; payload: ShowBlockPayload; isLast: boolean };
@@ -147,6 +147,8 @@ function groupParts(
   // to its exchange and renders as its own AskUserCard at that chronological
   // spot, so it collapses and scrolls away like the surrounding events.
   let askUserSeen = 0;
+  // Ordinal among TEXT parts: classified blocks (D42) are anchored to it.
+  let textSeen = 0;
   for (const part of parts) {
     if (part.kind === "tool") {
       const tool = toolCalls[part.toolIndex];
@@ -178,7 +180,14 @@ function groupParts(
         groups.push({ kind: "tools", toolCalls: [tool], isLast: false });
       }
     } else if (part.text.trim()) {
-      groups.push({ kind: part.kind, text: part.text, isLast: false, isLastText: false });
+      if (part.kind === "text") {
+        groups.push({ kind: "text", text: part.text, isLast: false, isLastText: false, textIndex: textSeen++ });
+      } else {
+        groups.push({ kind: "thinking", text: part.text, isLast: false });
+      }
+    } else if (part.kind === "text") {
+      // An all-whitespace text part still counts toward the ordinal.
+      textSeen++;
     }
   }
   const last = groups[groups.length - 1];
@@ -191,6 +200,13 @@ function groupParts(
     }
   }
   return groups;
+}
+
+/** The classified blocks anchored to the n-th text part, or nothing. */
+function blocksFor(message: ChatMessage, textIndex: number) {
+  if (!message.blocks || message.blocks.length === 0) return undefined;
+  const own = message.blocks.filter((b) => b.partIndex === textIndex);
+  return own.length ? own : undefined;
 }
 
 function AssistantContent({
@@ -288,7 +304,7 @@ function AssistantContent({
                     wrapper: content-visibility implies paint containment,
                     which would clip a dropdown that opens past the box. */}
                 <div className="chat-message-body">
-                  <MarkdownContent content={group.text} />
+                  <MarkdownContent content={group.text} blocks={blocksFor(message, group.textIndex)} />
                 </div>
                 {showShare && shareOptions.length > 0 && (
                   <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -298,7 +314,7 @@ function AssistantContent({
               </div>
             ) : (
               <div key={i} className="chat-message-body">
-                <MarkdownContent content={group.text} />
+                <MarkdownContent content={group.text} blocks={blocksFor(message, group.textIndex)} />
               </div>
             );
         }

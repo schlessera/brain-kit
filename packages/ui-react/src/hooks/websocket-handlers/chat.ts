@@ -18,6 +18,7 @@ type ChatFrame =
   | "tool_result"
   | "ask_user_request"
   | "result"
+  | "message_blocks"
   | "session_history"
   | "status";
 
@@ -56,6 +57,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     timestamp: Date.now(),
     ...(askUserExchanges ? { askUserExchanges } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
+    ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
   };
 }
 
@@ -177,6 +179,12 @@ export const chatFrameHandlers = {
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);
     context.resyncIfNeeded(msg.sessionId);
+  },
+  message_blocks: (msg, context) => {
+    // Arrives after `result`, for the turn's own assistant message. An
+    // answer never waits on it: the markdown is already on screen, and this
+    // only says which spans to draw as blocks (D42).
+    context.state.setMessageBlocks(context.key, msg.blocks);
   },
   session_history: (msg, context) => {
     const converted = msg.messages.map(convertHistoryMessage);

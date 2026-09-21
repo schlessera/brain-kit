@@ -204,6 +204,12 @@ part of the answer, so the transcript draws it inline where the model called
 it rather than inside the tool timeline; a call whose result does not parse
 stays in the timeline with the result's own words.
 
+The same `BlockCard` draws the blocks a host classifies out of the model's
+markdown (`message_blocks`, rev 4): `MarkdownContent` cuts a text part at
+each block's span and renders the kit block between the markdown pieces. A
+message without blocks renders exactly as before, and a span that does not
+fit the text is ignored.
+
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.

@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type {
+  MessageBlock,
   MessageSource,
   MessagePart,
   AskUserQuestion,
@@ -36,6 +37,12 @@ export interface ChatMessage {
   attachments?: MessageAttachment[];
   /** Attachment count for history-loaded messages without preview data. */
   attachmentCount?: number;
+  /**
+   * Blocks the surface classified out of this message's text (D42), each
+   * anchored to a text part and a span in it. Arrive after the turn's
+   * result, or with the replayed history; absent means plain markdown.
+   */
+  blocks?: MessageBlock[];
 }
 
 export interface MessageAttachment {
@@ -196,6 +203,8 @@ export interface ChatState {
   cancelAskUser: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
   finishAssistantMessage: (key: ChatKey) => void;
+  /** Attach the classified blocks to the session's last assistant message (D42). */
+  setMessageBlocks: (key: ChatKey, blocks: MessageBlock[]) => void;
   setStreaming: (key: ChatKey, streaming: boolean) => void;
   /** Replace a session's transcript (first replayed history chunk). Creates the buffer. */
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;
@@ -623,6 +632,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           (last) => ({ ...last, isStreaming: false }),
           () => ({ isStreaming: false })
         ),
+
+      setMessageBlocks: (key, blocks) =>
+        mutateLastAssistant(key, (last) => ({ ...last, blocks })),
 
       setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),
 
