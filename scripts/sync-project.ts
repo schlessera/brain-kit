@@ -39,7 +39,9 @@ const REPOS = ["schlessera/brain-kit", "schlessera/brain-ui"] as const;
  * something a label can answer.
  */
 const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
-  Distribution: [{ epics: [26], also: [], repo: "schlessera/brain-kit" }],
+  // Getting the thing into somebody else's hands: the two templates, and the
+  // documentation that has to stop pointing at a private installation.
+  Distribution: [{ epics: [26, 70], also: [69], repo: "schlessera/brain-kit" }],
   Hardening: [
     { epics: [], also: [38], repo: "schlessera/brain-kit" },
     { epics: [19], also: [], repo: "schlessera/brain-ui" },
