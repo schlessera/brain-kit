@@ -96,25 +96,57 @@ export async function planRelease(
   return plan;
 }
 
-async function assertPublished(name: string, version: string): Promise<void> {
-  // ~5 minutes of patience. Propagation is normally seconds, but during the
-  // 0.32.0 release it ran past 90s on a package that had in fact published —
-  // and the impatient check turned a healthy release into a stopped one.
-  const delaysMs = [0, 2000, 5000, 10000, 15000, 25000, 30000, 45000, 60000, 60000, 60000];
-  for (const delay of delaysMs) {
-    if (delay) await Bun.sleep(delay);
-    if (await isPublished(name, version)) return;
+/**
+ * Wait until every just-published version is served by the registry.
+ *
+ * Confirmation used to sit between publishes: publish one, wait for the
+ * registry to serve it, publish the next. That made a fourteen-package release
+ * take as long as fourteen propagation waits, and — worse — spread the
+ * publishes out far enough for the npm web-login session to expire midway,
+ * which is how 0.36.0 stopped with a 403 on the sixth package. A `bun publish`
+ * that exits 0 has already been accepted by the registry, so waiting between
+ * publishes bought nothing the exit code had not; the wait only tells us when
+ * propagation caught up. Now every publish goes out first, back to back, and
+ * one poll over the whole set follows.
+ *
+ * The poll has no deadline. It used to give up after ~5 minutes, and 0.32.0
+ * showed what that buys: a healthy publish took longer than the budget to
+ * appear, the run stopped, and the operator was left to confirm by hand and
+ * re-run. Nothing after this point depends on speed — only `changeset tag`
+ * follows, and it must not run before every version is seen — so the poll
+ * keeps asking, backing off to once a minute, until the set is complete.
+ * A publish that truly failed cannot reach here (its exit code stopped the
+ * run), so a version that never appears is a registry incident, and the
+ * progress line names it for the operator to look at.
+ */
+export async function awaitPublished(
+  entries: readonly ReleaseEntry[],
+  isLive: (name: string, version: string) => Promise<boolean>,
+  sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms)
+): Promise<void> {
+  const delaysMs = [2000, 5000, 10000, 15000, 25000, 30000, 45000, 60000];
+  let pending = [...entries];
+  let waitedMs = 0;
+  for (let round = 0; pending.length > 0; round += 1) {
+    if (round > 0) {
+      const delay = delaysMs[Math.min(round - 1, delaysMs.length - 1)];
+      await sleep(delay);
+      waitedMs += delay;
+    }
+    const still: ReleaseEntry[] = [];
+    for (const entry of pending) {
+      if (await isLive(entry.name, entry.version)) {
+        console.log(`  confirmed on the registry: ${entry.name}@${entry.version}`);
+      } else {
+        still.push(entry);
+      }
+    }
+    pending = still;
+    if (pending.length > 0) {
+      const names = pending.map((entry) => `${entry.name}@${entry.version}`).join(", ");
+      console.log(`  still propagating after ${Math.round(waitedMs / 1000)}s: ${names}`);
+    }
   }
-  console.error(
-    `\nRelease stopped: ${name}@${version} did not appear on the registry within\n` +
-      `5 minutes of publishing it. The publish itself most likely SUCCEEDED and is\n` +
-      `still propagating — check https://www.npmjs.com/package/${name} before\n` +
-      `concluding otherwise. Nothing after this package was published and no tags\n` +
-      `were written, so the release is partial but consistent.\n\n` +
-      `To resume: re-run \`bun run release\`. Every version already on the registry\n` +
-      `is skipped automatically, so the run continues where this one stopped.`
-  );
-  process.exit(1);
 }
 
 async function main(): Promise<void> {
@@ -161,13 +193,15 @@ async function main(): Promise<void> {
   // already made it out, and republishing an existing version fails rather
   // than overwriting.
   //
-  // Each publish is also confirmed against the registry before the next one
-  // starts. Exit codes alone leave the operator with an ambiguous signal
-  // afterwards: a version can read as 404 either because a publish failed or
-  // because it simply has not propagated yet, and during the 0.31.0 release that
-  // ambiguity cost an hour of chasing a package that was already on its way.
-  // Confirming inside the run collapses the two cases — if the release finishes,
-  // every version was seen live.
+  // The publishes go out back to back, still in dependency order, and are
+  // confirmed against the registry as one set afterwards (see awaitPublished).
+  // Exit codes alone leave the operator with an ambiguous signal: a version can
+  // read as 404 either because a publish failed or because it simply has not
+  // propagated yet, and during the 0.31.0 release that ambiguity cost an hour
+  // of chasing a package that was already on its way. Confirming inside the
+  // run collapses the two cases — if the release finishes, every version was
+  // seen live.
+  const published: ReleaseEntry[] = [];
   for (const step of plan) {
     if (step.action === "skip") {
       console.log(`Already on the registry, skipping ${step.name}@${step.version}`);
@@ -181,9 +215,12 @@ async function main(): Promise<void> {
     });
     const exitCode = await subprocess.exited;
     if (exitCode !== 0) process.exit(exitCode);
+    published.push(step);
+  }
 
-    await assertPublished(step.name, step.version);
-    console.log(`  confirmed on the registry: ${step.name}@${step.version}`);
+  if (published.length > 0) {
+    console.log("Confirming the published versions against the registry...");
+    await awaitPublished(published, isPublished);
   }
 
   const bunx = Bun.which("bunx");

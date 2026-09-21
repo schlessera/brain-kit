@@ -15,7 +15,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { planRelease, type ReleaseEntry } from "../scripts/publish.ts";
+import { awaitPublished, planRelease, type ReleaseEntry } from "../scripts/publish.ts";
 
 /** The 0.32.0 list, in its dependency-first publish order. */
 const ENTRIES: ReleaseEntry[] = [
@@ -110,5 +110,83 @@ describe("planRelease", () => {
     const plan = await planRelease(ENTRIES, isLive);
 
     expect(plan.every((step) => step.action === "publish")).toBe(true);
+  });
+});
+
+// Publishes go out back to back and are confirmed as one set afterwards. The
+// 0.36.0 release showed why: confirming between publishes stretched the run
+// far enough for the npm web-login session to expire, and the sixth publish
+// died with a 403 on the login callback. A `bun publish` that exits 0 is
+// already accepted by the registry, so the wait belongs after the last one.
+describe("awaitPublished", () => {
+  const PUBLISHED = ENTRIES.slice(0, 3);
+  const noSleep = async () => {};
+
+  test("resolves once every version is seen, without sleeping first", async () => {
+    const { isLive } = registry(PUBLISHED.map((entry) => `${entry.name}@${entry.version}`));
+    const slept: number[] = [];
+
+    await awaitPublished(PUBLISHED, isLive, async (ms) => {
+      slept.push(ms);
+    });
+
+    expect(slept).toEqual([]);
+  });
+
+  test("keeps polling only the versions still absent, and stops when the set is complete", async () => {
+    const live = new Set<string>([`${ENTRIES[0].name}@${ENTRIES[0].version}`]);
+    const asked: string[] = [];
+    let rounds = 0;
+    const isLive = async (name: string, version: string) => {
+      asked.push(`${name}@${version}`);
+      return live.has(`${name}@${version}`);
+    };
+    const sleep = async () => {
+      rounds += 1;
+      // The registry catches up over two rounds.
+      if (rounds === 1) live.add(`${ENTRIES[1].name}@${ENTRIES[1].version}`);
+      if (rounds === 2) live.add(`${ENTRIES[2].name}@${ENTRIES[2].version}`);
+    };
+
+    await awaitPublished(PUBLISHED, isLive, sleep);
+
+    expect(rounds).toBe(2);
+    // Round 1 asks all three; round 2 the two still absent; round 3 the last.
+    expect(asked).toEqual([
+      `${ENTRIES[0].name}@0.32.0`,
+      `${ENTRIES[1].name}@0.32.0`,
+      `${ENTRIES[2].name}@0.32.0`,
+      `${ENTRIES[1].name}@0.32.0`,
+      `${ENTRIES[2].name}@0.32.0`,
+      `${ENTRIES[2].name}@0.32.0`,
+    ]);
+  });
+
+  // There is no deadline: `changeset tag` must not run before every version is
+  // seen, and nothing after the poll depends on speed. 0.32.0 gave up on a
+  // healthy publish that merely took longer than a budget to appear.
+  test("waits past any budget, backing off to once a minute, until the last version appears", async () => {
+    let calls = 0;
+    const slept: number[] = [];
+    const isLive = async () => {
+      calls += 1;
+      return calls >= 40;
+    };
+
+    await awaitPublished([ENTRIES[0]], isLive, async (ms) => {
+      slept.push(ms);
+    });
+
+    expect(calls).toBe(40);
+    expect(slept).toHaveLength(39);
+    expect(slept.slice(0, 8)).toEqual([2000, 5000, 10000, 15000, 25000, 30000, 45000, 60000]);
+    expect(new Set(slept.slice(8))).toEqual(new Set([60000]));
+  });
+
+  test("an empty set needs no registry round trip", async () => {
+    const { isLive, asked } = registry([]);
+
+    await awaitPublished([], isLive, noSleep);
+    expect(asked).toEqual([]);
   });
 });

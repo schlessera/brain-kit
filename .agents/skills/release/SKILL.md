@@ -98,10 +98,16 @@ git push origin main --follow-tags
   stopped. Nothing gets commented out of `scripts/publish.ts` — that was the old
   runbook, and hand-editing release tooling mid-release is how a restored list
   gets forgotten. `tests/release-resume.test.ts` guards the skip.
-- **"did not appear on the registry within 5 minutes"** — the publish itself
-  almost certainly SUCCEEDED and npm is still propagating. 0.32.0 stopped exactly
-  this way with the package already live, and the run after it died on a 403.
-  Open the package page to confirm, then re-run.
+- Publishes go out back to back, in dependency order, and the whole set is
+  confirmed against the registry afterwards. Confirming between publishes used
+  to stretch a run over enough minutes for the npm web-login session to
+  expire: 0.36.0 stopped on its sixth package with a 403 on the login callback.
+  One 2FA prompt at the first publish now covers the run.
+- The confirmation poll has no deadline: it keeps asking, backing off to once
+  a minute, and prints what is still propagating. 0.32.0 gave up on a healthy
+  publish that merely took longer than a budget to appear. A version that never
+  shows up is a registry incident — open its package page; a publish that
+  failed would have stopped the run with its exit code instead.
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
