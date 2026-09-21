@@ -301,6 +301,13 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "TYPESAFE_API_KEY",
+    description:
+      "TypeSafe AI key for the classification pass that draws markdown the model typed as kit blocks (D42). Absent = pass disabled; the answer renders as markdown either way.",
+    default: null,
+    required: false,
+  },
+  {
     name: "CLAUDE_CODE_PATH",
     description: "Path to the Claude Code native binary handed to the Agent SDK.",
     default: "/usr/local/bin/claude",
@@ -543,6 +550,8 @@ export interface ServerConfig {
   auth: AuthConfig;
   webauthn: WebAuthnConfig;
   agent: AgentConfig;
+  /** The classification pass (D42): enabled only with a key. */
+  classification: { apiKey: string | null };
   voice: VoiceConfig;
   coastline: CoastlineConfig;
   /** Model-pricing service (BRAIN_UI_PRICING_*); inline like wsRate. */
@@ -716,6 +725,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       modelTtlMs: ttlHours * 60 * 60 * 1000,
       ambientBilling: resolveAmbientBillingMode(env),
     },
+    classification: { apiKey: env.TYPESAFE_API_KEY?.trim() || null },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
     wsMaxConnections: positiveNumber(env.BRAIN_UI_WS_MAX_CONNECTIONS, 32),
     wsRate: {

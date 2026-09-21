@@ -61,6 +61,7 @@ import { createCronScheduler } from "./cron/scheduler.js";
 import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
+import { createJevClient, createTurnClassifier } from "./classification/index.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
 import { createObservability, type Observability } from "./observability/index.js";
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
@@ -218,10 +219,22 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       getBillingOverrides: () => getBillingOverrides(db, dbLog),
       log: observability.logger("agent"),
     });
+  // The classification pass (D42): always constructed so persisted blocks
+  // replay, calling out only when a key is configured.
+  const classifier = createTurnClassifier({
+    jev: createJevClient({
+      apiKey: config.classification.apiKey,
+      log: observability.logger("classification"),
+    }),
+    db: () => db,
+    log: observability.logger("classification"),
+    meter: observability.meter("classification"),
+  });
   const host = new WsHost({
     registry,
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
+    classifier,
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs

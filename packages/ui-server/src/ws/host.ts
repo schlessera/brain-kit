@@ -1,4 +1,6 @@
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { TurnClassifier } from "../classification/classify-turn.js";
 import { ClientSet, sendTo, type WSContext } from "./clients.js";
 import { TurnCoordinator } from "./turns.js";
 import type { SessionCatalog } from "./session-catalog.js";
@@ -59,6 +61,12 @@ export interface WsHostOptions {
   registry: BackendRegistry;
   /** Session persistence seam (SQLite catalog in production). */
   catalog: SessionCatalog;
+  /**
+   * The classification pass over finished turns (D42). Absent means no pass:
+   * answers render as markdown, which is also what every failure of the pass
+   * means.
+   */
+  classifier?: TurnClassifier | null;
   /** Display name used in connection/status copy. */
   appName?: string;
   /** Per-turn timeout in ms (default 10 minutes). */
@@ -151,6 +159,7 @@ export class WsHost {
   readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
   readonly toolPermissions: ToolPermissions | null;
+  readonly classifier: TurnClassifier | null;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
   private readonly framesDropped: ReturnType<
@@ -189,6 +198,7 @@ export class WsHost {
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
+    this.classifier = options.classifier ?? null;
     this.log = this.observability.logger("ws");
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {
@@ -260,6 +270,11 @@ export class WsHost {
       body: "turn started",
       attributes: turnLogAttributes(turn),
     });
+  }
+
+  /** Replayed history with its classified blocks joined on (D42); unchanged without a classifier. */
+  attachMessageBlocks(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+    return this.classifier ? this.classifier.attach(sessionId, messages) : messages;
   }
 
   /** A turn's backend call resolved: counted, and logged with its duration. */

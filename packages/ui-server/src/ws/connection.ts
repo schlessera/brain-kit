@@ -153,7 +153,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           );
           const history = await backend.getHistory(sid);
           if (connection.authorization.valid && history.length > 0) {
-            sendSessionHistory(ws, sid, history);
+            sendSessionHistory(ws, sid, host.attachMessageBlocks(sid, history));
           }
         } catch (err) {
           host.log.emit({

@@ -232,6 +232,7 @@ Every variable this package reads, and what happens when it is unset.
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
 | `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |
 | `TRUST_PROXY_HOPS` | How many trusted proxies front the app (x-forwarded-for parse depth). | 1 |
+| `TYPESAFE_API_KEY` | TypeSafe AI key for the classification pass that draws markdown the model typed as kit blocks (D42). Absent = pass disabled; the answer renders as markdown either way. | — |
 | `VOICE_CACHE_DIR` | Directory holding the keyterm cache JSON. | $BRAIN_PATH/.brain-ui |
 | `VOICE_KEYTERM_LIMIT` | Maximum custom-vocabulary terms built from the brain database. | 500 |
 | `VOICE_PROVIDER` | Speech provider: "deepgram" or "webspeech" (opt-in only — Chromium streams audio to Google). Unset auto-detects deepgram when its key is present. | (auto-detect) |
@@ -252,6 +253,26 @@ picker to `BRAIN_UI_CLAUDE_PROFILES` alone — and `BRAIN_UI_MODEL_TTL_HOURS`
 (default 24) sets how long a discovered roster is served before a background
 refresh. It defaults to OFF under a test runner (`NODE_ENV=test`) so suites
 don't depend on network access; set the var explicitly to opt in.
+
+
+### The classification pass
+
+With `TYPESAFE_API_KEY` set, the server runs one classification pass over
+each finished turn's assistant text (D42): a deterministic walk finds the
+markdown constructs that might be one of the kit's answer blocks, and a
+single call to TypeSafe AI's Jev decides which shape each one is. The result
+rides one additive `message_blocks` frame after the turn's `result`, and is
+persisted per text part so history replays the same blocks without a second
+call.
+
+The pass is progressive enhancement and nothing else. The whole call, one
+retry on 429/529 included, runs inside a 1 s budget; a timeout, an error, a
+missing key, or an answer below the confidence threshold all mean the
+markdown stays exactly as it streamed. No turn waits on the pass and no
+answer can render worse for it having been asked. Outcomes are counted
+(`classification.passes` by outcome, `classification.latency_ms`) so a slow
+or failing classifier shows up in the server's record, not in the reader's
+experience.
 
 ## Versioning
 

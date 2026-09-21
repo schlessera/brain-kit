@@ -10,6 +10,7 @@ import { withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
+import { TurnTextCollector } from "../classification/classify-turn.js";
 
 /** Build the per-turn bridge the backend drives. */
 export function makeBridge(
@@ -26,9 +27,14 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   const queryActivity = host.activity?.query;
+  // The assistant text, kept as the client numbers its parts, for the
+  // classification pass that runs after the result (D42). Cheap when no
+  // classifier is configured: a few string appends.
+  const collector = host.classifier ? new TurnTextCollector() : null;
   return {
     emit: (message) => {
       let msg = message;
+      if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         turn.sessionId = msg.sessionId;
         if (msg.providerId) turn.providerId = msg.providerId;
@@ -62,6 +68,22 @@ export function makeBridge(
                 : "success";
         }
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
+        if (
+          collector &&
+          host.classifier &&
+          turn.turnId === turnId &&
+          turn.lastResult === "success"
+        ) {
+          // After the result, never before, and never awaited: the answer is
+          // on screen already; this only says which spans to draw as blocks.
+          const sessionId = msg.sessionId;
+          void host.classifier.run(sessionId, collector.textParts()).then((blocks) => {
+            if (blocks.length === 0) return;
+            host.sendToClients(
+              withTurnScope({ type: "message_blocks", sessionId, blocks }, turn, turnId)
+            );
+          });
+        }
       }
     },
     requestPermission: (req) => {
