@@ -64,13 +64,19 @@ function renderer(opts: Parameters<typeof createRenderer>[0] = {}) {
 }
 
 /**
- * The first Chrome launch in a process is not a render, and charging it to a
+ * The first Chrome launch on a machine is not a render, and charging it to a
  * render budget is what made this file fail intermittently at exactly
  * `renderTimeoutMs` (#66). Measured on ubuntu-latest across six CI runs, the
  * first test took 1.3s, 1.4s, 1.4s, 6.8s, 10.7s and then >20s — while every
  * launch after it, in the same job and each in its own browser, stayed
- * between 0.4s and 2.3s. That spread is the one-time cost of faulting a cold
- * Chrome off a shared disk, not a property of any render.
+ * between 0.4s and 2.3s.
+ *
+ * Those seven later launches carry identical flags, which is what rules the
+ * alternatives out: the DNS blackhole, the sandbox and /dev/shm are all
+ * per-launch, so any of them would have cost all eight. What is left is the
+ * cost a machine pays once and then shares — page cache for the binary and
+ * its libraries, fontconfig's cache — and it lands on whichever render asks
+ * for a browser first.
  *
  * So pay it once, here, outside every assertion, and print what it cost so a
  * CI log records the launch time on that runner rather than leaving it to be
@@ -85,6 +91,17 @@ beforeAll(async () => {
     console.log(
       `[renderer] cold Chrome launch + first render: ${Date.now() - startedAt}ms ` +
         `(${chromePath})`
+    );
+  } catch (error) {
+    // A failing hook is reported by bun as "(fail) (unnamed)" and the tests it
+    // guards vanish from the count rather than failing — which is the silent
+    // hole again, one step further in: the binary exists, so nothing skipped,
+    // but it could not be launched. Carry the meaning in the message, since
+    // the label cannot.
+    throw new Error(
+      `The renderer warm-up could not launch Chrome at ${chromePath}, so NONE of ` +
+        `the runtime policy tests below ran and the renderer's isolation posture ` +
+        `is unproven by this run. Cause: ${error instanceof Error ? error.message : error}`
     );
   } finally {
     await warm.shutdown();
