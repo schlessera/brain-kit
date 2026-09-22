@@ -446,7 +446,12 @@ describe("malformed JSON", () => {
         return this.body;
       }
       override async get(url: string, _opts: FetchOptions = {}): Promise<Response> {
-        throw new Error(`StubClient serves fixtures, not responses: ${url}`);
+        // Same seal, same wording as board-fixtures.test.ts, so the two do not
+        // drift into disagreeing about what a stub is allowed to do.
+        throw new Error(
+          `StubClient.get(${url}) \u2014 these tests answer from a fixture and must never ` +
+            `reach the network. Add the read path you need to StubClient instead.`
+        );
       }
     }
 

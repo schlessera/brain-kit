@@ -14,10 +14,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const BOARDS = join(import.meta.dir, "fixtures", "boards");
+const FIXTURES = join(import.meta.dir, "fixtures");
+const BOARDS = join(FIXTURES, "boards");
+
+/** What sits beside a record and is not one of the bytes it describes. */
+const NOT_A_FIXTURE = new Set(["capture.json", "README.md"]);
 
 interface Capture {
   fixture: string;
@@ -33,15 +37,34 @@ interface Capture {
   full_response_sha256: string | null;
 }
 
-function boardDirs(): string[] {
-  return readdirSync(BOARDS, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
+/**
+ * Every directory under `fixtures/` that carries a `capture.json`, found
+ * rather than listed.
+ *
+ * It was one per board when this guard was written. #34's JSON-LD captures are
+ * organised by the SHAPE they demonstrate rather than by board, so they sit
+ * beside `boards/` instead of inside it — and a record directory the guard
+ * does not know about is a record directory nothing checks. Walking for the
+ * file means the next one is covered on the day it lands.
+ */
+function recordDirs(): string[] {
+  const dirs: string[] = [];
+  const walk = (relative: string): void => {
+    const full = join(FIXTURES, relative);
+    if (existsSync(join(full, "capture.json"))) {
+      dirs.push(relative);
+      return;
+    }
+    for (const entry of readdirSync(full, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(relative ? join(relative, entry.name) : entry.name);
+    }
+  };
+  walk("");
+  return dirs.sort();
 }
 
-function capturesOf(board: string): Capture[] {
-  return (JSON.parse(readFileSync(join(BOARDS, board, "capture.json"), "utf-8")) as {
+function capturesOf(dir: string): Capture[] {
+  return (JSON.parse(readFileSync(join(FIXTURES, dir, "capture.json"), "utf-8")) as {
     captures: Capture[];
   }).captures;
 }
@@ -85,30 +108,33 @@ describe("trimmed JSON-LD fixtures", () => {
   }
 });
 
-describe("board capture records", () => {
+describe("capture records", () => {
   test("some fixture is a whole response, so that check is not dead", () => {
     // The check above `continue`s past an excerpt, which is nine of the ten
     // captures. If the tenth ever stops being a complete response the check
     // becomes unreachable and reads as coverage it is not providing.
-    const whole = boardDirs()
+    const whole = recordDirs()
       .flatMap(capturesOf)
       .filter((c) => c.full_response_bytes !== null && c.excerpt_bytes === c.full_response_bytes);
     expect(whole.length).toBeGreaterThan(0);
   });
 
-  test("there is at least one board, and each has a record", () => {
-    const boards = boardDirs();
-    expect(boards.length).toBeGreaterThan(0);
-    for (const board of boards) {
-      expect(capturesOf(board).length).toBeGreaterThan(0);
+  test("there is at least one record directory, and none is empty", () => {
+    const dirs = recordDirs();
+    expect(dirs.length).toBeGreaterThan(0);
+    // Both roots are covered: the per-board captures and #34's per-shape ones.
+    expect(dirs.some((dir) => dir.startsWith("boards"))).toBe(true);
+    expect(dirs).toContain("jsonld");
+    for (const dir of dirs) {
+      expect(capturesOf(dir).length).toBeGreaterThan(0);
     }
   });
 
-  for (const board of boardDirs()) {
+  for (const board of recordDirs()) {
     describe(board, () => {
       test("every recorded fixture exists, and its bytes match the record", () => {
         for (const capture of capturesOf(board)) {
-          const bytes = readFileSync(join(BOARDS, board, capture.fixture));
+          const bytes = readFileSync(join(FIXTURES, board, capture.fixture));
           expect(capture.excerpt_bytes).toBe(bytes.byteLength);
           expect(capture.excerpt_sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
         }
@@ -116,7 +142,7 @@ describe("board capture records", () => {
 
       test("every committed fixture is recorded", () => {
         const recorded = new Set(capturesOf(board).map((c) => c.fixture));
-        const onDisk = readdirSync(join(BOARDS, board)).filter((f) => f !== "capture.json");
+        const onDisk = readdirSync(join(FIXTURES, board)).filter((f) => !NOT_A_FIXTURE.has(f));
         expect([...onDisk].sort()).toEqual([...recorded].sort());
       });
 
