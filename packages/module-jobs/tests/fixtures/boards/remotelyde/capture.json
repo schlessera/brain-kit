@@ -5,6 +5,7 @@
       "egress_country": "DE",
       "excerpt_bytes": 6417,
       "excerpt_edited": "three itemListElement entries removed - two German sole traders and one practice whose company name is a private individual's name. A public repository does not republish those, and the defect this fixture shows does not need them. The remaining entries and the positions they carry are verbatim.",
+      "excerpt_sha256": "8e851731624456ee81df2684c0318e478170f200fe67cdc0d614022e9c660efc",
       "fixture": "listing.html",
       "full_response_bytes": 593663,
       "full_response_sha256": "3754e8e06cdc98a2eb14c3dfdea09b2e0e4b81301aa8a6bb5eaf20f7c58ff7f6",

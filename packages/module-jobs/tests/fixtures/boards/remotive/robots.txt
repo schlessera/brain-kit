@@ -20,3 +20,4 @@
         Disallow: /join/*
         Disallow: /web/image/hr.job/*
         Disallow: /ajax/session*
+        

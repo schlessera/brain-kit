@@ -30,8 +30,18 @@
  *
  * The file must end in `.html`, or Chrome serves it as plain text and the
  * extractor sees no DOM at all.
+ *
+ * Finally, the per-board `capture.json` records are SEALED from the bytes on
+ * disk rather than typed:
+ *
+ *   bun packages/module-jobs/scripts/measure-boards.ts --seal <boards-dir>
+ *
+ * That is not the guard, though — `tests/board-fixtures.test.ts` is. A
+ * generator only helps the person who remembers to run it; the test fails for
+ * the one who does not.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
@@ -111,6 +121,41 @@ function companyLooksReal(company: string, title: string): boolean {
 }
 
 /**
+ * Rewrite every `capture.json` so its byte facts describe the committed file.
+ *
+ * These records were hand-maintained and drifted: nine of ten `excerpt_bytes`
+ * were the length of the string BEFORE the writer normalised its trailing
+ * whitespace, and `remotive/robots.txt` — the one fixture that is a complete
+ * response — claimed to be 648 bytes while 640 were committed. The recorded
+ * `full_response_sha256` was right the whole time; the committed copy had been
+ * trimmed. A fact that is typed is a fact that rots.
+ */
+function seal(boardsDir: string): void {
+  for (const board of readdirSync(boardsDir, { withFileTypes: true })) {
+    if (!board.isDirectory()) continue;
+    const recordPath = join(boardsDir, board.name, "capture.json");
+    if (!existsSync(recordPath)) continue;
+    const record = JSON.parse(readFileSync(recordPath, "utf-8")) as {
+      captures: Array<Record<string, unknown> & { fixture: string }>;
+    };
+    for (const capture of record.captures) {
+      const bytes = readFileSync(join(boardsDir, board.name, capture.fixture));
+      capture.excerpt_bytes = bytes.byteLength;
+      capture.excerpt_sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
+    record.captures.sort((a, b) => a.fixture.localeCompare(b.fixture));
+    writeFileSync(recordPath, `${JSON.stringify(record, sortedKeys, 2)}\n`);
+    console.log(`sealed ${board.name}/capture.json (${record.captures.length})`);
+  }
+}
+
+/** Stable key order, so a reseal is a no-op diff. */
+function sortedKeys(_key: string, value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/**
  * Run one browser board's page extractor against a local capture.
  *
  * This is how a repair is checked against a committed fixture without going
@@ -167,6 +212,16 @@ async function replay(source: string, file: string): Promise<void> {
 }
 
 async function main() {
+  if (process.argv[2] === "--seal") {
+    const dir = process.argv[3];
+    if (!dir) {
+      console.error("usage: measure-boards.ts --seal <boards-dir>");
+      process.exit(2);
+    }
+    seal(resolve(dir));
+    return;
+  }
+
   if (process.argv[2] === "--replay") {
     const [source, file] = process.argv.slice(3);
     if (!source || !file) {

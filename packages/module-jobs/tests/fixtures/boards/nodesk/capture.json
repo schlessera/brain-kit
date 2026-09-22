@@ -3,7 +3,8 @@
     {
       "captured_at_utc": "2026-09-22T16:18Z",
       "egress_country": "DE",
-      "excerpt_bytes": 4986,
+      "excerpt_bytes": 4987,
+      "excerpt_sha256": "c1fc2bd564a9a3746c43178756beec6e874fce8acd460db0b539aca5e7b8f1ea",
       "fixture": "rendered-card.html",
       "full_response_bytes": 539869,
       "full_response_sha256": "1661ff05c2b41adfd84af0384fde49d07b11bb1bcc1202bd85132b36f6b77ad2",

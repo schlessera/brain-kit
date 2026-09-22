@@ -4,6 +4,7 @@
       "captured_at_utc": "2026-09-22T16:18Z",
       "egress_country": "DE",
       "excerpt_bytes": 648,
+      "excerpt_sha256": "cc40f8ae85eb0946b8e976e29ecb1d344a4ba227e15d9010fc27ea6cbadcc386",
       "fixture": "robots.txt",
       "full_response_bytes": 648,
       "full_response_sha256": "cc40f8ae85eb0946b8e976e29ecb1d344a4ba227e15d9010fc27ea6cbadcc386",
