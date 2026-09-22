@@ -79,6 +79,8 @@ export function createPermissionWiring(options: {
   //    which is the turn's cwd, and Write/Edit are on the default allowlist —
   //    so a wide-posture turn can write it and re-widen every later narrow
   //    one. Enforcement therefore cannot be a property of configuration.
+  //    It is a GRANTING vector only: an in-process PreToolUse deny still wins
+  //    over it, measured, so a hook that refuses cannot be talked out of it.
   //
   // What does NOT skip the callback, in those same project settings:
   // `permissions.allow` rules, and `permissions.defaultMode:
