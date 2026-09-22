@@ -79,10 +79,31 @@ describe("the contract list is the single source", () => {
 });
 
 describe("show_block", () => {
-  test("the brief rides every turn, so it stays under fifteen lines and names every kind", () => {
-    const brief = SHOW_BLOCK_CONTRACT.brief("show_block");
-    expect(brief.split("\n").length).toBeLessThan(15);
+  test("the brief rides every turn, so it stays at eleven lines and names every kind", () => {
+    // D43 measured what these eleven lines buy and what they cost: 257 input
+    // tokens on every turn, against a `show_block` rate of 59% with them and
+    // 2% without, over 102 completed live turns. Near zero rather than merely
+    // lower, because the SDK defers an MCP server's tools behind tool search —
+    // the brief is the only text that tells the model the tool exists. Both
+    // budgets are pinned at what was measured rather than at a round number
+    // above it, so a twelfth line, or a longer one, has to be argued for and
+    // re-measured instead of drifting in. Measured on the name the Claude
+    // backend actually sends: the MCP prefix is fifteen of those characters.
+    const brief = SHOW_BLOCK_CONTRACT.brief(
+      visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude")
+    );
+    // The naming check goes FIRST on purpose. It was below the budgets, and a
+    // change that both dropped a kind and lengthened the brief tripped the
+    // character budget first — so "the brief stopped naming `contact`" got
+    // reported as "the brief is too long". The test failed either way, but it
+    // named the wrong cause. Cheapest fix is the ordering: the semantic
+    // assertion reports before the two that measure size.
     for (const kind of BLOCK_KINDS) expect(brief).toContain(`\`${kind}\``);
+    expect(brief.split("\n").length).toBeLessThanOrEqual(11);
+    // Lines alone do not bound it — eleven long ones cost more than twelve
+    // short ones, and tokens are what ride the turn. 749 characters is what
+    // was measured at 257 tokens.
+    expect(brief.length).toBeLessThanOrEqual(749);
   });
 
   test("the description carries the shape rules once, and names every kind", () => {
