@@ -150,16 +150,23 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
       : `${stats.brokenLinks} of ${stats.links} (${pct(health.brokenLinkRate)}), ` +
         `${health.brokenLinkRate > brokenLinkCeiling ? "over" : "within"} the ${ceiling} ceiling`;
 
+  // "not measured", not "nothing embedded": collectStats returns null for a
+  // brain that does not embed AND for one whose vec_chunks could not be
+  // counted because the extension would not load on this connection — an
+  // index that may well hold every vector it should. The renderer cannot tell
+  // the two apart, so it must not claim either.
   const coverage =
     health.embeddingCoverage === null
-      ? `n/a — nothing embedded here (floor ${floor})`
+      ? `n/a — not measured (floor ${floor})`
       : `${pct(health.embeddingCoverage)} of ${plural(stats.chunks, "chunk")}, ` +
         `${health.embeddingCoverage < coverageFloor ? "below" : "meets"} the ${floor} floor`;
 
-  const windows = [
-    ...stale.perType.map((w) => `${w.type} ${w.days}`),
-    `else ${stale.defaultDays}`,
-  ].join(", ");
+  // "(180)" when no type carries its own window — "(else 180)" would name an
+  // exception list that is empty.
+  const windows =
+    stale.perType.length === 0
+      ? `${stale.defaultDays}`
+      : [...stale.perType.map((w) => `${w.type} ${w.days}`), `else ${stale.defaultDays}`].join(", ");
 
   return [
     "Health",

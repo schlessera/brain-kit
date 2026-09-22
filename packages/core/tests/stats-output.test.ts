@@ -94,7 +94,7 @@ describe("formatStats over fixtures/corpus", () => {
         "Health",
         "",
         "  Broken links:       2 of 37 (5.4%), over the 5.0% ceiling",
-        "  Embedding coverage: n/a — nothing embedded here (floor 90.0%)",
+        "  Embedding coverage: n/a — not measured (floor 90.0%)",
         "  Stale:              2 — past their type's staleDays (context 30, health 60, project 90, else 180)",
         "  Orphans:            1 — no wiki-link in either direction",
         "  Untagged:           1 — no tags (archived excluded)",
@@ -277,9 +277,14 @@ describe("null figures never read as a number", () => {
       statsWith({ embeddings: 0, health: { ...statsWith().health, embeddingCoverage: null } }),
       { all: false, stale: STALE }
     );
-    expect(out).toContain("  Embedding coverage: n/a — nothing embedded here (floor 90.0%)");
+    expect(out).toContain("  Embedding coverage: n/a — not measured (floor 90.0%)");
     expect(out).not.toMatch(/Embedding coverage:.*(meets|below) the/);
     expect(out).not.toContain("Embedding coverage: 0.0%");
+    // And it must not claim the opposite either. `collectStats` returns null
+    // both for a brain that does not embed and for one whose vec_chunks could
+    // not be counted; "nothing embedded" would be a false claim in the second
+    // case, where the index may hold every vector it should.
+    expect(out).not.toMatch(/Embedding coverage:.*(nothing|no) embed/i);
   });
 
   test("unknowable sizes are n/a, not 0", () => {
@@ -453,4 +458,42 @@ describe("brain stats (spawned)", () => {
       cleanup(empty);
     }
   });
+});
+
+describe("the stale line with no per-type windows", () => {
+  test("names the default window alone, not an empty exception list", () => {
+    const out = formatStats(statsWith(), {
+      all: false,
+      stale: { perType: [], defaultDays: 180 },
+    });
+    expect(out).toContain("past their type's staleDays (180)");
+    expect(out).not.toContain("else 180");
+  });
+});
+
+describe("byte scaling", () => {
+  // Boundaries: the last value that stays in a unit, and the first that steps up.
+  const cases: [number, string][] = [
+    [0, "0 B"],
+    [1, "1 B"],
+    [1023, "1023 B"],
+    [1024, "1.0 KB"],
+    [1_048_575, "1024.0 KB"],
+    [1_048_576, "1.0 MB"],
+    [22_231, "21.7 KB"],
+    [1024 ** 4 * 3, "3.0 TB"],
+    // Nothing scales past TB — a petabyte reads as 1024 TB rather than an
+    // invented unit.
+    [1024 ** 5, "1024.0 TB"],
+  ];
+
+  for (const [count, rendered] of cases) {
+    test(`${count} bytes renders as ${rendered}`, () => {
+      const out = formatStats(statsWith({ size: { corpus: null, db: { bytes: count, tables: {} }, freeBytes: null } }), {
+        all: false,
+        stale: STALE,
+      });
+      expect(out).toContain(`  Index: ${rendered}\n`);
+    });
+  }
 });
