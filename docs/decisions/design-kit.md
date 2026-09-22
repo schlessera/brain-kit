@@ -2347,8 +2347,14 @@ different run and not the one above.)
 in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
-configuration the structural equivalent of this record's `--always-load` arm
-rather than of the Claude backend's, and `--always-load` is the controlled
+configuration the structural equivalent of this record's `--always-load`
+**brief** arm — and only that one. pi has no no-brief arm and no supported way
+to have one: `packages/ui-backend-pi/src/session-resources.ts:157` passes the
+block brief unconditionally, where the four lines above it gate their briefs on
+a capability. So pi can corroborate the loaded *rate* and can say nothing at
+all about whether the brief matters; the 77%/77% here and #148's 78%/78% are
+one backend measured twice, not two backends agreeing. It is also not the
+Claude backend's shipping configuration, and `--always-load` is the controlled
 version of the same comparison: it flips deferral alone, on one backend, one
 model, one host. Flipped, this backend also calls on `compare-short` — 3 of 3
 in both arms, against 0 to 6 of 6 depending on the run when deferred — and also
@@ -2365,10 +2371,13 @@ What that does NOT settle, and #137 owns:
   harness drives the Agent SDK directly. #137 names a host-isolation confound
   on the Claude side of its own comparison that has to be closed first.
 
-The prediction this makes is falsifiable and someone should check it: if the
+The prediction this makes is falsifiable, and #148 has since checked it: if the
 Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
-rather than merely upward. If they land short of 90%, deferral was not the
-whole cause and #137's search is still live.
+90% rather than merely upward. **They landed at 77–78%, short of it.** So the
+prediction partly failed, which is the useful outcome — deferral is not the
+whole cause, and whatever else separates the two backends is #137's to find.
+Roughly a third of the gap this record attributed to deferral is unexplained by
+it.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
 configuration that ships today, it is
