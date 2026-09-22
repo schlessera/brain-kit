@@ -110,8 +110,15 @@ export function WhatsupPanel({
     };
   }, [open, root]);
 
+  // Closing unmounts the panel, and the unmount aborts the briefing, so a stray
+  // click on the backdrop must not close it: while it loads the click cancels a
+  // model call, and afterwards it discards a briefing that call paid for.
+  // Escape is refused only while the briefing loads; the header's X is always
+  // the way out.
+  const closedBy = state === "loading" ? "none" : "closerequest";
+
   return (
-    <SlidePanel open={open} onClose={onClose} title="Whatsup" wide>
+    <SlidePanel open={open} onClose={onClose} title="Whatsup" wide closedBy={closedBy}>
       <BriefingOutput
         state={state}
         content={<BrainMarkdown content={content} className="whatsup-briefing brain-prose" entityTags fileLinks />}
