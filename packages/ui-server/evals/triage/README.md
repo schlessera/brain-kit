@@ -22,7 +22,33 @@ Keys are read per provider and only for the providers you actually exercise:
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`.
 
 Results are written to `benchmarks.json` after **every** configuration, so an
-interrupted run keeps what it already measured.
+interrupted run keeps what it already measured. Set `EVAL_BENCHMARKS=<path>` to
+read and write another file — a scratch run that must not touch the committed
+matrix.
+
+## Exit code
+
+The gate is the exit code, so a wrapper can enforce it rather than read it off
+the table:
+
+| exit | meaning |
+|---|---|
+| 0 | every selected configuration was judged and passed |
+| 1 | a selected configuration failed the gate |
+| 2 | refused to start: `BRAIN_UI_LIVE_EVALS` unset, or `--model`/`--effort` matched nothing |
+| 3 | a selected configuration was not judged, and none failed |
+
+**Not judged is not a pass.** `NO DATA` means no call succeeded — a depleted
+quota or an unreachable endpoint — so the configuration was never measured; an
+effort the endpoint rejected, or a job that crashed, is the same thing. A gate
+that exits 0 in that state has silently stopped testing anything, which is why
+it gets its own code: exit 3 says "fix the keys, the quota or the roster and
+rerun", exit 1 says "the model failed".
+
+The exit code judges **this invocation's selection**, not the stored matrix.
+The table still prints every row on disk, and most of the roster fails by
+design — the gate is per candidate, so `bun run eval:triage --model x --effort
+high` exits 0 when that configuration passes, whatever the rows around it say.
 
 ## Current preference
 
