@@ -2313,8 +2313,11 @@ Put the other way round, so the absence is not the only evidence: sending
 every recorded pi answer that *does* carry a candidate through the real
 classifier (`--classify`, same client, same 2 s budget) answered both of
 them, at 716 ms and 259 ms — one drew a `receipt` at 0.96 confidence, one
-cleared nothing and kept its markdown. The pass behaves the same against
-pi-authored markdown as against Claude's. There is just almost none of it.
+cleared nothing and kept its markdown. That is three live calls in total,
+counting the swap inside the turn: too few to say the classifier is
+*indifferent* to which backend wrote the markdown, enough to say nothing
+observed suggests otherwise, and all three inside D42's measured latency
+band. There is just almost no pi-authored markdown to ask about.
 
 **Trap, recorded.** The brain the harness points at must live outside any
 checkout of this repo. The agent's cwd is the brain, and a brain nested in

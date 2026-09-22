@@ -18,10 +18,13 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
+import { SHOW_BLOCK_CONTRACT } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import {
   assertMeasurableBrainPath,
   countMarkdownTables,
   escapesBrain,
+  EXPECTED_KIND,
+  PROMPTS,
 } from "../scripts/measure-show-block-server.ts";
 
 function tables(...parts: string[]): number {
@@ -161,5 +164,30 @@ describe("the brain-escape rule", () => {
     expect(
       escapesBrain([{ path: `${brain}/a.md` }, { command: "ls /home/someone" }], brain)
     ).toBe(true);
+  });
+});
+
+describe("the expected kind per prompt", () => {
+  test("has exactly one entry per prompt", () => {
+    // Scoring indexes it by prompt index, so a prompt added without an entry
+    // would score against another prompt's expectation.
+    expect(EXPECTED_KIND).toHaveLength(PROMPTS.length);
+  });
+
+  test("names only kinds the brief itself names", () => {
+    // The provenance claim — "taken clause by clause from the brief" — as a
+    // test. A typo, or a kind renamed in the union, fails here rather than
+    // silently scoring every turn wrong.
+    const brief = SHOW_BLOCK_CONTRACT.brief("show_block");
+    for (const kind of EXPECTED_KIND) {
+      if (kind === null) continue;
+      expect(brief).toContain(`\`${kind}\``);
+    }
+  });
+
+  test("leaves a prompt unscored rather than inventing a right answer", () => {
+    // At least one prompt the brief prescribes nothing single for, so the
+    // null branch of the scoring is exercised by the real data.
+    expect(EXPECTED_KIND).toContain(null);
   });
 });

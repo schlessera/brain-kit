@@ -80,7 +80,7 @@ import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
  * so it is counted but not scored for correctness rather than being given an
  * invented right answer.
  */
-const EXPECTED_KIND: Array<string | null> = [
+export const EXPECTED_KIND: Array<string | null> = [
   "comparison",
   "comparison",
   "trend",
@@ -91,7 +91,7 @@ const EXPECTED_KIND: Array<string | null> = [
   null,
 ];
 
-const PROMPTS = [
+export const PROMPTS = [
   "Compare Bun and Node.js as a runtime for a small CLI tool. Keep it short.",
   "Compare Bun and Node.js as a runtime for a small CLI tool.",
   "How did the number of notes in this brain trend over the last months? Show me the trend.",
@@ -338,6 +338,7 @@ async function measure(): Promise<void> {
 
   const records: RunRecord[] = [];
   const environment = redirectingEnvironment();
+  const classifierConfigured = environment.TYPESAFE_API_KEY;
   const save = () =>
     Bun.write(
       outPath,
@@ -350,9 +351,21 @@ async function measure(): Promise<void> {
         console.error(`[measure] prompt ${promptIndex} run ${runIndex + 1}/${runs}`);
         observability.logs.clear();
         const record = await runOnce(url, profile, brainPath, blockTool, promptIndex, runIndex);
-        // One turn is one session here, and the log was cleared before it, so
-        // the pass's record for this turn is the only one present.
-        const pass = observability.logs.find({ body: "classification pass" }).at(-1);
+        // One turn is one session here and the log was cleared before it, so
+        // the pass's record for this turn is the only one present — but the
+        // pass is fire-and-forget, so it can still be in flight. When a key
+        // is configured its record is waited for rather than read once:
+        // absent would otherwise be indistinguishable from "pass disabled".
+        const passRecords = async () => {
+          const deadline = Date.now() + 5000;
+          for (;;) {
+            const found = observability.logs.find({ body: "classification pass" });
+            if (found.length || !classifierConfigured || Date.now() > deadline) return found;
+            await Bun.sleep(100);
+          }
+        };
+        const found = await passRecords();
+        const pass = found.at(-1);
         record.classification = pass
           ? {
               outcome: String(pass.attributes["classification.outcome"] ?? "?"),
@@ -360,7 +373,11 @@ async function measure(): Promise<void> {
               blocks: Number(pass.attributes["classification.blocks"] ?? 0),
               durationMs: Number(pass.attributes["duration.ms"] ?? 0),
             }
-          : null;
+          : classifierConfigured
+            ? // A key was set and the pass never reported. Recorded as its own
+              // outcome, never as silence, because silence reads as "off".
+              { outcome: "not_observed", candidates: 0, blocks: 0, durationMs: 0 }
+            : null;
         records.push(record);
         console.error(
           `[measure]   show_block=${record.showBlockCalls.length}` +
