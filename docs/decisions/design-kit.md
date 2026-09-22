@@ -2312,6 +2312,23 @@ the `schedule` the brief names for "what is coming", 4 times out of 4. A
 kind can be reachable and still be reached for the wrong question, and no
 rate measures that.
 
+That clause is worth naming precisely, because it bears on whether the
+brief's enumeration earns its tokens now that the tools are always loaded
+(#157). The brief says "a `timeline` for what happened when; a `schedule`
+for what is coming". The tool's own description already says, at
+`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, "timeline: what happened
+when, oldest first … schedule: what is coming, grouped by day". The model
+drew the wrong one of the two 4 times out of 4 **with both surfaces in the
+prompt saying nearly the same words**. So for this pair the brief duplicates
+the description rather than adding to it, and saying it twice does not fix
+the miss — the same lesson D42 recorded when the brief was rewritten twice
+and still measured zero. More text is not the lever.
+
+One thing only a per-kind count shows: the `trend` prompt drew 14 blocks
+across 8 turns — the prescribed `trend` every time, plus an unprescribed
+`bars` companion on most of them. "One or two blocks per answer" is a
+description rule being stretched, and a rate cannot see it.
+
 **The classification pass, live.** Thirty-two turns with the pass enabled
 against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
 1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
