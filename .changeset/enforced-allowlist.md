@@ -23,8 +23,9 @@ Under the declaration the rewrites still rewrite — `updatedInput` applies
 without a decision attached, so the rewrite was never what the grant was for —
 a PreToolUse hook answers "ask" for every off-list tool, which overrides the
 runtime's own auto-approval, and the host neither answers from nor adds to its
-grant store for a tool outside the turn's allowlist. Backends mark such requests `outsideEnforcedAllowlist` so the
-host does not have to guess, and it records both halves of the refusal — a
-grant it declines to apply, and an "always allow" it declines to keep. A turn
+grant store for a tool outside the turn's allowlist. Backends mark such
+requests `outsideEnforcedAllowlist` so the host does not have to guess, and it
+records both halves of the refusal — a grant it declines to apply, and an
+"always allow" it declines to keep. A turn
 that declares nothing is unchanged, and existing grants keep working on the
 postures that can honour them.

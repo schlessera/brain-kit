@@ -258,7 +258,8 @@ describe("a refused always-allow is recorded", () => {
     close = null;
   });
 
-  function setup(initial: string[] = []) {
+  /** `store: false` builds a host with NO grants store, the embedder path. */
+  function setup(initial: string[] = [], store = true) {
     const db = createUiDb(":memory:");
     const observability = createRecordingObservability();
     const { backend, controls } = permissionBackend();
@@ -267,10 +268,14 @@ describe("a refused always-allow is recorded", () => {
       registry: createStaticBackendRegistry([backend], backend.id),
       catalog: createSessionCatalog(() => db),
       observability,
-      toolPermissions: {
-        isAutoAllowed: (name) => grants.has(name),
-        add: (name) => grants.add(name),
-      },
+      ...(store
+        ? {
+            toolPermissions: {
+              isAutoAllowed: (name: string) => grants.has(name),
+              add: (name: string) => grants.add(name),
+            },
+          }
+        : {}),
     });
     close = () => {
       host.close();
@@ -364,6 +369,43 @@ describe("a refused always-allow is recorded", () => {
     expect(records).toHaveLength(1);
     expect(records[0]!.attributes["tool.name"]).toBe("Bash");
     expect(records[0]!.attributes.reason).toBe("per-use confirmation");
+
+    controls[0]!.finish();
+  });
+
+  test("with no grants store at all, the refusal is recorded rather than silent", async () => {
+    // The host that has nowhere to put a grant used to take the "remembered"
+    // branch, write nothing through an optional chain, log nothing, and still
+    // stamp the activity record `always_allow`. That is the silent refusal
+    // this whole block exists to rule out, so it is a reason like any other.
+    const { host, observability, controls } = setup([], false);
+    const client = await openTurn(host, controls);
+
+    let decision: PermissionDecision | null = null;
+    void controls[0]!
+      .request({ toolName: "mcp_proxy_tool", input: {}, kind: "tool" }, "t13")
+      .then((d) => {
+        decision = d;
+      });
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const card = client.sent.find((f) => f.type === "tool_approval_request") as
+      | { turnId?: string }
+      | undefined;
+
+    await dispatch(
+      host,
+      client.ws,
+      { type: "tool_approval", toolUseId: "t13", always: true, turnId: card!.turnId },
+      { principal: testPrincipal(), authorization: testAuthorization() }
+    );
+    await waitFor(() => decision !== null);
+
+    expect(decision!.behavior).toBe("allow");
+    const records = observability.logs
+      .find({ scope: "ws" })
+      .filter((r) => r.body === "always-allow not remembered");
+    expect(records).toHaveLength(1);
+    expect(records[0]!.attributes.reason).toBe("no grant store configured");
 
     controls[0]!.finish();
   });

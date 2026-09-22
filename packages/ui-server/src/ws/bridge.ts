@@ -103,10 +103,19 @@ export function makeBridge(
       const remembered =
         req.kind !== "command" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
       if (remembered && req.outsideEnforcedAllowlist) {
+        // Body stays constant and the reason rides as an attribute, matching
+        // the refusal dispatch.ts records on the write side. A reason spliced
+        // into the body reads better in a terminal and aggregates worse: two
+        // halves of one policy would not group, and neither would two reasons
+        // for the same half.
         host.log.emit({
           severityText: "INFO",
-          body: "remembered tool grant not applied: outside this turn's enforced allowlist",
-          attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
+          body: "remembered tool grant not applied",
+          attributes: {
+            "tool.name": req.toolName,
+            "toolUse.id": req.toolUseId,
+            reason: "outside this turn's enforced allowlist",
+          },
         });
       }
       if (remembered && !req.outsideEnforcedAllowlist) {

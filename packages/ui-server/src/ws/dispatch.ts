@@ -179,10 +179,20 @@ export async function handleClientMessage(
         // a grant made inside a narrower posture must not widen the ones the
         // user was not looking at. The call itself still runs — they approved
         // it — it is only the memory that is refused.
+        // The store being absent is one of the reasons, not an exemption from
+        // them: optional-chaining the add() away would take the "remembered"
+        // branch, write nothing, log nothing, and still stamp the activity
+        // record `always_allow` — the exact silent refusal this block exists
+        // to rule out. Embedders wire a store (app.ts) so this is the
+        // test/embedder path, which is precisely where a silent no-op is
+        // hardest to notice.
+        const store = host.toolPermissions;
         const remembers =
-          pending.request.kind !== "command" && !pending.request.outsideEnforcedAllowlist;
+          store !== null &&
+          pending.request.kind !== "command" &&
+          !pending.request.outsideEnforcedAllowlist;
         if (msg.always && remembers) {
-          host.toolPermissions?.add(pending.request.toolName);
+          store.add(pending.request.toolName);
         } else if (msg.always) {
           // The user asked for something the host will not do. Recorded for
           // the same reason the bridge records a grant it declines to apply:
@@ -196,9 +206,11 @@ export async function handleClientMessage(
               "tool.name": pending.request.toolName,
               "toolUse.id": pending.request.toolUseId,
               reason:
-                pending.request.kind === "command"
-                  ? "per-use confirmation"
-                  : "outside this turn's enforced allowlist",
+                store === null
+                  ? "no grant store configured"
+                  : pending.request.kind === "command"
+                    ? "per-use confirmation"
+                    : "outside this turn's enforced allowlist",
             },
           });
         }
