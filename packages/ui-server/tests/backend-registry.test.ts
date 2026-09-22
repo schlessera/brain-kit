@@ -380,22 +380,35 @@ describe("billing classification", () => {
     // closure, so their route is learned on the FIRST listing and must
     // survive the cache hit on every later one. classifyBilling has the same
     // dependency; this pins it for the route too.
-    const registry = registryFor(
-      { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
-      { getCustomOpenRouterModels: () => ["z-ai/glm-4.7"] }
-    );
+    //
+    // A custom profile declares OPENROUTER_API_KEY, and profile availability
+    // reads the REAL process env for it. Set it here rather than inheriting
+    // whatever the machine happens to have: on a developer box that exports a
+    // real key this passed for the wrong reason, and the roster came back
+    // empty as soon as another suite cleared it.
+    const saved = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    try {
+      const registry = registryFor(
+        { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
+        { getCustomOpenRouterModels: () => ["z-ai/glm-4.7"] }
+      );
 
-    const routeOnListing = async () => {
-      const providers = await registry.listAllProviders();
-      const custom = providers.find((p) => p.id === "openrouter:z-ai/glm-4.7");
-      expect(custom).toBeDefined();
-      return custom?.pricingRoute;
-    };
+      const routeOnListing = async () => {
+        const providers = await registry.listAllProviders();
+        const custom = providers.find((p) => p.id === "openrouter:z-ai/glm-4.7");
+        expect(custom).toBeDefined();
+        return custom?.pricingRoute;
+      };
 
-    // First listing mints the profile; the second is served from the closure's
-    // merge cache, which skips the branch that learned the route.
-    expect(await routeOnListing()).toBe("openrouter");
-    expect(await routeOnListing()).toBe("openrouter");
+      // First listing mints the profile; the second is served from the
+      // closure's merge cache, which skips the branch that learned the route.
+      expect(await routeOnListing()).toBe("openrouter");
+      expect(await routeOnListing()).toBe("openrouter");
+    } finally {
+      if (saved === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = saved;
+    }
   });
 
   test("an inherited ANTHROPIC_BASE_URL decides the route, not the missing override (#57)", async () => {
