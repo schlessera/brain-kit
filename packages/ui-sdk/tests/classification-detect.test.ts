@@ -149,6 +149,18 @@ describe("detectCandidates", () => {
     expect(detectCandidates("**Ships:** 12")).toEqual([]);
   });
 
+  test("a run of facts about one person is a key-value candidate; an address GFM autolinks is not", () => {
+    const [run] = detectCandidates("**Name:** Odysseus\n**Role:** King of Ithaca\n**Last seen:** Ogygia");
+    expect(run?.kind).toBe("kv_run");
+    if (run?.kind !== "kv_run") return;
+    expect(run.rows[0]).toEqual({ k: "Name", v: "Odysseus" });
+
+    // GFM autolinks a bare address, and a link is markup the kit's cells
+    // cannot hold, so the whole run is left as markdown. It is the one
+    // contact shape the pass cannot reach (noted in D45).
+    expect(detectCandidates("**Name:** Odysseus\n**Herald:** eurybates@ithaca.example")).toEqual([]);
+  });
+
   test("candidates keep document order and stable ids", () => {
     const text = `${COMPARISON}\n\n1. Go\n2. Stay\n\n> Words.\n`;
     const kinds = detectCandidates(text).map((c) => [c.id, c.kind]);

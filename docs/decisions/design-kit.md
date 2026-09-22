@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D42, dated, with the alternatives that were rejected
+way they are. D1 through D45, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -2913,3 +2913,372 @@ Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
 the harness's default arms now measure the shipped configuration only when
 `--always-load` is passed, because what ships changed — the flag's name is left
 alone so D43's invocations keep reproducing D43's tables.
+
+## 2026-09-22 — D45: the pass routes to `contact`; `trend` stays the tool's, because its payload is numbers
+
+**Question.** D42's decision 6 names six catalogue routes. Two of them were
+never built, and nothing recorded a decision to drop them (#132): `contact`
+from a key-value run, and `trend` from a number series — together with the
+per-row value tone named in the same sentence as the first. `bars` is not in
+that list, so the gap is exactly the two routes the record claims are covered
+and the code does not have. The question is per route: build it, or correct the
+record.
+
+**Decision.**
+
+1. **`contact` is built, from the key-value run D42 names.** The run's `shape`
+   question gains a fourth option, and the transform draws a `ContactCard` from
+   the lines the text already has. The block's `label` is required and a run
+   does not say which line is the name, so a `subject` question asks the
+   classifier to choose one of the run's own keys, or `none` — the same move
+   the table row's `recommended` question already makes over its headers. The
+   chosen line's value becomes the label, the remaining lines become the card's
+   facts, and a `contact_kind` question fills D42's "+ contact kind". A run the
+   classifier calls a contact but cannot name stays markdown: a label the text
+   does not carry is one the surface would be inventing, which
+   `docs/integration-contract.md` already forbids.
+
+2. **`trend` is not built, and D42's "number series → trend | plain (+ delta
+   tone)" is withdrawn.** Three reasons, in the order that decided it.
+
+   *Its payload is numbers, and the pass only ever passes strings through.*
+   `trend.values` is a `number[]` and `bars.pct` is a `number`; those two are
+   the only members of D41's eleven whose payload is not text the answer
+   already contains — checked against the schemas rather than read off, and
+   asserted by a test, because the whole entry rests on it. Every transform in
+   the catalogue hands the kit the candidate's own strings verbatim; the only
+   text any of them authors is a fixed label, the one-group schedule's "Coming
+   up", and never a value. A `trend` route would have to turn
+   "1,200", "$1.2M" or "12%" into numbers — a parse with no ground truth and a
+   locale ambiguity a reader cannot see ("1.200" is twelve hundred in one place
+   and one-point-two in another), feeding a sparkline whose shape is the claim.
+   That is precisely the reason D42 gave for never routing `bars`. It applies
+   to `trend` unchanged, and D42's route list was inconsistent on the point;
+   this entry makes it consistent. The consumer rule it also satisfies is
+   already written down: *"Blocks contain only what the text carried. The
+   classifier chooses a shape and a tone; it never invents a footnote, a
+   figure, or a source line."*
+
+   *There is no gap to fill.* The two routes look symmetric and the
+   measurements say they are not. With the tool loaded — the configuration D44
+   ships — `trend` fires 3 of 3 in both arms in D43's run and again in #148's,
+   while `contact` is 1 of 12 pooled across the same two runs (#119 carries the
+   pooled table; the full count across both loading configurations is on that
+   issue). A fallback earns its place for the kind the model declines, not for
+   the kind it reaches every time.
+
+   *It needs a candidate that does not exist, and the detector under it is the
+   part the classifier cannot rescue.* D42 hands judgment to the classifier and
+   keeps extraction deterministic. "These lines are a series, oldest first" is a
+   judgment and could be asked; "1.2M is 1200000" is extraction, and it is the
+   half with no answer in the text.
+
+   What this does **not** claim is that `trend` is unreachable. It is reached by
+   `show_block`, where the figures come from an author who knows what they mean
+   — which is the right place for a number.
+
+3. **Per-row value tone is built, and bounded.** One `choice` per line of the
+   run, with the options named by what the text says rather than by their
+   colour ("it reports a failure, an error, or an outcome the reader would not
+   want" → red), gated at the tone threshold of 0.8 like every other tone. The
+   fall-through option is `none`, not `neutral`: in this kit `neutral` is the
+   grey machine-meta accent and means that everywhere, so a value that wants
+   the default carries no tone at all and each component falls back on its own
+   (`design-feedback.md` §4, `packages/ui-kit/src/types.ts`). Offering `neutral` as "no
+   strong reading" would have taught the classifier a meaning the 2026-09-18
+   drop retired. It is one question set on the run and whichever branch wins
+   reads it, so a
+   receipt's rows, a stat tile and a contact's facts are coloured by the same
+   answers. It is asked only of a run of eight lines or fewer — the bound stat
+   tiles already had, and now the bound on the contact questions too — so the
+   question count follows the run's shape and not the text's length. That bound
+   is not only editorial: the `subject` question offers one option per line,
+   the classifier takes at most 255 of them, and one oversized question fails
+   the whole request, which carries every candidate in the message. A run
+   longer than a card is asked what shape it is and nothing else, and the
+   transform refuses the contact branch on its own rather than relying on the
+   answers being absent.
+
+4. **The route list is a test now, not a reading.** Each catalogue row declares
+   the block kinds its transform can return, `CATALOGUE_BLOCK_KINDS` is their
+   union, and `packages/ui-sdk/tests/classification-catalogue.test.ts` drives
+   every declared kind through a real transform and asserts that what is left
+   over is exactly `trend` and `bars`. #132 was found by a reader comparing a
+   decision record to a file. The next divergence fails a test instead.
+
+**What the pass reaches, after this.** Nine of the eleven: `comparison`,
+`table`, `steps`, `timeline`, `schedule`, `quote`, `receipt`, `stats`,
+`contact` — every kind whose payload is the answer's own strings. The two it
+leaves are the two whose payload is numbers. That is now a sentence with a
+reason in it, rather than a count nobody had taken.
+
+**Alternatives refused.**
+
+- *Routing `trend` from the key-value run instead of building a new candidate.*
+  A run of `period: figure` lines is nearly what the detector already finds, and
+  a `trend` option on the run's `shape` question would need no detector work at
+  all. It was the cheapest way to build the route, and it is refused for the
+  first reason above: it moves where the route hangs without touching the number
+  parse, which is the actual objection.
+- *Restricting `trend` to bare integers* (`^\d+$`), which removes the locale
+  ambiguity by construction. It also removes the case. A model writing a series
+  writes "1,200" or "$1.2M"; a route that fires only on the shape nobody types
+  is a route in name.
+- *Dropping `contact` as well, on the ground that prose is the right answer to
+  "who is this person".* That is #119's question and this entry does not settle
+  it. What it settles is narrower and mechanical: when the model **does** type a
+  run of facts about a person, the pass now draws it, where before the best it
+  could do was a receipt. #119's own reframing is that `contact` was the one
+  kind where a low call rate reached the reader as a missing block; after this
+  it is a kind whose decline is caught, like `quote`'s.
+- *Asking the classifier for the display name as a string.* It generates no
+  text by design (D42), and a name is not a judgment. Choosing among lines the
+  text already has is.
+
+**What this corrects in D42.** Decision 6's fourth route is now built as
+written. Its sixth route is withdrawn, with the reason above; there is no
+number-series candidate, no `trend` transform and no delta-tone question, and
+the record no longer says there is. The other four routes were already built and
+are untouched.
+
+**Known limit, recorded rather than fixed.** GFM autolinks a bare email address
+or URL, a link is inline markup the kit's cells cannot hold, and so a run
+carrying one is not a candidate at all — which removes the most natural shape a
+contact has. The rejection rule predates this work and applies to every
+candidate kind, so widening it is its own decision: #167.
+`packages/ui-sdk/tests/classification-detect.test.ts` pins the behaviour so the
+next reader meets it on purpose.
+
+## 2026-09-22 — measured: pi draws the block, so the net never gets cast
+
+**Question.** D41 left the tool's use rate to be measured and D42 measured
+the classification pass once. Both numbers are the Claude backend's, because
+the test deployment configures no other, and D43 has since replaced the
+first with a 108-turn A/B. The pi backend had never had a number at all, and
+the two backends hand a tool to a model differently enough that the gap was
+worth measuring rather than assuming.
+
+**Method.** `scripts/measure-show-block-server.ts`, a companion to D43's
+harness rather than a copy of it: that one drives the Agent SDK directly,
+which is what an A/B over the brief needs and what pi has no equivalent of,
+while this one boots a real ui-server on loopback and drives it with the
+shipped client over a real socket, so any backend can be put through the
+same measurement. Two runs of the same 32 turns on 2026-09-22,
+`claude-sonnet-5` through pi's builtin Anthropic provider, against a copy of
+`packages/core/fixtures/corpus/`: the first with the classification pass
+off, the second with it on, 18:29:13Z to 18:44:35Z. $2.18 of API spend.
+D43's counting rules are carried over — a call counts only when the handler
+accepted its payload, subagent frames are skipped, a turn that did not
+complete is excluded — and one is added: a turn whose tool arguments named a
+path outside the brain answered about a different brain and is excluded too.
+Two of each 32 were. Thirty turns counted per run.
+
+The environment can redirect a turn without showing up in a number — a
+different endpoint, a different credential store, a different binary — so
+what was set is part of the measurement. Both runs: `ANTHROPIC_API_KEY`, and
+`TYPESAFE_API_KEY` on the second. `ANTHROPIC_BASE_URL`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH` and `PI_CODING_AGENT_DIR` were
+unset, so the turns went to Anthropic's own endpoint with pi's default agent
+directory. The harness records that set of presences with every run and
+`--report` prints it.
+
+**pi has no deferral, so this is the always-loaded regime.**
+`packages/ui-backend-pi/src/bridge-tools.ts:171` registers `show_block` as
+one of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever
+defers a name that arrived through a tool-result's `addedToolNames` and has
+not been called since — a statically registered tool can never be deferred.
+Across all 64 turns the complete roster the model reached for was `bash`,
+`show_block`, `brain_read`, `grep`, `brain_search`, `read_file`,
+`brain_list`, `brain_graph`: no search-then-load round trip, ever. The brief
+is in the prompt on every turn unconditionally
+(`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a
+capability check like the four bridge tools beside it). So pi is the
+structural twin of D43's `--always-load` arm and has never run any other
+configuration.
+
+**The rate.** Each cell is turns that drew at least one accepted block.
+
+| prompt | expected kind | run 1 | run 2 | pooled | right kind |
+| --- | --- | --- | --- | --- | --- |
+| `compare-short` — "…Keep it short." | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `compare-long` — the same without it | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `trend` | `trend` | 4/4 | 4/4 | **8/8** | 8/8 |
+| `contact` | `contact` | 3/6 | 2/6 | **5/12** | 5/5 |
+| `steps` | `steps` | 2/2 | 2/2 | **4/4** | 4/4 |
+| `schedule` | `schedule` | 2/2 | 2/2 | **4/4** | **0/4** |
+| `quote` | `quote` | 2/2 | 1/2 | **3/4** | 3/3 |
+| project summary | — | 2/2 | 2/2 | **4/4** | not scored |
+| overall | | 27/30 | 25/30 | **52/60 (87%)** | **44/48** |
+
+Pooling the two runs is legitimate for this number: the classification pass
+runs after the result frame and cannot change what the model did during the
+turn. **A figure of 90% circulated before the second run existed** — that is
+27 of 30, the first run alone. D43 and D44 both quoted it and both now carry
+52 of 60, read off this record's per-run breakdown rather than relayed. The
+spread between 90% and 87% is what 30 turns of sampling noise looks like on
+this measurement, which is worth knowing before either is treated as
+precise. Across all sixty turns the model typed **zero markdown tables**. Two
+calls were rejected by the handler, both `comparison`, both on a turn that
+retried and succeeded — the same shape D43 saw at three in 108, and the
+reason a call is not counted until its payload parses.
+
+Beside the Claude backend, on one axis. The two Claude columns are
+independent runs of the same four cells — D43's and D44's, both above —
+quoted from those records rather than relayed:
+
+| configuration | Claude, D43 | Claude, D44 | pi |
+| --- | --- | --- | --- |
+| behind tool search — what shipped, with brief | 23 / 43 (53%) | 14 / 25 (56%) | n/a |
+| behind tool search, no brief | 1 / 47 (2%) | 0 / 25 (0%) | n/a |
+| always loaded, with brief | 17 / 22 (77%) | 19 / 25 (76%) | **52 / 60 (87%)** |
+| always loaded, no brief | 17 / 22 (77%) | 20 / 26 (77%) | unreachable |
+
+D43's deferred rows here are the ones from its own `--always-load`
+comparison, so both of its rows come from one run; its headline A/B is a
+larger, separate run at 59% and 2%. pi's cell sits on the "with brief" row
+and nowhere else: the brief is
+hardcoded into pi's prompt, so pi has no no-brief arm and no supported way
+to have one. The two Claude no-brief cells are therefore one backend
+measured twice and not two backends agreeing.
+
+**pi does not contradict either record; it replicates their always-loaded
+arm on a different backend.** What is not accounted for is the remaining
+height — **87% against 76–77%**, on 60 turns against 47–48 across the two
+Claude runs. Three things could explain it and none is measured: the layer
+(both Claude records drive the Agent SDK, this drives the whole server, and
+no backend has been measured at both), the roster the block competes in
+(D43 records that narrowing it moves the absolute rate, and pi's roster here
+carried four brain tools), or the backend itself. That is #137.
+
+D44 puts the same residue the other way round and names its own failure
+condition: if deferral were the whole difference, making the Claude backend
+always-load should move it toward pi's rate rather than merely upward. It
+moved to 76–77%. That is the prediction failing, and the shortfall is what
+#137 is for.
+
+**Which kind, not just whether.** Every measurement before this one scored
+whether a block was drawn and never which one, so a model reaching for the
+wrong kind scored as a success. Scoring against the kind the brief itself
+prescribes — clause by clause from `SHOW_BLOCK_CONTRACT.brief`, with the
+project-summary prompt left unscored because the brief prescribes nothing
+single for it — gives **44 of 48**, and every miss is the same miss: asked
+what is coming up over the next few weeks, pi drew a `timeline` rather than
+the `schedule` the brief names for "what is coming", 4 times out of 4. A
+kind can be reachable and still be reached for the wrong question, and no
+rate measures that.
+
+**What this does not say.** Seven of eight prompts drawing the kind the
+brief prescribes is not evidence that the brief's *content* is what did it.
+Every pi turn was measured with the brief present, because pi has no
+supported way to run without it, so this is a single-arm result and
+attributes nothing to the brief in either direction — the description names
+all eleven kinds too, and several of these prompts have an obvious kind. A
+comment of mine on #157 drew that inference and is retracted there; D44 is
+where it was caught. What survives is the part that needs no attribution:
+**a wrong kind was drawn reliably, and a call-rate metric would have scored
+all four of those turns as successes.**
+
+That clause is worth naming precisely, because it bears on whether the
+brief's enumeration earns its tokens now that the tools are always loaded
+(#157). The brief says "a `timeline` for what happened when; a `schedule`
+for what is coming". The tool's own description already says, at
+`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, "timeline: what happened
+when, oldest first … schedule: what is coming, grouped by day". The model
+drew the wrong one of the two 4 times out of 4 **with both surfaces in the
+prompt saying nearly the same words**. So for this pair the brief duplicates
+the description rather than adding to it, and saying it twice does not fix
+the miss — the same lesson D42 recorded when the brief was rewritten twice
+and still measured zero. More text is not the lever.
+
+One thing only a per-kind count shows: the `trend` prompt drew 14 blocks
+across 8 turns — the prescribed `trend` every time, plus an unprescribed
+`bars` companion on most of them. "One or two blocks per answer" is a
+description rule being stretched, and a rate cannot see it.
+
+**The classification pass, live.** Thirty-two turns with the pass enabled
+against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
+1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
+breaker never opened.** The one swap drew a `receipt` from a key-value run
+in the trail-signage answer. Latency sits in the 700–800 ms band D42
+measured on the Claude side.
+
+The shape of the difference is not the classifier; it is that pi hardly ever
+leaves it anything. D42's Claude measurement was eight turns, three swaps,
+five with no candidate — 3 of 8 answers carried a candidate. Here **1 of 30
+did**, and D43's no-brief arm, where the tool is invisible and the model
+types markdown instead, carries one on 62% of turns. **pi draws the block
+itself, so the net is cast over an empty deck.**
+
+Put the other way round, so the absence is not the only evidence: sending
+every recorded pi answer that *does* carry a candidate through the real
+classifier (`--classify`, same client, same 2 s budget) answered both of
+them, at 716 ms and 259 ms — one drew a `receipt` at 0.96 confidence, one
+cleared nothing and kept its markdown. That is three live calls in total,
+counting the swap inside the turn: too few to say the classifier is
+*indifferent* to which backend wrote the markdown, enough to say nothing
+observed suggests otherwise, and all three inside D42's measured latency
+band. There is just almost no pi-authored markdown to ask about.
+
+**Trap, recorded.** The brain the harness points at must live outside any
+checkout of this repo. The agent's cwd is the brain, and a brain nested in
+the worktree lets the model walk up into it: on the first attempt two pi
+answers compared Bun and Node by quoting this repo's own `AGENTS.md`. The
+shell is not confined to the brain either — the deployment container is that
+boundary (`container-privilege.md`) and a developer host does not have one —
+so the harness records when a tool argument names a path outside the brain
+and drops that turn from the rate. Four turns across the two runs were
+dropped that way, and **all four were the `trend` prompt** — the one that
+sends the model counting notes, so it is the one that goes looking. Three
+plainly answered about a different brain (one reported 1,953 files, against
+this corpus's 25). The fourth answered from the corpus and was dropped
+anyway, because it named a path outside it: the rule is deliberately the
+conservative one, since an over-eager exclusion shrinks a printed
+denominator while an under-eager one quietly corrupts a rate. It is why the
+`trend` row reads 4 of 4 rather than 6 of 6 in both runs.
+
+A Claude-backend control on this harness is still owed and is #137's. Two of
+its three blockers now have known fixes: keep the brain outside any
+checkout, and point `CLAUDE_CONFIG_DIR` at an empty directory, which stops
+the Agent SDK answering about this repository instead of about the brain.
+The third is open — in the probe turn no brain MCP tool came up at all,
+where pi had four, and a control whose roster is missing them is not
+comparable.
+
+## 2026-09-22 — the composer follows soft wrap
+
+"`Composer` is net-new work, and it is finished" recorded a trade: height from
+a controlled value's newline count, capped at five rows, keeping the component
+a pure function of its props at the cost of not growing on soft wrap. The cost
+landed on the most common input there is — a paragraph typed into a
+phone-width field scrolled inside one visible line (#92) — and the trade is
+replaced, keeping the half that mattered.
+
+**What replaced it.** `field-sizing: content` on the textarea, applied only when
+there is text to follow. The browser's own line layout, which runs on every
+keystroke regardless, is the measurement; the component stays a pure function
+of its props with no ref, no measuring and no layout effect, so a keystroke is
+still one render of the subtree that re-renders on every keystroke by design.
+The newline count stays on `rows` as the floor: a browser without
+`field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
+from `rows` alone and gets exactly the old behaviour. Where `field-sizing`
+applies, `rows` bounds nothing, so the cap has to carry `maxRows` itself: it is
+`maxRows` whole lines or the design's 96px, whichever is smaller. That is what
+the constant `maxHeight: 96` already produced while `rows` did the bounding —
+the default still stops at exactly 96px, a smaller `maxRows` gets that many
+whole lines rather than a fraction of 96, and a larger one does not raise the
+ceiling. Scaling 96px by `maxRows` instead was tried first and rejected: it
+spreads the default's deliberate ~4.90-line shortfall to every other row count,
+so a three-row field clipped by a pixel that no shipped behaviour had clipped.
+
+**Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
+forced synchronous layout per keystroke, and either a `setState` that commits
+twice per character or a direct style write that makes the height a thing the
+render does not know about. *The stacked-grid replica* (a hidden copy of the
+value in the same grid cell): works everywhere, but doubles the text in the
+DOM, and its correctness rests on two elements' text metrics never diverging.
+Both buy back browsers that will have `field-sizing` before either would ship
+its next bug.
+
+**An empty field stays one row.** With no text there is nothing to follow, and
+a placeholder longer than the field would otherwise take a second row that the
+first character typed took away again. The uncontrolled composer is untouched.

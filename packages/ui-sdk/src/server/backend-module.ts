@@ -1,4 +1,4 @@
-import type { BillingMode, ProviderInfo } from "../protocol.js";
+import type { BillingMode, PricingRoute, ProviderInfo } from "../protocol.js";
 import type { AgentBackend } from "./backend.js";
 
 /** @experimental Minimal logging boundary shared by backend modules and hosts. */
@@ -99,6 +99,14 @@ export interface BackendModuleContext {
 export interface ResolvedBackendModule {
   backend: AgentBackend;
   classifyBilling?(profile: ProviderInfo): BillingMode;
+  /**
+   * Which pricing catalog runs on this profile are billed through. Only the
+   * backend knows where a profile's requests actually go, and a model id does
+   * not say — the two catalogs share ids at different rates. Return undefined
+   * for a route the backend cannot name (an unrecognised proxy); pricing then
+   * falls back to resolving by model id alone.
+   */
+  classifyRoute?(profile: ProviderInfo): PricingRoute | undefined;
   preferredProfile?: {
     matches(profile: ProviderInfo): boolean;
     hasCredential(): boolean | Promise<boolean>;

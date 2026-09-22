@@ -11,6 +11,7 @@ import {
   type ActivityStore,
   type RollupPricing,
 } from "../src/activity/store.js";
+import type { PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { PricingRates } from "../src/pricing/model-pricing.js";
 import {
   getDetailRetentionDays,
@@ -435,7 +436,13 @@ describe("activity store: effective cost (migration 010)", () => {
   function sessionRun(
     store: ActivityStore,
     runId: string,
-    opts: { billing?: "subscription" | "api"; perModel?: PerModel; costUsd?: number } = {}
+    opts: {
+      billing?: "subscription" | "api";
+      perModel?: PerModel;
+      costUsd?: number;
+      /** Verbatim `brain.pricing_route` attr — a bad value is a real case. */
+      route?: unknown;
+    } = {}
   ) {
     store.startSpan({
       spanId: `${runId}-root`,
@@ -444,9 +451,12 @@ describe("activity store: effective cost (migration 010)", () => {
       kind: "turn",
       origin: "session",
       sessionId: "sess-1",
-      attrs: opts.billing
-        ? { "brain.billing_mode": opts.billing, "brain.profile_id": "default" }
-        : {},
+      attrs: {
+        ...(opts.billing
+          ? { "brain.billing_mode": opts.billing, "brain.profile_id": "default" }
+          : {}),
+        ...(opts.route !== undefined ? { "brain.pricing_route": opts.route } : {}),
+      },
     });
     store.endSpan(`${runId}-root`, {
       outcome: "success",
@@ -637,6 +647,152 @@ describe("activity store: effective cost (migration 010)", () => {
     const warm = createActivityStore(db, { pricing: fakePricing({ m: { input: 1e-6 } }) });
     warm.rollupRun("run-1");
     expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.001, 10);
+  });
+
+  // --- route-aware pricing (#57) --------------------------------------------
+  //
+  // The catalogs share ids at different rates, so the model id alone cannot
+  // price a run. These assert the STORE's half of that: it hands the route
+  // recorded on the root span to resolve() and uses what comes back. Which
+  // rate each route resolves to is model-pricing.test.ts's job.
+
+  /** A pricing double keyed by route, recording every route it was asked for. */
+  function routedPricing(
+    byRoute: Record<string, Record<string, Partial<PricingRates>>>,
+    asked: Array<PricingRoute | undefined> = []
+  ): RollupPricing & { asked: Array<PricingRoute | undefined> } {
+    return {
+      asked,
+      resolve(modelId, route) {
+        asked.push(route);
+        const r = byRoute[route ?? "(none)"]?.[modelId];
+        if (!r) return null;
+        return {
+          input: r.input ?? 0,
+          output: r.output ?? 0,
+          cacheRead: r.cacheRead !== undefined ? r.cacheRead : null,
+          cacheWrite: r.cacheWrite !== undefined ? r.cacheWrite : null,
+          estimate: r.estimate ?? false,
+          source: r.source ?? "litellm",
+        };
+      },
+    };
+  }
+
+  /** One id, three answers — the collision the issue is about. */
+  const SHARED_ID_RATES = {
+    openrouter: { shared: { input: 2e-6, source: "openrouter" as const } },
+    direct: { shared: { input: 1e-6, source: "litellm" as const } },
+    // What resolve() answers when no route was passed: OpenRouter still leads,
+    // exactly as it did before routes existed.
+    "(none)": { shared: { input: 2e-6, source: "openrouter" as const } },
+  };
+
+  test("a run is priced by the route it took, not by model id alone (AC1)", () => {
+    const db = createUiDb(":memory:");
+    const pricing = routedPricing(SHARED_ID_RATES);
+    const store = createActivityStore(db, { pricing });
+
+    sessionRun(store, "run-or", {
+      billing: "api",
+      route: "openrouter",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+    sessionRun(store, "run-direct", {
+      billing: "api",
+      route: "direct",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+
+    // Same id, same tokens, different endpoint → different money. Pricing the
+    // direct run at the resale rate would have doubled it.
+    expect(rollupOf(db, "run-or").effective_cost_usd).toBeCloseTo(0.002, 10);
+    expect(rollupOf(db, "run-direct").effective_cost_usd).toBeCloseTo(0.001, 10);
+    expect(pricing.asked).toEqual(["openrouter", "direct"]);
+  });
+
+  test("an unknown route degrades to id-alone pricing, never to unpriced (AC3)", () => {
+    const db = createUiDb(":memory:");
+    const pricing = routedPricing(SHARED_ID_RATES);
+    const store = createActivityStore(db, { pricing });
+
+    // No attr at all (every run recorded before this feature), and a root
+    // carrying a value that is not a route (a forged or future attr) — both
+    // must resolve, and to the SAME figure the pre-route code produced.
+    sessionRun(store, "run-none", {
+      billing: "api",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+    sessionRun(store, "run-junk", {
+      billing: "api",
+      route: "vertex-via-carrier-pigeon",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+
+    for (const runId of ["run-none", "run-junk"]) {
+      const r = rollupOf(db, runId);
+      expect(r.effective_cost_usd).toBeCloseTo(0.002, 10);
+      expect(r.pricing_estimate).toBe(0);
+    }
+    // Not merely "some route" — the unrecognised value is dropped, so the
+    // store asks for NO route rather than passing junk through to pricing.
+    expect(pricing.asked).toEqual([undefined, undefined]);
+  });
+
+  test("a model the route cannot price stays unknown, never $0 (AC4)", () => {
+    const db = createUiDb(":memory:");
+    // The direct catalog has nothing for this id, and the store must not
+    // silently fall back to the other route's rate to produce a number.
+    const store = createActivityStore(db, {
+      pricing: routedPricing({ openrouter: { shared: { input: 2e-6 } }, direct: {} }),
+    });
+
+    sessionRun(store, "run-1", {
+      billing: "api",
+      route: "direct",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+
+    const r = rollupOf(db, "run-1");
+    expect(r.effective_cost_usd).toBeNull();
+    expect(r.pricing_estimate).toBeNull();
+    expect(r.billing_mode).toBe("api");
+    // And it stays unknown on the way out, rather than rendering as zero.
+    expect(rowToRunRollup(r).effectiveCostUsd).toBeNull();
+  });
+
+  test("route-aware pricing resolves inside the rollup without awaiting (AC2)", () => {
+    const db = createUiDb(":memory:");
+    // A pricing double that fails the test if anything awaits it: resolve()
+    // is the ONLY entry point the rollup may use, and it must answer inline.
+    let resolvedInline = false;
+    const store = createActivityStore(db, {
+      pricing: {
+        resolve(modelId, route) {
+          resolvedInline = true;
+          expect(route).toBe("openrouter");
+          return {
+            input: 2e-6,
+            output: 0,
+            cacheRead: null,
+            cacheWrite: null,
+            estimate: false,
+            source: "openrouter",
+          };
+        },
+      },
+    });
+
+    // rollupRun is synchronous by contract. If route awareness ever put an
+    // await in the write transaction, the row could not be readable on the
+    // very next statement, with no microtask having run in between.
+    sessionRun(store, "run-1", {
+      billing: "api",
+      route: "openrouter",
+      perModel: { shared: { inputTokens: 1_000 } },
+    });
+    expect(resolvedInline).toBe(true);
+    expect(rollupOf(db, "run-1").effective_cost_usd).toBeCloseTo(0.002, 10);
   });
 
   test("a gap-filled list cost is frozen across re-rollups, same as the effective triple (AE5)", () => {

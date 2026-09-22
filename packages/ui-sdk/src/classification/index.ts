@@ -19,6 +19,7 @@ export {
 
 export {
   CANDIDATE_KINDS,
+  CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
   questionsFor,
   transformCandidate,

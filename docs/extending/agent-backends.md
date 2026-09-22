@@ -191,6 +191,43 @@ on: check before relying on one.
 decision gets skipped; what happens to a request that reaches the host is the
 host's own policy.
 
+### A turn with no grant surface (`@experimental`)
+
+`req.noGrantSurface` says the turn has nothing that could answer an approval
+card — a spoken conversation, an unattended run. A backend that honours it
+resolves such a request `{ behavior: "deny", message }` itself instead of
+putting it to the bridge, because a card raised in that turn is a card nobody
+can answer and it parks until the turn budget expires. The message names the
+tool: the model has to act on it, and a listener has to be able to hear it read
+out.
+
+It is a separate field from `enforceAllowedTools` because the two facts are
+separate — a turn may enforce its allowlist and still have a human able to
+answer — and a posture with no grant surface normally declares both. Enforcement
+is what makes the decision happen at all: without it, a runtime's own shortcuts
+can admit a tool before the backend's callback is ever consulted, and there is
+then no request to refuse.
+
+A backend that honours it must:
+
+- refuse **both** request kinds. Removing a tool from the allowlist is not what
+  raises most requests: a shell command matching a confirm pattern raises a
+  `command` request for a tool that IS allowlisted, and on the Claude backend
+  that happens in a `PreToolUse` hook, before permission evaluation. A rule
+  written only for the tool-grant path misses exactly the calls this exists
+  for. Both backends here refuse in the shared `requestToolPermission`, which
+  is the one place both kinds pass through.
+- not offer the turn a capability that needs a human surface. The Claude
+  backend appends its bridge tools to the turn's allowlist when the host offers
+  the handler; `request_image_mask` opens an editor and then blocks on a region
+  someone has to paint, so it is withheld from such a turn rather than offered
+  and blocked on.
+- report the refusal on the activity side channel
+  (`{ kind: "permission_denied", toolUseId, requestKind, reason }`). The host
+  records a user's denial as the card is answered; a refusal that never reached
+  the host would otherwise show up in the activity record as a call that
+  errored rather than one that was denied.
+
 ## The bridge
 
 `BackendBridge` is the host plumbing handed to the backend for one turn:

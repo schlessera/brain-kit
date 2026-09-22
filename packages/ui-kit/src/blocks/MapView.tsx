@@ -132,9 +132,11 @@ export interface MapViewProps {
    * Filled land. A coastline stroke says where the edge is and not which side
    * of it is water, and that is the first thing a reader needs.
    *
-   * Optional and separate, so a caller with open coastline and no closed rings
-   * — which is what a mainland bbox gives you — draws the stroke and no fill
-   * rather than guessing at a shape.
+   * Optional and separate, so a caller with coastline and no rings to go with
+   * it draws the stroke and no fill rather than guessing at a shape. A mainland
+   * bbox used to be that caller; `@schlessera/brain-ui-sdk`'s geometry now
+   * closes an open shore against the viewport and hands one back, and it is
+   * still the caller's to pass or not.
    */
   land?: MapLand;
 }

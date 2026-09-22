@@ -29,6 +29,7 @@ import {
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
   type BillingMode,
+  type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -77,6 +78,8 @@ export function createTurnRecorder(
     profileId?: string;
     /** Billing classification of that profile, resolved at run start (U3). */
     billingMode?: BillingMode;
+    /** Which pricing catalog that profile bills through, resolved with it. */
+    pricingRoute?: PricingRoute;
     /** Principal that initiated this turn; absent means unattributed. */
     principalId?: string;
   }
@@ -116,13 +119,17 @@ export function createTurnRecorder(
       origin: "session",
       sessionId,
       principalId: turn.principalId,
-      // Profile + billing ride the ROOT span so the rollup can price the run
-      // without any registry or env lookup of its own (a root missing the
-      // billing attr falls back to env classification at rollup time).
+      // Profile, billing and pricing route ride the ROOT span so the rollup
+      // can price the run without any registry or env lookup of its own (a
+      // root missing the billing attr falls back to env classification at
+      // rollup time; a root missing the route prices by model id alone, since
+      // this process's environment says nothing about where the turn's
+      // requests went).
       attrs: {
         "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT,
         ...(turn.profileId ? { "brain.profile_id": turn.profileId } : {}),
         ...(turn.billingMode ? { "brain.billing_mode": turn.billingMode } : {}),
+        ...(turn.pricingRoute ? { "brain.pricing_route": turn.pricingRoute } : {}),
       },
     });
     onWrite?.();
@@ -263,6 +270,23 @@ export function createTurnRecorder(
           }
           case "subagent_transcript": {
             store.appendEvent(event.toolUseId, `transcript_${event.role}`, event.text);
+            onWrite?.();
+            break;
+          }
+          case "permission_denied": {
+            // The same landing a user's denial gets in requestPermission: the
+            // outcome is written now, so the backend's later error tool_result
+            // is a write-once no-op and the span reads as denied rather than
+            // as a call that failed. The request never reached the host, so
+            // there is no principal and no approval_decision event.
+            store.appendEvent(event.toolUseId, "approval_decision", {
+              decision: "deny",
+              requestKind: event.requestKind,
+            });
+            store.endSpan(event.toolUseId, {
+              outcome: "denied",
+              reason: event.reason,
+            });
             onWrite?.();
             break;
           }

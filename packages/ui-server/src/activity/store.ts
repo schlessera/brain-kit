@@ -34,7 +34,9 @@ import type { Database } from "bun:sqlite";
 import {
   isBillingMode,
   isFailureOutcome,
+  isPricingRoute,
   type BillingMode,
+  type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import {
@@ -355,7 +357,7 @@ export interface ActivityStore {
  * — it is called inside the rollup write transaction, which never awaits.
  */
 export interface RollupPricing {
-  resolve(modelId: string): PricingRates | null;
+  resolve(modelId: string, route?: PricingRoute): PricingRates | null;
 }
 
 export interface CreateActivityStoreOptions {
@@ -536,9 +538,18 @@ export function createActivityStore(
     // missing backend cost_usd (pi without snapshots, cron) AND provides the
     // api-billed effective number. resolve() is synchronous by contract —
     // nothing here may await inside the write transaction.
+    // The route the run's inference actually took, recorded on the root span
+    // at run start from its resolved profile. Unlike billing there is NO
+    // ambient fallback: this process's environment says nothing about which
+    // endpoint some other backend's turn went out on, and a wrong route would
+    // freeze the wrong catalog's rate into the rollup. Absent means pricing
+    // resolves by model id alone — what every run did before routes existed.
+    const attrRoute = root.attrs["brain.pricing_route"];
+    const pricingRoute = isPricingRoute(attrRoute) ? attrRoute : undefined;
+
     const usage = usageForPricing(root, spans);
     const priced =
-      usage.kind === "usage" ? priceUsage(usage.byModel, getPricing()) : null;
+      usage.kind === "usage" ? priceUsage(usage.byModel, getPricing(), pricingRoute) : null;
 
     // Effective-cost semantics (NULL = unknown, 0 = genuinely free):
     // subscription → 0 regardless of tokens (AE1); api → the priced sum —
@@ -978,12 +989,15 @@ function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
  * rate, poisons the WHOLE run — cache reads dominate Claude usage, so
  * partial pricing would systematically understate (the binding
  * missing-cache-rate decision). A model with zero consumption contributes
- * nothing and needs no rate. Variant/snapshot fallbacks are the pricing
+ * nothing and needs no rate. `route` picks the catalog the run was billed
+ * through, since ids shared by both carry different rates; omitting it prices
+ * by model id alone. Variant/route/snapshot fallbacks are the pricing
  * service's job (`resolve()`); the store only propagates the estimate flag.
  */
 function priceUsage(
   byModel: Record<string, PricedTokens>,
-  pricing: RollupPricing
+  pricing: RollupPricing,
+  route?: PricingRoute
 ): { costUsd: number; estimate: boolean } | null {
   let costUsd = 0;
   let estimate = false;
@@ -997,7 +1011,7 @@ function priceUsage(
       [tokens.cacheCreationTokens ?? 0, (r) => r.cacheWrite],
     ];
     if (!classes.some(([count]) => count > 0)) continue;
-    const rates = pricing.resolve(model);
+    const rates = pricing.resolve(model, route);
     if (!rates) return null;
     for (const [count, rateOf] of classes) {
       if (count <= 0) continue;
