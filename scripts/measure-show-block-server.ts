@@ -37,6 +37,12 @@
 // disabled and `--report` prints only the deterministic candidate yield,
 // which is the half that depends on the backend.
 
+import { isAbsolute, resolve } from "node:path";
+
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
 import { BrainUiClient, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
 import { planClassification } from "../packages/ui-sdk/src/classification/request.ts";
@@ -80,7 +86,10 @@ interface RunRecord {
    */
   showBlockCalls: Array<{ kind: string | null; ok: boolean }>;
   toolNames: string[];
-  /** GFM tables the model typed — the behaviour the brief asks it not to. */
+  /**
+   * GFM tables the model typed — the behaviour the brief asks it not to.
+   * `--report` recounts this from `textParts` rather than reading it back.
+   */
   markdownTables: number;
   /** The assistant message's text parts, numbered as the client numbers them. */
   textParts: string[];
@@ -106,11 +115,21 @@ interface RunRecord {
  * a relative escape or a path that only appears in a tool's OUTPUT. It is
  * here to drop turns that answered about the wrong brain, not to confine
  * anything.
+ *
+ * The comparison is by directory boundary after normalisation, because a
+ * plain prefix test puts `/home/x/brain-backup` inside `/home/x/brain` and
+ * lets `/home/x/brain/../private` back out.
  */
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
+  const brain = isAbsolute(brainPath) ? resolve(brainPath) : brainPath;
   const text = JSON.stringify(inputs);
   for (const match of text.matchAll(/(?:~|\/home)\/[A-Za-z0-9._\-/]*/g)) {
-    if (!match[0].startsWith(brainPath)) return true;
+    const found = match[0];
+    // `~` cannot be resolved without knowing whose home it is, so it counts
+    // as outside unless the brain is itself written that way.
+    const path = found.startsWith("~") ? found : resolve(found);
+    if (path === brain || path.startsWith(`${brain}/`)) continue;
+    return true;
   }
   return false;
 }
@@ -127,12 +146,27 @@ function flag(name: string): string | undefined {
 }
 
 /**
- * A GFM table is a header row followed by a delimiter row. The outer pipes
- * are optional in GFM, so matching `|---|---|` alone undercounts: this
- * matches any delimiter row carrying at least one interior pipe, preceded by
- * a line that also has a pipe.
+ * GFM tables the model typed, counted from the parsed markdown rather than
+ * by pattern. A regex over delimiter rows counts a table inside a fenced
+ * code block, which draws nothing, and misses a single-column one, whose
+ * delimiter row has no interior pipe. This is the same parser the
+ * classification pass walks.
  */
-export const TABLE = /^[^\n|]*\|[^\n]*\n[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(?:\|[ \t]*:?-{1,}:?[ \t]*)+\|?[ \t]*$/gm;
+const MARKDOWN = unified().use(remarkParse).use(remarkGfm);
+
+export function countMarkdownTables(text: string): number {
+  interface Node {
+    type: string;
+    children?: Node[];
+  }
+  let tables = 0;
+  const walk = (node: Node): void => {
+    if (node.type === "table") tables++;
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(MARKDOWN.parse(text) as unknown as Node);
+  return tables;
+}
 
 async function measure(): Promise<void> {
   const brainPath = flag("brain");
@@ -302,7 +336,7 @@ async function runOnce(
         };
       }),
     toolNames: toolCalls.map((c) => c.toolName),
-    markdownTables: (textParts.join("").match(TABLE) ?? []).length,
+    markdownTables: countMarkdownTables(textParts.join("")),
     textParts,
     messageBlocks: blocksFrame?.blocks ?? [],
     result,
@@ -367,7 +401,11 @@ async function report(paths: string[]): Promise<void> {
     const turnsWithBlock = list.filter((r) => r.showBlockCalls.some((c) => c.ok)).length;
     rejected += list.reduce((n, r) => n + r.showBlockCalls.filter((c) => !c.ok).length, 0);
     const kinds = [...new Set(drawn.map((c) => c.kind ?? "?"))];
-    const tables = list.reduce((n, r) => n + r.markdownTables, 0);
+    // Recounted from the recorded text rather than read back from the file,
+    // so a correction to the counter reaches runs already on disk. The
+    // escape flag cannot be recounted this way — it is decided from tool
+    // arguments, which are not kept — so fixing that rule needs a re-run.
+    const tables = list.reduce((n, r) => n + countMarkdownTables(r.textParts.join("")), 0);
     console.log(
       `| ${list[0].prompt} | ${list.length} | ${turnsWithBlock} | ${drawn.length}` +
         ` | ${kinds.join(", ") || "—"} | ${tables} |`
