@@ -16,12 +16,26 @@ const SLIDE_OUT_MS = 300;
  */
 export type SlidePanelMode = "drawer" | "pane";
 
+/**
+ * What dismisses the panel besides its own close control, in `<dialog
+ * closedby>`'s vocabulary so a later move to the element is a rename-free
+ * step. `any` (the default) is light dismiss: a click on the backdrop or
+ * Escape — right for a preview you glance at and leave. `closerequest`
+ * keeps the backdrop inert but honours Escape — for a panel holding
+ * something a stray click must not discard, like a finished log. `none`
+ * ignores both — for a panel running a job, where a reflexive Escape would
+ * cancel it. The header's X closes the drawer under every value: a rendered
+ * close control is never inert.
+ */
+export type SlidePanelClosedBy = "any" | "closerequest" | "none";
+
 export function SlidePanel({
   open,
   onClose,
   title,
   wide,
   mode = "drawer",
+  closedBy = "any",
   children,
 }: {
   open: boolean;
@@ -29,16 +43,17 @@ export function SlidePanel({
   title: string;
   wide?: boolean;
   mode?: SlidePanelMode;
+  closedBy?: SlidePanelClosedBy;
   children: ReactNode;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || closedBy === "none") return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open, onClose, closedBy]);
 
   /**
    * A closed panel renders nothing. The shell (the sliding frame and its
@@ -62,11 +77,11 @@ export function SlidePanel({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop: a click on it dismisses only a light-dismiss drawer. */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20"
-          onClick={onClose}
+          onClick={closedBy === "any" ? onClose : undefined}
         />
       )}
 
@@ -89,6 +104,7 @@ export function SlidePanel({
           </h2>
           <button
             onClick={onClose}
+            aria-label={`Close ${title}`}
             className="rounded-lg p-2.5 md:p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
           >
             <X className="h-5 w-5 md:h-4 md:w-4" />

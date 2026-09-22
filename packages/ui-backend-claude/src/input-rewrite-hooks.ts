@@ -1,13 +1,42 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { bashCommand, rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
 
-export function createAgentHook(): HookCallback {
+/**
+ * What a rewrite hook is allowed to do for ONE tool.
+ *
+ * Both hooks exist to rewrite a tool's input, and both used to grant the call
+ * as well — `permissionDecision: "allow"` was believed to be what makes
+ * `updatedInput` take effect. It is not: a PreToolUse hook that returns
+ * `updatedInput` and NO decision still rewrites the call, and the rewritten
+ * input is what the permission path then sees (verified against Claude Code
+ * 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278; see the PR for #124). The
+ * grant was therefore a side effect, and under an enforced allowlist it is the
+ * side effect that gets dropped — the rewrite, which is the point, stays.
+ */
+export interface RewriteHookOptions {
+  /**
+   * Whether this hook may grant the call outright. False when the turn
+   * declared `enforceAllowedTools` and the tool is not on its allowlist: the
+   * hook then rewrites without granting, and the call falls through to the
+   * ordinary permission path instead of executing on the hook's say-so.
+   * Default true — a turn that declares nothing behaves as it always has.
+   */
+  mayGrant?: boolean;
+  /**
+   * Called when a grant is withheld, so a shortcut that used to admit the
+   * tool leaves a record instead of silently doing nothing.
+   */
+  onGrantWithheld?: (toolName: string) => void;
+}
+
+export function createAgentHook(options: RewriteHookOptions = {}): HookCallback {
   // Background subagents cannot outlive the turn: each turn is its own
   // `query()` subprocess, and the SDK's Agent tool BACKGROUNDS agents by
   // default — so left alone, a fan-out dies at turn end with nothing written
   // (observed: two waves, 23 dead agents). Rewriting the input to foreground
   // is the only fix that also covers the default case; a deny would break
   // every Agent call.
+  const mayGrant = options.mayGrant ?? true;
   return async (hookInput) => {
     if (hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Agent") {
       return { continue: true };
@@ -15,7 +44,8 @@ export function createAgentHook(): HookCallback {
     const input = hookInput.tool_input as Record<string, unknown>;
     if (input.isolation === "remote") {
       // A remote agent survives the subprocess but its results land in a cloud
-      // session this host never reads.
+      // session this host never reads. A deny is a decision, so an enforced
+      // allowlist has no quarrel with it.
       return {
         continue: true,
         hookSpecificOutput: {
@@ -27,14 +57,15 @@ export function createAgentHook(): HookCallback {
       };
     }
     if (input.run_in_background === false) return { continue: true };
+    if (!mayGrant) options.onGrantWithheld?.("Agent");
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        // "allow" is required for updatedInput to take effect. Agent is
-        // auto-allowed by the default allowlist anyway; a deployment that
-        // removes it from allowedTools should know this rewrite re-admits it.
-        permissionDecision: "allow",
+        // "allow" makes the SDK skip canUseTool entirely, which re-admits a
+        // tool the turn's allowlist left out. Withheld under enforcement; the
+        // rewrite below applies either way.
+        ...(mayGrant ? { permissionDecision: "allow" as const } : {}),
         updatedInput: { ...input, run_in_background: false },
         additionalContext:
           "This Agent call was rewritten to run_in_background: false. Each turn is its own process, so a background agent would be killed at turn end before its results could be read. Fan out with foreground agents and collect results within the turn.",
@@ -43,14 +74,15 @@ export function createAgentHook(): HookCallback {
   };
 }
 
-export function createRtkHook(childEnv: NodeJS.ProcessEnv): HookCallback {
+export function createRtkHook(
+  childEnv: NodeJS.ProcessEnv,
+  options: RewriteHookOptions = {}
+): HookCallback {
   // rtk (token-optimizing CLI proxy) rewrite. Runs AFTER the mutating-tools
   // hook, so confirm patterns and lock classification see the command as the
   // model wrote it; the rewritten form (`rtk git status`) is what executes.
   // When the rtk binary is absent or declines, the command is untouched.
-  // "allow" is required for updatedInput to take effect — Bash is auto-allowed
-  // by the default allowlist anyway; a deployment that removes it from
-  // allowedTools should know this rewrite re-admits rewritten commands.
+  const mayGrant = options.mayGrant ?? true;
   return async (hookInput) => {
     if (hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Bash") {
       return { continue: true };
@@ -59,12 +91,20 @@ export function createRtkHook(childEnv: NodeJS.ProcessEnv): HookCallback {
     if (!command) return { continue: true };
     const rewritten = await rtkRewriteCommand(command, childEnv);
     if (rewritten === command) return { continue: true };
+    if (!mayGrant) options.onGrantWithheld?.("Bash");
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
-        permissionDecisionReason: "rtk auto-rewrite",
+        // Same as the Agent hook: the grant is the side effect, not the
+        // point. Under enforcement the rewritten command still executes —
+        // once something has actually decided it may.
+        ...(mayGrant
+          ? {
+              permissionDecision: "allow" as const,
+              permissionDecisionReason: "rtk auto-rewrite",
+            }
+          : {}),
         updatedInput: {
           ...(hookInput.tool_input as Record<string, unknown>),
           command: rewritten,

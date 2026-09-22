@@ -43,10 +43,66 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
+| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively; every earlier field keeps its name and type. `embeddings` keeps its name and type but **changed value** in 0.37.0: it now reports the real vector count on an embedded brain, where before it read `0` on every brain |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
 additive; never rely on field order.
+
+`brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
+renamed, so a consumer reading only the flat counts (as
+`packages/ui-react/src/lib/api-client.ts` does) needs no change.
+
+One flat count did change value, though its name and type did not. Before
+0.37.0 the command counted `vec_chunks` on a read-only connection that had
+never loaded sqlite-vec, so the query raised `no such module: vec0` and a bare
+`catch` reported `embeddings: 0` — on a fully embedded brain as much as on a
+keyless one. It now loads the extension before counting, so on any host where
+sqlite-vec loads, `embeddings` is the real number of stored vectors. A consumer
+that treated `0` as "this brain does not embed" was reading a measurement
+failure, and will now see the true count; one that charted the figure over time
+will see a step at this version, not a re-embedding run.
+
+**The failure is narrowed, not closed.** `embeddings` is typed `number` and is
+emitted as `embeddingCount ?? 0`, so when the extension will not load *at all*
+on a host it still reads `0` for a brain that holds vectors. The two states
+remain indistinguishable in that field. What separates them is its sibling:
+`health.embeddingCoverage` is `null` when the count is unknown and a ratio when
+it is known, so a consumer that needs to tell "no vectors" from "could not
+count" must read the coverage, not the count. Making `embeddings` itself
+nullable would say this in the field's own type, but that is a breaking shape
+change and is deliberately not made here.
+
+```jsonc
+{
+  // health: what needs attention. A figure that cannot be known is null,
+  // never 0 — an unmeasurable ratio must not read as a failing one.
+  "health": {
+    "brokenLinkRate": 0.054,       // brokenLinks / links; null when there are no links
+    "embeddingCoverage": null,     // vectors / chunks; null when this brain neither
+                                   // embeds nor holds vectors, or has no chunks
+    "stale": 2,                    // past the per-type staleDays — the `brain audit` definition
+    "orphans": 1,                  // no link either way, honouring orphanExempt — likewise
+    "untagged": 1,                 // non-archived markdown documents with no tags
+    "thresholds": { "coverageFloor": 0.9, "brokenLinkCeiling": 0.05 }
+  },
+  // size: what the brain weighs. brain.db is disposable; its size is a
+  // rebuild-cost figure, not a claim that it holds authoritative state.
+  "size": {
+    "corpus": { "bytes": 22231, "files": 29 },   // null when a directory under the
+                                                 // root could not be read
+    "db": { "bytes": 453208, "tables": { "documents": 25, "links": 37 } },
+    "freeBytes": 643825672192     // null when the platform call fails
+  }
+}
+```
+
+`stale` and `orphans` are the same counts `brain audit` reports in its
+`staleness` and `orphan` categories, from the same per-type `staleDays` /
+`orphanExempt`. `brain stats` does not carry a threshold of its own; the only
+configuration it adds is the `stats` block on `brain.config.*`
+(`coverageFloor`, `brokenLinkCeiling`, both ratios in 0..1), which supplies the
+`health.thresholds` echoed above and defaults to the values shown when absent.
 
 ## MCP server (stdio, `brain mcp` or `src/mcp-server.ts`)
 
@@ -143,6 +199,85 @@ out-of-pocket cost ($0 for subscription-billed runs); `null` means unknown,
 never zero — aggregate scopes sum only known values and carry the excluded
 count as `unpricedRuns`.
 
+## ui-server HTTP routes
+
+### Runtime stats (`GET /api/activity/stats`, additive in 0.37.0)
+
+The runtime half of a stats surface. `GET /api/brain/stats` passes
+`brain stats --json` through and stays the corpus channel; this route reports
+what the **server's own** database holds — sessions, runs, tokens, cost — and
+never reads brain.db. A consumer calls both and merges. It sits behind the
+auth guard with the other `/api/activity/*` routes. `?days=N` picks the
+window (default 30, clamped to 1–90). The shape is `ActivityRuntimeStats` in
+`@schlessera/brain-ui-sdk/protocol`; timestamps are ms epoch:
+
+```
+{
+  generatedAt,
+  lifetime: { scope: "lifetime", sessions, turns, costUsd,
+              firstActivityAt | null, lastActivityAt | null, elapsedDays,
+              averages: { costUsdPerSession, turnsPerSession,
+                          costUsdPerDay, costUsdPerMonth } },
+  window:   { scope: "window", days, since, until,
+              recordedSince | null, coveredDays,
+              detailRetention: { days, cutoffAt, insideWindow },
+              detailPrunedRuns,
+              runs, failures, costUsd, effectiveCostUsd,
+              unpricedRuns, unpricedListCostRuns,
+              inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+              averages: { runsPerDay, costUsdPerDay, costUsdPerMonth,
+                          effectiveCostUsdPerDay, effectiveCostUsdPerMonth } },
+  database: { sizeBytes }
+}
+```
+
+Rules a consumer may rely on:
+
+- **Every figure is labelled with what it covers.** `lifetime` is read from
+  the never-pruned session catalog; `window` from the run rollups, over
+  exactly `[since, until]` — a closed interval whose upper end is enforced, so
+  a run dated after `until` (a clock corrected backwards leaves such rows) is
+  not summed. The two do not agree and are not meant to: the catalog predates
+  the activity record, and the two count different things.
+- **The window says how much of itself it can vouch for.** Rollup rows
+  outlive detail pruning, so the sums are complete back to `recordedSince`
+  (the oldest run in the record at or before `until`) — and no further;
+  `coveredDays` is the span the per-day averages divide by.
+  `detailRetention.cutoffAt` is where drill-in detail stops, `insideWindow`
+  says whether that boundary falls inside the window, and `detailPrunedRuns`
+  counts the runs in it that are already rollup-only. Say "detail older than
+  N days is pruned"; do not present a window as a total.
+- **Unknown never reads as $0, on EITHER cost axis.** Each cost sum is a sum
+  of known values, and each carries **its own** excluded count, because the
+  two columns are independently nullable: `costUsd` (list price) excludes
+  `unpricedListCostRuns`, `effectiveCostUsd` excludes `unpricedRuns`. A
+  subscription-billed run with no backend-reported cost is in the first
+  counter and not the second — its effective cost is a known $0 while its
+  list price is unknown. Render both the same way: "≥ $X · N unpriced" when
+  the counter is nonzero, and wholly unknown when it equals `runs` — never as
+  the `0` that a sum of no known values carries.
+- **An average is `null` rather than a fabricated rate.** Every average is
+  `null` when its denominator is zero, `costUsdPerDay`/`PerMonth` are `null`
+  whenever `unpricedListCostRuns > 0`, and `effectiveCostUsdPerDay`/`PerMonth`
+  whenever `unpricedRuns > 0` — a rate over a partial sum would hide the hole
+  the sum shows. `lifetime.elapsedDays` is `0`, and its per-day and per-month
+  figures `null`, when the catalog is empty *or* its oldest session is dated
+  after `generatedAt`; the lifetime totals still include such a session, since
+  it happened.
+- **The route does no rounding or formatting**, while
+  `GET /api/activity/rollups` rounds its cost sums to 4 decimal places. Over
+  the same window the two therefore report `0.299997` and `0.3` for one
+  quantity. Round at render time, identically for both, rather than treating
+  either as pre-formatted. This channel stays raw on purpose: rounding a sum
+  to 4 dp turns a real sub-$0.0001 cost into a `0` that reads as free.
+- **`lifetime.costUsd` is a floor, and cannot be better than one.** The
+  session catalog folds an unreported cost into `0` at write time, so no
+  unpriced counter is recoverable at read time; `window` is the channel that
+  separates unknown from zero. `lifetime.turns` has the same shape.
+- `database.sizeBytes` is the logical size of the server database (pages ×
+  page size, the WAL sidecar aside). It is a rebuild-cost figure for a
+  disposable store, not a claim that the file holds authoritative state.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:
@@ -174,8 +309,10 @@ Prefer the CLI/MCP. If reading directly:
   `id: 0` for it. Compare `graph_computed_at` against the newest
   `documents.indexed_at` to detect staleness.
 - `vec_chunks` is a sqlite-vec virtual table — unreadable without loading the
-  extension; do not depend on it externally. Its dimension follows the
-  configured embedding provider (default 1536).
+  extension; do not depend on it externally. Its dimension is the width the
+  stored vectors were produced at, recorded in
+  `index_metadata.embedding_dimensions` (1536 on a fresh brain). Changing the
+  configured provider does not re-declare the table; a re-embedding run does.
 - Open read-only. Writers must set `PRAGMA busy_timeout` (core uses 5000ms).
 - **Do not write to brain.db from outside** — markdown is the source of truth.
 

@@ -128,6 +128,41 @@ describe("okf", () => {
   });
 });
 
+describe("stats", () => {
+  // The additive guarantee, at the machine surface: `brain stats --json` grew
+  // `health` and `size`, and every field a consumer already reads is still
+  // there under the same name with the same type. A rename fails here.
+  test("keeps every pre-existing field and adds the health/size blocks", async () => {
+    const { stdout, code } = await runCli(root, ["stats", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+
+    for (const field of ["documents", "tags", "links", "brokenLinks", "chunks", "embeddings"]) {
+      expect(typeof out[field]).toBe("number");
+    }
+    for (const field of ["byType", "byStatus", "byRelevance"]) {
+      expect(typeof out[field]).toBe("object");
+      expect(out[field]).not.toBeNull();
+    }
+
+    for (const field of ["brokenLinkRate", "embeddingCoverage"]) {
+      // A ratio is a number or, when it cannot be known, null — never 0.
+      expect(["number", "object"]).toContain(typeof out.health[field]);
+    }
+    for (const field of ["stale", "orphans", "untagged"]) {
+      expect(typeof out.health[field]).toBe("number");
+    }
+    expect(typeof out.health.thresholds.coverageFloor).toBe("number");
+    expect(typeof out.health.thresholds.brokenLinkCeiling).toBe("number");
+
+    expect(typeof out.size.corpus.bytes).toBe("number");
+    expect(typeof out.size.corpus.files).toBe("number");
+    expect(out.size.corpus.files).toBeGreaterThan(0);
+    expect(typeof out.size.db.tables.documents).toBe("number");
+    expect(out.size.db.bytes).toBeGreaterThan(0);
+  });
+});
+
 describe("output mode + exit codes", () => {
   test("non-TTY stdout defaults to JSON without --json", async () => {
     const { stdout } = await runCli(root, ["stats"]);

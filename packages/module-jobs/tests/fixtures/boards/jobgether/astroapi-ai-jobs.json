@@ -1,0 +1,50 @@
+{
+  "jobs": [
+    {
+      "id": "6ab26709865119c687db089d",
+      "title": "Associate Survey Account Manager",
+      "company": "Pearl Meyer",
+      "url": "https://jobgether.com/offer/6ab26709865119c687db089d-associate-survey-account-manager",
+      "location": "Massachusetts (USA)",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "",
+      "salaryRange": "70000-90000 USD",
+      "jobFunctions": [
+        "Account Manager"
+      ],
+      "postedAt": "2026-09-22T11:31:21.061Z"
+    },
+    {
+      "id": "6ab26709865119c687db0861",
+      "title": "Técnico de Faturamento III - Benefícios Corporativos | Temporário",
+      "company": "Alper Seguros",
+      "url": "https://jobgether.com/offer/6ab26709865119c687db0861-tecnico-de-faturamento-iii---beneficios-corporativos-temporario",
+      "location": "Brazil",
+      "remote": "Full Remote",
+      "contractType": "Fixed term",
+      "experience": "Senior (5-10 years)",
+      "salaryRange": "11520-11520 USD",
+      "jobFunctions": [
+        "iOS Developer",
+        "Swift Developer"
+      ],
+      "postedAt": "2026-09-22T11:31:21.060Z"
+    },
+    {
+      "id": "6ab220be865119c687da3191",
+      "title": "Distinguished Engineer, Security Architecture  - DGX Cloud",
+      "company": "NVIDIA",
+      "url": "https://jobgether.com/offer/6ab220be865119c687da3191-distinguished-engineer-security-architecture---dgx-cloud",
+      "location": "Washington (USA)",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "",
+      "salaryRange": "320000-488750 USD",
+      "jobFunctions": [
+        "Cloud Security Architect"
+      ],
+      "postedAt": "2026-09-22T06:31:26.510Z"
+    }
+  ]
+}

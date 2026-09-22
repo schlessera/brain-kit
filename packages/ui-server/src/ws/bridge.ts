@@ -90,11 +90,35 @@ export function makeBridge(
       // A remembered "always allow" answers grantable tool requests without
       // a card. NEVER for kind "command" — those are destructive-pattern
       // confirmations for tools that are already auto-allowed, and
-      // remembering them would silently disable the seatbelt.
-      if (
-        req.kind !== "command" &&
-        host.toolPermissions?.isAutoAllowed(req.toolName)
-      ) {
+      // remembering them would silently disable the seatbelt. NEVER either
+      // when the backend says the turn's enforced allowlist left this tool
+      // out: the grant was given under a wider posture and answering with it
+      // would make the narrower one decoration.
+      //
+      // The store is still READ for such a request, and only read: a grant
+      // that exists and is deliberately not applied is the thing worth a
+      // record, and there is nothing to record without looking. What the
+      // enforced posture forbids is answering from the store (here) and
+      // adding to it (dispatch.ts) — not knowing what is in it.
+      const remembered =
+        req.kind !== "command" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
+      if (remembered && req.outsideEnforcedAllowlist) {
+        // Body stays constant and the reason rides as an attribute, matching
+        // the refusal dispatch.ts records on the write side. A reason spliced
+        // into the body reads better in a terminal and aggregates worse: two
+        // halves of one policy would not group, and neither would two reasons
+        // for the same half.
+        host.log.emit({
+          severityText: "INFO",
+          body: "remembered tool grant not applied",
+          attributes: {
+            "tool.name": req.toolName,
+            "toolUse.id": req.toolUseId,
+            reason: "outside this turn's enforced allowlist",
+          },
+        });
+      }
+      if (remembered && !req.outsideEnforcedAllowlist) {
         return Promise.resolve({ behavior: "allow" });
       }
       if (!host.clients.hasClients()) {

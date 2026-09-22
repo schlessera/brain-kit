@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, linkSync, unlinkSync, mkdirSyn
 import { resolve, dirname, join } from "path";
 import matter from "gray-matter";
 
-import { openDatabase, initVecSupport } from "./db.js";
+import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./models.js";
 import { stringifyDocument } from "./frontmatter.js";
 import { safeResolve } from "./safe-path.js";
@@ -114,7 +114,7 @@ export async function archiveDocument(
     } else {
       const dimensions = options.embeddingDimensions ?? EMBEDDING_DIMENSIONS;
       const db = openDatabase(resolve(root, "brain.db"), { embeddingDimensions: dimensions });
-      await initVecSupport(db, dimensions);
+      await migrateVecSchema(db, storedVectorWidth(db, dimensions));
       await options.reindex(db);
       db.close();
     }

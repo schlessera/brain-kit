@@ -294,28 +294,101 @@ function setSchemaVersion(db: Database, version: number): void {
 }
 
 /**
- * Load sqlite-vec extension and create the vec_chunks virtual table with the
- * given embedding `dimensions`.
- * Returns true if vec support is now available.
+ * Why vectors are not queryable on a connection.
+ *
+ * `extension-unavailable` means sqlite-vec itself could not be loaded — a
+ * broken install. `no-vector-table` means the extension loaded fine and the
+ * brain has simply never been embedded. They point at different fixes, which
+ * is why one boolean was not enough.
  */
-export async function initVecSupport(db: Database, dimensions: number): Promise<boolean> {
+export type VecUnavailableReason = "extension-unavailable" | "no-vector-table";
+
+export interface VecSupport {
+  /** True when `vec_chunks` can be queried on this connection. */
+  ok: boolean;
+  reason?: VecUnavailableReason;
+  /** The underlying error message, when there was one. */
+  detail?: string;
+}
+
+/**
+ * Make stored vectors readable on this connection. Writes nothing.
+ *
+ * This is the READ path. It loads the sqlite-vec extension — which lives in
+ * the connection, not the file, so every connection that touches `vec_chunks`
+ * needs it — and reports whether the table is there. It never creates,
+ * migrates or drops anything, so a surface that only answers questions cannot
+ * destroy the vector index whatever kind of connection it holds. Callers that
+ * are about to write vectors want `migrateVecSchema` instead.
+ */
+export async function loadVecSupport(db: Database): Promise<VecSupport> {
+  // The extension is per-connection, so a caller that holds one connection for
+  // a session (the MCP server) asks repeatedly. Only the table's existence can
+  // still change once it is in — another process embedding this brain — so a
+  // repeat call is two cheap queries rather than an import and a reload.
+  if (!hasVecSupport(db)) {
+    try {
+      const { load } = await import("sqlite-vec");
+      load(db);
+    } catch (e) {
+      // A genuinely missing extension is worth saying out loud: the caller's
+      // own warning ("vector search unavailable") cannot name the cause.
+      console.warn("sqlite-vec not available:", (e as Error).message);
+      return { ok: false, reason: "extension-unavailable", detail: (e as Error).message };
+    }
+  }
+
+  if (!vecTableExists(db)) return { ok: false, reason: "no-vector-table" };
+  return { ok: true };
+}
+
+/** True when the `vec_chunks` virtual table has been created in this database. */
+function vecTableExists(db: Database): boolean {
+  try {
+    const row = db
+      .prepare("SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'")
+      .get() as { n: number } | null;
+    return row !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create `vec_chunks` at `dimensions` and bring it up to the current vector
+ * schema. Returns true if vec support is now available.
+ *
+ * This is the WRITE path and it is DESTRUCTIVE: the cosine migration drops
+ * every stored vector, and only the indexer's self-healing backfill puts them
+ * back — at the price of a fresh embedding run. Call it only from a caller
+ * that is about to (re-)embed, and pass the width that caller will write at.
+ * Anything that merely reads vectors wants `loadVecSupport`.
+ */
+export async function migrateVecSchema(db: Database, dimensions: number): Promise<boolean> {
   try {
     const { load } = await import("sqlite-vec");
     load(db);
+  } catch (e) {
+    console.warn("sqlite-vec not available:", (e as Error).message);
+    return false;
+  }
 
+  try {
     // Cosine because it is scale-invariant: MRL-truncated Gemini vectors are
     // not guaranteed unit-length (gemini-embedding-2 normalizes truncated
     // output, but stored vectors may predate that) — switching to L2 or raw
     // dot product without re-normalizing stored vectors would rank wrongly.
     // Recreating the table drops all vectors; the self-healing backfill in the
     // indexer re-embeds them on the next --embeddings run.
+    //
+    // Each migration runs in a transaction. Half of one — a table dropped and
+    // not rebuilt, or rebuilt and not refilled — is the vector index gone, and
+    // these used to swallow their own failure and still report success.
     if (getMeta(db, "vec_distance_metric") !== "cosine") {
-      try {
+      db.transaction(() => {
         db.run("DROP TABLE IF EXISTS vec_chunks");
         setMeta(db, "vec_distance_metric", "cosine");
-      } catch {
-        // Read-only connection — migration happens on the next writable run
-      }
+      })();
     }
 
     // v2 vec schema: metadata columns enable pre-filtered KNN. Without them,
@@ -323,7 +396,7 @@ export async function initVecSupport(db: Database, dimensions: number): Promise<
     // KNN candidate window and get discarded post-filter, hurting recall.
     // Existing vectors are copied over — no re-embedding needed.
     if (getMeta(db, "vec_schema") !== "v2-metadata") {
-      try {
+      db.transaction(() => {
         let existing: { chunk_id: number; embedding: Uint8Array; is_archived: number; doc_type: string }[] = [];
         try {
           existing = db
@@ -357,9 +430,7 @@ export async function initVecSupport(db: Database, dimensions: number): Promise<
           }
         }
         setMeta(db, "vec_schema", "v2-metadata");
-      } catch {
-        // Read-only connection — migration happens on the next writable run
-      }
+      })();
     }
 
     db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
@@ -371,9 +442,62 @@ export async function initVecSupport(db: Database, dimensions: number): Promise<
 
     return true;
   } catch (e) {
-    console.warn("sqlite-vec not available:", (e as Error).message);
+    // The extension loaded — this is the schema work failing, most often a
+    // connection that cannot write. Saying "sqlite-vec not available" here
+    // sent readers off to reinstall a dependency that was fine, and saying
+    // nothing at all let a caller act on vectors this function had dropped.
+    console.warn("vector schema migration failed:", (e as Error).message);
     return false;
   }
+}
+
+/** sqlite-vec's hard cap on a vec0 vector column; 8193 fails at CREATE. */
+const VEC_MAX_DIMENSIONS = 8192;
+
+/**
+ * A width that can actually be used in a `float[...]` column declaration, or
+ * null. Plain decimal only: `Number()` reads "0x10" as 16 and "1e2" as 100,
+ * and a width that arrived in either spelling is corruption rather than
+ * intent. Out of range is rejected for the same reason it must be — a CREATE
+ * at 8193 throws after the DROP has already happened.
+ */
+function usableVectorWidth(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const width = Number(value);
+  return width >= 1 && width <= VEC_MAX_DIMENSIONS ? width : null;
+}
+
+/** The width `vec_chunks` is physically declared at, or null if it is absent. */
+function declaredVectorWidth(db: Database): number | null {
+  try {
+    const row = db
+      .prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'")
+      .get() as { sql: string } | null;
+    return usableVectorWidth(row?.sql.match(/\bembedding\s+float\[(\d+)\]/i)?.[1] ?? null);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The width the stored vectors are in: the table's own declaration, then
+ * `index_metadata`, then `configured`.
+ *
+ * Callers that are not about to re-embed must pass this rather than the
+ * configured provider's width: the two differ whenever the provider changed,
+ * and recreating the table at the configured width strands every stored
+ * vector. `brain doctor` learned this first. The physical table outranks the
+ * metadata because the metadata describes the last provider, not necessarily
+ * the table — `indexer/vectors.ts` reads the declared width the same way —
+ * and because a corrupt `embedding_dimensions` would otherwise pick a width
+ * whose CREATE throws with the old table already dropped.
+ */
+export function storedVectorWidth(db: Database, configured: number): number {
+  return (
+    declaredVectorWidth(db) ??
+    usableVectorWidth(getMeta(db, "embedding_dimensions")) ??
+    configured
+  );
 }
 
 /**

@@ -11,7 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
-| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D42, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass. |
+| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D45, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |
 | [container-privilege.md](container-privilege.md) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. |
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
@@ -19,6 +19,7 @@ somebody already learn the hard way?*
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
 | [design-feedback.md](design-feedback.md) | The design defects building the kit found, the measurement behind each, and the ruling that settled it. Cited by section number from `packages/ui-kit` source. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles. |
+| [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
 
 ## Writing one
 
@@ -34,7 +35,9 @@ What makes these useful is the part most records leave out:
   measured rather than argued: 486 of 486 coastline rings wound the same way; an
   accessibility gate giving 503 pass / 0 fail at `'todo'` and 497 / 6 at
   `'error'`; five comparison prompts producing zero tool calls after the prompt
-  was rewritten twice. Those numbers are the record.
+  was rewritten twice, and the 108-turn A/B that found the tool had been
+  invisible to the model in one of the two arms all along. Those numbers are
+  the record — including when a later one corrects an earlier one.
 - **The corrections.** When a decision turns out to be wrong, the entry is
   superseded in place with the correction underneath it. The pair is more useful
   than either half — `container-privilege.md` exists because `hardening.md`'s

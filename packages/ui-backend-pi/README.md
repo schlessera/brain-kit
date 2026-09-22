@@ -94,9 +94,19 @@ policy mirrors the Claude backend:
 - **Destructive `bash` shapes confirm first** (shared
   `DEFAULT_CONFIRM_BASH_PATTERNS`: recursive delete, `git push --force`,
   `git reset --hard`, `brain archive`, …).
+- **`brain_update` with `status: "archived"` confirms first** (shared
+  `archivesDocument`) — the same visibility change `brain_archive` is off the
+  allowlist for, through a tool that is on it. Any other update runs
+  unprompted.
 - **Everything else asks** — e.g. a third-party MCP tool through
   `pi-mcp-adapter`, exactly like a non-allowlisted MCP tool on the Claude
   backend.
+
+One place the posture does **not** mirror: an approval carrying `updatedInput`.
+pi applies the edit in place, as its runtime intends, without re-checking the
+edited input against the policy — so an approval can redirect a confirmed call.
+The Claude backend cannot apply an edit from its PreToolUse hook and refuses
+the approval instead. #145 holds that question for both.
 
 A denial blocks the call with the host's message; pi feeds the block back to
 the model as an `isError` tool result, so a denial never crashes the turn. An
@@ -124,7 +134,7 @@ the gate, so confirm patterns always see the command as the model wrote it.
 | `edit_file` | mutate | auto-allow | `safeResolve`; `old_string` must be unique |
 | `bash` | mutate | auto-allow, **confirm patterns ask** | `cwd` pinned to repo |
 | `brain_add` | mutate | auto-allow | in-process `ingest` (writes markdown + reindex) |
-| `brain_update` | mutate | auto-allow | `safeResolve`; frontmatter/body update + reindex |
+| `brain_update` | mutate | auto-allow, **`status: "archived"` asks** | `safeResolve`; frontmatter/body update + reindex |
 | `brain_archive` | mutate | **approval** | in-process `archiveDocument` (visibility change) |
 
 `get_current_location`, `query_activity` and `request_image_mask` register only

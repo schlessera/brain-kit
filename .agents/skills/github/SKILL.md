@@ -1,7 +1,7 @@
 ---
 name: github
 description: Use when filing, triaging, picking up, updating or closing work in the brain-kit or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which of the two repositories an issue belongs in. Also use before recording found work mid-session.
-compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the classic OAuth `project` scope (`gh auth refresh -s project`) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
+compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the `project` scope on an OAuth token or classic PAT (`gh auth refresh -s project` for an OAuth login) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
 ---
 
 # Working the brain-kit trackers
@@ -119,16 +119,21 @@ Workflow state is never a label; it is the board's Status field.
 
 **The board may be out of reach, and that is fine.** *brain-kit roadmap* is
 owned by a user account, not an organisation, and GitHub exposes user-owned
-ProjectsV2 only to classic OAuth auth. On a fine-grained PAT there is no
+ProjectsV2 only to an OAuth token or classic PAT. On a fine-grained PAT there is no
 permission to grant — the setting does not exist. The failure misleads on its
 way past, too: `viewer.projectsV2.totalCount` answers, while selecting the node
 under it returns `FORBIDDEN / Resource not accessible by personal access token`.
 Counting works, reading does not.
 
-Do not go looking for the permission. File the issue with its labels and
-milestone and stop there; `bun scripts/sync-project.ts --apply` adds newly filed
+GitHub documents this under [fine-grained PAT limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations).
+If the current token cannot access the board, file the issue with its labels
+and milestone; `bun scripts/sync-project.ts --apply` adds newly filed
 issues to the board and derives their Status, and it runs from a terminal that
 has the `project` scope.
+
+A `needs:` label says what is blocking the work. `needs: design` is the one
+that is useless on its own — see "Issues that need design" below for what has
+to be posted with it.
 
 A milestone is a release. Attach one only when the work is committed to that
 release:
@@ -136,6 +141,57 @@ release:
 ```sh
 gh issue edit 42 --repo schlessera/brain-kit --milestone "0.37.0"
 ```
+
+## Issues that need design
+
+An issue needs design when the remaining work is a judgment about how something
+looks, reads or behaves, and the code cannot settle it: a component with three
+defensible fixes that each change its rhythm, a surface that exists on one form
+factor and not the other, a control whose placement is the whole question, a
+security shape whose answer is what the user is shown. Label those
+`needs: design` **on top of** their `type:` and `area:` labels, and do not label
+them `agent-ready` — an agent handed a design question invents an answer and
+nobody can tell it apart from a decided one.
+
+Two cases that look like this and are not:
+
+- **A spike whose deliverable is the design.** It is not blocked on a design
+  drop; it produces one. Leave it `agent-ready` and post the prompt anyway.
+- **A technical decision with a visual consequence.** If the blocking question is
+  which pipeline draws something, that is `needs: decision`. Say in the body
+  that design follows the answer.
+
+A `needs: design` label on its own is a shrug. Post a comment with it that states
+**what kind of design work is missing** and carries a prompt somebody can paste
+into Claude to do it. The comment has two parts:
+
+1. **Two or three sentences of framing**, in the issue's own terms: what is
+   already decided, what is left, and why the code cannot decide it.
+2. **A fenced prompt block**, self-contained, because whoever runs it will not
+   have this conversation's context. It carries:
+   - **Read first** — the `file:line` pointers, the decision records that bind,
+     the issue and its epic. Same standard as an issue body: a reader should
+     never start by searching.
+   - **The problem**, stated concretely, with the real failing case.
+   - **Design** — the specific questions to answer, enumerated. Not "design the
+     component"; "decide what the map does at 2, 8 and 30 pins, and where the cap
+     is".
+   - **Requirements to hold** — the constraints that make a wrong answer
+     expensive: binding decisions (`docs/decisions/`), the data-only block rule,
+     visual baselines asserted in CI, 320px legibility, accessible names, touch
+     targets, the honesty rules (an unknown cost never reads as `$0`), and what
+     the design may **not** change.
+   - **Deliverable** — what comes back, including ASCII mocks at the widths that
+     matter. A design that was never drawn at 320px has not been designed.
+
+Two rules the prompts are worth nothing without: **name the binding decision by
+its record**, because a design that contradicts D37 is thrown away, and **say
+which answers are acceptable outcomes** — "a documented no closes this issue" is
+often the right answer and a prompt that does not offer it will not get it.
+
+Design lands like anything else: as a comment on the issue, or a `docs/plans/`
+entry if it is big enough to outlive the thread. It is not a status field on a
+document in this repo.
 
 ## Picking up work
 

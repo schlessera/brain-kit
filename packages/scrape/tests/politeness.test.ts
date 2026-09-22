@@ -64,6 +64,44 @@ describe("RateLimiter", () => {
     expect(clock.waits).toEqual([1000]); // the default still applies
   });
 
+  test("CONCURRENT callers to one host all wake at the same instant", async () => {
+    // Measured for brain-kit#33, and pinned here because every other test in
+    // this describe acquires SEQUENTIALLY, which is the one case the bug
+    // cannot show up in. `acquire` reads `lastStart`, awaits, and only then
+    // claims the slot, so two callers that arrive before either has claimed it
+    // compute the same wait and fire together — the host sees a burst whatever
+    // the configured spacing says. This asserts the CURRENT behaviour; a
+    // limiter that reserved the slot before awaiting would space them.
+    let now = 0;
+    const pending: Array<{ at: number; wake: () => void }> = [];
+    const clock: RateLimiterClock = {
+      now: () => now,
+      sleep: (ms) => new Promise<void>((resolve) => pending.push({ at: now + ms, wake: resolve })),
+    };
+    const limiter = new RateLimiter({ clock });
+    const acquiredAt: number[] = [];
+
+    await limiter.acquire("a.example", 1000);
+    acquiredAt.push(now);
+
+    const concurrent = [
+      limiter.acquire("a.example", 1000).then(() => acquiredAt.push(now)),
+      limiter.acquire("a.example", 1000).then(() => acquiredAt.push(now)),
+    ];
+
+    // Run the fake clock forward to each scheduled wake-up in turn.
+    for (let step = 0; step < 10 && pending.length > 0; step++) {
+      pending.sort((a, b) => a.at - b.at);
+      const next = pending.shift()!;
+      now = Math.max(now, next.at);
+      next.wake();
+      for (let drain = 0; drain < 5; drain++) await Promise.resolve();
+    }
+    await Promise.all(concurrent);
+
+    expect(acquiredAt).toEqual([0, 1000, 1000]);
+  });
+
   test("two limiters do not throttle each other", async () => {
     // The regression this class exists for: the version it replaces kept its
     // clock in a module-level Map shared by every caller in the process.

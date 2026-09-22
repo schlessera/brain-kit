@@ -68,13 +68,15 @@ export type {
 // Database + search
 export {
   openDatabase,
-  initVecSupport,
+  loadVecSupport,
+  migrateVecSchema,
+  storedVectorWidth,
   hasVecSupport,
   getMeta,
   setMeta,
   SCHEMA_VERSION,
 } from "./lib/db.js";
-export type { SchemaOptions } from "./lib/db.js";
+export type { SchemaOptions, VecSupport, VecUnavailableReason } from "./lib/db.js";
 export { hybridSearch, filterSearch } from "./lib/search-engine.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 // Exported so a retrieval-quality harness can score rerank-on and rerank-off
@@ -94,6 +96,8 @@ export type { IndexStats, IndexOptions } from "./lib/indexer.js";
 export { ingest, classifyContent } from "./lib/ingestion.js";
 export type { IngestOutcome, IngestContext, Classification } from "./lib/ingestion.js";
 export { audit } from "./lib/auditor.js";
+export { collectStats } from "./lib/stats.js";
+export type { BrainStats, CollectStatsOptions, StatsThresholds } from "./lib/stats.js";
 export type { AuditOptions } from "./lib/auditor.js";
 export { validate, checkIndexDrift } from "./lib/validate.js";
 export type { ValidationIssue } from "./lib/validate.js";

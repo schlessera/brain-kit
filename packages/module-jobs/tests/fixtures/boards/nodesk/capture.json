@@ -1,0 +1,18 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 4987,
+      "excerpt_sha256": "c1fc2bd564a9a3746c43178756beec6e874fce8acd460db0b539aca5e7b8f1ea",
+      "fixture": "rendered-card.html",
+      "full_response_bytes": 539869,
+      "full_response_sha256": "1661ff05c2b41adfd84af0384fde49d07b11bb1bcc1202bd85132b36f6b77ad2",
+      "note": "A promoted card followed by one verbatim result card, from the RENDERED DOM. The company is the <h3> under the title; the card has no a[href*=\"/remote-companies/\"], which is what src/adapters/nodesk.ts:66 looks for. The container walk at :59 therefore keeps climbing until it swallows a neighbouring promoted card, and that card's company link is what gets stored - 26 of 51 rows had the right company, 18 were \"Unknown\" and 7 were a neighbour's.",
+      "source": "nodesk",
+      "transport": "rendered",
+      "url": "https://nodesk.co/remote-jobs/",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

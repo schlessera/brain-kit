@@ -16,8 +16,27 @@ import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 export interface TurnContext {
   bridge: BackendBridge | null;
   signal: AbortSignal | null;
+  /**
+   * The current turn declared `enforceAllowedTools`: a tool outside the
+   * allowlist is one the host must decide on its own merits, not one its
+   * remembered "always allow" set may answer for. Per turn like the bridge,
+   * because the posture belongs to the turn and the gate is registered once
+   * per session.
+   */
+  enforceAllowedTools: boolean;
+  /**
+   * The current turn declared `noGrantSurface`: nothing can answer a card, so
+   * the gate refuses the request here instead of parking it on a bridge whose
+   * other end is empty. Per turn like the bridge, for the same reason.
+   */
+  noGrantSurface: boolean;
 }
 
 export function createTurnContext(): TurnContext {
-  return { bridge: null, signal: null };
+  return {
+    bridge: null,
+    signal: null,
+    enforceAllowedTools: false,
+    noGrantSurface: false,
+  };
 }

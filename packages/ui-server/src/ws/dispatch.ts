@@ -174,8 +174,45 @@ export async function handleClientMessage(
         coordinator.pendingApprovals.delete(msg.toolUseId);
         // Remember-on-approve. Kind "command" never persists (the client
         // hides the option, but the wire is not trusted to enforce policy).
-        if (msg.always && pending.request.kind !== "command") {
-          host.toolPermissions?.add(pending.request.toolName);
+        // Neither does an approval given under an enforced allowlist that
+        // this tool is outside of: the store is read by every OTHER turn, and
+        // a grant made inside a narrower posture must not widen the ones the
+        // user was not looking at. The call itself still runs — they approved
+        // it — it is only the memory that is refused.
+        // The store being absent is one of the reasons, not an exemption from
+        // them: optional-chaining the add() away would take the "remembered"
+        // branch, write nothing, log nothing, and still stamp the activity
+        // record `always_allow` — the exact silent refusal this block exists
+        // to rule out. Embedders wire a store (app.ts) so this is the
+        // test/embedder path, which is precisely where a silent no-op is
+        // hardest to notice.
+        const store = host.toolPermissions;
+        const remembers =
+          store !== null &&
+          pending.request.kind !== "command" &&
+          !pending.request.outsideEnforcedAllowlist;
+        if (msg.always && remembers) {
+          store.add(pending.request.toolName);
+        } else if (msg.always) {
+          // The user asked for something the host will not do. Recorded for
+          // the same reason the bridge records a grant it declines to apply:
+          // a refusal nobody can see is indistinguishable from a bug, and for
+          // kind "command" it also says a client sent an option its own UI
+          // does not offer.
+          host.log.emit({
+            severityText: "INFO",
+            body: "always-allow not remembered",
+            attributes: {
+              "tool.name": pending.request.toolName,
+              "toolUse.id": pending.request.toolUseId,
+              reason:
+                store === null
+                  ? "no grant store configured"
+                  : pending.request.kind === "command"
+                    ? "per-use confirmation"
+                    : "outside this turn's enforced allowlist",
+            },
+          });
         }
         pending.resolve(
           msg.updatedInput
@@ -183,7 +220,7 @@ export async function handleClientMessage(
             : { behavior: "allow" },
           {
             principalId: connection.authorization.principalId,
-            ...(msg.always && pending.request.kind !== "command" ? { always: true } : {}),
+            ...(msg.always && remembers ? { always: true } : {}),
           }
         );
       }

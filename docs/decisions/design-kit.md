@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D42, dated, with the alternatives that were rejected
+way they are. D1 through D45, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -2198,3 +2198,1087 @@ inline markup render plain until the kit's table cells accept nodes,
 which is the kit's decision. Whether the pass should also run over the
 share PNG's source.
 
+
+## 2026-09-22 — D43: the `show_block` brief stays, because it is the tool's only discovery path
+
+**Question.** D42 left it open: "whether `show_block` is still worth its brief
+once the net exists (measure the tool's use rate after wave 14)". The brief
+rides every turn, and the premise for retiring it was wave 13's number — five
+comparison prompts, zero tool calls, after the prompt had been rewritten twice
+— plus the classification pass now catching the common case structurally. If
+the model never calls the tool for what the pass already reaches, most of the
+brief is being paid for on every turn and returning nothing.
+
+**Method.** `scripts/measure-show-block.ts`, an A/B over the **Claude
+backend's** real SDK options — every rate in this record is that backend on
+`claude-sonnet-5`, and the pi section below says why that qualifier is
+load-bearing rather than pedantic. Nine prompts, two arms, six repetitions: 108
+live turns, against a copy of `packages/core/fixtures/corpus/`, $7.15 of
+API spend. The arms differ in exactly one thing — `buildSystemPromptAppend`'s
+`tools.block`, which is what puts the brief in the system prompt. The tool is
+registered, allowed and byte-identically described in both, so the `no-brief`
+arm is precisely the "retire the brief, keep the tool" shape. Production's own
+`createAgentHook()` is registered, so the 18 turns that delegated behaved the
+way they do there rather than losing a backgrounded subagent at turn end;
+18 of the completed turns delegated, 24 of all 108.
+
+Four rules decide what counts, and each of them changed a number:
+
+- **Only calls that would have rendered.** The argument has to parse through
+  the contract's own schema; a rejected call drew nothing. An earlier run had
+  three.
+- **Subagent frames are not the answer.** `parent_tool_use_id` is non-null on
+  frames a subagent produced, and the chat adapter keeps those off the surface.
+- **The turn budget is enforced, not just advertised.** Production aborts a
+  turn at `turnTimeoutMs` (`packages/ui-server/src/ws/run-session.ts:184`), so
+  the harness aborts at the same 180 s. Without it an answer no reader could
+  have received still scored: an earlier run had five turns of 190–306 s.
+- **A turn that did not complete is excluded from every rate**, in both
+  directions — not counted as declining to call the tool, and a call it made
+  before failing does not count either. Six were excluded here, all on the
+  budget, five of them `trend` (which delegates, and foreground subagents are
+  slow). The exclusions are lopsided — five brief against one no-brief — and
+  they fall on a prompt the brief arm otherwise wins, so 59% is if anything
+  conservative.
+
+Each turn's text parts then go through `planClassification`, the same entry
+point `ui-server` calls, so a turn that did not call the tool is scored for
+whether it left the pass a candidate. Detection is necessary but not
+sufficient, so a candidate is an upper bound on what the pass would have drawn.
+
+Named divergence from production: `disallowedTools` withholds `Bash`, `Edit`,
+`Write`, `WebSearch` and `WebFetch`, where production withholds only
+`AskUserQuestion`. `Bash` because the harness runs `bypassPermissions` on a
+real host; `Edit`/`Write` because every turn shares one staged brain, so a
+mutation would leak into every later turn in both arms; the two network tools
+because a live search is neither reproducible nor free. It is identical in both
+arms, so it cannot move the contrast — only where both arms sit. Checked
+afterwards: every staged brain still matches the fixture corpus byte for byte,
+except for an empty `.claude/` the CLI creates beside it, so no turn changed
+what a later turn read.
+
+**Numbers.** Claude backend, `claude-sonnet-5`, 102 completed turns of 108.
+
+*Quote this entry from the tables in this section and the always-loaded one
+below, never from a sentence — and give a figure that arrives from another
+record, another agent or a summary the same treatment before repeating it.*
+Five figures in this record had to be corrected within a day of writing it.
+Two were numbers restated in prose that drifted from the table they came from.
+**Three arrived from outside**: lifted from another document quoting an earlier
+version of this one, or taken from one agent's summary of one run when the
+pooled data said otherwise. A figure is reconciled against its own primary
+table or it is not quoted, whoever sent it. The tables are the record; the
+prose cites them.
+
+| arm | turns | a `show_block` call | rate | no call, but a candidate the pass would see |
+| --- | --- | --- | --- | --- |
+| brief | 49 | 29 | **59%** | 6 (12%) |
+| no-brief | 53 | 1 | **2%** | 33 (62%) |
+
+Split by whether the pass can reach the kind — it reaches eight of the eleven
+(comparison, table, steps, timeline, schedule, quote, receipt, stats) and has
+no route to `trend`, `bars` or `contact`:
+
+| kinds the pass reaches | arm | turns | calls | rate |
+| --- | --- | --- | --- | --- |
+| yes | brief | 35 | 21 | 60% |
+| yes | no-brief | 36 | 1 | 3% |
+| no | brief | 14 | 8 | 57% |
+| no | no-brief | 17 | 0 | 0% |
+
+**Why the no-brief arm is near zero, which is the actual finding.** Not
+reluctance. The SDK **defers an MCP server's tools behind tool search by
+default** — they are not in the model's context at all until it runs
+`ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:104` does
+not pass `alwaysLoad`, so this is production's behaviour and the harness
+inherits it. Over the two runs below — **run A**, 108 turns, taken before the
+turn budget was enforced and therefore losing none, and **run B**, the 108-turn
+run this entry's rate tables report, losing 6 to the budget — 210 completed
+turns of 216. The two are a harness generation apart and the table pools them,
+which is sound for this quantity because enforcing the budget changes which
+turns are counted and not how the model reached the tool. Each run's rows are
+printed by the harness itself under "`ToolSearch` against calls", so this is
+reproduced rather than hand-assembled, and either generation can be read alone:
+
+| run | arm | completed | ran `ToolSearch` | called `show_block` | called without searching |
+| --- | --- | --- | --- | --- | --- |
+| A (pre-budget) | brief | 54 | 33 | 33 | **0** |
+| A | no-brief | 54 | 1 | 0 | **0** |
+| B (enforced) | brief | 49 | 29 | 29 | **0** |
+| B | no-brief | 53 | 3 | 1 | **0** |
+| pooled | brief | 103 | 62 | 62 | **0** |
+| pooled | no-brief | 107 | 4 | 1 | **0** |
+
+**No turn in either run ever called `show_block` without first running
+`ToolSearch`, and in the brief arm every turn that searched then called.** The
+brief is the only text in the prompt that names the tool, so it is the only
+reason the model goes looking. The one no-brief call came from one of the three
+turns that searched speculatively.
+
+Forcing the tools into the prompt (`--always-load`, eight prompts x two arms x
+three reps, 44 completed turns) settles what the brief is doing. Same prompts,
+default configuration on the left:
+
+| `show_block` in the prompt? | brief | no-brief |
+| --- | --- | --- |
+| behind tool search — what shipped when this was measured | 23 of 43 (53%) | **1 of 47 (2%)** |
+| always loaded | 17 of 22 (77%) | **17 of 22 (77%)** |
+
+The two rows are a harness generation apart and it shows in the denominators:
+the top row is run B, with the turn budget enforced, and the always-loaded row
+was taken before that and is reported over the turns that finished inside the
+same 180 s. That is why 22 rather than 24.
+
+Identical, and higher than the brief reaches on its own. **The brief's entire
+measured effect is discoverability, not persuasion.** Once the model can see
+the tool, the brief adds nothing at all **to the rate**. That qualifier is
+load-bearing and it is not a hedge: every figure in this entry scores whether a
+block was drawn and never which kind, while the brief's text is mostly about
+*which* kind to pick. Nothing here licenses deleting that text — see "What is
+not claimed" below, and #157, which is where it is decided.
+
+Per prompt in that loaded condition, which is the table the per-kind claims
+below cite:
+
+| prompt | brief | no-brief | combined |
+| --- | --- | --- | --- |
+| `compare-short` | 3/3 | 3/3 | 6/6 |
+| `compare-long` | 3/3 | 3/3 | 6/6 |
+| `table` | 3/3 | 3/3 | 6/6 |
+| `steps` | 3/3 | 3/3 | 6/6 |
+| `bars` | 3/3 | 3/3 | 6/6 |
+| `trend` | 1/1 | 1/1 | 2/2 |
+| `quote` | 0/3 | 1/3 | **1/6** |
+| `contact` | 1/3 | 0/3 | **1/6** |
+
+`trend` has two turns rather than six because the rest exceeded the turn
+budget. `quote` and `contact` are the two kinds the loaded model declines, at
+the same rate — but only one of them matters, and the difference is not the
+rate. A declined `quote` leaves a blockquote, which the classification pass
+turns into a `quote` block; that is the designed fallback working. A declined
+`contact` leaves prose the pass has no route for (#132), so it leaves nothing.
+
+**The pi backend does not reproduce any of this, and the reason is probably in
+the code.** #50 measured pi at the server level and #137 records the gap: on
+the same four prompts, same model, same corpus, pi called the tool on 52 of 60
+counted turns (87%) across two runs against this record's 59% brief-arm rate in
+the table above (pooling those two runs is sound because each pi turn is its
+own session — `scripts/measure-show-block-server.ts`, which ships with #149
+and is not in the tree yet, clears state per turn —
+and because that harness excludes turns that never reached a result, the same
+discipline as this one; the reason offered for it, that the classification pass
+runs after the result frame, is true but answers a different question, since it
+rules out the pass contaminating a turn rather than establishing that two runs
+sample the same thing), and on the two prompts this record measured at zero — "Compare Bun and
+Node.js … keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
+pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
+different run and not the one above.) **No pi turn was run or re-scored for
+this entry.** Every pi number here was reconciled against #137's own per-run
+table for arithmetic and provenance before being repeated, which is a weaker
+claim than having reproduced it, and the two should not be confused.
+
+**pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
+in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
+there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
+is in the prompt on every pi turn by construction. That makes pi's shipping
+configuration the structural equivalent of this record's `--always-load`
+**brief** arm — and only that one. pi has no no-brief arm and no supported way
+to have one: `packages/ui-backend-pi/src/session-resources.ts:157` passes the
+block brief unconditionally, where the four lines above it gate their briefs on
+a capability. So pi can corroborate the loaded *rate* and can say nothing at
+all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
+one backend measured twice, not two backends agreeing. It is also not the
+Claude backend's configuration as this entry measured it, and `--always-load`
+is the controlled
+version of the same comparison: it flips deferral alone, on one backend, one
+model, one host. Flipped, this backend also calls on `compare-short` — 3 of 3
+in both arms, against 0 to 6 of 6 depending on the run when deferred — and also
+stops caring whether the brief is present.
+
+What that does NOT settle, and #137 owns:
+
+- **The remaining height.** pi's 87% over 60 turns against 77% always-loaded
+  here, and #148's 76–77% over 47–48 on the shipped configuration, is a real
+  gap of about ten points, and deferral does not explain it.
+- **`contact`.** 3 of 6 on pi against 1 of 6 loaded here. Six turns a side is
+  not enough to call a difference, and this record should not be read as
+  having found one.
+- **The method difference.** #50 drives the whole server over a socket; this
+  harness drives the Agent SDK directly. #137 names a host-isolation confound
+  on the Claude side of its own comparison that has to be closed first.
+
+The prediction this makes is falsifiable, and #148 has since checked it: if the
+Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
+87% rather than merely upward. **They landed at 76–77%, short of it.** In
+points, which is the only form that does not depend on a chosen baseline:
+
+| step | rate | moved |
+| --- | --- | --- |
+| Claude, deferred, no brief | 2% | — |
+| Claude, deferred, brief (this entry's headline) | 59% | +57, the brief |
+| Claude, always-loaded (#148, shipped) | 76–77% | +17 to +18, the loading |
+| pi, always-loaded by construction | 87% | **+10 to +11, unexplained** |
+
+Stated as a fraction it is whatever the denominator is chosen to be — an
+earlier revision of this entry said "roughly a third" without showing which,
+which is the failure this entry's own quoting rule is about. Ten points is the
+measured distance and it is what #137 owns. So the
+prediction partly failed, which is the useful outcome — deferral is not the
+whole cause, and whatever else separates the two backends is #137's to find.
+About ten points of the gap this record attributed to deferral is unexplained
+by it, now on 60 pi turns against 47–48, which is better powered than the
+comparison #137 was filed with and did not close.
+
+**Decision. The brief stays, unchanged.** On the Claude backend, in the
+configuration this entry measured — tools deferred behind tool search, which
+#148 changes the same day — it is
+not encouragement to use a tool the model can already see; it is the only thing
+that tells the model the tool exists. Retiring it does not lower the rate from
+59% to something smaller — it takes the rate to the noise floor and makes three
+block kinds unreachable by any path. It costs 257 input tokens per turn (11
+lines, 749 characters, counted by `count_tokens` rather than estimated), and
+`packages/ui-sdk/tests/tool-contracts.test.ts` pins both budgets at what was
+measured — eleven lines, down from `< 15`, and 749 characters, because eleven
+long lines cost more than twelve short ones.
+
+"Shorten it to the kinds classification cannot reach" loses for the same
+reason, and more sharply than the split table alone would show: a brief naming
+only `trend`, `bars` and `contact` leaves the other eight kinds
+*undiscoverable*, not merely unencouraged. D42's own rule is that no code path
+may depend on the classification pass having run — and where the pass cannot
+reach at all, its fallback is not a missing block but a wrong one: the
+`no-brief` turns on `trend` and `bars` left `table` candidates, which would
+have drawn a data table where the answer was a trend.
+
+**What this corrects in D42.** D42 opens "wave 13 measured the comparison
+prompt at 0 of 5 … prompt text is not the lever." Its decision stands and the
+pass earns its place, but that framing is now wrong twice over. Four of those
+five runs were the same prompt, and the deferral finding says the brief is not
+"prompt text" in the sense that sentence means — it is the tool's discovery
+path, and removing it removes the tool. The lever that actually governs the
+rate is neither the brief's wording nor the pass: it is whether the tool is in
+the prompt at all.
+
+**Three findings this surfaced, filed rather than fixed here.**
+
+- `alwaysLoad: true` on the bridge MCP server reaches 77% with no brief at all.
+  That is the real lever and it may supersede the brief entirely, but it
+  changes the backend rather than the advertisement, which #45 scoped out.
+- `contact` is barely reachable by anything: 0 of 12 across both default arms
+  and 1 of 6 with the tool loaded. It is not uniquely low — `quote` is also 1
+  of 6 loaded — but it is uniquely *consequential*, because a declined `quote`
+  still reaches the reader through the classification pass and a declined
+  `contact` reaches them as prose.
+- The pass has no route to `contact` or `trend`, though D42's decision 6
+  specifies both. Every transform in `classification/catalogue.ts` returns one
+  of eight kinds and `CandidateKind` has no number series. That is a
+  discrepancy between this record and the code, not a measurement result.
+
+**What is not claimed, and this is the limit that matters most.** Every figure
+here scores *whether* a block was drawn, never *which kind*. A model that
+reaches for `table` where `comparison` was right, or `timeline` where
+`schedule` was right, scores identically in all of it. So "the brief's entire
+measured effect is discoverability" is a claim about the **rate** and says
+nothing about whether its content — which is mostly *which* kind to pick —
+does work. Nothing measured anywhere yet answers that, on either backend.
+
+#50's kind-correctness pass on pi — 23 of 25 scorable turns drawing the right
+kind, with one systematic miss (`schedule` prescribed, `timeline` drawn, 2 of
+2) — is sometimes read as evidence the brief's content works. It is not, and
+this record refused the same move 100 lines above: pi has no no-brief arm, so
+every pi turn was measured **with the brief present** and a single-arm result
+cannot attribute anything to it. What that pass does establish is narrower and
+still useful: **kind-correctness is a dimension with real variance**, it can be
+scored, and a systematic error lives in it that every rate table on both
+backends is blind to. That is a reason to measure the brief on kind-correctness
+before touching it, not evidence of how that measurement will come out.
+
+So nobody should read the 77%/77% as licence to delete the brief's text, and
+nobody should read pi's 23 of 25 as licence to keep it. #157 is where it is
+decided and it needs a two-armed, kind-scored measurement, which nothing has
+run.
+
+Per-prompt rates are noisy — `compare-short` measured
+0 of 6, then 5 of 6, then 6 of 6 across three runs of the corrected harness,
+because the variance is in whether the model spends a `ToolSearch` round-trip,
+not in whether it wants a block. Only the arm-level contrast is stable, and it
+is stable because it is a discoverability effect rather than a preference. One
+model, one backend: every number here is `claude-sonnet-5` on the Claude
+backend, driven through the Agent SDK directly. A reader who takes any of them
+as "the block rate" will be wrong on pi, and wrong on this backend too once
+`alwaysLoad` ships. `scripts/measure-show-block-server.ts` — #50's harness,
+which arrives with #149 and is not in this tree — is the instrument for the
+other level — it drives the whole server over a real socket
+and is backend-agnostic, so it sees the classification pass, the wire frames
+and the client that this harness, sitting below all three, cannot.
+
+**Reproducing it.** `bun scripts/measure-show-block.ts --reps 6 --concurrency 6
+--out runs.json --md report.md`, with `ANTHROPIC_API_KEY` set. The
+always-loaded table is a different shape — eight prompts at three reps, not
+nine at six, with `recommend` the one this entry's nine that it omits:
+
+```sh
+bun scripts/measure-show-block.ts --always-load --reps 3 --only \
+  compare-short,compare-long,trend,contact,table,steps,quote,bars
+``` It is a script and not a test: it needs
+the network and a key, so CI never runs it. Re-run it before changing the brief
+again.
+
+## 2026-09-22 — D44: the bridge tools are always loaded, not deferred behind tool search
+
+**Question.** D43 ended with a filed finding rather than a decision:
+`packages/ui-backend-claude/src/ask-user-tool.ts` created the `brain-ui` MCP
+server without `alwaysLoad`, so the Agent SDK deferred all five bridge tools
+behind tool search, and forcing them into the prompt reached 77% with no brief
+at all. #148 asked whether that is the configuration that should ship. It is an
+arithmetic question and nobody had done the arithmetic.
+
+**What the SDK actually offers**, checked against the installed
+`@anthropic-ai/claude-agent-sdk@0.3.278` rather than recalled:
+
+- `createSdkMcpServer({ alwaysLoad: true })` stamps
+  `_meta["anthropic/alwaysLoad"]` on every tool it registers. Leaving it unset
+  is deferral, and that is the default.
+- **A per-tool split is possible.** `tool(name, description, schema, handler,
+  { alwaysLoad })` exists and is OR'd with the server-level flag, so "load some
+  and not others" was a real option; it is rejected below on its merits rather
+  than for being unavailable. The same extras object carries `searchHint`,
+  which steers the search index. Nothing in the tree sets one.
+- **The startup-latency objection does not apply the way it reads.** The
+  warning that `alwaysLoad` "blocks startup until the server is connected
+  (capped at the standard 5s connect timeout)" is attached to
+  `McpStdioServerConfig`, `McpHttpServerConfig` and `McpSSEServerConfig` — the
+  out-of-process transports — and it describes a **server-config** flag. The
+  CLI's startup-wait filter reads `config.alwaysLoad` and, once tool search is
+  on, waits only for servers that set it. `createSdkMcpServer` does not put
+  the flag on the config it returns: it stamps `_meta["anthropic/alwaysLoad"]`
+  on each registered tool and hands back a plain
+  `{ type: "sdk", name, instance }`. So this change never enters that wait set,
+  and the in-process server has nothing to connect to in any case. The reading
+  that matters is the empirical one below: first frame did not move.
+- The deferral is the API's mechanism rather than a client-side index: the
+  shipped CLI binary contains `defer_loading`, `tool_search_tool_regex` and
+  `tool_search_tool_bm25`, which is what makes both shapes priceable by
+  `count_tokens`.
+
+**The arithmetic, counted rather than estimated.**
+`bun scripts/measure-show-block.ts --tokens` takes the schemas from the real
+server — `createBrainUiMcpServer` with every handler supplied, listed over an
+in-memory MCP client, which is the serialisation the CLI forwards — and prices
+them with `count_tokens` on `claude-sonnet-5` in the two shapes the API
+receives: a plain tool definition, and one carrying `defer_loading: true`
+beside a tool-search tool. Both columns are measured against the same floor (a
+search tool plus one undeferred tool, 682 tokens), so what is left is what this
+decision is responsible for.
+
+| bridge tool | in the prompt | its brief | brief lines |
+| --- | --- | --- | --- |
+| `show_block` | **5270** | 256 | 11 |
+| `ask_user` | 756 | 87 | 4 |
+| `query_activity` | 552 | 108 | 4 |
+| `request_image_mask` | 383 | 110 | 5 |
+| `get_current_location` | 374 | 94 | 4 |
+| **all five** | **7335** | **655** | 28 |
+
+Deferred: **93 tokens** for the whole set, and the same 93 for one deferred
+tool as for five — the API prices the deferred set as a fixed block rather than
+per tool. Both figures are insensitive to which tool-search tool is declared
+alongside them: `tool_search_tool_bm25_20251119` and
+`tool_search_tool_regex_20251119` give 93 and 7335 alike, differing only in
+their own weight (682 against 710), which is subtracted as the floor either
+way. The five per-tool rows sum to the measured all-five figure exactly
+(374 + 756 + 552 + 383 + 5270 = 7335), so the floor subtraction is linear here
+rather than hiding a per-request constant.
+
+The brief column is counted the same way but against its own floor — the same
+system prompt with and without that brief, no tools declared in either request.
+Each column is a delta against a matched baseline; the two columns are not
+measured in the same request and should not be added to a single "what the
+prompt costs" figure.
+
+Ten to one, then, and `show_block` is 5270 of the 7335: 72% of the bridge
+surface is one eleven-variant union, 11,452 serialised characters of which
+11,319 are a flat `oneOf` with no `$defs` and no `$ref`. **That ratio is the
+number this decision was expected to turn on, and it is not what decided it.**
+
+**The measurement.** `scripts/measure-show-block.ts`, nine prompts, two arms,
+three repetitions, run once in each configuration: 108 live turns on
+`claude-sonnet-5` against a copy of `packages/core/fixtures/corpus/`, $11.43 of
+API spend, **every turn completed in both runs**. D43's counting rules carry
+over unchanged — only calls whose argument parses through the contract's schema
+count, subagent frames are skipped, an incomplete turn is excluded from every
+rate. Two columns are new: per-turn input tokens as the SDK reports them, and
+wall time to the first assistant frame.
+
+| configuration | arm | a `show_block` call | ran `ToolSearch` | input per round-trip | first frame |
+| --- | --- | --- | --- | --- | --- |
+| deferred — what shipped | brief | 14 of 25 (**56%**) | 15 | 24,087 | 3897 ms |
+| deferred | no-brief | 0 of 25 (**0%**) | 0 | 21,088 | 4549 ms |
+| always loaded | brief | 19 of 25 (**76%**) | 0 | 26,694 | 4371 ms |
+| always loaded | no-brief | 20 of 26 (**77%**) | 0 | 27,522 | 4716 ms |
+
+**These runs were taken on the harness before `e017715` enforced the 180 s turn
+budget it advertises**, which is the same correction that moved D43's
+always-load arm from 19 of 24 to 17 of 22. Seven of the 108 turns ran over, six
+of them the `trend` prompt, and the table above already excludes them the way
+the enforced harness would. Left in, the four cells read 56%, 0%, 78% and 78%
+over 27 turns each; the conclusion does not move either way, and the enforced
+figures are published because they are what a re-run will produce.
+
+D43's 77%/77% replicates at 76%/77%. Across the two runs that is 47–48 turns
+per cell agreeing: **once the tool is in the prompt, the brief changes
+nothing** — on rate, which is the only thing any of it measures.
+
+The two no-brief arms isolate the schema as cleanly as this harness can —
+neither searches, so the only difference between them is the schema in the
+prompt: 21,088 against 27,522, a delta of **6434** against the 5270
+`count_tokens` priced. Over non-delegating turns only, where `usage`'s
+main-loop scope and `num_turns` cannot disagree, it is 20,279 against 26,296, a
+delta of **6017**. The live run brackets the counted figure rather than
+reproducing it: it confirms the sign and the order of magnitude, which is what
+the decision rests on, and not the third digit.
+
+A note on provenance, because the two tables below do not share a source. The
+token columns come from the result message's `usage`, which the SDK documents
+as the main agent loop only, divided by `num_turns`; the dollar column comes
+from `total_cost_usd`, which covers the whole query pipeline including
+subagents. Nothing here reasons across the two — the token claim and the cost
+claim are made separately, and the cost table excludes delegating turns for
+exactly the reason the scopes differ.
+
+**What it costs, which is the part the ratio got wrong.** Turns that delegated
+to a subagent are excluded from the cost comparison — a subagent's bill is
+several times the turn's own and the two runs drew a different number of them
+(11 and 10), so leaving them in measures delegation rather than loading.
+
+| configuration | arm | turns | $ / turn | median $ / turn | rate |
+| --- | --- | --- | --- | --- | --- |
+| deferred | brief | 21 | $0.0559 | $0.0550 | 57% |
+| deferred | no-brief | 22 | $0.0383 | $0.0327 | 0% |
+| always loaded | brief | 23 | **$0.0594** | $0.0472 | 78% |
+| always loaded | no-brief | 21 | $0.0475 | $0.0419 | 81% |
+
+**Like for like, always loading the tool raised the bill by 6%** — not by the
+ten to one the token ratio implies, and not by the 24% the isolated no-brief
+comparison shows either. The reason is that the deferred configuration does not
+avoid the schema; it postpones it. A tool search **appends** the matched
+definition rather than swapping it, so from the search onwards every remaining
+round-trip of that turn carries the full 5270 anyway — and the turn has also
+paid for an extra model round-trip to get it. Measured across the shipped
+configuration: turns that ran `ToolSearch` billed 25,715 input tokens per
+round-trip against 21,247 for turns that did not. **Deferral saves the schema
+only on the turns that never wanted the tool.**
+
+First frame did not move in any direction the samples can distinguish
+(3883–4449 ms deferred, 4277–4620 ms loaded; medians 3185–3804 against
+3263–3553). The in-process server has no connect step to block on, and the
+numbers agree.
+
+**Decision. `createBrainUiMcpServer` sets `alwaysLoad: true`.** The bridge
+tools ride every prompt. 20 percentage points of call rate for 6% of a turn,
+no measurable latency, and the end of a structural fragility: under deferral a
+tool's existence depended on a line of prompt text, so an editor shortening a
+brief could silently remove a tool and no test would notice. That is not a
+trade-off anyone would choose on purpose, and D43 found it by accident.
+
+`tests/bridge-tools.test.ts` ("bridge tool loading posture") holds it: every
+registered bridge tool carries `_meta["anthropic/alwaysLoad"]`, with a
+companion test registering the same factory without the flag and asserting the
+meta is absent, so the first assertion cannot pass vacuously.
+`packages/ui-backend-claude/tests/sdk-options-mcp.test.ts` holds the same thing
+one level up, over the `mcpServers` entry `createClaudeSdkTurn` actually builds
+— the factory being right is not the same claim as the call site using it.
+
+One thing this was checked against and does not do: it introduces no new cache
+invalidation. The tools block is the first cache segment and this makes it the
+largest, so a roster that varied between turns of a session would now be
+expensive. It does not vary. `createBrainUiMcpServer` registers a tool when the
+host supplies its handler, and the handlers come from the host's own
+configuration (`packages/ui-server/src/ws/bridge.ts`) rather than from anything
+the client reports per turn, so the set a session starts with is the set it
+keeps.
+
+**Why not keep deferral.** Its case is the 7335-against-93 ratio, and the live
+run says that ratio does not reach the bill. Its second argument — that D42's
+classification pass already reaches eight of the eleven kinds, so the extra
+calls are redundant — holds as far as it goes, and the split table says the gain
+is indeed concentrated there (9 of 18 to 15 of 18 on pass-reachable kinds, 6 of
+9 either way on the three the pass cannot reach). But D42's own rule is that no
+code path may depend on the pass having run: it needs a key, a live classifier
+inside 2 s and an answer over the confidence gate, and a deployment missing any
+of those gets nothing on those eight kinds unless the tool fires. Redundancy
+with a conditional path is not redundancy.
+
+**Why not a per-tool split.** The SDK allows one, so it was considered rather
+than assumed away. It loses on coherence: the only tool with a measured
+discoverability gap is also the expensive one, so loading "just the cheap four"
+spends 2065 tokens on tools that have no measured problem and leaves the one
+that does behind the search — and a surface where four tools are found one way
+and the fifth another is a thing every later reader has to be told.
+
+**Why `searchHint` is still unused.** It steers the search index, and the
+search index is not where the loss was: over 54 turns in the deferred
+configuration, 16 ran `ToolSearch` and 15 of those called `show_block`. The
+search found the tool essentially every time it ran. The loss was in the model
+not running one — and with the tools loaded there is no search to steer.
+
+**What this means for backends that are not the Claude SDK.** Deferral is a
+property of the Claude Agent SDK, not of the bridge, so this decision is scoped
+to that backend. The backend-neutral obligation is one line: **a bridge tool
+has to be in the model's context, and each backend says how.**
+
+D43's pi section above already establishes that pi has no deferral to apply to
+a statically registered tool and that its shipping configuration is therefore
+the structural equivalent of the `--always-load` **brief** arm and of that one
+only — pi has no no-brief arm, so it corroborates the loaded *rate* and says
+nothing about whether the brief matters. That ground is not re-covered here. One detail found independently while deciding this and worth
+adding to it: the mechanism is `splitDeferredTools` in pi's shipped bundle,
+which puts a tool in the deferred set only when an earlier tool result added it
+to the conversation and nothing has called it since. A statically registered
+`ToolDefinition` can never satisfy that, which is why the absence of deferral
+is structural rather than a default someone could flip.
+
+What this decision adds to #137 is only that the Claude side has now moved: the
+two backends were being compared across a configuration difference, and after
+this they are not. The remaining height between them — **87% on pi over 60
+turns against 76–77% here over 47–48**, roughly ten points — is #137's to
+explain, and this entry makes no claim about it. The pi figure is the pooled
+one over both runs (27 of 30 and 25 of 30); the 90% that circulated is the
+first run alone, reported before a second existed, and the spread between them
+is what 30 turns of sampling noise looks like on this measurement.
+
+**One cross-backend result that outlives this decision.** The misses on the
+always-loaded Claude arms are not spread thin — they concentrate in two kinds.
+`contact` is 0 of 3 in both arms and `quote` 0 of 3 and 1 of 3, while six other
+prompts are 3 of 3. On pi, pooled over 60 turns, `contact` is 5 of 12 and
+`quote` 3 of 4, with every other prompt at full marks. **The same two kinds, on
+two backends, in two different harnesses.** Two small samples agreeing is not a
+result, but it is a better lead than a rate gap, and it is what #137 and #119
+should be pointed at rather than the ten points.
+
+**The two backends do not fail the same way, and the distinction is on two
+different axes.** The concentration above is a *call-rate* one: which kinds the
+model declines to draw at all. pi's one *wrong-kind* error is a different
+dimension — `schedule` prescribed and `timeline` drawn, 4 times out of 4, a
+kind reached reliably and reached for the wrong question, which a call-rate
+metric cannot distinguish from a success. So `contact`/`quote` and `schedule`
+are not two readings of one phenomenon and should not be merged into one.
+
+That `schedule` miss carries one fact worth having before #157 is worked. The
+clause the model failed to follow is stated **twice**, in near-identical words:
+the brief says "`schedule` for what is coming", and the description says
+"schedule: what is coming, grouped by day"
+(`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, where it sits in the same
+sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
+both surfaces saying nearly the same thing. **Saying it twice did not fix the
+miss** — which is evidence for the description-overlap arm on #157 and against
+assuming duplication is harmless redundancy.
+
+**The SDK-level harness used for this entry does not score kind at all**, only
+the server-level one does, so any future Claude-against-pi comparison has half
+an instrument until that changes — and a per-brief A/B has to score kind on
+both sides, because the two backends' failures do not overlap.
+
+**The prediction, with the condition that would falsify it.** If deferral is
+the whole of the difference, this change moves the Claude backend *toward* pi's
+87% and not merely upward from 56%. It has already landed at 76–77% in the
+measurement above, which is short of pi on a better-powered comparison than
+#137 was filed with — 60 turns against 47–48 — and the gap did not close. **That shortfall is the prediction
+failing, not confirming**, and it says something besides deferral is also in
+play — so #137's search stays live and this entry does not close it. The
+honest claim is narrower than "the backends now agree": the configuration
+difference is gone, and a residue of roughly thirteen points is not.
+
+Two things stop that residue being read as a like-for-like gap, and both cut
+against reading pi as a second replication of the brief result. pi is on a
+different harness driving the model directly, and — this is the one that
+matters — **pi has no no-brief arm and no supported way to have one.**
+`packages/ui-backend-pi/src/session-resources.ts:157` passes the block brief
+into `buildSystemPromptAppend` unconditionally, not behind a capability check
+like `askUser`, `location`, `activity` and `mask` on the lines above it. So
+every pi number was measured with the brief present. The 77%/77% and 76%/77%
+cells are one backend measured twice, not two backends agreeing.
+
+**A consequence for the brief that only exists because of this decision.**
+Deferred, `show_block`'s *description* was not in the prompt either — it
+arrived with the tool when a search fetched it — which is why D43 found the
+brief was the only enumeration of the eleven kinds the model could see without
+searching. Always-loading puts the description in every prompt, and the
+description names all eleven kinds too: 11 of 11, with nothing in the brief's
+enumeration that the description omits (2107 characters against the brief's
+749). D41's decision 6 divides them — *"The brief says WHEN, the description
+says HOW"* — and the brief does not honour it, enumerating all eleven with a
+clause each. Under deferral that duplication was load-bearing. Under this
+decision it is duplication, and the eleven kind names now ride every turn
+twice. That is not a reason to cut anything here — nothing has been measured
+against it, and the kind names are the one part of the brief whose removal a
+rate metric could not detect — but it is a fact this decision created and #157
+is where it is priced.
+
+**What this changes in D43.** Its decision — the brief stays — stands, and its
+measurement is the evidence this entry rests on; the deferral finding is D43's,
+not this one's. What this supersedes is its *reason*. D43 kept the brief
+because removing it took the rate to 2%, and that was true only of the
+deferred configuration. With the tools loaded, the brief measures at no effect
+at all: 76% with it and 77% without it here, 77%/77% there, 47–48 turns per
+cell.
+The brief is no longer the tool's discovery path, so whether it earns 655
+tokens across five tools has to be re-argued on its own merits rather than
+inherited. **#148 scoped the brief's wording out of this decision, so nothing
+about it changes here** and its budget in
+`packages/ui-sdk/tests/tool-contracts.test.ts` is untouched at eleven lines and
+749 characters — now a ceiling on drift rather than evidence that the lines
+earn their place. The question is #157.
+
+**What is not claimed.**
+
+- **Every rate in this entry scores whether a block was drawn, never which
+  kind.** A turn that reached for `table` where `comparison` was right counts
+  as a call in all of it, in both configurations and both arms. So "always
+  loading raises the rate from 56% to 77%" is a claim about reaching for the
+  tool and not about the answer being better. **Nothing here should be quoted
+  as evidence that the surface draws the right block.**
+
+  The same distinction applies to the brief, and it is the one most likely to
+  be misused. The brief's text is mostly about *which* kind to pick rather than
+  whether to pick one, so "the brief measures at no effect once the tools are
+  loaded" is a **rate** claim, and reading it as a **content** claim is a
+  category error. This entry's runs and D43's both support the first and
+  neither touches the second.
+
+  **Nothing else touches it either, and #50's kind-correctness pass on pi is
+  not the exception it looks like.** Every pi turn was measured with the brief
+  present — `packages/ui-backend-pi/src/session-resources.ts` passes it
+  unconditionally and pi has no supported way to run without it — so it is a
+  single-arm result and attributes nothing to the brief's content, in either
+  direction. An earlier revision of this entry said it "points the other way"
+  and "suggests the brief's content does measurable work". **Both are wrong for
+  the reason this entry already gives about pi elsewhere**, and they are
+  recorded here rather than quietly deleted because the same overreach reached
+  D43 and was caught there by review.
+
+  What the pass does establish is narrower and worth having: **kind-correctness
+  is a scorable dimension with real variance, and a systematic error lives in
+  it.** Pooled, 44 of 48 scorable turns drew the prescribed kind, and the whole
+  of the error is one clause — `schedule` prescribed, `timeline` drawn, 4 times
+  out of 4. So: nobody should read 76%/77% as licence to delete the brief's
+  text, and nobody should read 44 of 48 as licence to keep it. #157 makes
+  kind-correctness its metric, and that is a reason to measure before touching
+  it rather than a prediction of how the measurement will come out.
+- **Every figure here that came from another record was reconciled against
+  that record's own primary table before being repeated, and the ones that
+  could not be are named.** pi's 87% is read off #50's per-run breakdown (27 of
+  30 and 25 of 30) rather than from a summary; D43's cells are read off D43's
+  tables. Three of the five figure corrections in this lineage today arrived
+  from *outside* the record — lifted from another document quoting an earlier
+  version, or from one agent's account of one run — rather than drifting inside
+  it, which is a different failure from prose disagreeing with its own table
+  and needs the same discipline applied to inbound numbers, whoever sent them.
+  What this entry cannot claim: **no pi turn was re-run or re-scored here.**
+  Every pi number is #50's measurement, checked for arithmetic and provenance
+  and not reproduced.
+- One model (`claude-sonnet-5`, pinned so a re-run compares like for like) and
+  one brain, a copy of `packages/core/fixtures/corpus/`. A larger brain means a
+  larger base prompt, so the 7335 is a smaller share of it — and also more
+  round-trips to pay it on.
+- The cost figures are 21–23 turns per cell, and they are the least stable
+  numbers here: mean and median disagree by up to 20% within a cell. The
+  direction is consistent across both statistics and both arms; the magnitude
+  is not to be quoted to two figures. **"6%" is the mean-to-mean figure in the
+  brief arm and it is the weakest number in the headline** — the same
+  comparison by median runs the other way, because the deferred arm's search
+  round-trips sit in its tail. What both statistics agree on is that the ten to
+  one the schemas imply is not what the turn pays.
+- The two runs were taken in different windows against a shared rate limit, so
+  wall-clock durations are not comparable between them and no claim here rests
+  on one. First-frame latency is reported because it is what #148 asked for,
+  and the honest reading of it is "no detectable difference", not a number.
+- Only `show_block` was registered in the measured server, as it was in D43, so
+  the live arms measure 5270 tokens of schema and the 7335 figure is the
+  arithmetic for the roster a fully wired deployment registers. The four other
+  tools' briefs have never been A/B'd against anything.
+- `count_tokens` prices the deferred set as a flat 93 tokens whether one tool
+  is deferred or five. That is the API's own accounting and it is what gets
+  billed, but it means this entry cannot say what a sixth deferred tool costs.
+
+**Reproducing it.**
+
+```sh
+bun scripts/measure-show-block.ts --tokens
+bun scripts/measure-show-block.ts --reps 3 --concurrency 6 --out deferred.json --md deferred.md
+bun scripts/measure-show-block.ts --always-load --reps 3 --concurrency 6 --out loaded.json --md loaded.md
+```
+
+Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
+the harness's default arms now measure the shipped configuration only when
+`--always-load` is passed, because what ships changed — the flag's name is left
+alone so D43's invocations keep reproducing D43's tables.
+
+## 2026-09-22 — D45: the pass routes to `contact`; `trend` stays the tool's, because its payload is numbers
+
+**Question.** D42's decision 6 names six catalogue routes. Two of them were
+never built, and nothing recorded a decision to drop them (#132): `contact`
+from a key-value run, and `trend` from a number series — together with the
+per-row value tone named in the same sentence as the first. `bars` is not in
+that list, so the gap is exactly the two routes the record claims are covered
+and the code does not have. The question is per route: build it, or correct the
+record.
+
+**Decision.**
+
+1. **`contact` is built, from the key-value run D42 names.** The run's `shape`
+   question gains a fourth option, and the transform draws a `ContactCard` from
+   the lines the text already has. The block's `label` is required and a run
+   does not say which line is the name, so a `subject` question asks the
+   classifier to choose one of the run's own keys, or `none` — the same move
+   the table row's `recommended` question already makes over its headers. The
+   chosen line's value becomes the label, the remaining lines become the card's
+   facts, and a `contact_kind` question fills D42's "+ contact kind". A run the
+   classifier calls a contact but cannot name stays markdown: a label the text
+   does not carry is one the surface would be inventing, which
+   `docs/integration-contract.md` already forbids.
+
+2. **`trend` is not built, and D42's "number series → trend | plain (+ delta
+   tone)" is withdrawn.** Three reasons, in the order that decided it.
+
+   *Its payload is numbers, and the pass only ever passes strings through.*
+   `trend.values` is a `number[]` and `bars.pct` is a `number`; those two are
+   the only members of D41's eleven whose payload is not text the answer
+   already contains — checked against the schemas rather than read off, and
+   asserted by a test, because the whole entry rests on it. Every transform in
+   the catalogue hands the kit the candidate's own strings verbatim; the only
+   text any of them authors is a fixed label, the one-group schedule's "Coming
+   up", and never a value. A `trend` route would have to turn
+   "1,200", "$1.2M" or "12%" into numbers — a parse with no ground truth and a
+   locale ambiguity a reader cannot see ("1.200" is twelve hundred in one place
+   and one-point-two in another), feeding a sparkline whose shape is the claim.
+   That is precisely the reason D42 gave for never routing `bars`. It applies
+   to `trend` unchanged, and D42's route list was inconsistent on the point;
+   this entry makes it consistent. The consumer rule it also satisfies is
+   already written down: *"Blocks contain only what the text carried. The
+   classifier chooses a shape and a tone; it never invents a footnote, a
+   figure, or a source line."*
+
+   *There is no gap to fill.* The two routes look symmetric and the
+   measurements say they are not. With the tool loaded — the configuration D44
+   ships — `trend` fires 3 of 3 in both arms in D43's run and again in #148's,
+   while `contact` is 1 of 12 pooled across the same two runs (#119 carries the
+   pooled table; the full count across both loading configurations is on that
+   issue). A fallback earns its place for the kind the model declines, not for
+   the kind it reaches every time.
+
+   *It needs a candidate that does not exist, and the detector under it is the
+   part the classifier cannot rescue.* D42 hands judgment to the classifier and
+   keeps extraction deterministic. "These lines are a series, oldest first" is a
+   judgment and could be asked; "1.2M is 1200000" is extraction, and it is the
+   half with no answer in the text.
+
+   What this does **not** claim is that `trend` is unreachable. It is reached by
+   `show_block`, where the figures come from an author who knows what they mean
+   — which is the right place for a number.
+
+3. **Per-row value tone is built, and bounded.** One `choice` per line of the
+   run, with the options named by what the text says rather than by their
+   colour ("it reports a failure, an error, or an outcome the reader would not
+   want" → red), gated at the tone threshold of 0.8 like every other tone. The
+   fall-through option is `none`, not `neutral`: in this kit `neutral` is the
+   grey machine-meta accent and means that everywhere, so a value that wants
+   the default carries no tone at all and each component falls back on its own
+   (`design-feedback.md` §4, `packages/ui-kit/src/types.ts`). Offering `neutral` as "no
+   strong reading" would have taught the classifier a meaning the 2026-09-18
+   drop retired. It is one question set on the run and whichever branch wins
+   reads it, so a
+   receipt's rows, a stat tile and a contact's facts are coloured by the same
+   answers. It is asked only of a run of eight lines or fewer — the bound stat
+   tiles already had, and now the bound on the contact questions too — so the
+   question count follows the run's shape and not the text's length. That bound
+   is not only editorial: the `subject` question offers one option per line,
+   the classifier takes at most 255 of them, and one oversized question fails
+   the whole request, which carries every candidate in the message. A run
+   longer than a card is asked what shape it is and nothing else, and the
+   transform refuses the contact branch on its own rather than relying on the
+   answers being absent.
+
+4. **The route list is a test now, not a reading.** Each catalogue row declares
+   the block kinds its transform can return, `CATALOGUE_BLOCK_KINDS` is their
+   union, and `packages/ui-sdk/tests/classification-catalogue.test.ts` drives
+   every declared kind through a real transform and asserts that what is left
+   over is exactly `trend` and `bars`. #132 was found by a reader comparing a
+   decision record to a file. The next divergence fails a test instead.
+
+**What the pass reaches, after this.** Nine of the eleven: `comparison`,
+`table`, `steps`, `timeline`, `schedule`, `quote`, `receipt`, `stats`,
+`contact` — every kind whose payload is the answer's own strings. The two it
+leaves are the two whose payload is numbers. That is now a sentence with a
+reason in it, rather than a count nobody had taken.
+
+**Alternatives refused.**
+
+- *Routing `trend` from the key-value run instead of building a new candidate.*
+  A run of `period: figure` lines is nearly what the detector already finds, and
+  a `trend` option on the run's `shape` question would need no detector work at
+  all. It was the cheapest way to build the route, and it is refused for the
+  first reason above: it moves where the route hangs without touching the number
+  parse, which is the actual objection.
+- *Restricting `trend` to bare integers* (`^\d+$`), which removes the locale
+  ambiguity by construction. It also removes the case. A model writing a series
+  writes "1,200" or "$1.2M"; a route that fires only on the shape nobody types
+  is a route in name.
+- *Dropping `contact` as well, on the ground that prose is the right answer to
+  "who is this person".* That is #119's question and this entry does not settle
+  it. What it settles is narrower and mechanical: when the model **does** type a
+  run of facts about a person, the pass now draws it, where before the best it
+  could do was a receipt. #119's own reframing is that `contact` was the one
+  kind where a low call rate reached the reader as a missing block; after this
+  it is a kind whose decline is caught, like `quote`'s.
+- *Asking the classifier for the display name as a string.* It generates no
+  text by design (D42), and a name is not a judgment. Choosing among lines the
+  text already has is.
+
+**What this corrects in D42.** Decision 6's fourth route is now built as
+written. Its sixth route is withdrawn, with the reason above; there is no
+number-series candidate, no `trend` transform and no delta-tone question, and
+the record no longer says there is. The other four routes were already built and
+are untouched.
+
+**Known limit, recorded rather than fixed.** GFM autolinks a bare email address
+or URL, a link is inline markup the kit's cells cannot hold, and so a run
+carrying one is not a candidate at all — which removes the most natural shape a
+contact has. The rejection rule predates this work and applies to every
+candidate kind, so widening it is its own decision: #167.
+`packages/ui-sdk/tests/classification-detect.test.ts` pins the behaviour so the
+next reader meets it on purpose.
+
+## 2026-09-22 — measured: pi draws the block, so the net never gets cast
+
+**Question.** D41 left the tool's use rate to be measured and D42 measured
+the classification pass once. Both numbers are the Claude backend's, because
+the test deployment configures no other, and D43 has since replaced the
+first with a 108-turn A/B. The pi backend had never had a number at all, and
+the two backends hand a tool to a model differently enough that the gap was
+worth measuring rather than assuming.
+
+**Method.** `scripts/measure-show-block-server.ts`, a companion to D43's
+harness rather than a copy of it: that one drives the Agent SDK directly,
+which is what an A/B over the brief needs and what pi has no equivalent of,
+while this one boots a real ui-server on loopback and drives it with the
+shipped client over a real socket, so any backend can be put through the
+same measurement. Two runs of the same 32 turns on 2026-09-22,
+`claude-sonnet-5` through pi's builtin Anthropic provider, against a copy of
+`packages/core/fixtures/corpus/`: the first with the classification pass
+off, the second with it on, 18:29:13Z to 18:44:35Z. $2.18 of API spend.
+D43's counting rules are carried over — a call counts only when the handler
+accepted its payload, subagent frames are skipped, a turn that did not
+complete is excluded — and one is added: a turn whose tool arguments named a
+path outside the brain answered about a different brain and is excluded too.
+Two of each 32 were. Thirty turns counted per run.
+
+The environment can redirect a turn without showing up in a number — a
+different endpoint, a different credential store, a different binary — so
+what was set is part of the measurement. Both runs: `ANTHROPIC_API_KEY`, and
+`TYPESAFE_API_KEY` on the second. `ANTHROPIC_BASE_URL`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH` and `PI_CODING_AGENT_DIR` were
+unset, so the turns went to Anthropic's own endpoint with pi's default agent
+directory. The harness records that set of presences with every run and
+`--report` prints it.
+
+**pi has no deferral, so this is the always-loaded regime.**
+`packages/ui-backend-pi/src/bridge-tools.ts:171` registers `show_block` as
+one of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever
+defers a name that arrived through a tool-result's `addedToolNames` and has
+not been called since — a statically registered tool can never be deferred.
+Across all 64 turns the complete roster the model reached for was `bash`,
+`show_block`, `brain_read`, `grep`, `brain_search`, `read_file`,
+`brain_list`, `brain_graph`: no search-then-load round trip, ever. The brief
+is in the prompt on every turn unconditionally
+(`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a
+capability check like the four bridge tools beside it). So pi is the
+structural twin of D43's `--always-load` arm and has never run any other
+configuration.
+
+**The rate.** Each cell is turns that drew at least one accepted block.
+
+| prompt | expected kind | run 1 | run 2 | pooled | right kind |
+| --- | --- | --- | --- | --- | --- |
+| `compare-short` — "…Keep it short." | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `compare-long` — the same without it | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `trend` | `trend` | 4/4 | 4/4 | **8/8** | 8/8 |
+| `contact` | `contact` | 3/6 | 2/6 | **5/12** | 5/5 |
+| `steps` | `steps` | 2/2 | 2/2 | **4/4** | 4/4 |
+| `schedule` | `schedule` | 2/2 | 2/2 | **4/4** | **0/4** |
+| `quote` | `quote` | 2/2 | 1/2 | **3/4** | 3/3 |
+| project summary | — | 2/2 | 2/2 | **4/4** | not scored |
+| overall | | 27/30 | 25/30 | **52/60 (87%)** | **44/48** |
+
+Pooling the two runs is legitimate for this number: the classification pass
+runs after the result frame and cannot change what the model did during the
+turn. **A figure of 90% circulated before the second run existed** — that is
+27 of 30, the first run alone. D43 and D44 both quoted it and both now carry
+52 of 60, read off this record's per-run breakdown rather than relayed. The
+spread between 90% and 87% is what 30 turns of sampling noise looks like on
+this measurement, which is worth knowing before either is treated as
+precise. Across all sixty turns the model typed **zero markdown tables**. Two
+calls were rejected by the handler, both `comparison`, both on a turn that
+retried and succeeded — the same shape D43 saw at three in 108, and the
+reason a call is not counted until its payload parses.
+
+Beside the Claude backend, on one axis. The two Claude columns are
+independent runs of the same four cells — D43's and D44's, both above —
+quoted from those records rather than relayed:
+
+| configuration | Claude, D43 | Claude, D44 | pi |
+| --- | --- | --- | --- |
+| behind tool search — what shipped, with brief | 23 / 43 (53%) | 14 / 25 (56%) | n/a |
+| behind tool search, no brief | 1 / 47 (2%) | 0 / 25 (0%) | n/a |
+| always loaded, with brief | 17 / 22 (77%) | 19 / 25 (76%) | **52 / 60 (87%)** |
+| always loaded, no brief | 17 / 22 (77%) | 20 / 26 (77%) | unreachable |
+
+D43's deferred rows here are the ones from its own `--always-load`
+comparison, so both of its rows come from one run; its headline A/B is a
+larger, separate run at 59% and 2%. pi's cell sits on the "with brief" row
+and nowhere else: the brief is
+hardcoded into pi's prompt, so pi has no no-brief arm and no supported way
+to have one. The two Claude no-brief cells are therefore one backend
+measured twice and not two backends agreeing.
+
+**pi does not contradict either record; it replicates their always-loaded
+arm on a different backend.** What is not accounted for is the remaining
+height — **87% against 76–77%**, on 60 turns against 47–48 across the two
+Claude runs. Three things could explain it and none is measured: the layer
+(both Claude records drive the Agent SDK, this drives the whole server, and
+no backend has been measured at both), the roster the block competes in
+(D43 records that narrowing it moves the absolute rate, and pi's roster here
+carried four brain tools), or the backend itself. That is #137.
+
+D44 puts the same residue the other way round and names its own failure
+condition: if deferral were the whole difference, making the Claude backend
+always-load should move it toward pi's rate rather than merely upward. It
+moved to 76–77%. That is the prediction failing, and the shortfall is what
+#137 is for.
+
+**Which kind, not just whether.** Every measurement before this one scored
+whether a block was drawn and never which one, so a model reaching for the
+wrong kind scored as a success. Scoring against the kind the brief itself
+prescribes — clause by clause from `SHOW_BLOCK_CONTRACT.brief`, with the
+project-summary prompt left unscored because the brief prescribes nothing
+single for it — gives **44 of 48**, and every miss is the same miss: asked
+what is coming up over the next few weeks, pi drew a `timeline` rather than
+the `schedule` the brief names for "what is coming", 4 times out of 4. A
+kind can be reachable and still be reached for the wrong question, and no
+rate measures that.
+
+**What this does not say.** Seven of eight prompts drawing the kind the
+brief prescribes is not evidence that the brief's *content* is what did it.
+Every pi turn was measured with the brief present, because pi has no
+supported way to run without it, so this is a single-arm result and
+attributes nothing to the brief in either direction — the description names
+all eleven kinds too, and several of these prompts have an obvious kind. A
+comment of mine on #157 drew that inference and is retracted there; D44 is
+where it was caught. What survives is the part that needs no attribution:
+**a wrong kind was drawn reliably, and a call-rate metric would have scored
+all four of those turns as successes.**
+
+That clause is worth naming precisely, because it bears on whether the
+brief's enumeration earns its tokens now that the tools are always loaded
+(#157). The brief says "a `timeline` for what happened when; a `schedule`
+for what is coming". The tool's own description already says, at
+`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, "timeline: what happened
+when, oldest first … schedule: what is coming, grouped by day". The model
+drew the wrong one of the two 4 times out of 4 **with both surfaces in the
+prompt saying nearly the same words**. So for this pair the brief duplicates
+the description rather than adding to it, and saying it twice does not fix
+the miss — the same lesson D42 recorded when the brief was rewritten twice
+and still measured zero. More text is not the lever.
+
+One thing only a per-kind count shows: the `trend` prompt drew 14 blocks
+across 8 turns — the prescribed `trend` every time, plus an unprescribed
+`bars` companion on most of them. "One or two blocks per answer" is a
+description rule being stretched, and a rate cannot see it.
+
+**The classification pass, live.** Thirty-two turns with the pass enabled
+against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
+1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
+breaker never opened.** The one swap drew a `receipt` from a key-value run
+in the trail-signage answer. Latency sits in the 700–800 ms band D42
+measured on the Claude side.
+
+The shape of the difference is not the classifier; it is that pi hardly ever
+leaves it anything. D42's Claude measurement was eight turns, three swaps,
+five with no candidate — 3 of 8 answers carried a candidate. Here **1 of 30
+did**, and D43's no-brief arm, where the tool is invisible and the model
+types markdown instead, carries one on 62% of turns. **pi draws the block
+itself, so the net is cast over an empty deck.**
+
+Put the other way round, so the absence is not the only evidence: sending
+every recorded pi answer that *does* carry a candidate through the real
+classifier (`--classify`, same client, same 2 s budget) answered both of
+them, at 716 ms and 259 ms — one drew a `receipt` at 0.96 confidence, one
+cleared nothing and kept its markdown. That is three live calls in total,
+counting the swap inside the turn: too few to say the classifier is
+*indifferent* to which backend wrote the markdown, enough to say nothing
+observed suggests otherwise, and all three inside D42's measured latency
+band. There is just almost no pi-authored markdown to ask about.
+
+**Trap, recorded.** The brain the harness points at must live outside any
+checkout of this repo. The agent's cwd is the brain, and a brain nested in
+the worktree lets the model walk up into it: on the first attempt two pi
+answers compared Bun and Node by quoting this repo's own `AGENTS.md`. The
+shell is not confined to the brain either — the deployment container is that
+boundary (`container-privilege.md`) and a developer host does not have one —
+so the harness records when a tool argument names a path outside the brain
+and drops that turn from the rate. Four turns across the two runs were
+dropped that way, and **all four were the `trend` prompt** — the one that
+sends the model counting notes, so it is the one that goes looking. Three
+plainly answered about a different brain (one reported 1,953 files, against
+this corpus's 25). The fourth answered from the corpus and was dropped
+anyway, because it named a path outside it: the rule is deliberately the
+conservative one, since an over-eager exclusion shrinks a printed
+denominator while an under-eager one quietly corrupts a rate. It is why the
+`trend` row reads 4 of 4 rather than 6 of 6 in both runs.
+
+A Claude-backend control on this harness is still owed and is #137's. Two of
+its three blockers now have known fixes: keep the brain outside any
+checkout, and point `CLAUDE_CONFIG_DIR` at an empty directory, which stops
+the Agent SDK answering about this repository instead of about the brain.
+The third is open — in the probe turn no brain MCP tool came up at all,
+where pi had four, and a control whose roster is missing them is not
+comparable.
+
+## 2026-09-22 — the composer follows soft wrap
+
+"`Composer` is net-new work, and it is finished" recorded a trade: height from
+a controlled value's newline count, capped at five rows, keeping the component
+a pure function of its props at the cost of not growing on soft wrap. The cost
+landed on the most common input there is — a paragraph typed into a
+phone-width field scrolled inside one visible line (#92) — and the trade is
+replaced, keeping the half that mattered.
+
+**What replaced it.** `field-sizing: content` on the textarea, applied only when
+there is text to follow. The browser's own line layout, which runs on every
+keystroke regardless, is the measurement; the component stays a pure function
+of its props with no ref, no measuring and no layout effect, so a keystroke is
+still one render of the subtree that re-renders on every keystroke by design.
+The newline count stays on `rows` as the floor: a browser without
+`field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
+from `rows` alone and gets exactly the old behaviour. Where `field-sizing`
+applies, `rows` bounds nothing, so the cap has to carry `maxRows` itself: it is
+`maxRows` whole lines or the design's 96px, whichever is smaller. That is what
+the constant `maxHeight: 96` already produced while `rows` did the bounding —
+the default still stops at exactly 96px, a smaller `maxRows` gets that many
+whole lines rather than a fraction of 96, and a larger one does not raise the
+ceiling. Scaling 96px by `maxRows` instead was tried first and rejected: it
+spreads the default's deliberate ~4.90-line shortfall to every other row count,
+so a three-row field clipped by a pixel that no shipped behaviour had clipped.
+
+**Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
+forced synchronous layout per keystroke, and either a `setState` that commits
+twice per character or a direct style write that makes the height a thing the
+render does not know about. *The stacked-grid replica* (a hidden copy of the
+value in the same grid cell): works everywhere, but doubles the text in the
+DOM, and its correctness rests on two elements' text metrics never diverging.
+Both buy back browsers that will have `field-sizing` before either would ship
+its next bug.
+
+**An empty field stays one row.** With no text there is nothing to follow, and
+a placeholder longer than the field would otherwise take a second row that the
+first character typed took away again. The uncontrolled composer is untouched.

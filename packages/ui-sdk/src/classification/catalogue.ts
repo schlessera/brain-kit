@@ -13,9 +13,21 @@
  * Every transform's output is re-validated against `BLOCK_SCHEMA` before it
  * leaves this module: a block the kit cannot draw is a null, and the
  * markdown stays.
+ *
+ * The rows between them reach nine of D41's eleven block kinds
+ * (`CATALOGUE_BLOCK_KINDS`). The two they leave, `trend` and `bars`, are the
+ * two whose payload is numbers rather than the answer's own strings, and
+ * deriving those from prose is not a judgment the classifier is asked to
+ * make — D45.
  */
 
-import { BLOCK_SCHEMA, BLOCK_QUOTE_TONES, type Block } from "../tool-contracts/blocks.js";
+import {
+  BLOCK_SCHEMA,
+  BLOCK_CONTACT_KINDS,
+  BLOCK_QUOTE_TONES,
+  BLOCK_VALUE_TONES,
+  type Block,
+} from "../tool-contracts/blocks.js";
 import type {
   BlockquoteCandidate,
   Candidate,
@@ -107,12 +119,20 @@ const isNumeric = (value: string): boolean => value.trim() !== "" && NUMERIC.tes
 // ---------------------------------------------------------------------------
 
 interface CatalogueRow<C extends Candidate> {
+  /**
+   * The block kinds this row's transform can return, in the order it tries
+   * them. D42's decision 6 is the route list and the code drifted from it
+   * unnoticed (#132); this is what `CATALOGUE_BLOCK_KINDS` is built from, so
+   * a route that appears or disappears moves a tested set.
+   */
+  produces: ReadonlyArray<Block["kind"]>;
   /** The questions for one candidate; keys are suffixes under the candidate id. */
   questions(candidate: C): Record<string, ClassificationQuestion>;
   transform(candidate: C, answers: ClassificationAnswers): Classified | null;
 }
 
 const table: CatalogueRow<TableCandidate> = {
+  produces: ["comparison", "table"],
   questions(candidate) {
     const headerOptions: Record<string, string> = { none: "No column is presented as the recommended one." };
     for (const header of candidate.headers.slice(1)) {
@@ -182,6 +202,7 @@ const table: CatalogueRow<TableCandidate> = {
 };
 
 const orderedList: CatalogueRow<OrderedListCandidate> = {
+  produces: ["steps"],
   questions(candidate) {
     return {
       shape: {
@@ -220,6 +241,7 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
 };
 
 const timedList: CatalogueRow<TimedListCandidate> = {
+  produces: ["timeline", "schedule"],
   questions(candidate) {
     return {
       shape: {
@@ -259,6 +281,7 @@ const timedList: CatalogueRow<TimedListCandidate> = {
 };
 
 const blockquote: CatalogueRow<BlockquoteCandidate> = {
+  produces: ["quote"],
   questions(candidate) {
     return {
       shape: {
@@ -300,8 +323,97 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
   },
 };
 
+/**
+ * A run short enough to read as one card. Past it the run is a record dump: a
+ * colour on every line is noise, it is not stat tiles, and it is not a contact
+ * either — a card is a name and a handful of facts. It also keeps both
+ * question counts bounded by the run's shape rather than the text's length,
+ * which matters because the `subject` question offers one option per line and
+ * the classifier takes at most 255 (D42), and one oversized question would
+ * fail the request for every candidate batched into it.
+ */
+const CARD_ROWS_MAX = 8;
+
+/** The `subject` answer that means no line of the run holds the name. */
+const NO_SUBJECT = "none";
+
+/**
+ * The tones a value can be given, each named by what the text says rather than
+ * by its colour, plus `none` for "leave it alone". `none` is the fall-through
+ * and `neutral` is deliberately not offered: in this kit `neutral` is the grey
+ * machine-meta accent and means that everywhere, not "default" — a value that
+ * wants the default says nothing, and every tone lookup falls back on its own
+ * (`packages/ui-kit/src/types.ts`, design-feedback §4).
+ */
+const VALUE_TONE_CRITERIA: Record<string, string> = {
+  teal: "It reports something that went well, is finished, or is healthy.",
+  amber: "It reports something that wants attention: pending, overdue, a warning.",
+  red: "It reports a failure, an error, or an outcome the reader would not want.",
+  dim: "There is no value: none, unset, not applicable, unknown.",
+  none: "A plain fact with no good or bad reading. Most values are this.",
+};
+
+/** The tone for one row's value, or undefined to leave the kit's default. */
+function valueToneAt(
+  candidate: KeyValueRunCandidate,
+  answers: ClassificationAnswers,
+  index: number
+): string | undefined {
+  const answer = choiceAt(answers, `${candidate.id}.value_tone_${index}`, CONFIDENCE.tone);
+  // Honour only an option the question offered, then only one the kit draws —
+  // which is what drops the `none` fall-through.
+  if (!answer || !Object.prototype.hasOwnProperty.call(VALUE_TONE_CRITERIA, answer.choice)) {
+    return undefined;
+  }
+  return (BLOCK_VALUE_TONES as readonly string[]).includes(answer.choice) ? answer.choice : undefined;
+}
+
 const kvRun: CatalogueRow<KeyValueRunCandidate> = {
+  produces: ["receipt", "stats", "contact"],
   questions(candidate) {
+    // The contact questions and the tones are both card-sized: a run longer
+    // than one is asked neither, and the transform refuses it the same way
+    // rather than relying on the answers being absent.
+    const cardSized = candidate.rows.length <= CARD_ROWS_MAX;
+    const perCard: Record<string, ClassificationQuestion> = {};
+    if (cardSized) {
+      // Which line holds the name, asked over the keys the run actually has —
+      // the same move the table's `recommended` question makes over its
+      // headers. A contact needs a label, and a label the text does not carry
+      // is one the surface would be inventing.
+      const subjectOptions: Record<string, string> = {
+        [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
+      };
+      for (const row of candidate.rows) {
+        // `in` would also see `toString` and the rest of Object.prototype, and
+        // a key the run really has would then go unoffered while the transform
+        // below still accepted it. The keys come from model output.
+        if (row.k && !Object.prototype.hasOwnProperty.call(subjectOptions, row.k)) {
+          subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
+        }
+      }
+      perCard.subject = {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
+        criteria: subjectOptions,
+      };
+      perCard.contact_kind = {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
+        criteria: {
+          person: "A human being.",
+          company: "An organisation, a business, an institution.",
+          project: "A piece of work, a product, a repository, an effort.",
+        },
+      };
+      candidate.rows.forEach((row, index) => {
+        perCard[`value_tone_${index}`] = {
+          type: "choice",
+          instructions: `In \`${candidate.id}\`, how does the text read the value on the "${row.k}" line? Answer only from what is written.`,
+          criteria: VALUE_TONE_CRITERIA,
+        };
+      });
+    }
     return {
       shape: {
         type: "choice",
@@ -309,21 +421,61 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
         criteria: {
           receipt: "A record of what was done or what something is: settings, outcomes, facts about one thing, each key naming a field.",
           stats: "Headline figures: every value is a number or a measurement the reader would scan as a dashboard.",
-          plain: "Neither: definitions, a glossary, or prose that happens to use colons.",
+          contact: "Facts about one person, company or project — who they are, how to reach them, what they are to the reader.",
+          plain: "None of those: definitions, a glossary, or prose that happens to use colons.",
         },
       },
+      ...perCard,
     };
   },
   transform(candidate, answers) {
     const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
     if (!shape) return null;
+    const tones = candidate.rows.map((_, index) => valueToneAt(candidate, answers, index));
+    const toned = (index: number) => (tones[index] ? { tone: tones[index] } : {});
     if (shape.choice === "receipt") {
-      return validated({ kind: "receipt", rows: candidate.rows }, shape.confidence);
+      const rows = candidate.rows.map((row, index) => ({ ...row, ...toned(index) }));
+      return validated({ kind: "receipt", rows }, shape.confidence);
     }
     if (shape.choice === "stats") {
-      if (candidate.rows.length > 8 || !candidate.rows.every((row) => isNumeric(row.v))) return null;
-      const tiles = candidate.rows.map((row) => ({ label: row.k, value: row.v }));
+      if (candidate.rows.length > CARD_ROWS_MAX || !candidate.rows.every((row) => isNumeric(row.v))) {
+        return null;
+      }
+      const tiles = candidate.rows.map((row, index) => ({
+        label: row.k,
+        value: row.v,
+        ...toned(index),
+      }));
       return validated({ kind: "stats", tiles }, shape.confidence);
+    }
+    if (shape.choice === "contact") {
+      if (candidate.rows.length > CARD_ROWS_MAX) return null;
+      const subject = choiceAt(answers, `${candidate.id}.subject`, CONFIDENCE.swap);
+      // The sentinel wins over a line that happens to be keyed "none": that
+      // line is never offered as an option, so the answer cannot mean it.
+      if (!subject || subject.choice === NO_SUBJECT) return null;
+      // A key the run does not carry: no label, so no card.
+      const named = candidate.rows.findIndex((row) => row.k === subject.choice);
+      if (named < 0) return null;
+      // A value that was nothing but a code span strips to empty. A card with
+      // no name on it is worse than the markdown it would replace.
+      const label = candidate.rows[named]!.v.trim();
+      if (!label) return null;
+      const facts = candidate.rows.flatMap((row, index) =>
+        index === named ? [] : [{ k: row.k, v: row.v, ...toned(index) }]
+      );
+      const contactKind = choiceAt(answers, `${candidate.id}.contact_kind`, CONFIDENCE.swap);
+      return validated(
+        {
+          kind: "contact",
+          label,
+          ...(contactKind && (BLOCK_CONTACT_KINDS as readonly string[]).includes(contactKind.choice)
+            ? { contactKind: contactKind.choice }
+            : {}),
+          ...(facts.length ? { facts } : {}),
+        },
+        shape.confidence
+      );
     }
     return null;
   },
@@ -339,6 +491,14 @@ const CATALOGUE: { [K in CandidateKind]: CatalogueRow<Extract<Candidate, { kind:
 
 /** The candidate kinds the catalogue knows, in a stable order. */
 export const CANDIDATE_KINDS = Object.keys(CATALOGUE) as CandidateKind[];
+
+/**
+ * Every block kind the pass can draw, in catalogue order. The rest of
+ * D41's union is the tool's alone.
+ */
+export const CATALOGUE_BLOCK_KINDS: ReadonlyArray<Block["kind"]> = Object.freeze([
+  ...new Set(Object.values(CATALOGUE).flatMap((row) => row.produces)),
+]);
 
 /** The questions for one candidate, keyed `${id}.${suffix}`. */
 export function questionsFor(candidate: Candidate): Record<string, ClassificationQuestion> {

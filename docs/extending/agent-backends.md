@@ -147,6 +147,87 @@ by the cross-backend suite:
 builds the shared brain-ui system-prompt block; backends that can vary their
 system prompt per turn feed it the advisory `req.client` environment.
 
+### An enforced allowlist (`@experimental`)
+
+A tool allowlist is normally an *auto-allow* list: tools on it run without a
+card, tools off it raise one. `req.enforceAllowedTools` asks for the stronger
+reading — the allowlist is a **boundary**, and nothing may admit a tool absent
+from it without a permission decision actually being taken. It exists because a
+deployment that narrows the list for one kind of turn (a voice posture, an
+unattended profile) otherwise gets a list that several shortcuts quietly
+re-admit tools past.
+
+A backend that honours it must:
+
+- **override its runtime's own auto-approval, not merely stop adding to it.**
+  Withholding the backend's own shortcuts is not enough if the runtime admits
+  the call first, and runtimes do. Three measured examples from the Claude SDK,
+  all with an empty `allowedTools`: its safe-command classifier runs `echo hi`
+  without ever consulting `canUseTool` (while `touch <path>` does go through
+  it — the difference is the command's shape, so one probe command proves
+  nothing about another); a built-in tool can run with no callback at all
+  (`ToolSearch`, twice); and a `PreToolUse` hook in the project settings it
+  loads can return `permissionDecision: "allow"` outright — from a file in the
+  brain repo, which the turn can write. The Claude backend answers `ask` from a
+  PreToolUse hook for every off-list tool, which overrides all three. Whatever
+  the equivalent is in your runtime, find it before claiming the field is
+  honoured — and probe with more than one tool and one command shape.
+- not let its own input-rewrite hooks grant a tool the allowlist leaves out.
+  The Claude backend's hooks return a `PreToolUse` `permissionDecision:
+  "allow"` because that historically looked necessary for `updatedInput` to
+  apply; it is not, so under enforcement they rewrite without granting and the
+  call falls through to `canUseTool`. The rewrite is the point; the grant was a
+  side effect.
+- set `outsideEnforcedAllowlist: true` on every `PermissionRequest` it raises
+  for such a tool, so the host knows not to answer from — or add to — its
+  remembered "always allow" grants. A grant belongs to the posture it was given
+  under, in both directions.
+
+A turn that does not declare it behaves exactly as it always has, and a backend
+that ignores the field is simply a backend a narrower posture cannot be built
+on: check before relying on one.
+
+`enforceAllowedTools` does not itself deny anything. It removes the ways a
+decision gets skipped; what happens to a request that reaches the host is the
+host's own policy.
+
+### A turn with no grant surface (`@experimental`)
+
+`req.noGrantSurface` says the turn has nothing that could answer an approval
+card — a spoken conversation, an unattended run. A backend that honours it
+resolves such a request `{ behavior: "deny", message }` itself instead of
+putting it to the bridge, because a card raised in that turn is a card nobody
+can answer and it parks until the turn budget expires. The message names the
+tool: the model has to act on it, and a listener has to be able to hear it read
+out.
+
+It is a separate field from `enforceAllowedTools` because the two facts are
+separate — a turn may enforce its allowlist and still have a human able to
+answer — and a posture with no grant surface normally declares both. Enforcement
+is what makes the decision happen at all: without it, a runtime's own shortcuts
+can admit a tool before the backend's callback is ever consulted, and there is
+then no request to refuse.
+
+A backend that honours it must:
+
+- refuse **both** request kinds. Removing a tool from the allowlist is not what
+  raises most requests: a shell command matching a confirm pattern raises a
+  `command` request for a tool that IS allowlisted, and on the Claude backend
+  that happens in a `PreToolUse` hook, before permission evaluation. A rule
+  written only for the tool-grant path misses exactly the calls this exists
+  for. Both backends here refuse in the shared `requestToolPermission`, which
+  is the one place both kinds pass through.
+- not offer the turn a capability that needs a human surface. The Claude
+  backend appends its bridge tools to the turn's allowlist when the host offers
+  the handler; `request_image_mask` opens an editor and then blocks on a region
+  someone has to paint, so it is withheld from such a turn rather than offered
+  and blocked on.
+- report the refusal on the activity side channel
+  (`{ kind: "permission_denied", toolUseId, requestKind, reason }`). The host
+  records a user's denial as the card is answered; a refusal that never reached
+  the host would otherwise show up in the activity record as a call that
+  errored rather than one that was denied.
+
 ## The bridge
 
 `BackendBridge` is the host plumbing handed to the backend for one turn:
@@ -163,7 +244,9 @@ export interface BackendBridge {
 
 - `requestPermission` is the tool gate: the host renders an approval card,
   and resolves with `{ behavior: "allow", updatedInput? }` or
-  `{ behavior: "deny", message }`. The host owns the per-turn timeout.
+  `{ behavior: "deny", message }`. The host owns the per-turn timeout. A
+  request carrying `outsideEnforcedAllowlist` is one the host must decide on
+  its own merits — see the enforced-allowlist section above.
 - The optional members signal HOST capability — gate your ask-user /
   location / mask tooling on their presence, either at registration (the
   Claude backend) or at execution time (the pi backend always lists

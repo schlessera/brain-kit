@@ -36,6 +36,15 @@ export { parseHtml, stripHtml, absoluteUrl } from "./parse/html.js";
 export type { CheerioAPI } from "./parse/html.js";
 export { parseRssItems } from "./parse/feed.js";
 export type { FeedItem } from "./parse/feed.js";
+export {
+  extractJsonLd,
+  jsonLdNodes,
+  jsonLdTypes,
+  hasJsonLdType,
+  jsonLdByType,
+  itemListEntries,
+} from "./parse/jsonld.js";
+export type { JsonLdNode, JsonLdExtraction } from "./parse/jsonld.js";
 
 // The site-adapter seam.
 export { ok, partial } from "./adapter/types.js";

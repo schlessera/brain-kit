@@ -1,10 +1,43 @@
+import { parseHtml } from "@schlessera/brain-scrape";
+
 import { BaseAdapter } from "./base.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// remotely.de uses Next.js RSC with JSON-LD JobPosting schema
-// German job board -- has English-language jobs too
+/**
+ * remotely.de, parsed from the job cards its listing actually renders.
+ *
+ * Three things this adapter used to get wrong, all measured in #33:
+ *
+ * - it fetched the apex, which 301s to `www`;
+ * - it paged with `?page=N`, which 308s to `/remote-jobs/seite/N`;
+ * - when its JSON-LD path found nothing — which is always, because the script
+ *   tag is not bare and its `ListItem`s carry only `@id` and `name` — it fell
+ *   back to scanning `href="/remote-jobs/<slug>"`, which is the site's own
+ *   category navigation. Every stored row was a category link with the
+ *   company `Unknown`, and nothing reported an error.
+ *
+ * Real postings are `/job/<slug>`, and the card carries the company. There are
+ * two card layouts: a featured one that puts the company in a span beside the
+ * logo and adds a description teaser, and the ordinary row, whose meta line
+ * reads `<company> · <location>`. Both are handled; the listing has no
+ * employment type, so `job_type` is left for the runner to record as unknown.
+ *
+ * The description a card can offer is a five-line teaser and only the featured
+ * layout has one. A full description needs the detail page (#36).
+ */
+const ORIGIN = "https://www.remotely.de";
+const LISTING_PATH = "/remote-jobs";
 const PAGES_TO_FETCH = 5;
-const BASE_URL = "https://remotely.de/remote-jobs";
+
+/** Badges in the card's meta row that describe remoteness, not a place. */
+const REMOTE_BADGE = /^(vollständig remote|remote first|hybrid)$/i;
+
+/** One page's worth of cards, plus what could not be read off them. */
+interface PageParse {
+  jobs: RawJob[];
+  /** Cards dropped because a required field was absent, counted per field. */
+  missing: { title: number; company: number };
+}
 
 export class RemotelyDeAdapter extends BaseAdapter {
   readonly source = "remotelyde" as const;
@@ -17,8 +50,8 @@ export class RemotelyDeAdapter extends BaseAdapter {
     const seenIds = new Set<string>();
 
     for (let page = 1; page <= PAGES_TO_FETCH; page++) {
+      const url = page === 1 ? `${ORIGIN}${LISTING_PATH}` : `${ORIGIN}${LISTING_PATH}/seite/${page}`;
       try {
-        const url = page === 1 ? BASE_URL : `${BASE_URL}?page=${page}`;
         if (opts.verbose) console.log(`[remotelyde] Fetching page ${page}...`);
 
         const html = await this.http.getText(url, {
@@ -26,7 +59,12 @@ export class RemotelyDeAdapter extends BaseAdapter {
           proxy: opts.proxy,
         });
 
-        const jobs = this.extractJobs(html);
+        const { jobs, missing } = this.parseCards(html);
+        for (const [field, count] of Object.entries(missing)) {
+          if (count > 0) {
+            errors.push(`remotely.de page ${page}: ${count} card(s) carried no ${field}`);
+          }
+        }
         if (jobs.length === 0) break;
 
         for (const job of jobs) {
@@ -46,137 +84,75 @@ export class RemotelyDeAdapter extends BaseAdapter {
     return this.makeResult(allJobs, errors);
   }
 
-  private extractJobs(html: string): RawJob[] {
+  /**
+   * Read the `/job/<slug>` cards off a listing page.
+   *
+   * Anchored on the job URL shape rather than on a card class, so the site's
+   * category navigation — `/remote-jobs/<slug>`, which is what used to be
+   * stored — cannot match however the cards are restyled.
+   */
+  private parseCards(html: string): PageParse {
+    const $ = parseHtml(html);
     const jobs: RawJob[] = [];
+    const missing = { title: 0, company: 0 };
+    const seen = new Set<string>();
 
-    // Extract JSON-LD JobPosting objects
-    const ldRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
-    let match: RegExpExecArray | null;
+    $('a[href^="/job/"]').each((_i, element) => {
+      const card = $(element);
+      const href = card.attr("href");
+      if (!href) return;
+      const slug = href.slice("/job/".length);
+      if (!slug || seen.has(slug)) return;
+      seen.add(slug);
 
-    while ((match = ldRegex.exec(html)) !== null) {
-      try {
-        const data = JSON.parse(match[1]);
+      const title = card.find("h3").first().text().trim() || (card.attr("aria-label") ?? "").trim();
 
-        // Handle ItemList with JobPosting items
-        if (data["@type"] === "ItemList" && data.itemListElement) {
-          for (const item of data.itemListElement) {
-            const posting = item.item || item;
-            if (posting["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(posting);
-              if (job) jobs.push(job);
-            }
-          }
-        }
+      // Row layout: "<company> · <location> · …". Featured layout: the company
+      // sits beside the logo and the location is left to the badge row.
+      //
+      // The meta line keeps its empty pieces until the company has been taken
+      // off the front: dropping them first would promote the location into the
+      // company slot on a card whose company is blank, which is the "Unknown"
+      // failure wearing a different name.
+      const metaParts = splitOnMiddot(card.find("p.truncate").first().text());
+      const badgeParts = splitOnMiddot(
+        card
+          .find("span.text-accent-search")
+          .map((_j, badge) => $(badge).text())
+          .get()
+          .join(" · ")
+      ).filter(Boolean);
+      const company = card.find("span.truncate").first().text().trim() || (metaParts.shift() ?? "");
 
-        // Handle CollectionPage
-        if (data["@type"] === "CollectionPage" && data.mainEntity?.itemListElement) {
-          for (const item of data.mainEntity.itemListElement) {
-            const posting = item.item || item;
-            if (posting["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(posting);
-              if (job) jobs.push(job);
-            }
-          }
-        }
+      if (!title) missing.title++;
+      if (!company) missing.company++;
+      if (!title || !company) return;
 
-        // Handle single JobPosting
-        if (data["@type"] === "JobPosting") {
-          const job = this.mapJobPosting(data);
-          if (job) jobs.push(job);
-        }
+      const locationParts = [
+        ...metaParts.filter(Boolean),
+        ...badgeParts.filter((part) => !REMOTE_BADGE.test(part)),
+      ];
+      const description = card.find("p.line-clamp-5").first().text().trim();
+      const url = `${ORIGIN}${href}`;
 
-        // Handle array of schemas
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item["@type"] === "JobPosting") {
-              const job = this.mapJobPosting(item);
-              if (job) jobs.push(job);
-            }
-          }
-        }
-      } catch {}
-    }
+      jobs.push({
+        source: "remotelyde",
+        source_id: slug,
+        title,
+        company,
+        description: description || undefined,
+        url,
+        source_url: url,
+        location: locationParts.join(", ") || "Germany (Remote)",
+        remote_type: badgeParts.some((part) => /hybrid/i.test(part)) ? "hybrid" : "fully_remote",
+      });
+    });
 
-    // Fallback: parse links to job detail pages
-    if (jobs.length === 0) {
-      const linkRegex = /<a[^>]*href="(\/remote-jobs\/([^"?]+))"[^>]*>([\s\S]*?)<\/a>/gi;
-      let linkMatch: RegExpExecArray | null;
-      const seen = new Set<string>();
-
-      while ((linkMatch = linkRegex.exec(html)) !== null) {
-        const [, href, slug, content] = linkMatch;
-        if (seen.has(slug) || slug === "page") continue;
-        seen.add(slug);
-
-        const title = this.stripHtml(content).trim();
-        if (!title || title.length < 5 || title.length > 200) continue;
-
-        jobs.push({
-          source: "remotelyde",
-          source_id: slug,
-          title,
-          company: "Unknown",
-          url: `https://remotely.de${href}`,
-          source_url: `https://remotely.de${href}`,
-          location: "Germany (Remote)",
-          remote_type: "fully_remote",
-          job_type: "full_time",
-        });
-      }
-    }
-
-    return jobs;
+    return { jobs, missing };
   }
+}
 
-  private mapJobPosting(posting: Record<string, any>): RawJob | null {
-    const title = posting.title;
-    if (!title) return null;
-
-    const company = posting.hiringOrganization?.name || "Unknown";
-    const id = posting.identifier?.value || posting.url || `${company}-${title}`;
-
-    // Parse location
-    const location = posting.jobLocation?.address?.addressLocality
-      || posting.jobLocation?.address?.addressCountry
-      || "Germany (Remote)";
-
-    // Parse employment type
-    let jobType: RawJob["job_type"] = "full_time";
-    const empType = (posting.employmentType || "").toLowerCase();
-    if (empType.includes("contract") || empType.includes("freelance")) jobType = "contract";
-    else if (empType.includes("part") || empType.includes("teilzeit")) jobType = "part_time";
-
-    // Parse salary
-    const salary = posting.baseSalary?.value;
-    let salaryMin: number | undefined;
-    let salaryMax: number | undefined;
-    let salaryCurrency: string | undefined;
-    if (salary) {
-      salaryMin = salary.minValue;
-      salaryMax = salary.maxValue;
-      salaryCurrency = salary.currency || posting.baseSalary?.currency || "EUR";
-    }
-
-    // Remote type
-    const isRemote = posting.jobLocationType === "TELECOMMUTE"
-      || posting.applicantLocationRequirements != null;
-
-    return {
-      source: "remotelyde",
-      source_id: String(id),
-      title,
-      company,
-      description: posting.description ? this.stripHtml(posting.description) : undefined,
-      url: posting.url || (posting.identifier?.value ? `https://remotely.de/remote-jobs/${posting.identifier.value}` : undefined),
-      source_url: posting.url,
-      location,
-      remote_type: isRemote ? "fully_remote" : "unknown",
-      job_type: jobType,
-      salary_min: salaryMin,
-      salary_max: salaryMax,
-      salary_currency: salaryCurrency,
-      published_at: posting.datePosted,
-      expires_at: posting.validThrough,
-    };
-  }
+/** Split a card's meta line on its middot separator. Empty pieces are kept. */
+function splitOnMiddot(text: string): string[] {
+  return text.split("·").map((part) => part.trim());
 }

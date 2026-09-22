@@ -85,6 +85,18 @@ export interface PermissionRequest {
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
   kind?: "tool" | "command";
+  /**
+   * This turn declared `enforceAllowedTools` and the tool is NOT on its
+   * allowlist. The host must decide the request on its own merits: it may
+   * neither answer it from its remembered "always allow" set nor add to that
+   * set from the answer. A grant belongs to the posture it was given under,
+   * and a narrower turn is a different posture in both directions.
+   *
+   * Absent (the default) the host behaves exactly as it always has.
+   *
+   * @experimental
+   */
+  outsideEnforcedAllowlist?: boolean;
 }
 
 export interface AskUserResult {
@@ -174,6 +186,22 @@ export type BackendActivityEvent =
       toolUseId: string;
       role: "assistant" | "user";
       text: string;
+    }
+  | {
+      /**
+       * The backend refused a permission request instead of putting it to the
+       * bridge (`noGrantSurface`). The host records a user's denial as the
+       * card is answered, inside `requestPermission`; this one never gets
+       * there, so it is reported here rather than left to close as the
+       * backend's own error tool result.
+       */
+      kind: "permission_denied";
+      /** The tool call the refusal belongs to. */
+      toolUseId: string;
+      /** The request that would have been raised, had anyone been able to answer it. */
+      requestKind: "tool" | "command";
+      /** Why, in the words the model was given. */
+      reason: string;
     };
 
 export interface StartTurnRequest {
@@ -204,6 +232,46 @@ export interface StartTurnRequest {
    * advisory and never required.
    */
   client?: ClientEnvironment;
+  /**
+   * Treat this turn's tool allowlist as a BOUNDARY rather than merely an
+   * auto-allow list. A backend that honours it must not admit a tool absent
+   * from the allowlist through any shortcut that skips the permission
+   * decision — input-rewrite hooks that grant so their rewrite applies, a
+   * host's remembered "always allow" set, or anything else it adds later.
+   * The tool is not forbidden; the decision is simply never skipped, and the
+   * request carries `outsideEnforcedAllowlist` so the host cannot skip it
+   * either.
+   *
+   * Absent or false (the default) every existing deployment behaves exactly
+   * as it always has. A backend that does not understand the field ignores
+   * it, which is why a narrower posture must also verify its backend honours
+   * it.
+   *
+   * @experimental
+   */
+  enforceAllowedTools?: boolean;
+  /**
+   * This turn has NO surface that could grant a permission request: nobody is
+   * looking at an approval card and nothing else can answer one. A backend
+   * that honours it resolves such a request `{ behavior: "deny", message }`
+   * itself, naming the tool, instead of putting it to the bridge — a card
+   * raised here is a card nobody can answer, and it parks until the turn
+   * budget expires. A capability that needs a human surface is withheld from
+   * the turn for the same reason, rather than offered and then blocked on.
+   *
+   * Distinct from `enforceAllowedTools`, and normally declared WITH it: a turn
+   * may enforce its allowlist and still have a human able to answer a card,
+   * and it is enforcement that makes the decision happen here at all rather
+   * than be skipped by one of the runtime's own shortcuts.
+   *
+   * Absent or false (the default) every existing deployment behaves exactly as
+   * it always has. A backend that does not understand the field ignores it,
+   * which is why a posture with no grant surface must also verify its backend
+   * honours it.
+   *
+   * @experimental
+   */
+  noGrantSurface?: boolean;
 }
 
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */

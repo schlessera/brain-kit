@@ -1,0 +1,23 @@
+
+        User-agent: *
+        Sitemap:https://remotive.com/sitemap.xml
+
+        User-agent: *
+        Disallow: /website/translations
+        Disallow: /*search=
+        Disallow: /job/apply/*
+        Disallow: /job/track/*
+        Disallow: /job/application/*
+        Disallow: /job/detail/*
+        Disallow: /jobs/*
+        Disallow: /job/report/*
+        Disallow: /*sort=
+        Disallow: /remote-job/detail/*
+        Disallow: /remote-companies/page
+        Disallow: /website_payment*
+        Disallow: /api/*
+        Disallow: /join
+        Disallow: /join/*
+        Disallow: /web/image/hr.job/*
+        Disallow: /ajax/session*
+        

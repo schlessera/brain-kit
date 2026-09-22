@@ -15,7 +15,7 @@ import { envSnapshot, resolveExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
-import type { ClaudeBackendOptions } from "./options.js";
+import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWrappedSpawn } from "./spawn-wrapper.js";
@@ -34,12 +34,20 @@ export function createClaudeSdkTurn(options: {
   allowedTools: readonly string[];
   confirmPatterns: readonly RegExp[];
   turnLock: TurnLockBinding;
+  log: BackendLogFn;
 }): ClaudeSdkTurn {
-  const { backend, req, profile, abortController, confirmPatterns, turnLock } = options;
+  const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
   // Only wire ask-user / location tools when the host bridge offers them.
   const askUser = req.bridge.askUser;
   const getLocation = req.bridge.getLocation;
-  const requestMask = req.bridge.requestMask;
+  // The mask editor is the one bridge tool that needs EYES: it opens an editor
+  // and then blocks on a region someone has to paint. A turn that declared it
+  // has no grant surface has nobody to paint it, so the capability is withheld
+  // rather than offered and blocked on — and withheld at the append, because
+  // the append is what puts it inside the turn's allowlist whatever the
+  // posture declared (docs/decisions/voice-permission.md). The other four ask
+  // nothing of a viewer, so they are unaffected.
+  const requestMask = req.noGrantSurface === true ? undefined : req.bridge.requestMask;
   const queryActivity = req.bridge.queryActivity;
   const allowed = [...options.allowedTools];
   // Auto-allow the in-process MCP tools so they never trip a permission
@@ -105,6 +113,7 @@ export function createClaudeSdkTurn(options: {
       brainPath: backend.brainPath,
       turnLock,
       childEnv,
+      log,
     }),
   };
 

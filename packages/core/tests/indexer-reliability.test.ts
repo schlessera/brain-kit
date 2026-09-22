@@ -2,36 +2,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openDatabase, initVecSupport, getMeta, setMeta } from "../src/lib/db";
+import { openDatabase, migrateVecSchema, getMeta, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
-import type { EmbeddingProvider } from "../src/lib/seams";
 import { acquireEmbeddingLock } from "../src/lib/indexer/embedding-lock";
+import { fakeEmbeddingProvider as provider, vecAvailable } from "./vec-fixture";
 import { Database } from "bun:sqlite";
 
 const taxonomy = buildTaxonomy({ user: null });
-let vecAvailable = false;
-const probe = new Database(":memory:");
-try {
-  const { load } = await import("sqlite-vec");
-  load(probe);
-  vecAvailable = true;
-} catch {
-  // Keep the same optional-extension policy as indexer.test.ts.
-} finally { probe.close(); }
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 function markdown(body: string): string {
   return `---\ntitle: Alex Example\ntype: note\ncreated: "2026-01-01"\nupdated: "2026-01-02"\n---\n${body}\n`;
-}
-
-function provider(dimensions = 16): EmbeddingProvider {
-  return {
-    id: `fake:${dimensions}`, dimensions,
-    async embed(texts) { return texts.map(() => new Float32Array(dimensions).fill(0.1)); },
-    async embedQuery() { return new Float32Array(dimensions).fill(0.1); },
-  };
 }
 
 async function corpus(body = "Original content.", vectors = true) {
@@ -41,7 +24,7 @@ async function corpus(body = "Original content.", vectors = true) {
   writeFileSync(path, markdown(body));
   const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: 16 });
   cleanups.push(() => db.close());
-  if (vectors && !await initVecSupport(db, 16)) throw new Error("sqlite-vec required for indexer runtime regressions");
+  if (vectors && !await migrateVecSchema(db, 16)) throw new Error("sqlite-vec required for indexer runtime regressions");
   return { root, path, db, options: { root, taxonomy, quiet: true, graph: false } };
 }
 
@@ -96,7 +79,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     await gate.entered;
     const writer = openDatabase(join(root, "brain.db"));
     try {
-      await initVecSupport(writer, 16);
+      await migrateVecSchema(writer, 16);
       writeFileSync(path, markdown("Changed while provider was running."));
       await indexAll(writer, options);
     } finally { writer.close(); gate.release(); }
@@ -115,7 +98,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     await gate.entered;
     const second = openDatabase(join(root, "brain.db"));
     try {
-      await initVecSupport(second, 16);
+      await migrateVecSchema(second, 16);
       await expect(indexAll(second, { ...options, embeddings: true, force: true, provider: provider(8) })).rejects.toThrow("already active");
     } finally { second.close(); gate.release(); }
     expect((await running).embeddings).toBe(1);

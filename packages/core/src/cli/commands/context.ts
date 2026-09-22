@@ -1,7 +1,7 @@
 import { assembleContext } from "../../lib/context-assembler.js";
-import { initVecSupport } from "../../lib/db.js";
+import { loadVecSupport } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
-import { embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io.js";
+import { openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain context <query> — assemble a token-limited context block
 
@@ -21,7 +21,7 @@ export const contextCommand: CoreCommand = {
 
     const db = openReadonlyDb(cli.brain);
     try {
-      await initVecSupport(db, embeddingDims(cli.embeddings));
+      await loadVecSupport(db);
       const maxTokens = flags["max-tokens"]
         ? parseInt(flags["max-tokens"] as string, 10)
         : undefined;

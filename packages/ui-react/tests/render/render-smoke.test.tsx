@@ -2337,7 +2337,7 @@ describe("DevicesAgentsTab", () => {
     expect(requests.some(({ init }) => init?.body === JSON.stringify({ label: "Release helper", ttlDays: 7 }))).toBe(true);
   });
 
-  test("portals the one-time value and blocks panel dismissal until acknowledgement", async () => {
+  test("portals the one-time value, which outlives the panel's own close control", async () => {
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         return Response.json({
@@ -2360,19 +2360,19 @@ describe("DevicesAgentsTab", () => {
     const dialog = page.getByRole("dialog");
     expect(dialog.parentElement).toBe(document.body);
     expect(page.getByText("protected-one-time-value")).toBeTruthy();
-    // The drawer dismisses on its backdrop; the desktop pane (which the test
-    // DOM takes, its window being 1024px wide) on its Close control. Either
-    // way the dismissal is refused while the credential is unacknowledged.
-    const backdrop = page.baseElement.querySelector(".fixed.inset-0.z-40");
-    fireEvent.click(backdrop ?? page.getByRole("button", { name: "Close" }));
+    // The test DOM takes the desktop pane (its window is 1024px wide), whose
+    // Close control is live even while the credential is unacknowledged: the
+    // dialog is the shell's, not the tab's, so closing the panel loses
+    // nothing. The drawer's refusal of a stray backdrop click or Escape while
+    // protected is slide-panel.test.tsx's.
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
+    expect(page.queryByRole("tab", { name: "Security" })).toBeNull();
     expect(page.getByText("protected-one-time-value")).toBeTruthy();
 
     fireEvent.click(page.getByRole("checkbox"));
     fireEvent.click(page.getByRole("button", { name: "Done" }));
-    // Acknowledged: the same dismissal now closes the panel.
-    fireEvent.click(backdrop ?? page.getByRole("button", { name: "Close" }));
-    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
-    expect(page.queryByRole("tab", { name: "Security" })).toBeNull();
+    expect(page.queryByRole("dialog")).toBeNull();
+    expect(usePrincipalStore.getState().oneTimeCredential).toBeNull();
   });
 
   test("keeps a delayed mint response after its tab unmounts", async () => {

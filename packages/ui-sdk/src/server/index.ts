@@ -51,15 +51,27 @@ export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 export {
   OSM_ATTRIBUTION,
   clipLine,
+  closeAgainstViewport,
   closedRings,
   detailFor,
   fetchCoastline,
   prepare,
   prepareLand,
+  signedArea,
   simplify,
+  stitch,
   toleranceMetres,
 } from "./coastline.js";
-export type { BBox, Coord, CoastlineConfig, CoastlineRequest, CoastlineResult, FetchLike, MapDetail } from "./coastline.js";
+export type {
+  BBox,
+  Coord,
+  CoastlineConfig,
+  CoastlineRequest,
+  CoastlineResult,
+  FetchLike,
+  LandOptions,
+  MapDetail,
+} from "./coastline.js";
 
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
@@ -82,7 +94,9 @@ export type { WebSearchProviderSpec, WebSearchBrief } from "./web-search.js";
 
 export {
   DEFAULT_CONFIRM_BASH_PATTERNS,
+  ARCHIVING_UPDATE_REASON,
   compileConfirmPatterns,
+  archivesDocument,
   bashCommand,
 } from "./confirm-patterns.js";
 
@@ -90,6 +104,7 @@ export type {
   ToolPermissionDecisionInput,
   ToolPermissionApproval,
   CreateToolPermissionRequestInput,
+  RequestToolPermissionOptions,
 } from "./permission-gate.js";
 export {
   decideToolPermission,

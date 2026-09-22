@@ -1,0 +1,20 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "card_bytes_before_edit": 12639,
+      "egress_country": "DE",
+      "excerpt_bytes": 3299,
+      "excerpt_edited": "inline <style data-emotion> blocks replaced by a comment",
+      "excerpt_sha256": "b0fdebe8e8e930421cc73074a84c96231a4f99d30a8f50ee2b9b6737de505935",
+      "fixture": "listing-card.html",
+      "full_response_bytes": 410820,
+      "full_response_sha256": "adfcd16cd845ae6f73bea1934727f6becc8d264c4fdce5a1cbf94581a41ae789",
+      "note": "One result card. Title (a[href^=\"/job/\"]) and company (span[data-testid=\"companyName\"]) both parse today; the page has 20 such cards and the adapter found 20 jobs from it. What it does NOT have is any description - there is no snippet element on the card and no descriptive text outside the requirement and benefit chips - which is why every stored simplyhired row has description_text NULL. Verbatim apart from the inline emotion <style> blocks, which were replaced by a comment: they are two thirds of the card's bytes and no parser reads them.",
+      "source": "simplyhired",
+      "transport": "http",
+      "url": "https://www.simplyhired.com/search?q=backend%20engineer&l=remote&pn=1",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}
