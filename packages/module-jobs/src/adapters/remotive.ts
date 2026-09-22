@@ -32,7 +32,7 @@ export class RemotiveAdapter extends BaseAdapter {
   readonly tier = 1 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const allJobs: RawJob[] = [];
     // The FULL feed is ingested every run (categories are cheap requests) so
     // the upsert refreshes last_seen_at on jobs that are still live. The
@@ -40,16 +40,22 @@ export class RemotiveAdapter extends BaseAdapter {
     let newestDate = opts.incremental && opts.lastCursor ? opts.lastCursor : "";
 
     for (const category of CATEGORIES) {
+      const url = `${API_URL}?category=${category}&limit=100`;
       try {
         if (opts.verbose) console.log(`[remotive] Fetching category: ${category}...`);
 
-        const url = `${API_URL}?category=${category}&limit=100`;
         const data = await this.http.getJson<RemotiveResponse>(url, {
           delayMs: DELAY_MS,
           proxy: opts.proxy,
         });
 
-        const jobs = data.jobs || [];
+        // An envelope with a `jobs` array and nothing in it is this API saying
+        // the category is empty. An envelope whose records no longer carry a
+        // `title` and a `company_name` is the shape moving, and the loop below
+        // skips every one of them — so the two cases are separated here,
+        // before the count can conflate them.
+        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        const before = allJobs.length;
 
         for (const entry of jobs) {
           if (!entry.title || !entry.company_name) continue;
@@ -84,13 +90,17 @@ export class RemotiveAdapter extends BaseAdapter {
           });
         }
 
+        pages.read(url, allJobs.length - before, {
+          declaredEmpty: Array.isArray(data.jobs) && jobs.length === 0,
+        });
+
         if (opts.verbose) console.log(`[remotive] ${category}: ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`Remotive category ${category} failed: ${err}`);
+        pages.unreachable(url, err);
       }
     }
 
     if (opts.verbose) console.log(`[remotive] Total: ${allJobs.length} jobs`);
-    return this.makeResult(allJobs, errors, newestDate || undefined);
+    return this.makeResult(allJobs, pages, newestDate || undefined);
   }
 }

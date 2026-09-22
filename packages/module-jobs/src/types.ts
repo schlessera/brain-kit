@@ -71,11 +71,37 @@ export interface RawJob {
   expires_at?: string;
 }
 
+/**
+ * What a board's run was, beyond the number of rows it produced.
+ *
+ * The count on its own is not a health signal, and that is the whole of #37:
+ * `remoteineurope` reported 0 found and 0 errors for months while its domain
+ * 301ed to another site, which reads exactly like a board that had no jobs
+ * that day. So the adapter says which of four things happened, and a consumer
+ * branches on that rather than on a number:
+ *
+ * - `ok` — rows came out. Pages that drifted still show up in `errors`.
+ * - `empty` — every page that arrived said, in the board's own terms, that it
+ *   holds no postings. A zero that means zero.
+ * - `unparseable` — a page arrived, did not say it was empty, and yielded
+ *   nothing. Selector drift, a challenge page, or markup from another site.
+ * - `not_run` — nothing readable arrived at all: the adapter was never
+ *   invoked, or every page it tried failed before a body could be parsed
+ *   (robots.txt refusal, HTTP 410, no Chrome). The errors say which.
+ *
+ * `empty` is the only one of the four that is allowed to carry no errors, and
+ * an adapter may only claim it from a positive signal — see `PageLedger.read`.
+ */
+export const SOURCE_STATUSES = ["ok", "empty", "unparseable", "not_run"] as const;
+export type SourceStatus = (typeof SOURCE_STATUSES)[number];
+
 export interface ScrapeResult {
   source: Source;
   jobs: RawJob[];
   cursor?: string;
   errors: string[];
+  /** See `SourceStatus`. Derived by `PageLedger`, never hand-set. */
+  status: SourceStatus;
 }
 
 export interface ScrapeOptions {

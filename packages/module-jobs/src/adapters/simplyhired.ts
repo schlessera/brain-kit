@@ -21,21 +21,28 @@ export class SimplyHiredAdapter extends BaseAdapter {
   }
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const allJobs: RawJob[] = [];
     const seenIds = new Set<string>();
 
     for (const query of this.queries) {
+      const url = `${BASE_URL}?q=${encodeURIComponent(query)}&l=remote&pn=1`;
       try {
         if (opts.verbose) console.log(`[simplyhired] Searching: ${query}...`);
 
-        const url = `${BASE_URL}?q=${encodeURIComponent(query)}&l=remote&pn=1`;
-        const html = await this.http.getText(url, {
+        const page = await this.http.getPage(url, {
           delayMs: 3000,
           proxy: opts.proxy,
         });
 
-        const jobs = this.parseListings(html);
+        const jobs = this.parseListings(page.body);
+        // No `declaredEmpty`: nothing in the captured markup identifies a
+        // search that genuinely returned nothing, and a marker nobody has
+        // captured is a guess. Until one is, a served page this parser reads
+        // no jobs off is reported as drift — the 403s this board intermittently
+        // answers with already throw, so they are not what this would catch.
+        pages.read(url, jobs.length, { from: page.url });
+
         for (const job of jobs) {
           if (!seenIds.has(job.source_id)) {
             seenIds.add(job.source_id);
@@ -45,12 +52,12 @@ export class SimplyHiredAdapter extends BaseAdapter {
 
         if (opts.verbose) console.log(`[simplyhired] ${query}: ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`SimplyHired query "${query}" failed: ${err}`);
+        pages.unreachable(url, err);
       }
     }
 
     if (opts.verbose) console.log(`[simplyhired] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
+    return this.makeResult(allJobs, pages);
   }
 
   private parseListings(html: string): RawJob[] {

@@ -57,6 +57,24 @@ export interface FetchOptions {
   allowDisallowed?: boolean;
 }
 
+/** A text body, and the URL the response was actually served from. */
+export interface FetchedPage {
+  body: string;
+  /**
+   * Where the body came from, after redirects have been followed.
+   *
+   * A caller that only reads the body cannot tell a healthy 200 from a domain
+   * that now redirects somewhere else entirely and answers 200 there — which
+   * is a real failure mode, not a hypothetical: module-jobs had a board whose
+   * domain started 301ing to a different job site, and it went on reporting
+   * successful, empty scrapes. This is the one thing that distinguishes them.
+   *
+   * Falls back to the requested URL when the platform does not report one,
+   * which is the case on the proxy path.
+   */
+  url: string;
+}
+
 /** Parse a `Retry-After` (seconds or HTTP-date) to ms, capped. Null if unusable. */
 export function parseRetryAfterMs(header: string | null | undefined): number | null {
   if (!header) return null;
@@ -254,12 +272,22 @@ export class ScrapeClient {
     return response.json() as Promise<T>;
   }
 
-  /** GET and read the body as text, throwing on a non-2xx. */
-  async getText(url: string, opts: FetchOptions = {}): Promise<string> {
+  /**
+   * GET a text body and the URL it came from, throwing on a non-2xx.
+   *
+   * The primitive `getText` delegates to, so a test double that overrides one
+   * of them covers both rather than leaving the other reaching the network.
+   */
+  async getPage(url: string, opts: FetchOptions = {}): Promise<FetchedPage> {
     const response = await this.get(url, opts);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} from ${url}: ${await response.text()}`);
     }
-    return response.text();
+    return { body: await response.text(), url: response.url || url };
+  }
+
+  /** GET and read the body as text, throwing on a non-2xx. */
+  async getText(url: string, opts: FetchOptions = {}): Promise<string> {
+    return (await this.getPage(url, opts)).body;
   }
 }

@@ -18,7 +18,7 @@ export type { EnvVarSpec, ScrapeEnv } from "./config/env.js";
 
 // Polite HTTP.
 export { ScrapeClient, parseRetryAfterMs } from "./fetch/http.js";
-export type { ScrapeClientOptions, FetchOptions } from "./fetch/http.js";
+export type { ScrapeClientOptions, FetchOptions, FetchedPage } from "./fetch/http.js";
 
 // Politeness primitives, exported so a caller can share one across clients.
 export { RateLimiter, hostOf } from "./politeness/rate-limit.js";

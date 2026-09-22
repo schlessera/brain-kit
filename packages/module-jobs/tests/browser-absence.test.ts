@@ -3,11 +3,13 @@
  *
  * One of the four cross-cutting claims #33 had to re-measure: PR #2 reported
  * that a missing browser was indistinguishable from an empty browser result.
- * It is distinguishable today — but NOT by the mechanism the epic credits.
+ * It is distinguishable today — but NOT by the mechanism the epic credited.
  * `createBrowserSession` launches lazily and never throws at construction, so
- * the try/catch around it in `src/scrape.ts` can never fire and the string
- * "Browser boards unavailable" is unreachable. The failure surfaces one error
- * per URL from inside the adapter instead.
+ * the try/catch around it in `src/scrape.ts` could never fire and the string
+ * "Browser boards unavailable" was unreachable; #37 removed it, because a
+ * branch that reads like the handler for a case and is not one is worse than
+ * no branch. The failure surfaces one error per URL from inside the adapter,
+ * and the run's status for the board is `not_run`.
  *
  * Keyless and offline: Chrome is never found, so nothing is ever navigated.
  */
@@ -51,13 +53,17 @@ describe("a browser board on a host without Chrome", () => {
       const board = report.sources[0];
       expect(board.source).toBe("builtin");
       expect(board.jobs_found).toBe(0);
+      // Nothing readable arrived, so the run says so rather than leaving the
+      // zero to be read as a quiet day (#37).
+      expect(board.status).toBe("not_run");
       // Three pages, three errors: the board cannot be mistaken for one that
       // simply had no jobs today.
       expect(board.errors).toHaveLength(3);
       for (const error of board.errors) {
         expect(error).toContain("Chrome executable not found");
       }
-      // ... and the path the epic credits with reporting this is dead code.
+      // ... and the path the epic credited with reporting this is gone: it was
+      // unreachable, and it read like the thing that handled this case (#37).
       expect(report.total_errors.join("\n")).not.toContain("Browser boards unavailable");
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -84,7 +84,7 @@ export class JobgetherAdapter extends BaseAdapter {
   readonly tier = 2 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
@@ -95,10 +95,11 @@ export class JobgetherAdapter extends BaseAdapter {
         proxy: opts.proxy,
       });
 
-      const offers = Array.isArray(data?.jobs) ? data.jobs : [];
-      if (offers.length === 0) {
-        errors.push(`Jobgether ${API_URL} carried no jobs array`);
-      }
+      // An envelope carrying a `jobs` array with nothing in it is the API
+      // saying it has no offers today; a body with no `jobs` array at all is
+      // not this endpoint's answer, and the ledger reports that as drift.
+      const envelope = Array.isArray(data?.jobs);
+      const offers = envelope ? data.jobs! : [];
 
       // A record that cannot name its own employer is not a job posting; drop
       // it and say which field was missing rather than storing "Unknown".
@@ -135,14 +136,15 @@ export class JobgetherAdapter extends BaseAdapter {
       }
 
       for (const [field, count] of Object.entries(missing)) {
-        if (count > 0) errors.push(`Jobgether: ${count} offer(s) carried no ${field}`);
+        if (count > 0) pages.note(`Jobgether: ${count} offer(s) carried no ${field}`);
       }
+      pages.read(API_URL, jobs.length, { declaredEmpty: envelope && offers.length === 0 });
 
       if (opts.verbose) console.log(`[jobgether] Found ${jobs.length} jobs`);
     } catch (err) {
-      errors.push(`Jobgether ${API_URL} failed: ${err}`);
+      pages.unreachable(API_URL, err);
     }
 
-    return this.makeResult(jobs, errors);
+    return this.makeResult(jobs, pages);
   }
 }

@@ -22,6 +22,7 @@ import {
   extractJsonLd,
   parseHtml,
   type BrowserSession,
+  type FetchedPage,
   type FetchOptions,
   type PageRequest,
   type ScrapeContext,
@@ -47,8 +48,11 @@ function fixture(...parts: string[]): string {
   return readFileSync(join(FIXTURES, ...parts), "utf-8");
 }
 
-/** What a stub answers one request with: a body, or a throw. */
-type StubAnswer = string | Error;
+/**
+ * What a stub answers one request with: a body, a body served from another
+ * URL (a redirect the caller followed), or a throw.
+ */
+type StubAnswer = string | Error | FetchedPage;
 
 /**
  * An HTTP client that answers every request from a fixture, or throws.
@@ -71,19 +75,29 @@ class StubClient extends ScrapeClient {
     super();
   }
 
-  private body(url: string): string {
+  private page(url: string): FetchedPage {
     this.requests.push(url);
     const answer = typeof this.answer === "function" ? this.answer(url) : this.answer;
     if (answer instanceof Error) throw answer;
-    return answer;
+    return typeof answer === "string" ? { body: answer, url } : answer;
+  }
+
+  /**
+   * The primitive the real client reads text through, so overriding it seals
+   * `getText` as well — and lets a fixture say the response came from
+   * somewhere else, which is how a board whose domain now redirects to
+   * another site is asserted without the network.
+   */
+  override async getPage(url: string, _opts: FetchOptions = {}): Promise<FetchedPage> {
+    return this.page(url);
   }
 
   override async getText(url: string, _opts: FetchOptions = {}): Promise<string> {
-    return this.body(url);
+    return this.page(url).body;
   }
 
   override async getJson<T = unknown>(url: string, _opts: FetchOptions = {}): Promise<T> {
-    return JSON.parse(this.body(url)) as T;
+    return JSON.parse(this.page(url).body) as T;
   }
 
   override async get(url: string, _opts: FetchOptions = {}): Promise<Response> {
@@ -335,7 +349,7 @@ describe("remotelyde against its captured listing", () => {
 describe("remoteineurope against what its domain now serves", () => {
   const served = () => fixture("remoteineurope", "redirect-target.html");
 
-  test("reports zero found and zero errors on a page that is not its site (#37)", async () => {
+  test("reports zero found and an error per page, not silence (#37)", async () => {
     const html = served();
     // Every configured URL answers 301 to weworkremotely.com; this is a slice
     // of what comes back.
@@ -344,7 +358,26 @@ describe("remoteineurope against what its domain now serves", () => {
 
     const result = await scrapeAgainst(new RemoteInEuropeAdapter(), html);
     expect(result.jobs).toEqual([]);
-    expect(result.errors).toEqual([]);
+    // This is the assertion #37 flipped. Until it did, this board reported
+    // `0 found, 0 errors` — the one adapter in the #33 run that did, and
+    // indistinguishable from a board that simply had no jobs that day.
+    expect(result.status).toBe("unparseable");
+    expect(result.errors).toHaveLength(5);
+    for (const error of result.errors) expect(error).toContain("parsed 0 jobs");
+  });
+
+  test("and when the redirect is visible, the error names the site serving it (#37)", async () => {
+    // What the body alone cannot show: these URLs answer 200, so only the URL
+    // the response came from separates "this board is broken" from "this
+    // board's domain now belongs to another job site". #128 owns the decision
+    // about whether it is retired; this only has to report it.
+    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), () => ({
+      body: served(),
+      url: "https://weworkremotely.com/remote-software-developer-jobs",
+    }));
+
+    expect(result.status).toBe("unparseable");
+    expect(result.errors[0]).toContain("served by weworkremotely.com after a redirect");
   });
 
   test("the parser still runs — it is pointed at a link shape that is not there", async () => {
@@ -357,6 +390,7 @@ describe("remoteineurope against what its domain now serves", () => {
 
     expect(result.jobs).toHaveLength(2);
     expect(result.errors).toEqual([]);
+    expect(result.status).toBe("ok");
     expect(result.jobs.map((job) => job.url)).toEqual([
       "https://remoteineurope.com/job/sanctuary-computer-senior-shopify-developer",
       "https://remoteineurope.com/job/samsara-staff-software-engineer",

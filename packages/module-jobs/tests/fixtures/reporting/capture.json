@@ -1,0 +1,134 @@
+{
+  "captures": [
+    {
+      "excerpt_bytes": 363,
+      "excerpt_sha256": "79a2610d31fc3628aa70f5ad75f2e6ef9340aa26a05ac3202766bd50f1ce38f5",
+      "fixture": "interstitial.html",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "any",
+      "why": "Not any board's markup: a generic challenge page, and the body every one of the eleven adapters is fed to prove it reports a page it cannot read rather than returning a silent zero. Constructed, because a captured challenge page would carry the challenging site's tokens and identifiers."
+    },
+    {
+      "excerpt_bytes": 44,
+      "excerpt_sha256": "bf35a4dbfc0d7a9bcd7b9c883213bfd5dbb5e1438b0eed4340f291063c920f85",
+      "fixture": "jobgether-empty.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "jobgether",
+      "why": "The `/api/v1/jobs` envelope with an empty `jobs` array. Before #37 this reported an error; an envelope with nothing in it is the API answering, and only a body with no `jobs` array at all is drift."
+    },
+    {
+      "excerpt_bytes": 607,
+      "excerpt_sha256": "90ddef7c90e176dc75011e140508756a740d7b7f3dc5b5bd64e76da5c0dad357",
+      "fixture": "remoteok-drifted.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The same envelope carrying postings whose `position` and `company` have been renamed to `role` and `employer`. Produces the same zero rows as the empty file, which is why the row count cannot be what decides between them."
+    },
+    {
+      "excerpt_bytes": 108,
+      "excerpt_sha256": "fc1b493bd8e1ddca8d333d3a90fc8784853c9aaa611f79e381b8c35d835e8320",
+      "fixture": "remoteok-empty.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The RemoteOK feed's own envelope \u2014 its legal notice, with no postings behind it. You cannot capture a day on which a board had no jobs, so the recognised empty state has to be constructed."
+    },
+    {
+      "excerpt_bytes": 105,
+      "excerpt_sha256": "1ea84736881d44318cd417188aa203460864c6df38c2a9bffbabe60d5761fcf6",
+      "fixture": "remoteok-maintenance.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The endpoint answering with valid JSON that is not its feed. It produces no entries, exactly as an empty feed does, and must not be reported as one \u2014 the envelope check in the adapter is what separates them."
+    },
+    {
+      "excerpt_bytes": 124,
+      "excerpt_sha256": "8bc1ccdf875dda4d6c7e85615b46133d96e65e83e28e03111b5902803e23ca71",
+      "fixture": "remoteok-null-records.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The legal notice followed by unusable records. The feed HAS records \u2014 it is corrupt, not empty \u2014 and a filter that dropped everything it could not use would report it as a board with no jobs."
+    },
+    {
+      "excerpt_bytes": 877,
+      "excerpt_sha256": "f3d4548a017991007f7c9a58ed9160d75f99779c285bacb678d893b293329fac",
+      "fixture": "remotive-drifted.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remotive",
+      "why": "The same envelope with records whose `title` and `company_name` have been renamed, so every one of them is skipped and the category yields nothing."
+    },
+    {
+      "excerpt_bytes": 118,
+      "excerpt_sha256": "cf91da9dabcaef2cfc9f87f25c12e3038f4bfbe1acf9a3fb7f5d2def2af32b67",
+      "fixture": "remotive-empty.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remotive",
+      "why": "A Remotive category answering with `\"jobs\": []` \u2014 the API saying it has none, rather than a body the adapter could not read."
+    },
+    {
+      "excerpt_bytes": 503,
+      "excerpt_sha256": "1aec2181ec2bbaf29e3c061c9761587385f4904f3b4e9ca3863fffaba790eebc",
+      "fixture": "remotive-unusable-record.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remotive",
+      "why": "One otherwise-valid posting whose `job_type` is an object, so mapping it throws after the response has arrived. A category that fetched fine and could not be read must not disappear from the status roll-up and leave the other categories to report a clean empty."
+    },
+    {
+      "excerpt_bytes": 1075,
+      "excerpt_sha256": "19830d70f83ee391179558d6430db0bf0d39dd28490bff065d072a252c54b160",
+      "fixture": "weworkremotely-attributed-items.rss",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "weworkremotely",
+      "why": "A populated feed whose `<item>` tags carry an attribute. `parseRssItems` matches the bare tag, so it reads nothing off this, and a channel-only empty check would call a full feed empty. Same defect as the bare-tag JSON-LD regex #33 found in remotely.de, one document type over."
+    },
+    {
+      "excerpt_bytes": 282,
+      "excerpt_sha256": "e6afe0ce8440939c282eacad304566c06066ef9599355c74b45324d12923a24d",
+      "fixture": "weworkremotely-empty.rss",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "weworkremotely",
+      "why": "A valid feed document with a channel and no `<item>`s. The channel element is what separates it from an HTML error page served with a 200, which also parses to no items."
+    },
+    {
+      "excerpt_bytes": 602,
+      "excerpt_sha256": "e113510493d5c6ff618d7f8df29d55947d1c102aebc65d3887818ca538aca596",
+      "fixture": "workingnomads-drifted.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "workingnomads",
+      "why": "The same array with records whose `title` and `company_name` have been renamed."
+    },
+    {
+      "excerpt_bytes": 3,
+      "excerpt_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "fixture": "workingnomads-empty.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "workingnomads",
+      "why": "The Working Nomads endpoint answering with a bare `[]`."
+    }
+  ]
+}

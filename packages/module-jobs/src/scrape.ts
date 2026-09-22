@@ -12,7 +12,7 @@ import {
 
 import { resolveEnv as resolveScrapeEnv } from "@schlessera/brain-scrape";
 import { resolveEnv } from "./config/env.js";
-import type { RawJob, ScrapeResult, Source } from "./types.js";
+import type { RawJob, ScrapeResult, Source, SourceStatus } from "./types.js";
 import { SOURCES } from "./types.js";
 import { eurRates } from "./salary.js";
 
@@ -55,6 +55,13 @@ export function getAdapter(source: Source, queries?: string[]): ScraperAdapter {
 export interface ScrapeReport {
   sources: Array<{
     source: Source;
+    /**
+     * What the run WAS, which `jobs_found` on its own cannot say — see
+     * `SourceStatus`. Every selected board gets an entry, including one whose
+     * adapter never returned: it appears with `not_run` rather than vanishing
+     * from the report.
+     */
+    status: SourceStatus;
     jobs_found: number;
     jobs_new: number;
     jobs_updated: number;
@@ -109,18 +116,21 @@ export async function runScrape(opts: {
   // absence downgrades those boards rather than failing the run — a scheduled
   // scrape on a host without Chrome should lose the browser boards, not
   // everything.
+  //
+  // There is no try/catch here, and there used not to be a reason: this call
+  // launches nothing, so it cannot fail, and the `Browser boards unavailable`
+  // branch that used to wrap it was unreachable while reading like the thing
+  // that handled a missing Chrome (#33's re-measurement, #37). What actually
+  // reports it is `BrowserAdapter`, once per URL it could not open, which is
+  // where the board's own name and the page are still in scope.
   let browser: BrowserSession | undefined;
   if (adapters.some((a) => a.needsBrowser)) {
-    try {
-      browser = createBrowserSession({
-        browserUrl: chromeUrl,
-        executablePath: env.chromePath,
-        noSandbox: env.noSandbox,
-        userAgent: env.userAgent,
-      });
-    } catch (e) {
-      report.total_errors.push(`Browser boards unavailable: ${(e as Error).message}`);
-    }
+    browser = createBrowserSession({
+      browserUrl: chromeUrl,
+      executablePath: env.chromePath,
+      noSandbox: env.noSandbox,
+      userAgent: env.userAgent,
+    });
   }
 
   const ctx: ScrapeContext = {
@@ -152,9 +162,17 @@ export async function runScrape(opts: {
         });
         return { source, result, duration_ms: Date.now() - start, lastCursor };
       } catch (err) {
+        // The adapter threw before it could report anything, so nothing
+        // readable arrived: `not_run`, with the throw as the reason.
         return {
           source,
-          result: { source, jobs: [], errors: [`${err}`], cursor: undefined } as ScrapeResult,
+          result: {
+            source,
+            jobs: [],
+            errors: [`${err}`],
+            cursor: undefined,
+            status: "not_run",
+          } as ScrapeResult,
           duration_ms: Date.now() - start,
           lastCursor,
         };
@@ -165,9 +183,22 @@ export async function runScrape(opts: {
   await browser?.close();
 
   // 2. Ingest results
-  for (const settled of results) {
+  for (const [index, settled] of results.entries()) {
     if (settled.status === "rejected") {
+      // A board whose entry is missing from `sources` reads as one that was
+      // never selected. It was: it was selected and it did not come back, so
+      // it is reported as `not_run` rather than dropped.
+      const source = sources[index];
       report.total_errors.push(`Adapter failed: ${settled.reason}`);
+      report.sources.push({
+        source,
+        status: "not_run",
+        jobs_found: 0,
+        jobs_new: 0,
+        jobs_updated: 0,
+        errors: [`Adapter failed: ${settled.reason}`],
+        duration_ms: 0,
+      });
       continue;
     }
 
@@ -184,7 +215,12 @@ export async function runScrape(opts: {
       // handles repeats.
       const cursorToPersist =
         result.errors.length === 0 ? result.cursor : lastCursor ?? undefined;
-      logScrapeRun(db, source, result.errors.length > 0 && result.jobs.length === 0 ? "failed" : "completed", {
+      // A run that could not read the board is `failed` in the run log even
+      // when it threw nothing — which is the point of #37. A recognised empty
+      // listing is `completed`, so `getLastCursor` still advances past it.
+      const runStatus =
+        result.status === "ok" || result.status === "empty" ? "completed" : "failed";
+      logScrapeRun(db, source, runStatus, {
         jobs_found: result.jobs.length,
         jobs_new: ingestStats.new,
         jobs_updated: ingestStats.updated,
@@ -195,6 +231,7 @@ export async function runScrape(opts: {
 
     report.sources.push({
       source,
+      status: result.status,
       jobs_found: result.jobs.length,
       jobs_new: ingestStats.new,
       jobs_updated: ingestStats.updated,

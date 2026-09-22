@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:job="https://weworkremotely.com/ns/job">
+  <channel>
+    <title>We Work Remotely: Remote Jobs</title>
+    <link>https://weworkremotely.com/remote-jobs</link>
+    <description>The latest remote jobs.</description>
+    <item xml:base="https://weworkremotely.com/">
+      <title>Example Corp: Staff Platform Engineer</title>
+      <link>https://weworkremotely.com/remote-jobs/example-corp-staff-platform-engineer</link>
+      <guid>https://weworkremotely.com/remote-jobs/example-corp-staff-platform-engineer</guid>
+      <pubDate>Sun, 20 Sep 2026 09:00:00 +0000</pubDate>
+      <region>Worldwide</region>
+    </item>
+    <item xml:base="https://weworkremotely.com/">
+      <title>Example Labs: Backend Engineer</title>
+      <link>https://weworkremotely.com/remote-jobs/example-labs-backend-engineer</link>
+      <guid>https://weworkremotely.com/remote-jobs/example-labs-backend-engineer</guid>
+      <pubDate>Mon, 21 Sep 2026 09:00:00 +0000</pubDate>
+      <region>Europe</region>
+    </item>
+  </channel>
+</rss>

@@ -15,7 +15,7 @@ export class RemoteInEuropeAdapter extends BaseAdapter {
   readonly tier = 2 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const allJobs: RawJob[] = [];
     const seenIds = new Set<string>();
 
@@ -27,12 +27,20 @@ export class RemoteInEuropeAdapter extends BaseAdapter {
         const category = pageUrl.split("/").pop() || "all";
         if (opts.verbose) console.log(`[remoteineurope] Fetching: ${category}...`);
 
-        const html = await this.http.getText(pageUrl, {
+        const page = await this.http.getPage(pageUrl, {
           delayMs: 2000,
           proxy: opts.proxy,
         });
 
-        const jobs = this.parseListings(html, category);
+        const jobs = this.parseListings(page.body, category);
+        // This is the board #37 is named after: every one of these URLs 301s
+        // to weworkremotely.com and answers 200 there, so the parser reads
+        // somebody else's markup, finds no `/job/<slug>` links, and used to
+        // return zero found with zero errors. `from` is what makes the
+        // redirect visible, and there is no empty-state marker to claim on a
+        // page that is not this site's.
+        pages.read(pageUrl, jobs.length, { from: page.url });
+
         for (const job of jobs) {
           if (!seenIds.has(job.source_id)) {
             seenIds.add(job.source_id);
@@ -42,12 +50,12 @@ export class RemoteInEuropeAdapter extends BaseAdapter {
 
         if (opts.verbose) console.log(`[remoteineurope] ${category}: ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`RemoteInEurope ${pageUrl} failed: ${err}`);
+        pages.unreachable(pageUrl, err);
       }
     }
 
     if (opts.verbose) console.log(`[remoteineurope] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
+    return this.makeResult(allJobs, pages);
   }
 
   private parseListings(html: string, category: string): RawJob[] {
