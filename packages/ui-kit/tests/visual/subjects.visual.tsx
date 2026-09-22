@@ -261,7 +261,11 @@ test("paints: map view land, where a 6% fill is not below the noise floor", asyn
   // The drawing rather than the page: a second full-body shot of the same story
   // would be the same 50 KB twice, and the fill is entirely inside the SVG.
   const map = document.querySelector("svg");
-  expect(map).not.toBeNull();
+  // The card carries icons as well, and `querySelector` takes the first SVG in
+  // the document — so this asserts which one it got. A reordering that put a
+  // 16px glyph first would otherwise leave a baseline of a glyph, passing
+  // forever against a map it is no longer looking at.
+  expect(map?.querySelector('[fill-rule="evenodd"]')).toBeTruthy();
   await expect(map!).toMatchScreenshot("paints-map-view-land", SEES_A_SUBTLE_FILL);
 });
 
