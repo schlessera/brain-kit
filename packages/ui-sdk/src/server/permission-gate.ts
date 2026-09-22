@@ -61,6 +61,14 @@ export interface CreateToolPermissionRequestInput {
   input: Record<string, unknown>;
   description: string | undefined;
   approval: ToolPermissionApproval;
+  /**
+   * The turn declared `enforceAllowedTools` and this tool is not on its
+   * allowlist. Computed by the binding rather than here: a runtime that
+   * evaluates `decideToolPermission` against an empty allowlist on purpose
+   * (the Claude backend's `canUseTool` does) cannot have it derived from the
+   * arguments to this call.
+   */
+  outsideEnforcedAllowlist?: boolean;
 }
 
 /**
@@ -82,6 +90,9 @@ export function createToolPermissionRequest(
     input: options.input,
     description: options.description,
     kind: options.approval.kind,
+    // Only when true: an explicit `false` would change the shape every
+    // existing host and test asserts on for a turn that declared nothing.
+    ...(options.outsideEnforcedAllowlist ? { outsideEnforcedAllowlist: true } : {}),
   };
 }
 

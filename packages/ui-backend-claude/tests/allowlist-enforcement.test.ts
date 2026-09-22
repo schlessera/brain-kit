@@ -1,0 +1,385 @@
+/**
+ * A narrowed `allowedTools` is a boundary, not a suggestion (#124).
+ *
+ * Both PreToolUse input-rewrite hooks used to answer `permissionDecision:
+ * "allow"`, which makes the runtime skip `canUseTool` entirely — so a tool the
+ * turn's allowlist left out executed anyway, with no decision taken anywhere.
+ * A turn that declares `enforceAllowedTools` withholds that grant while KEEPING
+ * the rewrite, and the call falls through to the ordinary permission path.
+ *
+ * The runtime precedence modelled by `runToolCall` below is not invented: it
+ * was measured against Claude Code 2.1.280 / @anthropic-ai/claude-agent-sdk
+ * 0.3.278 with a real `query()` (see the PR for #124), which showed that
+ * (a) a hook's `allow` skips `canUseTool`, (b) a hook's `updatedInput` applies
+ * with no decision attached, and (c) `canUseTool` then receives the REWRITTEN
+ * input. Without (b) this fix would have had to choose between the rewrite and
+ * the decision.
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  BackendBridge,
+  PermissionDecision,
+  PermissionRequest,
+} from "@schlessera/brain-ui-sdk/server";
+import { resetRtkProbe } from "@schlessera/brain-ui-sdk/server";
+
+import { createClaudeBackend } from "../src/backend";
+
+/** What one tool call did, as the runtime would have resolved it. */
+interface ToolCallOutcome {
+  /** Did the tool actually run? */
+  executed: boolean;
+  /** The input it would have run with (rewrites applied). */
+  input: Record<string, unknown>;
+  /** Was a permission decision taken, rather than skipped by a hook? */
+  decided: boolean;
+}
+
+/**
+ * Drive one tool call through the runtime's documented precedence: PreToolUse
+ * hooks first (a `deny` blocks, an `allow` executes immediately and skips the
+ * callback, `updatedInput` applies either way), then the turn's `allowedTools`,
+ * then `canUseTool` on whatever input survived the hooks.
+ */
+async function runToolCall(
+  options: Options,
+  toolName: string,
+  input: Record<string, unknown>,
+  toolUseId: string
+): Promise<ToolCallOutcome> {
+  let current = input;
+  for (const group of options.hooks?.PreToolUse ?? []) {
+    if (group.matcher && !new RegExp(group.matcher).test(toolName)) continue;
+    for (const hook of group.hooks) {
+      const output = (await hook(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: toolName,
+          tool_input: current,
+          tool_use_id: toolUseId,
+        } as never,
+        toolUseId,
+        { signal: new AbortController().signal }
+      )) as {
+        hookSpecificOutput?: {
+          permissionDecision?: string;
+          updatedInput?: Record<string, unknown>;
+        };
+      };
+      const out = output?.hookSpecificOutput;
+      if (out?.updatedInput) current = out.updatedInput;
+      if (out?.permissionDecision === "deny") {
+        return { executed: false, input: current, decided: true };
+      }
+      if (out?.permissionDecision === "allow") {
+        return { executed: true, input: current, decided: false };
+      }
+    }
+  }
+  if ((options.allowedTools ?? []).includes(toolName)) {
+    return { executed: true, input: current, decided: false };
+  }
+  const decision = (await options.canUseTool!(toolName, current, {
+    signal: new AbortController().signal,
+    toolUseID: toolUseId,
+  } as never)) as PermissionDecision;
+  if (decision.behavior === "allow") {
+    return { executed: true, input: decision.updatedInput ?? current, decided: true };
+  }
+  return { executed: false, input: current, decided: true };
+}
+
+interface Harness {
+  options: Options;
+  requests: PermissionRequest[];
+  logs: { level: string; message: string }[];
+}
+
+/**
+ * Start one turn and capture the SDK options it built. The turn ends before
+ * any hook is fired, which is deliberate: the hooks and `canUseTool` close
+ * over per-turn state and that state is what is under test.
+ */
+async function startTurn(setup: {
+  allowedTools: string[];
+  enforceAllowedTools?: boolean;
+  decision?: PermissionDecision;
+}): Promise<Harness> {
+  const requests: PermissionRequest[] = [];
+  const logs: { level: string; message: string }[] = [];
+  const bridge: BackendBridge = {
+    emit: () => {},
+    requestPermission: async (request) => {
+      requests.push(request);
+      return setup.decision ?? { behavior: "deny", message: "Not approved." };
+    },
+  };
+  let captured: Options | undefined;
+  const queryFn = ((params: { options?: Options }) => {
+    captured = params.options!;
+    return (async function* () {
+      yield { type: "system", subtype: "init", session_id: "s1" };
+      yield {
+        type: "result",
+        subtype: "success",
+        session_id: "s1",
+        total_cost_usd: 0,
+        duration_ms: 1,
+        num_turns: 1,
+      };
+    })();
+  }) as unknown as typeof query;
+  const backend = createClaudeBackend({
+    brainPath: "/brain",
+    queryFn,
+    allowedTools: setup.allowedTools,
+    log: (level, message) => logs.push({ level, message }),
+  });
+  await backend.startTurn({
+    prompt: "enforce the allowlist",
+    signal: new AbortController().signal,
+    bridge,
+    ...(setup.enforceAllowedTools ? { enforceAllowedTools: true } : {}),
+  });
+  return { options: captured!, requests, logs };
+}
+
+/** A stand-in rewrite oracle on PATH: `rtk <cmd>` for every command it sees. */
+function withFakeRtk(): () => void {
+  const directory = mkdtempSync(join(tmpdir(), "brain-124-rtk-"));
+  const binary = join(directory, "rtk");
+  writeFileSync(
+    binary,
+    "#!/bin/sh\n" +
+      'if [ "$1" = "--version" ]; then exit 0; fi\n' +
+      "printf '%s\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk git status\"}}}'\n"
+  );
+  chmodSync(binary, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${directory}:${previousPath ?? ""}`;
+  resetRtkProbe();
+  return () => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    resetRtkProbe();
+    rmSync(directory, { recursive: true, force: true });
+  };
+}
+
+const WITHOUT_SHELL_OR_AGENT = ["Read", "Grep", "Glob"];
+const WITH_SHELL_AND_AGENT = ["Read", "Grep", "Glob", "Bash", "Agent"];
+const BACKGROUND_AGENT_CALL = { description: "fan out", prompt: "look", run_in_background: true };
+
+describe("an enforced allowlist and the rtk rewrite", () => {
+  let restorePath: (() => void) | null = null;
+  afterEach(() => {
+    restorePath?.();
+    restorePath = null;
+  });
+
+  test("a rewritten command outside the enforced allowlist does not run on the hook's say-so", async () => {
+    restorePath = withFakeRtk();
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL_OR_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Bash",
+      { command: "git status" },
+      "bash-enforced"
+    );
+
+    // The command never runs: the hook no longer grants it, and the decision
+    // that replaced the grant was a denial.
+    expect(outcome.executed).toBe(false);
+    expect(outcome.decided).toBe(true);
+    // A decision was taken, and it was taken on the REWRITTEN command — the
+    // rewrite is the point of the hook and it survives.
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]!.toolName).toBe("Bash");
+    expect(harness.requests[0]!.input).toEqual({ command: "rtk git status" });
+    expect(harness.requests[0]!.outsideEnforcedAllowlist).toBe(true);
+    // The withheld shortcut leaves a record rather than silently doing nothing.
+    expect(
+      harness.logs.filter(
+        (entry) => entry.level === "warn" && entry.message.includes("allowlist enforced")
+      )
+    ).toHaveLength(1);
+  });
+
+  test("the same command runs rewritten when Bash IS on the enforced allowlist", async () => {
+    restorePath = withFakeRtk();
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL_AND_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Bash",
+      { command: "git status" },
+      "bash-allowed"
+    );
+
+    expect(outcome.executed).toBe(true);
+    expect(outcome.input).toEqual({ command: "rtk git status" });
+    expect(harness.requests).toHaveLength(0);
+    expect(harness.logs.filter((entry) => entry.level === "warn")).toHaveLength(0);
+  });
+
+  test("a turn that declares nothing keeps today's behaviour, allowlist or not", async () => {
+    restorePath = withFakeRtk();
+    const harness = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Bash",
+      { command: "git status" },
+      "bash-default"
+    );
+
+    // Unchanged: the rewrite hook grants, nothing is asked, the command runs.
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+    expect(outcome.input).toEqual({ command: "rtk git status" });
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+describe("an enforced allowlist and the Agent foreground rewrite", () => {
+  test("a backgrounded Agent call outside the enforced allowlist is not re-admitted", async () => {
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL_OR_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Agent",
+      { ...BACKGROUND_AGENT_CALL },
+      "agent-enforced"
+    );
+
+    expect(outcome.executed).toBe(false);
+    expect(outcome.decided).toBe(true);
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]!.toolName).toBe("Agent");
+    // Foregrounding still applied: what was put to the user is the call that
+    // would actually have run.
+    expect(harness.requests[0]!.input.run_in_background).toBe(false);
+    expect(harness.requests[0]!.outsideEnforcedAllowlist).toBe(true);
+    expect(
+      harness.logs.filter(
+        (entry) => entry.level === "warn" && entry.message.includes("allowlist enforced")
+      )
+    ).toHaveLength(1);
+  });
+
+  test("an approved Agent call outside the enforced allowlist runs foregrounded", async () => {
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL_OR_AGENT,
+      enforceAllowedTools: true,
+      decision: { behavior: "allow" },
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Agent",
+      { ...BACKGROUND_AGENT_CALL },
+      "agent-approved"
+    );
+
+    // The rewrite is not the casualty of the fix: the user decided, and what
+    // runs is still the foregrounded call rather than the dead background one.
+    expect(outcome.executed).toBe(true);
+    expect(outcome.input.run_in_background).toBe(false);
+  });
+
+  test("a backgrounded Agent call runs when Agent IS on the enforced allowlist", async () => {
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL_AND_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Agent",
+      { ...BACKGROUND_AGENT_CALL },
+      "agent-allowed"
+    );
+
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+    expect(outcome.input.run_in_background).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  test("a turn that declares nothing keeps today's Agent behaviour", async () => {
+    const harness = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Agent",
+      { ...BACKGROUND_AGENT_CALL },
+      "agent-default"
+    );
+
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+    expect(outcome.input.run_in_background).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  test("a remote-isolation Agent call is still denied under enforcement", async () => {
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL_AND_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Agent",
+      { description: "x", prompt: "y", isolation: "remote" },
+      "agent-remote"
+    );
+
+    expect(outcome.executed).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+describe("what the host is told about the turn's posture", () => {
+  test("a request from a turn that declares nothing carries no enforcement marker", async () => {
+    const harness = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT });
+
+    await runToolCall(harness.options, "mcp__external__publish", { id: 7 }, "ext-default");
+
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]!.outsideEnforcedAllowlist).toBeUndefined();
+  });
+
+  test("a tool ON the enforced allowlist that still reaches the callback is not marked", async () => {
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL_AND_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    // The runtime auto-allows an allowlisted tool without the callback; a
+    // direct invocation is the one way this pairing is observable, and the
+    // marker must follow the allowlist rather than the declaration.
+    await harness.options.canUseTool!("Read", { file_path: "/brain/a.md" }, {
+      signal: new AbortController().signal,
+      toolUseID: "read-allowed",
+    } as never);
+
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]!.outsideEnforcedAllowlist).toBeUndefined();
+  });
+});

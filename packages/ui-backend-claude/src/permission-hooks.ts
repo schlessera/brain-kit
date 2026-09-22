@@ -13,6 +13,7 @@ import {
 } from "./tool-policy.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 import { createAgentHook, createRtkHook } from "./input-rewrite-hooks.js";
+import type { BackendLogFn } from "./options.js";
 
 const NO_ALLOWED_TOOLS: ReadonlySet<string> = new Set();
 
@@ -39,9 +40,25 @@ export function createPermissionWiring(options: {
   turnLock: TurnLockBinding;
   /** The filtered environment this turn's subprocesses run with. */
   childEnv: NodeJS.ProcessEnv;
+  /** Where a withheld re-admission is recorded. */
+  log: BackendLogFn;
 }): Pick<Options, "canUseTool" | "hooks"> {
-  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv } = options;
+  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv, log } = options;
   const allowed = new Set(allowedTools);
+  // The turn declared its allowlist is a boundary, not merely an auto-allow
+  // list (StartTurnRequest.enforceAllowedTools). Everything below that would
+  // otherwise admit a tool WITHOUT a permission decision is evaluated against
+  // this first — the two rewrite hooks here, and the host's remembered-grant
+  // lookup, which is told through the request rather than guessed at.
+  const enforced = req.enforceAllowedTools === true;
+  /** A tool the enforced allowlist left out: no shortcut may admit it. */
+  const outsideEnforcedAllowlist = (toolName: string): boolean =>
+    enforced && !allowed.has(toolName);
+  const withheld = (toolName: string): void => {
+    log("warn", "allowlist enforced: withheld an input-rewrite auto-allow", {
+      "tool.name": toolName,
+    });
+  };
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
   // Model that hook path as command-allowed to preserve the two runtime gates.
@@ -76,6 +93,10 @@ export function createPermissionWiring(options: {
       input,
       description: opts.description,
       approval,
+      // The host answers this one on its own merits: reaching here means the
+      // turn's allowlist left the tool out, and under enforcement a grant
+      // remembered on a wider posture is not an answer to it.
+      outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
     const decision = await requestToolPermission(req.bridge, request);
     // A mutating tool runs inside this subprocess the moment we return
@@ -164,8 +185,14 @@ export function createPermissionWiring(options: {
     return { continue: true };
   };
 
-  const agentHook = createAgentHook();
-  const rtkHook = createRtkHook(childEnv);
+  const agentHook = createAgentHook({
+    mayGrant: !outsideEnforcedAllowlist("Agent"),
+    onGrantWithheld: withheld,
+  });
+  const rtkHook = createRtkHook(childEnv, {
+    mayGrant: !outsideEnforcedAllowlist("Bash"),
+    onGrantWithheld: withheld,
+  });
 
   return {
     canUseTool,
