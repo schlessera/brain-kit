@@ -260,6 +260,32 @@ describe("baseSalary", () => {
     // Recruitee serves the key explicitly empty.
     expect(mapBaseSalary({ baseSalary: null })).toEqual({});
   });
+
+  test("an empty or zero figure is not a salary of zero", () => {
+    // `Number("")` is 0, so an empty value would otherwise be published as pay.
+    expect(mapBaseSalary({ baseSalary: "" }).min).toBeUndefined();
+    expect(mapBaseSalary({ baseSalary: "" }).raw).toBeUndefined();
+    expect(
+      mapBaseSalary({ baseSalary: { "@type": "MonetaryAmount", currency: "EUR", value: "" } }).raw
+    ).toBeUndefined();
+    expect(
+      mapBaseSalary({
+        baseSalary: { value: { "@type": "QuantitativeValue", minValue: 0, maxValue: 0 } },
+      }).min
+    ).toBeUndefined();
+  });
+
+  test("a currency written on the nested value is not lost", () => {
+    // Where it belongs is the MonetaryAmount; boards have put it inside, and
+    // the mapper this replaces read it from there.
+    const nested = mapBaseSalary(
+      { baseSalary: { value: { minValue: 100000, maxValue: 120000, currency: "USD" } } },
+      "EUR"
+    );
+    expect(nested.currency).toBe("USD");
+    // With neither, the board's own default still applies.
+    expect(mapBaseSalary({ baseSalary: { value: { minValue: 60000 } } }, "EUR").currency).toBe("EUR");
+  });
 });
 
 describe("employmentType", () => {

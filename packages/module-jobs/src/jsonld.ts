@@ -116,10 +116,19 @@ function texts(value: unknown): string[] {
   return out;
 }
 
+/**
+ * A figure, or nothing.
+ *
+ * `Number("")` is 0, so an empty string has to be refused before conversion —
+ * a board that serves the key with nothing in it would otherwise be read as
+ * publishing a salary of zero.
+ */
 function numeric(value: unknown): number | undefined {
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
   if (typeof value === "string") {
-    const parsed = Number(value.replace(/[,\s]/g, ""));
+    const digits = value.replace(/[,\s]/g, "");
+    if (!digits) return undefined;
+    const parsed = Number(digits);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
@@ -203,15 +212,24 @@ export function mapBaseSalary(posting: JsonLdNode, defaultCurrency?: string): Ma
   if (!salary && flat === undefined) return {};
 
   const amount = salary ? (node(salary.value) ?? salary) : undefined;
+  // The currency belongs on the MonetaryAmount, but boards have put it on the
+  // nested QuantitativeValue, so the inner one wins where both exist.
   const currency =
+    text(amount?.currency) ??
+    text(amount?.currencyCode) ??
     text(salary?.currency) ??
     text(salary?.currencyCode) ??
     text(posting.salaryCurrency) ??
     defaultCurrency;
 
-  const point = amount ? numeric(amount.value) : flat;
-  const min = (amount ? numeric(amount.minValue) : undefined) ?? point;
-  const max = (amount ? numeric(amount.maxValue) : undefined) ?? point;
+  // A figure of zero or less is a placeholder, not pay.
+  const figure = (value: unknown) => {
+    const parsed = numeric(value);
+    return parsed !== undefined && parsed > 0 ? parsed : undefined;
+  };
+  const point = amount ? figure(amount.value) : figure(posting.baseSalary);
+  const min = (amount ? figure(amount.minValue) : undefined) ?? point;
+  const max = (amount ? figure(amount.maxValue) : undefined) ?? point;
   if (min === undefined && max === undefined) return { currency };
 
   // A unit outside the five schema.org documents is left un-annualized rather
