@@ -143,6 +143,30 @@ describe("an update that archives", () => {
   });
 });
 
+describe("an approval the hook cannot honour", () => {
+  test("an edited approval is refused, not run with the original input", async () => {
+    // The host said "archive it, but with status active". This hook cannot
+    // apply that edit, and running the original would archive a document the
+    // host just said to leave alone — so it refuses rather than proceeding.
+    const { output, permissionCalls } = await preToolUse(
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/thing.md", status: "archived" },
+      { behavior: "allow", updatedInput: { path: "notes/thing.md", status: "active" } }
+    );
+
+    expect(permissionCalls).toHaveLength(1);
+    expect(output).toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+      },
+    });
+  });
+});
+
 describe("every other update stays silent", () => {
   test("an update that does not touch status raises nothing", async () => {
     const { output, permissionCalls } = await preToolUse(BRAIN_UPDATE_TOOL, {

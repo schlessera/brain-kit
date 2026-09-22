@@ -139,6 +139,12 @@ describe("createClaudeBackend permission characterization", () => {
   });
 
   test("an allowlisted Bash confirm-pattern call asks as a command", async () => {
+    // BEHAVIOUR CHANGE (archiving gate, #122): this case used to return a bare
+    // `{ continue: true }` and then execute the ORIGINAL command, silently
+    // discarding the host's edit. The hook cannot apply an edit — the SDK
+    // honours `updatedInput` only with `permissionDecision: "allow"`, which
+    // would re-admit a tool a deployment removed from `allowedTools` — so an
+    // edited approval is now refused instead of running the un-edited call.
     let hookOutput: unknown;
     const commandInput = { command: "git reset --hard HEAD~1" };
     const harness = backendFor(
@@ -179,6 +185,44 @@ describe("createClaudeBackend permission characterization", () => {
       },
     ]);
     expect(commandInput).toEqual({ command: "git reset --hard HEAD~1" });
+    expect(hookOutput).toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+      },
+    });
+  });
+
+  test("an unedited Bash confirmation still runs", async () => {
+    let hookOutput: unknown;
+    const harness = backendFor(
+      (options) =>
+        (async function* () {
+          yield init;
+          const matcher = options.hooks?.PreToolUse?.[0];
+          if (!matcher)
+            throw new Error("missing mutating-tool PreToolUse hook");
+          hookOutput = await matcher.hooks[0]!(
+            {
+              hook_event_name: "PreToolUse",
+              tool_name: "Bash",
+              tool_input: { command: "git reset --hard HEAD~1" },
+              tool_use_id: "bash-plain-allow",
+            } as never,
+            "bash-plain-allow",
+            { signal: new AbortController().signal }
+          );
+          yield result;
+        })(),
+      { behavior: "allow" }
+    );
+
+    await harness.start();
+
+    expect(harness.permissionCalls).toHaveLength(1);
     expect(hookOutput).toEqual({ continue: true });
   });
 

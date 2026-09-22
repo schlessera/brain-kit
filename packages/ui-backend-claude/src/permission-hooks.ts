@@ -199,6 +199,26 @@ export function createPermissionWiring(options: {
           },
         };
       }
+      if (decision.updatedInput !== undefined) {
+        // The host approved an EDITED call, and this hook cannot apply the
+        // edit: the SDK honours `updatedInput` only alongside
+        // `permissionDecision: "allow"`, and emitting that here would also
+        // re-admit a tool a deployment deliberately removed from
+        // `allowedTools` — the re-admission hazard the rewrite hooks already
+        // carry (see input-rewrite-hooks.ts). Proceeding would instead run
+        // the ORIGINAL input, i.e. archive a document the host just said to
+        // leave alone. Refuse, which is both the safe direction and a visible
+        // one; canUseTool remains the path that applies an edit.
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason:
+              "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+          },
+        };
+      }
     }
 
     const acquired = await turnLock.acquireForTool(
