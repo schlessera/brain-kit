@@ -31,7 +31,11 @@
  * loud one.
  */
 import type { Database } from "bun:sqlite";
-import { isBillingMode, type BillingMode } from "@schlessera/brain-ui-sdk/protocol";
+import {
+  isBillingMode,
+  isFailureOutcome,
+  type BillingMode,
+} from "@schlessera/brain-ui-sdk/protocol";
 
 import {
   resolveAmbientBillingMode,
@@ -181,6 +185,49 @@ export function sumEffectiveCost(rows: Array<{ effectiveCostUsd: number | null }
     else effectiveCostUsd += row.effectiveCostUsd;
   }
   return { effectiveCostUsd, unpricedRuns };
+}
+
+/**
+ * What a set of rollup rows adds up to. Both cost sums are sum-of-KNOWNS,
+ * and the two axes are counted SEPARATELY because they are independently
+ * nullable: a subscription-billed run with no backend-reported cost has a
+ * known effective cost of $0 and an unknown list price. The runs excluded
+ * from the effective sum ride along as `unpricedRuns`, those excluded from
+ * the list-price sum as `unpricedListCostRuns` (AE3).
+ */
+export interface RollupSummary {
+  runs: number;
+  failures: number;
+  costUsd: number;
+  effectiveCostUsd: number;
+  unpricedRuns: number;
+  /** Rows whose `costUsd` is unknown — the list-price axis' own counter. */
+  unpricedListCostRuns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
+/**
+ * The one fold over a window of rollups — the query_activity `rollups`
+ * scope and the runtime stats channel both read through it, so a window
+ * adds up the same way wherever it is asked for.
+ */
+export function summarizeRollups(rows: RunRollupRow[]): RollupSummary {
+  const effective = sumEffectiveCost(rows);
+  return {
+    runs: rows.length,
+    failures: rows.filter((r) => isFailureOutcome(r.outcome)).length,
+    costUsd: rows.reduce((a, r) => a + (r.costUsd ?? 0), 0),
+    effectiveCostUsd: effective.effectiveCostUsd,
+    unpricedRuns: effective.unpricedRuns,
+    unpricedListCostRuns: rows.filter((r) => r.costUsd === null).length,
+    inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
+    outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
+    cacheReadTokens: rows.reduce((a, r) => a + (r.cacheReadTokens ?? 0), 0),
+    cacheCreationTokens: rows.reduce((a, r) => a + (r.cacheCreationTokens ?? 0), 0),
+  };
 }
 
 /** One committed write, as the delta stream sees it. */

@@ -427,6 +427,12 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
     const rollups = runActivityQuery(db, store, { scope: "rollups" }) as Record<string, unknown>;
     expect(rollups.effectiveCostUsd).toBeCloseTo(0.3, 10);
     expect(rollups.unpricedRuns).toBe(2);
+    // This scope and the runtime stats channel share one fold
+    // (`summarizeRollups`), which carries fields this scope does not
+    // publish. It lists what it returns rather than spreading the fold, so
+    // a field added there cannot reach this shape.
+    expect(rollups).not.toHaveProperty("unpricedListCostRuns");
+    expect(rollups).not.toHaveProperty("cacheReadTokens");
 
     store.prune({
       digestFloorAt: Date.now() + 1000,
