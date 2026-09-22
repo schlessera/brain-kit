@@ -14,8 +14,8 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  * three the transcript draws, with the same keys — `a` / `d` while the card
  * holds focus, printed on the buttons, and "Always allow" deliberately
  * without one, carrying its `write_policy` effect chip instead. The hint
- * is printed only where a key can be pressed (#86); the letters follow
- * `keys` alone, so a paired keyboard works before the pointer query flips.
+ * is printed only while a fine pointer is present (#86); the letters follow
+ * `keys` alone, so a paired keyboard works even if the pointer query stays coarse.
  *
  * The buttons follow the kit `ApprovalCard`'s rule (seventh drop, ruling 10):
  * Allow takes the remaining width, Deny is content-sized with a 96 x 44 floor

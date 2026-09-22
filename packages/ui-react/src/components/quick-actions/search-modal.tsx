@@ -217,7 +217,7 @@ export function SearchPanel({
             <Placeholder>
               <span>
                 Type at least {MIN_QUERY} characters.
-                {/* The keys are printed only where one can be pressed (#86). */}
+                {/* The keys are printed only while a fine pointer is present (#86). */}
                 {finePointer && (
                   <>
                     {" "}

@@ -190,9 +190,9 @@ function ToolCallEntry({
       : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = toolCall.status === "pending_approval";
   const keys = useUIStore((s) => s.singleKeyShortcuts);
-  // The caps are printed only where a key can be pressed (#86); the letters
+  // The caps are printed only while a fine pointer is present (#86); the letters
   // themselves follow the Settings switch alone, so a paired keyboard works
-  // before the pointer query has noticed it.
+  // even if the pointer query stays coarse.
   const finePointer = useFinePointer();
   const printKeys = keys && finePointer;
   /**

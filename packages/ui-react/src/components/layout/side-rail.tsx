@@ -28,8 +28,8 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  * never show together. Width is not a keyboard, though: a tablet in
  * landscape crosses `tablet:` with nothing to press ⌘ on, so the caps are
  * printed only while a fine pointer is present (#86). The bindings below
- * stay registered either way — a paired keyboard fires them before the
- * query has flipped.
+ * stay registered either way — a paired keyboard fires them even if the
+ * query stays coarse.
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app

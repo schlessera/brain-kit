@@ -1,18 +1,11 @@
 import { useMediaQuery } from "./use-media-query.js";
 
 /**
- * Whether ANY pointer on the device is fine — a mouse, a trackpad, a stylus.
- * The layout splits on width, and a tablet in landscape is wide enough for
- * the desktop's shape while having no keyboard; this is the signal that says
- * whether a printed key (`⌘1`, the `a` / `d` caps, "↵ to open") can be
- * pressed at all. `any-pointer` rather than `pointer`, so a touch device with
- * a mouse or keyboard paired reads fine and the caps come back the moment it
- * is — live, through the list's change event, no reload. Only the PRINT
- * follows this; every binding stays registered either way (D36: a shortcut is
- * printed where it applies, and it does not apply where nothing can fire it).
- *
- * Fails open: with no `matchMedia` — the server, the test DOM — a keyboard is
- * assumed, so the keys render as they always have.
+ * Whether any pointer is fine: the display heuristic chosen in #86 for
+ * shortcut hints on touch devices. This does not detect a keyboard. A paired
+ * mouse or trackpad updates the query live; a keyboard alone may not.
+ * Only printed hints follow this signal. Bindings remain active either way.
+ * Without matchMedia (SSR or a test DOM), preserve the existing hints.
  */
 export function useFinePointer(): boolean {
   return useMediaQuery("(any-pointer: fine)", true);

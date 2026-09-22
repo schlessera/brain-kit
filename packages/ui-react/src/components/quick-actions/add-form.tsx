@@ -157,7 +157,7 @@ export function AddForm(p: AddFormProps) {
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-5 py-3">
-        {/* The hint is printed only where a key can be pressed (#86); the
+        {/* The hint is printed only while a fine pointer is present (#86); the
             span stays so the buttons keep their side of the footer. */}
         <span className="text-[11px] text-muted-foreground">
           {finePointer && (
