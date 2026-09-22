@@ -114,9 +114,11 @@ export function createBrainUiMcpServer(handlers: {
     // 7335 input tokens per round-trip against 93 deferred, which sounds
     // decisive and is not: the deferred path spends a `ToolSearch` round-trip
     // instead, and that costs more than the schemas save. Like for like the
-    // bill rose 6%. Nothing here blocks startup — the SDK's connect-timeout
-    // caveat is on the stdio/HTTP/SSE server configs, and an in-process server
-    // has nothing to connect to.
+    // bill rose 6%. Nothing here blocks startup: the connect-timeout caveat is
+    // about a server-CONFIG flag, and the CLI's startup wait reads
+    // `config.alwaysLoad` — `createSdkMcpServer` instead stamps the flag on
+    // each tool's `_meta` and returns a plain `{ type: "sdk", ... }`, so this
+    // server never enters that wait set. Measured first-frame latency agrees.
     alwaysLoad: true,
   });
 }

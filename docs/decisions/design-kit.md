@@ -2539,13 +2539,18 @@ arithmetic question and nobody had done the arithmetic.
   and not others" was a real option; it is rejected below on its merits rather
   than for being unavailable. The same extras object carries `searchHint`,
   which steers the search index. Nothing in the tree sets one.
-- **The startup-latency objection does not apply to this server.** The warning
-  that `alwaysLoad` "blocks startup until the server is connected (capped at
-  the standard 5s connect timeout)" is attached to `McpStdioServerConfig`,
-  `McpHttpServerConfig` and `McpSSEServerConfig` — the out-of-process
-  transports. `CreateSdkMcpServerOptions` carries no such warning and
-  `McpSdkServerConfig` has no `alwaysLoad` field at all, because an in-process
-  server has nothing to connect to. The measurement below confirms it.
+- **The startup-latency objection does not apply the way it reads.** The
+  warning that `alwaysLoad` "blocks startup until the server is connected
+  (capped at the standard 5s connect timeout)" is attached to
+  `McpStdioServerConfig`, `McpHttpServerConfig` and `McpSSEServerConfig` — the
+  out-of-process transports — and it describes a **server-config** flag. The
+  CLI's startup-wait filter reads `config.alwaysLoad` and, once tool search is
+  on, waits only for servers that set it. `createSdkMcpServer` does not put
+  the flag on the config it returns: it stamps `_meta["anthropic/alwaysLoad"]`
+  on each registered tool and hands back a plain
+  `{ type: "sdk", name, instance }`. So this change never enters that wait set,
+  and the in-process server has nothing to connect to in any case. The reading
+  that matters is the empirical one below: first frame did not move.
 - The deferral is the API's mechanism rather than a client-side index: the
   shipped CLI binary contains `defer_loading`, `tool_search_tool_regex` and
   `tool_search_tool_bm25`, which is what makes both shapes priceable by
