@@ -40,6 +40,11 @@
 import { BrainUiClient, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
 import { planClassification } from "../packages/ui-sdk/src/classification/request.ts";
+import {
+  SHOW_BLOCK_TOOL_NAME,
+  visibleToolName,
+  type ToolAdapter,
+} from "../packages/ui-sdk/src/tool-contracts/index.ts";
 import { createApp } from "../packages/ui-server/src/app.ts";
 import { TurnTextCollector } from "../packages/ui-server/src/classification/classify-turn.ts";
 import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
@@ -94,8 +99,15 @@ interface RunRecord {
   completed: boolean;
 }
 
-/** A `/home/...` or `~/...` path in a tool argument, outside the brain. */
-function escapesBrain(inputs: unknown[], brainPath: string): boolean {
+/**
+ * A `/home/...` or `~/...` path in a tool argument, outside the brain. A
+ * heuristic over what the model asked for, not a sandbox: it catches the
+ * observed failure — the shell reaching a home directory — and does not see
+ * a relative escape or a path that only appears in a tool's OUTPUT. It is
+ * here to drop turns that answered about the wrong brain, not to confine
+ * anything.
+ */
+export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
   const text = JSON.stringify(inputs);
   for (const match of text.matchAll(/(?:~|\/home)\/[A-Za-z0-9._\-/]*/g)) {
     if (!match[0].startsWith(brainPath)) return true;
@@ -114,23 +126,35 @@ function flag(name: string): string | undefined {
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
-// A GFM table: a header row followed by a delimiter row of dashes and pipes.
-const TABLE = /^\s*\|.*\|\s*\n\s*\|[\s:|-]+\|\s*$/gm;
+/**
+ * A GFM table is a header row followed by a delimiter row. The outer pipes
+ * are optional in GFM, so matching `|---|---|` alone undercounts: this
+ * matches any delimiter row carrying at least one interior pipe, preceded by
+ * a line that also has a pipe.
+ */
+export const TABLE = /^[^\n|]*\|[^\n]*\n[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(?:\|[ \t]*:?-{1,}:?[ \t]*)+\|?[ \t]*$/gm;
 
 async function measure(): Promise<void> {
   const brainPath = flag("brain");
   const outPath = flag("out");
   if (!brainPath || !outPath) throw new Error("--brain and --out are required");
 
-  const backend = flag("backend") ?? "pi";
+  const backend = (flag("backend") ?? "pi") as ToolAdapter;
   const model = flag("model") ?? "claude-sonnet-4-6";
   const vendor = flag("vendor") ?? "anthropic";
   const profile = backend === "pi" ? "measure" : "claude";
+  // The Claude backend exposes the tool MCP-prefixed, so the name matched in
+  // the stream is computed rather than spelled.
+  const blockTool = visibleToolName(SHOW_BLOCK_TOOL_NAME, backend);
   const indexes = (flag("prompts") ?? PROMPTS.map((_, i) => i).join(",")).split(",").map(Number);
   const runs = Number(flag("runs") ?? "1");
 
   const dbPath = `${brainPath}/.measure-ui.db`;
   const config = resolveServerConfig({
+    // The real environment first, so a configured TYPESAFE_API_KEY reaches
+    // the classification pass and the backends find their credentials; the
+    // keys below are the harness's and override it.
+    ...process.env,
     AUTH_MODE: "none",
     HOST: "127.0.0.1",
     BRAIN_PATH: brainPath,
@@ -169,7 +193,7 @@ async function measure(): Promise<void> {
     for (const promptIndex of indexes) {
       for (let runIndex = 0; runIndex < runs; runIndex++) {
         console.error(`[measure] prompt ${promptIndex} run ${runIndex + 1}/${runs}`);
-        const record = await runOnce(url, profile, brainPath, promptIndex, runIndex);
+        const record = await runOnce(url, profile, brainPath, blockTool, promptIndex, runIndex);
         records.push(record);
         console.error(
           `[measure]   show_block=${record.showBlockCalls.length}` +
@@ -190,6 +214,7 @@ async function runOnce(
   url: string,
   profile: string,
   brainPath: string,
+  blockTool: string,
   promptIndex: number,
   runIndex: number
 ): Promise<RunRecord> {
@@ -230,7 +255,10 @@ async function runOnce(
   while (Date.now() < deadline) {
     const hasResult = frames.some((f) => f.type === "result");
     if (hasResult && resultAt === null) resultAt = Date.now();
-    if (resultAt !== null && Date.now() - resultAt > 4000) break;
+    // The classification pass runs after the result frame within its own 2 s
+    // budget, then transforms and persists before the frame goes out, so the
+    // wait has to outlast that rather than match it.
+    if (resultAt !== null && Date.now() - resultAt > 8000) break;
     if (!hasResult && frames.some((f) => f.type === "error" && !("sessionId" in f && f.sessionId))) {
       await Bun.sleep(500);
       break;
@@ -265,7 +293,7 @@ async function runOnce(
     prompt: PROMPTS[promptIndex],
     runIndex,
     showBlockCalls: toolCalls
-      .filter((c) => c.toolName === "show_block")
+      .filter((c) => c.toolName === blockTool)
       .map((c) => {
         const kind = (c.input as { block?: { kind?: unknown } } | undefined)?.block?.kind;
         return {
@@ -297,6 +325,12 @@ async function report(paths: string[]): Promise<void> {
   let model = "";
   for (const path of paths) {
     const parsed = (await Bun.file(path).json()) as RunFile;
+    if (backend && (parsed.backend !== backend || parsed.model !== model)) {
+      throw new Error(
+        `${path} is ${parsed.backend}/${parsed.model}, not ${backend}/${model} —` +
+          " one report is one backend and one model"
+      );
+    }
     backend = parsed.backend;
     model = parsed.model;
     records.push(...parsed.records);
@@ -407,10 +441,14 @@ async function report(paths: string[]): Promise<void> {
   console.log(`outcomes: ${[...outcomes].map(([k, n]) => `${k} ×${n}`).join(", ")}`);
 }
 
-const reportIndex = process.argv.indexOf("--report");
-if (reportIndex > 0) {
-  await report(process.argv.slice(reportIndex + 1));
-} else {
-  await measure();
+// Guarded, so `tests/measure-show-block-gate.test.ts` can import the counting
+// rules without booting a server and spending money.
+if (import.meta.main) {
+  const reportIndex = process.argv.indexOf("--report");
+  if (reportIndex > 0) {
+    await report(process.argv.slice(reportIndex + 1));
+  } else {
+    await measure();
+  }
+  process.exit(0);
 }
-process.exit(0);
