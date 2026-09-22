@@ -91,8 +91,9 @@ brain sync pull
 
 When the remote has new commits, `pull` sets local changes to the derived caches aside for the
 merge, unions this clone's entries back into the merged copy, and reports each as
-`MERGED_CACHE=<path>`. The cache is dirty again afterwards; that is expected, and `post-sync`
-commits it.
+`MERGED_CACHE=<path>`. It resolves a conflicted cache the same way, and concludes the merge itself
+when that was the only conflict. The cache is dirty again afterwards; that is expected, and
+`post-sync` commits it.
 
 ## Phase 4 — Knowledge-aware conflict resolution
 
@@ -128,8 +129,9 @@ keep both (more recent first) unless one clearly supersedes; never silently drop
 `{filename}-remote.md`; if only one side changed, take that side.
 **latest-wins-additive** — take the latest-`updated` version of stable sections, but include any
 section either side added that the other lacks.
-**cache-union** — these JSONL sidecars are rebuilt from brain.db on the next `--embeddings` index;
-union lines by their `k` key (keep OURS on collision), sort, write. Never hand-merge hunks.
+**cache-union** — `pull` already does this and never reports a sidecar as conflicted. If one
+shows up here anyway, union lines by their `k` key (keep OURS on collision), sort, write. Never
+hand-merge hunks.
 **code-merge** — compare BASE→OURS and BASE→THEIRS; combine non-overlapping changes; use
 engineering judgment when they conflict semantically.
 

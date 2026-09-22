@@ -137,6 +137,17 @@ describe("sync pull with a locally rewritten cache", () => {
     return { root, remote };
   }
 
+  /** A second clone of `remote` that commits `files` and pushes. */
+  function pushFromOtherClone(remote: string, files: Record<string, string>): void {
+    const other = join(remote, "..", "other");
+    Bun.spawnSync(["git", "clone", "-q", remote, other]);
+    for (const [file, text] of Object.entries(files)) writeFileSync(join(other, file), text);
+    git(other, "add", "-A");
+    git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
+      "-c", "commit.gpgsign=false", "commit", "-qm", "from the other clone");
+    git(other, "push", "-q", "origin", "main");
+  }
+
   for (const [ahead, hooked] of [[false, false], [true, false], [false, true]] as const) {
     const name = `${ahead ? "merge" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
     test(`does not fail the ${name}; the cache keeps both clones' entries`, async () => {
@@ -144,13 +155,8 @@ describe("sync pull with a locally rewritten cache", () => {
       // rewrote the same file. `ahead` adds a local content commit, so the
       // pull has to merge rather than fast-forward.
       const { root, remote } = brainWithRemote();
-      const other = join(remote, "..", "other");
-      Bun.spawnSync(["git", "clone", "-q", remote, other]);
       const theirs = '{"k":"theirs","v":"from the other clone"}\n';
-      writeFileSync(join(other, CACHE), theirs);
-      git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
-        "-c", "commit.gpgsign=false", "commit", "-qam", "Refresh derived index caches");
-      git(other, "push", "-q", "origin", "main");
+      pushFromOtherClone(remote, { [CACHE]: theirs });
       if (ahead) {
         writeFileSync(join(root, "local-note.md"), "# Local\n");
         git(root, "add", "local-note.md");
@@ -178,6 +184,44 @@ describe("sync pull with a locally rewritten cache", () => {
       expect(await Bun.file(join(root, CACHE)).text()).toBe(OURS + theirs);
     });
   }
+
+  test("a cache conflict between two committed copies is resolved by union, keeping local-only entries", async () => {
+    const { root, remote } = brainWithRemote();
+    const theirs = '{"k":"theirs","v":"committed by the other clone"}\n';
+    pushFromOtherClone(remote, { [CACHE]: theirs });
+    const committed = '{"k":"committed","v":"committed here, not pushed"}\n';
+    writeFileSync(join(root, CACHE), committed);
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    writeFileSync(join(root, CACHE), committed + OURS);
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(body.status).toBe("merged");
+    expect(body.conflicts).toEqual([]);
+    expect(body.mergedCaches).toEqual([CACHE]);
+    expect(await Bun.file(join(root, CACHE)).text()).toBe(committed + OURS + theirs);
+    expect(git(root, "rev-parse", "-q", "--verify", "HEAD^2")).not.toBe("");
+  });
+
+  test("when git refuses the merge before it starts, the cache is put back byte for byte", async () => {
+    const { root, remote } = brainWithRemote();
+    writeFileSync(join(root, "shared.md"), "# Shared\n");
+    writeFileSync(join(root, CACHE), '{"k":"committed-key","v":"the committed value"}\n');
+    git(root, "add", "shared.md", CACHE);
+    git(root, "commit", "-qm", "shared");
+    git(root, "push", "-q", "origin", "main");
+    pushFromOtherClone(remote, { "shared.md": "# Shared, edited there\n", [CACHE]: '{"k":"theirs","v":"x"}\n' });
+    writeFileSync(join(root, "local-note.md"), "# Local\n");
+    git(root, "add", "local-note.md");
+    git(root, "commit", "-qm", "local content");
+    // An unstaged edit to a file the merge touches makes git refuse outright.
+    writeFileSync(join(root, "shared.md"), "# Shared, edited here and not committed\n");
+    const ours = '{"k":"committed-key","v":"regenerated here"}\n';
+    writeFileSync(join(root, CACHE), ours);
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(body.status).not.toBe("merged");
+    expect(await Bun.file(join(root, CACHE)).text()).toBe(ours);
+  });
 
   test("a pull with nothing to merge leaves the rewritten cache alone", async () => {
     const { root } = brainWithRemote();
