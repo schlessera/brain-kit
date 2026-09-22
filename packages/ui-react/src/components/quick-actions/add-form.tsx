@@ -3,6 +3,7 @@ import { CheckCircle2 } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { useId } from "react";
 import { Kbd } from "../layout/kbd.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 
 /**
  * The "Add to brain" form, rendered from props (S6). `AddPanel` is the
@@ -52,6 +53,7 @@ export function AddForm(p: AddFormProps) {
   const typesId = useId();
   const saving = p.state === "saving";
   const canSave = p.draft.content.trim().length > 0 && !saving;
+  const finePointer = useFinePointer();
 
   function onKeyDown(e: React.KeyboardEvent) {
     // Cmd/Ctrl+Enter saves from anywhere in the form. The container refuses
@@ -155,8 +157,14 @@ export function AddForm(p: AddFormProps) {
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-5 py-3">
+        {/* The hint is printed only while a fine pointer is present (#86); the
+            span stays so the buttons keep their side of the footer. */}
         <span className="text-[11px] text-muted-foreground">
-          <Kbd>Ctrl</Kbd>/<Kbd>Cmd</Kbd> + <Kbd>↵</Kbd> to save
+          {finePointer && (
+            <>
+              <Kbd>Ctrl</Kbd>/<Kbd>Cmd</Kbd> + <Kbd>↵</Kbd> to save
+            </>
+          )}
         </span>
         <div className="flex gap-2">
           <Button label="Cancel" tone="quiet" size="sm" block={false} onClick={p.onClose} />

@@ -4,6 +4,7 @@ import type { ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { getToolLabel, getToolSummary } from "../chat/tool-views.js";
 import { KeyCap } from "../layout/key-cap.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 
 /**
  * A pending tool approval as an Actions-pane card (D37): the transcript copy
@@ -12,7 +13,9 @@ import { KeyCap } from "../layout/key-cap.js";
  * border that says "a run is stopped on this"; the buttons are the same
  * three the transcript draws, with the same keys — `a` / `d` while the card
  * holds focus, printed on the buttons, and "Always allow" deliberately
- * without one, carrying its `write_policy` effect chip instead.
+ * without one, carrying its `write_policy` effect chip instead. The hint
+ * is printed only while a fine pointer is present (#86); the letters follow
+ * `keys` alone, so a paired keyboard works even if the pointer query stays coarse.
  *
  * The buttons follow the kit `ApprovalCard`'s rule (seventh drop, ruling 10):
  * Allow takes the remaining width, Deny is content-sized with a 96 x 44 floor
@@ -35,6 +38,8 @@ export const APPROVAL_CARD = "[data-approval-card]";
 export function ApprovalCard(p: ApprovalCardProps) {
   const label = getToolLabel(p.tool.name);
   const summary = getToolSummary(p.tool);
+  const finePointer = useFinePointer();
+  const printKeys = p.keys && finePointer;
   function decide(card: HTMLElement | null, approved: boolean, always?: boolean) {
     if (card) focusAfterDecision(card, APPROVAL_CARD, "[data-needs-you-heading]");
     p.onDecide(approved, always);
@@ -64,7 +69,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
             <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} onClick={() => decide(cardOf(), true, true)} />
           )}
           <Button label="Deny" icon="deny" tone="danger" size="sm" center block={false} style={DENY_MOUNT} onClick={() => decide(cardOf(), false)} />
-          {p.keys && (
+          {printKeys && (
             <span className="ml-auto flex items-center gap-2 text-[10px] text-muted-foreground" aria-hidden="true">
               <span>allow <KeyCap>a</KeyCap></span>
               <span>deny <KeyCap>d</KeyCap></span>

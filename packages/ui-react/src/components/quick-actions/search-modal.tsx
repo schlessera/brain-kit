@@ -6,6 +6,7 @@ import { useFileStore } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import type { BrainSearchHit } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { parseSnippet } from "../../lib/search-snippet.js";
 import { cn } from "../../lib/utils.js";
 
@@ -41,6 +42,7 @@ export function SearchPanel({
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
 
   const trimmed = query.trim();
+  const finePointer = useFinePointer();
   const currentResults = resultQuery === trimmed ? results : [];
 
   const cancelSearch = useCallback(() => {
@@ -214,8 +216,14 @@ export function SearchPanel({
           ) : trimmed.length < MIN_QUERY ? (
             <Placeholder>
               <span>
-                Type at least {MIN_QUERY} characters. <Kbd>↑</Kbd> <Kbd>↓</Kbd> to
-                pick, <Kbd>↵</Kbd> to open.
+                Type at least {MIN_QUERY} characters.
+                {/* The keys are printed only while a fine pointer is present (#86). */}
+                {finePointer && (
+                  <>
+                    {" "}
+                    <Kbd>↑</Kbd> <Kbd>↓</Kbd> to pick, <Kbd>↵</Kbd> to open.
+                  </>
+                )}
               </span>
             </Placeholder>
           ) : state === "done" && results.length === 0 ? (

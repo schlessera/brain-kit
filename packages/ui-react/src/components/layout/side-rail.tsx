@@ -5,6 +5,7 @@ import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 
 /**
  * The desktop navigation, on the kit's `SideRail`. The kit owns the rail —
@@ -24,7 +25,11 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
  * Widths follow D22's ladder: the phone bar to 479px, this rail collapsed
  * to 60px from 480 (`tablet:`), expanded to 208px from 900 (`laptop:`). The
  * rail appears at the breakpoint the phone bar disappears at, so the two
- * never show together.
+ * never show together. Width is not a keyboard, though: a tablet in
+ * landscape crosses `tablet:` with nothing to press ⌘ on, so the caps are
+ * printed only while a fine pointer is present (#86). The bindings below
+ * stay registered either way — a paired keyboard fires them even if the
+ * query stays coarse.
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app
@@ -42,19 +47,21 @@ export function SideRail() {
   const approvalCount = useChatStore((s) => pendingApprovals(s).length);
   const needsYou = inboxCount + approvalCount;
   const expanded = useMediaQuery("(min-width: 900px)");
+  const finePointer = useFinePointer();
+  const cap = (key: string) => (finePointer ? key : undefined);
 
   const items: RailItem[] = [
-    { icon: "brain", label: "Chat", shortcut: "⌘1", onClick: () => setActiveView("chat") },
+    { icon: "brain", label: "Chat", shortcut: cap("⌘1"), onClick: () => setActiveView("chat") },
     {
       icon: "resolved",
       label: "Actions",
-      shortcut: "⌘2",
+      shortcut: cap("⌘2"),
       badge: needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
       onClick: () => setActiveView("activity"),
     },
-    { icon: "files", label: "Files", shortcut: "⌘3", onClick: toggleFilePanel },
-    { icon: "graph", label: "Graph", shortcut: "⌘4", onClick: () => setActiveView("graph") },
-    { icon: "settings", label: "Settings", shortcut: "⌘5", onClick: toggleSettingsPanel },
+    { icon: "files", label: "Files", shortcut: cap("⌘3"), onClick: toggleFilePanel },
+    { icon: "graph", label: "Graph", shortcut: cap("⌘4"), onClick: () => setActiveView("graph") },
+    { icon: "settings", label: "Settings", shortcut: cap("⌘5"), onClick: toggleSettingsPanel },
   ];
 
   // A panel over the view is "here" while it is open; otherwise the view is.
