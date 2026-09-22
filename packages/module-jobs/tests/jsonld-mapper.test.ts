@@ -329,6 +329,16 @@ describe("employmentType", () => {
     expect(mapEmploymentType("INTERN")).toBeUndefined();
     expect(mapEmploymentType(undefined)).toBeUndefined();
   });
+
+  test("a permanent German post is not read as a fixed-term one", () => {
+    // "unbefristet" is PERMANENT and contains "befristet", which is not.
+    expect(mapEmploymentType("Vollzeit, unbefristet")).toBe("full_time");
+    expect(mapEmploymentType("Teilzeit (unbefristet)")).toBe("part_time");
+    expect(mapEmploymentType("unbefristet")).toBe("full_time");
+    // The fixed-term word itself still lands where it belongs.
+    expect(mapEmploymentType("befristete Anstellung")).toBe("contract");
+    expect(mapEmploymentType("Vollzeit, befristet")).toBe("contract");
+  });
 });
 
 describe("the publication date", () => {
@@ -347,6 +357,17 @@ describe("the publication date", () => {
 
   test("a date with no time is left alone rather than given a midnight", () => {
     expect(normalizeJsonLdDate("2026-09-18")).toBe("2026-09-18");
+  });
+
+  test("a date-only value still has to be a real day in a plausible year", () => {
+    // `new Date("2026-02-30T00:00:00Z")` is not an error — it is the 2nd of
+    // March, so a lenient parse would store a day the board never published.
+    expect(normalizeJsonLdDate("2026-02-30")).toBeUndefined();
+    expect(normalizeJsonLdDate("2026-99-99")).toBeUndefined();
+    expect(normalizeJsonLdDate("9999-12-31")).toBeUndefined();
+    expect(normalizeJsonLdDate("1970-01-01")).toBeUndefined();
+    // A leap day that exists is kept.
+    expect(normalizeJsonLdDate("2028-02-29")).toBe("2028-02-29");
   });
 
   test("anything that is not a date is rejected", () => {

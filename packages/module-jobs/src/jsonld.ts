@@ -178,14 +178,19 @@ function node(value: unknown): JsonLdNode | undefined {
 export function normalizeJsonLdDate(value: unknown): string | undefined {
   const raw = text(value);
   if (!raw) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
 
-  const parsed = new Date(raw);
-  const ms = parsed.getTime();
-  if (!Number.isFinite(ms)) return undefined;
+  // A date with no time is kept in the form it arrived in, but only once it is
+  // a real day: `2026-02-30` does not fail to parse, it silently becomes the
+  // 2nd of March.
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const parsed = new Date(dateOnly ? `${raw}T00:00:00Z` : raw);
+  if (!Number.isFinite(parsed.getTime())) return undefined;
+
   const year = parsed.getUTCFullYear();
   if (year < PLAUSIBLE_YEARS.min || year > PLAUSIBLE_YEARS.max) return undefined;
-  return parsed.toISOString();
+
+  if (!dateOnly) return parsed.toISOString();
+  return parsed.toISOString().slice(0, 10) === raw ? raw : undefined;
 }
 
 /**
@@ -199,9 +204,12 @@ export function normalizeJsonLdDate(value: unknown): string | undefined {
 export function mapEmploymentType(value: unknown): RawJob["job_type"] | undefined {
   for (const entry of texts(value)) {
     const token = entry.toLowerCase();
-    if (/contract|freelance|temporary|befristet/.test(token)) return "contract";
+    // `\b` before `befristet` is what keeps "unbefristet" -- a PERMANENT German
+    // contract, and the commonest thing a German posting says -- out of the
+    // fixed-term bucket it reads like a substring of.
+    if (/contract|freelance|temporary|\bbefristet/.test(token)) return "contract";
     if (/part[\s_-]?time|teilzeit/.test(token)) return "part_time";
-    if (/full[\s_-]?time|vollzeit|permanent/.test(token)) return "full_time";
+    if (/full[\s_-]?time|vollzeit|permanent|unbefristet/.test(token)) return "full_time";
   }
   return undefined;
 }
