@@ -48,6 +48,7 @@
   "scripts": {
     "test": "bun test tests --timeout 30000",
     "prepublishOnly": "bun ../../scripts/check-dist.ts",
+    "// eval:triage": "exit 0 every selected configuration was judged and passed; 1 one failed the gate; 2 refused to start; 3 one was selected and never judged. See evals/triage/README.md.",
     "eval:triage": "bun run evals/triage/run.ts",
     "eval:triage:validate": "bun run evals/triage/validate.ts"
   },

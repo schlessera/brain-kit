@@ -5,7 +5,7 @@
  * code a wrapper would see — not a predicate over a verdict object.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -111,5 +111,30 @@ describe("eval:triage exit code", () => {
     const { code, stderr } = await runEval("pass", ["--model", "no-such-model"], benchmarksPath());
     expect(stderr).toContain("No configurations matched");
     expect(code).toBe(2);
+  });
+});
+
+/**
+ * The exit code is a contract between the script and whatever wraps it, so the
+ * two places a reader meets the script — the manifest entry they invoke and the
+ * harness README beside it — have to name every code the runner can produce.
+ */
+describe("eval:triage exit code is documented where the script is", () => {
+  const codes = ["0", "1", "2", "3"];
+
+  test("the package.json script entry says what each code means", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")
+    ) as { scripts: Record<string, string> };
+    const note = manifest.scripts["// eval:triage"];
+    expect(note).toBeString();
+    for (const code of codes) expect(note).toContain(code);
+  });
+
+  test("the harness README has an exit-code section covering every code", () => {
+    const readme = readFileSync(resolve(import.meta.dir, "../evals/triage/README.md"), "utf8");
+    const section = readme.split("## Exit code")[1];
+    expect(section).toBeString();
+    for (const code of codes) expect(section!.split("## ")[0]).toContain(`| ${code} |`);
   });
 });
