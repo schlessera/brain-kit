@@ -140,6 +140,22 @@ describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
     expect(byId.get("gpt-api")?.billingMode).toBe("api");
   });
 
+  test("pi profile pricing route keys on the vendor: only openrouter resells (#57)", async () => {
+    const registry = registryFor({
+      BRAIN_UI_PI_PROFILES: JSON.stringify([
+        { id: "gpt-sol", label: "GPT", vendor: "openai-codex", model: "gpt-5.6-sol" },
+        { id: "or-glm", label: "GLM", vendor: "openrouter", model: "z-ai/glm-4.7" },
+      ]),
+    });
+    const byId = new Map(
+      (await registry.listAllProviders()).map((provider) => [provider.id, provider])
+    );
+    // A pi vendor IS the provider endpoint, so it names the route outright:
+    // openrouter resells, every other pi provider is the model's own vendor.
+    expect(byId.get("or-glm")?.pricingRoute).toBe("openrouter");
+    expect(byId.get("gpt-sol")?.pricingRoute).toBe("direct");
+  });
+
   test("malformed BRAIN_UI_PI_PROFILES fails at registry build, loudly", async () => {
     await expect(
       registryFor({ BRAIN_UI_PI_PROFILES: "not json" }).getBackends()
@@ -279,6 +295,55 @@ describe("billing classification", () => {
       // built-in default on ambient credentials stays subscription.
       expect(byId.get("openrouter-glm")?.billingMode).toBe("api");
       expect(byId.get("claude")?.billingMode).toBe("subscription");
+    } finally {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
+  });
+
+  test("a profile's pricing route follows its declared endpoint (#57)", async () => {
+    const key = "BRAIN_UI_TEST_ROUTE_KEY";
+    const saved = process.env[key];
+    process.env[key] = "test-token";
+    try {
+      const registry = registryFor({
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          {
+            id: "via-openrouter",
+            label: "GLM 4.7 (OpenRouter)",
+            baseUrl: "https://openrouter.ai/api",
+            authTokenEnv: key,
+          },
+          {
+            id: "via-openrouter-subdomain",
+            label: "GLM 4.7 (OpenRouter, regional)",
+            baseUrl: "https://eu.openrouter.ai/api",
+            authTokenEnv: key,
+          },
+          {
+            id: "via-unknown-proxy",
+            label: "Something behind a gateway",
+            baseUrl: "https://gateway.example/api",
+            authTokenEnv: key,
+          },
+        ]),
+      });
+      const byId = new Map(
+        (await registry.listAllProviders()).map((provider) => [provider.id, provider])
+      );
+
+      // Routed through OpenRouter, so OpenRouter's resale rates apply.
+      expect(byId.get("via-openrouter")?.pricingRoute).toBe("openrouter");
+      expect(byId.get("via-openrouter-subdomain")?.pricingRoute).toBe("openrouter");
+      // No baseUrl: Anthropic's own endpoint, billed at Anthropic's rates.
+      expect(byId.get("claude")?.pricingRoute).toBe("direct");
+      // Some other Anthropic-compatible proxy may resell at rates neither
+      // catalog describes. Claiming "direct" would freeze a rate this run was
+      // never billed at, so the route is left absent and pricing falls back to
+      // resolving by model id — what it did before routes existed.
+      expect(byId.get("via-unknown-proxy")).toBeDefined();
+      expect(byId.get("via-unknown-proxy")?.pricingRoute).toBeUndefined();
     } finally {
       if (saved === undefined) delete process.env[key];
       else process.env[key] = saved;
