@@ -23,15 +23,15 @@
  * For a `needsBrowser` board the rendered capture is a SECOND page load, taken
  * after the adapter has run, so a site that rotates promoted cards does not
  * serve quite the same page twice. To get numbers that the captured page
- * actually supports, replay the extractor against it — no network, just
- * Chrome and a local file:
+ * actually supports, replay the extractor against it — Chrome, a local file,
+ * and DNS blackholed so nothing the capture references can be re-fetched:
  *
  *   bun packages/module-jobs/scripts/measure-boards.ts --replay <source> <file.html>
  *
  * The file must end in `.html`, or Chrome serves it as plain text and the
  * extractor sees no DOM at all.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
@@ -47,6 +47,18 @@ import { getAdapter } from "../src/scrape.js";
 import { openDatabase } from "../src/db.js";
 import { ingestJobs } from "../src/scrape.js";
 import { ALL_SOURCES, type RawJob, type Source } from "../src/types.js";
+
+/**
+ * Where Chrome is looked for when nothing configures it. Duplicated from
+ * `@schlessera/brain-scrape` on purpose: the replay path launches its own
+ * browser (see `replay`), and the package does not export the list.
+ */
+const CHROME_FALLBACKS = [
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+];
 
 /** The queries the shipped module config defaults to, for the two query boards. */
 const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engineer"];
@@ -101,6 +113,13 @@ function companyLooksReal(company: string, title: string): boolean {
  *
  * This is how a repair is checked against a committed fixture without going
  * back to the live site — and how the fixture's own numbers were produced.
+ *
+ * Opening a captured page in an ordinary browser is NOT offline: the markup
+ * still references the site's images, stylesheets and scripts, and anything it
+ * manages to fetch can mutate the DOM before the extractor sees it. So this
+ * launches Chrome with every hostname resolving to nothing. The page is then
+ * exactly the bytes on disk, which is the only way the replay's numbers mean
+ * anything.
  */
 async function replay(source: string, file: string): Promise<void> {
   const adapter = getAdapter(source as Source);
@@ -110,8 +129,20 @@ async function replay(source: string, file: string): Promise<void> {
   }
   const env = resolveEnv();
   const session = createBrowserSession({
-    executablePath: env.chromePath,
-    noSandbox: env.noSandbox,
+    launch: async () => {
+      const puppeteer = (await import("puppeteer-core")).default;
+      return puppeteer.launch({
+        executablePath: env.chromePath ?? CHROME_FALLBACKS.find((path) => existsSync(path)),
+        headless: true,
+        args: [
+          "--disable-dev-shm-usage",
+          // Every lookup fails, so no subresource and no script of the
+          // captured page can reach the site it came from.
+          "--host-resolver-rules=MAP * ~NOTFOUND",
+          ...(env.noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+        ],
+      });
+    },
   });
   const records = await session.load<unknown[]>({
     url: `file://${resolve(file)}`,

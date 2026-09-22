@@ -40,6 +40,19 @@ bun packages/module-jobs/scripts/measure-boards.ts <source> <out-dir> <country>
 One board per run. It needs the network, so **no test may call it** — the
 fixtures here are what tests use.
 
+To run a browser board's page extractor against a capture instead, with no
+network at all:
+
+```sh
+bun packages/module-jobs/scripts/measure-boards.ts --replay <source> <file.html>
+```
+
+That launches Chrome with every hostname resolving to nothing, so the page is
+exactly the bytes on disk — opening a captured page in an ordinary browser is
+not offline, and anything it re-fetched could change the DOM before the
+extractor ran. The file must end in `.html`, or Chrome serves it as text and
+there is no DOM to extract from.
+
 ## What the measurement found
 
 Each board scraped on its own, 2026-09-22. "Stored" is rows
@@ -67,7 +80,7 @@ here because there is nothing to repair.
 boards the harness scrapes the page and then re-opens it to capture the DOM, so
 a site that rotates promoted cards or paginates differently serves a slightly
 different page the second time. Replaying each extractor against the captured
-page — the numbers the fixtures actually support — gives:
+page, offline (see above) — the numbers the fixtures actually support — gives:
 
 | board | cards on the captured page | company blank | company right | href relative |
 | --- | --- | --- | --- | --- |

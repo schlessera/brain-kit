@@ -18,15 +18,26 @@ import { join } from "node:path";
 
 import { runScrape } from "../src/scrape";
 
-const previous = process.env.SCRAPE_CHROME_PATH;
+// Three variables decide where a browser comes from, and two of them WIN over
+// the executable path: `runScrape` prefers an already-running Chrome at
+// SCRAPE_CHROME_URL, falling back to the legacy CHROME_CDP_URL. Leaving either
+// set on a developer's machine would have this test attach to a real browser
+// and scrape BuiltIn for real, which the keyless rule forbids outright.
+const BROWSER_VARS = ["SCRAPE_CHROME_PATH", "SCRAPE_CHROME_URL", "CHROME_CDP_URL"] as const;
+const previous = Object.fromEntries(BROWSER_VARS.map((name) => [name, process.env[name]]));
 
 afterEach(() => {
-  if (previous === undefined) delete process.env.SCRAPE_CHROME_PATH;
-  else process.env.SCRAPE_CHROME_PATH = previous;
+  for (const name of BROWSER_VARS) {
+    const value = previous[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 describe("a browser board on a host without Chrome", () => {
   test("reports an error naming the missing executable, not an empty result", async () => {
+    delete process.env.SCRAPE_CHROME_URL;
+    delete process.env.CHROME_CDP_URL;
     process.env.SCRAPE_CHROME_PATH = join(tmpdir(), "no-such-chrome-for-tests");
     const dir = mkdtempSync(join(tmpdir(), "brain-jobs-nochrome-"));
     try {
