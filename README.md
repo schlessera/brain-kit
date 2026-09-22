@@ -60,8 +60,12 @@ docs/                        quickstart, concepts, CLI, MCP, hosting, modules, e
                              plus decisions/ (why), plans/ (unbuilt design) and process/
 ```
 
-The chat UI ships from a separate repo, `schlessera/brain-ui` — a thin deployment
-shell (Dockerfile, bin entry, branding) over `brain-ui-server` and `brain-ui-react`.
+The chat UI is not in this repository either. What you self-host is a thin
+deployment shell — Dockerfile, bin entry, branding — over the published
+`brain-ui-server` and `brain-ui-react` packages. You will generate that shell
+from `schlessera/brain-hosting-template`; see
+[docs/hosting/README.md](docs/hosting/README.md), and note that the template is
+not published yet.
 
 ## Development
 
@@ -82,7 +86,7 @@ bun run typecheck
 - [ROADMAP.md](ROADMAP.md) — where this stands and the decisions that bind new work.
 - [docs/process/github.md](docs/process/github.md) — how work is tracked: labels, milestones, the board.
 - [docs/decisions/](docs/decisions/README.md) — why things are the way they are.
-- [schlessera/brain-ui](https://github.com/schlessera/brain-ui) — the deployment shell for the chat UI.
+- [docs/hosting/README.md](docs/hosting/README.md) — backups, and self-hosting the chat UI.
 
 ## License
 

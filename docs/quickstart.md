@@ -132,7 +132,7 @@ without breaking the one below it. You are never blocked waiting for a key.
 | 0    | nothing (just Bun)                   | Full-text search (auto-degrades with warnings), `brain index`, `brain validate`, `brain audit`, mechanical `brain briefing`, heuristic `brain add`, MCP tools (degraded) |
 | 1    | a signed-in coding agent             | Everything above **plus every skill** — `/brain-init`, `/brain-import`, conversational capture and review                                            |
 | 2    | + a `GEMINI_API_KEY` (free tier fine)| Semantic and hybrid search, generated asset descriptions, richer `/whatsup` skill output via `brain briefing`                                        |
-| 3    | + a `DEEPGRAM_API_KEY` (with brain-ui)| Voice capture in the self-hosted chat UI                                                                                                            |
+| 3    | + a `DEEPGRAM_API_KEY` (with the chat UI)| Voice capture in the self-hosted chat UI                                                                                                            |
 
 Tier 0 is genuinely useful the moment you clone — the CLI needs only Bun. Tier 1
 is what the flagship onboarding assumes; if you have no coding agent, `brain init
