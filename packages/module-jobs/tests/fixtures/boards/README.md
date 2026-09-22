@@ -63,6 +63,18 @@ that survived `ingestJobs`, which drops anything with no `source_id`, `title` or
 Healthy: `remoteok`, `weworkremotely`, `workingnomads`. They have no fixture
 here because there is nothing to repair.
 
+**A rendered fixture is a second page load.** For the three `needsBrowser`
+boards the harness scrapes the page and then re-opens it to capture the DOM, so
+a site that rotates promoted cards or paginates differently serves a slightly
+different page the second time. Replaying each extractor against the captured
+page — the numbers the fixtures actually support — gives:
+
+| board | cards on the captured page | company blank | company right | href relative |
+| --- | --- | --- | --- | --- |
+| `builtin` | 19 | **19** | 0 | 0 |
+| `nodesk` | 103 | 39 | 63 | 0 |
+| `dice` | 35 | 0 | 35 | **35** |
+
 ### Board by board
 
 - **`remotive`** — `remotive.com/robots.txt` disallows `/api/*`, the only path
@@ -77,11 +89,14 @@ here because there is nothing to repair.
   selector, `a[data-id="company-title"]`, contradicting the comment at `:26`.
   Fixture: `builtin/rendered-card.html`.
 - **`nodesk`** — the company is the `<h3>` under the title, but
-  `src/adapters/nodesk.ts:66` looks for `a[href*="/remote-companies/"]`, which
-  the card does not have. The container walk at `:59` keeps climbing until it
-  swallows a neighbouring **promoted** card, whose company link is what gets
-  stored. The slug filter at `:51-52` also admits two category pages
-  (`blockchain-cryptocurrency-jobs`, `full-time-remote`).
+  `src/adapters/nodesk.ts:66` looks for `a[href*="/remote-companies/"]`, and
+  an Algolia hit card does not have one. Replaying the extractor against the
+  captured page gives 39 of 103 cards no company at all. The slug filter at
+  `:51-52` also admits category pages (`blockchain-cryptocurrency-jobs`,
+  `full-time-remote`) as jobs. The seven rows the live run stored under a
+  *neighbouring* company came from promoted blocks that the page rotates; the
+  captured page does not hold them, so treat that count as observed, not as
+  reproducible against this fixture.
   Fixture: `nodesk/rendered-card.html`.
 - **`simplyhired`** — title and company parse correctly. There is no description
   anywhere in the listing markup, so every stored row has `description_text`

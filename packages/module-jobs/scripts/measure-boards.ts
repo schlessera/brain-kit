@@ -10,7 +10,7 @@
  * One board per invocation, on purpose: a board that hangs or gets challenged
  * must not cost the boards measured before it.
  *
- *   bun packages/module-jobs/scripts/measure-boards.ts <source> <out-dir>
+ *   bun packages/module-jobs/scripts/measure-boards.ts <source> <out-dir> [country]
  *
  * It writes, under `<out-dir>/<source>/`:
  *   raw/…         every response body the adapter saw, verbatim
@@ -19,9 +19,20 @@
  * Vantage point matters and is recorded: a board that geo-gates or A/B-tests
  * its markup otherwise looks like a parser bug to the next reader. UTC time,
  * egress COUNTRY and User-Agent only — never an address or a host name.
+ *
+ * For a `needsBrowser` board the rendered capture is a SECOND page load, taken
+ * after the adapter has run, so a site that rotates promoted cards does not
+ * serve quite the same page twice. To get numbers that the captured page
+ * actually supports, replay the extractor against it — no network, just
+ * Chrome and a local file:
+ *
+ *   bun packages/module-jobs/scripts/measure-boards.ts --replay <source> <file.html>
+ *
+ * The file must end in `.html`, or Chrome serves it as plain text and the
+ * extractor sees no DOM at all.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   ScrapeClient,
@@ -85,7 +96,42 @@ function companyLooksReal(company: string, title: string): boolean {
   return true;
 }
 
+/**
+ * Run one browser board's page extractor against a local capture.
+ *
+ * This is how a repair is checked against a committed fixture without going
+ * back to the live site — and how the fixture's own numbers were produced.
+ */
+async function replay(source: string, file: string): Promise<void> {
+  const adapter = getAdapter(source as Source);
+  if (!adapter.needsBrowser) {
+    console.error(`${source} is not a browser board; run it against its fixture directly`);
+    process.exit(2);
+  }
+  const env = resolveEnv();
+  const session = createBrowserSession({
+    executablePath: env.chromePath,
+    noSandbox: env.noSandbox,
+  });
+  const records = await session.load<unknown[]>({
+    url: `file://${resolve(file)}`,
+    extract: (adapter as unknown as { extract: () => unknown[] }).extract,
+  });
+  await session.close();
+  console.log(JSON.stringify({ source, file, records }, null, 2));
+}
+
 async function main() {
+  if (process.argv[2] === "--replay") {
+    const [source, file] = process.argv.slice(3);
+    if (!source || !file) {
+      console.error("usage: measure-boards.ts --replay <source> <file.html>");
+      process.exit(2);
+    }
+    await replay(source, file);
+    return;
+  }
+
   const [source, outRoot, egressCountry] = process.argv.slice(2);
   if (!source || !outRoot) {
     console.error("usage: measure-boards.ts <source> <out-dir> [egress-country]");
