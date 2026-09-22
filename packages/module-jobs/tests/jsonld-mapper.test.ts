@@ -118,6 +118,18 @@ describe("a bare JobPosting node", () => {
     expect(job.expires_at).toBe("2026-10-23T05:05:43.000Z");
   });
 
+  test("dice: an on-site post is not called remote by its applicant geography", () => {
+    const html = fixture("jsonld", "dice-detail.html");
+    // It says so in its own description, and it has no `jobLocationType`.
+    expect(html).toContain("100% on-site in Maynard, MA");
+    expect(html).not.toContain("TELECOMMUTE");
+    // What it does have is where applicants must live, which says nothing
+    // about where the work happens.
+    expect(html).toContain('"applicantLocationRequirements"');
+
+    expect(onlyJob("dice-detail.html", "dice").remote_type).toBe("unknown");
+  });
+
   test("nodesk: employmentType arrives as an array", () => {
     const html = fixture("jsonld", "nodesk-detail.html");
     expect(html).toContain('"employmentType":["FULL_TIME"]');
@@ -300,6 +312,19 @@ describe("the source id", () => {
     const result = jobsFromJsonLd(html, { source: "dice" });
 
     expect(result.jobs.map((job) => job.source_id)).toEqual(["uuid-1", "uuid-2", "uuid-3"]);
+  });
+
+  test("keeps the separator the mapper this replaces used, for rows already stored", () => {
+    const job = jobsFromJsonLd(
+      `<script type="application/ld+json">${JSON.stringify({
+        "@type": "JobPosting",
+        title: "Customer Support Representative",
+        hiringOrganization: { name: "CO2Lift" },
+      })}</script>`,
+      { source: "remotelyde" }
+    ).jobs[0];
+
+    expect(job.source_id).toBe("CO2Lift-Customer Support Representative");
   });
 
   test("falls back to the URL when the identifier carries only a label", () => {

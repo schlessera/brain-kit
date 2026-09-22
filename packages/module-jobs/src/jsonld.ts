@@ -324,17 +324,21 @@ export function mapJobPosting(posting: JsonLdNode, opts: JobPostingMapOptions): 
   const company = text(node(posting.hiringOrganization)?.name) ?? UNKNOWN_COMPANY;
   const url = resolve(text(posting.url) ?? text(posting["@id"]), opts.pageUrl);
 
-  const sourceId = identifierValue(posting.identifier) ?? url ?? `${company}::${title}`;
+  // The last resort keeps the separator the remotely.de mapper used, so a row
+  // stored by it before this consolidation is still the same row afterwards.
+  const sourceId = identifierValue(posting.identifier) ?? url ?? `${company}-${title}`;
 
   const salary = mapBaseSalary(posting, opts.defaultCurrency);
   const description = text(posting.description);
 
-  // `jobLocationType` is schema.org's own remote flag; a posting that lists
-  // where applicants may be located instead is saying the same thing in the
-  // only other place the vocabulary offers.
-  const remote =
-    texts(posting.jobLocationType).some((entry) => entry.toUpperCase() === "TELECOMMUTE") ||
-    texts(posting.applicantLocationRequirements).length > 0;
+  // `jobLocationType` is schema.org's own remote flag, and the only thing here
+  // that means remote. The mapper this replaces also took the presence of
+  // `applicantLocationRequirements` as a signal, and the Dice capture shows
+  // what that costs: a post that is "100% on-site in Maynard, MA" carries one,
+  // naming the country applicants must live in. Unknown beats wrong.
+  const remote = texts(posting.jobLocationType).some(
+    (entry) => entry.toUpperCase() === "TELECOMMUTE"
+  );
 
   return {
     source: opts.source,
