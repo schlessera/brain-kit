@@ -61,7 +61,12 @@ async function preToolUse(
   const queryFn = ((params: { options?: Options }) =>
     (async function* () {
       yield init;
-      const matcher = params.options!.hooks?.PreToolUse?.[0];
+      // Selected by matcher, not by index: the PreToolUse array is not
+      // index-stable — a turn that declares allowlist enforcement prepends
+      // another hook ahead of this one (#124).
+      const matcher = params.options!.hooks?.PreToolUse?.find(
+        (entry) => entry.matcher === MUTATING_TOOL_MATCHER
+      );
       if (!matcher) throw new Error("missing mutating-tool PreToolUse hook");
       output = await matcher.hooks[0]!(
         {
