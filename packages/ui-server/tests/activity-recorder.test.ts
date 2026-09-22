@@ -275,3 +275,56 @@ describe("root span profile and billing attrs", () => {
     expect("brain.billing_mode" in root.attrs).toBe(false);
   });
 });
+
+describe("a denial the host never saw (#110)", () => {
+  function startTool(
+    recorder: ReturnType<typeof setup>["recorder"],
+    toolUseId: string,
+    toolName = "Bash"
+  ) {
+    recorder.observeFrame({ type: "session_info", sessionId: "sess-1", isNew: true });
+    recorder.observeFrame({
+      type: "tool_use_start",
+      sessionId: "sess-1",
+      toolUseId,
+      toolName,
+    });
+  }
+
+  test("a backend-reported refusal lands the same denied span a user's refusal does", () => {
+    // A turn with no grant surface refuses before the request reaches the
+    // host, so onApprovalDecision — where a user's denial is recorded — never
+    // runs. The span must still read as denied rather than as a call that
+    // errored, which is all the backend's error tool_result would say.
+    const refused = setup("turn-refused");
+    startTool(refused.recorder, "tool-1");
+    refused.recorder.observeActivity({
+      kind: "permission_denied",
+      toolUseId: "tool-1",
+      requestKind: "command",
+      reason: "This turn has no way to ask anyone for permission.",
+    });
+    refused.recorder.observeFrame({
+      type: "tool_result",
+      sessionId: "sess-1",
+      toolUseId: "tool-1",
+      output: "This turn has no way to ask anyone for permission.",
+      isError: true,
+    });
+    refused.recorder.finish("success");
+
+    const declined = setup("turn-declined");
+    startTool(declined.recorder, "tool-1");
+    declined.recorder.onApprovalDecision("tool-1", "deny", "command");
+    declined.recorder.finish("success");
+
+    // Write-once: the error tool_result that follows does not relabel it.
+    expect(refused.store.getSpan("tool-1")!.outcome).toBe("denied");
+    expect(refused.store.getSpan("tool-1")!.outcome).toBe(
+      declined.store.getSpan("tool-1")!.outcome
+    );
+    expect(
+      (refused.store.snapshotRun("turn-refused")?.events ?? []).map((e) => e.eventType)
+    ).toContain("approval_decision");
+  });
+});

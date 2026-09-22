@@ -266,6 +266,23 @@ export function createTurnRecorder(
             onWrite?.();
             break;
           }
+          case "permission_denied": {
+            // The same landing a user's denial gets in requestPermission: the
+            // outcome is written now, so the backend's later error tool_result
+            // is a write-once no-op and the span reads as denied rather than
+            // as a call that failed. The request never reached the host, so
+            // there is no principal and no approval_decision event.
+            store.appendEvent(event.toolUseId, "approval_decision", {
+              decision: "deny",
+              requestKind: event.requestKind,
+            });
+            store.endSpan(event.toolUseId, {
+              outcome: "denied",
+              reason: event.reason,
+            });
+            onWrite?.();
+            break;
+          }
         }
       });
     },
