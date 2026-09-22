@@ -153,6 +153,7 @@ to touch `process.env`.
 | Variable | What it controls | Unset |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | API key for the Anthropic Models API (model discovery). Takes precedence over the subscription token, mirroring the Agent SDK. | — |
+| `ANTHROPIC_BASE_URL` | Anthropic-compatible endpoint inherited by profiles that declare no baseUrl of their own. Read to classify a run's pricing route; also passed through to the agent subprocess. | — |
 | `BRAIN_UI_EXEC_KILLER` | Absolute path to an authorised helper that cancels the wrapped Claude Code process group, invoked as `<killer> <pgid> <TERM\|KILL\|INT>`. Needed only when the wrapper changes uid: signalling then fails with EPERM however the group is arranged, and an aborted turn would keep running. | (none — signal the group directly) |
 | `BRAIN_UI_EXEC_WRAPPER` | Absolute path to an executable the Claude Code subprocess is launched through, as `<wrapper> <program> <args…>`. Lets a host run the agent as another user without this package knowing how. It is an argv[0], never a command line: no shell parses it. Unset, the SDK spawns exactly as it did before. | (none — let the SDK spawn directly) |
 | `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |

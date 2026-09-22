@@ -148,6 +148,15 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
           "The host does not support request_image_mask in this session."
         );
       }
+      // The editor needs eyes, and this turn declared it has none: opening it
+      // would block on a region nobody will paint until the turn budget
+      // expires. Checked at execute time because the tool set is built once
+      // per session while the posture belongs to the turn.
+      if (turn.noGrantSurface) {
+        throw new Error(
+          "This turn has no way to show anyone an image, so request_image_mask cannot be used in it."
+        );
+      }
       const parsed = REQUEST_IMAGE_MASK_INPUT_SCHEMA.parse(input);
       const payload = await handleRequestImageMask(
         parsed,

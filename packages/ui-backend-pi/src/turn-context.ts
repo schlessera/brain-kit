@@ -24,8 +24,19 @@ export interface TurnContext {
    * per session.
    */
   enforceAllowedTools: boolean;
+  /**
+   * The current turn declared `noGrantSurface`: nothing can answer a card, so
+   * the gate refuses the request here instead of parking it on a bridge whose
+   * other end is empty. Per turn like the bridge, for the same reason.
+   */
+  noGrantSurface: boolean;
 }
 
 export function createTurnContext(): TurnContext {
-  return { bridge: null, signal: null, enforceAllowedTools: false };
+  return {
+    bridge: null,
+    signal: null,
+    enforceAllowedTools: false,
+    noGrantSurface: false,
+  };
 }

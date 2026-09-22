@@ -18,6 +18,11 @@ import {
   latestActivityDigest,
 } from "../activity/digest.js";
 import { getSetting, setSetting } from "../db/settings.js";
+import {
+  computeRuntimeStats,
+  RUNTIME_STATS_DEFAULT_DAYS,
+  RUNTIME_STATS_MAX_DAYS,
+} from "../activity/stats.js";
 
 /**
  * The activity record's read API. Auth-guarded like every /api route (the
@@ -290,6 +295,28 @@ export function createActivityRoutes(deps: {
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to aggregate" },
+          500
+        );
+      }
+    })
+
+    .get("/activity/stats", (c) => {
+      // The runtime half of the stats page: lifetime session figures and a
+      // windowed rollup summary, each labelled with what it covers. The
+      // corpus half is /brain/stats; the PWA merges the two.
+      try {
+        // Whole days, clamped — junk and zero fall to the default, as on
+        // /activity/rollups, and the floor keeps a negative from inverting
+        // the window into the future.
+        const raw = Math.trunc(Number(c.req.query("days")));
+        const days = Math.min(
+          Math.max(raw || RUNTIME_STATS_DEFAULT_DAYS, 1),
+          RUNTIME_STATS_MAX_DAYS
+        );
+        return c.json(computeRuntimeStats(db, { days }));
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to compute stats" },
           500
         );
       }

@@ -852,7 +852,7 @@ async function main(): Promise<void> {
         ),
         `| **all five** | **${schema.loadedAll}** | **${schema.rows.reduce((sum, row) => sum + row.briefTokens, 0)}** | ${schema.rows.reduce((sum, row) => sum + row.briefLines, 0)} |`,
         "",
-        `All five DEFERRED, which is what ships: **${schema.deferredAll}** tokens — and the same number for one deferred tool as for five, so the API prices the deferred set as a fixed block rather than per tool.`,
+        `All five DEFERRED, which is what shipped BEFORE D44: **${schema.deferredAll}** tokens — and the same number for one deferred tool as for five, so the API prices the deferred set as a fixed block rather than per tool.`,
         "",
         `The block brief alone: ${brief.tokens} tokens, ${brief.lines} lines, ${brief.chars} characters.`,
         "",

@@ -159,6 +159,14 @@ brain repository.
   open.
 - **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
   spawning the `brain` CLI from `BRAIN_PATH`.
+- **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
+  list and drill-in, per-day/job/session rollups, the digest, the inbox, and
+  `GET /api/activity/stats?days=N`: the runtime half of a stats page —
+  lifetime session figures, a windowed rollup summary labelled with the days
+  it covers and where detail pruning starts, and the server database's size.
+  `GET /api/brain/stats` stays the corpus half; the two are merged by the
+  caller. Shape: `ActivityRuntimeStats` in `@schlessera/brain-ui-sdk/protocol`,
+  documented in [docs/integration-contract.md](../../docs/integration-contract.md).
 - **Voice** — Deepgram token minting and keyterm-cache building from the brain
   index.
 - **Render seam** — `POST /api/render` answers 501 unless the deployment

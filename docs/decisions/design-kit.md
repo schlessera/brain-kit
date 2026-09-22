@@ -2729,8 +2729,9 @@ has to be in the model's context, and each backend says how.**
 
 D43's pi section above already establishes that pi has no deferral to apply to
 a statically registered tool and that its shipping configuration is therefore
-the structural equivalent of the `--always-load` arm, so that ground is not
-re-covered here. One detail found independently while deciding this and worth
+the structural equivalent of the `--always-load` **brief** arm and of that one
+only — pi has no no-brief arm, so it corroborates the loaded *rate* and says
+nothing about whether the brief matters. That ground is not re-covered here. One detail found independently while deciding this and worth
 adding to it: the mechanism is `splitDeferredTools` in pi's shipped bundle,
 which puts a tool in the deferred set only when an earlier tool result added it
 to the conversation and nothing has called it since. A statically registered
@@ -3047,3 +3048,42 @@ contact has. The rejection rule predates this work and applies to every
 candidate kind, so widening it is its own decision: #167.
 `packages/ui-sdk/tests/classification-detect.test.ts` pins the behaviour so the
 next reader meets it on purpose.
+
+## 2026-09-22 — the composer follows soft wrap
+
+"`Composer` is net-new work, and it is finished" recorded a trade: height from
+a controlled value's newline count, capped at five rows, keeping the component
+a pure function of its props at the cost of not growing on soft wrap. The cost
+landed on the most common input there is — a paragraph typed into a
+phone-width field scrolled inside one visible line (#92) — and the trade is
+replaced, keeping the half that mattered.
+
+**What replaced it.** `field-sizing: content` on the textarea, applied only when
+there is text to follow. The browser's own line layout, which runs on every
+keystroke regardless, is the measurement; the component stays a pure function
+of its props with no ref, no measuring and no layout effect, so a keystroke is
+still one render of the subtree that re-renders on every keystroke by design.
+The newline count stays on `rows` as the floor: a browser without
+`field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
+from `rows` alone and gets exactly the old behaviour. Where `field-sizing`
+applies, `rows` bounds nothing, so the cap has to carry `maxRows` itself: it is
+`maxRows` whole lines or the design's 96px, whichever is smaller. That is what
+the constant `maxHeight: 96` already produced while `rows` did the bounding —
+the default still stops at exactly 96px, a smaller `maxRows` gets that many
+whole lines rather than a fraction of 96, and a larger one does not raise the
+ceiling. Scaling 96px by `maxRows` instead was tried first and rejected: it
+spreads the default's deliberate ~4.90-line shortfall to every other row count,
+so a three-row field clipped by a pixel that no shipped behaviour had clipped.
+
+**Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
+forced synchronous layout per keystroke, and either a `setState` that commits
+twice per character or a direct style write that makes the height a thing the
+render does not know about. *The stacked-grid replica* (a hidden copy of the
+value in the same grid cell): works everywhere, but doubles the text in the
+DOM, and its correctness rests on two elements' text metrics never diverging.
+Both buy back browsers that will have `field-sizing` before either would ship
+its next bug.
+
+**An empty field stays one row.** With no text there is nothing to follow, and
+a placeholder longer than the field would otherwise take a second row that the
+first character typed took away again. The uncontrolled composer is untouched.
