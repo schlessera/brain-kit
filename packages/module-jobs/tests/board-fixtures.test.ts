@@ -19,6 +19,7 @@ import { Window } from "happy-dom";
 import {
   RobotsCache,
   ScrapeClient,
+  extractJsonLd,
   parseHtml,
   type BrowserSession,
   type FetchOptions,
@@ -295,13 +296,18 @@ describe("remotelyde against its captured listing", () => {
     expect(result.jobs).toHaveLength(3);
   });
 
-  test("the JSON-LD tag is not bare, which a bare-tag regex misses (#34)", () => {
+  test("the JSON-LD the bare-tag regex could not see is extracted now (#34)", () => {
     const html = fixture("remotelyde", "listing.html");
-    // What the page serves. The adapter no longer reads JSON-LD at all (#35
-    // moved it to the cards), but the attribute intolerance this pins is what
-    // #34 fixes in the shared extractor, and other boards still hit it.
+    // What the page serves: an id BEFORE the type attribute. The adapter no
+    // longer reads JSON-LD at all -- #35 moved it to the cards -- but the
+    // attribute intolerance this pins is what #34 fixed in the shared
+    // extractor, and the boards that do have a JobPosting still hit it.
     expect(html).toContain('<script id="collection-page-jsonld" type="application/ld+json">');
+    // What the pattern this replaces required, and the reason this page read
+    // as having no structured data at all.
     expect(html).not.toContain('<script type="application/ld+json">');
+    // The shared extractor reads it. What is IN it is the next test.
+    expect(extractJsonLd(html).documents).toHaveLength(1);
   });
 
   test("even parsed, the listing JSON-LD carries no JobPosting (#36)", () => {
