@@ -15,10 +15,12 @@ export "." (./src/index.ts)
   BUILTIN_EMITTERS
   type BrainConfig
   type BrainContext
+  type BrainStats
   CORE_TYPES
   type Chunk
   type ChunkMatch
   type Classification
+  type CollectStatsOptions
   type CommandContext
   type CommandModule
   type CompletionProvider
@@ -68,6 +70,7 @@ export "." (./src/index.ts)
   type SkillEmitter
   type SkillManifest
   type StalenessVerdict
+  type StatsThresholds
   Taxonomy
   type TaxonomyConfig
   type TypeSpec
@@ -83,6 +86,7 @@ export "." (./src/index.ts)
   chunkDocument
   chunkTextForEmbedding
   classifyContent
+  collectStats
   createEnrichment
   defineAgentRunner
   defineCompletionProvider

@@ -94,6 +94,8 @@ export type { IndexStats, IndexOptions } from "./lib/indexer.js";
 export { ingest, classifyContent } from "./lib/ingestion.js";
 export type { IngestOutcome, IngestContext, Classification } from "./lib/ingestion.js";
 export { audit } from "./lib/auditor.js";
+export { collectStats } from "./lib/stats.js";
+export type { BrainStats, CollectStatsOptions, StatsThresholds } from "./lib/stats.js";
 export type { AuditOptions } from "./lib/auditor.js";
 export { validate, checkIndexDrift } from "./lib/validate.js";
 export type { ValidationIssue } from "./lib/validate.js";

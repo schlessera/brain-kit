@@ -1,0 +1,504 @@
+/**
+ * The numbers behind `brain stats`.
+ *
+ * Two layers: goldens over `fixtures/corpus/` indexed in-process with an
+ * injected clock (so "stale" cannot drift as the wall clock moves past the
+ * fixture's reference date), and unit tests over in-memory databases for the
+ * cases a fixture cannot show — a missing `vec_chunks`, a failing free-space
+ * probe, a per-type `staleDays` being changed underneath both `brain stats`
+ * and `brain audit`.
+ *
+ * Keyless and network-free: `indexAll` runs without an embedding provider.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+
+import { audit } from "../src/lib/auditor";
+import { brainConfigSchema, DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "../src/lib/config";
+import { initContext } from "../src/lib/context";
+import { openDatabase } from "../src/lib/db";
+import { indexAll } from "../src/lib/indexer";
+import { collectStats, freeSpaceBytes, resolveStatsThresholds } from "../src/lib/stats";
+import { buildTaxonomy, type Taxonomy } from "../src/lib/taxonomy";
+
+const CORE_ROOT = resolve(import.meta.dir, "..");
+const FIXTURE_CORPUS = join(CORE_ROOT, "fixtures/corpus");
+const REPO_NODE_MODULES = resolve(CORE_ROOT, "../../node_modules");
+
+// Same injected wall clock as auditor.test.ts — every age in this file is
+// measured against it, so the stale goldens hold forever.
+const NOW = new Date("2026-07-01T00:00:00Z");
+
+const temps: string[] = [];
+afterAll(() => {
+  for (const dir of temps) rmSync(dir, { recursive: true, force: true });
+});
+
+function tempDir(prefix = "brain-stats-"): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(dir);
+  return dir;
+}
+
+// ---------------------------------------------------------------------------
+// Goldens over the fixture corpus
+// ---------------------------------------------------------------------------
+
+describe("collectStats over fixtures/corpus", () => {
+  let root: string;
+  let dbPath: string;
+  let db: Database;
+  let taxonomy: Taxonomy;
+  let config: BrainConfig | null;
+
+  beforeAll(async () => {
+    root = tempDir("brain-stats-corpus-");
+    cpSync(FIXTURE_CORPUS, root, { recursive: true });
+    // The fixture's brain.config.ts imports @schlessera/brain.
+    symlinkSync(REPO_NODE_MODULES, join(root, "node_modules"));
+
+    const ctx = await initContext({ root });
+    taxonomy = ctx.taxonomy;
+    config = ctx.config;
+    dbPath = ctx.dbPath;
+
+    const writable = openDatabase(dbPath);
+    await indexAll(writable, { root, taxonomy, quiet: true });
+    writable.close();
+
+    db = openDatabase(dbPath, { readonly: true });
+  });
+
+  afterAll(() => db?.close());
+
+  // The rename guard: every field `brain stats --json` carried before this
+  // change, with the type it carried. A removal or a rename fails here.
+  test("keeps every pre-existing field, with its name and type", async () => {
+    const stats = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
+
+    expect(typeof stats.documents).toBe("number");
+    expect(typeof stats.byType).toBe("object");
+    expect(typeof stats.byStatus).toBe("object");
+    expect(typeof stats.byRelevance).toBe("object");
+    expect(typeof stats.tags).toBe("number");
+    expect(typeof stats.links).toBe("number");
+    expect(typeof stats.brokenLinks).toBe("number");
+    expect(typeof stats.chunks).toBe("number");
+    expect(typeof stats.embeddings).toBe("number");
+
+    // And their values still come from the same queries.
+    expect(stats.documents).toBe(25);
+    expect(stats.tags).toBe(43);
+    expect(stats.links).toBe(37);
+    expect(stats.brokenLinks).toBe(2);
+    expect(stats.chunks).toBe(27);
+    expect(stats.byType.health).toBe(3);
+    expect(stats.byStatus.archived).toBe(1);
+    expect(stats.byRelevance.primary).toBe(16);
+  });
+
+  test("health figures are the corpus goldens", async () => {
+    const { health } = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
+
+    expect(health.brokenLinkRate).toBeCloseTo(2 / 37, 10);
+    expect(health.stale).toBe(2);
+    expect(health.orphans).toBe(1);
+    expect(health.untagged).toBe(1);
+    // Indexed without embeddings: no vec_chunks at all, so coverage is
+    // unknown rather than 0%.
+    expect(health.embeddingCoverage).toBeNull();
+    expect(health.thresholds).toEqual(DEFAULT_STATS_THRESHOLDS);
+  });
+
+  test("stale and orphan counts are the audit's, not a second definition", async () => {
+    const { health } = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
+    const issues = audit(db, taxonomy, { now: NOW });
+
+    expect(health.stale).toBe(issues.filter((i) => i.category === "staleness").length);
+    expect(health.orphans).toBe(issues.filter((i) => i.category === "orphan").length);
+  });
+
+  test("size figures cover the corpus, the index and the volume", async () => {
+    const { size } = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
+
+    // Every file the fixture ships; node_modules and brain.db are not corpus.
+    expect(size.corpus.files).toBe(29);
+    expect(size.corpus.bytes).toBeGreaterThan(0);
+
+    expect(size.db.bytes).toBeGreaterThan(0);
+    expect(size.db.tables.documents).toBe(25);
+    expect(size.db.tables.links).toBe(37);
+    expect(size.db.tables.chunks).toBe(27);
+    // FTS5 and vec0 shadow tables are internals, not row counts anyone asked
+    // for.
+    expect(size.db.tables).not.toHaveProperty("documents_fts_data");
+    expect(size.db.tables).not.toHaveProperty("documents_fts_idx");
+
+    expect(size.freeBytes).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests over in-memory databases
+// ---------------------------------------------------------------------------
+
+interface DocRow {
+  path: string;
+  type: string;
+  updated: string;
+  status?: string;
+  content?: string;
+  tags?: string[];
+}
+
+function insertDoc(db: Database, d: DocRow): number {
+  db.run(
+    `INSERT INTO documents
+       (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, indexed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      d.path,
+      d.path,
+      d.type,
+      d.status ?? "active",
+      "primary",
+      null,
+      "2026-01-01",
+      d.updated,
+      d.content ?? "",
+      "hash-" + d.path,
+      "markdown",
+      "2026-01-01",
+    ]
+  );
+  const id = (db.prepare("SELECT id FROM documents WHERE path = ?").get(d.path) as { id: number }).id;
+  for (const tag of d.tags ?? []) {
+    db.run("INSERT OR IGNORE INTO tags (name) VALUES (?)", [tag]);
+    const tagId = (db.prepare("SELECT id FROM tags WHERE name = ?").get(tag) as { id: number }).id;
+    db.run("INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)", [id, tagId]);
+  }
+  return id;
+}
+
+function insertChunk(db: Database, documentId: number, index: number): void {
+  db.run(
+    `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate)
+     VALUES (?, ?, ?, ?, ?)`,
+    [documentId, index, "Heading", "body", 10]
+  );
+}
+
+/** A taxonomy with the fixture persona's types, staleDays overridable per test. */
+function taxonomyWith(overrides: Record<string, unknown> = {}): Taxonomy {
+  return buildTaxonomy({
+    user: brainConfigSchema.parse({
+      taxonomy: {
+        types: {
+          health: { dir: "health", staleDays: 60, staleSeverity: "warning" },
+          journal: { dir: "journal", orphanExempt: true },
+          ...overrides,
+        },
+      },
+    }),
+  });
+}
+
+describe("stale count and brain audit share one threshold", () => {
+  test("a per-type staleDays change moves both figures together", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    // Six months old at NOW — stale at 60 days, fresh at 3650.
+    insertDoc(db, { path: "health/knee-injury.md", type: "health", updated: "2026-01-01" });
+    insertDoc(db, { path: "health/checkup-log.md", type: "health", updated: "2026-06-20" });
+
+    const tight = taxonomyWith();
+    const loose = taxonomyWith({ health: { dir: "health", staleDays: 3650 } });
+
+    const tightStats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: tight,
+      config: null,
+      now: NOW,
+    });
+    const looseStats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: loose,
+      config: null,
+      now: NOW,
+    });
+
+    const staleIssues = (t: Taxonomy) =>
+      audit(db, t, { now: NOW }).filter((i) => i.category === "staleness").length;
+
+    expect(tightStats.health.stale).toBe(1);
+    expect(tightStats.health.stale).toBe(staleIssues(tight));
+
+    expect(looseStats.health.stale).toBe(0);
+    expect(looseStats.health.stale).toBe(staleIssues(loose));
+
+    db.close();
+  });
+});
+
+describe("orphans honour orphanExempt", () => {
+  test("a document of an exempt type is not counted", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    // Neither has a link in either direction.
+    insertDoc(db, { path: "health/lonely.md", type: "health", updated: "2026-06-20" });
+    insertDoc(db, { path: "journal/2026-06-15.md", type: "journal", updated: "2026-06-20" });
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.health.orphans).toBe(1);
+    // Same answer as the audit, which is where the rule lives.
+    const orphanPaths = audit(db, taxonomyWith(), { now: NOW })
+      .filter((i) => i.category === "orphan")
+      .map((i) => i.path);
+    expect(orphanPaths).toEqual(["health/lonely.md"]);
+
+    db.close();
+  });
+});
+
+describe("untagged count", () => {
+  test("counts non-archived markdown documents with no tags", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    insertDoc(db, { path: "health/tagged.md", type: "health", updated: "2026-06-20", tags: ["knee"] });
+    insertDoc(db, { path: "health/bare.md", type: "health", updated: "2026-06-20" });
+    // Archived documents are out of the health read, as they are for staleness.
+    insertDoc(db, { path: "health/old.md", type: "health", updated: "2026-06-20", status: "archived" });
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.health.untagged).toBe(1);
+    db.close();
+  });
+});
+
+describe("embedding coverage is absent, not zero, when it cannot be known", () => {
+  test("no vec_chunks table and chunks to divide by → null", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    const id = insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(db, id, 0);
+    insertChunk(db, id, 1);
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      // A provider IS configured, so this is not the keyless short-circuit:
+      // the table is simply not there.
+      embeddingsConfigured: true,
+    });
+
+    expect(stats.chunks).toBe(2);
+    expect(stats.health.embeddingCoverage).toBeNull();
+    // The legacy field keeps its number type.
+    expect(stats.embeddings).toBe(0);
+    db.close();
+  });
+
+  test("a brain that neither embeds nor holds vectors → null, not 0%", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    const id = insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(db, id, 0);
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      embeddingsConfigured: false,
+    });
+
+    expect(stats.health.embeddingCoverage).toBeNull();
+    db.close();
+  });
+
+  test("a corpus with no links has no broken-link rate", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.links).toBe(0);
+    expect(stats.health.brokenLinkRate).toBeNull();
+    db.close();
+  });
+});
+
+describe("size figures", () => {
+  test("the corpus walk honours configured excludes", async () => {
+    const root = tempDir();
+    mkdirSync(join(root, "notes"), { recursive: true });
+    mkdirSync(join(root, "attic"), { recursive: true });
+    mkdirSync(join(root, "logs"), { recursive: true });
+    mkdirSync(join(root, "node_modules"), { recursive: true });
+    writeFileSync(join(root, "notes/keep.md"), "x".repeat(100));
+    writeFileSync(join(root, "attic/dropped.md"), "y".repeat(1000));
+    writeFileSync(join(root, "logs/dropped.md"), "z".repeat(1000));
+    writeFileSync(join(root, "node_modules/dropped.md"), "w".repeat(1000));
+
+    const db = openDatabase(":memory:");
+    // `attic` is a user exclude; `logs` and `node_modules` are core defaults.
+    const taxonomy = buildTaxonomy({
+      user: brainConfigSchema.parse({ exclude: { dirs: ["attic"] } }),
+    });
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: join(root, "brain.db"),
+      taxonomy,
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.size.corpus.files).toBe(1);
+    expect(stats.size.corpus.bytes).toBe(100);
+    db.close();
+  });
+
+  test("brain.db and its journal sidecars are the index, not the corpus", async () => {
+    const root = tempDir();
+    const dbPath = join(root, "brain.db");
+    const db = openDatabase(dbPath);
+    insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    writeFileSync(join(root, "keep.md"), "x".repeat(42));
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath,
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.size.corpus.files).toBe(1);
+    expect(stats.size.corpus.bytes).toBe(42);
+    // A rebuild-cost figure: the index is disposable, and its size says what
+    // regenerating it buys back, not that it holds anything authoritative.
+    expect(stats.size.db.bytes).toBeGreaterThan(0);
+    expect(stats.size.db.tables.documents).toBe(1);
+    db.close();
+  });
+
+  test("a database with no file behind it reports its size as absent", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+    });
+
+    expect(stats.size.db.bytes).toBeNull();
+    db.close();
+  });
+
+  test("free space is absent, not 0, when the platform call fails", async () => {
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      statfs: () => {
+        throw new Error("statfs unavailable on this platform");
+      },
+    });
+
+    // The command still produced every other figure.
+    expect(stats.size.freeBytes).toBeNull();
+    expect(stats.documents).toBe(0);
+    db.close();
+  });
+
+  test("freeSpaceBytes rejects a nonsensical answer rather than reporting it", () => {
+    expect(freeSpaceBytes("/", () => ({ bavail: -1, bsize: 4096 }))).toBeNull();
+    expect(freeSpaceBytes("/", () => ({ bavail: 10n, bsize: 4096n }))).toBe(40960);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The one piece of new configuration
+// ---------------------------------------------------------------------------
+
+describe("the stats config block", () => {
+  test("validates, and an unknown key inside it is rejected", () => {
+    expect(brainConfigSchema.safeParse({ stats: { coverageFloor: 0.5 } }).success).toBe(true);
+    expect(
+      brainConfigSchema.safeParse({ stats: { coverageFloor: 0.5, brokenLinkCeiling: 0.2 } }).success
+    ).toBe(true);
+    // .strict() — a typo must not be silently ignored.
+    expect(brainConfigSchema.safeParse({ stats: { coverageFlor: 0.5 } }).success).toBe(false);
+    // Ratios, not percentages.
+    expect(brainConfigSchema.safeParse({ stats: { coverageFloor: 90 } }).success).toBe(false);
+    expect(brainConfigSchema.safeParse({ stats: { brokenLinkCeiling: -0.1 } }).success).toBe(false);
+  });
+
+  test("the documented defaults apply when the block is missing", () => {
+    expect(resolveStatsThresholds(null)).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(resolveStatsThresholds(brainConfigSchema.parse({}))).toEqual(DEFAULT_STATS_THRESHOLDS);
+  });
+
+  test("a configured level overrides only itself", async () => {
+    const config = brainConfigSchema.parse({ stats: { coverageFloor: 0.5 } });
+    expect(resolveStatsThresholds(config)).toEqual({
+      coverageFloor: 0.5,
+      brokenLinkCeiling: DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling,
+    });
+
+    const root = tempDir();
+    const db = openDatabase(":memory:");
+    const stats = await collectStats(db, {
+      root,
+      dbPath: ":memory:",
+      taxonomy: taxonomyWith(),
+      config,
+      now: NOW,
+    });
+    expect(stats.health.thresholds.coverageFloor).toBe(0.5);
+    expect(stats.health.thresholds.brokenLinkCeiling).toBe(
+      DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling
+    );
+    db.close();
+  });
+});
