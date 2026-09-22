@@ -250,6 +250,14 @@ describe("remembered grants under an enforced allowlist", () => {
  * log records, which need a recording observability.
  */
 describe("a refused always-allow is recorded", () => {
+  // Closed here rather than at the end of each body: a failing assertion
+  // would otherwise leak the host and its db into the rest of the file.
+  let close: (() => void) | null = null;
+  afterEach(() => {
+    close?.();
+    close = null;
+  });
+
   function setup(initial: string[] = []) {
     const db = createUiDb(":memory:");
     const observability = createRecordingObservability();
@@ -264,7 +272,11 @@ describe("a refused always-allow is recorded", () => {
         add: (name) => grants.add(name),
       },
     });
-    return { db, host, observability, controls, grants };
+    close = () => {
+      host.close();
+      db.close();
+    };
+    return { host, observability, controls, grants };
   }
 
   async function openTurn(host: WsHost, controls: TurnControl[]) {
@@ -280,7 +292,7 @@ describe("a refused always-allow is recorded", () => {
   }
 
   test("refusing to remember an enforced-posture grant emits a record", async () => {
-    const { db, host, observability, controls, grants } = setup();
+    const { host, observability, controls, grants } = setup();
     const client = await openTurn(host, controls);
 
     let decision: PermissionDecision | null = null;
@@ -320,12 +332,10 @@ describe("a refused always-allow is recorded", () => {
     expect(records[0]!.attributes.reason).toBe("outside this turn's enforced allowlist");
 
     controls[0]!.finish();
-    host.close();
-    db.close();
   });
 
   test("a kind 'command' always from a tampering client is recorded too", async () => {
-    const { db, host, observability, controls, grants } = setup();
+    const { host, observability, controls, grants } = setup();
     const client = await openTurn(host, controls);
 
     let decision: PermissionDecision | null = null;
@@ -356,12 +366,10 @@ describe("a refused always-allow is recorded", () => {
     expect(records[0]!.attributes.reason).toBe("per-use confirmation");
 
     controls[0]!.finish();
-    host.close();
-    db.close();
   });
 
   test("an always the host DOES honour emits no such record", async () => {
-    const { db, host, observability, controls, grants } = setup();
+    const { host, observability, controls, grants } = setup();
     const client = await openTurn(host, controls);
 
     let decision: PermissionDecision | null = null;
@@ -389,7 +397,5 @@ describe("a refused always-allow is recorded", () => {
     ).toHaveLength(0);
 
     controls[0]!.finish();
-    host.close();
-    db.close();
   });
 });
