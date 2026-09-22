@@ -6,7 +6,7 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
-import { rmSync } from "fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
@@ -183,23 +183,47 @@ export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
 }
 
 /**
- * Drop local changes to the derived caches, tracked or not, and return their
- * paths. Only safe ahead of a reindex, which rebuilds them from brain.db.
+ * Set local changes to the derived caches aside so a merge can touch them, and
+ * return what this clone had in each. Hooks off: restoring a file fires
+ * post-checkout, whose reindex can rewrite the cache straight back.
  */
-function restoreDerivedCaches(root: string): string[] {
-  const dirty = classifyPostSyncDirt(workingTreeDirt(root)).caches;
-  for (const file of dirty) {
-    const tracked = git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0;
-    // Hooks off: restoring a file fires post-checkout, whose reindex can
-    // rewrite the cache straight back.
-    if (tracked) {
+function setDerivedCachesAside(root: string): Map<string, string> {
+  const aside = new Map<string, string>();
+  for (const file of classifyPostSyncDirt(workingTreeDirt(root)).caches) {
+    const path = resolve(root, file);
+    aside.set(file, existsSync(path) ? readFileSync(path, "utf-8") : "");
+    if (git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0) {
       git(root, ["-c", "core.hooksPath=/dev/null", "restore", "--source=HEAD", "--staged", "--worktree", "--", file]);
     } else {
       git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
-      rmSync(resolve(root, file), { force: true });
+      rmSync(path, { force: true });
     }
   }
-  return dirty;
+  return aside;
+}
+
+/**
+ * Union this clone's entries back into each cache the merge left behind. The
+ * merged copy wins a shared key. An entry only this clone has may belong to a
+ * chunk the merge re-chunks, and the reindex can recover it only from the file.
+ */
+function unionDerivedCaches(root: string, aside: Map<string, string>): void {
+  for (const [file, ours] of aside) {
+    const path = resolve(root, file);
+    const merged = existsSync(path) ? readFileSync(path, "utf-8") : "";
+    const byKey = new Map<string, string>();
+    for (const line of `${merged}\n${ours}`.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const { k } = JSON.parse(line) as { k?: unknown };
+        if (typeof k === "string" && !byKey.has(k)) byKey.set(k, line);
+      } catch {
+        // skip malformed line
+      }
+    }
+    const lines = [...byKey.values()].sort();
+    writeFileSync(path, lines.length ? lines.join("\n") + "\n" : "", "utf-8");
+  }
 }
 
 /**
@@ -211,7 +235,11 @@ export function commitDerivedCaches(root: string, caches: string[], branch: stri
   if (branch !== "main") return `skipped — not on main (${branch})`;
   // Stage and commit by explicit path. `--only` builds the commit from HEAD
   // plus these paths, so anything already staged stays staged and out of it.
-  const staged = git(root, ["add", "--", ...caches]);
+  // A deletion already staged has nothing left to add, and `add` would fail.
+  const stageable = caches.filter(
+    (file) => existsSync(resolve(root, file)) || git(root, ["ls-files", "--error-unmatch", "--", file]).code === 0
+  );
+  const staged = stageable.length > 0 ? git(root, ["add", "--", ...stageable]) : { code: 0, stderr: "" };
   if (staged.code !== 0) return `FAILED to stage — ${staged.stderr}`;
   const committed = git(root, ["commit", "--only", "-m", "Refresh derived index caches", "--", ...caches]);
   if (committed.code !== 0) return `FAILED to commit — ${committed.stderr || committed.stdout}`;
@@ -349,9 +377,9 @@ export const syncCommand: CoreCommand = {
 
         // A cache this clone's reindex rewrote blocks a merge that touches it,
         // and post-sync pushes caches, so the other clone's commit usually does.
-        // Take the remote copy: the reindex after the pull rebuilds the file
-        // from brain.db, so nothing in it is lost.
-        const restoredCaches = remoteAhead > 0 ? restoreDerivedCaches(root) : [];
+        // Set it aside for the merge and union it back after.
+        const aside = remoteAhead > 0 ? setDerivedCachesAside(root) : new Map<string, string>();
+        const mergedCaches = [...aside.keys()];
 
         let status: string;
         let conflicts: string[] = [];
@@ -366,12 +394,14 @@ export const syncCommand: CoreCommand = {
           conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
         }
 
-        emit(cli.json, { status, localAhead, remoteAhead, conflicts, restoredCaches }, () => {
+        unionDerivedCaches(root, aside);
+
+        emit(cli.json, { status, localAhead, remoteAhead, conflicts, mergedCaches }, () => {
           console.log(`LOCAL_AHEAD=${localAhead}`);
           console.log(`REMOTE_AHEAD=${remoteAhead}`);
           console.log(`STATUS=${status}`);
           for (const c of conflicts) console.log(`CONFLICT=${c}`);
-          for (const c of restoredCaches) console.log(`RESTORED_CACHE=${c}`);
+          for (const c of mergedCaches) console.log(`MERGED_CACHE=${c}`);
         });
         return status === "merge-failed" ? 1 : 0;
       }

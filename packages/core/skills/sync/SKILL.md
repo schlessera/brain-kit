@@ -54,7 +54,7 @@ Outputs `STATUS\tCLASS\tPATH` for every changed/untracked file. Handle each clas
 - **SENSITIVE** — ensure it's gitignored; if not, add it to `.gitignore`, commit, and warn the user.
 - **DERIVED** — leave it alone. These are the sidecar caches; the Phase 5 reindex rewrites them
   and `post-sync` commits them itself. Committing one here just banks a stale copy that the
-  reindex immediately supersedes, and `pull` discards a local change to one before merging.
+  reindex immediately supersedes, and `pull` merges a local change to one itself.
 - **UNKNOWN** — read the file. Generated output / test fixture / temp data → treat as ARTIFACT;
   otherwise TRACK.
 
@@ -89,9 +89,10 @@ brain sync pull
 - `STATUS=conflicted` → Phase 4.
 - `STATUS=fetch-failed` → warn the user (network?) and stop.
 
-When the remote has new commits, `pull` first drops local changes to the derived caches and
-reports each as `RESTORED_CACHE=<path>`. That is expected: the Phase 5 reindex rebuilds them from
-`brain.db`, so nothing is lost.
+When the remote has new commits, `pull` sets local changes to the derived caches aside for the
+merge, unions this clone's entries back into the merged copy, and reports each as
+`MERGED_CACHE=<path>`. The cache is dirty again afterwards; that is expected, and `post-sync`
+commits it.
 
 ## Phase 4 — Knowledge-aware conflict resolution
 

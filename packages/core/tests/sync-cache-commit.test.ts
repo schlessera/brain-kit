@@ -96,6 +96,15 @@ describe("commitDerivedCaches", () => {
     expect(git(root, "diff", "--name-only")).toContain("notes.md");
   });
 
+  test("a cache deletion that is already staged is committed, not a staging failure", () => {
+    const { root } = fixture();
+    git(root, "rm", "-qf", CACHE);
+    const outcome = commitDerivedCaches(root, [CACHE], "main");
+    expect(outcome).toBe(`committed + pushed (${CACHE})`);
+    expect(git(root, "show", "--name-status", "--format=", "HEAD")).toBe(`D\t${CACHE}`);
+    expectUnrelatedUntouched(root);
+  });
+
   test("off main nothing is staged or committed", () => {
     const { root } = fixture();
     const head = git(root, "rev-parse", "HEAD");
@@ -130,7 +139,7 @@ describe("sync pull with a locally rewritten cache", () => {
 
   for (const [ahead, hooked] of [[false, false], [true, false], [false, true]] as const) {
     const name = `${ahead ? "merge" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
-    test(`does not fail the ${name}; the cache takes the remote copy`, async () => {
+    test(`does not fail the ${name}; the cache keeps both clones' entries`, async () => {
       // Another clone's post-sync pushed its cache while this clone's reindex
       // rewrote the same file. `ahead` adds a local content commit, so the
       // pull has to merge rather than fast-forward.
@@ -162,9 +171,11 @@ describe("sync pull with a locally rewritten cache", () => {
       const body = JSON.parse(result.stdout);
       expect(body.status).toBe(ahead ? "merged" : "fast-forwarded");
       expect(body.conflicts).toEqual([]);
-      expect(body.restoredCaches).toEqual([CACHE]);
+      expect(body.mergedCaches).toEqual([CACHE]);
       expect(result.code).toBe(0);
-      expect(await Bun.file(join(root, CACHE)).text()).toBe(theirs);
+      // Both clones' entries survive: the merge can re-chunk a document whose
+      // context only this clone generated, and the file is where it comes back from.
+      expect(await Bun.file(join(root, CACHE)).text()).toBe(OURS + theirs);
     });
   }
 
@@ -174,7 +185,7 @@ describe("sync pull with a locally rewritten cache", () => {
 
     const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
     expect(body.status).toBe("synced");
-    expect(body.restoredCaches).toEqual([]);
+    expect(body.mergedCaches).toEqual([]);
     expect(await Bun.file(join(root, CACHE)).text()).toBe(OURS);
   });
 });
