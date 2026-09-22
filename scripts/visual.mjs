@@ -32,6 +32,7 @@
  *   node scripts/visual.mjs                    # both projects, in the container
  *   node scripts/visual.mjs --project=visual   # one project
  *   node scripts/visual.mjs --update           # rewrite the baselines
+ *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
  */
 import { spawnSync } from "node:child_process";
@@ -49,6 +50,7 @@ const argv = process.argv.slice(2);
 const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArg = argv.find((a) => a.startsWith("--project="));
+const shardArg = argv.find((a) => a.startsWith("--shard="));
 // Three projects: every story on dark, every story on paper (D32), and the
 // curated visual baselines in both themes.
 const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual"];
@@ -62,14 +64,15 @@ function run(command, args, options = {}) {
 if (inside) {
   // Already in the image. Vitest is invoked through its own entry rather than
   // through a package script, because a package script would need bun.
+  //
+  // One call for every project, not one per project: vitest then spreads the
+  // files of all three over every core, where a project at a time left cores
+  // idle. `--shard` splits that combined file list, so no shard runs empty.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
-  for (const project of projects) {
-    const args = ["run", `--project=${project}`];
-    if (update) args.push("--update");
-    const status = run(process.execPath, [vitest, ...args], { cwd: resolve(REPO, KIT) });
-    if (status !== 0) process.exit(status);
-  }
-  process.exit(0);
+  const args = ["run", ...projects.map((project) => `--project=${project}`)];
+  if (update) args.push("--update");
+  if (shardArg) args.push(shardArg);
+  process.exit(run(process.execPath, [vitest, ...args], { cwd: resolve(REPO, KIT) }));
 }
 
 // Local. `--ipc=host` because Chromium's default 64MB /dev/shm makes it crash
