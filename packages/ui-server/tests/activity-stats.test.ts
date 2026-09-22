@@ -221,6 +221,58 @@ describe("runtime stats: retention labelling", () => {
   });
 });
 
+describe("runtime stats: the window's upper bound", () => {
+  test("a run dated after `until` is excluded — a corrected clock cannot inflate the figures", () => {
+    const { db, store } = fresh(rates);
+    finishedRun(store, "real", {
+      startedAt: NOW - 2 * DAY,
+      endedAt: NOW - 2 * DAY + 1000,
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 100_000 } }, // $0.30
+      usage: { inputTokens: 100_000, costUsd: 0.5 },
+    });
+    // A clock corrected backwards leaves rows ahead of `now`. They are not
+    // in [since, until] and must not be summed.
+    finishedRun(store, "from-the-future", {
+      startedAt: NOW + 5 * DAY,
+      endedAt: NOW + 5 * DAY + 1000,
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 900_000 } },
+      usage: { inputTokens: 900_000, costUsd: 9.0 },
+    });
+
+    const w = computeRuntimeStats(db, { days: 30, now: NOW }).window;
+    expect(w.runs).toBe(1);
+    expect(w.inputTokens).toBe(100_000);
+    expect(w.costUsd).toBeCloseTo(0.5, 10);
+    expect(w.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(w.recordedSince).toBe(NOW - 2 * DAY);
+    expect(w.coveredDays).toBeCloseTo(2, 10);
+    db.close();
+  });
+
+  test("a record made entirely of future rows reads as empty, not as a one-day burn", () => {
+    const { db, store } = fresh(rates);
+    finishedRun(store, "future-only", {
+      startedAt: NOW + DAY,
+      endedAt: NOW + DAY + 1000,
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 100_000 } },
+      usage: { costUsd: 5.0 },
+    });
+    const w = computeRuntimeStats(db, { days: 30, now: NOW }).window;
+    expect(w.runs).toBe(0);
+    expect(w.costUsd).toBe(0);
+    // recordedSince past `until` would have collapsed coveredDays to 1 and
+    // reported the whole sum as a daily rate.
+    expect(w.recordedSince).toBeNull();
+    expect(w.coveredDays).toBe(0);
+    expect(w.averages.runsPerDay).toBeNull();
+    expect(w.averages.costUsdPerDay).toBeNull();
+    db.close();
+  });
+});
+
 describe("runtime stats: unpriced runs (AE3)", () => {
   test("an unpriced run is counted, excluded from the effective sum, and voids the effective averages", () => {
     const { db, store } = fresh(rates);

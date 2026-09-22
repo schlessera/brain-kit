@@ -178,15 +178,17 @@ Rules a consumer may rely on:
 
 - **Every figure is labelled with what it covers.** `lifetime` is read from
   the never-pruned session catalog; `window` from the run rollups, over
-  exactly `[since, until]`. The two do not agree and are not meant to: the
-  catalog predates the activity record, and the two count different things.
+  exactly `[since, until]` — a closed interval whose upper end is enforced, so
+  a run dated after `until` (a clock corrected backwards leaves such rows) is
+  not summed. The two do not agree and are not meant to: the catalog predates
+  the activity record, and the two count different things.
 - **The window says how much of itself it can vouch for.** Rollup rows
   outlive detail pruning, so the sums are complete back to `recordedSince`
-  (the oldest run in the record) — and no further; `coveredDays` is the span
-  the per-day averages divide by. `detailRetention.cutoffAt` is where
-  drill-in detail stops, `insideWindow` says whether that boundary falls
-  inside the window, and `detailPrunedRuns` counts the runs in it that are
-  already rollup-only. Say "detail older than N days is pruned"; do not
+  (the oldest run in the record at or before `until`) — and no further;
+  `coveredDays` is the span the per-day averages divide by.
+  `detailRetention.cutoffAt` is where drill-in detail stops, `insideWindow`
+  says whether that boundary falls inside the window, and `detailPrunedRuns`
+  counts the runs in it that are already rollup-only. Say "detail older than N days is pruned"; do not
   present a window as a total.
 - **Unknown never reads as $0.** Cost sums are sums of known values with the
   excluded count in `unpricedRuns`, as everywhere else. Every average is

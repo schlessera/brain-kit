@@ -94,16 +94,25 @@ function windowFromRollups(
   now: number
 ): ActivityRuntimeStats["window"] {
   const since = now - days * DAY_MS;
-  // The same fold the query_activity `rollups` scope uses, over the same
-  // predicate — one definition of "what a window adds up to".
+  // `[since, until]` is a CLOSED interval, and the upper end is enforced
+  // rather than assumed: a clock corrected backwards leaves rows dated
+  // ahead of `now`, and counting those would both inflate the sums and —
+  // through a `recordedSince` past `until` — collapse `coveredDays` to 1,
+  // turning a day's spend into the reported daily rate. Runs are summed
+  // through the same fold the query_activity `rollups` scope uses, so a
+  // window adds up the same way wherever it is asked for.
   const rows = (
-    db.query("SELECT * FROM activity_run_rollups WHERE started_at >= ?").all(since) as any[]
+    db
+      .query("SELECT * FROM activity_run_rollups WHERE started_at >= ? AND started_at <= ?")
+      .all(since, now) as any[]
   ).map(rowToRunRollup);
   const summary = summarizeRollups(rows);
 
+  // Bounded by `now` for the same reason: the record starts where its oldest
+  // run that has actually happened starts.
   const oldest = db
-    .query("SELECT MIN(started_at) AS recordedSince FROM activity_run_rollups")
-    .get() as { recordedSince: number | null };
+    .query("SELECT MIN(started_at) AS recordedSince FROM activity_run_rollups WHERE started_at <= ?")
+    .get(now) as { recordedSince: number | null };
   const recordedSince = oldest.recordedSince;
   // A window reaching past the start of the record covers only the days the
   // record can vouch for; a record younger than a day is averaged over one.

@@ -1556,14 +1556,18 @@ export interface ActivityRuntimeStats {
     scope: "window";
     /** The requested window length. */
     days: number;
-    /** Runs with `startedAt >= since` are summed; `until` is `generatedAt`. */
+    /**
+     * `[since, until]` is closed and both ends are enforced: a run dated
+     * after `until` — a clock corrected backwards leaves such rows — is not
+     * summed and does not move `recordedSince`. `until` is `generatedAt`.
+     */
     since: number;
     until: number;
     /**
-     * The oldest run in the record, regardless of the window; null when the
-     * record is empty. Rollups outlive detail pruning, so the sums are
-     * complete back to here — but no further, and a window reaching past it
-     * covers fewer days than it asked for.
+     * The oldest run in the record at or before `until`, regardless of the
+     * window; null when the record holds none. Rollups outlive detail
+     * pruning, so the sums are complete back to here — but no further, and a
+     * window reaching past it covers fewer days than it asked for.
      */
     recordedSince: number | null;
     /**
