@@ -72,8 +72,8 @@ needs an API key or the network.
    prove it against the interface's contract test, and optionally publish as
    `brain-<kind>-<vendor>` under your own npm scope (matching the in-tree
    `brain-backend-claude` / `brain-render-puppeteer` / `brain-module-jobs`
-   precedent). Community providers are only promoted to
-   built-ins once they have real users.
+   precedent). Promotion to a built-in has its own bar, written in
+   [`docs/extending/README.md`](docs/extending/README.md#promoting-a-community-provider-to-a-built-in).
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.
 5. **No personal data** in fixtures or examples — the CI leakage gate will

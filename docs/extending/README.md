@@ -24,8 +24,9 @@ discovery. Concretely:
 3. **Sharing is an ordinary package.** Publish your implementation as
    `brain-<kind>-<vendor>` under your own npm scope (e.g.
    `brain-embeddings-ollama`) and other people `import` and pass it the same
-   way. Third parties never touch the
-   registry; graduating a community implementation to a built-in is one PR.
+   way. Third parties never touch the registry. Graduating a community
+   implementation to a built-in is one PR, once it clears
+   [the promotion bar](#promoting-a-community-provider-to-a-built-in).
 
 ```ts
 import { ollamaEmbeddings } from "brain-embeddings-ollama";
@@ -109,6 +110,158 @@ thing that decides how it is served. Contract:
 Note the split: **modules** contribute content-domain things (types, skills, CLI
 words — see [modules.md](../modules.md)); **provider seams** are infrastructure.
 They are separate mechanisms. A module never contributes an embedding provider.
+
+## Promoting a community provider to a built-in
+
+A built-in is a string name in a registry: `{ provider: "gemini" }` instead of
+`{ provider: geminiEmbeddings() }`. That is all a user gains from promotion.
+It is not all the maintainer takes on, which is why the bar is written down
+here, before there is a candidate, rather than negotiated with one.
+
+Nothing has been promoted. Every name a seam resolves today resolves to
+first-party code: `EMBEDDING_PROVIDERS`, `COMPLETION_PROVIDERS` and
+`AGENT_RUNNERS` in `packages/core/src/lib/registry.ts`, `BUILTIN_EMITTERS` in
+`packages/core/src/lib/skills/index.ts`, the `FIRST_PARTY_BACKENDS` table in
+`packages/ui-server/src/agent/backend.ts`, and — the same thing written by hand
+rather than as a registry — the two `VOICE_PROVIDER` names `pickSpeechProvider`
+accepts in `packages/ui-server/src/voice/speech-providers.ts`.
+
+Promotion is therefore only a question for some of the seams. The two client
+seams are not in it: a `ToolRenderer` pack and an `AsrClient` are registered by
+the app that bundles them, through `registerToolRenderers` and
+`registerAsrClient` — public API a community pack calls exactly as a
+first-party one does — so there is no registry to join and a registry entry
+would add nothing. `SpeechProvider` is the other exception, for the opposite
+reason: `pickSpeechProvider` resolves `VOICE_PROVIDER` and takes no passed-in
+value, so a community speech provider has no by-value path to be promoted
+*from*. Giving it one is a seam change, decided on its own before promotion is
+a question — see item 7 below.
+
+### What promotion costs
+
+Promotion moves the code under this repository's maintenance, and the
+maintainer is one person. A promoted provider becomes:
+
+- **Code the maintainer maintains.** Its vendor's API deprecations, its SDK's
+  breaking releases and its bug reports are this project's problem, including
+  at 2am.
+- **Part of everyone's install.** A core-seam built-in ships inside
+  `@schlessera/brain` — the providers under `packages/core/src/providers/`, the
+  skill emitters under `packages/core/src/lib/skills/emitters/`. They keep
+  their footprint small on purpose: the Anthropic
+  completions provider calls the Messages API over plain `fetch`, the agent
+  runners spawn a CLI, and the two Gemini providers load `@google/genai`
+  lazily as an optional peer dependency of core
+  (`packages/core/package.json`), so a brain that never selects them never
+  installs it. A promoted provider is held to the same shape, and whatever it
+  does depend on becomes core's dependency to keep patched.
+- **A package that versions in lockstep.** A backend is its own package,
+  `@schlessera/brain-backend-<vendor>`: an optional `*`-ranged peer of
+  `@schlessera/brain-ui-server`, an entry in `FIRST_PARTY_BACKENDS` with its
+  own profile plumbing in `packages/ui-server/src/config/env.ts`, a line in
+  `scripts/publish.ts` and `scripts/build.ts` in dependency order, a member of
+  the changesets `fixed` group, and a row in every enumeration
+  `tests/release-manifest.test.ts` asserts. It then ships in every release,
+  changed or not.
+- **A config-visible name.** Once a string resolves, taking it away breaks
+  every config that names it. Until 1.0 that is a minor-version event announced
+  in the CHANGELOG ([integration-contract.md](../integration-contract.md#extension-interfaces));
+  after 1.0 it is a major.
+- **Documented surface.** A row in the seam's "Built-ins" table in this
+  directory, an entry under the config key in
+  [configuration.md](../configuration.md), and the same leakage and
+  invisible-character gates as the rest of the tree.
+
+"It has real users" is therefore necessary and not sufficient.
+
+### The bar
+
+A provider is considered only when every item holds. The maintainer decides;
+there is no vote and no score.
+
+1. **Real users, verifiably.** People other than the author run it in their
+   brain, and that is visible somewhere public: an issue or discussion opened
+   by someone who is not the author, a public repository that depends on it, a
+   thread that names it. A download count is not evidence. It has been in use
+   across more than one brain-kit release, so it has already absorbed a seam
+   or SDK change without anyone in this repository noticing.
+2. **A maintenance commitment.** The author stays reachable, keeps answering
+   issues on the provider after it moves, and is willing to be named as its
+   contact. An author who wants to hand the code over and leave has not met
+   this bar; "If the author stops" below is why.
+3. **Keyless, deterministic tests that exercise the runtime.** They run with
+   no API key and no network, like every test in this repository. For a
+   backend that means `runBackendContract` from
+   `@schlessera/brain-ui-sdk/testing`, the harness both first-party backends
+   run. For a core seam it means driving the real provider code against an
+   isolated `fetch` or a fake binary, as `packages/core/tests/gemini-query.test.ts`
+   does, covering every method and every `capabilities` flag the provider
+   declares. A test of a predicate is not proof for anything with a runtime.
+4. **Degradation matches the seam.** A missing key, an unreachable vendor, an
+   absent optional method: each produces the degraded behaviour the seam's
+   page documents and a `warnings` entry, never a crash and never a silently
+   different result. Tier 0 stays keyless.
+5. **MIT, and nothing that cannot be redistributed under it.** The tree is
+   MIT and every publishable package carries a `LICENSE` file, which the
+   release manifest test asserts. A dependency whose licence or terms forbid
+   redistribution, or a vendor SDK that is not itself openly licensed, keeps
+   the provider in community space.
+6. **Clean under the gates.** No personal data, no raw invisible characters,
+   fixtures under the "Alex Example" persona. A provider is not given an
+   exemption from a gate; it is rewritten until it passes.
+7. **It fits the seam as it is.** A provider that needs a new method on the
+   interface, a new config key, or a new capability flag is proposing a seam
+   change, which is decided first and on its own. Promotion never carries a
+   seam change with it.
+8. **It covers something no built-in covers** — a vendor, a local runtime, an
+   agent. A variant of an existing built-in is a config value or a
+   community package, not a second registry entry.
+
+### How to ask
+
+Open a [discussion](https://github.com/schlessera/brain-kit/discussions), not
+an issue: a promotion request is a question with no work attached until it is
+accepted. Link the package, the public evidence of use, and the tests. An
+accepted request becomes an issue and one PR — the code move, the registry
+entry, the docs row, a changeset. A declined one stays a discussion, with the
+reason written in it.
+
+### What promotion does not mean
+
+- **A declined promotion is not a judgement on the provider.** By-value
+  configuration is the design, not a waiting room. A community provider
+  passed as a value is loaded by the same code as a built-in, degrades through
+  the same warnings, and is never second-class at runtime. The bar is about
+  what this repository can afford to own, and most good providers belong
+  where their author can release them on their own schedule.
+- **Promotion is not an endorsement of the vendor**, and it does not make the
+  vendor's service a dependency of brain-kit.
+- **Promotion is not a transfer of authorship.** The author keeps the credit
+  and the history; the maintainer takes on the release.
+- **Promotion is not permanent.** The next section says what ends it.
+
+### If the author stops
+
+Two cases, and they are different.
+
+**A community provider whose author stops** costs brain-kit nothing. The
+package keeps working for as long as it installs, because nothing in this
+repository ever depended on it; a fork under another scope is an ordinary npm
+event, and a user's config changes by one import line. This is why the
+extension path is by value, and why the bar asks for the maintenance
+commitment before the move rather than after it.
+
+**A promoted provider that goes unmaintained** — its SDK stops building, its
+tests can no longer be kept keyless, nobody can verify a fix — is demoted, not
+carried. Demotion is promotion in reverse: the registry entry and the docs row
+go, the code returns to a community package under the author's scope or goes
+to a contributor who wants it, and the change ships with a CHANGELOG entry
+under the rule for `@experimental` interfaces. A config that still names the
+core built-in fails when the config resolves, with the error an unknown name
+gets today — `Unknown <kind> "<name>". Available built-ins: <list>. Pass a
+custom <Interface> value instead.` — and the fix is the one-import-line change
+above. A demoted provider is not erased from history and is not barred from
+being promoted again.
 
 ## Explicitly NOT pluggable
 

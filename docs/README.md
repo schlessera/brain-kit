@@ -14,7 +14,7 @@ understand the model. The rest is reference.
 | [modules.md](modules.md) | What a module is, enabling/disabling via `/brain-module`, the three first-party modules (jobs, speaking, finance), local path modules, and authoring with `/new-module`. |
 | [cli.md](cli.md) | Command reference for the `brain` bin — all commands, key flags, and which `--json` shapes are contract-bound. |
 | [mcp.md](mcp.md) | The stdio MCP server: registration, the eight `brain_*` tools, staleness warnings, and taxonomy-generated type filters. |
-| [extending/README.md](extending/README.md) | The seam meta-mechanism (typed interface → string-or-value config → optional package) and the verbatim not-pluggable list. |
+| [extending/README.md](extending/README.md) | The seam meta-mechanism (typed interface → string-or-value config → optional package), the bar for promoting a community provider to a built-in, and the verbatim not-pluggable list. |
 | [extending/embeddings.md](extending/embeddings.md) | The `EmbeddingProvider` seam. |
 | [extending/completions.md](extending/completions.md) | The `CompletionProvider` seam. |
 | [extending/agent-runners.md](extending/agent-runners.md) | The `AgentRunner` seam. |
