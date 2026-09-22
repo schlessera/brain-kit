@@ -2671,6 +2671,18 @@ trade-off anyone would choose on purpose, and D43 found it by accident.
 registered bridge tool carries `_meta["anthropic/alwaysLoad"]`, with a
 companion test registering the same factory without the flag and asserting the
 meta is absent, so the first assertion cannot pass vacuously.
+`packages/ui-backend-claude/tests/sdk-options-mcp.test.ts` holds the same thing
+one level up, over the `mcpServers` entry `createClaudeSdkTurn` actually builds
+— the factory being right is not the same claim as the call site using it.
+
+One thing this was checked against and does not do: it introduces no new cache
+invalidation. The tools block is the first cache segment and this makes it the
+largest, so a roster that varied between turns of a session would now be
+expensive. It does not vary. `createBrainUiMcpServer` registers a tool when the
+host supplies its handler, and the handlers come from the host's own
+configuration (`packages/ui-server/src/ws/bridge.ts`) rather than from anything
+the client reports per turn, so the set a session starts with is the set it
+keeps.
 
 **Why not keep deferral.** Its case is the 7335-against-93 ratio, and the live
 run says that ratio does not reach the bill. Its second argument — that D42's
