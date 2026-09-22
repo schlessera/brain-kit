@@ -79,9 +79,14 @@ describe("the contract list is the single source", () => {
 });
 
 describe("show_block", () => {
-  test("the brief rides every turn, so it stays under fifteen lines and names every kind", () => {
+  test("the brief rides every turn, so it stays at eleven lines and names every kind", () => {
+    // D43 measured what these eleven lines buy and what they cost: 257 input
+    // tokens on every turn, against a `show_block` rate of 57% with them and
+    // 2% without, over 108 live turns. The budget is pinned at the length
+    // that was measured, not at a round number above it, so a twelfth line
+    // has to be argued for and re-measured rather than drifting in.
     const brief = SHOW_BLOCK_CONTRACT.brief("show_block");
-    expect(brief.split("\n").length).toBeLessThan(15);
+    expect(brief.split("\n").length).toBeLessThanOrEqual(11);
     for (const kind of BLOCK_KINDS) expect(brief).toContain(`\`${kind}\``);
   });
 
