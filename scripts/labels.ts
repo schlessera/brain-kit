@@ -168,12 +168,13 @@ export const META_LABELS: LabelSpec[] = [
     name: "contract",
     color: "d4c5f9",
     description:
-      "Touches the integration contract. Needs a CONTRACT: commit and a major-version discussion.",
+      "Touches the integration contract: CONTRACT: commit, contract doc updated in the same commit.",
   },
   {
     name: "breaking",
     color: "b60205",
-    description: "Breaks a published API or a documented behaviour.",
+    description:
+      "Breaks a published API or documented behaviour. Needs a maintainer ruling before code.",
   },
   {
     name: "security",

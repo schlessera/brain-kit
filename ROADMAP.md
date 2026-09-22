@@ -75,7 +75,8 @@ when it was made — not a preference.
 4. **The machine surface is a versioned contract.** CLI `--json` shapes, MCP
    tool names and schemas, `schema_version`, and frontmatter semantics are
    covered by [docs/integration-contract.md](docs/integration-contract.md).
-   Breaking one needs a `CONTRACT:` commit prefix and a major bump.
+   Changing one needs a `CONTRACT:` commit prefix; breaking one needs a
+   maintainer ruling first, and from 1.0 a major bump.
 5. **Fail closed on exposure.** A publicly reachable chat UI without auth
    refuses to boot, the renderer is denied every egress channel, and
    `brain doctor` warns loudly on a public content remote.

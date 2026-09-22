@@ -60,9 +60,9 @@ search runs full-text-only. Degraded modes are reported through the existing
 ### Stability
 
 All seams are marked `@experimental` until 1.0. Breaking changes to a seam are
-announced in the CHANGELOG; a breaking change to the stable contract requires a
-`CONTRACT:` commit prefix and a major version bump. See
-[integration-contract.md](../integration-contract.md).
+announced in the CHANGELOG; a change to the stable contract requires a
+`CONTRACT:` commit prefix, and a breaking one a maintainer ruling first (a major
+version bump from 1.0). See [integration-contract.md](../integration-contract.md).
 
 ## The seams
 
