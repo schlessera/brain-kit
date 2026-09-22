@@ -355,3 +355,71 @@ test("the hook does not decide by parsing bun's output", () => {
   expect(code).not.toContain("0 test files matching");
   expect(code).not.toContain("No tests found");
 });
+
+/**
+ * `brain init --check`'s `config.initialized` is what /brain-init branches on.
+ * It has to distinguish the template's starter config — a teaching file with
+ * every field commented out, which parses to `{}` — from a brain somebody has
+ * actually configured. Testing the file's existence instead sent every new
+ * user into amend mode (#74).
+ */
+test("init --check reports the template's empty starter config as not initialized", async () => {
+  const root = tempBrain({ empty: true });
+  // Byte-for-byte what template/brain.config.ts amounts to once parsed.
+  writeFileSync(
+    join(root, "brain.config.ts"),
+    'import { defineConfig } from "@schlessera/brain";\n\nexport default defineConfig({\n  // profile: { name: "Your Name" },\n});\n'
+  );
+  const { stdout, code } = await runCli(root, ["init", "--check", "--json"]);
+  expect(code).toBe(0);
+  const p = JSON.parse(stdout);
+  expect(p.config.exists).toBe(true);
+  expect(p.config.valid).toBe(true);
+  expect(p.config.initialized).toBe(false);
+});
+
+test("init --check reports a configured brain as initialized", async () => {
+  // The fixture corpus is a fully personalized brain: profile, custom types.
+  const { stdout, code } = await runCli(tempBrain(), ["init", "--check", "--json"]);
+  expect(code).toBe(0);
+  const p = JSON.parse(stdout);
+  expect(p.config.exists).toBe(true);
+  expect(p.config.initialized).toBe(true);
+});
+
+test("init --check reports one declared key as enough to be initialized", async () => {
+  // Not a list of fields that count: anything the user declared counts, so the
+  // next field added to the schema needs no change here.
+  const root = tempBrain({ empty: true });
+  writeFileSync(join(root, "brain.config.json"), JSON.stringify({ profile: { name: "A" } }));
+  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  expect(p.config.initialized).toBe(true);
+});
+
+test("init --check reports no config at all as neither existing nor initialized", async () => {
+  const root = tempBrain({ empty: true });
+  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  expect(p.config.exists).toBe(false);
+  expect(p.config.initialized).toBe(false);
+});
+
+test("init --check reports a broken config as existing, invalid and not initialized", async () => {
+  const root = tempBrain({ empty: true });
+  writeFileSync(join(root, "brain.config.json"), JSON.stringify({ taxonomy: { types: 7 } }));
+  const p = JSON.parse((await runCli(root, ["init", "--check", "--json"])).stdout);
+  expect(p.config.exists).toBe(true);
+  expect(p.config.valid).toBe(false);
+  expect(p.config.initialized).toBe(false);
+  expect(typeof p.config.error).toBe("string");
+});
+
+test("the brain-init skill branches on initialized, not on the config file existing", () => {
+  // The skill is the only consumer of this field, and the bug was one word in
+  // it. Prose drifts; this does not.
+  const skill = readFileSync(
+    join(import.meta.dir, "../skills/brain-init/SKILL.md"),
+    "utf8"
+  );
+  expect(skill).toContain("config.initialized");
+  expect(skill).toContain("never on `config.exists`");
+});

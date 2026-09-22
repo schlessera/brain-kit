@@ -75,9 +75,12 @@ this is an uninitialized brain and points at the first step. Run:
 6. **Handoff** — it points you at `/brain-import` (if you mentioned existing
    notes), `/brain-host`, and demonstrates a `brain add` capture.
 
-If a `brain.config.ts` already exists, `/brain-init` switches to **amend mode**
-— it offers to add a domain or regenerate sections instead of starting over. It
-never overwrites files that hold your content.
+If your brain has already been through this — its config declares a profile, a
+taxonomy or a module — `/brain-init` switches to **amend mode**, and offers to
+add a domain or regenerate sections instead of starting over. The starter
+`brain.config.ts` the template ships does not count: it declares nothing, so a
+brand-new brain gets the full interview. Either way it never overwrites files
+that hold your content.
 
 ## 4. First capture and first search
 

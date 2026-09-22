@@ -5,7 +5,7 @@ import { readEnvVar } from "../../config/env.js";
 import { openDatabase } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { validate } from "../../lib/validate.js";
-import { CORE_TYPES } from "../../lib/config.js";
+import { CORE_TYPES, isPersonalized } from "../../lib/config.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, today, UsageError } from "../io.js";
 
@@ -43,11 +43,26 @@ function preflight(cli: CliContext): Record<string, unknown> {
   const present = dirs.filter((d) => existsSync(resolve(root, d)));
   const missing = dirs.filter((d) => !existsSync(resolve(root, d)));
 
+  // `initialized` is the field the /brain-init skill branches on, and it is
+  // deliberately not `exists`: the template ships a brain.config.ts with every
+  // field commented out, so a brand-new brain has a config file that says
+  // nothing. See isPersonalized.
   const config = cli.configError
-    ? { exists: true, valid: false, path: cli.brain.configPath, error: cli.configError }
+    ? {
+        exists: true,
+        valid: false,
+        initialized: false,
+        path: cli.brain.configPath,
+        error: cli.configError,
+      }
     : cli.brain.config
-      ? { exists: true, valid: true, path: cli.brain.configPath }
-      : { exists: false, valid: false, path: null };
+      ? {
+          exists: true,
+          valid: true,
+          initialized: isPersonalized(cli.brain.config),
+          path: cli.brain.configPath,
+        }
+      : { exists: false, valid: false, initialized: false, path: null };
 
   return {
     bun: { version: process.versions.bun ?? null, ok: !!process.versions.bun },
@@ -166,7 +181,7 @@ export const initCommand: CoreCommand = {
       const result = await initDefault(cli);
       emit(cli.json, result, () => {
         console.log("brain init --default complete:");
-        console.log(`  created: ${(result.created as string[]).join(", ") || "(nothing — already initialized)"}`);
+        console.log(`  created: ${(result.created as string[]).join(", ") || "(nothing — everything was already in place)"}`);
         const idx = result.indexed as { total: number };
         console.log(`  indexed: ${idx.total} document(s)`);
         const v = result.validation as { errors: number; warnings: number };

@@ -283,11 +283,35 @@ export function resolveRoot(explicit?: string): string {
 }
 
 export interface LoadedConfig {
-  /** null when no config file exists (uninitialized brain). */
+  /** null when no config file exists. Not the same as uninitialized — see `isPersonalized`. */
   config: BrainConfig | null;
   /** Absolute path of the loaded file, or null. */
   path: string | null;
   source: "ts" | "json" | null;
+}
+
+/**
+ * Has anyone said anything about THIS brain, or is the config still the empty
+ * starter the template ships?
+ *
+ * The template's `brain.config.ts` is a teaching file: every field is
+ * commented out, so it parses to `{}`. Testing for the file's existence
+ * therefore reported every brand-new brain as already set up, and
+ * `/brain-init` took its amend-mode branch on a brain that had never been
+ * through the interview (#74).
+ *
+ * The test is "declares any key at all" rather than a list of the fields that
+ * count. A list would have to be extended every time the schema grows, and the
+ * failure of forgetting is silent — a personalized brain read as pristine.
+ * Nothing in the schema carries a zod default, so an empty config parses to an
+ * empty object and this stays true.
+ *
+ * Note what it does NOT mean: `brain init --default` writes core defaults and
+ * deliberately leaves a brain unpersonalized, because nobody has answered the
+ * interview yet.
+ */
+export function isPersonalized(config: BrainConfig | null): boolean {
+  return config !== null && Object.keys(config).length > 0;
 }
 
 /** Formats a zod error into actionable one-line-per-issue text. */
