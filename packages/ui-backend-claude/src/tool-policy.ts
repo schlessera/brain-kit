@@ -14,6 +14,13 @@ import {
  */
 const BRAIN_MCP_PREFIX = "mcp__brain__";
 
+/**
+ * The document update tool, named once: it is auto-allowed below, serialized
+ * as a mutating tool, AND gated on one input shape by the PreToolUse hook.
+ * Three places that must agree.
+ */
+export const BRAIN_UPDATE_TOOL = `${BRAIN_MCP_PREFIX}brain_update`;
+
 export const DEFAULT_ALLOWED_TOOLS = [
   "Bash",
   "Read",
@@ -27,25 +34,33 @@ export const DEFAULT_ALLOWED_TOOLS = [
   "Agent",
   "Skill",
   "NotebookEdit",
-  // The brain's own document tools. Auto-allowed because they are strictly
-  // narrower than the raw file tools above: an agent that wanted to write the
-  // repo could already do it with Write/Edit, and doing it through brain_add /
-  // brain_update keeps frontmatter and the search index correct. Deliberately
-  // absent: `brain_archive`, which changes what search and briefings can see —
-  // that one keeps its approval card.
+  // The brain's own document tools. Auto-allowed because the CONTENT they
+  // write is content the raw file tools above could already write: an agent
+  // that wanted to change the repo never needed brain_add to do it, and
+  // routing the change through these keeps frontmatter and the search index
+  // correct. Deliberately absent: `brain_archive`, which changes what search,
+  // briefings and context assembly can SEE — that one keeps its approval card.
   //
-  // That card used to be trivially sidestepped: `brain archive x.md` through
-  // the auto-allowed Bash tool did the same thing with no prompt, and the CLI
-  // is the form the brain repo's own CLAUDE.md documents.
-  // DEFAULT_CONFIRM_BASH_PATTERNS closes that gap from the PreToolUse hook, so
-  // both paths now confirm.
+  // The content argument does not extend to visibility, and two paths used to
+  // get there anyway:
+  //
+  // - `brain archive x.md` through the auto-allowed Bash tool, which is the
+  //   form the brain repo's own CLAUDE.md documents;
+  // - `brain_update` with `status: "archived"`, which is the identical
+  //   visibility change through the auto-allowed tool listed below.
+  //
+  // Both are closed from the PreToolUse hook, which is the only place an
+  // auto-allowed call is seen before it runs: DEFAULT_CONFIRM_BASH_PATTERNS
+  // matches the command, `archivesDocument` matches that one input shape. No
+  // other brain_update asks — a card on every document edit would be worse
+  // than the hole.
   `${BRAIN_MCP_PREFIX}brain_search`,
   `${BRAIN_MCP_PREFIX}brain_context`,
   `${BRAIN_MCP_PREFIX}brain_read`,
   `${BRAIN_MCP_PREFIX}brain_list`,
   `${BRAIN_MCP_PREFIX}brain_graph`,
   `${BRAIN_MCP_PREFIX}brain_add`,
-  `${BRAIN_MCP_PREFIX}brain_update`,
+  BRAIN_UPDATE_TOOL,
 ];
 
 /**
@@ -66,7 +81,7 @@ export const MUTATING_TOOLS = new Set([
   "Write",
   "NotebookEdit",
   `${BRAIN_MCP_PREFIX}brain_add`,
-  `${BRAIN_MCP_PREFIX}brain_update`,
+  BRAIN_UPDATE_TOOL,
   `${BRAIN_MCP_PREFIX}brain_archive`,
 ]);
 
@@ -74,7 +89,7 @@ export const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
 
 const BRAIN_DOC_TOOLS = new Set([
   `${BRAIN_MCP_PREFIX}brain_add`,
-  `${BRAIN_MCP_PREFIX}brain_update`,
+  BRAIN_UPDATE_TOOL,
   `${BRAIN_MCP_PREFIX}brain_archive`,
 ]);
 

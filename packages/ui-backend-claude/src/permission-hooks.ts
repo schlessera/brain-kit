@@ -7,6 +7,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import {
+  BRAIN_UPDATE_TOOL,
   lockKeyForTool,
   MUTATING_TOOL_MATCHER,
   MUTATING_TOOLS,
@@ -156,42 +157,47 @@ export function createPermissionWiring(options: {
       return { continue: true };
     }
 
-    // Confirmation for a Bash command that matches a configured pattern. It
-    // happens HERE, not in canUseTool, because Bash is auto-allowed, so
-    // canUseTool is never consulted for it. The PreToolUse hook is the runtime
-    // binding for the shared command decision.
+    // Confirmation for an auto-allowed call that is destructive anyway: a Bash
+    // command matching a configured pattern, or a brain_update that archives.
+    // It happens HERE, not in canUseTool, because both tools are auto-allowed,
+    // so canUseTool is never consulted for them — this hook is the only place
+    // such a call is seen before it runs. The decision itself is the shared
+    // one; this is just its runtime binding.
+    //
+    // A call that is NOT auto-allowed yields kind "tool" here and is left
+    // alone: canUseTool raises its grantable card, and asking twice for one
+    // tool use would be worse than either card on its own.
     //
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
-    if (hookInput.tool_name === "Bash") {
-      const approval = decideToolPermission({
+    const approval = decideToolPermission({
+      toolName: hookInput.tool_name,
+      shellToolName: "Bash",
+      updateToolName: BRAIN_UPDATE_TOOL,
+      input: hookInput.tool_input,
+      allowedTools: commandAllowed,
+      confirmPatterns,
+    });
+    if (approval?.kind === "command") {
+      // A per-use confirmation, not a tool grant — the host must never
+      // remember it as "always allow Bash" or "always allow brain_update".
+      const request = createToolPermissionRequest({
+        toolUseId: hookInput.tool_use_id,
         toolName: hookInput.tool_name,
-        shellToolName: "Bash",
-        input: hookInput.tool_input,
-        allowedTools: commandAllowed,
-        confirmPatterns,
+        input: hookInput.tool_input as Record<string, unknown>,
+        description: approval.reason,
+        approval,
       });
-      if (approval?.kind === "command") {
-        // A per-use confirmation, not a tool grant — the host must never
-        // remember it as "always allow Bash".
-        const request = createToolPermissionRequest({
-          toolUseId: hookInput.tool_use_id,
-          toolName: "Bash",
-          input: hookInput.tool_input as Record<string, unknown>,
-          description: approval.reason,
-          approval,
-        });
-        const decision = await requestToolPermission(req.bridge, request);
-        if (decision.behavior !== "allow") {
-          return {
-            continue: true,
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse",
-              permissionDecision: "deny",
-              permissionDecisionReason: decision.message ?? "Denied by the user.",
-            },
-          };
-        }
+      const decision = await requestToolPermission(req.bridge, request);
+      if (decision.behavior !== "allow") {
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: decision.message ?? "Denied by the user.",
+          },
+        };
       }
     }
 

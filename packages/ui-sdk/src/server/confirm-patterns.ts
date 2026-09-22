@@ -53,6 +53,38 @@ export function compileConfirmPatterns(
   return compiled;
 }
 
+/**
+ * Why an archiving document update stops for approval. Shown on the card, so
+ * it says what the change does rather than which rule it tripped.
+ */
+export const ARCHIVING_UPDATE_REASON =
+  'Setting status to "archived" removes this document from search, briefings and context assembly.';
+
+/**
+ * True when a document-update tool call is an archive in disguise.
+ *
+ * Both backends auto-allow their brain document update tool, on the argument
+ * that it is strictly narrower than the raw file tools they already allow.
+ * That argument holds for the frontmatter and body it writes; it does not
+ * hold for `status`, which the archive path sets too. `status: "archived"`
+ * makes precisely the visibility change `brain archive` confirms above and
+ * `brain_archive` keeps a card for, so it confirms as well.
+ *
+ * Only that one value. "active" and "draft" change nothing about what search
+ * can see, and an update with no `status` is an ordinary edit — a card on
+ * every document edit is the noise that gets the whole mechanism switched
+ * off, which protects nothing.
+ *
+ * Matched exactly, not case-insensitively: the tool's own schema is an enum
+ * of the three lowercase spellings, so any other casing is refused by the
+ * tool before it writes anything. Accepting near-misses here would only add
+ * cards for calls that never archive.
+ */
+export function archivesDocument(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  return (input as { status?: unknown }).status === "archived";
+}
+
 /** The command string a Bash tool call is about to run, if it has one. */
 export function bashCommand(input: unknown): string | null {
   if (!input || typeof input !== "object") return null;

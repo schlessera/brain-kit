@@ -11,6 +11,9 @@
  * - A `bash` command matching a confirm pattern raises an approval card even
  *   though bash itself is allowlisted (destructive shapes: recursive delete,
  *   history rewrites, `brain archive`).
+ * - A `brain_update` that sets `status: "archived"` raises one too, for the
+ *   same reason `brain_archive` is off the allowlist: it is the same
+ *   visibility change, through a tool that is on it.
  * - Any tool NOT on the allowlist raises an approval card — the safe
  *   direction for third-party extension/MCP tools, and exactly how a
  *   non-allowlisted MCP tool behaves on the Claude backend.
@@ -32,6 +35,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import type { TurnContext } from "./turn-context.js";
+import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
 
 export interface PermissionGateOptions {
   /** The session's turn holder — the gate reads the CURRENT turn's bridge. */
@@ -53,6 +57,7 @@ export function approvalReason(
     decideToolPermission({
       toolName,
       shellToolName: "bash",
+      updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
       input,
       allowedTools,
       confirmPatterns,
@@ -69,6 +74,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         const approval = decideToolPermission({
           toolName: event.toolName,
           shellToolName: "bash",
+          updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
           input: event.input,
           allowedTools,
           confirmPatterns,

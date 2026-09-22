@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import {
   compileConfirmPatterns,
   createKeyedLock,
@@ -13,7 +14,7 @@ import { createBrainAccess } from "../src/brain-access";
 import { approvalReason, createPermissionGate } from "../src/permission-gate";
 import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK, toolLockFromKeyed } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
-import { makeEmptyBrain, makeIndexedBrain, resultText } from "./helpers";
+import { makeEmptyBrain, makeIndexedBrain, resultText, type TempBrain } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
 
 // ExtensionContext is required by the ToolDefinition.execute signature but is
@@ -440,6 +441,155 @@ describe("path containment", () => {
       ).rejects.toThrow("escapes the brain repository");
     } finally {
       brain.cleanup();
+    }
+  });
+});
+
+/**
+ * Archiving through the auto-allowed `brain_update`.
+ *
+ * `brain_archive` is off the allowlist because archiving is a VISIBILITY
+ * change: an archived document drops out of search, briefings and context
+ * assembly. `brain_update` takes the same `status` field and IS on the
+ * allowlist, so `status: "archived"` made that change with no card. These run
+ * the gate and the real tool against a real indexed brain, because the claim
+ * worth proving is about the document on disk and in the index, not about a
+ * predicate.
+ */
+describe("archiving through brain_update", () => {
+  // Each case gets its own body: gray-matter caches parsed documents by their
+  // exact content, so byte-identical fixtures across cases would share one
+  // frontmatter object and leak one case's write into the next.
+  const docs = (marker: string) => ({
+    "notes/beta.md":
+      "---\ntype: note\ntitle: Beta\ncreated: 2026-01-01\nupdated: 2026-01-02\n" +
+      `tags: [graph]\nstatus: active\nrelevance: primary\n---\n\nStands alone. ${marker}\n`,
+  });
+
+  /**
+   * Run one brain_update the way pi's runtime does: consult the gate, and
+   * execute the tool only when the gate did not block it.
+   */
+  async function updateThroughGate(
+    brain: TempBrain,
+    input: Record<string, unknown>,
+    decision: PermissionDecision
+  ) {
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    const tools = toolMap(
+      createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn,
+        lock: toolLockFromKeyed(createKeyedLock()),
+      })
+    );
+
+    const gate = await handler({ toolName: "brain_update", toolCallId: "u1", input });
+    if (!gate?.block) {
+      await tools.brain_update.execute("u1", input as never, undefined, undefined, CTX);
+    }
+    const search = await tools.brain_search.execute(
+      "s1",
+      { query: "Beta" },
+      undefined,
+      undefined,
+      CTX
+    );
+    return {
+      gate,
+      permissionCalls: mock.permissionCalls,
+      raw: readFileSync(join(brain.root, "notes/beta.md"), "utf-8"),
+      searchText: resultText(search),
+    };
+  }
+
+  test("an archiving update asks, as a per-use confirmation", async () => {
+    const brain = await makeIndexedBrain(docs("asks"));
+    try {
+      const { permissionCalls } = await updateThroughGate(
+        brain,
+        { path: "notes/beta.md", status: "archived" },
+        { behavior: "deny", message: "Keep it visible." }
+      );
+      expect(permissionCalls).toEqual([
+        {
+          toolUseId: "u1",
+          toolName: "brain_update",
+          input: { path: "notes/beta.md", status: "archived" },
+          description:
+            'Setting status to "archived" removes this document from search, briefings and context assembly.',
+          // Never "tool": a remembered "always allow brain_update" would
+          // reopen the hole permanently.
+          kind: "command",
+        },
+      ]);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("denying it leaves the status unchanged on disk and in the index", async () => {
+    const brain = await makeIndexedBrain(docs("denied"));
+    try {
+      const { gate, raw, searchText } = await updateThroughGate(
+        brain,
+        { path: "notes/beta.md", status: "archived" },
+        { behavior: "deny", message: "Keep it visible." }
+      );
+      // Asserted before the gate's own return value, so this case fails on
+      // the harm (an archived document) and not only on a missing card.
+      expect(raw).toContain("status: active");
+      expect(raw).not.toContain("status: archived");
+      // The point of the card: the document is still findable.
+      expect(searchText).toContain("notes/beta.md");
+      expect(gate).toEqual({ block: true, reason: "Keep it visible." });
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("approving it archives, which is what the card is about", async () => {
+    const brain = await makeIndexedBrain(docs("approved"));
+    try {
+      const { gate, raw, searchText } = await updateThroughGate(
+        brain,
+        { path: "notes/beta.md", status: "archived" },
+        { behavior: "allow" }
+      );
+      expect(gate).toBeUndefined();
+      expect(raw).toContain("status: archived");
+      // Gone from search with no further action — the reason approval is asked.
+      expect(searchText).not.toContain("notes/beta.md");
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("an update that does not archive runs unprompted", async () => {
+    const cases: Array<Record<string, unknown>> = [
+      { path: "notes/beta.md", summary: "A new one-liner" },
+      { path: "notes/beta.md", status: "active" },
+      { path: "notes/beta.md", status: "draft" },
+    ];
+    for (const input of cases) {
+      const brain = await makeIndexedBrain(docs(JSON.stringify(input)));
+      try {
+        const { gate, permissionCalls, raw, searchText } = await updateThroughGate(
+          brain,
+          input,
+          { behavior: "deny", message: "should not ask" }
+        );
+        expect(permissionCalls, `${JSON.stringify(input)} must not ask`).toEqual([]);
+        expect(gate).toBeUndefined();
+        expect(raw).not.toContain("status: archived");
+        // Still visible: nothing about these updates changes what search sees.
+        expect(searchText).toContain("notes/beta.md");
+      } finally {
+        brain.cleanup();
+      }
     }
   });
 });
