@@ -180,6 +180,25 @@ export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
   return { caches, other };
 }
 
+/**
+ * Commit and push the derived caches post-sync rewrote, and nothing else.
+ * Returns the outcome reported as `cacheCommit`.
+ */
+export function commitDerivedCaches(root: string, caches: string[], branch: string): string {
+  if (caches.length === 0) return "clean";
+  if (branch !== "main") return `skipped — not on main (${branch})`;
+  // Stage and commit by explicit path. `--only` builds the commit from HEAD
+  // plus these paths, so anything already staged stays staged and out of it.
+  const staged = git(root, ["add", "--", ...caches]);
+  if (staged.code !== 0) return `FAILED to stage — ${staged.stderr}`;
+  const committed = git(root, ["commit", "--only", "-m", "Refresh derived index caches", "--", ...caches]);
+  if (committed.code !== 0) return `FAILED to commit — ${committed.stderr || committed.stdout}`;
+  const pushed = git(root, ["push", "origin", "main"]);
+  return pushed.code === 0
+    ? `committed + pushed (${caches.join(", ")})`
+    : `committed, push rejected — ${pushed.stderr || pushed.stdout}`;
+}
+
 async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
   const root = cli.brain.root;
   const { emitters, warnings } = resolveEmitters(cli.brain);
@@ -218,30 +237,7 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
   // a sync ends clean instead of leaving the caller to notice and do it.
   const branch = currentBranch(root);
   const { caches, other } = classifyPostSyncDirt(workingTreeDirt(root));
-  let cacheCommit = "clean";
-  if (caches.length > 0) {
-    if (branch !== "main") {
-      cacheCommit = `skipped — not on main (${branch})`;
-    } else {
-      // Stage by explicit path: nothing outside DERIVED_CACHES can be swept in,
-      // even when `other` is non-empty.
-      const staged = git(root, ["add", "--", ...caches]);
-      if (staged.code !== 0) {
-        cacheCommit = `FAILED to stage — ${staged.stderr}`;
-      } else {
-        const committed = git(root, ["commit", "-m", "Refresh derived index caches"]);
-        if (committed.code !== 0) {
-          cacheCommit = `FAILED to commit — ${committed.stderr || committed.stdout}`;
-        } else {
-          const pushed = git(root, ["push", "origin", "main"]);
-          cacheCommit =
-            pushed.code === 0
-              ? `committed + pushed (${caches.join(", ")})`
-              : `committed, push rejected — ${pushed.stderr || pushed.stdout}`;
-        }
-      }
-    }
-  }
+  const cacheCommit = commitDerivedCaches(root, caches, branch);
 
   const localHead = git(root, ["rev-parse", "--short", "HEAD"]).stdout;
   const remoteHead = git(root, ["rev-parse", "--short", "origin/main"]).stdout || "unknown";
