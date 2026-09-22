@@ -1,0 +1,456 @@
+/**
+ * The human rendering of `brain stats` — the layered health/inventory
+ * sections, the capped breakdowns and `--all`.
+ *
+ * Three layers, because no single one covers the claims:
+ *   - a golden over `fixtures/corpus/` indexed in-process with an injected
+ *     clock, so the health section's figures cannot drift as the wall clock
+ *     passes the fixture's reference date;
+ *   - unit tests over a hand-built `BrainStats` for the arithmetic of the cap
+ *     and for every `null` path, which a fixture cannot stage; and
+ *   - CLI spawns for the claims that are about the command rather than the
+ *     formatter: `--all`, `--help`, `--json` ignoring `--all`, and the
+ *     empty-brain state.
+ *
+ * Keyless and network-free throughout.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { cpSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+
+import {
+  BREAKDOWN_CAP,
+  formatStats,
+  staleThresholdsFor,
+  type StaleThresholds,
+} from "../src/cli/commands/stats";
+import { DEFAULT_STATS_THRESHOLDS } from "../src/lib/config";
+import { initContext } from "../src/lib/context";
+import { openDatabase } from "../src/lib/db";
+import { indexAll } from "../src/lib/indexer";
+import { collectStats, type BrainStats } from "../src/lib/stats";
+import { buildTaxonomy, type Taxonomy } from "../src/lib/taxonomy";
+import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+
+const CORE_ROOT = resolve(import.meta.dir, "..");
+const FIXTURE_CORPUS = join(CORE_ROOT, "fixtures/corpus");
+const REPO_NODE_MODULES = resolve(CORE_ROOT, "../../node_modules");
+
+// The same injected wall clock as stats.test.ts and auditor.test.ts: every
+// age in this file is measured against it, so the stale golden holds forever.
+const NOW = new Date("2026-07-01T00:00:00Z");
+
+const temps: string[] = [];
+afterAll(() => {
+  for (const dir of temps) rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Golden over the fixture corpus
+// ---------------------------------------------------------------------------
+
+describe("formatStats over fixtures/corpus", () => {
+  let stats: BrainStats;
+  let stale: StaleThresholds;
+  let db: Database;
+
+  beforeAll(async () => {
+    const root = mkdtempSync(join(tmpdir(), "brain-stats-out-"));
+    temps.push(root);
+    cpSync(FIXTURE_CORPUS, root, { recursive: true });
+    symlinkSync(REPO_NODE_MODULES, join(root, "node_modules"));
+
+    const ctx = await initContext({ root });
+    const writable = openDatabase(ctx.dbPath);
+    await indexAll(writable, { root, taxonomy: ctx.taxonomy, quiet: true });
+    writable.close();
+
+    db = openDatabase(ctx.dbPath, { readonly: true });
+    stats = await collectStats(db, {
+      root,
+      dbPath: ctx.dbPath,
+      taxonomy: ctx.taxonomy,
+      config: ctx.config,
+      now: NOW,
+    });
+    stale = staleThresholdsFor(ctx.taxonomy);
+  });
+
+  afterAll(() => db?.close());
+
+  // The layout golden. Corpus bytes, index bytes and free space are left out:
+  // they measure the machine, not the fixture, and are asserted separately.
+  test("renders the health section above the inventory section", () => {
+    const out = formatStats(stats, { all: false, stale });
+    const body = out.slice(0, out.indexOf("  Corpus:"));
+
+    expect(body).toBe(
+      [
+        "Brain Statistics",
+        "",
+        "Health",
+        "",
+        "  Broken links:       2 of 37 (5.4%), over the 5.0% ceiling",
+        "  Embedding coverage: n/a — nothing embedded here (floor 90.0%)",
+        "  Stale:              2 — past their type's staleDays (context 30, health 60, project 90, else 180)",
+        "  Orphans:            1 — no wiki-link in either direction",
+        "  Untagged:           1 — no tags (archived excluded)",
+        "",
+        "Inventory",
+        "",
+        "  Documents: 25",
+        "  By type:",
+        "    project: 6",
+        "    identity: 4",
+        "    health: 3",
+        "    note: 3",
+        "    study: 3",
+        "    +3 more (6 documents)",
+        "  By status:",
+        "    active: 23",
+        "    archived: 1",
+        "    draft: 1",
+        "  By relevance:",
+        "    primary: 16",
+        "    secondary: 8",
+        "    historical: 1",
+        "  Tags: 43",
+        "  Links: 37 (2 broken)",
+        "  Chunks: 27",
+        "",
+      ].join("\n")
+    );
+
+    // Health comes first, and nothing of it leaks into the inventory.
+    expect(out.indexOf("\nHealth\n")).toBeLessThan(out.indexOf("\nInventory\n"));
+    for (const figure of ["Broken links:", "Embedding coverage:", "Stale:", "Orphans:", "Untagged:"]) {
+      expect(out.slice(out.indexOf("\nInventory\n"))).not.toContain(figure);
+    }
+  });
+
+  // Every figure the health section prints is one collectStats returned — no
+  // recomputation in the renderer.
+  test("every health figure is one collectStats measured", () => {
+    const out = formatStats(stats, { all: false, stale });
+    const health = out.slice(out.indexOf("Health"), out.indexOf("Inventory"));
+
+    expect(health).toContain(`${stats.brokenLinks} of ${stats.links}`);
+    expect(health).toContain(`Stale:              ${stats.health.stale} `);
+    expect(health).toContain(`Orphans:            ${stats.health.orphans} `);
+    expect(health).toContain(`Untagged:           ${stats.health.untagged} `);
+    expect(stats.health.thresholds).toEqual(DEFAULT_STATS_THRESHOLDS);
+  });
+
+  test("the size figures render at a readable scale, never as 0.0 MB", () => {
+    const out = formatStats(stats, { all: false, stale });
+    expect(out).toMatch(/\n {2}Corpus: \d+ files, [\d.]+ (B|KB|MB|GB|TB)\n/);
+    expect(out).toMatch(/\n {2}Index: [\d.]+ (B|KB|MB|GB|TB)\n/);
+    expect(out).toMatch(/\n {2}Free space: [\d.]+ (B|KB|MB|GB|TB)$/);
+    expect(out).not.toContain("0.0 MB");
+  });
+
+  test("--all expands every breakdown and drops the remainder line", () => {
+    const capped = formatStats(stats, { all: false, stale });
+    const all = formatStats(stats, { all: true, stale });
+
+    expect(capped).toContain("+3 more (6 documents)");
+    expect(all).not.toContain("more (");
+    for (const type of Object.keys(stats.byType)) {
+      expect(all).toContain(`\n    ${type}: ${stats.byType[type]}`);
+    }
+    expect(Object.keys(stats.byType).length).toBeGreaterThan(BREAKDOWN_CAP);
+  });
+
+  test("the stale line names the fixture's per-type windows, not just the default", () => {
+    const out = formatStats(stats, { all: false, stale });
+    // fixtures/corpus overrides health (60) and project (90); context (30)
+    // comes from the core types; everything else falls back to 180.
+    expect(out).toContain("health 60");
+    expect(out).toContain("project 90");
+    expect(out).toContain("context 30");
+    expect(out).toContain("else 180");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The cap, and the null paths a fixture cannot stage
+// ---------------------------------------------------------------------------
+
+const STALE: StaleThresholds = { perType: [{ type: "health", days: 60 }], defaultDays: 180 };
+
+function statsWith(overrides: Partial<BrainStats> = {}): BrainStats {
+  return {
+    documents: 10,
+    byType: { note: 6, health: 4 },
+    byStatus: { active: 10 },
+    byRelevance: { primary: 10 },
+    tags: 5,
+    links: 4,
+    brokenLinks: 0,
+    chunks: 12,
+    embeddings: 12,
+    health: {
+      brokenLinkRate: 0,
+      embeddingCoverage: 1,
+      stale: 0,
+      orphans: 0,
+      untagged: 0,
+      thresholds: DEFAULT_STATS_THRESHOLDS,
+    },
+    size: {
+      corpus: { bytes: 2048, files: 10 },
+      db: { bytes: 4096, tables: { documents: 10 } },
+      freeBytes: 1024 * 1024 * 1024,
+    },
+    ...overrides,
+  };
+}
+
+describe("capped breakdowns", () => {
+  const byType = { a: 30, b: 12, c: 9, d: 7, e: 6, f: 5, g: 4, h: 3, i: 2, j: 1 };
+  const documents = Object.values(byType).reduce((a, b) => a + b, 0);
+
+  test("keeps the top five and sums the rest into +N more", () => {
+    const out = formatStats(statsWith({ byType, documents }), { all: false, stale: STALE });
+    const rows = out
+      .slice(out.indexOf("  By type:"))
+      .split("\n")
+      .slice(1, 1 + BREAKDOWN_CAP);
+
+    expect(rows).toEqual(["    a: 30", "    b: 12", "    c: 9", "    d: 7", "    e: 6"]);
+    // 5 remaining values: 5 + 4 + 3 + 2 + 1 = 15.
+    expect(out).toContain("    +5 more (15 documents)");
+    expect(out).not.toContain("    f: 5");
+  });
+
+  test("ranks by count even when the keys are integer-like", () => {
+    // Object.entries puts integer-like keys first in ascending numeric order,
+    // so the SQL's ORDER BY count DESC does not survive the trip through
+    // `--json`. The renderer re-sorts, or the cap would keep the wrong five.
+    const numeric = { "2024": 1, "2025": 2, alpha: 99, beta: 50 };
+    const out = formatStats(statsWith({ byStatus: numeric, documents: 152 }), {
+      all: false,
+      stale: STALE,
+    });
+    const rows = out.slice(out.indexOf("  By status:")).split("\n").slice(1, 5);
+    expect(rows).toEqual(["    alpha: 99", "    beta: 50", "    2025: 2", "    2024: 1"]);
+  });
+
+  test("exactly five values print no remainder line", () => {
+    const five = { a: 5, b: 4, c: 3, d: 2, e: 1 };
+    const out = formatStats(statsWith({ byType: five, documents: 15 }), { all: false, stale: STALE });
+    expect(out).not.toContain("more (");
+  });
+
+  test("a single remaining value is singular", () => {
+    const six = { a: 6, b: 5, c: 4, d: 3, e: 2, f: 1 };
+    const out = formatStats(statsWith({ byType: six, documents: 21 }), { all: false, stale: STALE });
+    expect(out).toContain("+1 more (1 document)");
+  });
+
+  test("an empty breakdown says none rather than printing a headless list", () => {
+    const out = formatStats(statsWith({ byRelevance: {} }), { all: false, stale: STALE });
+    expect(out).toContain("  By relevance: none");
+  });
+});
+
+describe("null figures never read as a number", () => {
+  test("an unknowable broken-link rate is n/a with no verdict", () => {
+    const out = formatStats(
+      statsWith({
+        links: 0,
+        brokenLinks: 0,
+        health: { ...statsWith().health, brokenLinkRate: null },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(out).toContain("  Broken links:       n/a — no links to judge (ceiling 5.0%)");
+    expect(out).not.toContain("Broken links:       0 of 0");
+    expect(out).not.toMatch(/Broken links:.*(within|over) the/);
+  });
+
+  test("an unknowable embedding coverage is n/a, never a passing ratio", () => {
+    const out = formatStats(
+      statsWith({ embeddings: 0, health: { ...statsWith().health, embeddingCoverage: null } }),
+      { all: false, stale: STALE }
+    );
+    expect(out).toContain("  Embedding coverage: n/a — nothing embedded here (floor 90.0%)");
+    expect(out).not.toMatch(/Embedding coverage:.*(meets|below) the/);
+    expect(out).not.toContain("Embedding coverage: 0.0%");
+  });
+
+  test("unknowable sizes are n/a, not 0", () => {
+    const out = formatStats(
+      statsWith({
+        size: { corpus: null, db: { bytes: null, tables: {} }, freeBytes: null },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(out).toContain("  Corpus: n/a");
+    expect(out).toContain("  Index: n/a");
+    expect(out).toContain("  Free space: n/a");
+    expect(out).not.toContain("0 B");
+  });
+
+  test("a measurable figure still gets its verdict", () => {
+    const over = formatStats(
+      statsWith({
+        links: 10,
+        brokenLinks: 3,
+        health: { ...statsWith().health, brokenLinkRate: 0.3, embeddingCoverage: 0.4 },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(over).toContain("  Broken links:       3 of 10 (30.0%), over the 5.0% ceiling");
+    expect(over).toContain("  Embedding coverage: 40.0% of 12 chunks, below the 90.0% floor");
+
+    const within = formatStats(statsWith(), { all: false, stale: STALE });
+    expect(within).toContain("  Broken links:       0 of 4 (0.0%), within the 5.0% ceiling");
+    expect(within).toContain("  Embedding coverage: 100.0% of 12 chunks, meets the 90.0% floor");
+  });
+});
+
+describe("empty brain", () => {
+  test("prints a next step, not NaN or a division by zero", () => {
+    const out = formatStats(
+      statsWith({
+        documents: 0,
+        byType: {},
+        byStatus: {},
+        byRelevance: {},
+        tags: 0,
+        links: 0,
+        brokenLinks: 0,
+        chunks: 0,
+        embeddings: 0,
+        health: {
+          brokenLinkRate: null,
+          embeddingCoverage: null,
+          stale: 0,
+          orphans: 0,
+          untagged: 0,
+          thresholds: DEFAULT_STATS_THRESHOLDS,
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(out).toBe(
+      "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`."
+    );
+    expect(out).not.toContain("NaN");
+    expect(out).not.toContain("Infinity");
+  });
+});
+
+describe("staleThresholdsFor", () => {
+  test("names the types carrying a window, shortest first, and the fallback", () => {
+    const taxonomy: Taxonomy = buildTaxonomy({
+      user: {
+        taxonomy: {
+          types: {
+            health: { dir: "health", staleDays: 60 },
+            project: { dir: "projects", staleDays: 90 },
+            // A window on a type with no directory never matches a path, so
+            // it is not a window anything is judged against.
+            floating: { dir: null, staleDays: 7 },
+            study: { dir: "studies" },
+          },
+        },
+      },
+    });
+
+    expect(staleThresholdsFor(taxonomy)).toEqual({
+      perType: [
+        { type: "context", days: 30 },
+        { type: "health", days: 60 },
+        { type: "project", days: 90 },
+      ],
+      defaultDays: 180,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The command, spawned
+// ---------------------------------------------------------------------------
+
+describe("brain stats (spawned)", () => {
+  let root: string;
+
+  beforeAll(async () => {
+    root = makeTempBrain();
+    const idx = await runCli(root, ["index", "--json"]);
+    expect(idx.code).toBe(0);
+  });
+
+  afterAll(() => cleanup(root));
+
+  test("caps each breakdown and offers --all", async () => {
+    const capped = await runCli(root, ["stats", "--human"]);
+    expect(capped.code).toBe(0);
+    expect(capped.stdout).toContain("+3 more (6 documents)");
+    expect(capped.stdout.split("\n").filter((l) => /^ {4}\w+: \d+$/.test(l)).length).toBe(
+      BREAKDOWN_CAP + 3 + 3 // type rows capped at 5; status and relevance have 3 each
+    );
+
+    const all = await runCli(root, ["stats", "--all", "--human"]);
+    expect(all.code).toBe(0);
+    expect(all.stdout).not.toContain("more (");
+    for (const type of ["context", "index", "journal"]) {
+      expect(capped.stdout).not.toMatch(new RegExp(`^ {4}${type}: `, "m"));
+      expect(all.stdout).toMatch(new RegExp(`^ {4}${type}: `, "m"));
+    }
+  });
+
+  test("--all does not reach --json", async () => {
+    const plain = await runCli(root, ["stats", "--json"]);
+    const all = await runCli(root, ["stats", "--all", "--json"]);
+    expect(plain.code).toBe(0);
+    expect(all.code).toBe(0);
+
+    // Byte-identical but for free space, which measures the volume rather than
+    // the brain and can move between two subprocesses on a busy machine.
+    const normalize = (s: string) => s.replace(/"freeBytes": \d+/, '"freeBytes": <volume>');
+    expect(normalize(all.stdout)).toBe(normalize(plain.stdout));
+
+    // And both carry the uncapped breakdowns.
+    for (const out of [plain.stdout, all.stdout]) {
+      const parsed = JSON.parse(out);
+      expect(Object.keys(parsed.byType).length).toBe(8);
+      expect(out).not.toContain("more (");
+    }
+  });
+
+  test("--help documents --all and the cap", async () => {
+    const { stdout, code } = await runCli(root, ["stats", "--help"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("--all");
+    expect(stdout).toContain(`top\n                          ${BREAKDOWN_CAP} by count`);
+    expect(stdout).toContain("+N more");
+    expect(stdout).toContain(`coverageFloor ${DEFAULT_STATS_THRESHOLDS.coverageFloor}`);
+    expect(stdout).toContain(`brokenLinkCeiling ${DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling}`);
+    expect(stdout).toContain("staleDays");
+    expect(stdout).toContain("unaffected by --all");
+  });
+
+  test("a brain with no documents prints an empty state, not NaN", async () => {
+    const empty = makeTempBrain({ empty: true });
+    try {
+      expect((await runCli(empty, ["init", "--default", "--json"])).code).toBe(0);
+      rmSync(join(empty, "_index.md"));
+      expect((await runCli(empty, ["index", "--force", "--json"])).code).toBe(0);
+
+      const { stdout, code } = await runCli(empty, ["stats", "--human"]);
+      expect(code).toBe(0);
+      expect(stdout.trim()).toBe(
+        "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`."
+      );
+      expect(stdout).not.toContain("NaN");
+    } finally {
+      cleanup(empty);
+    }
+  });
+});
