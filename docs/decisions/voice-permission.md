@@ -163,7 +163,25 @@ posture, it is a wish.
 | `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`tool-policy.ts:51-56`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
-| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`confirm-patterns.ts:22-27`). It keeps its card. |
+| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`confirm-patterns.ts:22-27`). It keeps its card. Its exclusion here does **not** currently close the boundary; see below. |
+
+**The archive boundary leaks, and it leaks today.** `brain_archive` is off the
+auto-allow list because archiving is a visibility change. But `brain_update`
+takes `status: "archived"` (`packages/core/src/mcp-server.ts:529,552`), writes
+it and reindexes, and search excludes archived documents by default
+(`mcp-server.ts:175`) — so the visibility change `brain_archive`'s card exists
+to gate is reachable through a tool that is auto-allowed in *every* surface,
+chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closes the `brain archive` CLI
+spelling (`confirm-patterns.ts:27`) and not this one.
+
+This is pre-existing product behaviour rather than something the voice posture
+introduces, and it is filed separately. Two things follow for this record.
+First, the reason given for excluding `brain_archive` is a statement of intent,
+not of enforcement, and is written that way rather than papering over it.
+Second, whatever closes the hole must cover the voice posture too — if the
+answer is that a status change to `archived` raises its own approval, then in a
+voice turn it is ungrantable and therefore denied, which is the correct
+outcome and needs no special case here.
 
 **`WebSearch` / `WebFetch`, stated plainly.** They pull content an attacker may
 control into a turn that can write documents. That exposure is identical to the
@@ -228,8 +246,14 @@ announcement plus one refusal, layered over a surface that already works.
 stays pending exactly as it does today, and the turn ends on the host's turn
 budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
-than one that lets the turn lapse. When the turn lapses, the model says so once
-— "I stopped; the thing I needed to run is still waiting on the Actions page."
+than one that lets the turn lapse. When the budget expires the host drains every
+pending approval for that turn as a denial and deletes it
+(`packages/ui-server/src/ws/run-session.ts:197` →
+`packages/ui-server/src/ws/turns.ts:299-311`), so **nothing is left waiting
+anywhere** — not on the card, not on the Actions page. The model therefore says
+that it stopped and that the thing has to be asked for again, and never that it
+is still waiting: "I stopped without doing it. Ask me again when you can look at
+a screen."
 
 **Ambiguity is denial, explicitly.** A partial match, a low-confidence
 transcript, an overlapping speaker, a refusal phrase heard while two requests
@@ -305,10 +329,20 @@ turn with no reachable grant surface that ask parks until the turn budget
 expires. `requestToolPermission` already fails closed when there is **no
 bridge** at all (`permission-gate.ts:98-103`); what is missing is the same
 behaviour when the bridge exists but has no way to grant. A turn must be able to
-declare that it has no grant surface, and a `tool` request in such a turn
-resolves `deny` immediately with a reason the model can act on and the user can
-hear. Without it, "not in the posture" means "prompts anyway", and the posture
-is decoration.
+declare that it has no grant surface, and a request in such a turn resolves
+`deny` immediately with a reason the model can act on and the user can hear.
+Without it, "not in the posture" means "prompts anyway", and the posture is
+decoration.
+
+**It has to cover both request kinds, and the `command` one is the one that
+matters.** Removing `Bash` from the allowlist does not route a Bash call through
+`canUseTool` first: the PreToolUse `mutatingHook` fires before permission
+evaluation and evaluates the confirm patterns against `commandAllowed`, which
+adds `Bash` back unconditionally (`permission-hooks.ts:45-49,118-126`). So a
+destructive shell command in a voice turn raises a `command` request — and
+parks — before the tool grant is ever considered. A fail-closed rule written
+only for kind `tool` would leave exactly the calls this whole record is about
+sitting on an unanswerable card.
 
 ## What this constrains in #54
 
