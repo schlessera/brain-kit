@@ -247,9 +247,15 @@ interface TurnResult {
  */
 const ALWAYS_LOAD = process.argv.includes("--always-load");
 
-function optionsFor(arm: ArmName): Options {
+function optionsFor(arm: ArmName, abortController: AbortController): Options {
   return {
     cwd: BRAIN_PATH,
+    // Production aborts a turn at this budget rather than letting it run on
+    // (`packages/ui-server/src/ws/run-session.ts:184`). Without it the harness
+    // would score an answer no reader could ever have received: five turns of
+    // an earlier run took 190-306 s. `maxTurns` bounds the conversation, not
+    // the clock.
+    abortController,
     model: MODEL,
     settingSources: ["project"],
     systemPrompt: {
@@ -308,6 +314,8 @@ async function runTurn(
   rep: number
 ): Promise<TurnResult> {
   const started = Date.now();
+  const abortController = new AbortController();
+  const deadline = setTimeout(() => abortController.abort(), TURN_BUDGET_MS);
   const kinds: string[] = [];
   const otherTools = new Set<string>();
   let rejectedCalls = 0;
@@ -320,7 +328,7 @@ async function runTurn(
   try {
     for await (const message of query({
       prompt: prompt.text,
-      options: optionsFor(arm),
+      options: optionsFor(arm, abortController),
     })) {
       // `parent_tool_use_id` is non-null on frames a subagent produced. Those
       // are not the answer, so neither their text nor their tool calls count.
@@ -344,7 +352,12 @@ async function runTurn(
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
+  } finally {
+    clearTimeout(deadline);
   }
+  // An aborted turn produced no answer a reader could have received, whatever
+  // it emitted on the way, so it is excluded rather than scored.
+  if (abortController.signal.aborted) error = "turn_budget_exceeded";
   const plan = planClassification(textParts);
   return {
     prompt: prompt.id,

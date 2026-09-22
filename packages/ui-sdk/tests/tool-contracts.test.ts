@@ -81,14 +81,14 @@ describe("the contract list is the single source", () => {
 describe("show_block", () => {
   test("the brief rides every turn, so it stays at eleven lines and names every kind", () => {
     // D43 measured what these eleven lines buy and what they cost: 257 input
-    // tokens on every turn, against a `show_block` rate of 61% with them and
-    // 0% without, over 108 live turns. Zero, not merely lower — the SDK defers
-    // an MCP server's tools behind tool search, so the brief is the only text
-    // that tells the model the tool exists. Both budgets are pinned at what
-    // was measured, not at a round number above it, so a twelfth line or a
-    // longer one has to be argued for and re-measured rather than drifting in.
-    // Measured on the name the Claude backend actually sends, not the bare
-    // one: the MCP prefix is fifteen characters of the budget.
+    // tokens on every turn, against a `show_block` rate of 59% with them and
+    // 2% without, over 102 completed live turns. Near zero rather than merely
+    // lower, because the SDK defers an MCP server's tools behind tool search —
+    // the brief is the only text that tells the model the tool exists. Both
+    // budgets are pinned at what was measured rather than at a round number
+    // above it, so a twelfth line, or a longer one, has to be argued for and
+    // re-measured instead of drifting in. Measured on the name the Claude
+    // backend actually sends: the MCP prefix is fifteen of those characters.
     const brief = SHOW_BLOCK_CONTRACT.brief(
       visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude")
     );

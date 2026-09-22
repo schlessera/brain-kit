@@ -2211,26 +2211,32 @@ brief is being paid for on every turn and returning nothing.
 
 **Method.** `scripts/measure-show-block.ts`, an A/B over the real backend
 options. Nine prompts, two arms, six repetitions: 108 live turns on
-`claude-sonnet-5`, against a copy of `packages/core/fixtures/corpus/`, $10.37
-of API spend, every turn completed. The arms differ in exactly one thing —
-`buildSystemPromptAppend`'s `tools.block`, which is what puts the brief in the
-system prompt. The tool is registered, allowed and byte-identically described
-in both, so the `no-brief` arm is precisely the "retire the brief, keep the
-tool" shape.
+`claude-sonnet-5`, against a copy of `packages/core/fixtures/corpus/`, $7.15 of
+API spend. The arms differ in exactly one thing — `buildSystemPromptAppend`'s
+`tools.block`, which is what puts the brief in the system prompt. The tool is
+registered, allowed and byte-identically described in both, so the `no-brief`
+arm is precisely the "retire the brief, keep the tool" shape. Production's own
+`createAgentHook()` is registered, so the 18 turns that delegated behaved the
+way they do there rather than losing a backgrounded subagent at turn end.
 
-Three counting rules, each of which changed a number:
+Four rules decide what counts, and each of them changed a number:
 
-- **Only calls that would have rendered count.** The argument has to parse
-  through the contract's own schema. Calls that did not — the model omitted
-  `block.kind`, the tool errored, it retried — drew nothing.
+- **Only calls that would have rendered.** The argument has to parse through
+  the contract's own schema; a rejected call drew nothing. An earlier run had
+  three.
 - **Subagent frames are not the answer.** `parent_tool_use_id` is non-null on
   frames a subagent produced, and the chat adapter keeps those off the surface.
-  24 of the 108 turns delegated; production's own `createAgentHook()` is
-  registered so a delegated turn behaves the way it does there.
+- **The turn budget is enforced, not just advertised.** Production aborts a
+  turn at `turnTimeoutMs` (`packages/ui-server/src/ws/run-session.ts:184`), so
+  the harness aborts at the same 180 s. Without it an answer no reader could
+  have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
-  directions: it is not counted as a turn that declined to call the tool, and a
-  valid call it made before failing does not count either, because no answer
-  reached a reader.
+  directions — not counted as declining to call the tool, and a call it made
+  before failing does not count either. Six were excluded here, all on the
+  budget, five of them `trend` (which delegates, and foreground subagents are
+  slow). The exclusions are lopsided — five brief against one no-brief — and
+  they fall on a prompt the brief arm otherwise wins, so 59% is if anything
+  conservative.
 
 Each turn's text parts then go through `planClassification`, the same entry
 point `ui-server` calls, so a turn that did not call the tool is scored for
@@ -2242,16 +2248,15 @@ Named divergence from production: `disallowedTools` withholds `Bash`, `Edit`,
 `AskUserQuestion`. `Bash` because the harness runs `bypassPermissions` on a
 real host; `Edit`/`Write` because every turn shares one staged brain, so a
 mutation would leak into every later turn in both arms; the two network tools
-because a live search is neither reproducible nor free. The withholding is
-identical in both arms, so it cannot move the contrast — only where both arms
-sit.
+because a live search is neither reproducible nor free. It is identical in both
+arms, so it cannot move the contrast — only where both arms sit.
 
-**Numbers.**
+**Numbers.** 102 completed turns of 108.
 
 | arm | turns | a `show_block` call | rate | no call, but a candidate the pass would see |
 | --- | --- | --- | --- | --- |
-| brief | 54 | 33 | **61%** | 6 (11%) |
-| no-brief | 54 | 0 | **0%** | 31 (57%) |
+| brief | 49 | 29 | **59%** | 6 (12%) |
+| no-brief | 53 | 1 | **2%** | 33 (62%) |
 
 Split by whether the pass can reach the kind — it reaches eight of the eleven
 (comparison, table, steps, timeline, schedule, quote, receipt, stats) and has
@@ -2259,54 +2264,58 @@ no route to `trend`, `bars` or `contact`:
 
 | kinds the pass reaches | arm | turns | calls | rate |
 | --- | --- | --- | --- | --- |
-| yes | brief | 36 | 21 | 58% |
-| yes | no-brief | 36 | 0 | 0% |
-| no | brief | 18 | 12 | 67% |
-| no | no-brief | 18 | 0 | 0% |
+| yes | brief | 35 | 21 | 60% |
+| yes | no-brief | 36 | 1 | 3% |
+| no | brief | 14 | 8 | 57% |
+| no | no-brief | 17 | 0 | 0% |
 
-**Why the no-brief arm is zero, which is the actual finding.** Not reluctance.
-The SDK **defers an MCP server's tools behind tool search by default** — they
-are not in the model's context at all until it runs `ToolSearch` — and
-`packages/ui-backend-claude/src/ask-user-tool.ts:104` does not pass
-`alwaysLoad`, so this is production's behaviour and the harness inherits it.
-The correlation over the 108 turns is exact:
+**Why the no-brief arm is near zero, which is the actual finding.** Not
+reluctance. The SDK **defers an MCP server's tools behind tool search by
+default** — they are not in the model's context at all until it runs
+`ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:104` does
+not pass `alwaysLoad`, so this is production's behaviour and the harness
+inherits it. Over two runs of the corrected harness, 216 turns:
 
 | | ran `ToolSearch` | called `show_block` |
 | --- | --- | --- |
-| brief | 33 of 54 | 33 — every turn that searched, and no turn that did not |
-| no-brief | 1 of 54 | 0 |
+| brief | 62 | 62 |
+| no-brief | 4 | 1 |
 
-The brief is the only text in the prompt that names the tool. Without it the
-model has no reason to go looking, so it never learns the tool exists.
+**No turn in either run ever called `show_block` without first running
+`ToolSearch`, and in the brief arm every turn that searched then called.** The
+brief is the only text in the prompt that names the tool, so it is the only
+reason the model goes looking. The one no-brief call came from one of the three
+turns that searched speculatively.
 
 Forcing the tools into the prompt (`--always-load`, eight prompts x two arms x
-three reps, 48 turns) settles it. Same prompts, default configuration on the
-left:
+three reps, 44 completed turns) settles what the brief is doing. Same prompts,
+default configuration on the left:
 
 | `show_block` in the prompt? | brief | no-brief |
 | --- | --- | --- |
-| behind tool search — what ships | 30 of 48 (63%) | **0 of 48 (0%)** |
-| always loaded | 19 of 24 (79%) | **19 of 24 (79%)** |
+| behind tool search — what ships | 23 of 43 (53%) | **1 of 47 (2%)** |
+| always loaded | 17 of 22 (77%) | **17 of 22 (77%)** |
 
-Identical. **The brief's entire measured effect is discoverability, not
-persuasion.** Once the model can see the tool, the brief adds nothing at all.
+Identical, and higher than the brief reaches on its own. **The brief's entire
+measured effect is discoverability, not persuasion.** Once the model can see
+the tool, the brief adds nothing at all.
 
 **Decision. The brief stays, unchanged.** In the configuration that ships it is
 not encouragement to use a tool the model can already see; it is the only thing
 that tells the model the tool exists. Retiring it does not lower the rate from
-61% to something smaller — it takes the rate to zero and makes three block
-kinds unreachable. It costs 257 input tokens per turn (11 lines, 749
-characters, counted by `count_tokens` rather than estimated), and
+59% to something smaller — it takes the rate to the noise floor and makes three
+block kinds unreachable by any path. It costs 257 input tokens per turn (11
+lines, 749 characters, counted by `count_tokens` rather than estimated), and
 `packages/ui-sdk/tests/tool-contracts.test.ts` pins both budgets at what was
 measured — eleven lines, down from `< 15`, and 749 characters, because eleven
 long lines cost more than twelve short ones.
 
 "Shorten it to the kinds classification cannot reach" loses for the same
-reason. A brief naming only `trend`, `bars` and `contact` would leave the other
-eight kinds undiscoverable, and D42's own rule is that no code path may depend
-on the classification pass having run — a candidate still needs a key, a live
-classifier inside 2 s, and an answer over the confidence gate. Where the pass
-cannot reach at all, its fallback is not a missing block but a wrong one: the
+reason, and more sharply than the split table alone would show: a brief naming
+only `trend`, `bars` and `contact` leaves the other eight kinds
+*undiscoverable*, not merely unencouraged. D42's own rule is that no code path
+may depend on the classification pass having run — and where the pass cannot
+reach at all, its fallback is not a missing block but a wrong one: the
 `no-brief` turns on `trend` and `bars` left `table` candidates, which would
 have drawn a data table where the answer was a trend.
 
@@ -2321,22 +2330,25 @@ the prompt at all.
 
 **Three findings this surfaced, filed rather than fixed here.**
 
-- `alwaysLoad: true` on the bridge MCP server reaches 79% with no brief at all.
+- `alwaysLoad: true` on the bridge MCP server reaches 77% with no brief at all.
   That is the real lever and it may supersede the brief entirely, but it
   changes the backend rather than the advertisement, which #45 scoped out.
 - `contact` is barely reachable by anything: 0 of 12 across both default arms,
-  and 1 of 6 even with the tool loaded. The pass has no route to it either.
+  and 1 of 6 even with the tool loaded, while every other loaded kind fires 3
+  of 3.
 - The pass has no route to `contact` or `trend`, though D42's decision 6
   specifies both. Every transform in `classification/catalogue.ts` returns one
   of eight kinds and `CandidateKind` has no number series. That is a
   discrepancy between this record and the code, not a measurement result.
 
 **What is not claimed.** Per-prompt rates are noisy — `compare-short` measured
-0 of 6 on one run of the corrected harness and 5 of 6 on the next, because the
-variance is in whether the model spends a `ToolSearch` round-trip, not in
-whether it wants a block. Only the arm-level contrast is stable, and it is
-stable because it is a discoverability effect rather than a preference. One
-model, one backend; the pi backend is unmeasured.
+0 of 6, then 5 of 6, then 6 of 6 across three runs of the corrected harness,
+because the variance is in whether the model spends a `ToolSearch` round-trip,
+not in whether it wants a block. Only the arm-level contrast is stable, and it
+is stable because it is a discoverability effect rather than a preference. One
+model, one backend; the pi backend is unmeasured. The `--always-load` figures
+were taken before the turn budget was enforced and are reported over the turns
+that finished inside it.
 
 **Reproducing it.** `bun scripts/measure-show-block.ts --reps 6 --concurrency 6
 --out runs.json --md report.md`, with `ANTHROPIC_API_KEY` set; add
