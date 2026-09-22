@@ -363,6 +363,14 @@ with the coastline strokes drawn over it.
   which stitches the two sides of the strip into the one ring they bound. With a
   single shore in view the next entry IS its own, so the simple case is
   unchanged.
+- **A shore that only grazes the box clips to one point, repeated.** It bounds
+  nothing, and its entry and its exit are the same place — so it sits zero
+  distance ahead of every other shore's exit, every walk that can reach it ends
+  there, and the ring being built is thrown away. A view with a perfectly good
+  mainland shore in it came back with no fill at all. Point-only pieces are
+  dropped before the linking; the same tangency from the INSIDE — a lobe that
+  returns to the point it came in by — is real land, so the walk takes it and
+  simply does not offer a shore twice within one ring.
 - **Which side is land is still not decidable from the geometry.** Wound the
   other way, the same shores link into the water between them — a shape just as
   closed and just as plausible. That is what `LandOptions.onLand` is for: roads
