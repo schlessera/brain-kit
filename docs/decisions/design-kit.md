@@ -2734,14 +2734,35 @@ is structural rather than a default someone could flip.
 
 What this decision adds to #137 is only that the Claude side has now moved: the
 two backends were being compared across a configuration difference, and after
-this they are not. The remaining height between them — D43 puts it at 90%
-against 77% always-loaded — is #137's to explain, and this entry makes no claim
-about it.
+this they are not. The remaining height between them — **87% on pi over 60
+turns against 76–77% here over 47–48**, roughly ten points — is #137's to
+explain, and this entry makes no claim about it. The pi figure is the pooled
+one over both runs (27 of 30 and 25 of 30); the 90% that circulated is the
+first run alone, reported before a second existed, and the spread between them
+is what 30 turns of sampling noise looks like on this measurement.
+
+**One cross-backend result that outlives this decision.** The misses on the
+always-loaded Claude arms are not spread thin — they concentrate in two kinds.
+`contact` is 0 of 3 in both arms and `quote` 0 of 3 and 1 of 3, while six other
+prompts are 3 of 3. On pi, pooled over 60 turns, `contact` is 5 of 12 and
+`quote` 3 of 4, with every other prompt at full marks. **The same two kinds, on
+two backends, in two different harnesses.** Two small samples agreeing is not a
+result, but it is a better lead than a rate gap, and it is what #137 and #119
+should be pointed at rather than the ten points.
+
+#50's kind scoring also sees something no rate can: on pi the one *wrong-kind*
+result is `schedule` prescribed and `timeline` drawn, 4 times out of 4 — a kind
+reached reliably and reached for the wrong question, which a call-rate metric
+cannot distinguish from a success. **The SDK-level harness used for this entry
+does not score kind at all**, only `scripts/measure-show-block-server.ts` does,
+so any future Claude-against-pi comparison has half an instrument until that
+changes.
 
 **The prediction, with the condition that would falsify it.** If deferral is
 the whole of the difference, this change moves the Claude backend *toward* pi's
-90% and not merely upward from 56%. It has already landed at 76–77% in the
-measurement above, which is short of pi. **That shortfall is the prediction
+87% and not merely upward from 56%. It has already landed at 76–77% in the
+measurement above, which is short of pi on a better-powered comparison than
+#137 was filed with — 60 turns against 47–48 — and the gap did not close. **That shortfall is the prediction
 failing, not confirming**, and it says something besides deferral is also in
 play — so #137's search stays live and this entry does not close it. The
 honest claim is narrower than "the backends now agree": the configuration
@@ -2811,6 +2832,18 @@ earn their place. The question is #157.
   and it suggests the brief's content does measurable work in exactly the place
   a rate cannot see. #157 makes kind-correctness its metric, and the
   `schedule`/`timeline` miss is a concrete lead for it.
+- **Every figure here that came from another record was reconciled against
+  that record's own primary table before being repeated, and the ones that
+  could not be are named.** pi's 87% is read off #50's per-run breakdown (27 of
+  30 and 25 of 30) rather than from a summary; D43's cells are read off D43's
+  tables. Three of the five figure corrections in this lineage today arrived
+  from *outside* the record — lifted from another document quoting an earlier
+  version, or from one agent's account of one run — rather than drifting inside
+  it, which is a different failure from prose disagreeing with its own table
+  and needs the same discipline applied to inbound numbers, whoever sent them.
+  What this entry cannot claim: **no pi turn was re-run or re-scored here.**
+  Every pi number is #50's measurement, checked for arithmetic and provenance
+  and not reproduced.
 - One model (`claude-sonnet-5`, pinned so a re-run compares like for like) and
   one brain, a copy of `packages/core/fixtures/corpus/`. A larger brain means a
   larger base prompt, so the 7335 is a smaller share of it — and also more
