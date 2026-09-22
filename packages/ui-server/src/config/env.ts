@@ -23,6 +23,7 @@ import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   validateExecWrapper,
+  type ExecWrapperConfig,
   type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -58,6 +59,16 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  {
+    name: "BRAIN_UI_EXEC_KILLER",
+    description:
+      "Absolute path to an authorised helper that cancels a wrapped process " +
+      "group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. Needed only when " +
+      "the wrapper changes uid: signalling then fails with EPERM however the " +
+      "group is arranged, and an aborted request would keep running.",
+    default: "(none — signal the group directly)",
+    required: false,
+  },
   {
     name: "BRAIN_UI_EXEC_WRAPPER",
     description:
@@ -816,14 +827,18 @@ function filterPackageSubprocessEnv(
  * no-argument use; every ui-server spawn names its actual audience.
  */
 /**
- * The exec wrapper, or undefined when the host configured none.
+ * The exec wrapper and its cancellation helper, or empty when the host
+ * configured neither.
  *
  * Read per spawn rather than resolved once into {@link ServerConfig}: this is
  * a privilege boundary, and the rest of the package's config is resolved at
  * `createApp()` while these spawns happen for the life of the process.
  */
-export function execWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER);
+export function execConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER),
+    killer: validateExecWrapper(env.BRAIN_UI_EXEC_KILLER),
+  };
 }
 
 export function subprocessEnv(

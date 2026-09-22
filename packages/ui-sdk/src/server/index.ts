@@ -32,8 +32,9 @@ export type {
 } from "./backend-module.js";
 export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
 
-export type { KillableProcess } from "./exec-wrapper.js";
+export type { ExecWrapperConfig, KillableProcess } from "./exec-wrapper.js";
 export {
+  EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
   execWrapperSpawnOptions,
   killWrapped,

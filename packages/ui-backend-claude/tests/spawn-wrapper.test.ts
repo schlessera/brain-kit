@@ -40,7 +40,7 @@ test("the wrapper receives the SDK's command as an argument, and abort kills the
   );
   chmodSync(wrapper, 0o755);
 
-  const spawn = createWrappedSpawn(wrapper);
+  const spawn = createWrappedSpawn({ wrapper });
   const proc = spawn({
     command: "sleep",
     args: ["300"],

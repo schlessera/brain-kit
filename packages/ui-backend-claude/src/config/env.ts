@@ -17,10 +17,12 @@
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
 import {
+  EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   validateExecWrapper,
+  type ExecWrapperConfig,
 } from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
@@ -55,6 +57,17 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
       "never a command line: no shell parses it. Unset, the SDK spawns exactly " +
       "as it did before.",
     default: "(none — let the SDK spawn directly)",
+    required: false,
+  },
+  {
+    name: EXEC_KILLER_ENV,
+    description:
+      "Absolute path to an authorised helper that cancels the wrapped Claude " +
+      "Code process group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. " +
+      "Needed only when the wrapper changes uid: signalling then fails with " +
+      "EPERM however the group is arranged, and an aborted turn would keep " +
+      "running.",
+    default: "(none — signal the group directly)",
     required: false,
   },
   {
@@ -164,6 +177,9 @@ export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessE
  * process may gain the variable after this module loads, and a stale read of a
  * privilege boundary is the wrong kind of stale.
  */
-export function resolveExecWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return validateExecWrapper(env[EXEC_WRAPPER_ENV]);
+export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
+    killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
+  };
 }

@@ -1,7 +1,12 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
-import { subprocessEnv } from "../config/env.js";
+import { execConfig, subprocessEnv } from "../config/env.js";
+import {
+  execWrapperSpawnOptions,
+  killWrapped,
+  wrapCommand,
+} from "@schlessera/brain-ui-sdk/server";
 import type {
   BrainSearchResult,
   BrainSearchResponse,
@@ -111,13 +116,19 @@ function isBelowMinimum(found: ParsedVersion, minimum: ParsedVersion): boolean {
 export function probeBrainCliVersion(brainPath: string, log: Logger): void {
   let result: ReturnType<typeof Bun.spawnSync>;
   try {
-    result = Bun.spawnSync([...brainCliCommand(brainPath), "--version"], {
-      cwd: brainPath,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-      timeout: 5_000,
-    });
+    // Through the wrapper like every other CLI launch. Deliberately including
+    // the probe: it proves at boot that the wrapper can actually run the CLI,
+    // rather than leaving that to be discovered by the first user request.
+    result = Bun.spawnSync(
+      wrapCommand([...brainCliCommand(brainPath), "--version"], execConfig().wrapper),
+      {
+        cwd: brainPath,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+        timeout: 5_000,
+      }
+    );
   } catch (error) {
     log.emit({
       severityText: "WARN",
@@ -170,7 +181,14 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
 
   async function execBrain(args: string[], signal?: AbortSignal): Promise<ExecResult> {
     signal?.throwIfAborted();
-    const proc = Bun.spawn([...brainCliCommand(brainPath), ...args], {
+    // Every brain CLI launch goes through the host's wrapper, not only the
+    // agent's tools. The CLI imports the repository's `brain.config.ts` and
+    // its repo-resolved modules — agent-writable executable inputs — so a
+    // search or a stats call executes repository code just as a tool call
+    // does. Leaving these two spawns unwrapped would have left the privilege
+    // boundary with a hole the size of the whole read path.
+    const exec = execConfig();
+    const proc = Bun.spawn(wrapCommand([...brainCliCommand(brainPath), ...args], exec.wrapper), {
       cwd: brainPath,
       stdout: "pipe",
       stderr: "pipe",
@@ -178,8 +196,14 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
       // Only read-only search passes a signal. Kill even a CLI that ignores
       // SIGTERM; abandoning a request must not leave the local process alive.
-      ...(signal ? { signal, killSignal: "SIGKILL" } : {}),
+      // Bun's own signal handling kills the pid it spawned, which with a
+      // wrapper is the wrapper alone — so with one configured we take the
+      // abort ourselves and signal the group.
+      ...(signal && !exec.wrapper ? { signal, killSignal: "SIGKILL" } : {}),
+      ...execWrapperSpawnOptions(exec.wrapper),
     });
+    const onAbort = () => killWrapped(proc, exec, "SIGKILL");
+    if (signal && exec.wrapper) signal.addEventListener("abort", onAbort, { once: true });
 
     try {
       const [stdout, stderr, exitCode] = await Promise.all([
@@ -193,10 +217,12 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
       // A pipe-read failure also abandons search. Reap before its caller
       // clears the deadline; otherwise that failure could orphan the child.
       if (signal) {
-        proc.kill("SIGKILL");
+        killWrapped(proc, exec, "SIGKILL");
         await proc.exited;
       }
       throw error;
+    } finally {
+      if (signal && exec.wrapper) signal.removeEventListener("abort", onAbort);
     }
   }
 

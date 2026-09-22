@@ -20,6 +20,7 @@ import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
 import {
+  EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
@@ -27,6 +28,7 @@ import {
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   validateExecWrapper,
+  type ExecWrapperConfig,
   webSearchProvider,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -58,6 +60,16 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
       "argv[0], never a command line: no shell parses it. Unset, spawns are " +
       "exactly what they were.",
     default: "(none — spawn the program directly)",
+    required: false,
+  },
+  {
+    name: EXEC_KILLER_ENV,
+    description:
+      "Absolute path to an authorised helper that cancels a wrapped process " +
+      "group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. Needed only when " +
+      "the wrapper changes uid: signalling then fails with EPERM however the " +
+      "group is arranged, and an aborted turn would keep running.",
+    default: "(none — signal the group directly)",
     required: false,
   },
   {
@@ -120,13 +132,16 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
 }
 
 /**
- * The exec wrapper, or undefined. Resolved per spawn rather than cached at
- * module scope, matching this file's rule for everything else: the process may
- * gain the variable after this module loads, and a stale read of a privilege
- * boundary is the wrong kind of stale.
+ * The exec wrapper and its cancellation helper. Resolved per spawn rather than
+ * cached at module scope, matching this file's rule for everything else: the
+ * process may gain the variables after this module loads, and a stale read of
+ * a privilege boundary is the wrong kind of stale.
  */
-export function resolveExecWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return validateExecWrapper(env[EXEC_WRAPPER_ENV]);
+export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
+    killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
+  };
 }
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [

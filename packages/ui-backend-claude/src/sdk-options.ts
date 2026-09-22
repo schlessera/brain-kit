@@ -11,7 +11,7 @@ import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
-import { envSnapshot, resolveExecWrapper } from "./config/env.js";
+import { envSnapshot, resolveExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
@@ -114,9 +114,9 @@ export function createClaudeSdkTurn(options: {
   }
   // Only when the host configured one: with no wrapper the SDK spawns exactly
   // as it always has, which is the path every existing deployment is on.
-  const execWrapper = resolveExecWrapper();
-  if (execWrapper !== undefined) {
-    sdkOptions.spawnClaudeCodeProcess = createWrappedSpawn(execWrapper);
+  const exec = resolveExecConfig();
+  if (exec.wrapper !== undefined) {
+    sdkOptions.spawnClaudeCodeProcess = createWrappedSpawn(exec);
   }
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their

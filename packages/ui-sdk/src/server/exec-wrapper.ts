@@ -35,6 +35,25 @@ import { isAbsolute } from "node:path";
 export const EXEC_WRAPPER_ENV = "BRAIN_UI_EXEC_WRAPPER";
 
 /**
+ * The companion helper that cancels a wrapped process group.
+ *
+ * Needed because signalling is not a matter of ownership of the group.
+ * `kill(2)` requires the sender's real or effective uid to match the target's
+ * real or saved set-uid, and parenthood and process-group membership grant no
+ * exception — so once a wrapper has dropped to another uid and exec'd in
+ * place, the server can signal nothing at all and the turn keeps running after
+ * an abort. That is measured, not theorised:
+ * `docs/decisions/container-privilege.md`, "Cancellation".
+ *
+ * A host that drops privileges therefore supplies a narrowly authorised
+ * helper, invoked as `<killer> <pgid> <TERM|KILL|INT>`. This repository
+ * neither ships one nor requires one: with no killer configured the group
+ * signal is attempted directly, which is correct whenever the wrapper has not
+ * changed uid.
+ */
+export const EXEC_KILLER_ENV = "BRAIN_UI_EXEC_KILLER";
+
+/**
  * Validate a configured wrapper, or `undefined` when there is none.
  *
  * Shared so the three packages that accept it cannot disagree about what is
@@ -81,35 +100,80 @@ export interface KillableProcess {
   kill(signal?: number | NodeJS.Signals): void;
 }
 
+/** What the host configured. Both halves are independent and both optional. */
+export interface ExecWrapperConfig {
+  /** Absolute path every subprocess is launched through. */
+  wrapper?: string;
+  /** Absolute path to the authorised group-cancellation helper. */
+  killer?: string;
+}
+
 /**
  * Abort a spawn made through {@link execWrapperSpawnOptions}.
  *
- * With a wrapper, signal the whole process group — the wrapper is the group
- * leader, and the process actually doing the work is its child, possibly under
- * another uid. Without one, the plain `kill()` that was always here.
+ * Three cases, in the order they are tried:
  *
- * A group kill that fails falls back to killing the process directly: a
- * wrapper whose child outlives the signal is a worse outcome than a wrapper
- * that behaves like the old path.
+ * 1. **No wrapper** — the plain `kill()` that was always here.
+ * 2. **A killer helper** — `<killer> <pgid> <SIGNAL>`. The only thing that
+ *    works once the wrapper has dropped uid, because then nothing in the group
+ *    is signallable by this process.
+ * 3. **A wrapper and no killer** — signal the group directly. Correct when the
+ *    wrapper supervises at the server's own uid; guaranteed to fail with
+ *    EPERM when it has exec'd in place as somebody else.
+ *
+ * A total failure is REPORTED, never swallowed: a turn that keeps running
+ * after the user aborted it, with nothing in the log, is the outcome this
+ * whole seam exists to avoid.
  */
 export function killWrapped(
   proc: KillableProcess,
-  wrapper?: string,
-  signal: NodeJS.Signals = "SIGTERM"
+  config: ExecWrapperConfig = {},
+  signal: NodeJS.Signals = "SIGTERM",
+  onFailure: (message: string) => void = (message) => console.error(message)
 ): void {
+  const { wrapper, killer } = config;
   if (!wrapper) {
     proc.kill();
     return;
   }
+
+  if (killer) {
+    try {
+      // Fire and forget: the helper is a few syscalls, and awaiting it would
+      // put an abort path behind a process spawn.
+      Bun.spawn([killer, String(proc.pid), signal.replace(/^SIG/, "")], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      return;
+    } catch (error) {
+      onFailure(
+        `${EXEC_KILLER_ENV} at ${killer} could not be run to cancel process group ` +
+          `${proc.pid}: ${error instanceof Error ? error.message : String(error)}. ` +
+          "Falling back to an unprivileged signal, which fails if the wrapper changed uid."
+      );
+    }
+  }
+
   try {
     process.kill(-proc.pid, signal);
-  } catch {
-    // ESRCH (already gone) or EPERM (a uid we cannot signal at all). Either
-    // way the direct kill is the only remaining move.
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    // Already gone is a success, not a failure.
+    if (code === "ESRCH") return;
     try {
       proc.kill(signal);
-    } catch {
-      /* already reaped */
+      return;
+    } catch (direct) {
+      const directCode = (direct as NodeJS.ErrnoException | undefined)?.code;
+      if (directCode === "ESRCH") return;
     }
+    onFailure(
+      `Could not signal process group ${proc.pid} (${code ?? "unknown error"}). ` +
+        `The wrapper at ${wrapper} appears to run as a uid this process cannot signal, ` +
+        `so the aborted work is STILL RUNNING. Configure ${EXEC_KILLER_ENV} with an ` +
+        "authorised cancellation helper — see docs/decisions/container-privilege.md."
+    );
   }
 }

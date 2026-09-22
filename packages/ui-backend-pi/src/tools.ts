@@ -45,7 +45,7 @@ import {
 import { createPiBridgeTools } from "./bridge-tools.js";
 import {
   resolveEnabledWebSearchEnvNames,
-  resolveExecWrapper,
+  resolveExecConfig,
   subprocessEnv,
 } from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
@@ -234,15 +234,15 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // Containment: scope the search path to the repo; grep runs with cwd=repo.
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
-      const wrapper = resolveExecWrapper();
-      const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], wrapper), {
+      const exec = resolveExecConfig();
+      const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper), {
         cwd: brain.root,
         env: subprocessEnv(resolveEnabledWebSearchEnvNames()),
         stdout: "pipe",
         stderr: "pipe",
-        ...execWrapperSpawnOptions(wrapper),
+        ...execWrapperSpawnOptions(exec.wrapper),
       });
-      const onAbort = () => killWrapped(proc, wrapper);
+      const onAbort = () => killWrapped(proc, exec);
       signal?.addEventListener("abort", onAbort, { once: true });
       const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       signal?.removeEventListener("abort", onAbort);
@@ -379,15 +379,15 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // curls and other reads run in parallel, across sessions and across
       // sibling tool calls in one message.
       return lock.withKey(bashLockKey(params.command), async () => {
-        const wrapper = resolveExecWrapper();
-        const proc = spawn(wrapCommand(["bash", "-lc", cmd], wrapper), {
+        const exec = resolveExecConfig();
+        const proc = spawn(wrapCommand(["bash", "-lc", cmd], exec.wrapper), {
           cwd: brain.root,
           env: childEnv,
           stdout: "pipe",
           stderr: "pipe",
-          ...execWrapperSpawnOptions(wrapper),
+          ...execWrapperSpawnOptions(exec.wrapper),
         });
-        const onAbort = () => killWrapped(proc, wrapper);
+        const onAbort = () => killWrapped(proc, exec);
         signal?.addEventListener("abort", onAbort, { once: true });
         const [stdout, stderr, code] = await Promise.all([
           new Response(proc.stdout).text(),

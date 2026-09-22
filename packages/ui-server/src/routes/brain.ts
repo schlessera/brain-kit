@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { BrainClient } from "../brain/client.js";
-import { execWrapper, subprocessEnv } from "../config/env.js";
+import { execConfig, subprocessEnv } from "../config/env.js";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
   buildKeyterms,
@@ -122,13 +122,13 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // Through the exec wrapper like every other child: this one runs a
         // script that lives IN the brain repository, which makes it the least
         // appropriate spawn in the package to leave unwrapped.
-        const whatsupWrapper = execWrapper();
-        const proc = Bun.spawn(wrapCommand(["bun", script, "--gemini"], whatsupWrapper), {
+        const whatsup = execConfig();
+        const proc = Bun.spawn(wrapCommand(["bun", script, "--gemini"], whatsup.wrapper), {
           cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
           env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-          ...execWrapperSpawnOptions(whatsupWrapper),
+          ...execWrapperSpawnOptions(whatsup.wrapper),
         });
 
         // Start draining stderr NOW, not after the process exits.
@@ -248,18 +248,18 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // bash as positional args rather than interpolated into the script, so a
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
         const [cliBin, ...cliArgs] = brain.cliCommand();
-        const syncWrapper = execWrapper();
+        const sync = execConfig();
         const proc = Bun.spawn(
           wrapCommand(
             ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
-            syncWrapper
+            sync.wrapper
           ),
           {
             cwd: brainPath,
             stdout: "pipe",
             stderr: "pipe",
             env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-            ...execWrapperSpawnOptions(syncWrapper),
+            ...execWrapperSpawnOptions(sync.wrapper),
           }
         );
 

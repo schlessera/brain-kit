@@ -119,7 +119,7 @@ describe("aborting a wrapped spawn kills the process group", () => {
       "300",
     ]);
 
-    killWrapped(proc, wrapper);
+    killWrapped(proc, { wrapper });
     await proc.exited;
 
     // The grandchild is what a plain `proc.kill()` would have left running.
@@ -155,3 +155,86 @@ function alive(pid: number): boolean {
     return false;
   }
 }
+
+describe("the cancellation helper", () => {
+  test("is invoked with the process group and a bare signal name, and it works", async () => {
+    const dir = tempDir();
+    const killerLog = join(dir, "killer.log");
+    const childPidFile = join(dir, "child.pid");
+
+    const wrapper = join(dir, "supervise.sh");
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\n"$@" &\necho $! > '${childPidFile}'\nwait\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(wrapper, 0o755);
+
+    // The shape docs/decisions/container-privilege.md specifies:
+    // `<killer> <pgid> <TERM|KILL|INT>`. A real one is setuid and drops to the
+    // agent uid first; this one only has to prove the call and the effect.
+    const killer = join(dir, "kill-group.sh");
+    writeFileSync(
+      killer,
+      `#!/bin/sh\nprintf '%s\\n' "$@" >> '${killerLog}'\nkill -"$2" -"$1"\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(killer, 0o755);
+
+    const proc = Bun.spawn(wrapCommand(["sleep", "300"], wrapper), {
+      stdout: "ignore",
+      stderr: "ignore",
+      ...execWrapperSpawnOptions(wrapper),
+    });
+
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(childPidFile) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const childPid = Number((await Bun.file(childPidFile).text()).trim());
+    expect(alive(childPid)).toBe(true);
+
+    killWrapped(proc, { wrapper, killer });
+    await proc.exited;
+
+    const gone = Date.now() + 10_000;
+    while (alive(childPid) && Date.now() < gone) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(alive(childPid)).toBe(false);
+
+    // SIGTERM is passed as TERM: the helper's interface takes a bare name.
+    expect((await Bun.file(killerLog).text()).split("\n").filter(Boolean)).toEqual([
+      String(proc.pid),
+      "TERM",
+    ]);
+  }, 30_000);
+
+  test("a killer that cannot be run is reported, not swallowed", async () => {
+    const dir = tempDir();
+    const wrapper = join(dir, "exec.sh");
+    writeFileSync(wrapper, `#!/bin/sh\nexec "$@"\n`, { mode: 0o755 });
+    chmodSync(wrapper, 0o755);
+
+    const proc = Bun.spawn(wrapCommand(["sleep", "300"], wrapper), {
+      stdout: "ignore",
+      stderr: "ignore",
+      ...execWrapperSpawnOptions(wrapper),
+    });
+
+    const failures: string[] = [];
+    killWrapped(
+      proc,
+      { wrapper, killer: join(dir, "does-not-exist") },
+      "SIGTERM",
+      (message) => failures.push(message)
+    );
+    await proc.exited;
+
+    // It said so, and it still killed the process by the unprivileged route —
+    // silence plus a live process is the outcome this seam exists to avoid.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("BRAIN_UI_EXEC_KILLER");
+    expect(alive(proc.pid)).toBe(false);
+  }, 30_000);
+});

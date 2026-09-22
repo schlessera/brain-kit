@@ -20,10 +20,23 @@
 import { spawn } from "node:child_process";
 
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import { EXEC_KILLER_ENV, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+
+/**
+ * How much of the child's stderr to keep. Bounded on purpose: this hook
+ * REPLACES the SDK's own spawn, including the draining the SDK does, and a
+ * piped stderr that nobody reads fills its kernel buffer and blocks the child
+ * forever. Discarding it outright would be safe too, but a wrapper that fails
+ * — the wrong path, a refused uid — says so on stderr, and losing that makes
+ * a misconfigured wrapper look like a hang.
+ */
+const STDERR_TAIL_BYTES = 64 * 1024;
 
 export function createWrappedSpawn(
-  wrapper: string
+  config: ExecWrapperConfig
 ): (options: SpawnOptions) => SpawnedProcess {
+  const { wrapper, killer } = config;
+  if (!wrapper) throw new Error("createWrappedSpawn requires a wrapper path");
   return ({ command, args, cwd, env, signal }: SpawnOptions): SpawnedProcess => {
     const child = spawn(wrapper, [command, ...args], {
       cwd,
@@ -34,6 +47,26 @@ export function createWrappedSpawn(
       // Group leader: `kill(-pid)` below reaches the wrapper and whatever it
       // started, rather than only the process we can see.
       detached: true,
+    });
+
+    // Drain stderr continuously, keeping only a tail. Never awaited, never
+    // exposed: the SDK's SpawnedProcess has no stderr member, so this exists
+    // solely so the pipe cannot fill.
+    let stderrTail = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
+    });
+    child.stderr?.on("error", () => {
+      /* the child is gone; nothing to read and nothing to report */
+    });
+    child.once("exit", (code) => {
+      if (code !== 0 && stderrTail.trim() !== "") {
+        console.error(
+          `Claude Code exited ${code} under the exec wrapper ${wrapper}. ` +
+            `Last stderr:\n${stderrTail.trimEnd()}`
+        );
+      }
     });
 
     // `child.killed` is node's record of "someone called child.kill()", and a
@@ -61,16 +94,37 @@ export function createWrappedSpawn(
       },
       kill(sig: NodeJS.Signals): boolean {
         if (child.pid === undefined) return false;
+        // An authorised helper is the only thing that works once the wrapper
+        // has dropped uid: kill(2) matches uids, and group membership grants
+        // no exception (docs/decisions/container-privilege.md, "Cancellation").
+        if (killer) {
+          try {
+            spawn(killer, [String(child.pid), sig.replace(/^SIG/, "")], {
+              stdio: "ignore",
+              detached: false,
+            }).unref();
+            signalled = true;
+            return true;
+          } catch {
+            // Fall through: an unprivileged signal is still worth attempting.
+          }
+        }
         try {
           process.kill(-child.pid, sig);
           signalled = true;
           return true;
-        } catch {
-          // ESRCH (already gone) or EPERM (a uid we cannot signal at all).
-          // Falling back to the direct kill is no worse than the unwrapped
-          // path, and a wrapper whose child outlives an abort is worse than
-          // both.
-          return child.kill(sig);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ESRCH") return true; // already gone
+          const direct = child.kill(sig);
+          if (!direct && code === "EPERM") {
+            console.error(
+              `Could not signal Claude Code's process group ${child.pid} (EPERM). ` +
+                `The wrapper at ${wrapper} runs as a uid this process cannot signal, ` +
+                `so the aborted turn is STILL RUNNING. Configure ${EXEC_KILLER_ENV}.`
+            );
+          }
+          return direct;
         }
       },
       on(event: "exit" | "error", listener: never) {
