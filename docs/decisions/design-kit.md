@@ -2262,27 +2262,44 @@ configuration.
 
 Pooling the two runs is legitimate for this number: the classification pass
 runs after the result frame and cannot change what the model did during the
-turn. Across all sixty turns the model typed **zero markdown tables**. Two
+turn. **D43 and D44 both quote pi at 90%**, which was the first run alone,
+reported before the second existed; 52 of 60 is the figure to carry, and the
+difference between them is what 30 turns of sampling noise looks like on
+this measurement. Across all sixty turns the model typed **zero markdown tables**. Two
 calls were rejected by the handler, both `comparison`, both on a turn that
 retried and succeeded — the same shape D43 saw at three in 108, and the
 reason a call is not counted until its payload parses.
 
-Beside D43, on one axis:
+Beside the Claude backend, on one axis. The two Claude columns are
+independent runs of the same four cells — D43's (PR #121) and D44's
+(PR #158) — quoted from those records rather than relayed:
 
-| configuration | rate |
-| --- | --- |
-| Claude, behind tool search — what ships, with brief | 23 / 43 (53%) |
-| Claude, behind tool search, no brief | 1 / 47 (2%) |
-| Claude, `--always-load`, either arm | 17 / 22 (77%) |
-| pi, always loaded by construction | **52 / 60 (87%)** |
+| configuration | Claude, D43 | Claude, D44 | pi |
+| --- | --- | --- | --- |
+| behind tool search — what shipped, with brief | 23 / 43 (53%) | 14 / 25 (56%) | n/a |
+| behind tool search, no brief | 1 / 47 (2%) | 0 / 25 (0%) | n/a |
+| always loaded, with brief | 17 / 22 (77%) | 19 / 25 (76%) | **52 / 60 (87%)** |
+| always loaded, no brief | 17 / 22 (77%) | 20 / 26 (77%) | unreachable |
 
-**pi does not contradict D43; it replicates D43's always-loaded arm on a
-different backend.** What is not accounted for is the remaining height, 87%
-against 77%, on 60 turns against 22. Three things could explain it and none
-is measured: the layer (D43 drives the SDK, this drives the whole server,
-and no backend has been measured at both), the roster the block competes in
+pi's cell sits on the "with brief" row and nowhere else: the brief is
+hardcoded into pi's prompt, so pi has no no-brief arm and no supported way
+to have one. The two Claude no-brief cells are therefore one backend
+measured twice and not two backends agreeing.
+
+**pi does not contradict either record; it replicates their always-loaded
+arm on a different backend.** What is not accounted for is the remaining
+height — **87% against 76–77%**, on 60 turns against 47–48 across the two
+Claude runs. Three things could explain it and none is measured: the layer
+(both Claude records drive the Agent SDK, this drives the whole server, and
+no backend has been measured at both), the roster the block competes in
 (D43 records that narrowing it moves the absolute rate, and pi's roster here
 carried four brain tools), or the backend itself. That is #137.
+
+D44 puts the same residue the other way round and names its own failure
+condition: if deferral were the whole difference, making the Claude backend
+always-load should move it toward pi's rate rather than merely upward. It
+moved to 76–77%. That is the prediction failing, and the shortfall is what
+#137 is for.
 
 **Which kind, not just whether.** Every measurement before this one scored
 whether a block was drawn and never which one, so a model reaching for the
