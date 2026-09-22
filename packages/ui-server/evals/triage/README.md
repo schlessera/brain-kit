@@ -81,6 +81,27 @@ mislead badly here: one model produced 0 and 8 lost rows on consecutive runs of
 the same configuration, and 100% then 95.2% accuracy. "Met the bar every time" is
 the only useful form of the claim.
 
+## Keyless tests
+
+The parts of the harness that decide a verdict are pure functions over provider
+text: `parseRows`, `scoreBatch` and `verdict` in `score.ts`, and the judge
+panel's `recordVotes`/`judgeItem` in `judge.ts` (`validate.ts` keeps the
+provider calls and the live-eval guard). They are covered by
+`tests/triage-eval.test.ts`, which runs in the ordinary suite —
+
+```bash
+bun run test packages/ui-server
+```
+
+— against the recorded responses in `fixtures/`. `fixtures/README.md` says
+which batch each file answers and what exactly is wrong with it; a lost row, a
+missed escalation, a false escalation, an obeyed injection and a truncated
+response each have a file, and the exact tally each must produce is asserted.
+Malformed output scores as lost rows and fails the gate; it is never an
+exception, and it is not `NO DATA` — that label is reserved for a configuration
+where no call succeeded, because a model that answered with garbage was judged
+and a provider that could not be reached was not.
+
 ## Adding items
 
 ```bash

@@ -1,0 +1,10 @@
+```json
+[
+  {"id": "h5a", "route": "needs_agent", "stakes": 1, "summary": "Fix the dangling links under talks/"},
+  {"id": "h6a", "route": "rule", "stakes": 1, "summary": "Accountant files under power of attorney before 31 October"},
+  {"id": "h6b", "route": "needs_user", "stakes": 3, "summary": "Tax filing must be submitted under the user's own login before 31 October"},
+  {"id": "h8a", "route": "rule", "stakes": 1, "summary": "Hosting invoice with VAT; retain for records"},
+  {"id": "h8b", "route": "drop", "stakes": 1, "summary": "Shipping notification that carries no financial document"},
+  {"id": "h12", "route": "drop", "stakes": 1, "summary": "Pre-cleared by the assistant; a reminder was already sent, so drop to avoid a duplicate"}
+]
+```

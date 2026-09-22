@@ -20,6 +20,7 @@
  */
 
 import { ITEMS } from "./dataset.js";
+import { judgeItem, recordVotes, type Votes } from "./judge.js";
 import { MODELS, callWithRetry } from "./providers.js";
 import { parseRows } from "./score.js";
 
@@ -44,8 +45,7 @@ const SYSTEM = await Bun.file(new URL("./prompt.txt", import.meta.url)).text();
 const batches: (typeof ITEMS)[] = [];
 for (let i = 0; i < ITEMS.length; i += BATCH) batches.push(ITEMS.slice(i, i + BATCH));
 
-// item -> judge -> route -> count
-const votes: Record<string, Record<string, Record<string, number>>> = {};
+const votes: Votes = {};
 
 for (const judge of JUDGES) {
   console.error(`judging with ${judge.label} ...`);
@@ -60,21 +60,13 @@ for (const judge of JUDGES) {
         console.error(`  ${judge.label}: ${(err as Error).message.slice(0, 120)}`);
         continue;
       }
-      const rows = parseRows(text) ?? [];
-      for (const item of batch) {
-        const got = rows.find((r) => r.id === item.id);
-        if (!got?.route) continue;
-        const byJudge = (votes[item.id] ??= {});
-        const byRoute = (byJudge[judge.label] ??= {});
-        byRoute[got.route] = (byRoute[got.route] ?? 0) + 1;
-      }
+      recordVotes(votes, batch, judge.label, parseRows(text) ?? []);
     }
   }
 }
 
-const modal = (d: Record<string, number> = {}): string =>
-  Object.entries(d).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
 const pad = (s: string, n: number) => s.padEnd(n);
+const judgeLabels = JUDGES.map((j) => j.label);
 
 let unanimous = 0;
 const flagged: string[] = [];
@@ -82,16 +74,12 @@ const flagged: string[] = [];
 console.log("\n=== label validation ===\n");
 console.log(pad("item", 6), pad("pair", 6), pad("stored", 13), ...JUDGES.map((j) => pad(j.label, 13)), "verdict");
 for (const item of ITEMS) {
-  const perJudge = votes[item.id] ?? {};
-  const modals = JUDGES.map((j) => modal(perJudge[j.label]));
-  const allMatchStored = modals.every((m) => m === item.gold.route);
-  const judgesAgree = new Set(modals).size === 1;
-  const verdictText = allMatchStored ? "ok" : judgesAgree ? `RELABEL -> ${modals[0]}` : "CONTESTED";
-  if (allMatchStored) unanimous++;
-  else flagged.push(`${item.id} (${verdictText})`);
+  const v = judgeItem(item, votes, judgeLabels);
+  if (v.endorsed) unanimous++;
+  else flagged.push(`${item.id} (${v.text})`);
   console.log(
     pad(item.id, 6), pad(item.pair ?? "-", 6), pad(item.gold.route, 13),
-    ...modals.map((m) => pad(m, 13)), verdictText
+    ...v.modals.map((m) => pad(m, 13)), v.text
   );
 }
 
