@@ -65,6 +65,16 @@ describe("Composer field sizing", () => {
     expect(f.rows).toBe("3");
   });
 
+  test("a nonsense maxRows still leaves the field capped", () => {
+    // A negative length is a declaration the browser drops, so an unclamped
+    // `maxRows` of -3 would render a field that grows without a cap at all.
+    for (const maxRows of [-3, 0, Number.NaN]) {
+      const f = field({ value: "x", onChange: () => {}, maxRows });
+      expect(f.style).toMatch(/max-height:\d+(\.\d+)?px/);
+    }
+    expect(field({ value: "x", onChange: () => {}, maxRows: -3 }).rows).toBe("1");
+  });
+
   test("a larger maxRows does not raise the design's ceiling", () => {
     // What a constant `maxHeight: 96` did before, when `rows` bounded growth.
     expect(field({ value: "x", onChange: () => {}, maxRows: 12 }).style).toContain("max-height:96px");

@@ -178,7 +178,11 @@ export function Composer(p: ComposerProps) {
   const hintRow = Boolean(p.provider || hint || blockedWhy);
   const hintId = useId();
 
-  const maxRows = Number(p.maxRows) || 5;
+  // `Math.max(1, …)` for the same reason `rows` has it below: `maxRows` is a
+  // number off a prop. A negative one used to be harmless — the cap was a
+  // constant — but it now reaches `maxHeight`, where a negative length is a
+  // declaration the browser drops, leaving the field uncapped.
+  const maxRows = Math.max(1, Number(p.maxRows) || 5);
   const lines = (p.value ?? "").split("\n").length;
   const rows = Math.max(1, Math.min(maxRows, lines));
 
