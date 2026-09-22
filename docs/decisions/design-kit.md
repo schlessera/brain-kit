@@ -2524,7 +2524,7 @@ again.
 **Question.** D43 ended with a filed finding rather than a decision:
 `packages/ui-backend-claude/src/ask-user-tool.ts` created the `brain-ui` MCP
 server without `alwaysLoad`, so the Agent SDK deferred all five bridge tools
-behind tool search, and forcing them into the prompt reached 79% with no brief
+behind tool search, and forcing them into the prompt reached 77% with no brief
 at all. #148 asked whether that is the configuration that should ship. It is an
 arithmetic question and nobody had done the arithmetic.
 
@@ -2612,7 +2612,7 @@ wall time to the first assistant frame.
 | always loaded | brief | 21 of 27 (**78%**) | 1 | 26,340 | 4277 ms |
 | always loaded | no-brief | 21 of 27 (**78%**) | 1 | 26,885 | 4620 ms |
 
-D43's 79%/79% replicates at 78%/78%. Across the two runs that is 51 turns per
+D43's 77%/77% replicates at 78%/78%. Across the two runs that is 49 turns per
 cell agreeing: **once the tool is in the prompt, the brief changes nothing.**
 
 The two no-brief arms isolate the schema as cleanly as this harness can —
@@ -2711,27 +2711,30 @@ not running one — and with the tools loaded there is no search to steer.
 **What this means for backends that are not the Claude SDK.** Deferral is a
 property of the Claude Agent SDK, not of the bridge, so this decision is scoped
 to that backend. The backend-neutral obligation is one line: **a bridge tool
-has to be in the model's context, and each backend says how.** The pi backend
-already met it and had nothing to decide. `createPiBridgeTools` returns
-ordinary in-process `ToolDefinition`s, and pi's own `splitDeferredTools` defers
-a tool only when an earlier tool result added it to the conversation and
-nothing has called it since — a statically registered tool can never be in that
-set.
+has to be in the model's context, and each backend says how.**
 
-That reframes #137. It measured pi at 21 of 23 against a much lower Claude
-number on the same prompts, and the natural reading was that the two backends
-disagree about the tool. They do not: pi was already in the always-loaded
-configuration and had never run any other one, and its 21 of 23 sits where the
-always-loaded Claude numbers sit. The gap was this decision's gap. Any future
-comparison of the two backends has to say which loading configuration each side
-was in, and a rate measured on one backend is not a property of the tool.
+D43's pi section above already establishes that pi has no deferral to apply to
+a statically registered tool and that its shipping configuration is therefore
+the structural equivalent of the `--always-load` arm, so that ground is not
+re-covered here. One detail found independently while deciding this and worth
+adding to it: the mechanism is `splitDeferredTools` in pi's shipped bundle,
+which puts a tool in the deferred set only when an earlier tool result added it
+to the conversation and nothing has called it since. A statically registered
+`ToolDefinition` can never satisfy that, which is why the absence of deferral
+is structural rather than a default someone could flip.
+
+What this decision adds to #137 is only that the Claude side has now moved: the
+two backends were being compared across a configuration difference, and after
+this they are not. The remaining height between them — D43 puts it at 90%
+against 77% always-loaded — is #137's to explain, and this entry makes no claim
+about it.
 
 **What this changes in D43.** Its decision — the brief stays — stands, and its
 measurement is the evidence this entry rests on; the deferral finding is D43's,
 not this one's. What this supersedes is its *reason*. D43 kept the brief
-because removing it took the rate to zero, and that was true only of the
+because removing it took the rate to 2%, and that was true only of the
 deferred configuration. With the tools loaded, the brief measures at no effect
-at all: 78% with it and 78% without it here, 79%/79% there, 51 turns per cell.
+at all: 78% with it and 78% without it here, 77%/77% there, 49 turns per cell.
 The brief is no longer the tool's discovery path, so whether it earns 655
 tokens across five tools has to be re-argued on its own merits rather than
 inherited. **#148 scoped the brief's wording out of this decision, so nothing
