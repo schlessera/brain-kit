@@ -77,6 +77,11 @@ export function QuoteCard(p: QuoteCardProps) {
     font: `400 13px/1.7 ${p.serif ? font.display : font.body}`,
     fontStyle: p.italic !== false ? "italic" : "normal",
     color: color.ink,
+    // A quote is the record, so a URL or any other run with no break
+    // opportunity wraps rather than escaping the card. `anywhere` rather than
+    // `break-word` because it also shrinks the min-content width, which is
+    // what keeps a flex parent from being pushed open by the same run.
+    overflowWrap: "anywhere",
   };
   const sourceRow: CSSProperties = {
     display: "flex",
@@ -105,7 +110,9 @@ export function QuoteCard(p: QuoteCardProps) {
         {locator ? <span style={{ flex: "none", color: accent.neutral.ink }}>{locator}</span> : null}
       </div>
       {note ? (
-        <div style={{ font: `400 11px/1.6 ${font.body}`, color: accent.neutral.ink }}>{note}</div>
+        <div style={{ font: `400 11px/1.6 ${font.body}`, color: accent.neutral.ink, overflowWrap: "anywhere" }}>
+          {note}
+        </div>
       ) : null}
     </div>
   );
