@@ -19,20 +19,10 @@ import {
   setMeta,
   storedVectorWidth,
 } from "../src/lib/db";
+// Same optional-extension policy as indexer.test.ts; one shared probe.
+import { vecAvailable } from "./vec-fixture";
 
 const DIM = 16;
-
-let vecAvailable = false;
-const probe = new Database(":memory:");
-try {
-  const { load } = await import("sqlite-vec");
-  load(probe);
-  vecAvailable = true;
-} catch {
-  // Same optional-extension policy as indexer.test.ts.
-} finally {
-  probe.close();
-}
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {

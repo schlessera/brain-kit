@@ -18,6 +18,9 @@ import { openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import type { Enrichment } from "../src/lib/enrichment";
+// sqlite-vec is optional in some environments — vector-dependent tests skip
+// gracefully when the extension cannot load. One probe, in vec-fixture.ts.
+import { vecAvailable } from "./vec-fixture";
 
 // In-process integration tests for the incremental indexer. The port takes
 // `root` + `taxonomy` as parameters (the reference brain used module-level
@@ -32,19 +35,6 @@ const taxonomy = buildTaxonomy({ user: null });
 const FAKE_PNG = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
 ]);
-
-// sqlite-vec is optional in some environments — vector-dependent tests skip
-// gracefully when the extension cannot load.
-let vecAvailable = false;
-try {
-  const { load } = await import("sqlite-vec");
-  const probe = new Database(":memory:");
-  load(probe);
-  probe.close();
-  vecAvailable = true;
-} catch {
-  vecAvailable = false;
-}
 
 const fixtures: string[] = [];
 afterAll(() => {
