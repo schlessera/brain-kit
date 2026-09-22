@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 import { ScrapeClient, extractJsonLd, type FetchOptions } from "@schlessera/brain-scrape";
 
-import { RemotelyDeAdapter } from "../src/adapters/remotelyde";
+import { BaseAdapter } from "../src/adapters/base";
 import {
   jobsFromJsonLd,
   mapBaseSalary,
@@ -419,20 +419,50 @@ describe("malformed JSON", () => {
   });
 
   test("does not abort the board: the adapter reports it and keeps going", async () => {
-    class StubClient extends ScrapeClient {
-      override async getText(_url: string, _opts: FetchOptions = {}): Promise<string> {
-        return truncated;
+    /**
+     * The smallest adapter that reads structured data: one page, through the
+     * shared helper, reporting what it could not parse. Any board wired onto
+     * `jobsFromJsonLd` looks like this, and none has to exist yet for the "not
+     * a thrown exception" half of the requirement to be checkable.
+     */
+    class JsonLdBoard extends BaseAdapter {
+      readonly source = "builtin" as const;
+      readonly name = "Structured-data board";
+      readonly tier = 2 as const;
+
+      async scrape() {
+        const html = await this.http.getText("https://example.test/jobs");
+        const { jobs, errors } = jobsFromJsonLd(html, { source: this.source });
+        return this.makeResult(jobs, errors);
       }
     }
 
-    const result = await new RemotelyDeAdapter()
-      .bind({ http: new StubClient(), log: () => {} })
-      .scrape({ incremental: false });
+    /** Serves one body, and seals every other way out to the network. */
+    class StubClient extends ScrapeClient {
+      constructor(private readonly body: string) {
+        super();
+      }
+      override async getText(_url: string, _opts: FetchOptions = {}): Promise<string> {
+        return this.body;
+      }
+      override async get(url: string, _opts: FetchOptions = {}): Promise<Response> {
+        throw new Error(`StubClient serves fixtures, not responses: ${url}`);
+      }
+    }
 
-    expect(result.jobs).toEqual([]);
-    // One per page fetched before the adapter gave up on empty pages, and each
-    // one names the script rather than a stack trace.
-    expect(result.errors.length).toBeGreaterThan(0);
-    for (const error of result.errors) expect(error).toContain("JSON-LD script 1");
+    const serving = (body: string) =>
+      new JsonLdBoard().bind({ http: new StubClient(body), log: () => {} }).scrape();
+
+    const broken = await serving(truncated);
+    expect(broken.jobs).toEqual([]);
+    // Reported, named, and returned -- not thrown.
+    expect(broken.errors).toHaveLength(1);
+    expect(broken.errors[0]).toContain("JSON-LD script 1");
+
+    // The same adapter over the same capture intact, so the failure path is
+    // not the only one this exercises.
+    const whole = await serving(fixture("jsonld", "dice-detail.html"));
+    expect(whole.errors).toEqual([]);
+    expect(whole.jobs).toHaveLength(1);
   });
 });
