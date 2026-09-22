@@ -18,7 +18,7 @@ or drives a remote host is confirmed before it runs.
 Ask what they want:
 
 - **a. Private GitHub backup only** — versioned off-machine copy, no server.
-- **b. VPS with public HTTPS** — brain-ui reachable from anywhere, password-protected.
+- **b. VPS with public HTTPS** — the chat UI reachable from anywhere, password-protected.
 - **c. Home server / Tailscale-only** — private network, no public exposure.
 - **d. fly.io** — managed container host.
 - **e. Nothing right now** — explain the trade-offs and stop.

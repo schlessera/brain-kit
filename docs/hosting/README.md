@@ -4,21 +4,28 @@ You do not have to host anything. A brain is a git repo you operate from a
 coding agent on your own machine — that is the whole product. Hosting adds two
 optional things: an off-machine **backup** (a private git remote) and a
 self-hosted **chat UI** you can reach from your phone. This page is the honest
-overview; the detailed runbooks ship with brain-ui.
+overview of both.
 
-## What brain-ui is
+## What you generate, and what you run
 
-**brain-ui** ([github.com/schlessera/brain-ui](https://github.com/schlessera/brain-ui))
-is a separate, open-source repo: a Progressive Web App chat interface that
-drives a coding agent over your brain. It is a **thin deployment shell** —
-Dockerfile, bin entry, branding — over the `@schlessera/brain-ui-server` and
-`@schlessera/brain-ui-react` packages published from this monorepo; every line
-of app behavior lives here, and brain-ui consumes the published npm packages
-like any other dependency (no vendored copies). It versions independently
-against the [integration contract](../integration-contract.md). Its own README
-and docs cover deployment specifics.
+> **The hosting template is not published yet.** Everything below describes what
+> self-hosting will look like and what the deployment does; the repository you
+> generate it from, `schlessera/brain-hosting-template`, is not available. The
+> backup half of this page needs nothing but git and works today.
 
-Running brain-ui means running an agent that can execute Bash in a container that
+The chat UI is a Progressive Web App that drives a coding agent over your brain.
+Nothing in this repository runs it: what you run is a **deployment shell** you
+generate for yourself — a Dockerfile, a compose file, a bin entry, your own
+branding — wrapped around the `@schlessera/brain-ui-server` and
+`@schlessera/brain-ui-react` packages published from this monorepo.
+
+That split is the point. Every line of app behaviour lives here and ships as an
+npm package; the shell holds only what is true of *your* machine, and it takes
+upgrades by bumping a dependency. It versions independently against the
+[integration contract](../integration-contract.md), so a shell generated once
+keeps working as the packages move.
+
+Running it means running an agent that can execute Bash in a container that
 holds your data and your API tokens. That is powerful and it is a real attack
 surface — which is why auth is mandatory (below) and why the content repo must
 stay private.
@@ -101,8 +108,8 @@ parts and generates a copy-paste runbook for the rest:
 
 ## Auth modes
 
-brain-ui **fails closed**: it never ships a default that exposes a write-capable
-agent without authentication.
+The server **fails closed**: it never ships a default that exposes a
+write-capable agent without authentication.
 
 | Mode        | What it is                                                                                   | Use when                              |
 | ----------- | -------------------------------------------------------------------------------------------- | ------------------------------------- |
@@ -134,7 +141,7 @@ without signing out the rest.
 
 ### Version transition
 
-1. Upgrade brain-ui and expect one re-login on every password-mode device: the
+1. Upgrade the server and expect one re-login on every password-mode device: the
    new verifier rejects cookies in the old format. An agent using an old owner
    cookie also loses access; after signing in, mint it a delegated credential.
 2. If the deployment stays on the upgraded version, keep the existing
@@ -174,9 +181,9 @@ encryption to what actually protects you:
 - **`brain.db`** stays unencrypted by design — it is a disposable, regenerable
   cache; the markdown is the sensitive artifact, so protect that.
 
-brain-ui's SECURITY.md states plainly what each mode does and does not protect.
 Do not read "encrypted" as "the server operator cannot read your notes" — a
-server that runs an agent over your notes can.
+server that runs an agent over your notes can. [SECURITY.md](../../SECURITY.md)
+states the threat model plainly.
 
 ## Backups
 
@@ -191,4 +198,4 @@ rebuilds it from the markdown.
 
 - [quickstart.md](../quickstart.md) — the local-first starting point.
 - [concepts.md](../concepts.md) — why `brain.db` is disposable.
-- [integration-contract.md](../integration-contract.md) — the surface brain-ui consumes.
+- [integration-contract.md](../integration-contract.md) — the surface a deployment consumes.
