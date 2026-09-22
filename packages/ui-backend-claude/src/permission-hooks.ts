@@ -61,28 +61,31 @@ export function createPermissionWiring(options: {
     });
   };
 
-  // Withholding OUR shortcuts is not enough: two things outside this file
-  // also admit a tool before canUseTool is reached. Both measured against
-  // Claude Code 2.1.280 / SDK 0.3.278 with a real query(); what is NOT a
-  // bypass is recorded below, because guessing at this once already put a
-  // wrong mechanism in this comment.
+  // DO NOT WEAKEN THIS INTO A FALLTHROUGH. Withholding OUR shortcuts is not
+  // enough: three things outside this file admit a tool before canUseTool is
+  // reached, so "it is off the allowlist, the callback will catch it" is
+  // false. Each was measured against Claude Code 2.1.280 / SDK 0.3.278 with a
+  // real query() and an EMPTY allowedTools; what is NOT a bypass is recorded
+  // too, because guessing at this once already put a wrong mechanism here.
   //
-  // 1. The runtime's own safe-command classifier. `echo hi` runs with an
-  //    EMPTY allowedTools and the callback is never consulted.
-  // 2. A PreToolUse hook in the PROJECT SETTINGS this backend loads
+  // 1. The runtime's safe-command classifier, on the command's SHAPE. `echo
+  //    hi` ran and the callback was never consulted; `touch <path>`, same
+  //    harness, went through it. Picking the wrong probe command hides this.
+  // 2. A built-in tool permitted without the callback at all. `ToolSearch`
+  //    executed twice with nothing on the allowlist and no hook registered.
+  // 3. A PreToolUse hook in the PROJECT SETTINGS this backend loads
   //    (`settingSources: ["project"]` in sdk-options.ts) returning
   //    `permissionDecision: "allow"`. That file lives in the brain repo,
   //    which is the turn's cwd, and Write/Edit are on the default allowlist —
   //    so a wide-posture turn can write it and re-widen every later narrow
-  //    one. This is the reason enforcement cannot be a property of
-  //    configuration alone.
+  //    one. Enforcement therefore cannot be a property of configuration.
   //
   // What does NOT skip the callback, in those same project settings:
   // `permissions.allow` rules, and `permissions.defaultMode:
   // "bypassPermissions"`. Both were tried; canUseTool was still consulted.
   //
-  // An explicit "ask" beats both real vectors — including the settings hook's
-  // "allow", with a canUseTool deny then holding — and it leaves another
+  // An explicit "ask" beats all three — measured for each, and for the
+  // settings hook with a canUseTool deny then holding — and it leaves another
   // hook's updatedInput intact, so the rewrites still reach the decision.
   // Registered only under the declaration, so nothing moves for a turn that
   // declares nothing.
