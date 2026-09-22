@@ -40,14 +40,39 @@ function fixture(...parts: string[]): string {
   return readFileSync(join(FIXTURES, ...parts), "utf-8");
 }
 
-/** An HTTP client that answers every request with one fixture, or throws. */
+/**
+ * An HTTP client that answers every request with one fixture, or throws.
+ *
+ * Every read path is sealed, not just the one these tests happen to call.
+ * `ScrapeClient.getJson` and `get` are ordinary methods: an override of
+ * `getText` alone leaves them inherited, and `get` reaches `clearToFetch`,
+ * which fetches robots.txt over the network before it has even looked at the
+ * URL. Nothing here calls them today. The next adapter wired into this file
+ * would, and the test would go green over a real request.
+ */
 class StubClient extends ScrapeClient {
   constructor(private readonly answer: string | Error) {
     super();
   }
-  override async getText(_url: string, _opts: FetchOptions = {}): Promise<string> {
+
+  private body(): string {
     if (this.answer instanceof Error) throw this.answer;
     return this.answer;
+  }
+
+  override async getText(_url: string, _opts: FetchOptions = {}): Promise<string> {
+    return this.body();
+  }
+
+  override async getJson<T = unknown>(_url: string, _opts: FetchOptions = {}): Promise<T> {
+    return JSON.parse(this.body()) as T;
+  }
+
+  override async get(url: string, _opts: FetchOptions = {}): Promise<Response> {
+    throw new Error(
+      `StubClient.get(${url}) — these tests answer from a fixture and must never ` +
+        `reach the network. Add the read path you need to StubClient instead.`
+    );
   }
 }
 
@@ -93,6 +118,17 @@ async function scrapeAgainst(adapter: BaseAdapter, answer: string | Error) {
   return adapter.bind(contextServing(answer)).scrape({ incremental: false });
 }
 
+describe("the fixture client", () => {
+  test("answers from the fixture on every read path, and refuses the raw one", async () => {
+    const client = new StubClient('{"jobs":[{"title":"X"}]}');
+    expect(await client.getText("https://example.test/")).toBe('{"jobs":[{"title":"X"}]}');
+    expect(await client.getJson("https://example.test/")).toEqual({ jobs: [{ title: "X" }] });
+    // `get` is what reaches robots.txt over the network before it has even
+    // looked at the URL, so it is sealed shut rather than stubbed.
+    await expect(client.get("https://example.test/")).rejects.toThrow("must never");
+  });
+});
+
 describe("remotelyde against its captured listing", () => {
   test("stores category chrome instead of jobs, and reports no error (#35)", async () => {
     const result = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing.html"));
@@ -137,8 +173,10 @@ describe("remotelyde against its captured listing", () => {
 });
 
 describe("remoteineurope against what its domain now serves", () => {
+  const served = () => fixture("remoteineurope", "redirect-target.html");
+
   test("reports zero found and zero errors on a page that is not its site (#37)", async () => {
-    const html = fixture("remoteineurope", "redirect-target.html");
+    const html = served();
     // Every configured URL answers 301 to weworkremotely.com; this is a slice
     // of what comes back.
     expect(html).toContain('href="https://weworkremotely.com/remote-software-developer-jobs"');
@@ -147,6 +185,40 @@ describe("remoteineurope against what its domain now serves", () => {
     const result = await scrapeAgainst(new RemoteInEuropeAdapter(), html);
     expect(result.jobs).toEqual([]);
     expect(result.errors).toEqual([]);
+  });
+
+  test("the parser still runs — it is pointed at a link shape that is not there", async () => {
+    // Without this half the test above passes for the WRONG reason: an adapter
+    // whose parser had been gutted to `return []` satisfies it just as well,
+    // and it is the only executable evidence for #37's premise. Same bytes,
+    // with the one thing changed that the parser looks for.
+    const rewritten = served().replaceAll('href="/remote-jobs/', 'href="/job/');
+    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), rewritten);
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.errors).toEqual([]);
+    expect(result.jobs.map((job) => job.url)).toEqual([
+      "https://remoteineurope.com/job/sanctuary-computer-senior-shopify-developer",
+      "https://remoteineurope.com/job/samsara-staff-software-engineer",
+    ]);
+  });
+
+  test("and when it runs, the titles are still the whole card (#128)", async () => {
+    // The August table's "titles like 'Canonical 1 Apr Canonical Senior Design
+    // Researcher'" was never fixed — it is only hidden, because the parser
+    // matches nothing at all today. Repointing this adapter at a live board
+    // would bring the mangling straight back, so the title extraction is part
+    // of whatever #128 decides, not a separate surprise.
+    const rewritten = served().replaceAll('href="/remote-jobs/', 'href="/job/');
+    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), rewritten);
+
+    expect(result.jobs[0].title).toStartWith("Senior Shopify Developer");
+    expect(result.jobs[0].title).toContain("Sanctuary Computer");
+    expect(result.jobs[0].title).toContain("4d");
+    // The company comes out of the surrounding markup, and on the second card
+    // it is a location.
+    expect(result.jobs[0].company).toBe("Sanctuary Computer");
+    expect(result.jobs[1].company).toBe("New York City");
   });
 });
 

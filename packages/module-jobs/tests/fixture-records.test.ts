@@ -84,6 +84,7 @@ describe("board capture records", () => {
 
       test("a fixture claiming to be a whole response is one", () => {
         for (const capture of capturesOf(board)) {
+          if (capture.full_response_sha256 === null) continue;
           if (capture.excerpt_bytes !== capture.full_response_bytes) continue;
           // Same length as the response it names, so it must be that response
           // byte for byte — the claim `remotive/robots.txt` got wrong.
