@@ -21,7 +21,9 @@ export {
   CANDIDATE_KINDS,
   CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
+  QUESTION_THRESHOLD,
   questionsFor,
+  thresholdFor,
   transformCandidate,
   type ChoiceAnswer,
   type ChoiceQuestion,
@@ -36,8 +38,10 @@ export {
 export {
   CLASSIFIER_MODEL,
   applyClassification,
+  observeClassification,
   planClassification,
   type ClassificationPlan,
   type ClassificationRequest,
   type PlannedCandidate,
+  type QuestionObservation,
 } from "./request.js";

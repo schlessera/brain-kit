@@ -83,6 +83,30 @@ export type ClassificationAnswers = Record<string, ClassificationAnswer>;
  */
 export const CONFIDENCE = Object.freeze({ swap: 0.6, tone: 0.8, noul: 0.7 });
 
+/**
+ * Which of `CONFIDENCE`'s lines each question's answer has to clear, by the
+ * suffix the catalogue gives that question. The transforms read their figure
+ * from here rather than naming one inline, so a recorded confidence can be
+ * reported next to the line it was actually compared against and the two
+ * cannot drift apart.
+ */
+export const QUESTION_THRESHOLD = Object.freeze({
+  shape: CONFIDENCE.swap,
+  variant: CONFIDENCE.swap,
+  recommended: CONFIDENCE.tone,
+  tone: CONFIDENCE.tone,
+  criteria_first: CONFIDENCE.noul,
+});
+
+/**
+ * The line the answer to one question id (`p0c0.shape`) has to clear, or
+ * undefined for a suffix the catalogue does not ask about.
+ */
+export function thresholdFor(questionId: string): number | undefined {
+  const suffix = questionId.slice(questionId.lastIndexOf(".") + 1);
+  return (QUESTION_THRESHOLD as Record<string, number | undefined>)[suffix];
+}
+
 /** What a transform yields: the block, and the confidence the swap rests on. */
 export interface Classified {
   block: Block;
@@ -100,9 +124,9 @@ function choiceAt(
   return { choice: answer.choice, confidence: answer.confidence };
 }
 
-function noulAt(answers: ClassificationAnswers, id: string): boolean {
+function noulAt(answers: ClassificationAnswers, id: string, threshold: number): boolean {
   const answer = answers[id];
-  return !!answer && answer.type === "noul" && answer.noul >= CONFIDENCE.noul;
+  return !!answer && answer.type === "noul" && answer.noul >= threshold;
 }
 
 /** The kit-drawable block, or null — the schema is the final judge. */
@@ -163,13 +187,13 @@ const table: CatalogueRow<TableCandidate> = {
     };
   },
   transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+    const shape = choiceAt(answers, `${candidate.id}.shape`, QUESTION_THRESHOLD.shape);
     if (!shape) return null;
     if (shape.choice === "comparison") {
       const options = candidate.headers.slice(1);
       if (options.length < 2 || options.length > 4 || candidate.rows.length === 0) return null;
-      if (!noulAt(answers, `${candidate.id}.criteria_first`)) return null;
-      const recommended = choiceAt(answers, `${candidate.id}.recommended`, CONFIDENCE.tone);
+      if (!noulAt(answers, `${candidate.id}.criteria_first`, QUESTION_THRESHOLD.criteria_first)) return null;
+      const recommended = choiceAt(answers, `${candidate.id}.recommended`, QUESTION_THRESHOLD.recommended);
       const columns = options.map((label) => ({
         label,
         ...(recommended && recommended.choice !== "none" && recommended.choice === label
@@ -225,12 +249,12 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
     };
   },
   transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+    const shape = choiceAt(answers, `${candidate.id}.shape`, QUESTION_THRESHOLD.shape);
     if (!shape || shape.choice !== "steps") return null;
     const hasChecks = candidate.items.some((item) => typeof item.checked === "boolean");
     const variant = hasChecks
       ? "checklist"
-      : (choiceAt(answers, `${candidate.id}.variant`, CONFIDENCE.swap)?.choice ?? "numbered");
+      : (choiceAt(answers, `${candidate.id}.variant`, QUESTION_THRESHOLD.variant)?.choice ?? "numbered");
     const steps = candidate.items.map((item) => ({
       title: item.title,
       ...(item.detail ? { detail: item.detail } : {}),
@@ -256,7 +280,7 @@ const timedList: CatalogueRow<TimedListCandidate> = {
     };
   },
   transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+    const shape = choiceAt(answers, `${candidate.id}.shape`, QUESTION_THRESHOLD.shape);
     if (!shape) return null;
     if (shape.choice === "timeline") {
       const items = candidate.items.map((item) => ({
@@ -306,9 +330,9 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
     };
   },
   transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+    const shape = choiceAt(answers, `${candidate.id}.shape`, QUESTION_THRESHOLD.shape);
     if (!shape || shape.choice !== "quote") return null;
-    const tone = choiceAt(answers, `${candidate.id}.tone`, CONFIDENCE.tone);
+    const tone = choiceAt(answers, `${candidate.id}.tone`, QUESTION_THRESHOLD.tone);
     const quoteTone =
       tone && (BLOCK_QUOTE_TONES as readonly string[]).includes(tone.choice) ? tone.choice : undefined;
     return validated(
@@ -429,7 +453,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     };
   },
   transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+    const shape = choiceAt(answers, `${candidate.id}.shape`, QUESTION_THRESHOLD.shape);
     if (!shape) return null;
     const tones = candidate.rows.map((_, index) => valueToneAt(candidate, answers, index));
     const toned = (index: number) => (tones[index] ? { tone: tones[index] } : {});

@@ -6,6 +6,9 @@
  * candidate's questions in one map — or null when there is nothing to ask,
  * which must cost nothing. `applyClassification` turns the answers back
  * into the blocks the message carries, each anchored to its part and span.
+ * `observeClassification` reads the same answers a second way: every
+ * confidence that came back, next to the line it had to clear and what
+ * became of its candidate, which is what a threshold can be tuned on.
  *
  * The transport is the server's: this module knows the request and answer
  * shapes and nothing about keys, timeouts, or retries.
@@ -14,11 +17,12 @@
 import type { MessageBlock } from "../protocol.js";
 import {
   questionsFor,
+  thresholdFor,
   transformCandidate,
   type ClassificationAnswers,
   type ClassificationQuestion,
 } from "./catalogue.js";
-import { detectCandidates, type Candidate } from "./detect.js";
+import { detectCandidates, type Candidate, type CandidateKind } from "./detect.js";
 
 /** The classifier's model alias. Pinned here so a bump is one line. */
 export const CLASSIFIER_MODEL = "jev-latest";
@@ -97,6 +101,71 @@ export function applyClassification(
       block: classified.block,
       confidence: classified.confidence,
     });
+  }
+  return out;
+}
+
+/**
+ * One question's answer as it came back, with the line it had to clear and
+ * what became of the candidate it was asked about. The confidence is the
+ * figure a threshold is tuned on: a `choice`'s confidence, or the `noul`
+ * itself, which is what the transforms compare.
+ */
+export interface QuestionObservation {
+  /** The candidate the question was asked about, `p0c0`. */
+  candidateId: string;
+  candidateKind: CandidateKind;
+  /** The question's suffix under that id: `shape`, `tone`, `criteria_first`, … */
+  question: string;
+  answerType: "choice" | "noul";
+  /** The option chosen, for a `choice`; absent for a `noul`. */
+  choice?: string;
+  /** 0-1, as the transform reads it. */
+  confidence: number;
+  /** The line it had to clear, or null for a question the catalogue does not gate. */
+  threshold: number | null;
+  /** Whether the confidence cleared that line. */
+  cleared: boolean;
+  /** What became of the candidate: the block was drawn, or the markdown stayed. */
+  outcome: "swapped" | "kept";
+}
+
+/**
+ * Every answer this plan asked for, with its confidence. `blocks` is what
+ * `applyClassification` returned for the same plan and answers — that is how
+ * a question learns whether its candidate was swapped or kept, without
+ * running a transform twice.
+ *
+ * Pure, and cheap enough to run after every answered pass: one walk of the
+ * answers per candidate, no strings built, nothing re-parsed. Answers to
+ * questions this plan did not ask are ignored.
+ */
+export function observeClassification(
+  plan: ClassificationPlan,
+  answers: ClassificationAnswers,
+  blocks: readonly MessageBlock[]
+): QuestionObservation[] {
+  const drawn = new Set(blocks.map((block) => `${block.partIndex}:${block.start}:${block.end}`));
+  const out: QuestionObservation[] = [];
+  for (const { partIndex, candidate } of plan.candidates) {
+    const outcome = drawn.has(`${partIndex}:${candidate.start}:${candidate.end}`) ? "swapped" : "kept";
+    const prefix = `${candidate.id}.`;
+    for (const [id, answer] of Object.entries(answers)) {
+      if (!id.startsWith(prefix)) continue;
+      const threshold = thresholdFor(id);
+      const confidence = answer.type === "choice" ? answer.confidence : answer.noul;
+      out.push({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        question: id.slice(prefix.length),
+        answerType: answer.type,
+        ...(answer.type === "choice" ? { choice: answer.choice } : {}),
+        confidence,
+        threshold: threshold ?? null,
+        cleared: threshold !== undefined && confidence >= threshold,
+        outcome,
+      });
+    }
   }
   return out;
 }

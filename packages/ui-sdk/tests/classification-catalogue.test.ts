@@ -8,10 +8,13 @@ import {
   CANDIDATE_KINDS,
   CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
+  QUESTION_THRESHOLD,
   applyClassification,
   detectCandidates,
+  observeClassification,
   planClassification,
   questionsFor,
+  thresholdFor,
   transformCandidate,
   type ClassificationAnswers,
 } from "../src/classification/index";
@@ -481,5 +484,131 @@ describe("planning and applying one pass", () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ partIndex: 0, confidence: 0.9, block: { kind: "comparison" } });
     expect(parts[0]!.slice(blocks[0]!.start, blocks[0]!.end)).toBe(COMPARISON);
+  });
+});
+
+describe("what the classifier answered, for tuning the thresholds", () => {
+  const SAMPLES = [
+    COMPARISON,
+    "1. Go\n2. Stay",
+    "- 09:40 Sail\n- 18:00 Land",
+    "> Words.",
+    "**Ships:** 12\n**Crew:** 600",
+  ];
+
+  test("every question the catalogue asks has a line to clear", () => {
+    // A question with no entry would be recorded with no threshold, and the
+    // distribution behind it would be unreadable.
+    for (const sample of SAMPLES) {
+      for (const candidate of detectCandidates(sample)) {
+        for (const id of Object.keys(questionsFor(candidate))) {
+          expect(thresholdFor(id)).toBeTypeOf("number");
+        }
+      }
+    }
+    // And no line names a figure of its own: they all come from CONFIDENCE.
+    for (const threshold of Object.values(QUESTION_THRESHOLD)) {
+      expect(Object.values(CONFIDENCE)).toContain(threshold);
+    }
+  });
+
+  test("a swap records every answer behind it, with the line each had to clear", () => {
+    const plan = planClassification([COMPARISON])!;
+    const answers: ClassificationAnswers = {
+      "p0c0.shape": choice("comparison", 0.91),
+      "p0c0.recommended": choice("Ithaca", 0.85),
+      "p0c0.criteria_first": noul(0.95),
+    };
+    const blocks = applyClassification(plan, answers);
+    expect(blocks).toHaveLength(1);
+    expect(observeClassification(plan, answers, blocks)).toEqual([
+      {
+        candidateId: "p0c0",
+        candidateKind: "table",
+        question: "shape",
+        answerType: "choice",
+        choice: "comparison",
+        confidence: 0.91,
+        threshold: CONFIDENCE.swap,
+        cleared: true,
+        outcome: "swapped",
+      },
+      {
+        candidateId: "p0c0",
+        candidateKind: "table",
+        question: "recommended",
+        answerType: "choice",
+        choice: "Ithaca",
+        confidence: 0.85,
+        threshold: CONFIDENCE.tone,
+        cleared: true,
+        outcome: "swapped",
+      },
+      {
+        candidateId: "p0c0",
+        candidateKind: "table",
+        question: "criteria_first",
+        answerType: "noul",
+        confidence: 0.95,
+        threshold: CONFIDENCE.noul,
+        cleared: true,
+        outcome: "swapped",
+      },
+    ]);
+  });
+
+  test("a candidate kept under the line records the number it fell short by", () => {
+    const plan = planClassification([COMPARISON])!;
+    const answers: ClassificationAnswers = {
+      "p0c0.shape": choice("comparison", 0.58),
+      "p0c0.criteria_first": noul(0.95),
+    };
+    const blocks = applyClassification(plan, answers);
+    expect(blocks).toEqual([]);
+    const observed = observeClassification(plan, answers, blocks);
+    expect(observed.map((o) => [o.question, o.confidence, o.cleared, o.outcome])).toEqual([
+      ["shape", 0.58, false, "kept"],
+      ["criteria_first", 0.95, true, "kept"],
+    ]);
+  });
+
+  test("a candidate kept at high confidence is distinguishable from one kept under the line", () => {
+    const plan = planClassification([COMPARISON])!;
+    const answers: ClassificationAnswers = { "p0c0.shape": choice("plain", 0.97) };
+    const observed = observeClassification(plan, answers, applyClassification(plan, answers));
+    // The markdown stayed, but not because the classifier was unsure.
+    expect(observed).toMatchObject([{ choice: "plain", cleared: true, outcome: "kept" }]);
+  });
+
+  test("observations are per candidate, and an answer the plan did not ask for is ignored", () => {
+    const plan = planClassification([COMPARISON, "1. Go\n2. Stay"])!;
+    const answers: ClassificationAnswers = {
+      "p0c0.shape": choice("comparison", 0.9),
+      "p0c0.criteria_first": noul(0.9),
+      "p1c0.shape": choice("steps", 0.7),
+      "p9c9.shape": choice("steps", 0.99),
+    };
+    const observed = observeClassification(plan, answers, applyClassification(plan, answers));
+    expect(observed.map((o) => [o.candidateId, o.candidateKind, o.outcome])).toEqual([
+      ["p0c0", "table", "swapped"],
+      ["p0c0", "table", "swapped"],
+      ["p1c0", "ordered_list", "swapped"],
+    ]);
+  });
+
+  test("two candidates in one part are told apart by their own span", () => {
+    const part = `${COMPARISON}\n\nAnd:\n\n1. Go\n2. Stay`;
+    const plan = planClassification([part])!;
+    const answers: ClassificationAnswers = {
+      "p0c0.shape": choice("comparison", 0.9),
+      "p0c0.criteria_first": noul(0.9),
+      "p0c1.shape": choice("plain", 0.9),
+    };
+    const observed = observeClassification(plan, answers, applyClassification(plan, answers));
+    expect(observed.map((o) => [o.candidateId, o.outcome])).toEqual([
+      ["p0c0", "swapped"],
+      ["p0c0", "swapped"],
+      ["p0c1", "kept"],
+    ]);
   });
 });

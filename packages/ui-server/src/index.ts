@@ -115,6 +115,18 @@ export {
   type ActivityDigest,
 } from "./activity/digest.js";
 
+// The classification pass's confidence record (D42): the read side, so a
+// deployment can pull the distribution its swap thresholds should be tuned on.
+// The write side is internal to the pass.
+export {
+  CONFIDENCE_BUCKETS,
+  CONFIDENCE_BUCKET_WIDTH,
+  CONFIDENCE_RETENTION_MS,
+  confidenceDistribution,
+  type ConfidenceBucket,
+  type ConfidenceReadOptions,
+} from "./classification/confidence-store.js";
+
 // Share staging: a deployment can sweep expired staging dirs at boot; the
 // intake route also sweeps opportunistically on every share.
 export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";

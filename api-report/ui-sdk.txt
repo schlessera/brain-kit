@@ -767,8 +767,10 @@ export "./server" (./src/server/index.ts)
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
+  QUESTION_THRESHOLD
   QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  type QuestionObservation
   RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
@@ -909,6 +911,7 @@ export "./server" (./src/server/index.ts)
   isPricingRoute
   isThinkingLevel
   killWrapped
+  observeClassification
   parseMarkdown
   parseSubprocessEnvExtra
   parseToolPayload
@@ -931,6 +934,7 @@ export "./server" (./src/server/index.ts)
   simplify
   stitch
   sumModelUsage
+  thresholdFor
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
