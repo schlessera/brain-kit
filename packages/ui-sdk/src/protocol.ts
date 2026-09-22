@@ -1541,7 +1541,11 @@ export interface ActivityRuntimeStats {
     lastActivityAt: number | null;
     /**
      * Days from `firstActivityAt` to `generatedAt` (at least 1 once a session
-     * exists, 0 when none does) — the denominator of the per-day average.
+     * exists) — the denominator of the per-day average. `0` when the catalog
+     * is empty, and also when its oldest session is dated AFTER
+     * `generatedAt`: a clock corrected backwards leaves such rows, and a
+     * negative span must not become a one-day burn rate. The lifetime
+     * totals still include those sessions; only the rate goes `null`.
      */
     elapsedDays: number;
     averages: {
@@ -1587,27 +1591,40 @@ export interface ActivityRuntimeStats {
     detailPrunedRuns: number;
     runs: number;
     failures: number;
-    /** Sum of KNOWN list-price costs — a floor (see `ActivityAggregate`). */
+    /**
+     * Sum of KNOWN list-price costs — a floor; the excluded runs are
+     * `unpricedListCostRuns` (see `ActivityAggregate`).
+     */
     costUsd: number;
     /** Sum of KNOWN effective costs; the excluded runs are `unpricedRuns`. */
     effectiveCostUsd: number;
     /**
-     * Runs with unknown effective cost — render "≥ $X · N unpriced" when
+     * Runs with unknown EFFECTIVE cost — render "≥ $X · N unpriced" when
      * nonzero, and as wholly unknown when it equals `runs`.
      */
     unpricedRuns: number;
+    /**
+     * Runs with unknown LIST-PRICE cost. The two counters are independent,
+     * because the two columns are: a subscription-billed run with no
+     * backend-reported cost has a known effective cost of $0 and an unknown
+     * list price, so it is in this counter and not in `unpricedRuns`. Render
+     * `costUsd` the same way — "≥ $X · N unpriced", wholly unknown when it
+     * equals `runs`.
+     */
+    unpricedListCostRuns: number;
     inputTokens: number;
     outputTokens: number;
     cacheReadTokens: number;
     cacheCreationTokens: number;
     averages: {
       runsPerDay: number | null;
+      /**
+       * Null while `unpricedListCostRuns > 0`: a rate over a partial sum
+       * would hide the hole the sum shows.
+       */
       costUsdPerDay: number | null;
       costUsdPerMonth: number | null;
-      /**
-       * Null while `unpricedRuns > 0`: a rate over a partial sum would hide
-       * the hole the sum shows.
-       */
+      /** Null while `unpricedRuns > 0`, for the same reason. */
       effectiveCostUsdPerDay: number | null;
       effectiveCostUsdPerMonth: number | null;
     };

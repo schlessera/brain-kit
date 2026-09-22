@@ -50,7 +50,13 @@ function finishedRun(
     outcome?: "success" | "error";
     billing?: "subscription" | "api";
     perModel?: Record<string, { inputTokens: number; outputTokens?: number }>;
-    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+      costUsd?: number;
+    };
   }
 ) {
   const origin = opts.origin ?? "session";
@@ -155,13 +161,54 @@ describe("runtime stats: lifetime from sessions, windowed from rollups", () => {
     expect(w.failures).toBe(1);
     expect(w.inputTokens).toBe(301_000);
     expect(w.outputTokens).toBe(6_100);
+    // The two fields this channel adds over the `rollups` scope: nothing in
+    // the seed reports cache usage, so both read zero rather than undefined.
+    expect(w.cacheReadTokens).toBe(0);
+    expect(w.cacheCreationTokens).toBe(0);
     expect(w.costUsd).toBeCloseTo(1.6, 10);
     expect(w.effectiveCostUsd).toBeCloseTo(0.3, 10);
     expect(w.unpricedRuns).toBe(0);
+    expect(w.unpricedListCostRuns).toBe(0);
     expect(w.averages.runsPerDay).toBeCloseTo(0.1, 10);
     expect(w.averages.costUsdPerDay).toBeCloseTo(1.6 / 30, 10);
     expect(w.averages.effectiveCostUsdPerDay).toBeCloseTo(0.01, 10);
     expect(w.averages.effectiveCostUsdPerMonth).toBeCloseTo(0.01 * (365.25 / 12), 10);
+    db.close();
+  });
+
+  test("cache tokens sum their own columns, and do not leak into the other token fields", () => {
+    const { db, store } = fresh(rates);
+    // Distinct magnitudes per column: a summed-from-the-wrong-column bug
+    // cannot land on the right total by coincidence.
+    finishedRun(store, "cached-a", {
+      startedAt: NOW - 2 * DAY,
+      endedAt: NOW - 2 * DAY + 1000,
+      billing: "api",
+      usage: {
+        inputTokens: 1,
+        outputTokens: 20,
+        cacheReadTokens: 300,
+        cacheCreationTokens: 4_000,
+        costUsd: 0.1,
+      },
+    });
+    finishedRun(store, "cached-b", {
+      startedAt: NOW - DAY,
+      endedAt: NOW - DAY + 1000,
+      billing: "api",
+      usage: {
+        inputTokens: 2,
+        outputTokens: 40,
+        cacheReadTokens: 600,
+        cacheCreationTokens: 8_000,
+        costUsd: 0.1,
+      },
+    });
+    const w = computeRuntimeStats(db, { days: 7, now: NOW }).window;
+    expect(w.inputTokens).toBe(3);
+    expect(w.outputTokens).toBe(60);
+    expect(w.cacheReadTokens).toBe(900);
+    expect(w.cacheCreationTokens).toBe(12_000);
     db.close();
   });
 
@@ -217,6 +264,40 @@ describe("runtime stats: retention labelling", () => {
     expect(after.runs).toBe(before.runs);
     expect(after.effectiveCostUsd).toBeCloseTo(before.effectiveCostUsd, 10);
     expect(after.inputTokens).toBe(before.inputTokens);
+    db.close();
+  });
+});
+
+describe("runtime stats: the lifetime denominator's upper bound", () => {
+  test("a catalog whose oldest session is dated ahead of the clock reports no burn rate", () => {
+    const { db } = fresh();
+    // A clock corrected backwards leaves sessions dated after `now`. The
+    // totals still count them — they happened — but `Math.max(1, …)` over a
+    // negative span would report the whole catalog's spend as ONE day's.
+    session(db, "s-future", NOW + 10 * DAY, NOW + 10 * DAY, 500, 20);
+    const l = computeRuntimeStats(db, { days: 30, now: NOW }).lifetime;
+
+    expect(l.sessions).toBe(1);
+    expect(l.turns).toBe(20);
+    expect(l.costUsd).toBeCloseTo(500, 10);
+    expect(l.firstActivityAt).toBe(NOW + 10 * DAY);
+    expect(l.elapsedDays).toBe(0);
+    expect(l.averages.costUsdPerDay).toBeNull();
+    expect(l.averages.costUsdPerMonth).toBeNull();
+    // Per-session averages divide by the session count, not by the clock.
+    expect(l.averages.costUsdPerSession).toBeCloseTo(500, 10);
+    expect(l.averages.turnsPerSession).toBeCloseTo(20, 10);
+    db.close();
+  });
+
+  test("a mixed catalog is unaffected: MIN picks the older row", () => {
+    const { db } = fresh();
+    session(db, "s-real", NOW - 40 * DAY, NOW - DAY, 2.0, 8);
+    session(db, "s-future", NOW + 10 * DAY, NOW + 10 * DAY, 1.0, 2);
+    const l = computeRuntimeStats(db, { days: 30, now: NOW }).lifetime;
+    expect(l.elapsedDays).toBeCloseTo(40, 10);
+    expect(l.costUsd).toBeCloseTo(3.0, 10);
+    expect(l.averages.costUsdPerDay).toBeCloseTo(3.0 / 40, 10);
     db.close();
   });
 });
@@ -325,6 +406,41 @@ describe("runtime stats: unpriced runs (AE3)", () => {
   });
 });
 
+describe("runtime stats: the list-price axis has its own unpriced counter", () => {
+  test("a run with a known effective cost but an unknown list price voids only the list-price average", () => {
+    const { db, store } = fresh(rates);
+    finishedRun(store, "priced", {
+      startedAt: NOW - 2 * DAY,
+      endedAt: NOW - 2 * DAY + 1000,
+      billing: "api",
+      perModel: { "claude-sonnet-4-6": { inputTokens: 100_000 } }, // $0.30
+      usage: { costUsd: 0.5 },
+    });
+    // Subscription-billed and the backend reported no cost: effective cost is
+    // a KNOWN $0, list price is unknown. The two counters must disagree.
+    finishedRun(store, "no-list-price", {
+      startedAt: NOW - DAY,
+      endedAt: NOW - DAY + 1000,
+      billing: "subscription",
+    });
+    const w = computeRuntimeStats(db, { days: 7, now: NOW }).window;
+
+    expect(w.runs).toBe(2);
+    expect(w.unpricedRuns).toBe(0);
+    expect(w.unpricedListCostRuns).toBe(1);
+    expect(w.costUsd).toBeCloseTo(0.5, 10);
+    // The list-price sum is a floor, so its rate would be a fabricated fact.
+    expect(w.averages.costUsdPerDay).toBeNull();
+    expect(w.averages.costUsdPerMonth).toBeNull();
+    // The effective axis is complete, so its rate stands.
+    expect(w.effectiveCostUsd).toBeCloseTo(0.3, 10);
+    expect(w.averages.effectiveCostUsdPerDay).toBeCloseTo(0.15, 10);
+    // Both nulls must SURVIVE serialization.
+    expect(JSON.stringify(w.averages)).toContain('"costUsdPerDay":null');
+    db.close();
+  });
+});
+
 describe("runtime stats: the empty database", () => {
   test("returns zeroes, null timestamps and null averages without throwing", () => {
     const { db } = fresh();
@@ -355,8 +471,11 @@ describe("runtime stats: the empty database", () => {
       costUsd: 0,
       effectiveCostUsd: 0,
       unpricedRuns: 0,
+      unpricedListCostRuns: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
       averages: {
         runsPerDay: null,
         costUsdPerDay: null,

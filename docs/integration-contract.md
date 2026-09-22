@@ -166,7 +166,8 @@ window (default 30, clamped to 1–90). The shape is `ActivityRuntimeStats` in
               recordedSince | null, coveredDays,
               detailRetention: { days, cutoffAt, insideWindow },
               detailPrunedRuns,
-              runs, failures, costUsd, effectiveCostUsd, unpricedRuns,
+              runs, failures, costUsd, effectiveCostUsd,
+              unpricedRuns, unpricedListCostRuns,
               inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
               averages: { runsPerDay, costUsdPerDay, costUsdPerMonth,
                           effectiveCostUsdPerDay, effectiveCostUsdPerMonth } },
@@ -188,16 +189,31 @@ Rules a consumer may rely on:
   `coveredDays` is the span the per-day averages divide by.
   `detailRetention.cutoffAt` is where drill-in detail stops, `insideWindow`
   says whether that boundary falls inside the window, and `detailPrunedRuns`
-  counts the runs in it that are already rollup-only. Say "detail older than N days is pruned"; do not
-  present a window as a total.
-- **Unknown never reads as $0.** Cost sums are sums of known values with the
-  excluded count in `unpricedRuns`, as everywhere else. Every average is
-  `null` when its denominator is zero, and the effective-cost averages are
-  `null` whenever `unpricedRuns > 0` — a rate over a partial sum would hide
-  the hole the sum shows. `unpricedRuns === runs` means the window's
-  effective cost is entirely unknown: render it as unknown, never as the `0`
-  the sum of no known values carries. The route does no rounding or
-  formatting.
+  counts the runs in it that are already rollup-only. Say "detail older than
+  N days is pruned"; do not present a window as a total.
+- **Unknown never reads as $0, on EITHER cost axis.** Each cost sum is a sum
+  of known values, and each carries **its own** excluded count, because the
+  two columns are independently nullable: `costUsd` (list price) excludes
+  `unpricedListCostRuns`, `effectiveCostUsd` excludes `unpricedRuns`. A
+  subscription-billed run with no backend-reported cost is in the first
+  counter and not the second — its effective cost is a known $0 while its
+  list price is unknown. Render both the same way: "≥ $X · N unpriced" when
+  the counter is nonzero, and wholly unknown when it equals `runs` — never as
+  the `0` that a sum of no known values carries.
+- **An average is `null` rather than a fabricated rate.** Every average is
+  `null` when its denominator is zero, `costUsdPerDay`/`PerMonth` are `null`
+  whenever `unpricedListCostRuns > 0`, and `effectiveCostUsdPerDay`/`PerMonth`
+  whenever `unpricedRuns > 0` — a rate over a partial sum would hide the hole
+  the sum shows. `lifetime.elapsedDays` is `0`, and its per-day and per-month
+  figures `null`, when the catalog is empty *or* its oldest session is dated
+  after `generatedAt`; the lifetime totals still include such a session, since
+  it happened.
+- **The route does no rounding or formatting**, while
+  `GET /api/activity/rollups` rounds its cost sums to 4 decimal places. Over
+  the same window the two therefore report `0.299997` and `0.3` for one
+  quantity. Round at render time, identically for both, rather than treating
+  either as pre-formatted. This channel stays raw on purpose: rounding a sum
+  to 4 dp turns a real sub-$0.0001 cost into a `0` that reads as free.
 - **`lifetime.costUsd` is a floor, and cannot be better than one.** The
   session catalog folds an unreported cost into `0` at write time, so no
   unpriced counter is recoverable at read time; `window` is the channel that

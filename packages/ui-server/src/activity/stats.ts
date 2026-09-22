@@ -66,11 +66,20 @@ function lifetimeFromSessions(db: Database, now: number): ActivityRuntimeStats["
   };
   // Per-day is a burn rate over the catalog's whole life, idle days
   // included; a catalog younger than a day is averaged over one.
+  //
+  // The denominator is the span up to `generatedAt`, and the upper end is
+  // enforced for the same reason the window's is: a clock corrected
+  // backwards leaves sessions dated ahead of it, and `Math.max(1, …)` over
+  // a negative span would turn a whole catalog's spend into a single day's
+  // burn rate. Unlike the window, lifetime does not DROP those rows — they
+  // happened, and a lifetime total that omits them is simply wrong. Only
+  // the rate refuses to be invented: `elapsedDays` is 0 and the per-day and
+  // per-month figures are null, as they are for an empty catalog.
   const elapsedDays =
-    row.sessions > 0 && row.firstActivityAt !== null
+    row.firstActivityAt !== null && row.firstActivityAt <= now
       ? Math.max(1, (now - row.firstActivityAt) / DAY_MS)
       : 0;
-  const perDay = row.sessions > 0 ? row.costUsd / elapsedDays : null;
+  const perDay = elapsedDays > 0 ? row.costUsd / elapsedDays : null;
   return {
     scope: "lifetime",
     sessions: row.sessions,
@@ -124,8 +133,13 @@ function windowFromRollups(
 
   const perDay = (n: number) => (coveredDays > 0 ? n / coveredDays : null);
   const perMonth = (n: number | null) => (n === null ? null : n * DAYS_PER_MONTH);
-  const costUsdPerDay = perDay(summary.costUsd);
-  // Only a complete sum may become a rate (AE3).
+  // Only a complete sum may become a rate (AE3) — on BOTH cost axes. The
+  // two are independently nullable, so each average consults its own
+  // counter: a subscription-billed run with no backend-reported cost has a
+  // known effective cost of $0 and an unknown list price, and a rate over
+  // that partial list-price sum would read as a fact.
+  const costUsdPerDay =
+    summary.unpricedListCostRuns > 0 ? null : perDay(summary.costUsd);
   const effectiveCostUsdPerDay = summary.unpricedRuns > 0 ? null : perDay(summary.effectiveCostUsd);
 
   return {
@@ -145,6 +159,7 @@ function windowFromRollups(
     costUsd: summary.costUsd,
     effectiveCostUsd: summary.effectiveCostUsd,
     unpricedRuns: summary.unpricedRuns,
+    unpricedListCostRuns: summary.unpricedListCostRuns,
     inputTokens: summary.inputTokens,
     outputTokens: summary.outputTokens,
     cacheReadTokens: summary.cacheReadTokens,

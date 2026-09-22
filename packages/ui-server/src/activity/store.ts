@@ -187,14 +187,22 @@ export function sumEffectiveCost(rows: Array<{ effectiveCostUsd: number | null }
   return { effectiveCostUsd, unpricedRuns };
 }
 
-/** What a set of rollup rows adds up to. Both cost sums are sum-of-KNOWNS;
- *  the runs excluded from the effective sum ride along as `unpricedRuns`. */
+/**
+ * What a set of rollup rows adds up to. Both cost sums are sum-of-KNOWNS,
+ * and the two axes are counted SEPARATELY because they are independently
+ * nullable: a subscription-billed run with no backend-reported cost has a
+ * known effective cost of $0 and an unknown list price. The runs excluded
+ * from the effective sum ride along as `unpricedRuns`, those excluded from
+ * the list-price sum as `unpricedListCostRuns` (AE3).
+ */
 export interface RollupSummary {
   runs: number;
   failures: number;
   costUsd: number;
   effectiveCostUsd: number;
   unpricedRuns: number;
+  /** Rows whose `costUsd` is unknown — the list-price axis' own counter. */
+  unpricedListCostRuns: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -214,6 +222,7 @@ export function summarizeRollups(rows: RunRollupRow[]): RollupSummary {
     costUsd: rows.reduce((a, r) => a + (r.costUsd ?? 0), 0),
     effectiveCostUsd: effective.effectiveCostUsd,
     unpricedRuns: effective.unpricedRuns,
+    unpricedListCostRuns: rows.filter((r) => r.costUsd === null).length,
     inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
     outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
     cacheReadTokens: rows.reduce((a, r) => a + (r.cacheReadTokens ?? 0), 0),
