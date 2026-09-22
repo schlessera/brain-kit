@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { indexAll, type IndexStats } from "../src/lib/indexer";
-import { openDatabase, initVecSupport } from "../src/lib/db";
+import { openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import type { Enrichment } from "../src/lib/enrichment";
@@ -134,7 +134,7 @@ interface IndexRun {
 /** Open a writable db (loading sqlite-vec when available), index, close. */
 async function runIndex(root: string, run: IndexRun = {}): Promise<IndexStats> {
   const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
-  if (vecAvailable) await initVecSupport(db, DIM);
+  if (vecAvailable) await migrateVecSchema(db, DIM);
   const stats = await indexAll(db, {
     root,
     taxonomy,

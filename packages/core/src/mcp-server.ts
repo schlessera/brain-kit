@@ -23,7 +23,7 @@ import matter from "gray-matter";
 import { readEnvVar } from "./config/env.js";
 import { initContext } from "./lib/context.js";
 import type { BrainContext } from "./lib/context.js";
-import { openDatabase, initVecSupport } from "./lib/db.js";
+import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { hybridSearch, filterSearch } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
 import { ingest } from "./lib/ingestion.js";
@@ -67,9 +67,14 @@ export async function startMcpServer(
   const embDims = embeddings?.dimensions ?? dims;
 
   const db = openDatabase(brain.dbPath, { embeddingDimensions: embDims });
+  // Every search/context tool here is read-only. Loading the extension makes
+  // stored vectors queryable on this connection; it must not migrate the
+  // vector schema, which drops every vector and costs a paid re-embedding run.
+  // The write tools (create/update/archive) reindex through indexAll, which
+  // prepares the vector store itself when it is about to embed.
   let vecReady = false;
   const ensureVec = async () => {
-    if (!vecReady) vecReady = await initVecSupport(db, embDims);
+    if (!vecReady) vecReady = (await loadVecSupport(db)).ok;
   };
 
   // ------------------------------------------------------------------------

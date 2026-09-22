@@ -6,7 +6,9 @@ import { isAbsolute, join, resolve } from "path";
 import { readEnvVar, resolveEnv } from "../../config/env.js";
 import {
   openDatabase,
-  initVecSupport,
+  loadVecSupport,
+  migrateVecSchema,
+  storedVectorWidth,
   getMeta,
   embeddingIdentityMatches,
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
@@ -179,25 +181,23 @@ async function checkEmbeddings(cli: CliContext): Promise<Check> {
     // `vec_chunks` is a sqlite-vec virtual table: without the extension loaded
     // into THIS connection, every query against it throws and the count reads
     // as zero — which reported "no vectors stored" for a perfectly healthy
-    // index. Load the extension first, at the dimension the index was built
-    // with (not the currently-configured one, which may differ).
-    const storedDims = Number(getMeta(db, "embedding_dimensions"));
-    const dims = Number.isFinite(storedDims) && storedDims > 0 ? storedDims : embeddingDims(cli.embeddings);
-    const vecLoaded = await initVecSupport(db, dims);
-
-    let vecCount = 0;
-    try {
-      vecCount = (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
-    } catch {
-      /* vec table absent */
-    }
-    if (vecCount === 0 && !vecLoaded) {
+    // index. Load the extension first. This connection is read-only and this
+    // check only counts, so it must not reach for the migrating entry point.
+    const vec = await loadVecSupport(db);
+    if (vec.reason === "extension-unavailable") {
       return {
         id: "embeddings",
         status: "warn",
         detail: "sqlite-vec could not be loaded — vector count unknown, vector search disabled",
         fix: "reinstall dependencies (`bun install`) so sqlite-vec is available",
       };
+    }
+
+    let vecCount = 0;
+    try {
+      vecCount = (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
+    } catch {
+      /* vec table absent */
     }
     if (vecCount === 0) return { id: "embeddings", status: "warn", detail: "API key set but no vectors stored", fix: "run `brain index --embeddings`" };
     return { id: "embeddings", status: "pass", detail: `${vecCount} vector(s), model ${storedModel ?? "?"}` };
@@ -384,7 +384,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
   if (failing.has("db") || failing.has("embeddings")) {
     const dims = embeddingDims(cli.embeddings);
     const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-    await initVecSupport(db, dims);
+    await migrateVecSchema(db, storedVectorWidth(db, dims));
     const wantEmbeddings = !!cli.embeddings;
     await indexAll(db, {
       root,

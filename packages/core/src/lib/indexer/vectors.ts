@@ -11,7 +11,7 @@ import {
   embeddingIdentityMatches,
   getMeta,
   hasVecSupport,
-  initVecSupport,
+  migrateVecSchema,
   setMeta,
 } from "../db.js";
 import type { EmbeddingProvider } from "../seams.js";
@@ -123,7 +123,7 @@ export async function prepareVectorStore(
     // Drop the TABLE, not just its rows: vec0 tables are fixed-width, so a
     // cross-dimension provider swap must recreate it at the new width.
     run.db.run("DROP TABLE IF EXISTS vec_chunks");
-    if (!(await initVecSupport(run.db, provider.dimensions))) return false;
+    if (!(await migrateVecSchema(run.db, provider.dimensions))) return false;
   }
 
   // Record the producing provider, so search-engine's mismatch check agrees

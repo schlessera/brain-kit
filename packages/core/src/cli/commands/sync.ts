@@ -1,4 +1,4 @@
-import { openDatabase, initVecSupport } from "../../lib/db.js";
+import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
@@ -146,7 +146,7 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
   try {
     const dims = embeddingDims(cli.embeddings);
     const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-    await initVecSupport(db, dims);
+    await migrateVecSchema(db, storedVectorWidth(db, dims));
     const wantEmbeddings = !!cli.embeddings;
     await indexAll(db, {
       root,
