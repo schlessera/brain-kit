@@ -300,6 +300,32 @@ describe("null figures never read as a number", () => {
     expect(out).not.toContain("0 B");
   });
 
+  // A standing guard rather than one more case: it holds for every health
+  // line, including one a later change adds. Removing either null check in
+  // healthSection makes `null < floor` / `null > ceiling` evaluate to false,
+  // which renders as "within"/"meets" — an unknown reading as a pass. A
+  // mutation run with both guards deleted fails this test.
+  test("no health line ever pairs n/a with a verdict", () => {
+    const allNull = formatStats(
+      statsWith({
+        links: 0,
+        brokenLinks: 0,
+        chunks: 0,
+        embeddings: 0,
+        health: { ...statsWith().health, brokenLinkRate: null, embeddingCoverage: null },
+        size: { corpus: null, db: { bytes: null, tables: {} }, freeBytes: null },
+      }),
+      { all: false, stale: STALE }
+    );
+
+    const health = allNull.slice(allNull.indexOf("Health"), allNull.indexOf("Inventory"));
+    const unknown = health.split("\n").filter((line) => line.includes("n/a"));
+    expect(unknown.length).toBe(2); // brokenLinkRate + embeddingCoverage
+    for (const line of unknown) {
+      expect(line).not.toMatch(/\b(within|over|below|meets)\b/);
+    }
+  });
+
   test("a measurable figure still gets its verdict", () => {
     const over = formatStats(
       statsWith({
