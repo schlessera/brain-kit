@@ -68,7 +68,9 @@ export type {
 // Database + search
 export {
   openDatabase,
-  initVecSupport,
+  loadVecSupport,
+  migrateVecSchema,
+  storedVectorWidth,
   hasVecSupport,
   getMeta,
   setMeta,

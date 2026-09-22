@@ -105,11 +105,12 @@ export "." (./src/index.ts)
   indexAll
   ingest
   initContext
-  initVecSupport
   installBinLinks
   lintSkills
   loadModules
   loadUserConfig
+  loadVecSupport
+  migrateVecSchema
   normalizeFrontmatterDates
   openDatabase
   readEnvVar
@@ -125,6 +126,7 @@ export "." (./src/index.ts)
   safeResolve
   setContext
   setMeta
+  storedVectorWidth
   stringifyDocument
   syncSkills
   validate

@@ -25,7 +25,7 @@ import {
   indexAll,
   ingest,
   initContext,
-  initVecSupport,
+  loadVecSupport,
   openDatabase,
   resolveEmbeddingProvider,
   safeResolve,
@@ -175,9 +175,10 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       const c = await ensureContext();
       const db = openRead(c.dbPath);
       try {
-        // Vector support needs the query embeddings' dimensions; without an
-        // embedding provider we stay FTS-only (hybridSearch degrades + warns).
-        if (embeddings) await initVecSupport(db, embeddings.dimensions);
+        // Read path: load the extension so stored vectors are queryable on
+        // this connection. Without an embedding provider we stay FTS-only
+        // (hybridSearch degrades + warns).
+        await loadVecSupport(db);
         return await hybridSearch(db, opts, { embeddings });
       } finally {
         db.close();
@@ -188,7 +189,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       const c = await ensureContext();
       const db = openRead(c.dbPath);
       try {
-        if (embeddings) await initVecSupport(db, embeddings.dimensions);
+        await loadVecSupport(db);
         const { results, warnings } = await hybridSearch(
           db,
           { query, limit: 10 },

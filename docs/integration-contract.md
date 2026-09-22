@@ -174,8 +174,10 @@ Prefer the CLI/MCP. If reading directly:
   `id: 0` for it. Compare `graph_computed_at` against the newest
   `documents.indexed_at` to detect staleness.
 - `vec_chunks` is a sqlite-vec virtual table — unreadable without loading the
-  extension; do not depend on it externally. Its dimension follows the
-  configured embedding provider (default 1536).
+  extension; do not depend on it externally. Its dimension is the width the
+  stored vectors were produced at, recorded in
+  `index_metadata.embedding_dimensions` (1536 on a fresh brain). Changing the
+  configured provider does not re-declare the table; a re-embedding run does.
 - Open read-only. Writers must set `PRAGMA busy_timeout` (core uses 5000ms).
 - **Do not write to brain.db from outside** — markdown is the source of truth.
 

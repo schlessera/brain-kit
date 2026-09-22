@@ -1,4 +1,4 @@
-import { openDatabase, initVecSupport } from "../../lib/db.js";
+import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { audit } from "../../lib/auditor.js";
 import type { CoreCommand } from "../types.js";
@@ -20,7 +20,7 @@ export const maintainCommand: CoreCommand = {
     // 1. Incremental index (+embeddings when available — self-heals vectors).
     try {
       const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-      await initVecSupport(db, dims);
+      await migrateVecSchema(db, storedVectorWidth(db, dims));
       const wantEmbeddings = !!cli.embeddings;
       const stats = await indexAll(db, {
         root: cli.brain.root,

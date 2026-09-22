@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { openDatabase, initVecSupport, getMeta, setMeta } from "../src/lib/db";
+import { openDatabase, migrateVecSchema, getMeta, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { EmbeddingProvider } from "../src/lib/seams";
@@ -41,7 +41,7 @@ async function corpus(body = "Original content.", vectors = true) {
   writeFileSync(path, markdown(body));
   const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: 16 });
   cleanups.push(() => db.close());
-  if (vectors && !await initVecSupport(db, 16)) throw new Error("sqlite-vec required for indexer runtime regressions");
+  if (vectors && !await migrateVecSchema(db, 16)) throw new Error("sqlite-vec required for indexer runtime regressions");
   return { root, path, db, options: { root, taxonomy, quiet: true, graph: false } };
 }
 
@@ -96,7 +96,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     await gate.entered;
     const writer = openDatabase(join(root, "brain.db"));
     try {
-      await initVecSupport(writer, 16);
+      await migrateVecSchema(writer, 16);
       writeFileSync(path, markdown("Changed while provider was running."));
       await indexAll(writer, options);
     } finally { writer.close(); gate.release(); }
@@ -115,7 +115,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     await gate.entered;
     const second = openDatabase(join(root, "brain.db"));
     try {
-      await initVecSupport(second, 16);
+      await migrateVecSchema(second, 16);
       await expect(indexAll(second, { ...options, embeddings: true, force: true, provider: provider(8) })).rejects.toThrow("already active");
     } finally { second.close(); gate.release(); }
     expect((await running).embeddings).toBe(1);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { openDatabase, initVecSupport, setMeta } from "../src/lib/db";
+import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
@@ -9,7 +9,7 @@ let embedCalls: number;
 let provider: EmbeddingProvider;
 beforeEach(async () => {
   db = openDatabase(":memory:");
-  expect(await initVecSupport(db, 2)).toBe(true);
+  expect(await migrateVecSchema(db, 2)).toBe(true);
   setMeta(db, "embedding_model", "test:search");
   embedCalls = 0;
   provider = {
