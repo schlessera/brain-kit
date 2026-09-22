@@ -236,6 +236,26 @@ export const CRON_ENV_NAMES = Object.freeze(
 );
 
 /** Emit the pam_env input consumed by scheduled jobs. */
+/**
+ * Control configuration the cron RUNNER reads, as opposed to environment its
+ * jobs receive.
+ *
+ * `/etc/environment` is how the runner gets an environment at all, so a
+ * wrapper configured for the server reaches scheduled jobs only if it is
+ * emitted here — otherwise the boundary quietly stops at the crontab, which is
+ * the worst place for a privilege boundary to stop quietly.
+ *
+ * Deliberately NOT part of `SUBPROCESS_ENV`'s cron audience: these are read by
+ * the runner before it spawns, and forwarding control configuration into the
+ * job itself is the thing `BRAIN_UI_SUBPROCESS_ENV_EXTRA` is careful not to do.
+ * Appended after the audience names so an unset wrapper leaves the emitted
+ * file byte-identical.
+ */
+export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
+  "BRAIN_UI_EXEC_WRAPPER",
+  "BRAIN_UI_EXEC_KILLER",
+];
+
 export function emitEnvironment(
   env: Record<string, string | undefined>,
   extraNames: readonly string[] = []
@@ -246,6 +266,7 @@ export function emitEnvironment(
     ...parseSubprocessEnvExtra(extraNames.join(",")).filter(
       (name) => !CRON_ENV_NAMES.includes(name)
     ),
+    ...CRON_CONTROL_ENV_NAMES.filter((name) => !CRON_ENV_NAMES.includes(name)),
   ];
   for (const name of names) {
     const value = env[name];

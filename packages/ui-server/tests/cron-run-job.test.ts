@@ -371,13 +371,16 @@ describe("cron runs jobs through the exec wrapper", () => {
     else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
   });
 
-  async function commandSeenBySpawn(command: string[]): Promise<string[]> {
+  async function commandSeenBySpawn(
+    command: string[],
+    jobName = "maintain"
+  ): Promise<string[]> {
     const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-wrapper-"));
     let seen: string[] = [];
     try {
       await runJob(
         {
-          jobName: "maintain",
+          jobName,
           command,
           dbPath: join(dir, "brain-ui.db"),
           childEnv: {},
@@ -415,5 +418,16 @@ describe("cron runs jobs through the exec wrapper", () => {
   test("leaves the command untouched when no wrapper is configured", async () => {
     delete process.env.BRAIN_UI_EXEC_WRAPPER;
     expect(await commandSeenBySpawn(["job", "--flag"])).toEqual(["job", "--flag"]);
+  });
+
+  test("the digest is not wrapped — it writes the server's own database", async () => {
+    // Wrapping is about repository code. The digest IS the server: a wrapper
+    // that drops to a user without access to the UI database would break it,
+    // and the retention marker would quietly stop advancing.
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    expect(await commandSeenBySpawn(["/bin/echo", "hi"], "digest")).toEqual([
+      "/bin/echo",
+      "hi",
+    ]);
   });
 });

@@ -58,9 +58,12 @@ test("the wrapper receives the SDK's command as an argument, and abort kills the
   const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
   expect(alive(childPid)).toBe(true);
 
-  // argv[0] is the wrapper; the SDK's command and args follow it unsplit.
+  // argv[0] is the wrapper; the SDK's command and args follow it unsplit, with
+  // the command resolved absolute — the SDK hands over a bare `bun` or `node`
+  // whenever the CLI is JavaScript, and a wrapper that execs cannot look that
+  // up on PATH.
   expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
-    "sleep",
+    Bun.which("sleep")!,
     "300",
   ]);
 

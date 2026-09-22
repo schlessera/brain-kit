@@ -20,7 +20,11 @@
 import { spawn } from "node:child_process";
 
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
-import { EXEC_KILLER_ENV, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import {
+  EXEC_KILLER_ENV,
+  wrapCommand,
+  type ExecWrapperConfig,
+} from "@schlessera/brain-ui-sdk/server";
 
 /**
  * How much of the child's stderr to keep. Bounded on purpose: this hook
@@ -38,7 +42,12 @@ export function createWrappedSpawn(
   const { wrapper, killer } = config;
   if (!wrapper) throw new Error("createWrappedSpawn requires a wrapper path");
   return ({ command, args, cwd, env, signal }: SpawnOptions): SpawnedProcess => {
-    const child = spawn(wrapper, [command, ...args], {
+    // Through the shared helper, so the SDK's command is resolved to an
+    // absolute path like every other wrapped spawn. The SDK hands over a bare
+    // `bun` or `node` whenever the CLI is JavaScript, and a wrapper that execs
+    // its target cannot look that up on PATH.
+    const [resolvedWrapper, program, ...rest] = wrapCommand([command, ...args], wrapper);
+    const child = spawn(resolvedWrapper!, [program!, ...rest], {
       cwd,
       env,
       signal,

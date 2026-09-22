@@ -201,6 +201,14 @@ async function startRecord(
 }
 
 /** Run a job as argv (never through a shell) and return its exact exit code. */
+/**
+ * Jobs the cron runner executes on the server's own behalf, not the
+ * repository's. They are not launched through the exec wrapper: the digest
+ * writes the UI database, which a privilege-dropping wrapper puts out of
+ * reach.
+ */
+const TRUSTED_JOB_NAMES: ReadonlySet<string> = new Set(["digest"]);
+
 export async function runJob(
   options: RunJobOptions,
   dependencies: RunJobDependencies = {}
@@ -228,7 +236,12 @@ export async function runJob(
     // command out of the brain repository, which makes it the same class of
     // input as an agent tool call — and the recorder around it stays outside
     // the wrapper, because it writes the server's own database.
-    const cronExec = execConfig();
+    //
+    // Except for the trusted jobs below, which ARE the server: the digest
+    // opens and writes the UI database, so running it as a user that dropped
+    // out of reach of that database breaks it. Wrapping is about repository
+    // code, and the digest is not repository code.
+    const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : execConfig();
     const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
       stdin: "inherit",
       stdout: "pipe",
