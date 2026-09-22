@@ -121,17 +121,23 @@ interface RunRecord {
  * lets `/home/x/brain/../private` back out.
  */
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
-  // A relative `--brain` has to become absolute or every absolute path the
-  // agent names reads as an escape. `~` is left alone: it cannot be resolved
-  // without knowing whose home it is.
   const brain = brainPath.startsWith("~") ? brainPath : resolve(brainPath);
   const text = JSON.stringify(inputs);
-  for (const match of text.matchAll(/(?:~|\/home)\/[A-Za-z0-9._\-/]*/g)) {
-    const found = match[0];
-    // `~` cannot be resolved without knowing whose home it is, so it counts
-    // as outside unless the brain is itself written that way.
-    const path = found.startsWith("~") ? found : resolve(found);
-    if (path === brain || path.startsWith(`${brain}/`)) continue;
+  for (const match of text.matchAll(/(?:~|\/home)\//g)) {
+    const at = match.index;
+    // Anchored against the brain STRING rather than a path parsed out of the
+    // blob, so a brain whose name carries a space or a non-ASCII character is
+    // still recognised as itself.
+    if (text.startsWith(brain, at)) {
+      const rest = text.slice(at + brain.length);
+      // The brain has to end at a directory boundary — `/home/x/brain-backup`
+      // is not `/home/x/brain` — and what follows must not climb back out.
+      if (rest === "" || /^[/"\\]/.test(rest)) {
+        const tail = /^[^"\s\\]*/.exec(rest)?.[0] ?? "";
+        const full = resolve(brain + tail);
+        if (full === brain || full.startsWith(`${brain}/`)) continue;
+      }
+    }
     return true;
   }
   return false;

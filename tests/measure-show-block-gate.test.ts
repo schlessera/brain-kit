@@ -107,6 +107,14 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ path: "/home/someone/brain-backup/notes.md" }], home)).toBe(true);
   });
 
+  test("a brain whose name carries a space or a non-ASCII character is still itself", () => {
+    const spaced = "/home/someone/brain copy";
+    expect(escapesBrain([{ path: `${spaced}/notes/a.md` }], spaced)).toBe(false);
+    expect(escapesBrain([{ path: "/home/someone/brain/notes/a.md" }], spaced)).toBe(true);
+    const accented = "/home/someone/cerveau-privé";
+    expect(escapesBrain([{ path: `${accented}/notes/a.md` }], accented)).toBe(false);
+  });
+
   test("a traversal back out of the brain is outside it", () => {
     const home = "/home/someone/brain";
     expect(escapesBrain([{ command: `cat ${home}/../private/notes.md` }], home)).toBe(true);
