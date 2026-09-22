@@ -202,7 +202,7 @@ describe("sync pull with a locally rewritten cache", () => {
     expect(git(root, "rev-parse", "-q", "--verify", "HEAD^2")).not.toBe("");
   });
 
-  test("when git refuses the merge before it starts, the cache is put back byte for byte", async () => {
+  test("when git refuses the merge before it starts, the cache is put back as it was, index and file", async () => {
     const { root, remote } = brainWithRemote();
     writeFileSync(join(root, "shared.md"), "# Shared\n");
     writeFileSync(join(root, CACHE), '{"k":"committed-key","v":"the committed value"}\n');
@@ -215,12 +215,47 @@ describe("sync pull with a locally rewritten cache", () => {
     git(root, "commit", "-qm", "local content");
     // An unstaged edit to a file the merge touches makes git refuse outright.
     writeFileSync(join(root, "shared.md"), "# Shared, edited here and not committed\n");
+    const staged = '{"k":"committed-key","v":"staged here"}\n';
+    writeFileSync(join(root, CACHE), staged);
+    git(root, "add", CACHE);
     const ours = '{"k":"committed-key","v":"regenerated here"}\n';
     writeFileSync(join(root, CACHE), ours);
 
     const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
     expect(body.status).not.toBe("merged");
     expect(await Bun.file(join(root, CACHE)).text()).toBe(ours);
+    expect(git(root, "show", `:${CACHE}`)).toBe(staged.trim());
+  });
+
+  test("this clone's value wins a key the committed cache also has", async () => {
+    const { root, remote } = brainWithRemote();
+    writeFileSync(join(root, CACHE), '{"k":"key","v":"committed"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    git(root, "push", "-q", "origin", "main");
+    pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+    const ours = '{"k":"key","v":"regenerated here"}\n';
+    writeFileSync(join(root, CACHE), ours);
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(body.status).toBe("fast-forwarded");
+    expect(await Bun.file(join(root, CACHE)).text()).toBe(ours);
+  });
+
+  test("a diff3 cache conflict resolves from the two sides, not the ancestor", async () => {
+    const { root, remote } = brainWithRemote();
+    git(root, "config", "merge.conflictStyle", "diff3");
+    writeFileSync(join(root, CACHE), '{"k":"a","v":"base"}\n{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    git(root, "push", "-q", "origin", "main");
+    // Theirs updates `a`; ours prunes it. The ancestor's `a` must not come back.
+    pushFromOtherClone(remote, { [CACHE]: '{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n' });
+    writeFileSync(join(root, CACHE), '{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(body.status).toBe("merged");
+    expect(body.conflicts).toEqual([]);
+    expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
   });
 
   test("a pull with nothing to merge leaves the rewritten cache alone", async () => {

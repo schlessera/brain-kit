@@ -182,16 +182,25 @@ export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
   return { caches, other };
 }
 
+/** A cache as this clone had it: the file (null when gone) and its index entry (`ls-files -s`). */
+interface CacheAside {
+  file: string | null;
+  index: string;
+}
+
 /**
- * Set local changes to the derived caches aside so a merge can touch them, and
- * return what this clone had in each (null when the file was gone). Hooks off:
- * restoring a file fires post-checkout, whose reindex can rewrite it right back.
+ * Set local changes to the derived caches aside so a merge can touch them.
+ * Hooks off: restoring a file fires post-checkout, whose reindex can rewrite
+ * it right back.
  */
-function setDerivedCachesAside(root: string): Map<string, string | null> {
-  const aside = new Map<string, string | null>();
+function setDerivedCachesAside(root: string): Map<string, CacheAside> {
+  const aside = new Map<string, CacheAside>();
   for (const file of classifyPostSyncDirt(workingTreeDirt(root)).caches) {
     const path = resolve(root, file);
-    aside.set(file, existsSync(path) ? readFileSync(path, "utf-8") : null);
+    aside.set(file, {
+      file: existsSync(path) ? readFileSync(path, "utf-8") : null,
+      index: git(root, ["ls-files", "-s", "--", file]).stdout,
+    });
     if (git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0) {
       git(root, ["-c", "core.hooksPath=/dev/null", "restore", "--source=HEAD", "--staged", "--worktree", "--", file]);
     } else {
@@ -202,28 +211,42 @@ function setDerivedCachesAside(root: string): Map<string, string | null> {
   return aside;
 }
 
-/** Put the caches back exactly as they were, for when no merge happened. */
-function putDerivedCachesBack(root: string, aside: Map<string, string | null>): void {
-  for (const [file, ours] of aside) {
+/** Put the caches back exactly as they were, index and file, for when no merge happened. */
+function putDerivedCachesBack(root: string, aside: Map<string, CacheAside>): void {
+  for (const [file, saved] of aside) {
+    const entry = /^(\d+) ([0-9a-f]+) 0\t/.exec(saved.index);
+    if (entry) git(root, ["update-index", "--add", "--cacheinfo", `${entry[1]},${entry[2]},${file}`]);
+    else git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
     const path = resolve(root, file);
-    if (ours === null) rmSync(path, { force: true });
-    else writeFileSync(path, ours, "utf-8");
+    if (saved.file === null) rmSync(path, { force: true });
+    else writeFileSync(path, saved.file, "utf-8");
   }
 }
 
 /**
- * Union each cache's entries into one sorted file: what the merge left, then
- * whatever this clone set aside. The first copy of a key wins, and conflict
- * markers fall out as unparseable lines, so a conflicted cache comes out
- * resolved. An entry only this clone has may belong to a chunk the merge
- * re-chunks, and the reindex can recover it only from the file.
+ * Union each cache's entries into one sorted file, first copy of a key wins:
+ * what this clone set aside, then the merge's result. For a conflicted cache
+ * the result is read from the two sides' index stages, not the working file,
+ * whose conflict rendering can carry the ancestor's stale lines (diff3). An
+ * entry only this clone has may belong to a chunk the merge re-chunks, and the
+ * reindex can recover it only from the file.
  */
-function unionDerivedCaches(root: string, files: Iterable<string>, aside: Map<string, string | null>): void {
+function unionDerivedCaches(
+  root: string,
+  files: Iterable<string>,
+  aside: Map<string, CacheAside>,
+  conflicted: ReadonlySet<string>
+): void {
   for (const file of files) {
     const path = resolve(root, file);
-    const merged = existsSync(path) ? readFileSync(path, "utf-8") : "";
+    const sources = [aside.get(file)?.file ?? ""];
+    if (conflicted.has(file)) {
+      for (const stage of [2, 3]) sources.push(git(root, ["show", `:${stage}:${file}`], true).stdout);
+    } else if (existsSync(path)) {
+      sources.push(readFileSync(path, "utf-8"));
+    }
     const byKey = new Map<string, string>();
-    for (const line of `${merged}\n${aside.get(file) ?? ""}`.split("\n")) {
+    for (const line of sources.join("\n").split("\n")) {
       if (!line.trim()) continue;
       try {
         const { k } = JSON.parse(line) as { k?: unknown };
@@ -389,7 +412,7 @@ export const syncCommand: CoreCommand = {
         // A cache this clone's reindex rewrote blocks a merge that touches it,
         // and post-sync pushes caches, so the other clone's commit usually does.
         // Set it aside for the merge and union it back after.
-        const aside = remoteAhead > 0 ? setDerivedCachesAside(root) : new Map<string, string | null>();
+        const aside = remoteAhead > 0 ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
 
         let status: string;
         let conflicts: string[] = [];
@@ -405,13 +428,13 @@ export const syncCommand: CoreCommand = {
         }
 
         // No merge started (git refused before touching the tree): put the
-        // caches back byte for byte. Otherwise union them, which also resolves
+        // caches back as they were. Otherwise union them, which also resolves
         // a cache conflict, so Phase 4 never sees one.
         const merging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
         const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
         const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
         if (status === "fast-forwarded" || status === "merged" || merging) {
-          unionDerivedCaches(root, mergedCaches, aside);
+          unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
           if (cacheConflicts.length > 0) {
             git(root, ["add", "--", ...cacheConflicts]);
             conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
