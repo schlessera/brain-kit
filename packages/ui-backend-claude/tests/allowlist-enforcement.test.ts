@@ -11,9 +11,12 @@
  * was measured against Claude Code 2.1.280 / @anthropic-ai/claude-agent-sdk
  * 0.3.278 with a real `query()` (see the PR for #124), which showed that
  * (a) a hook's `allow` skips `canUseTool`, (b) a hook's `updatedInput` applies
- * with no decision attached, and (c) `canUseTool` then receives the REWRITTEN
- * input. Without (b) this fix would have had to choose between the rewrite and
- * the decision.
+ * with no decision attached, (c) `canUseTool` then receives the REWRITTEN
+ * input, (d) the runtime approves some calls on its own before the callback —
+ * `echo hi` runs with an EMPTY allowedTools — and (e) a hook's `ask` overrides
+ * (d) and forces the callback while leaving (b) intact. Without (b) this fix
+ * would have had to choose between the rewrite and the decision; without (e)
+ * it would not hold at all.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -36,23 +39,33 @@ interface ToolCallOutcome {
   executed: boolean;
   /** The input it would have run with (rewrites applied). */
   input: Record<string, unknown>;
-  /** Was a permission decision taken, rather than skipped by a hook? */
+  /** Was a permission decision taken, rather than skipped? */
   decided: boolean;
 }
 
 /**
- * Drive one tool call through the runtime's documented precedence: PreToolUse
- * hooks first (a `deny` blocks, an `allow` executes immediately and skips the
- * callback, `updatedInput` applies either way), then the turn's `allowedTools`,
- * then `canUseTool` on whatever input survived the hooks.
+ * Drive one tool call through the runtime's precedence as measured: every
+ * matching PreToolUse hook fires and their outputs combine (a `deny` blocks,
+ * an `allow` executes and skips the callback, an `ask` forces the callback,
+ * `updatedInput` applies under any of them), then the turn's `allowedTools`
+ * and the runtime's own auto-approval, then `canUseTool` on whatever input
+ * survived the hooks.
+ *
+ * `runtimeAutoApproves` stands in for the permission opinions the runtime
+ * holds before the callback is reached — its safe-command classifier, a
+ * built-in tool's own check, an allow rule in the project settings. Modelling
+ * it is the point: without it a test would "prove" enforcement by assuming the
+ * very fallthrough that does not always happen.
  */
 async function runToolCall(
   options: Options,
   toolName: string,
   input: Record<string, unknown>,
-  toolUseId: string
+  toolUseId: string,
+  runtimeAutoApproves = false
 ): Promise<ToolCallOutcome> {
   let current = input;
+  let asked = false;
   for (const group of options.hooks?.PreToolUse ?? []) {
     if (group.matcher && !new RegExp(group.matcher).test(toolName)) continue;
     for (const hook of group.hooks) {
@@ -79,9 +92,12 @@ async function runToolCall(
       if (out?.permissionDecision === "allow") {
         return { executed: true, input: current, decided: false };
       }
+      // An "ask" does NOT short-circuit: a later hook's rewrite still applies
+      // and is what the callback then sees.
+      if (out?.permissionDecision === "ask") asked = true;
     }
   }
-  if ((options.allowedTools ?? []).includes(toolName)) {
+  if (!asked && ((options.allowedTools ?? []).includes(toolName) || runtimeAutoApproves)) {
     return { executed: true, input: current, decided: false };
   }
   const decision = (await options.canUseTool!(toolName, current, {
@@ -149,15 +165,22 @@ async function startTurn(setup: {
   return { options: captured!, requests, logs };
 }
 
-/** A stand-in rewrite oracle on PATH: `rtk <cmd>` for every command it sees. */
-function withFakeRtk(): () => void {
+/**
+ * A stand-in rewrite oracle on PATH, which the real `rtkRewriteCommand` shells
+ * out to. "declines" is the other half of rtk's contract and the case that
+ * leaves the rtk hook silent — the one where only the enforcement hook stands
+ * between the command and the runtime's own auto-approval.
+ */
+function withFakeRtk(behaviour: "rewrites" | "declines" = "rewrites"): () => void {
   const directory = mkdtempSync(join(tmpdir(), "brain-124-rtk-"));
   const binary = join(directory, "rtk");
   writeFileSync(
     binary,
     "#!/bin/sh\n" +
       'if [ "$1" = "--version" ]; then exit 0; fi\n' +
-      "printf '%s\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk git status\"}}}'\n"
+      (behaviour === "declines"
+        ? "exit 0\n"
+        : "printf '%s\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk git status\"}}}'\n")
   );
   chmodSync(binary, 0o755);
   const previousPath = process.env.PATH;
@@ -249,6 +272,78 @@ describe("an enforced allowlist and the rtk rewrite", () => {
     expect(outcome.executed).toBe(true);
     expect(outcome.decided).toBe(false);
     expect(outcome.input).toEqual({ command: "rtk git status" });
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+describe("an enforced allowlist against the runtime's own auto-approval", () => {
+  let restorePath: (() => void) | null = null;
+  afterEach(() => {
+    restorePath?.();
+    restorePath = null;
+  });
+
+  test("a command the runtime would wave through is still decided", async () => {
+    // rtk declines, so the rewrite hook is silent and there is no grant to
+    // withhold. What must hold the line is the enforcement hook: the runtime
+    // approves plenty of shell commands (`echo hi`) before the callback is
+    // ever consulted, and an allow rule in the project settings does the same
+    // for a whole tool.
+    restorePath = withFakeRtk("declines");
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL_OR_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Bash",
+      { command: "echo hello" },
+      "bash-auto",
+      true // the runtime would have approved it on its own
+    );
+
+    expect(outcome.executed).toBe(false);
+    expect(outcome.decided).toBe(true);
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]!.outsideEnforcedAllowlist).toBe(true);
+  });
+
+  test("the same command runs unasked when the turn declares nothing", async () => {
+    restorePath = withFakeRtk("declines");
+    const harness = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Bash",
+      { command: "echo hello" },
+      "bash-auto-default",
+      true
+    );
+
+    // Unchanged, and the reason the declaration has to exist at all.
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  test("a tool ON the enforced allowlist is not pushed into a decision", async () => {
+    restorePath = withFakeRtk("declines");
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL_AND_AGENT,
+      enforceAllowedTools: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "Read",
+      { file_path: "/brain/a.md" },
+      "read-auto",
+      true
+    );
+
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
     expect(harness.requests).toHaveLength(0);
   });
 });

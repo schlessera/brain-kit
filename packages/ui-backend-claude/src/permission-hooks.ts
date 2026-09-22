@@ -59,6 +59,33 @@ export function createPermissionWiring(options: {
       "tool.name": toolName,
     });
   };
+
+  // Withholding OUR shortcuts is not enough: the runtime has permission
+  // opinions of its own that also land before canUseTool — its safe-command
+  // classifier (measured on Claude Code 2.1.280: `echo hi` runs with an EMPTY
+  // allowedTools and the callback is never consulted), a built-in tool's own
+  // check, and any allow rule in the project settings this backend loads
+  // (`settingSources: ["project"]`). An explicit "ask" is the one answer that
+  // beats all of them — it forces the callback, and it leaves another hook's
+  // updatedInput intact, so the rewrites still reach the decision (both
+  // measured against 2.1.280 / SDK 0.3.278). Registered only under the
+  // declaration, so nothing moves for a turn that declares nothing.
+  const enforcementHook: HookCallback = async (hookInput) => {
+    if (
+      hookInput.hook_event_name !== "PreToolUse" ||
+      allowed.has(hookInput.tool_name)
+    ) {
+      return { continue: true };
+    }
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: `Tool "${hookInput.tool_name}" is outside this turn's enforced allowlist, so it cannot run until someone decides it.`,
+      },
+    };
+  };
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
   // Model that hook path as command-allowed to preserve the two runtime gates.
@@ -198,6 +225,9 @@ export function createPermissionWiring(options: {
     canUseTool,
     hooks: {
       PreToolUse: [
+        // First, and over every tool: nothing the runtime would otherwise
+        // wave through gets to skip the decision.
+        ...(enforced ? [{ hooks: [enforcementHook] }] : []),
         { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },
