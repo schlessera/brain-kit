@@ -237,6 +237,34 @@ test("paints: map view", async () => {
   await looksRight(mapView.Default, "paints-map-view");
 });
 
+/**
+ * The same map, read at a threshold that can actually see its land fill.
+ *
+ * `map-land` is 6% alpha, which on the dark ground is a step of 13 in each
+ * channel — about 85 in the YIQ distance pixelmatch measures, against the 352
+ * that the default `threshold` of 0.1 calls "the same colour". So the subject
+ * above is BLIND to this component's fill: adding land to the strait changed
+ * 10.65% of its pixels and did not move its baseline by one reported mismatch,
+ * and removing the fill again would not either. A baseline that cannot see the
+ * thing it is pointed at is worse than none, because it reads as cover.
+ *
+ * 0.02 puts the bar at a YIQ distance of 14 — under the fill by a factor of
+ * six, and still well over the 1-2 of a softened glyph edge, which is what the
+ * ratio below is for.
+ */
+const SEES_A_SUBTLE_FILL = {
+  comparatorOptions: { threshold: 0.02, allowedMismatchedPixelRatio: 0.001 },
+} as const;
+
+test("paints: map view land, where a 6% fill is not below the noise floor", async () => {
+  await (mapView.Default as unknown as ComposedStory).run();
+  // The drawing rather than the page: a second full-body shot of the same story
+  // would be the same 50 KB twice, and the fill is entirely inside the SVG.
+  const map = document.querySelector("svg");
+  expect(map).not.toBeNull();
+  await expect(map!).toMatchScreenshot("paints-map-view-land", SEES_A_SUBTLE_FILL);
+});
+
 test("paints: agent orbit", async () => {
   await looksRight(agentOrbit.Default, "paints-agent-orbit");
 });

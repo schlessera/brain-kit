@@ -196,15 +196,29 @@ describe("the geometry is geometry", () => {
       const fixture = geo[id];
       const box = envelope(id);
       if (!(fixture.land ?? []).some((ring) => isClosedAgainstViewport(ring, box))) continue;
+      // Strictly inside, not merely within. A road is clipped to the same box
+      // the closure is drawn against, so its end vertices sit exactly ON the
+      // fill's own edge — and "which side of this edge is that point on" has no
+      // answer there. The strait has three of them on its eastern boundary, and
+      // counting them as sea made a fill that contains every road read as 99.4%.
+      const edge = 1e-4;
       const witnesses = [...fixture.roads, ...(fixture.streets ?? [])]
         .flat()
-        .filter(([lon, lat]) => lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3]);
+        .filter(
+          ([lon, lat]) =>
+            lon > box[0] + edge && lon < box[2] - edge && lat > box[1] + edge && lat < box[3] - edge,
+        );
       const onLand = witnesses.filter((point) => fills(fixture.land, point)).length;
-      measured.push(`${id}: ${witnesses.length < 20 ? "too few witnesses" : Math.round((onLand / witnesses.length) * 100) >= 90 ? "on land" : `${Math.round((onLand / witnesses.length) * 100)}% on land`}`);
+      measured.push(
+        witnesses.length < 20
+          ? `${id}: too few witnesses`
+          : `${id}: ${((onLand / witnesses.length) * 100).toFixed(1)}% of ${witnesses.length} road vertices are on land`,
+      );
     }
-    // Named rather than counted, so a fixture that stops carrying a closure is
-    // as loud as one whose closure inverted.
-    expect(measured).toEqual(["messina: on land"]);
+    // The measurement is in the expectation rather than behind a threshold: a
+    // fixture that stops carrying a closure, one whose closure inverted, and
+    // one that merely drifted are three different failures and this says which.
+    expect(measured).toEqual(["messina: 100.0% of 510 road vertices are on land"]);
   });
 
   test("the whole set stays in the same league as a single raster tile", () => {
