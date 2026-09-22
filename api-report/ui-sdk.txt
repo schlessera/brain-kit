@@ -658,6 +658,7 @@ export "./server" (./src/server/index.ts)
   type BridgeToolAdapter
   type BridgeToolName
   CANDIDATE_KINDS
+  CATALOGUE_BLOCK_KINDS
   CLASSIFIER_MODEL
   COMPARISON_BLOCK_SCHEMA
   CONFIDENCE
