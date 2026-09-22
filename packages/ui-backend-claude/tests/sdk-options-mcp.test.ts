@@ -33,6 +33,10 @@ describe("the SDK options a turn is built with", () => {
       allowedTools: [],
       confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never,
+      // Required by the real signature, and deliberately a real function
+      // rather than a cast: this test exists to exercise the production call
+      // path, so anything it stubs away is coverage it does not have.
+      log: () => undefined,
     });
   }
 
