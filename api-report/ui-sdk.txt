@@ -610,6 +610,7 @@ export "./server" (./src/server/index.ts)
   type AskUserPayload
   type AskUserQuestion
   type AskUserResult
+  type AskedQuestion
   type AsrEvent
   type AsrFinal
   type AsrPartial
@@ -674,6 +675,7 @@ export "./server" (./src/server/index.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationQuestion
+  type ClassificationQuestions
   type ClassificationRequest
   type Classified
   type ClientActivitySubscribe
@@ -767,7 +769,6 @@ export "./server" (./src/server/index.ts)
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
-  QUESTION_THRESHOLD
   QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
   type QuestionObservation
@@ -934,7 +935,7 @@ export "./server" (./src/server/index.ts)
   simplify
   stitch
   sumModelUsage
-  thresholdFor
+  thresholdOf
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema

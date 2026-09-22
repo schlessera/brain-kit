@@ -8,13 +8,12 @@ import {
   CANDIDATE_KINDS,
   CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
-  QUESTION_THRESHOLD,
   applyClassification,
   detectCandidates,
   observeClassification,
   planClassification,
   questionsFor,
-  thresholdFor,
+  thresholdOf,
   transformCandidate,
   type ClassificationAnswers,
 } from "../src/classification/index";
@@ -496,25 +495,46 @@ describe("what the classifier answered, for tuning the thresholds", () => {
     "**Ships:** 12\n**Crew:** 600",
   ];
 
-  test("every question the catalogue asks has a line to clear", () => {
-    // A question with no entry would be recorded with no threshold, and the
-    // distribution behind it would be unreadable.
+  test("every question the catalogue asks declares its own line, generated ids included", () => {
+    // A question with no line is recorded with `threshold: null` and
+    // `cleared: false` whatever its answer was — a lie in the tuning table
+    // about an answer the transform may well have acted on.
     const kindsSeen = new Set<string>();
+    const idsSeen: string[] = [];
     for (const sample of SAMPLES) {
       for (const candidate of detectCandidates(sample)) {
         kindsSeen.add(candidate.kind);
-        for (const id of Object.keys(questionsFor(candidate))) {
-          expect(thresholdFor(id)).toBeTypeOf("number");
+        const questions = questionsFor(candidate);
+        for (const id of Object.keys(questions)) {
+          idsSeen.push(id);
+          // No line names a figure of its own: they all come from CONFIDENCE.
+          const threshold = thresholdOf(questions, id);
+          expect(threshold).toBeTypeOf("number");
+          expect(Object.values<number>(CONFIDENCE)).toContain(threshold!);
         }
       }
     }
     // The samples have to reach every row, or a kind's questions go unchecked
     // and the assertion above passes by not looking.
     expect([...kindsSeen].sort()).toEqual([...CANDIDATE_KINDS].sort());
-    // And no line names a figure of its own: they all come from CONFIDENCE.
-    for (const threshold of Object.values(QUESTION_THRESHOLD)) {
-      expect(Object.values(CONFIDENCE)).toContain(threshold);
-    }
+    // And at least one id has to be GENERATED rather than named, because that
+    // is the case a lookup keyed by question name cannot cover at all.
+    expect(idsSeen.some((id) => /\.value_tone_\d+$/.test(id))).toBe(true);
+  });
+
+  test("a question nobody asked has no line, and no answer worth reading", () => {
+    const [run] = detectCandidates("**Ships:** 12\n**Crew:** 600");
+    const questions = questionsFor(run!);
+    expect(thresholdOf(questions, "c0.value_tone_0")).toBe(CONFIDENCE.tone);
+    // One past the run's rows: never asked, so never gated.
+    expect(thresholdOf(questions, "c0.value_tone_2")).toBeUndefined();
+    // And the transform will not act on an answer to it either.
+    expect(
+      transformCandidate(run!, {
+        "c0.shape": choice("receipt", 0.9),
+        "c0.value_tone_2": choice("red", 0.99),
+      })?.block
+    ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "600" }] });
   });
 
   test("a swap records every answer behind it, with the line each had to clear", () => {

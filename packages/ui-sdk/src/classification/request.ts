@@ -17,10 +17,11 @@
 import type { MessageBlock } from "../protocol.js";
 import {
   questionsFor,
-  thresholdFor,
+  thresholdOf,
   transformCandidate,
+  type AskedQuestion,
   type ClassificationAnswers,
-  type ClassificationQuestion,
+  type ClassificationQuestions,
 } from "./catalogue.js";
 import { detectCandidates, type Candidate, type CandidateKind } from "./detect.js";
 
@@ -31,7 +32,7 @@ export const CLASSIFIER_MODEL = "jev-latest";
 export interface ClassificationRequest {
   model: string;
   state: Record<string, unknown>;
-  questions: Record<string, ClassificationQuestion>;
+  questions: Record<string, AskedQuestion>;
 }
 
 /** A candidate with the part it came from, so an answer can be anchored. */
@@ -43,6 +44,13 @@ export interface PlannedCandidate {
 export interface ClassificationPlan {
   request: ClassificationRequest;
   candidates: PlannedCandidate[];
+  /**
+   * The questions as the catalogue declared them, with the line each answer
+   * has to clear. `request.questions` is the same set with the lines stripped
+   * — where the surface acts on a probability is nothing the classifier is
+   * asked, and D42's rule is that the request carries only what it needs.
+   */
+  questions: ClassificationQuestions;
 }
 
 /** Only what the classifier needs of a candidate: never the whole answer. */
@@ -72,7 +80,7 @@ function stateOf(candidate: Candidate): Record<string, unknown> {
 export function planClassification(textParts: readonly string[]): ClassificationPlan | null {
   const candidates: PlannedCandidate[] = [];
   const state: Record<string, unknown> = {};
-  const questions: Record<string, ClassificationQuestion> = {};
+  const questions: ClassificationQuestions = {};
   textParts.forEach((text, partIndex) => {
     for (const found of detectCandidates(text)) {
       const candidate: Candidate = { ...found, id: `p${partIndex}${found.id}` };
@@ -82,7 +90,13 @@ export function planClassification(textParts: readonly string[]): Classification
     }
   });
   if (candidates.length === 0) return null;
-  return { request: { model: CLASSIFIER_MODEL, state, questions }, candidates };
+  // The line each answer has to clear is ours, not the classifier's: it never
+  // goes on the wire.
+  const asked: Record<string, AskedQuestion> = {};
+  for (const [id, { threshold: _threshold, ...question }] of Object.entries(questions)) {
+    asked[id] = question;
+  }
+  return { request: { model: CLASSIFIER_MODEL, state, questions: asked }, candidates, questions };
 }
 
 /** The blocks the answers yield, anchored; candidates the answers leave alone are absent. */
@@ -154,7 +168,7 @@ export function observeClassification(
   // The asked question ids, grouped by the candidate they name, in the order
   // the catalogue asks them.
   const asked = new Map<string, string[]>();
-  for (const id of Object.keys(plan.request.questions)) {
+  for (const id of Object.keys(plan.questions)) {
     const candidateId = id.slice(0, id.lastIndexOf("."));
     const ids = asked.get(candidateId);
     if (ids) ids.push(id);
@@ -167,7 +181,7 @@ export function observeClassification(
     for (const id of asked.get(candidate.id) ?? []) {
       const answer = answers[id];
       if (!answer) continue;
-      const threshold = thresholdFor(id);
+      const threshold = thresholdOf(plan.questions, id);
       const confidence = answer.type === "choice" ? answer.confidence : answer.noul;
       out.push({
         candidateId: candidate.id,

@@ -21,10 +21,17 @@ the call's 2 s budget, and a write that fails is a log line rather than a block
 the reader does not get. Rows age out after 30 days.
 
 `confidenceDistribution` (exported from `@schlessera/brain-ui-server`) reads it
-back bucketed per candidate kind and question. `observeClassification` and
-`QUESTION_THRESHOLD` are new in `@schlessera/brain-ui-sdk/server`; the catalogue
-transforms now read their thresholds from `QUESTION_THRESHOLD` rather than
-naming a figure inline, so a recorded confidence and the line it was compared
-against cannot drift apart.
+back bucketed per candidate kind and question. `observeClassification`,
+`thresholdOf`, `ClassificationQuestions` and `AskedQuestion` are new in
+`@schlessera/brain-ui-sdk/server`.
+
+Every catalogue question now declares the line its answer has to clear, next to
+the question itself, and the transforms compare against the line of the
+question that was actually asked. A recorded confidence and the line it was
+gated by therefore cannot drift apart — including for a question whose id is
+generated per row, which a lookup keyed by question name could not cover at
+all. `ClassificationRequest.questions` is the same set with the lines stripped:
+where the surface acts on a probability is not something the classifier is
+asked.
 
 No threshold changed, and nothing leaves the machine.
