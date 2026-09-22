@@ -212,6 +212,25 @@ the in-process `brain_search`/`brain_context` wrappers against a keyless FTS
 corpus, the pure `mapPiEvent` adapter, and history normalization (synthetic +
 a real `SessionManager` session file).
 
+## The exec wrapper, and what it does not cover
+
+`BRAIN_UI_EXEC_WRAPPER` (below) is an absolute path to an executable that the
+`bash` and `grep` tools are launched through: `<wrapper> bash -lc <cmd>`. It is
+an argv[0], never a command line — no shell parses it — so a host can run the
+agent's children as another user without this package knowing how. Unset,
+spawns are exactly what they were. When it is set, the child leads its own
+process group and an abort signals the group, because a uid drop otherwise
+makes `kill(2)` fail with EPERM and leaves an aborted turn running.
+
+**It does not cover `brain.config.ts`.** `createBrainAccess` calls
+`initContext`, which `await import`s the repository's config — executable
+TypeScript owned by the brain, evaluated in the server process, not in a child.
+No wrapper reaches it. The wrapper bounds what the agent's *tools* can do; it
+does not bound what the brain's own config can do, and anyone who can write
+that file already has the server's privileges. Closing it means routing every
+read through the CLI as a subprocess, which is a different design for this
+package rather than a patch to it.
+
 ## Environment
 
 Every variable this package reads, and what happens when it is unset. This
@@ -222,6 +241,7 @@ to touch `process.env`.
 
 | Variable | What it controls | Unset |
 | --- | --- | --- |
+| `BRAIN_UI_EXEC_WRAPPER` | Absolute path to an executable every tool subprocess is launched through, as `<wrapper> <program> <args…>`. Lets a host run the agent's children as another user without this package knowing how. It is an argv[0], never a command line: no shell parses it. Unset, spawns are exactly what they were. | (none — spawn the program directly) |
 | `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |
 | `BRAIN_UI_SUBPROCESS_ENV_EXTRA` | Comma-separated environment variable names to admit to pi tool subprocesses when an operator integration needs a variable outside the shipped agent allowlist. Names are trimmed; malformed entries are ignored; the control variable itself is never forwarded. | (empty) |
 | `GEMINI_API_KEY` | Default API key gating the brain's embedding provider (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades search to FTS-only. | — |

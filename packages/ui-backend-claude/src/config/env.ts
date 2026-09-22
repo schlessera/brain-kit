@@ -17,8 +17,10 @@
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
 import {
+  EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
+  validateExecWrapper,
 } from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
@@ -44,6 +46,17 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: EXEC_WRAPPER_ENV,
+    description:
+      "Absolute path to an executable the Claude Code subprocess is launched " +
+      "through, as `<wrapper> <program> <args…>`. Lets a host run the agent " +
+      "as another user without this package knowing how. It is an argv[0], " +
+      "never a command line: no shell parses it. Unset, the SDK spawns exactly " +
+      "as it did before.",
+    default: "(none — let the SDK spawn directly)",
+    required: false,
+  },
   {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
@@ -144,4 +157,13 @@ export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessE
     ...operatorNames,
     ...extraNames,
   ]);
+}
+
+/**
+ * The exec wrapper, or undefined. Read at turn start rather than cached: the
+ * process may gain the variable after this module loads, and a stale read of a
+ * privilege boundary is the wrong kind of stale.
+ */
+export function resolveExecWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return validateExecWrapper(env[EXEC_WRAPPER_ENV]);
 }

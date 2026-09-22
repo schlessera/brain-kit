@@ -22,6 +22,7 @@ import { envFlag } from "./env-core.js";
 import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
+  validateExecWrapper,
   type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -57,6 +58,17 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  {
+    name: "BRAIN_UI_EXEC_WRAPPER",
+    description:
+      "Absolute path to an executable every agent and brain-CLI subprocess is " +
+      "launched through, as `<wrapper> <program> <args…>`. Lets a host run " +
+      "those children as another user without this package knowing how. It is " +
+      "an argv[0], never a command line: no shell parses it. Unset, spawns are " +
+      "exactly what they were.",
+    default: "(none — spawn the program directly)",
+    required: false,
+  },
   // core paths / identity
   {
     name: "BRAIN_PATH",
@@ -803,6 +815,17 @@ function filterPackageSubprocessEnv(
  * overrides. The agent default preserves this exported helper's historical
  * no-argument use; every ui-server spawn names its actual audience.
  */
+/**
+ * The exec wrapper, or undefined when the host configured none.
+ *
+ * Read per spawn rather than resolved once into {@link ServerConfig}: this is
+ * a privilege boundary, and the rest of the package's config is resolved at
+ * `createApp()` while these spawns happen for the life of the process.
+ */
+export function execWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER);
+}
+
 export function subprocessEnv(
   audience: SubprocessEnvAudience = "agent",
   extra: Record<string, string> = {},

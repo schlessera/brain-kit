@@ -32,6 +32,15 @@ export type {
 } from "./backend-module.js";
 export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
 
+export type { KillableProcess } from "./exec-wrapper.js";
+export {
+  EXEC_WRAPPER_ENV,
+  execWrapperSpawnOptions,
+  killWrapped,
+  validateExecWrapper,
+  wrapCommand,
+} from "./exec-wrapper.js";
+
 export type { WriteLock } from "./write-lock.js";
 export { createWriteLock } from "./write-lock.js";
 

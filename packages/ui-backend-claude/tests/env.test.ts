@@ -93,6 +93,7 @@ describe("config/env descriptor", () => {
     expect(names.sort()).toEqual(
       [
         "ANTHROPIC_API_KEY",
+        "BRAIN_UI_EXEC_WRAPPER",
         "BRAIN_UI_REVERSE_GEOCODE",
         "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
         "CLAUDE_CODE_OAUTH_TOKEN",

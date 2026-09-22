@@ -31,6 +31,11 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import {
+  execWrapperSpawnOptions,
+  killWrapped,
+  wrapCommand,
+} from "@schlessera/brain-ui-sdk/server";
+import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
   BRAIN_LOCK_KEY,
@@ -38,7 +43,11 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { resolveEnabledWebSearchEnvNames, subprocessEnv } from "./config/env.js";
+import {
+  resolveEnabledWebSearchEnvNames,
+  resolveExecWrapper,
+  subprocessEnv,
+} from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -225,13 +234,15 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // Containment: scope the search path to the repo; grep runs with cwd=repo.
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
-      const proc = spawn(["grep", "-rInE", "--", params.pattern, rel], {
+      const wrapper = resolveExecWrapper();
+      const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], wrapper), {
         cwd: brain.root,
         env: subprocessEnv(resolveEnabledWebSearchEnvNames()),
         stdout: "pipe",
         stderr: "pipe",
+        ...execWrapperSpawnOptions(wrapper),
       });
-      const onAbort = () => proc.kill();
+      const onAbort = () => killWrapped(proc, wrapper);
       signal?.addEventListener("abort", onAbort, { once: true });
       const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       signal?.removeEventListener("abort", onAbort);
@@ -368,13 +379,15 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // curls and other reads run in parallel, across sessions and across
       // sibling tool calls in one message.
       return lock.withKey(bashLockKey(params.command), async () => {
-        const proc = spawn(["bash", "-lc", cmd], {
+        const wrapper = resolveExecWrapper();
+        const proc = spawn(wrapCommand(["bash", "-lc", cmd], wrapper), {
           cwd: brain.root,
           env: childEnv,
           stdout: "pipe",
           stderr: "pipe",
+          ...execWrapperSpawnOptions(wrapper),
         });
-        const onAbort = () => proc.kill();
+        const onAbort = () => killWrapped(proc, wrapper);
         signal?.addEventListener("abort", onAbort, { once: true });
         const [stdout, stderr, code] = await Promise.all([
           new Response(proc.stdout).text(),

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { BrainClient } from "../brain/client.js";
-import { subprocessEnv } from "../config/env.js";
+import { execWrapper, subprocessEnv } from "../config/env.js";
+import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
   buildKeyterms,
   writeCache,
@@ -118,11 +119,16 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // longer set (Claude runs on subscription auth, and the script's
         // --claude backend uses --bare mode, which can't read the
         // CLAUDE_CODE_OAUTH_TOKEN either).
-        const proc = Bun.spawn(["bun", script, "--gemini"], {
+        // Through the exec wrapper like every other child: this one runs a
+        // script that lives IN the brain repository, which makes it the least
+        // appropriate spawn in the package to leave unwrapped.
+        const whatsupWrapper = execWrapper();
+        const proc = Bun.spawn(wrapCommand(["bun", script, "--gemini"], whatsupWrapper), {
           cwd: brainPath,
           stdout: "pipe",
           stderr: "pipe",
           env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+          ...execWrapperSpawnOptions(whatsupWrapper),
         });
 
         // Start draining stderr NOW, not after the process exits.
@@ -242,13 +248,18 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // bash as positional args rather than interpolated into the script, so a
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
         const [cliBin, ...cliArgs] = brain.cliCommand();
+        const syncWrapper = execWrapper();
         const proc = Bun.spawn(
-          ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
+          wrapCommand(
+            ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
+            syncWrapper
+          ),
           {
             cwd: brainPath,
             stdout: "pipe",
             stderr: "pipe",
             env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+            ...execWrapperSpawnOptions(syncWrapper),
           }
         );
 

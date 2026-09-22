@@ -20,11 +20,13 @@ import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
 import {
+  EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
+  validateExecWrapper,
   webSearchProvider,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -47,6 +49,17 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: EXEC_WRAPPER_ENV,
+    description:
+      "Absolute path to an executable every tool subprocess is launched " +
+      "through, as `<wrapper> <program> <args…>`. Lets a host run the agent's " +
+      "children as another user without this package knowing how. It is an " +
+      "argv[0], never a command line: no shell parses it. Unset, spawns are " +
+      "exactly what they were.",
+    default: "(none — spawn the program directly)",
+    required: false,
+  },
   {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
@@ -104,6 +117,16 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
     nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",
   };
+}
+
+/**
+ * The exec wrapper, or undefined. Resolved per spawn rather than cached at
+ * module scope, matching this file's rule for everything else: the process may
+ * gain the variable after this module loads, and a stale read of a privilege
+ * boundary is the wrong kind of stale.
+ */
+export function resolveExecWrapper(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return validateExecWrapper(env[EXEC_WRAPPER_ENV]);
 }
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [

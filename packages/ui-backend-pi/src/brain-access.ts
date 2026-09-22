@@ -124,6 +124,25 @@ export function createBrainAccess(brainPath: string): BrainAccess {
 
   async function ensureContext(): Promise<BrainContext> {
     if (ctx) return ctx;
+    // KNOWN LIMIT, and the one place the exec wrapper does not reach.
+    //
+    // `initContext` `await import`s the repository's `brain.config.ts`, which
+    // is executable TypeScript owned by the brain, evaluated IN THIS PROCESS.
+    // Every other subprocess in the three packages can be routed through
+    // BRAIN_UI_EXEC_WRAPPER and run as somebody else; this one cannot, because
+    // it is not a subprocess at all. A host that drops privileges for the
+    // agent's children still evaluates this file as the server user.
+    //
+    // What it costs: the wrapper bounds what the agent's TOOLS can do, not
+    // what the brain's own config can do. Anyone who can write
+    // `brain.config.ts` in the repository already has the server's privileges,
+    // wrapper or not.
+    //
+    // Why it is still here: closing it means every BrainAccess read —
+    // search, list, graph, context assembly — going out through the CLI as a
+    // subprocess, which is a different design for this package rather than a
+    // patch to it. Tracked separately; see the exec-wrapper section of the
+    // README.
     ctx = await initContext({ root: brainPath });
     if (!resolved) {
       embeddings = resolveEmbeddings(ctx);

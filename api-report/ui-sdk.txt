@@ -688,6 +688,7 @@ export "./server" (./src/server/index.ts)
   type CronJobStatus
   DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
+  EXEC_WRAPPER_ENV
   type ExecutionBrief
   FILE_SIZE_CAP_BYTES
   type FetchLike
@@ -718,6 +719,7 @@ export "./server" (./src/server/index.ts)
   type KeyValueRunCandidate
   type KeyedLock
   type Keyterm
+  type KillableProcess
   LOCATION_PAYLOAD_SCHEMA
   type LocationFix
   type LocationHandlerOptions
@@ -874,6 +876,7 @@ export "./server" (./src/server/index.ts)
   defineToolContract
   detailFor
   detectCandidates
+  execWrapperSpawnOptions
   fetchCoastline
   filterSubprocessEnv
   handleAskUser
@@ -885,6 +888,7 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isFailureOutcome
   isThinkingLevel
+  killWrapped
   parseMarkdown
   parseSubprocessEnvExtra
   parseToolPayload
@@ -909,9 +913,11 @@ export "./server" (./src/server/index.ts)
   toolBriefLines
   toolInputJsonSchema
   transformCandidate
+  validateExecWrapper
   visibleToolName
   webSearchBrief
   webSearchProvider
+  wrapCommand
   wrapUntrustedData
 
 export "./share-target" (./src/client/share-target.ts)
