@@ -362,6 +362,52 @@ describe("the capability that needs eyes", () => {
   });
 });
 
+describe("the pairing the field's documentation asks for", () => {
+  test("declared ALONE, the refusal is never reached for a tool the runtime waves through", async () => {
+    // Characterization, not an endorsement. `noGrantSurface` registers no
+    // enforcement hook — that is `enforceAllowedTools`'s job — so nothing
+    // forces the callback, and the three runtime paths that land before
+    // `canUseTool` still admit the call. Nothing is asked, so nothing is
+    // refused: this is a gap in the PAIRING, not a bypass of the refusal.
+    // Pinned here because the JSDoc requires the pairing and nothing enforces
+    // it. What to do about that is #173.
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL,
+      noGrantSurface: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      "mcp__external__publish",
+      { id: 7 },
+      "publish-unpaired",
+      true // the runtime approves it on its own, as measured
+    );
+
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+    expect(harness.activity).toHaveLength(0);
+  });
+
+  test("declared alone, a request that DOES reach the gate is still refused", async () => {
+    // The other half, and the reason the gap is about reach rather than the
+    // refusal: the Bash confirm pattern comes from a hook that fires whatever
+    // the turn declared, so it reaches the shared gate and is denied.
+    const harness = await startTurn({
+      allowedTools: WITH_SHELL,
+      noGrantSurface: true,
+    });
+
+    const outcome = await runToolCall(harness.options, "Bash", DESTRUCTIVE, "bash-unpaired");
+
+    expect(outcome.executed).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+    expect(approvalFrames(harness)).toHaveLength(0);
+    expectSpeakableDenial(outcome.message, "Bash");
+  });
+});
+
 describe("turns that did not declare it", () => {
   test("an enforced turn still raises a card, and it can still be answered", async () => {
     const harness = await startTurn({

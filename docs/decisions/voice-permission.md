@@ -366,14 +366,16 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(`packages/ui-server/src/ws/dispatch.ts:182-186`) and it is the one decision on
+(the `remembers` block, `packages/ui-server/src/ws/dispatch.ts:189-196`) and it
+is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
 permission by reflex is the one footgun in the vocabulary"*
 (`docs/decisions/design-feedback.md:1243-1250`). A microphone is a reflex
 surface with worse recognition than a keyboard. This costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(`dispatch.ts:182-186`, `ws/bridge.ts:99-110`), and 192 of 192 measured
+(the `remembers` block, `dispatch.ts:189-196`, and the `remembered` lookup,
+`ws/bridge.ts:103-123`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -381,9 +383,12 @@ approvals were kind `command`.
 Under the voice posture, now that #110 has closed the last gap, **no approval
 card can arise at all**. Every tool in the posture is auto-allowed; every tool
 outside it is ungrantable and therefore denied; and a kind-`command` request
-only ever comes from `Bash`, which is not in the posture — so the
-`commandAllowed` re-add described below raises a request that a turn with no
-grant surface denies rather than one that parks. "No card" is not "nothing can
+comes from one of two places, both of which a turn with no grant surface denies
+rather than parks: `Bash`, via the `commandAllowed` re-add described below, and
+— since #144 — a `brain_update` that archives. The second is the sharper case
+and it is why the refusal is the mechanism rather than the allowlist:
+`brain_update` is *inside* the posture, so no narrowing reaches it, and the
+confirmation it raises is answerable by nobody. "No card" is not "nothing can
 stall", and the one exception named below closed with it:
 `request_image_mask` used to sit inside the enforced allowlist whatever the
 posture declared, so it was auto-allowed, raised no card, and blocked the turn
@@ -424,7 +429,8 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`packages/ui-server/src/activity/recorder.ts:310-325`), fed from the bridge's
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:334-349`),
+fed from the bridge's
 `recorded()` wrapper (`packages/ui-server/src/ws/bridge.ts:150-165`).
 
 One thing is missing and is a follow-up: **the event does not record the
@@ -437,7 +443,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (the `case "tool_denial"` arm of `handleClientMessage`,
-`packages/ui-server/src/ws/dispatch.ts:218-228`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:230-240`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -532,14 +538,14 @@ closed and three more were found. What follows is the state on `main`, which
 matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
-`StartTurnRequest.enforceAllowedTools` (`packages/ui-sdk/src/server/backend.ts:236`)
+`StartTurnRequest.enforceAllowedTools` (`packages/ui-sdk/src/server/backend.ts:252`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
   take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
   without granting
   (`packages/ui-backend-claude/src/input-rewrite-hooks.ts:16-30,60-68`, wired at
-  wired at their `agentHook`/`rtkHook` constructions,
+  their `agentHook`/`rtkHook` constructions,
   `permission-hooks.ts:294-301`). The premise the old grant rested on was
   measured false in the process: `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -547,8 +553,9 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 - A remembered grant no longer answers. The host still *reads* its store — on
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
-  left out (`packages/ui-server/src/ws/bridge.ts:99-110`,
-  `packages/ui-server/src/ws/dispatch.ts:178-186`). The evaluation happens
+  left out (the `remembered` lookup, `packages/ui-server/src/ws/bridge.ts:103-123`,
+  and the `remembers` block, `packages/ui-server/src/ws/dispatch.ts:189-196`).
+  The evaluation happens
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
