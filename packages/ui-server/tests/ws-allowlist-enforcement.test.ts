@@ -12,9 +12,14 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "@schlessera/brain-ui-sdk/server";
+import { createRecordingObservability } from "../src/observability/index";
+import { createStaticBackendRegistry } from "../src/agent/backend";
+import { createUiDb } from "../src/db/client";
+import { createSessionCatalog } from "../src/ws/session-catalog";
+import { handleClientMessage as dispatch } from "../src/ws/dispatch";
 import { createWsHandlers } from "../src/ws/connection";
 import type { WSContext } from "../src/ws/clients";
-import type { ToolPermissions } from "../src/ws/host";
+import { WsHost, type ToolPermissions } from "../src/ws/host";
 import {
   closeDb,
   handleClientMessage,
@@ -23,7 +28,7 @@ import {
   setToolPermissionsForTests,
   testHost,
 } from "./helpers/test-host";
-import { testPrincipal } from "./helpers/principal";
+import { testAuthorization, testPrincipal } from "./helpers/principal";
 
 const REMEMBERED_TOOL = "mcp__github__create_issue";
 
@@ -232,5 +237,159 @@ describe("remembered grants under an enforced allowlist", () => {
     expect(decision!.behavior).toBe("allow");
     expect(set.size).toBe(0);
     controls[0]!.finish();
+  });
+});
+
+/**
+ * The refusal to remember has to be visible. The read side already records a
+ * grant it declines to apply; the write side refusing the user's own "always"
+ * is the same gap facing the other way, and it is the one a person will
+ * actually notice — they pressed the button.
+ *
+ * Built on its own host rather than the shared helper because this asserts on
+ * log records, which need a recording observability.
+ */
+describe("a refused always-allow is recorded", () => {
+  function setup(initial: string[] = []) {
+    const db = createUiDb(":memory:");
+    const observability = createRecordingObservability();
+    const { backend, controls } = permissionBackend();
+    const grants = new Set(initial);
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+      toolPermissions: {
+        isAutoAllowed: (name) => grants.has(name),
+        add: (name) => grants.add(name),
+      },
+    });
+    return { db, host, observability, controls, grants };
+  }
+
+  async function openTurn(host: WsHost, controls: TurnControl[]) {
+    const handlers = createWsHandlers(host, testPrincipal());
+    const client = fakeClient();
+    await handlers.onOpen(openEvt, client.ws);
+    await dispatch(host, client.ws, { type: "chat_message", text: "hi" }, {
+      principal: testPrincipal(),
+      authorization: testAuthorization(),
+    });
+    await waitFor(() => controls.length === 1);
+    return client;
+  }
+
+  test("refusing to remember an enforced-posture grant emits a record", async () => {
+    const { db, host, observability, controls, grants } = setup();
+    const client = await openTurn(host, controls);
+
+    let decision: PermissionDecision | null = null;
+    void controls[0]!
+      .request(
+        {
+          toolName: "mcp_proxy_tool",
+          input: {},
+          kind: "tool",
+          outsideEnforcedAllowlist: true,
+        },
+        "t10"
+      )
+      .then((d) => {
+        decision = d;
+      });
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const card = client.sent.find((f) => f.type === "tool_approval_request") as
+      | { turnId?: string }
+      | undefined;
+
+    await dispatch(
+      host,
+      client.ws,
+      { type: "tool_approval", toolUseId: "t10", always: true, turnId: card!.turnId },
+      { principal: testPrincipal(), authorization: testAuthorization() }
+    );
+    await waitFor(() => decision !== null);
+
+    expect(grants.size).toBe(0);
+    const records = observability.logs
+      .find({ scope: "ws" })
+      .filter((r) => r.body === "always-allow not remembered");
+    expect(records).toHaveLength(1);
+    expect(records[0]!.attributes["tool.name"]).toBe("mcp_proxy_tool");
+    expect(records[0]!.attributes["toolUse.id"]).toBe("t10");
+    expect(records[0]!.attributes.reason).toBe("outside this turn's enforced allowlist");
+
+    controls[0]!.finish();
+    host.close();
+    db.close();
+  });
+
+  test("a kind 'command' always from a tampering client is recorded too", async () => {
+    const { db, host, observability, controls, grants } = setup();
+    const client = await openTurn(host, controls);
+
+    let decision: PermissionDecision | null = null;
+    void controls[0]!
+      .request({ toolName: "Bash", input: { command: "rm -rf x" }, kind: "command" }, "t11")
+      .then((d) => {
+        decision = d;
+      });
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const card = client.sent.find((f) => f.type === "tool_approval_request") as
+      | { turnId?: string }
+      | undefined;
+
+    await dispatch(
+      host,
+      client.ws,
+      { type: "tool_approval", toolUseId: "t11", always: true, turnId: card!.turnId },
+      { principal: testPrincipal(), authorization: testAuthorization() }
+    );
+    await waitFor(() => decision !== null);
+
+    expect(grants.size).toBe(0);
+    const records = observability.logs
+      .find({ scope: "ws" })
+      .filter((r) => r.body === "always-allow not remembered");
+    expect(records).toHaveLength(1);
+    expect(records[0]!.attributes["tool.name"]).toBe("Bash");
+    expect(records[0]!.attributes.reason).toBe("per-use confirmation");
+
+    controls[0]!.finish();
+    host.close();
+    db.close();
+  });
+
+  test("an always the host DOES honour emits no such record", async () => {
+    const { db, host, observability, controls, grants } = setup();
+    const client = await openTurn(host, controls);
+
+    let decision: PermissionDecision | null = null;
+    void controls[0]!
+      .request({ toolName: "mcp_proxy_tool", input: {}, kind: "tool" }, "t12")
+      .then((d) => {
+        decision = d;
+      });
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const card = client.sent.find((f) => f.type === "tool_approval_request") as
+      | { turnId?: string }
+      | undefined;
+
+    await dispatch(
+      host,
+      client.ws,
+      { type: "tool_approval", toolUseId: "t12", always: true, turnId: card!.turnId },
+      { principal: testPrincipal(), authorization: testAuthorization() }
+    );
+    await waitFor(() => decision !== null);
+
+    expect(grants.has("mcp_proxy_tool")).toBe(true);
+    expect(
+      observability.logs.find({ scope: "ws" }).filter((r) => r.body === "always-allow not remembered")
+    ).toHaveLength(0);
+
+    controls[0]!.finish();
+    host.close();
+    db.close();
   });
 });

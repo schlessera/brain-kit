@@ -93,9 +93,13 @@ export function makeBridge(
       // remembering them would silently disable the seatbelt. NEVER either
       // when the backend says the turn's enforced allowlist left this tool
       // out: the grant was given under a wider posture and answering with it
-      // would make the narrower one decoration. Evaluated BEFORE the lookup,
-      // and recorded, because a shortcut that stops applying must be visible
-      // rather than merely absent.
+      // would make the narrower one decoration.
+      //
+      // The store is still READ for such a request, and only read: a grant
+      // that exists and is deliberately not applied is the thing worth a
+      // record, and there is nothing to record without looking. What the
+      // enforced posture forbids is answering from the store (here) and
+      // adding to it (dispatch.ts) — not knowing what is in it.
       const remembered =
         req.kind !== "command" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
       if (remembered && req.outsideEnforcedAllowlist) {

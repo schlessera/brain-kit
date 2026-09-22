@@ -16,7 +16,9 @@ under a wide posture was honoured under a narrow one.
 
 Under the declaration the rewrites still rewrite — `updatedInput` applies
 without a decision attached, so the rewrite was never what the grant was for —
-and the host neither reads nor writes its grant store for a tool outside the
-turn's allowlist. Backends mark such requests `outsideEnforcedAllowlist` so the
-host does not have to guess. A turn that declares nothing is unchanged, and
-existing grants keep working on the postures that can honour them.
+and the host neither answers from nor adds to its grant store for a tool
+outside the turn's allowlist. Backends mark such requests `outsideEnforcedAllowlist` so the
+host does not have to guess, and it records both halves of the refusal — a
+grant it declines to apply, and an "always allow" it declines to keep. A turn
+that declares nothing is unchanged, and existing grants keep working on the
+postures that can honour them.

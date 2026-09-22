@@ -61,16 +61,31 @@ export function createPermissionWiring(options: {
     });
   };
 
-  // Withholding OUR shortcuts is not enough: the runtime has permission
-  // opinions of its own that also land before canUseTool — its safe-command
-  // classifier (measured on Claude Code 2.1.280: `echo hi` runs with an EMPTY
-  // allowedTools and the callback is never consulted), a built-in tool's own
-  // check, and any allow rule in the project settings this backend loads
-  // (`settingSources: ["project"]`). An explicit "ask" is the one answer that
-  // beats all of them — it forces the callback, and it leaves another hook's
-  // updatedInput intact, so the rewrites still reach the decision (both
-  // measured against 2.1.280 / SDK 0.3.278). Registered only under the
-  // declaration, so nothing moves for a turn that declares nothing.
+  // Withholding OUR shortcuts is not enough: two things outside this file
+  // also admit a tool before canUseTool is reached. Both measured against
+  // Claude Code 2.1.280 / SDK 0.3.278 with a real query(); what is NOT a
+  // bypass is recorded below, because guessing at this once already put a
+  // wrong mechanism in this comment.
+  //
+  // 1. The runtime's own safe-command classifier. `echo hi` runs with an
+  //    EMPTY allowedTools and the callback is never consulted.
+  // 2. A PreToolUse hook in the PROJECT SETTINGS this backend loads
+  //    (`settingSources: ["project"]` in sdk-options.ts) returning
+  //    `permissionDecision: "allow"`. That file lives in the brain repo,
+  //    which is the turn's cwd, and Write/Edit are on the default allowlist —
+  //    so a wide-posture turn can write it and re-widen every later narrow
+  //    one. This is the reason enforcement cannot be a property of
+  //    configuration alone.
+  //
+  // What does NOT skip the callback, in those same project settings:
+  // `permissions.allow` rules, and `permissions.defaultMode:
+  // "bypassPermissions"`. Both were tried; canUseTool was still consulted.
+  //
+  // An explicit "ask" beats both real vectors — including the settings hook's
+  // "allow", with a canUseTool deny then holding — and it leaves another
+  // hook's updatedInput intact, so the rewrites still reach the decision.
+  // Registered only under the declaration, so nothing moves for a turn that
+  // declares nothing.
   const enforcementHook: HookCallback = async (hookInput) => {
     if (
       hookInput.hook_event_name !== "PreToolUse" ||

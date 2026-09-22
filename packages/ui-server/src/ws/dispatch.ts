@@ -183,6 +183,24 @@ export async function handleClientMessage(
           pending.request.kind !== "command" && !pending.request.outsideEnforcedAllowlist;
         if (msg.always && remembers) {
           host.toolPermissions?.add(pending.request.toolName);
+        } else if (msg.always) {
+          // The user asked for something the host will not do. Recorded for
+          // the same reason the bridge records a grant it declines to apply:
+          // a refusal nobody can see is indistinguishable from a bug, and for
+          // kind "command" it also says a client sent an option its own UI
+          // does not offer.
+          host.log.emit({
+            severityText: "INFO",
+            body: "always-allow not remembered",
+            attributes: {
+              "tool.name": pending.request.toolName,
+              "toolUse.id": pending.request.toolUseId,
+              reason:
+                pending.request.kind === "command"
+                  ? "per-use confirmation"
+                  : "outside this turn's enforced allowlist",
+            },
+          });
         }
         pending.resolve(
           msg.updatedInput
