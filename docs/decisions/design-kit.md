@@ -2169,11 +2169,11 @@ in one call, with the code doing every extraction and every render.
    needs the numbers, and the first cut recorded only the outcome, so a
    `kept` was a count with nothing behind it. The pass now also records
    what it was confident about (added 2026-09-22): one row per answered
-   question in `classification_confidence` — the candidate kind, the
-   question, the answer, its confidence, the line that confidence had to
-   clear, and whether the candidate ended up drawn — written after the
-   call has resolved, so it takes none of the call's budget. It is read
-   back with `confidenceDistribution`
+   question in `classification_confidence` — the candidate it was asked
+   about, its kind, the question, the answer, its confidence, the line that
+   confidence had to clear, and whether the candidate ended up drawn —
+   written after the call has resolved, so it takes none of the call's
+   budget. It is read back with `confidenceDistribution`
    (`packages/ui-server/src/classification/confidence-store.ts`, exported
    from the package root), or straight off the file:
 
@@ -2186,6 +2186,15 @@ in one call, with the code doing every extraction and every render.
     GROUP BY candidate_kind, question, threshold, bucket
     ORDER BY candidate_kind, question, bucket;
    ```
+
+   One pass writes every row with the same `recorded_at`, so
+   `(session_id, recorded_at, candidate_id)` names one candidate within one
+   pass. Some questions have to be read that way or they are meaningless:
+   the catalogue asks `criteria_first` of every table, including the ones
+   the shape answer calls `data`, so unconditioned its answers are two
+   populations stacked on each other (measured 2026-09-22: 12 of 26 at or
+   below 0.3, 13 at or above 0.9). Join the candidate back to its own shape
+   answer before tuning anything on it.
 
    Instrumentation, not state: nothing renders or replays from it, a write
    that fails is a log line rather than a block the reader does not get,

@@ -11,6 +11,14 @@
 CREATE TABLE IF NOT EXISTS classification_confidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
+  -- One pass writes every row with the same `recorded_at`, so
+  -- (session_id, recorded_at, candidate_id) names ONE candidate within ONE
+  -- pass. That is what lets a question be read conditioned on another answer
+  -- about the same candidate, which some of them have to be: the catalogue
+  -- asks `criteria_first` of every table, including the ones the shape answer
+  -- calls `data`, where it means nothing. Without the candidate, a turn that
+  -- typed two tables has no way to pair the two answers back up.
+  candidate_id TEXT NOT NULL,
   recorded_at INTEGER NOT NULL,
   candidate_kind TEXT NOT NULL,
   question TEXT NOT NULL,

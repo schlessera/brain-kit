@@ -388,7 +388,8 @@ describe("the confidence record", () => {
 
   /** Every recorded row, oldest first, as the tuning query reads them. */
   function rows(sessionId?: string) {
-    const sql = `SELECT session_id AS sessionId, candidate_kind AS candidateKind, question,
+    const sql = `SELECT session_id AS sessionId, candidate_id AS candidateId,
+                        candidate_kind AS candidateKind, question,
                         answer_type AS answerType, choice, confidence, threshold, cleared, outcome
                    FROM classification_confidence
                   ${sessionId ? "WHERE session_id = ?" : ""}
@@ -414,9 +415,9 @@ describe("the confidence record", () => {
     const blocks = await classifier(answering(GOOD_ANSWERS)).run("s-swap", [TEXT]);
     expect(blocks).toHaveLength(1);
     expect(rows("s-swap")).toEqual([
-      { sessionId: "s-swap", candidateKind: "table", question: "shape", answerType: "choice", choice: "comparison", confidence: 0.9, threshold: CONFIDENCE.swap, cleared: 1, outcome: "swapped" },
-      { sessionId: "s-swap", candidateKind: "table", question: "recommended", answerType: "choice", choice: "none", confidence: 0.9, threshold: CONFIDENCE.tone, cleared: 1, outcome: "swapped" },
-      { sessionId: "s-swap", candidateKind: "table", question: "criteria_first", answerType: "noul", choice: null, confidence: 0.95, threshold: CONFIDENCE.noul, cleared: 1, outcome: "swapped" },
+      { sessionId: "s-swap", candidateId: "p0c0", candidateKind: "table", question: "shape", answerType: "choice", choice: "comparison", confidence: 0.9, threshold: CONFIDENCE.swap, cleared: 1, outcome: "swapped" },
+      { sessionId: "s-swap", candidateId: "p0c0", candidateKind: "table", question: "recommended", answerType: "choice", choice: "none", confidence: 0.9, threshold: CONFIDENCE.tone, cleared: 1, outcome: "swapped" },
+      { sessionId: "s-swap", candidateId: "p0c0", candidateKind: "table", question: "criteria_first", answerType: "noul", choice: null, confidence: 0.95, threshold: CONFIDENCE.noul, cleared: 1, outcome: "swapped" },
     ]);
   });
 
@@ -425,8 +426,52 @@ describe("the confidence record", () => {
     const low = { "p0c0.shape": { type: "choice", choice: "comparison", probabilities: {}, confidence: 0.58 } };
     expect(await classifier(answering(low)).run("s-kept", [TEXT])).toEqual([]);
     expect(rows("s-kept")).toEqual([
-      { sessionId: "s-kept", candidateKind: "table", question: "shape", answerType: "choice", choice: "comparison", confidence: 0.58, threshold: CONFIDENCE.swap, cleared: 0, outcome: "kept" },
+      { sessionId: "s-kept", candidateId: "p0c0", candidateKind: "table", question: "shape", answerType: "choice", choice: "comparison", confidence: 0.58, threshold: CONFIDENCE.swap, cleared: 0, outcome: "kept" },
     ]);
+  });
+
+  test("two candidates in one pass stay pairable, so a question can be read conditioned", async () => {
+    // The catalogue asks `criteria_first` of EVERY table, including one the
+    // shape answer calls `data`, where the question means nothing. Read
+    // unconditioned those are two populations stacked on each other, so a row
+    // has to say which candidate it was about.
+    const DATA = `| Port | Nights |\n|---|---|\n| Aeaea | 365 |\n| Ogygia | 2555 |`;
+    const answers = {
+      "p0c0.shape": { type: "choice", choice: "comparison", probabilities: {}, confidence: 0.9 },
+      "p0c0.criteria_first": { type: "noul", noul: 0.95 },
+      "p0c1.shape": { type: "choice", choice: "data", probabilities: {}, confidence: 0.9 },
+      // Meaningless for a data table, and the classifier says so.
+      "p0c1.criteria_first": { type: "noul", noul: 0.05 },
+    };
+    await classifier(answering(answers)).run("s-pair", [`${COMPARISON}\n\nAnd the log:\n\n${DATA}`]);
+    const recorded = rows("s-pair");
+    expect(recorded.map((row) => [row.candidateId, row.question, row.confidence])).toEqual([
+      ["p0c0", "shape", 0.9],
+      ["p0c0", "criteria_first", 0.95],
+      ["p0c1", "shape", 0.9],
+      ["p0c1", "criteria_first", 0.05],
+    ]);
+    // One pass, one `recorded_at`, so the candidate is what tells them apart.
+    const stamps = db
+      .query("SELECT DISTINCT recorded_at AS at FROM classification_confidence WHERE session_id = ?")
+      .all("s-pair");
+    expect(stamps).toHaveLength(1);
+    // Which is what makes the conditional read possible: only the comparison's
+    // noul belongs in a distribution the 0.7 line is tuned on.
+    const conditioned = db
+      .query(
+        `SELECT noul.confidence AS confidence
+           FROM classification_confidence AS noul
+           JOIN classification_confidence AS shape
+             ON shape.session_id = noul.session_id
+            AND shape.recorded_at = noul.recorded_at
+            AND shape.candidate_id = noul.candidate_id
+          WHERE noul.question = 'criteria_first'
+            AND shape.question = 'shape'
+            AND shape.choice = 'comparison'`
+      )
+      .all() as Array<{ confidence: number }>;
+    expect(conditioned.map((row) => row.confidence)).toEqual([0.95]);
   });
 
   test("a pass with no answers — timeout, error, open breaker — records nothing", async () => {

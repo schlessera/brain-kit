@@ -18,6 +18,13 @@
  * Rows older than {@link CONFIDENCE_RETENTION_MS} are pruned by the next
  * write, which is what keeps a long-running install from carrying years of
  * instrumentation it will never look at.
+ *
+ * One pass writes every row with the same `recorded_at`, so
+ * `(session_id, recorded_at, candidate_id)` names one candidate within one
+ * pass. Some questions can only be read that way: the catalogue asks
+ * `criteria_first` of every table, including the ones the shape answer calls
+ * `data`, where the question means nothing — read unconditioned, its answers
+ * are two populations stacked on top of each other.
  */
 
 import type { Database } from "bun:sqlite";
@@ -67,8 +74,8 @@ export function recordQuestionConfidence(
   if (observations.length === 0) return;
   const insert = db.prepare(
     `INSERT INTO classification_confidence
-       (session_id, recorded_at, candidate_kind, question, answer_type, choice, confidence, threshold, cleared, outcome)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (session_id, candidate_id, recorded_at, candidate_kind, question, answer_type, choice, confidence, threshold, cleared, outcome)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const prune = db.prepare("DELETE FROM classification_confidence WHERE recorded_at < ?");
   // `.immediate` takes the write lock up front. A deferred transaction that
@@ -79,6 +86,7 @@ export function recordQuestionConfidence(
     for (const observation of observations) {
       insert.run(
         sessionId,
+        observation.candidateId,
         now,
         observation.candidateKind,
         observation.question,
