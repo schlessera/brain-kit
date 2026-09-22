@@ -133,7 +133,7 @@ export interface RequestToolPermissionOptions {
 function noGrantSurfaceMessage(request: PermissionRequest): string {
   const what =
     request.kind === "command"
-      ? `the ${request.toolName} command it wanted to confirm`
+      ? `the ${request.toolName} call it wanted to confirm`
       : request.toolName;
   return (
     `This turn has no way to ask anyone for permission, so ${what} cannot be approved here and did not run. ` +

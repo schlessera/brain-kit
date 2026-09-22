@@ -34,6 +34,7 @@ import type {
 
 import { createClaudeBackend } from "../src/backend";
 import { MASK_TOOL_NAME } from "../src/mask-tool";
+import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
 
 /** What one tool call did, as the runtime would have resolved it. */
 interface ToolCallOutcome {
@@ -281,6 +282,33 @@ describe("a turn with no grant surface, kind command", () => {
         reason: expect.any(String),
       },
     ]);
+  });
+
+  test("an archiving brain_update is denied with no card raised", async () => {
+    // The second way a `command` request arises, and it comes from the same
+    // hook: brain_update with status "archived" is a visibility change on an
+    // auto-allowed tool, so canUseTool never sees it either.
+    const harness = await startTurn({
+      allowedTools: [...WITH_SHELL, BRAIN_UPDATE_TOOL],
+      enforceAllowedTools: true,
+      noGrantSurface: true,
+    });
+
+    const outcome = await runToolCall(
+      harness.options,
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/a.md", status: "archived" },
+      "update-no-surface"
+    );
+
+    expect(outcome.executed).toBe(false);
+    expect(harness.requests).toHaveLength(0);
+    expect(approvalFrames(harness)).toHaveLength(0);
+    expectSpeakableDenial(outcome.message, BRAIN_UPDATE_TOOL);
+    expect(harness.activity[0]).toMatchObject({
+      kind: "permission_denied",
+      requestKind: "command",
+    });
   });
 
   test("a command that matches nothing still runs", async () => {
