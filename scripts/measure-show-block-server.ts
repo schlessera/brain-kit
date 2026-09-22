@@ -145,8 +145,14 @@ export function assertMeasurableBrainPath(brainPath: string): void {
   }
 }
 
-/** Characters that could continue a directory name, so are not a boundary. */
-const NAME_CHAR = /[A-Za-z0-9._\-+~#%@]/;
+/**
+ * Where a path can end in a serialised tool argument: a separator, a quote,
+ * whitespace, or shell punctuation. Stated as the delimiters rather than as
+ * the name characters, because a name allowlist has to enumerate every
+ * character a filename may hold — an ASCII one read `/home/x/brainé` as
+ * `/home/x/brain` followed by a boundary, and so as the brain itself.
+ */
+const PATH_BOUNDARY = /[\s"'`\\,;:)\]}&|<>=]/;
 
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
   const brain = brainPath.startsWith("~") ? brainPath : resolve(brainPath);
@@ -162,7 +168,7 @@ export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
       // The brain's name has to end here: a character that could continue it
       // means this is a sibling, not the brain — `/home/x/brain-backup` is
       // not `/home/x/brain`.
-      if (next === undefined || !NAME_CHAR.test(next)) {
+      if (next === undefined || next === "/" || PATH_BOUNDARY.test(next)) {
         // Anything but a separator means the path IS the brain, quoted or
         // followed by another shell argument.
         if (next !== "/") continue;
@@ -391,8 +397,15 @@ async function runOnce(
       ...frames.filter((f) => f.type === "error").map((f) => JSON.stringify(f)),
     ],
     wallMs,
+    // Every tool call, not just the visible ones: a subagent that reads
+    // outside the brain feeds what it found into the answer the reader sees.
     escapedBrain: escapesBrain(
-      toolCalls.map((c) => c.input),
+      frames
+        .filter(
+          (f): f is Extract<ServerMessage, { type: "tool_use_complete" }> =>
+            f.type === "tool_use_complete"
+        )
+        .map((c) => c.input),
       brainPath
     ),
     completed: result?.outcome === "success" && result?.isError === false,

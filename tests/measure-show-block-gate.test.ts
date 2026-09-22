@@ -117,6 +117,12 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ path: "/home/someone/autre/a.md" }], accented)).toBe(true);
   });
 
+  test("a sibling whose extra character is non-ASCII is still a sibling", () => {
+    const home = "/home/someone/brain";
+    expect(escapesBrain([{ path: "/home/someone/brainé/notes.md" }], home)).toBe(true);
+    expect(escapesBrain([{ path: "/home/someone/brain2/notes.md" }], home)).toBe(true);
+  });
+
   test("a brain path with whitespace is refused rather than judged", () => {
     // `<brain> copy/notes.md` and `find <brain> -type f` are the same string
     // with opposite answers, and the blob cannot tell them apart.
