@@ -1,7 +1,7 @@
 ---
-"@schlessera/brain-ui-sdk": patch
-"@schlessera/brain-backend-claude": patch
-"@schlessera/brain-backend-pi": patch
+"@schlessera/brain-ui-sdk": minor
+"@schlessera/brain-backend-claude": minor
+"@schlessera/brain-backend-pi": minor
 ---
 
 Archiving a document through `brain_update` now raises an approval card.
