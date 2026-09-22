@@ -2307,28 +2307,41 @@ Identical, and higher than the brief reaches on its own. **The brief's entire
 measured effect is discoverability, not persuasion.** Once the model can see
 the tool, the brief adds nothing at all.
 
-**The pi backend does not reproduce any of this, and the reason is in the
-code.** #50 measured pi at the server level and found what looks like a flat
-contradiction: "Compare Bun and Node.js … keep it short" calls the tool on
-every run where the Claude backend called it on none, `contact` drew 3 of 3
-where the Claude backend drew 0 of 12, and 21 of 23 pi turns drew a block at
-all. None of that is a property of pi's model or of the brief. **pi has no
-deferral.** It registers `show_block` as a plain `ToolDefinition` in its own
-tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`); there is no
-MCP server, no tool search, and no `alwaysLoad` to set, so the tool is in the
-prompt on every pi turn by construction.
+**The pi backend does not reproduce any of this, and the reason is probably in
+the code.** #50 measured pi at the server level and #137 records the gap: on
+the same four prompts, same model, same corpus, pi called the tool on 27 of 30
+counted turns (90%) against this record's 30 of 54 brief-arm turns (56%), and
+on the two prompts this record measured at zero — "Compare Bun and Node.js …
+keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
+pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
+different run and not the one above.)
 
-That makes pi's shipping configuration the structural equivalent of this
-record's `--always-load` arm, not of the Claude backend's. Read against the
-right row, the two backends agree rather than conflict: in the always-loaded
-condition the Claude backend also calls on `compare-short`, also stops caring
-whether the brief is present, and also runs at 77%. The one figure that still
-differs is `contact` — 3 of 3 on pi against 1 of 6 loaded here — and that is a
-real open question rather than an artifact, which is what its issue now says.
+**pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
+in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
+there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
+is in the prompt on every pi turn by construction. That makes pi's shipping
+configuration the structural equivalent of this record's `--always-load` arm
+rather than of the Claude backend's, and `--always-load` is the controlled
+version of the same comparison: it flips deferral alone, on one backend, one
+model, one host. Flipped, this backend also calls on `compare-short` — 3 of 3
+in both arms, against 0 to 6 of 6 depending on the run when deferred — and also
+stops caring whether the brief is present.
+
+What that does NOT settle, and #137 owns:
+
+- **The remaining height.** pi's 90% against 77% always-loaded here is a real
+  gap and deferral does not explain it.
+- **`contact`.** 3 of 6 on pi against 1 of 6 loaded here. Six turns a side is
+  not enough to call a difference, and this record should not be read as
+  having found one.
+- **The method difference.** #50 drives the whole server over a socket; this
+  harness drives the Agent SDK directly. #137 names a host-isolation confound
+  on the Claude side of its own comparison that has to be closed first.
 
 The prediction this makes is falsifiable and someone should check it: if the
-Claude backend adopts `alwaysLoad: true`, its numbers should move onto pi's,
-not merely upward.
+Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
+rather than merely upward. If they land short of 90%, deferral was not the
+whole cause and #137's search is still live.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
 configuration that ships today, it is
