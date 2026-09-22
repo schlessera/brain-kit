@@ -24,9 +24,9 @@ The contract doc said every contract change needed "a major version bump", and
 `AGENTS.md`, `CONTRIBUTING.md` and the `contract` label said "a major-version
 discussion". Three things showed the rule was not the one being followed:
 
-- Additive changes had already shipped in minors: `brain stats --json` gained
-  its health and size sections (#94, #95), and `brain jobs scrape --json`
-  gained `sources[].status` (#37).
+- Additive changes were already merged with minor changesets, queued for
+  0.37.0: `brain stats --json` gained its health and size sections (#94, #95),
+  and `brain jobs scrape --json` gained `sources[].status` (#37).
 - Under a lockstep `fixed` group at `0.x`, a literal major bump is `1.0.0`,
   which [ROADMAP.md](../../ROADMAP.md) and epic #56 reserve for the stability
   bar. The rule could not be followed without shipping 1.0 by accident.
