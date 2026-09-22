@@ -133,6 +133,28 @@ function parseProfiles(
   return { ok: true, profiles: inputs as PiProfile[] };
 }
 
+/**
+ * pi provider ids that are the model vendor's OWN API, so a run on them is
+ * billed at the vendor's list price — the "direct" pricing catalog.
+ *
+ * Deliberately an allowlist. pi also ships aggregators (`openrouter`,
+ * `vercel-ai-gateway`, `opencode`) and inference hosts that serve other
+ * vendors' open-weight models at their own prices (`groq`, `cerebras`,
+ * `together`, `fireworks`, `baseten`, `huggingface`, …). For those, neither
+ * pricing catalog describes what the run actually cost, so they get no route
+ * and fall back to id-alone pricing rather than a confident wrong number.
+ */
+const FIRST_PARTY_PI_PROVIDERS: ReadonlySet<string> = new Set([
+  "anthropic",
+  "deepseek",
+  "google",
+  "mistral",
+  "openai",
+  "openai-codex",
+  "xai",
+  "zai",
+]);
+
 export const backendModule: BackendModule = defineBackendModule({
   id: "pi",
   profileSchema: {
@@ -190,12 +212,16 @@ export const backendModule: BackendModule = defineBackendModule({
           },
           classifyRoute(profile: ProviderInfo) {
             // A pi profile's vendor IS its provider id — the endpoint the
-            // request goes to — so it names the route outright. OpenRouter is
-            // the one reseller among pi's providers; every other id is the
-            // model vendor's own API, billed at the vendor's rates. A profile
-            // with no vendor has no endpoint we can name, so no route either.
+            // request goes to — so it names the route, but only for the
+            // providers we can actually place. Anything not listed (another
+            // aggregator, an inference host serving someone else's weights, a
+            // provider added to pi's catalog after this line was written)
+            // resolves by model id, which is what every run did before routes
+            // existed. Guessing "direct" instead would make a vendor list
+            // price authoritative for a run that was never billed at it.
             if (profile.vendor === undefined) return undefined;
-            return profile.vendor === "openrouter" ? "openrouter" : "direct";
+            if (profile.vendor === "openrouter") return "openrouter";
+            return FIRST_PARTY_PI_PROVIDERS.has(profile.vendor) ? "direct" : undefined;
           },
           preferredProfile: {
             matches(profile: ProviderInfo) {

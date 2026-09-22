@@ -9,6 +9,7 @@ import type {
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "./backend.js";
+import { readEnvVar } from "./config/env.js";
 import { createModelSource } from "./model-discovery.js";
 import {
   defineProfiles,
@@ -98,18 +99,19 @@ function configNumber(context: BackendModuleContext, key: string): number | unde
 }
 
 /**
- * Where a profile's requests actually go, for pricing. A profile with no
- * `baseUrl` runs against the SDK's own Anthropic endpoint — a direct vendor
- * call, billed at Anthropic's rates. A profile pointed at OpenRouter is billed
- * at OpenRouter's resale rates, which differ from the vendor's for ids both
- * catalogs carry. Any other Anthropic-compatible proxy resells at rates no
- * catalog describes, so its route stays unknown rather than being guessed.
+ * Where requests to a given endpoint actually go, for pricing. An endpoint on
+ * OpenRouter is billed at OpenRouter's resale rates, which differ from the
+ * vendor's for the ids both catalogs carry. No endpoint at all means the SDK's
+ * own Anthropic base URL — a direct vendor call. Any other Anthropic-compatible
+ * proxy resells at rates no catalog describes, so its route stays unknown
+ * rather than being guessed: an unknown route prices by model id, while a
+ * wrong one freezes a rate the run was never billed at.
  */
-function routeForProfile(input: InferenceProfileInput): PricingRoute | undefined {
-  if (!input.baseUrl) return "direct";
+function routeForBaseUrl(baseUrl: string | undefined): PricingRoute | undefined {
+  if (!baseUrl) return "direct";
   let host: string;
   try {
-    host = new URL(input.baseUrl).hostname.toLowerCase();
+    host = new URL(baseUrl).hostname.toLowerCase();
   } catch {
     // An unparseable baseUrl says nothing about the route.
     return undefined;
@@ -147,13 +149,12 @@ export const backendModule: BackendModule = defineBackendModule({
       const defaultModel = configString(context, "defaultModel");
       const inputs = context.profiles as InferenceProfileInput[];
       const declaredApiProfileIds = new Set<string>();
-      // Pricing route per profile id, learned from the declared endpoint. A
-      // profile absent from the map has no known route and prices by model id
-      // alone, exactly as everything did before routes existed.
-      const profileRoutes = new Map<string, PricingRoute>();
+      // Declared endpoint per profile id, for pricing-route classification.
+      // The URL is stored rather than a resolved route because a profile that
+      // declares none inherits the ambient one, which is only knowable later.
+      const profileBaseUrls = new Map<string, string>();
       const rememberRoute = (input: InferenceProfileInput) => {
-        const route = routeForProfile(input);
-        if (route) profileRoutes.set(input.id, route);
+        if (input.baseUrl) profileBaseUrls.set(input.id, input.baseUrl);
       };
       const normalized = inputs.map((input) => {
         const resolved =
@@ -232,7 +233,17 @@ export const backendModule: BackendModule = defineBackendModule({
             return declaredApiProfileIds.has(profile.id) ? "api" : ambientBilling;
           },
           classifyRoute(profile: ProviderInfo) {
-            return profileRoutes.get(profile.id);
+            // A profile that declares no baseUrl does NOT thereby reach
+            // Anthropic: `buildEnv()` sets nothing, the host's own
+            // ANTHROPIC_BASE_URL survives the subprocess env filter (it is on
+            // the agent allowlist), and the turn goes wherever that points. An
+            // operator who set it to OpenRouter globally would otherwise have
+            // every run frozen at Anthropic's rates. Read at classify time,
+            // never cached at setup: this value decides which rate lands in a
+            // rollup, and a stale read would freeze the wrong one.
+            return routeForBaseUrl(
+              profileBaseUrls.get(profile.id) ?? readEnvVar("ANTHROPIC_BASE_URL")
+            );
           },
         },
       };

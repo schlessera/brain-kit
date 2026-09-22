@@ -95,6 +95,14 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "ANTHROPIC_BASE_URL",
+    description:
+      "Anthropic-compatible endpoint inherited by profiles that declare no " +
+      "baseUrl of their own. Read to classify a run's pricing route; also " +
+      "passed through to the agent subprocess.",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_REVERSE_GEOCODE",
     description:
       '"0"/"off"/"false" disables reverse geocoding in the location tool ' +
