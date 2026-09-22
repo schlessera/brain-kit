@@ -244,6 +244,25 @@ describe.skipIf(!vecAvailable)("write paths still migrate the vector schema", ()
     expect(meta(dbPath, "vec_schema")).toBe("v2-metadata");
   });
 
+  test("a corrupt embedding_dimensions cannot destroy the store it cannot describe", async () => {
+    // Only the v2 copy is owed here, so the vectors are meant to survive the
+    // migration. `index_metadata` claims a width no vec0 column can be
+    // declared at (sqlite-vec caps at 8192), which used to drop the table and
+    // then fail the CREATE, taking the vectors with it.
+    const root = await stageIndex(["vec_schema"]);
+    const dbPath = join(root, "brain.db");
+    await withVec(dbPath, false, (db) => {
+      db.run("INSERT OR REPLACE INTO index_metadata(key, value) VALUES ('embedding_dimensions', '99999')");
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    });
+
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+
+    expect(await countVectors(dbPath)).toBe(1);
+    expect(await tableWidth(dbPath)).toBe(STORED_DIM);
+    expect(meta(dbPath, "vec_schema")).toBe("v2-metadata");
+  });
+
   test("the migration rebuilds at the stored width, not the configured one", async () => {
     const root = await stageIndex(["vec_distance_metric", "vec_schema"]);
     const dbPath = join(root, "brain.db");

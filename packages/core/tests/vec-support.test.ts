@@ -111,6 +111,20 @@ describe.skipIf(!vecAvailable)("migrateVecSchema", () => {
     expect(getMeta(db, "vec_schema")).toBe("v2-metadata");
     db.close();
   });
+
+  test("a width the stored vectors are not in fails loudly and keeps them", async () => {
+    // The v2 migration copies existing vectors into the rebuilt table. At a
+    // width they are not in, every copy throws — and the block used to eat
+    // that, leaving the store empty, `vec_schema` unset, and returning true.
+    const dbPath = await stage(["vec_schema"]);
+    const db = openDatabase(dbPath, { embeddingDimensions: DIM });
+
+    expect(await migrateVecSchema(db, DIM * 2)).toBe(false);
+
+    expect(count(db)).toBe(1);
+    expect(getMeta(db, "vec_schema")).toBeNull();
+    db.close();
+  });
 });
 
 describe("storedVectorWidth", () => {
@@ -121,10 +135,28 @@ describe("storedVectorWidth", () => {
     db.run("DELETE FROM index_metadata WHERE key = 'embedding_dimensions'");
     expect(storedVectorWidth(db, 1536)).toBe(1536);
 
-    for (const junk of ["not a number", "0", "-16", "16.5", ""]) {
+    // sqlite-vec caps a vec0 column at 8192, and `Number()` would read the
+    // last two of these as 16 and 100. A width that cannot be declared, or
+    // that arrived in a spelling core never writes, is not a width.
+    for (const junk of ["not a number", "0", "-16", "16.5", "", "8193", "99999", "0x10", "1e2", " 16", "+16"]) {
       setMeta(db, "embedding_dimensions", junk);
       expect(storedVectorWidth(db, 1536)).toBe(1536);
     }
+
+    setMeta(db, "embedding_dimensions", "8192");
+    expect(storedVectorWidth(db, 1536)).toBe(8192);
+    db.close();
+  });
+
+  test.skipIf(!vecAvailable)("trusts the physical table over the metadata", async () => {
+    const dbPath = await stage();
+    const db = openDatabase(dbPath, { embeddingDimensions: DIM });
+
+    // `index_metadata` describes the last provider, not necessarily the
+    // table. A width that no CREATE could accept must never win over one a
+    // CREATE already did.
+    setMeta(db, "embedding_dimensions", "99999");
+    expect(storedVectorWidth(db, 1536)).toBe(DIM);
     db.close();
   });
 });

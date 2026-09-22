@@ -74,6 +74,8 @@ export "." (./src/index.ts)
   VALID_RELEVANCES
   VALID_STATUSES
   type ValidationIssue
+  type VecSupport
+  type VecUnavailableReason
   archiveDocument
   audit
   brainConfigSchema
