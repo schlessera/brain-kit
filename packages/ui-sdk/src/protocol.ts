@@ -1509,6 +1509,111 @@ export interface ActivityRollups {
   sessions: Array<ActivityAggregate & { sessionId: string }>;
 }
 
+/**
+ * The runtime stats channel (`GET /api/activity/stats?days=N`): what the
+ * server's own database says about sessions, runs, tokens and cost. The
+ * corpus channel is `GET /api/brain/stats`; a stats surface calls both and
+ * merges. Every figure is labelled with what it covers — `lifetime` from
+ * the never-pruned session catalog, `window` from the run rollups — because
+ * the two sources do not say the same thing. Timestamps are ms epoch;
+ * an average is `null` wherever its denominator is zero or its sum is
+ * incomplete, never `0`.
+ */
+export interface ActivityRuntimeStats {
+  /** The clock every window and average was computed against. */
+  generatedAt: number;
+  lifetime: {
+    scope: "lifetime";
+    sessions: number;
+    /** Sum of every session's `num_turns`. */
+    turns: number;
+    /**
+     * Sum of every session's backend-reported `total_cost_usd`. A list-price
+     * figure accumulated per turn. The catalog folds an unreported cost into
+     * `0` when it writes the turn, so no unpriced counter survives to be
+     * reported here: read this as a floor, and use `window` when unknown has
+     * to be told apart from zero.
+     */
+    costUsd: number;
+    /** Oldest `created_at`; null when the catalog is empty. */
+    firstActivityAt: number | null;
+    /** Newest `last_active_at`; null when the catalog is empty. */
+    lastActivityAt: number | null;
+    /**
+     * Days from `firstActivityAt` to `generatedAt` (at least 1 once a session
+     * exists, 0 when none does) — the denominator of the per-day average.
+     */
+    elapsedDays: number;
+    averages: {
+      costUsdPerSession: number | null;
+      turnsPerSession: number | null;
+      costUsdPerDay: number | null;
+      /** `costUsdPerDay` projected over a mean month (365.25 / 12 days). */
+      costUsdPerMonth: number | null;
+    };
+  };
+  window: {
+    scope: "window";
+    /** The requested window length. */
+    days: number;
+    /** Runs with `startedAt >= since` are summed; `until` is `generatedAt`. */
+    since: number;
+    until: number;
+    /**
+     * The oldest run in the record, regardless of the window; null when the
+     * record is empty. Rollups outlive detail pruning, so the sums are
+     * complete back to here — but no further, and a window reaching past it
+     * covers fewer days than it asked for.
+     */
+    recordedSince: number | null;
+    /**
+     * Days between `max(since, recordedSince)` and `until` — what the
+     * per-day averages divide by. At least 1 once the record has a run, 0
+     * when it has none.
+     */
+    coveredDays: number;
+    /**
+     * Where drill-in detail (spans, events) stops: runs that ended before
+     * `cutoffAt` may have had their detail pruned, and `insideWindow` says
+     * whether that boundary falls inside this window. The rollup sums are
+     * unaffected; `/activity/runs/:id` for such a run answers rollup-only.
+     */
+    detailRetention: { days: number; cutoffAt: number; insideWindow: boolean };
+    /** Runs in the window whose detail is already gone. */
+    detailPrunedRuns: number;
+    runs: number;
+    failures: number;
+    /** Sum of KNOWN list-price costs — a floor (see `ActivityAggregate`). */
+    costUsd: number;
+    /** Sum of KNOWN effective costs; the excluded runs are `unpricedRuns`. */
+    effectiveCostUsd: number;
+    /**
+     * Runs with unknown effective cost — render "≥ $X · N unpriced" when
+     * nonzero, and as wholly unknown when it equals `runs`.
+     */
+    unpricedRuns: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    averages: {
+      runsPerDay: number | null;
+      costUsdPerDay: number | null;
+      costUsdPerMonth: number | null;
+      /**
+       * Null while `unpricedRuns > 0`: a rate over a partial sum would hide
+       * the hole the sum shows.
+       */
+      effectiveCostUsdPerDay: number | null;
+      effectiveCostUsdPerMonth: number | null;
+    };
+  };
+  database: {
+    /** The server database's logical size (pages × page size; WAL excluded). */
+    sizeBytes: number;
+  };
+}
+
 /** The while-you-were-away digest (see the ui-server digest job). */
 export interface ActivityDigest {
   generatedAt: number;

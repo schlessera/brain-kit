@@ -13,6 +13,7 @@ export "." (./src/index.ts)
   type ActivityRunDetail
   type ActivityRunRollup
   type ActivityRunSummary
+  type ActivityRuntimeStats
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -156,6 +157,7 @@ export "./client" (./src/client/index.ts)
   type ActivityRunDetail
   type ActivityRunRollup
   type ActivityRunSummary
+  type ActivityRuntimeStats
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -391,6 +393,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivityRunDetail
   type ActivityRunRollup
   type ActivityRunSummary
+  type ActivityRuntimeStats
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind
@@ -586,6 +589,7 @@ export "./server" (./src/server/index.ts)
   type ActivityRunDetail
   type ActivityRunRollup
   type ActivityRunSummary
+  type ActivityRuntimeStats
   type ActivitySpan
   type ActivitySpanEvent
   type ActivitySpanKind

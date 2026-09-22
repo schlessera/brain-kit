@@ -143,6 +143,67 @@ out-of-pocket cost ($0 for subscription-billed runs); `null` means unknown,
 never zero — aggregate scopes sum only known values and carry the excluded
 count as `unpricedRuns`.
 
+## ui-server HTTP routes
+
+### Runtime stats (`GET /api/activity/stats`, additive in 0.37.0)
+
+The runtime half of a stats surface. `GET /api/brain/stats` passes
+`brain stats --json` through and stays the corpus channel; this route reports
+what the **server's own** database holds — sessions, runs, tokens, cost — and
+never reads brain.db. A consumer calls both and merges. It sits behind the
+auth guard with the other `/api/activity/*` routes. `?days=N` picks the
+window (default 30, clamped to 1–90). The shape is `ActivityRuntimeStats` in
+`@schlessera/brain-ui-sdk/protocol`; timestamps are ms epoch:
+
+```
+{
+  generatedAt,
+  lifetime: { scope: "lifetime", sessions, turns, costUsd,
+              firstActivityAt | null, lastActivityAt | null, elapsedDays,
+              averages: { costUsdPerSession, turnsPerSession,
+                          costUsdPerDay, costUsdPerMonth } },
+  window:   { scope: "window", days, since, until,
+              recordedSince | null, coveredDays,
+              detailRetention: { days, cutoffAt, insideWindow },
+              detailPrunedRuns,
+              runs, failures, costUsd, effectiveCostUsd, unpricedRuns,
+              inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+              averages: { runsPerDay, costUsdPerDay, costUsdPerMonth,
+                          effectiveCostUsdPerDay, effectiveCostUsdPerMonth } },
+  database: { sizeBytes }
+}
+```
+
+Rules a consumer may rely on:
+
+- **Every figure is labelled with what it covers.** `lifetime` is read from
+  the never-pruned session catalog; `window` from the run rollups, over
+  exactly `[since, until]`. The two do not agree and are not meant to: the
+  catalog predates the activity record, and the two count different things.
+- **The window says how much of itself it can vouch for.** Rollup rows
+  outlive detail pruning, so the sums are complete back to `recordedSince`
+  (the oldest run in the record) — and no further; `coveredDays` is the span
+  the per-day averages divide by. `detailRetention.cutoffAt` is where
+  drill-in detail stops, `insideWindow` says whether that boundary falls
+  inside the window, and `detailPrunedRuns` counts the runs in it that are
+  already rollup-only. Say "detail older than N days is pruned"; do not
+  present a window as a total.
+- **Unknown never reads as $0.** Cost sums are sums of known values with the
+  excluded count in `unpricedRuns`, as everywhere else. Every average is
+  `null` when its denominator is zero, and the effective-cost averages are
+  `null` whenever `unpricedRuns > 0` — a rate over a partial sum would hide
+  the hole the sum shows. `unpricedRuns === runs` means the window's
+  effective cost is entirely unknown: render it as unknown, never as the `0`
+  the sum of no known values carries. The route does no rounding or
+  formatting.
+- **`lifetime.costUsd` is a floor, and cannot be better than one.** The
+  session catalog folds an unreported cost into `0` at write time, so no
+  unpriced counter is recoverable at read time; `window` is the channel that
+  separates unknown from zero. `lifetime.turns` has the same shape.
+- `database.sizeBytes` is the logical size of the server database (pages ×
+  page size, the WAL sidecar aside). It is a rebuild-cost figure for a
+  disposable store, not a claim that the file holds authoritative state.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:
