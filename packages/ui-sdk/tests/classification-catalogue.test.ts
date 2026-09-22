@@ -55,6 +55,11 @@ describe("the catalogue", () => {
           if (question.type === "choice") {
             expect(Object.keys(question.criteria).length).toBeGreaterThanOrEqual(2);
           }
+          // Every question declares the line its answer must clear, next to
+          // the options it offers, and it is one of the three the corpus was
+          // measured against. A question with no line would be a question
+          // gated at zero, and nothing would say so.
+          expect(Object.values(CONFIDENCE) as number[]).toContain(question.threshold);
         }
       }
     }

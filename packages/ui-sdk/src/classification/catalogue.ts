@@ -42,15 +42,27 @@ import type {
 // Questions and answers, in the classifier's own shape
 // ---------------------------------------------------------------------------
 
+/**
+ * Every question carries the line its answer has to clear, next to the options
+ * it offers, because the two are one decision. They used to be written apart —
+ * the criteria here, a `CONFIDENCE` member named inline at each of eleven call
+ * sites in the transforms below — and a question whose line nobody named was
+ * indistinguishable from one gated at zero.
+ */
+interface Gated {
+  /** One of `CONFIDENCE`'s lines. */
+  threshold: number;
+}
+
 /** A `choice` question: one option from a defined set, each described. */
-export interface ChoiceQuestion {
+export interface ChoiceQuestion extends Gated {
   type: "choice";
   instructions: string;
   criteria: Record<string, string>;
 }
 
 /** A `noul` question: is this statement true, as a 0–1. */
-export interface NoulQuestion {
+export interface NoulQuestion extends Gated {
   type: "noul";
   instructions: string;
   criteria?: { true: string; false: string };
@@ -89,20 +101,27 @@ export interface Classified {
   confidence: number;
 }
 
-function choiceAt(
-  answers: ClassificationAnswers,
-  id: string,
-  threshold: number
-): { choice: string; confidence: number } | null {
-  const answer = answers[id];
-  if (!answer || answer.type !== "choice") return null;
-  if (!(answer.confidence >= threshold)) return null;
+/**
+ * What a transform is given: the answers, and the questions that were asked,
+ * so a gate reads its line off the question rather than being told one.
+ */
+interface Asked {
+  questions: Record<string, ClassificationQuestion>;
+  answers: ClassificationAnswers;
+}
+
+function choiceAt(asked: Asked, id: string): { choice: string; confidence: number } | null {
+  const question = asked.questions[id];
+  const answer = asked.answers[id];
+  if (!question || !answer || answer.type !== "choice") return null;
+  if (!(answer.confidence >= question.threshold)) return null;
   return { choice: answer.choice, confidence: answer.confidence };
 }
 
-function noulAt(answers: ClassificationAnswers, id: string): boolean {
-  const answer = answers[id];
-  return !!answer && answer.type === "noul" && answer.noul >= CONFIDENCE.noul;
+function noulAt(asked: Asked, id: string): boolean {
+  const question = asked.questions[id];
+  const answer = asked.answers[id];
+  return !!question && !!answer && answer.type === "noul" && answer.noul >= question.threshold;
 }
 
 /** The kit-drawable block, or null — the schema is the final judge. */
@@ -128,7 +147,7 @@ interface CatalogueRow<C extends Candidate> {
   produces: ReadonlyArray<Block["kind"]>;
   /** The questions for one candidate; keys are suffixes under the candidate id. */
   questions(candidate: C): Record<string, ClassificationQuestion>;
-  transform(candidate: C, answers: ClassificationAnswers): Classified | null;
+  transform(candidate: C, asked: Asked): Classified | null;
 }
 
 const table: CatalogueRow<TableCandidate> = {
@@ -143,6 +162,7 @@ const table: CatalogueRow<TableCandidate> = {
     return {
       shape: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `Consider the table in \`${candidate.id}\` (headers and rows). Which kind of table is it?`,
         criteria: {
           comparison:
@@ -153,23 +173,25 @@ const table: CatalogueRow<TableCandidate> = {
       },
       recommended: {
         type: "choice",
+        threshold: CONFIDENCE.tone,
         instructions: `In \`${candidate.id}\`, does the text single out one column as recommended or preferred? Answer only from what is written.`,
         criteria: headerOptions,
       },
       criteria_first: {
         type: "noul",
+        threshold: CONFIDENCE.noul,
         instructions: `In \`${candidate.id}\`, the first column's cells name criteria or attributes rather than data values.`,
       },
     };
   },
-  transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+  transform(candidate, asked) {
+    const shape = choiceAt(asked, `${candidate.id}.shape`);
     if (!shape) return null;
     if (shape.choice === "comparison") {
       const options = candidate.headers.slice(1);
       if (options.length < 2 || options.length > 4 || candidate.rows.length === 0) return null;
-      if (!noulAt(answers, `${candidate.id}.criteria_first`)) return null;
-      const recommended = choiceAt(answers, `${candidate.id}.recommended`, CONFIDENCE.tone);
+      if (!noulAt(asked, `${candidate.id}.criteria_first`)) return null;
+      const recommended = choiceAt(asked, `${candidate.id}.recommended`);
       const columns = options.map((label) => ({
         label,
         ...(recommended && recommended.choice !== "none" && recommended.choice === label
@@ -207,6 +229,7 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
     return {
       shape: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `Consider the numbered list in \`${candidate.id}\`. What is it?`,
         criteria: {
           steps: "A procedure: things to do in order, a recipe, a checklist, or work being carried out stage by stage.",
@@ -215,6 +238,7 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
       },
       variant: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `If \`${candidate.id}\` is a procedure, which kind?`,
         criteria: {
           numbered: "Instructions the reader follows in order.",
@@ -224,13 +248,13 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
       },
     };
   },
-  transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+  transform(candidate, asked) {
+    const shape = choiceAt(asked, `${candidate.id}.shape`);
     if (!shape || shape.choice !== "steps") return null;
     const hasChecks = candidate.items.some((item) => typeof item.checked === "boolean");
     const variant = hasChecks
       ? "checklist"
-      : (choiceAt(answers, `${candidate.id}.variant`, CONFIDENCE.swap)?.choice ?? "numbered");
+      : (choiceAt(asked, `${candidate.id}.variant`)?.choice ?? "numbered");
     const steps = candidate.items.map((item) => ({
       title: item.title,
       ...(item.detail ? { detail: item.detail } : {}),
@@ -246,6 +270,7 @@ const timedList: CatalogueRow<TimedListCandidate> = {
     return {
       shape: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `Consider the list in \`${candidate.id}\`, whose items each open with a time. What is it?`,
         criteria: {
           timeline: "Events that already happened, in the order they happened.",
@@ -255,8 +280,8 @@ const timedList: CatalogueRow<TimedListCandidate> = {
       },
     };
   },
-  transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+  transform(candidate, asked) {
+    const shape = choiceAt(asked, `${candidate.id}.shape`);
     if (!shape) return null;
     if (shape.choice === "timeline") {
       const items = candidate.items.map((item) => ({
@@ -286,6 +311,7 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
     return {
       shape: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `Consider the quoted passage in \`${candidate.id}\`. Why is it quoted?`,
         criteria: {
           quote: "It reproduces someone's actual words, a passage from a document, or a cited line — the words themselves are the evidence.",
@@ -294,6 +320,7 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
       },
       tone: {
         type: "choice",
+        threshold: CONFIDENCE.tone,
         instructions: `If \`${candidate.id}\` is a citation, what is its provenance?`,
         criteria: {
           teal: "The reader's own notes or a source they trust.",
@@ -305,10 +332,10 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
       },
     };
   },
-  transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+  transform(candidate, asked) {
+    const shape = choiceAt(asked, `${candidate.id}.shape`);
     if (!shape || shape.choice !== "quote") return null;
-    const tone = choiceAt(answers, `${candidate.id}.tone`, CONFIDENCE.tone);
+    const tone = choiceAt(asked, `${candidate.id}.tone`);
     const quoteTone =
       tone && (BLOCK_QUOTE_TONES as readonly string[]).includes(tone.choice) ? tone.choice : undefined;
     return validated(
@@ -356,10 +383,10 @@ const VALUE_TONE_CRITERIA: Record<string, string> = {
 /** The tone for one row's value, or undefined to leave the kit's default. */
 function valueToneAt(
   candidate: KeyValueRunCandidate,
-  answers: ClassificationAnswers,
+  asked: Asked,
   index: number
 ): string | undefined {
-  const answer = choiceAt(answers, `${candidate.id}.value_tone_${index}`, CONFIDENCE.tone);
+  const answer = choiceAt(asked, `${candidate.id}.value_tone_${index}`);
   // Honour only an option the question offered, then only one the kit draws —
   // which is what drops the `none` fall-through.
   if (!answer || !Object.prototype.hasOwnProperty.call(VALUE_TONE_CRITERIA, answer.choice)) {
@@ -394,11 +421,13 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       }
       perCard.subject = {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
         criteria: subjectOptions,
       };
       perCard.contact_kind = {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
         criteria: {
           person: "A human being.",
@@ -409,6 +438,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       candidate.rows.forEach((row, index) => {
         perCard[`value_tone_${index}`] = {
           type: "choice",
+          threshold: CONFIDENCE.tone,
           instructions: `In \`${candidate.id}\`, how does the text read the value on the "${row.k}" line? Answer only from what is written.`,
           criteria: VALUE_TONE_CRITERIA,
         };
@@ -417,6 +447,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     return {
       shape: {
         type: "choice",
+        threshold: CONFIDENCE.swap,
         instructions: `Consider the key-and-value lines in \`${candidate.id}\`. What are they?`,
         criteria: {
           receipt: "A record of what was done or what something is: settings, outcomes, facts about one thing, each key naming a field.",
@@ -428,10 +459,10 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       ...perCard,
     };
   },
-  transform(candidate, answers) {
-    const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
+  transform(candidate, asked) {
+    const shape = choiceAt(asked, `${candidate.id}.shape`);
     if (!shape) return null;
-    const tones = candidate.rows.map((_, index) => valueToneAt(candidate, answers, index));
+    const tones = candidate.rows.map((_, index) => valueToneAt(candidate, asked, index));
     const toned = (index: number) => (tones[index] ? { tone: tones[index] } : {});
     if (shape.choice === "receipt") {
       const rows = candidate.rows.map((row, index) => ({ ...row, ...toned(index) }));
@@ -450,7 +481,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     }
     if (shape.choice === "contact") {
       if (candidate.rows.length > CARD_ROWS_MAX) return null;
-      const subject = choiceAt(answers, `${candidate.id}.subject`, CONFIDENCE.swap);
+      const subject = choiceAt(asked, `${candidate.id}.subject`);
       // The sentinel wins over a line that happens to be keyed "none": that
       // line is never offered as an option, so the answer cannot mean it.
       if (!subject || subject.choice === NO_SUBJECT) return null;
@@ -464,7 +495,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       const facts = candidate.rows.flatMap((row, index) =>
         index === named ? [] : [{ k: row.k, v: row.v, ...toned(index) }]
       );
-      const contactKind = choiceAt(answers, `${candidate.id}.contact_kind`, CONFIDENCE.swap);
+      const contactKind = choiceAt(asked, `${candidate.id}.contact_kind`);
       return validated(
         {
           kind: "contact",
@@ -510,11 +541,16 @@ export function questionsFor(candidate: Candidate): Record<string, Classificatio
   return out;
 }
 
-/** The block one candidate becomes under these answers, or null to leave it. */
+/**
+ * The block one candidate becomes under these answers, or null to leave it.
+ * The questions are rebuilt here rather than threaded in: they are pure
+ * string-building over the candidate, and a transform that reads its own
+ * question's line cannot be handed a different one.
+ */
 export function transformCandidate(
   candidate: Candidate,
   answers: ClassificationAnswers
 ): Classified | null {
   const row = CATALOGUE[candidate.kind] as CatalogueRow<Candidate>;
-  return row.transform(candidate, answers);
+  return row.transform(candidate, { questions: questionsFor(candidate), answers });
 }
