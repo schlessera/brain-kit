@@ -12,7 +12,8 @@ run summary and in the `--json` envelope's `sources[]` rows: `ok`, `empty`
 did not say it was empty, and yielded nothing) or `not_run` (nothing readable
 arrived at all). `empty` is the only one allowed to carry no errors, and an
 adapter may only claim it from a positive signal — an API answering with its
-envelope and an empty record list, a feed with a channel and no items — so a
+envelope and an empty record list, a feed with a channel and no item markup
+at all — so a
 board with no way to prove its own empty state reports a served page it read
 nothing off as drift.
 

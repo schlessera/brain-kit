@@ -84,7 +84,13 @@ export class RemoteOKAdapter extends BaseAdapter {
         });
       }
 
-      pages.read(API_URL, jobs.length, { declaredEmpty: entries.length === 0 });
+      // `Array.isArray` is the envelope check, and it is load-bearing: the
+      // endpoint answering `{"error":"maintenance"}` is valid JSON that
+      // produces no entries, and without this it would report as a feed with
+      // no jobs in it.
+      pages.read(API_URL, jobs.length, {
+        declaredEmpty: Array.isArray(data) && entries.length === 0,
+      });
 
       if (opts.verbose) console.log(`[remoteok] Found ${jobs.length} jobs`);
 

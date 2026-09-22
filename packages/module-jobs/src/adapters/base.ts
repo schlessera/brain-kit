@@ -33,10 +33,17 @@ export interface PageReadOptions {
    */
   declaredEmpty?: boolean;
   /**
-   * This page was only fetched because the one before it parsed, so nothing
-   * on it means the end of the list rather than a parser that cannot read the
-   * board. Only pagination may claim this — a board's second CATEGORY is not
-   * a continuation of its first, and an empty one there is a real finding.
+   * This page was fetched only as the continuation of one already read, so
+   * nothing on it means the end of the list rather than a parser that cannot
+   * read the board. Only pagination may claim this — a board's second
+   * CATEGORY is not a continuation of its first, and an empty one there is a
+   * real finding.
+   *
+   * The claim is CHECKED, not trusted: it only counts when some earlier page
+   * in this run actually parsed. A loop that keeps going after its first page
+   * threw would otherwise excuse page 2 for a challenge page it has no reason
+   * to excuse, which is the silence this whole change removes wearing a
+   * pagination hat.
    */
   continuation?: boolean;
   /** Where the body came from, when that can differ from `url`. */
@@ -95,7 +102,7 @@ export class PageLedger {
       this.readings.push("parsed");
       return;
     }
-    if (opts.declaredEmpty || opts.continuation) {
+    if (opts.declaredEmpty || (opts.continuation && this.readings.includes("parsed"))) {
       this.readings.push("empty");
       return;
     }

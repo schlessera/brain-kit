@@ -85,12 +85,17 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
         });
       }
 
-      // A feed document with a channel and no items is the board saying it
-      // has no postings. A Cloudflare interstitial or an HTML error page
-      // served with a 200 parses to no items too, and carries no channel —
-      // which is the difference this records.
+      // A feed document with a channel and no item markup at all is the board
+      // saying it has no postings. Two other things parse to no items and must
+      // not be mistaken for it: an HTML error page served with a 200, which
+      // carries no channel; and a populated feed whose item tags have grown an
+      // attribute, which `parseRssItems` matches by bare tag and therefore
+      // skips entirely. The second is not hypothetical — it is the defect #33
+      // found in remotely.de's JSON-LD, one document type over.
+      const channel = /<channel[\s>]/i.test(page.body);
+      const anyItemMarkup = /<item[\s>]/i.test(page.body);
       pages.read(RSS_URL, jobs.length, {
-        declaredEmpty: /<channel[\s>]/i.test(page.body),
+        declaredEmpty: channel && !anyItemMarkup,
         from: page.url,
       });
 

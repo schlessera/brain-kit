@@ -154,7 +154,10 @@ as well as a count, in the summary and in `--json`:
 | `not_run` | Nothing readable arrived at all — never invoked, or every page failed before a body could be parsed (a `robots.txt` refusal, an HTTP 410, no Chrome). |
 
 A board may only claim `empty` from a positive signal: an API answering with
-its own envelope and an empty record list, a feed with a channel and no items.
+its own envelope and an empty record list, a feed with a channel and no item
+markup at all. The signal has to be the harder question: a body that merely
+parses as JSON, or a channel element on its own, is satisfied by a maintenance
+page and by a full feed whose item tags grew an attribute.
 A board with no way to prove its own empty state — the HTML listings, and the
 three browser boards, none of which has a captured no-results marker — reports a
 served page it read nothing off as `unparseable` instead. That direction is

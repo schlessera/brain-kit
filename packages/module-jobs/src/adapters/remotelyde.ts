@@ -65,11 +65,13 @@ export class RemotelyDeAdapter extends BaseAdapter {
             pages.note(`remotely.de page ${page}: ${count} card(s) carried no ${field}`);
           }
         }
-        // Page 1 is the listing; 2..5 exist only because the page before them
-        // parsed, so nothing on one of those is the end of the list rather
-        // than a parser that has stopped working. Page 1 gets no such excuse:
-        // there is no captured no-results markup for this board, so a served
-        // first page with no cards on it is reported as drift.
+        // Page 1 is the listing; 2..5 are its continuation, so nothing on one
+        // of those is the end of the list rather than a parser that has
+        // stopped working. Page 1 gets no such excuse: there is no captured
+        // no-results markup for this board, so a served first page with no
+        // cards on it is reported as drift. The loop does NOT stop when a page
+        // throws, so `continuation` here is a claim rather than a fact — the
+        // ledger only honours it once some page has actually parsed.
         pages.read(url, jobs.length, { continuation: page > 1, from: fetched.url });
         if (jobs.length === 0) break;
 

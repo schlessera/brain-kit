@@ -41,6 +41,16 @@
       "why": "The RemoteOK feed's own envelope \u2014 its legal notice, with no postings behind it. You cannot capture a day on which a board had no jobs, so the recognised empty state has to be constructed."
     },
     {
+      "excerpt_bytes": 105,
+      "excerpt_sha256": "1ea84736881d44318cd417188aa203460864c6df38c2a9bffbabe60d5761fcf6",
+      "fixture": "remoteok-maintenance.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The endpoint answering with valid JSON that is not its feed. It produces no entries, exactly as an empty feed does, and must not be reported as one \u2014 the envelope check in the adapter is what separates them."
+    },
+    {
       "excerpt_bytes": 877,
       "excerpt_sha256": "f3d4548a017991007f7c9a58ed9160d75f99779c285bacb678d893b293329fac",
       "fixture": "remotive-drifted.json",
@@ -59,6 +69,16 @@
       "provenance": "constructed",
       "source": "remotive",
       "why": "A Remotive category answering with `\"jobs\": []` \u2014 the API saying it has none, rather than a body the adapter could not read."
+    },
+    {
+      "excerpt_bytes": 1075,
+      "excerpt_sha256": "19830d70f83ee391179558d6430db0bf0d39dd28490bff065d072a252c54b160",
+      "fixture": "weworkremotely-attributed-items.rss",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "weworkremotely",
+      "why": "A populated feed whose `<item>` tags carry an attribute. `parseRssItems` matches the bare tag, so it reads nothing off this, and a channel-only empty check would call a full feed empty. Same defect as the bare-tag JSON-LD regex #33 found in remotely.de, one document type over."
     },
     {
       "excerpt_bytes": 282,

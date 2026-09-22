@@ -197,6 +197,42 @@ class SilentBoard extends BaseAdapter {
   }
 }
 
+/**
+ * A paginating board: page 1 is the listing, the rest are its continuation.
+ *
+ * `rows` is what each page yields, in order. `firstPageThrows` makes page 1
+ * fail while the loop carries on, which is what `remotelyde` does.
+ */
+class PagingBoard extends BaseAdapter {
+  readonly source = "remoteok" as const;
+  readonly name = "Paging board";
+  readonly tier = 1 as const;
+
+  constructor(
+    private readonly rows: number[],
+    private readonly opts: { firstPageThrows?: boolean } = {}
+  ) {
+    super();
+  }
+
+  async scrape() {
+    const pages = this.ledger();
+    let total = 0;
+    for (const [index, rows] of this.rows.entries()) {
+      const page = index + 1;
+      const url = `https://board.test/jobs/page/${page}`;
+      if (page === 1 && this.opts.firstPageThrows) {
+        pages.unreachable(url, new Error("page 1 died"));
+        continue;
+      }
+      await this.http.getPage(url);
+      pages.read(url, rows, { continuation: page > 1 });
+      total += rows;
+    }
+    return this.makeResult(rowsOf(total), pages);
+  }
+}
+
 /** A board whose every page throws. */
 class UnreachableBoard extends BaseAdapter {
   readonly source = "remoteok" as const;
@@ -251,12 +287,21 @@ describe("the page ledger", () => {
     expect(result.errors).toEqual([]);
   });
 
-  test("a continuation that yields nothing is the end of the list, not a failure", async () => {
-    // Only pagination may claim this, and only because the page before it
-    // parsed. A board's second CATEGORY is not a continuation of its first.
-    const result = await runBoard(new OnePageBoard(0, { continuation: true }));
-    expect(result.status).toBe("empty");
+  test("a continuation of a page that parsed is the end of the list", async () => {
+    const result = await runBoard(new PagingBoard([2, 0]));
+    expect(result.status).toBe("ok");
     expect(result.errors).toEqual([]);
+  });
+
+  test("a continuation of a page that did NOT parse is not excused", async () => {
+    // The flag is a claim, not a fact: a loop that keeps going after its first
+    // page threw would otherwise excuse page 2 for a challenge page it has no
+    // reason to excuse. The ledger only honours `continuation` once some page
+    // in the run has actually parsed.
+    const result = await runBoard(new PagingBoard([0, 0], { firstPageThrows: true }));
+    expect(result.status).toBe("unparseable");
+    expect(result.errors[0]).toContain("page 1 died");
+    expect(result.errors[1]).toContain("parsed 0 jobs");
   });
 
   test("a board that fetched and reported no page at all is `not_run`", async () => {
@@ -394,6 +439,32 @@ describe("a board that says it has no postings is believed", () => {
       expect(result.errors.join("\n")).toContain("parsed 0 jobs");
     });
   }
+
+  test("remoteok: valid JSON that is not its feed is drift, not an empty feed", async () => {
+    // `{"error":"maintenance"}` parses, carries no entries, and produces the
+    // same zero rows as a feed holding only its legal notice. What separates
+    // them is the envelope: an array, or not.
+    const result = await serve("remoteok", fixture("remoteok-maintenance.json"));
+
+    expect(result.jobs).toEqual([]);
+    expect(result.status).toBe("unparseable");
+  });
+
+  test("weworkremotely: a full feed whose item tags grew an attribute is drift", async () => {
+    // `parseRssItems` matches `<item>` by bare tag, so this feed reads as no
+    // items at all — and it has a channel, so an empty check that stopped at
+    // the channel would call two live postings an empty board. It is the same
+    // defect #33 found in remotely.de's JSON-LD, one document type over.
+    const body = fixture("weworkremotely-attributed-items.rss");
+    expect(body).toContain("<item xml:base=");
+    expect(body).not.toContain("<item>");
+
+    const result = await serve("weworkremotely", body);
+
+    expect(result.jobs).toEqual([]);
+    expect(result.status).toBe("unparseable");
+    expect(result.errors.join("\n")).toContain("parsed 0 jobs");
+  });
 
   test("jobgether's captured endpoint, with its fields renamed, is drift", async () => {
     // Built from the real capture rather than from a constructed envelope, so
