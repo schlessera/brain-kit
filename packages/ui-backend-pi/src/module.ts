@@ -188,6 +188,15 @@ export const backendModule: BackendModule = defineBackendModule({
           classifyBilling(profile: ProviderInfo) {
             return profile.vendor === "openai-codex" ? "subscription" : "api";
           },
+          classifyRoute(profile: ProviderInfo) {
+            // A pi profile's vendor IS its provider id — the endpoint the
+            // request goes to — so it names the route outright. OpenRouter is
+            // the one reseller among pi's providers; every other id is the
+            // model vendor's own API, billed at the vendor's rates. A profile
+            // with no vendor has no endpoint we can name, so no route either.
+            if (profile.vendor === undefined) return undefined;
+            return profile.vendor === "openrouter" ? "openrouter" : "direct";
+          },
           preferredProfile: {
             matches(profile: ProviderInfo) {
               return profile.vendor === "openai-codex";

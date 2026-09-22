@@ -4,9 +4,9 @@ Why a run carries both a list price and an effective cost, and why unknown cost
 is never rendered as zero. Shipped in 0.22.0; this is the design record, not a
 status file.
 
-Two follow-ups from this work are still open and tracked in the issue tracker:
-route-aware price resolution, and exact per-generation accounting for
-OpenRouter.
+Route-aware price resolution shipped as a follow-up (#57) and is recorded
+below. One follow-up from this work is still open and tracked in the issue
+tracker: exact per-generation accounting for OpenRouter.
 ## Summary
 
 Build a TTL-cached, remote-refreshed model-pricing service in `ui-server` (mirroring the model-discovery source shape), classify every run's billing mode from its resolved inference profile, compute a frozen `effective_cost_usd` inside the rollup transaction, and surface dual cost (list vs effective, with explicit unknown counts) through the wire protocol, Activity UI, daily digest, and `query_activity` — while fixing the three existing sites that render unknown cost as $0. Rides along: a minimum detail-retention window so nightly cron runs stay drillable instead of losing their span trees to the morning digest's prune (U7).
@@ -29,7 +29,7 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 
 ### Deferred to Follow-Up Work
 
-- Provider-route-aware price selection: `resolve()` keys on model id alone; a cross-review noted an id carried by both catalogs would price at OpenRouter's rate even for a non-OpenRouter route. The two key namespaces (bare vs `vendor/model`) are disjoint in practice, so v1 accepts it; plumbing the resolved profile route into resolution is the v2 shape (pairs with exact OpenRouter per-generation accounting).
+- ~~Provider-route-aware price selection~~ — **shipped in #57**, see below.
 - brain-ui deployment shell: dependency bump + verifying the cron env allowlist in `scripts/entrypoint.sh` exposes the same credentials the server classifies against — separate PR in the brain-ui repo after release.
 
 ---
@@ -43,6 +43,25 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 - **Billing mode resolves at run start and rides the root span** (attr + profile id): the rollup then reads it locally, keeping `rollupRunInTx` free of registry/service lookups except the pure pricing table read.
 - **Aggregates carry `unpricedRuns`**: sum-of-knowns everywhere; the UI and digest render "≥ $X · N unpriced" whenever the count is nonzero.
 - **Missing cache rate → whole run unknown**: cache reads dominate Claude usage; partial pricing would systematically understate. (origin AE-relevant decision)
+- **Price by route, not by model id** (#57): the two catalogs carry some of the
+  same ids at different rates — OpenRouter resells what the model vendor also
+  sells directly — so an id does not identify its own price. The backend
+  classifies each profile's route (`classifyRoute`, beside `classifyBilling`),
+  it rides the root span as `brain.pricing_route` exactly as billing does, and
+  `resolve(modelId, route)` reads the billing catalog first. Three properties
+  hold it together: an unknown route resolves as it did before routes existed
+  (OpenRouter leads) rather than going unpriced; a rate borrowed from the
+  catalog the run did *not* go through still prices the run but is flagged
+  `estimate`; and there is deliberately **no ambient route fallback** — unlike
+  billing, this process's environment says nothing about which endpoint another
+  backend's turn went out on, and a guessed route would freeze the wrong
+  catalog's rate into the rollup.
+- **Route awareness and exact OpenRouter accounting were separated** (#57): the
+  plan paired them, but they turn out to be independent. Route awareness picks
+  which list-price table to read and is fully testable against fixtures;
+  per-generation accounting replaces list-price math with amounts fetched from
+  OpenRouter's generation API, which needs a live key and a network call. The
+  first has no dependency on the second, so it shipped alone.
 
 ---
 

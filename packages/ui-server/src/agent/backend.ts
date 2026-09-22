@@ -549,10 +549,18 @@ function makeRegistry(
           .filter((profile) => !hidden.has(profile.id))
           .map((profile) => {
             const entry = { ...profile, backendId: backend.id };
-            const billingMode =
-              overrides[profile.id] ??
-              registry.resolved.get(backend.id)?.classifyBilling?.(profile);
-            return billingMode ? { ...entry, billingMode } : entry;
+            const resolvedBackend = registry.resolved.get(backend.id);
+            const billingMode = overrides[profile.id] ?? resolvedBackend?.classifyBilling?.(profile);
+            // The route is the backend's alone to say — no user override, no
+            // ambient fallback: nothing outside the backend knows where a
+            // profile's requests go. Absent stays absent, and pricing then
+            // resolves by model id as it always did.
+            const pricingRoute = resolvedBackend?.classifyRoute?.(profile);
+            return {
+              ...entry,
+              ...(billingMode ? { billingMode } : {}),
+              ...(pricingRoute ? { pricingRoute } : {}),
+            };
           })
       );
       const preferredId = await getPreferredProfileId();

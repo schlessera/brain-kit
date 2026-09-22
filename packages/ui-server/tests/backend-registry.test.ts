@@ -57,6 +57,9 @@ describe("backend registry", () => {
         // No credential in the resolved env at all → "api" (nothing
         // subscription-billed can run without the OAuth token).
         billingMode: "api",
+        // No baseUrl, so the turn goes to Anthropic's own endpoint and is
+        // billed at Anthropic's rates — the "direct" pricing catalog.
+        pricingRoute: "direct",
       },
     ]);
 

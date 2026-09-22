@@ -3,6 +3,7 @@ import type {
   BackendModuleContext,
   BackendProfileError,
   BackendProfileParseResult,
+  PricingRoute,
   ProviderInfo,
 } from "@schlessera/brain-ui-sdk/server";
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
@@ -96,6 +97,28 @@ function configNumber(context: BackendModuleContext, key: string): number | unde
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Where a profile's requests actually go, for pricing. A profile with no
+ * `baseUrl` runs against the SDK's own Anthropic endpoint — a direct vendor
+ * call, billed at Anthropic's rates. A profile pointed at OpenRouter is billed
+ * at OpenRouter's resale rates, which differ from the vendor's for ids both
+ * catalogs carry. Any other Anthropic-compatible proxy resells at rates no
+ * catalog describes, so its route stays unknown rather than being guessed.
+ */
+function routeForProfile(input: InferenceProfileInput): PricingRoute | undefined {
+  if (!input.baseUrl) return "direct";
+  let host: string;
+  try {
+    host = new URL(input.baseUrl).hostname.toLowerCase();
+  } catch {
+    // An unparseable baseUrl says nothing about the route.
+    return undefined;
+  }
+  return host === "openrouter.ai" || host.endsWith(".openrouter.ai")
+    ? "openrouter"
+    : undefined;
+}
+
 export const backendModule: BackendModule = defineBackendModule({
   id: "claude",
   profileSchema: {
@@ -124,6 +147,14 @@ export const backendModule: BackendModule = defineBackendModule({
       const defaultModel = configString(context, "defaultModel");
       const inputs = context.profiles as InferenceProfileInput[];
       const declaredApiProfileIds = new Set<string>();
+      // Pricing route per profile id, learned from the declared endpoint. A
+      // profile absent from the map has no known route and prices by model id
+      // alone, exactly as everything did before routes existed.
+      const profileRoutes = new Map<string, PricingRoute>();
+      const rememberRoute = (input: InferenceProfileInput) => {
+        const route = routeForProfile(input);
+        if (route) profileRoutes.set(input.id, route);
+      };
       const normalized = inputs.map((input) => {
         const resolved =
           input.id === "claude" && input.source === "builtin"
@@ -132,6 +163,7 @@ export const backendModule: BackendModule = defineBackendModule({
         if (resolved.authTokenEnv || resolved.apiKeyEnv) {
           declaredApiProfileIds.add(resolved.id);
         }
+        rememberRoute(resolved);
         return resolved;
       });
       const declared = defineProfiles(normalized);
@@ -165,12 +197,16 @@ export const backendModule: BackendModule = defineBackendModule({
         }
         const declaredIds = new Set(declared.map((profile) => profile.id));
         const customExtra = custom.filter((input) => !declaredIds.has(input.id));
-        for (const input of customExtra) declaredApiProfileIds.add(input.id);
+        for (const input of customExtra) {
+          declaredApiProfileIds.add(input.id);
+          rememberRoute(input);
+        }
         const knownIds = new Set([
           ...declaredIds,
           ...customExtra.map((input) => input.id),
         ]);
         const extra = discovered.filter((input) => !knownIds.has(input.id));
+        for (const input of extra) rememberRoute(input);
         const result = [...declared, ...defineProfiles([...customExtra, ...extra])];
         mergeCache = { discovered, customKey, result };
         return result;
@@ -194,6 +230,9 @@ export const backendModule: BackendModule = defineBackendModule({
           backend,
           classifyBilling(profile: ProviderInfo) {
             return declaredApiProfileIds.has(profile.id) ? "api" : ambientBilling;
+          },
+          classifyRoute(profile: ProviderInfo) {
+            return profileRoutes.get(profile.id);
           },
         },
       };

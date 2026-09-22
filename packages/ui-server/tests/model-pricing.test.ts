@@ -34,11 +34,19 @@ const LITELLM_FIXTURE = {
     input_cost_per_token: 1.25e-6,
     output_cost_per_token: 1e-5,
   },
-  // Also carried by the OpenRouter fixture, at a different rate — the
-  // OpenRouter entry must win.
+  // Also carried by the OpenRouter fixture, at a different rate — which of
+  // the two wins is the run's ROUTE, not a fixed precedence.
   "z-ai/glm-4.7": {
     input_cost_per_token: 9e-7,
     output_cost_per_token: 9e-6,
+  },
+  // A real collision, transcribed from both live catalogs on 2026-09-22:
+  // DeepSeek's own API is 2.1x cheaper on output than OpenRouter's resale of
+  // the same id, and only the direct table carries a cache-read rate.
+  "deepseek/deepseek-chat": {
+    input_cost_per_token: 2.8e-7,
+    output_cost_per_token: 4.2e-7,
+    cache_read_input_token_cost: 2.8e-8,
   },
   "context-window-only": { max_input_tokens: 200_000 },
   "malformed-input": { input_cost_per_token: "wat", output_cost_per_token: 1e-6 },
@@ -55,6 +63,7 @@ const OPENROUTER_FIXTURE = {
       id: "z-ai/glm-4.7",
       pricing: { prompt: "0.0000006", completion: "0.0000022", input_cache_read: "0.00000011" },
     },
+    { id: "deepseek/deepseek-chat", pricing: { prompt: "0.00000032", completion: "0.00000089" } },
     { id: "openai/gpt-oss-120b", pricing: { prompt: "0", completion: "0" } },
     { id: "no-pricing-row" },
     { id: "malformed-row", pricing: { prompt: "free!", completion: "0.000001" } },
@@ -234,6 +243,125 @@ describe("createModelPricing resolution", () => {
     for (const id of ["toString", "constructor", "hasOwnProperty", "valueOf"]) {
       expect(pricing.resolve(id)).toBeNull();
     }
+  });
+});
+
+describe("createModelPricing route-aware resolution", () => {
+  /** Both catalogs loaded from the remote tables, no network left to reach. */
+  async function priced() {
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
+    await pricing.refresh();
+    return pricing;
+  }
+
+  test("an id both catalogs carry prices at the route the run actually took", async () => {
+    const pricing = await priced();
+
+    // OpenRouter resells this id; DeepSeek's own API is cheaper. Pricing a
+    // direct run at the resale rate overstates its output cost by 2.1x.
+    expect(pricing.resolve("deepseek/deepseek-chat", "openrouter")).toEqual({
+      input: 3.2e-7,
+      output: 8.9e-7,
+      cacheRead: null,
+      cacheWrite: null,
+      estimate: false,
+      source: "openrouter",
+    });
+    expect(pricing.resolve("deepseek/deepseek-chat", "direct")).toEqual({
+      input: 2.8e-7,
+      output: 4.2e-7,
+      cacheRead: 2.8e-8,
+      cacheWrite: null,
+      estimate: false,
+      source: "litellm",
+    });
+  });
+
+  test("an unknown route degrades to the pre-route precedence, not to unpriced", async () => {
+    const pricing = await priced();
+
+    // No route: OpenRouter still wins, exactly as before routes existed, and
+    // the rates stay unflagged — an absent route is not an estimate.
+    expect(pricing.resolve("deepseek/deepseek-chat")).toEqual(
+      pricing.resolve("deepseek/deepseek-chat", "openrouter")
+    );
+    expect(pricing.resolve("z-ai/glm-4.7")!.source).toBe("openrouter");
+    // Ids only one catalog carries resolve either way, unflagged.
+    expect(pricing.resolve("claude-sonnet-4-5")).toEqual({
+      input: 3e-6,
+      output: 1.5e-5,
+      cacheRead: 3e-7,
+      cacheWrite: 3.75e-6,
+      estimate: false,
+      source: "litellm",
+    });
+    expect(pricing.resolve("openai/gpt-oss-120b")!.estimate).toBe(false);
+  });
+
+  test("a rate from the other catalog still prices the run, flagged estimate", async () => {
+    const pricing = await priced();
+
+    // The route's own catalog has no entry, so the other one's rate serves —
+    // coverage must not regress into unpriced — but it is not the rate this
+    // run was billed at, so it rides as an estimate.
+    const direct = pricing.resolve("openai/gpt-oss-120b", "direct");
+    expect(direct).toMatchObject({ source: "openrouter", estimate: true, input: 0 });
+    const routed = pricing.resolve("claude-sonnet-4-5", "openrouter");
+    expect(routed).toMatchObject({ source: "litellm", estimate: true, input: 3e-6 });
+  });
+
+  test("a model in neither catalog stays unpriced under every route", async () => {
+    const pricing = await priced();
+
+    for (const route of [undefined, "direct", "openrouter"] as const) {
+      expect(pricing.resolve("mystery-model-9000", route)).toBeNull();
+    }
+  });
+
+  test("route survives alias canonicalization and :nitro/:floor variants", async () => {
+    const pricing = await priced();
+
+    // A dated id canonicalizes first, then resolves on the route. Asserting
+    // the ESTIMATE flag is what makes this bite: claude-sonnet-4-5 lives only
+    // in the LiteLLM table, so both routes reach the same rates and only the
+    // flag distinguishes them — it is exact for the direct route that table
+    // describes, and an estimate for an openrouter run it does not.
+    expect(pricing.resolve("claude-sonnet-4-5-20250929", "direct")).toEqual({
+      ...pricing.resolve("claude-sonnet-4-5", "direct")!,
+      source: "litellm",
+      estimate: false,
+    });
+    expect(pricing.resolve("claude-sonnet-4-5-20250929", "openrouter")).toEqual({
+      ...pricing.resolve("claude-sonnet-4-5", "openrouter")!,
+      source: "litellm",
+      estimate: true,
+    });
+    // A routing variant prices at the base id's ROUTED rate, still estimate.
+    expect(pricing.resolve("deepseek/deepseek-chat:nitro", "direct")).toEqual({
+      ...pricing.resolve("deepseek/deepseek-chat", "direct")!,
+      estimate: true,
+    });
+  });
+
+  test("resolution never touches the network, whatever the route", async () => {
+    // AE2 guard, at the service boundary: a cached table prices every route
+    // with zero fetches, so nothing route-aware can sneak an await into the
+    // rollup transaction.
+    const calls: string[] = [];
+    const warm = createModelPricing({ brainPath, fetchImpl: stubFetch({ calls }) });
+    await warm.refresh();
+    calls.length = 0;
+
+    const cold = createModelPricing({
+      brainPath,
+      fetchImpl: stubFetch({ calls }),
+      // Far past the TTL: even a stale table must resolve without fetching.
+      now: () => Date.now() + 10 * 24 * 60 * 60 * 1000,
+    });
+    expect(cold.state().stale).toBe(true);
+    expect(cold.resolve("deepseek/deepseek-chat", "direct")?.source).toBe("litellm");
+    expect(cold.resolve("deepseek/deepseek-chat", "openrouter")?.source).toBe("openrouter");
+    expect(calls).toEqual([]);
   });
 });
 
