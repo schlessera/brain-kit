@@ -20,7 +20,9 @@ import {
   RobotsCache,
   ScrapeClient,
   parseHtml,
+  type BrowserSession,
   type FetchOptions,
+  type PageRequest,
   type ScrapeContext,
 } from "@schlessera/brain-scrape";
 
@@ -33,6 +35,10 @@ import { RemoteInEuropeAdapter } from "../src/adapters/remoteineurope";
 import { SimplyHiredAdapter } from "../src/adapters/simplyhired";
 import { JobgetherAdapter } from "../src/adapters/jobgether";
 import type { BaseAdapter } from "../src/adapters/base";
+import { openDatabase } from "../src/db";
+import { runDedup } from "../src/dedup";
+import { ingestJobs } from "../src/scrape";
+import type { RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
 
@@ -81,31 +87,63 @@ function contextServing(answer: string | Error): ScrapeContext {
 }
 
 /**
- * Run a browser board's page function over a fixture in a real DOM.
+ * Run a page function over a fixture in a real DOM.
  *
- * The extractor is written to run inside Chrome and closes over nothing, so it
- * only needs a `document` — which is why this can be a keyless test rather
- * than a Chrome launch. What happy-dom does NOT have is layout, so `innerText`
- * is effectively `textContent` here: an extractor that recovers a field by
- * scanning a card's visible LINES gets different lines than Chrome would. Dice
- * is the one that does, so its company is asserted against the live
- * measurement and `--replay`, not here.
+ * A browser board's extractor is written to run inside Chrome and closes over
+ * nothing, so it only needs a `document` — which is why this can be a keyless
+ * test rather than a Chrome launch. What happy-dom does NOT have is layout, so
+ * `innerText` is effectively `textContent` here: a field an extractor recovers
+ * by scanning a card's visible LINES gets different lines than Chrome would,
+ * and stays unasserted. Dice's salary and employment type are read that way;
+ * its company is not, since #129.
  */
-function extractFrom(
-  adapter: { extract(): BrowserJobRecord[] },
-  html: string
-): BrowserJobRecord[] {
+function inFixtureDom<T>(html: string, run: () => T): T {
   const window = new Window({ url: "https://example.test/" });
   window.document.body.innerHTML = html;
   const globals = globalThis as unknown as { document: unknown };
   const saved = globals.document;
   globals.document = window.document;
   try {
-    return adapter.extract();
+    return run();
   } finally {
     globals.document = saved;
     window.close();
   }
+}
+
+/** Run a browser board's page function over a fixture in a real DOM. */
+function extractFrom(
+  adapter: { extract(): BrowserJobRecord[] },
+  html: string
+): BrowserJobRecord[] {
+  return inFixtureDom(html, () => adapter.extract());
+}
+
+/**
+ * A whole browser board run, with no Chrome and no network.
+ *
+ * Every page the adapter asks for is answered with the same fixture, so what
+ * comes back is the adapter's own `RawJob` — the row that would be ingested —
+ * rather than the page record its extractor returned. The HTTP client throws:
+ * a browser board that reaches for one is a bug, not a fallback.
+ */
+function browserContextServing(html: string): { ctx: ScrapeContext; requests: string[] } {
+  const requests: string[] = [];
+  const browser: BrowserSession = {
+    async load<T>(request: PageRequest<T>): Promise<T> {
+      requests.push(request.url);
+      return inFixtureDom(html, request.extract);
+    },
+    async close() {},
+  };
+  return {
+    ctx: {
+      http: new StubClient(new Error("a browser board must not reach for HTTP")),
+      browser,
+      log: () => {},
+    },
+    requests,
+  };
 }
 
 /** The page function, reachable without constructing a browser context. */
@@ -370,26 +408,141 @@ describe("nodesk's rendered card", () => {
 });
 
 describe("dice's rendered card", () => {
-  test("the extractor hands on a relative href (#129)", () => {
+  const CARD_PATH = "/job-detail/c267e627-504f-412f-b8e8-cc8a387b525d";
+  const CARD_URL = `https://www.dice.com${CARD_PATH}`;
+
+  test("the page serves a relative link, and a selector for the company (#129)", () => {
+    const $ = parseHtml(fixture("dice", "rendered-card.html"));
+    const link = $('a[aria-label^="View Details for"]').first();
+    // What the board sends is what it always sent. Anything absolute below can
+    // therefore only have come from the adapter.
+    expect(link.attr("href")).toBe(CARD_PATH);
+    expect(link.attr("href")).not.toStartWith("http");
+    // The company the extractor used to guess at by scanning text lines.
+    expect($('p[data-testid="job-card-company-name"]').text().trim()).toBe("FishEye Software");
+    expect($('a[href^="/company-profile/"]').length).toBeGreaterThan(0);
+  });
+
+  test("the extractor resolves the link against the board's origin (#129)", () => {
     const records = extractFrom(
       pageFunctionOf(DiceAdapter),
       fixture("dice", "rendered-card.html")
     );
     expect(records).toHaveLength(1);
     expect(records[0].title).toBe("Radar Software Engineer");
-    // BrowserAdapter.toRawJob stores this as source_id, url AND source_url, so
-    // all 102 rows in the live run carry an unresolvable link.
-    expect(records[0].href).toBe("/job-detail/c267e627-504f-412f-b8e8-cc8a387b525d");
-    // The company is NOT asserted: it is recovered by scanning innerText
-    // lines, and happy-dom has no layout. See extractFrom's header.
+    expect(records[0].href).toBe(CARD_URL);
+    // The identity is deliberately still the path, not the resolved URL and
+    // not the card's data-job-guid: see BrowserJobRecord.id.
+    expect(records[0].id).toBe(CARD_PATH);
+    // Assertable at last, because the company comes off a selector rather than
+    // off innerText lines happy-dom cannot reproduce.
+    expect(records[0].company).toBe("FishEye Software");
   });
 
-  test("the card link is relative, and is stored unchanged (#35)", () => {
-    const $ = parseHtml(fixture("dice", "rendered-card.html"));
-    const link = $('a[aria-label^="View Details for"]').first();
-    expect(link.attr("href")).toStartWith("/job-detail/");
-    expect(link.attr("href")).not.toStartWith("http");
-    // The company has a stable selector here too.
-    expect($('a[href^="/company-profile/"]').length).toBeGreaterThan(0);
+  test("a stored row carries an absolute url and source_url (#129)", async () => {
+    const { ctx, requests } = browserContextServing(fixture("dice", "rendered-card.html"));
+
+    const result = await new DiceAdapter().bind(ctx).scrape({
+      incremental: false,
+      queries: ["software engineer"],
+    });
+
+    expect(requests).toEqual([
+      "https://www.dice.com/jobs?q=software%20engineer&filters.isRemote=true",
+    ]);
+    expect(result.errors).toEqual([]);
+    expect(result.jobs).toHaveLength(1);
+    const job = result.jobs[0];
+    // The two fields every consumer treats as a link. All 102 rows of the #33
+    // run carried "/job-detail/<guid>" in both.
+    expect(job.url).toBe(CARD_URL);
+    expect(job.source_url).toBe(CARD_URL);
+    expect(job.company).toBe("FishEye Software");
+    // Half the upsert key in src/scrape.ts. UNCHANGED by this repair, so the
+    // next scrape updates the rows already stored instead of orphaning them.
+    expect(job.source_id).toBe(CARD_PATH);
+  });
+
+  /** The row the pre-repair adapter stored, 102 times, in the #33 run. */
+  function rowAsStoredBefore(overrides: Partial<RawJob> = {}): RawJob {
+    return {
+      source: "dice",
+      source_id: CARD_PATH,
+      title: "Radar Software Engineer",
+      company: "FishEye Software",
+      url: CARD_PATH,
+      source_url: CARD_PATH,
+      location: "Remote",
+      remote_type: "fully_remote",
+      job_type: "full_time",
+      ...overrides,
+    };
+  }
+
+  async function repairedRow(): Promise<RawJob> {
+    const { ctx } = browserContextServing(fixture("dice", "rendered-card.html"));
+    const result = await new DiceAdapter().bind(ctx).scrape({
+      incremental: false,
+      queries: ["software engineer"],
+    });
+    return result.jobs[0];
+  }
+
+  test("re-scraping updates the row already stored — it does not add a second (#129)", async () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [rowAsStoredBefore({ company: "Unknown" })]);
+      const stats = ingestJobs(db, [await repairedRow()]);
+
+      // The point of keeping the key: one row, updated in place.
+      expect(stats).toEqual({ new: 0, updated: 1 });
+      const rows = db.query("SELECT url, source_url, company FROM jobs WHERE source = 'dice'").all();
+      expect(rows).toHaveLength(1);
+      // CHARACTERIZATION, not an endorsement: `ON CONFLICT ... DO UPDATE SET`
+      // in src/scrape.ts refreshes `url` and nothing else that this repair
+      // touches, so a row stored before it keeps its relative `source_url` and
+      // its "Unknown" company. Filed as #159; both are cosmetic next to `url`,
+      // which is what every consumer follows (`job.url || job.source_url`).
+      expect(rows[0]).toEqual({
+        url: CARD_URL,
+        source_url: CARD_PATH,
+        company: "Unknown",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("re-keying the row would have hidden the repair behind the defect (#129)", async () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [rowAsStoredBefore()]);
+      // The row was first seen in the #33 run, so it is the older of the two.
+      db.query("UPDATE jobs SET first_seen_at = ? WHERE source_id = ?").run(
+        "2026-09-22T16:18:00.000Z",
+        CARD_PATH
+      );
+      // What choosing the card's data-job-guid as `source_id` would have done.
+      const rekeyed = await repairedRow();
+      rekeyed.source_id = "c267e627-504f-412f-b8e8-cc8a387b525d";
+      expect(ingestJobs(db, [rekeyed])).toEqual({ new: 1, updated: 0 });
+
+      expect(runDedup(db)).toEqual({ checked: 2, duplicates_found: 1 });
+
+      // computeFingerprint keys a row with a real company on company+title,
+      // not on identity — so the repaired row collides with the one it was
+      // meant to replace, and `runDedup` keeps the OLDER, broken row.
+      const rows = db
+        .query(
+          "SELECT source_id, url, is_duplicate FROM jobs WHERE source = 'dice' ORDER BY first_seen_at ASC"
+        )
+        .all();
+      expect(rows).toEqual([
+        { source_id: CARD_PATH, url: CARD_PATH, is_duplicate: 0 },
+        { source_id: "c267e627-504f-412f-b8e8-cc8a387b525d", url: CARD_URL, is_duplicate: 1 },
+      ]);
+    } finally {
+      db.close();
+    }
   });
 });
