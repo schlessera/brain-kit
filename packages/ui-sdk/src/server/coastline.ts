@@ -618,15 +618,30 @@ export function closeAgainstViewport(chains: Coord[][], request: CoastlineReques
       const entry = perimeterAt(piece[0]!, request.bbox);
       const exit = perimeterAt(piece[piece.length - 1]!, request.bbox);
       if (entry === null || exit === null) continue;
+      // A shore that only grazes the box clips to one point, repeated. It
+      // bounds nothing, and left in the list it is a stop no walk can leave:
+      // its entry and its exit are the same place, so it is zero distance
+      // ahead of itself and every ring being built ends there.
+      const [minLon, minLat, maxLon, maxLat] = extent(piece);
+      if (minLon === maxLon && minLat === maxLat) continue;
       pieces.push({ points: simplify(piece, toleranceM, midLat), entry, exit });
     }
   }
 
-  /** The first shore that starts at or after `from`, going counterclockwise. */
-  const nextFrom = (from: number): number => {
+  /**
+   * The first shore that starts at or after `from`, going counterclockwise.
+   *
+   * A shore already walked into this ring is not a candidate — except the one
+   * the ring started from, which is how a ring closes. Without that, a shore
+   * that comes in and goes back out at the SAME point is zero distance ahead
+   * of its own exit, so a walk that picked it up would be sent back into it and
+   * abandon the ring it had.
+   */
+  const nextFrom = (from: number, seed: number, used: Set<number>): number => {
     let best = -1;
     let nearest = Infinity;
     for (let i = 0; i < pieces.length; i += 1) {
+      if (i !== seed && used.has(i)) continue;
       const ahead = (pieces[i]!.entry - from + 4) % 4;
       if (ahead < nearest) {
         nearest = ahead;
@@ -664,16 +679,12 @@ export function closeAgainstViewport(chains: Coord[][], request: CoastlineReques
       used.add(at);
       const piece = pieces[at]!;
       ring.push(...piece.points);
-      const next = nextFrom(piece.exit);
+      const next = nextFrom(piece.exit, seed, used);
       ring.push(...between(piece.exit, pieces[next]!.entry));
       if (next === seed) {
         closed = true;
         break;
       }
-      // Only reachable from data whose crossings do not alternate — a shore
-      // that crosses itself, or ways wound inconsistently. There is no honest
-      // fill to draw from it.
-      if (used.has(next)) break;
       at = next;
     }
     if (!closed) continue;

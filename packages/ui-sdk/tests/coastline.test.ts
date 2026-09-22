@@ -797,6 +797,51 @@ describe("closeAgainstViewport", () => {
     }
   });
 
+  test("a shore that only grazes the box does not take the fill with it", () => {
+    // The clipper answers a tangent touch with one point repeated. It bounds
+    // nothing — and because its entry and its exit are the same place, it is
+    // zero distance ahead of every other shore's exit, so a walk that could
+    // reach it would end there and lose the ring it was building. Found by an
+    // independent review; the fill here used to come back empty.
+    const land = close([
+      [
+        [15.4, 38.24],
+        [16.0, 38.24],
+        [16.0, 38.5],
+        [15.7, 38.32], // exactly on the north edge, and straight back out
+        [15.4, 38.5],
+      ],
+    ]);
+    expect(land).toHaveLength(1);
+    expect(fills(land, NORTH)).toBe(true);
+    expect(fills(land, SOUTH)).toBe(false);
+  });
+
+  test("a lobe that comes in and goes back out at one point is its own ring", () => {
+    // The same tangency from the inside: a shore that touches the boundary,
+    // loops into the view and returns to the point it came in at. That one is
+    // real land and closes on itself, so the walk has to take it without
+    // letting it swallow the shore beside it.
+    const land = close([
+      [
+        [15.7, 38.4],
+        [15.7, 38.28],
+        [15.72, 38.3],
+        [15.7, 38.32],
+        [15.7, 38.4],
+      ],
+      [
+        [16.0, 38.24],
+        [15.4, 38.24],
+      ],
+    ]);
+    expect(land).toHaveLength(2);
+    expect(fills(land, [15.705, 38.3])).toBe(true);
+    expect(fills(land, [15.65, 38.22])).toBe(true);
+    expect(fills(land, [15.65, 38.3])).toBe(false);
+    expect(fills(land, [15.75, 38.3])).toBe(false);
+  });
+
   test("a shore running along the boundary encloses nothing", () => {
     expect(close([[[15.6, 38.2], [15.6, 38.32]]])).toEqual([]);
   });
