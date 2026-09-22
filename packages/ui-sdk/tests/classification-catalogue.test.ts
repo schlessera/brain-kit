@@ -458,6 +458,38 @@ describe("planning and applying one pass", () => {
     expect(planClassification([])).toBeNull();
   });
 
+  test("the line a confidence has to clear never goes on the wire", () => {
+    // Where the surface acts on a probability is the surface's business, not
+    // the classifier's, and D42 §1 says the request carries only what the
+    // classifier needs. The plan keeps the lines; the request is the same set
+    // without them, and it is the request that leaves the machine.
+    const plan = planClassification(["**Name:** Argos\n**Role:** Hound\n**Status:** waiting"])!;
+    const asked = Object.keys(plan.request.questions);
+    // A run short enough to be a card is asked its generated per-row tones
+    // too, so this covers the generated ids and not only the named ones.
+    expect(asked).toEqual([
+      "p0c0.shape",
+      "p0c0.subject",
+      "p0c0.contact_kind",
+      "p0c0.value_tone_0",
+      "p0c0.value_tone_1",
+      "p0c0.value_tone_2",
+    ]);
+    // Every question the plan kept has a line...
+    for (const id of asked) expect(plan.questions[id]!.threshold).toBeTypeOf("number");
+    // ...and not one of them reaches the body that is serialised and sent.
+    for (const id of asked) {
+      expect(plan.request.questions[id]).not.toHaveProperty("threshold");
+    }
+    expect(JSON.stringify(plan.request)).not.toContain("threshold");
+    // The strip removes the line and nothing else: what the classifier is
+    // asked is otherwise identical to what the catalogue declared.
+    for (const id of asked) {
+      const { threshold: _line, ...rest } = plan.questions[id]!;
+      expect(plan.request.questions[id]).toEqual(rest);
+    }
+  });
+
   test("candidates across parts share one request, keyed per part; answers anchor back", () => {
     const parts = ["Before.\n\n" + COMPARISON + "\n\nAfter.", "Steps:\n\n1. Go\n2. Stay"];
     const plan = planClassification(parts);
