@@ -185,6 +185,34 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
     expect(result.stderr).not.toContain("sqlite-vec not available");
   });
 
+  test("an MCP write tool still reindexes a brain that has no vec_chunks table", async () => {
+    // The server used to create the table at startup as a side effect of the
+    // migration it must no longer run. Nothing else on the write path creates
+    // it outside the embedding pass, so this is the regression that costs.
+    const root = makeTempBrain();
+    roots.push(root);
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    await withVec(join(root, "brain.db"), false, (db) => {
+      db.run("DROP TABLE IF EXISTS vec_chunks");
+      db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    });
+
+    let response: { isError?: boolean; content?: Array<{ text?: string }> } = {};
+    await throughMcpServer(root, async (client) => {
+      response = (await client.callTool({
+        name: "brain_update",
+        arguments: { path: "notes/loose-idea.md", append_content: "A later thought." },
+      })) as typeof response;
+    });
+
+    expect(response.isError).toBeFalsy();
+    expect(JSON.parse(response.content?.[0]?.text ?? "{}")).toMatchObject({
+      path: "notes/loose-idea.md",
+      changes: ["content"],
+    });
+    expect(await countVectors(join(root, "brain.db"))).toBe(-1); // still absent, still fine
+  });
+
   test("a brain with no vectors at all reports that, not a missing extension", async () => {
     const root = makeTempBrain();
     roots.push(root);

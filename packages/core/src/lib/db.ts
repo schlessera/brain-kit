@@ -454,8 +454,10 @@ export async function migrateVecSchema(db: Database, dimensions: number): Promis
  * vector. `brain doctor` learned this first.
  */
 export function storedVectorWidth(db: Database, configured: number): number {
+  // Integer, not merely finite: the number is interpolated into a
+  // `float[...]` column declaration, and `float[0.5]` fails at CREATE time.
   const stored = Number(getMeta(db, "embedding_dimensions"));
-  return Number.isFinite(stored) && stored > 0 ? stored : configured;
+  return Number.isInteger(stored) && stored > 0 ? stored : configured;
 }
 
 /**

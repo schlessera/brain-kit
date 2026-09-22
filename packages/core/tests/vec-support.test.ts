@@ -121,8 +121,10 @@ describe("storedVectorWidth", () => {
     db.run("DELETE FROM index_metadata WHERE key = 'embedding_dimensions'");
     expect(storedVectorWidth(db, 1536)).toBe(1536);
 
-    setMeta(db, "embedding_dimensions", "not a number");
-    expect(storedVectorWidth(db, 1536)).toBe(1536);
+    for (const junk of ["not a number", "0", "-16", "16.5", ""]) {
+      setMeta(db, "embedding_dimensions", junk);
+      expect(storedVectorWidth(db, 1536)).toBe(1536);
+    }
     db.close();
   });
 });
