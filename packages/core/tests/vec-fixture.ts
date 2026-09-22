@@ -29,7 +29,7 @@
 
 import { Database } from "bun:sqlite";
 
-import { initContext } from "../src/lib/context";
+import { initContext, setContext } from "../src/lib/context";
 import { migrateVecSchema, openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import type { EmbeddingProvider } from "../src/lib/seams";
@@ -111,7 +111,13 @@ export async function embedTempBrain(
   const dimensions = opts.dimensions ?? VEC_DIMENSIONS;
   const provider = fakeEmbeddingProvider(dimensions);
 
+  // `initContext` also sets the process-wide context, and bun runs a suite's
+  // files in one process. Staging a fixture is not a reason to leave another
+  // file's brain pointing at a temp dir that is about to be deleted.
+  const previous = setContext(null);
   const ctx = await initContext({ root });
+  setContext(previous);
+
   const db = openDatabase(ctx.dbPath, {
     embeddingModel: provider.id,
     embeddingDimensions: dimensions,
