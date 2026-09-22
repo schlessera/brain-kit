@@ -45,13 +45,17 @@ import { unified } from "unified";
 
 import { BrainUiClient, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
-import { planClassification } from "../packages/ui-sdk/src/classification/request.ts";
+import {
+  applyClassification,
+  planClassification,
+} from "../packages/ui-sdk/src/classification/request.ts";
 import {
   SHOW_BLOCK_TOOL_NAME,
   visibleToolName,
   type ToolAdapter,
 } from "../packages/ui-sdk/src/tool-contracts/index.ts";
 import { createApp } from "../packages/ui-server/src/app.ts";
+import { createJevClient } from "../packages/ui-server/src/classification/jev-client.ts";
 import { createRecordingObservability } from "../packages/ui-server/src/observability/index.ts";
 import { TurnTextCollector } from "../packages/ui-server/src/classification/classify-turn.ts";
 import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
@@ -498,6 +502,52 @@ async function runOnce(
   };
 }
 
+/**
+ * Put the recorded answers that DO carry a candidate through the real
+ * classifier, one request each, on the same client and the same 2 s budget
+ * the pass uses.
+ *
+ * Why this exists: on pi almost every turn ends `skipped_no_candidates`,
+ * because the model drew the block instead of typing the markdown. That is
+ * the finding, but it leaves "does the pass behave the same against
+ * pi-authored markdown" unanswered for the answers where it can run at all.
+ * This is not a turn and does not pretend to be one — it is the same
+ * request the pass would have made, made outside it.
+ */
+async function classifyRecorded(paths: string[]): Promise<void> {
+  const apiKey = process.env.TYPESAFE_API_KEY?.trim() ?? null;
+  if (!apiKey) throw new Error("TYPESAFE_API_KEY is not set");
+  const jev = createJevClient({ apiKey });
+
+  const records: RunRecord[] = [];
+  for (const path of paths) {
+    const parsed = (await Bun.file(path).json()) as RunFile;
+    records.push(...parsed.records);
+  }
+  const usable = records.filter((r) => r.completed && !r.escapedBrain);
+
+  console.log(`answers: ${usable.length}\n`);
+  console.log("| prompt | candidates | kinds | outcome | ms | blocks | confidence |");
+  console.log("| --- | --- | --- | --- | --- | --- | --- |");
+  let asked = 0;
+  for (const record of usable) {
+    const plan = planClassification(record.textParts);
+    if (!plan) continue;
+    asked++;
+    const result = await jev.classify(plan.request);
+    const blocks = result.answers ? applyClassification(plan, result.answers) : [];
+    const kinds = plan.candidates.map(({ candidate }) => candidate.kind).join(", ");
+    const confidences = blocks.map((b) => b.confidence.toFixed(2)).join(", ") || "\u2014";
+    console.log(
+      `| ${record.prompt} | ${plan.candidates.length} | ${kinds} | ${result.outcome}` +
+        ` | ${result.durationMs} | ${blocks.length}` +
+        `${blocks.length ? ` (${blocks.map((b) => b.block.kind).join(", ")})` : ""}` +
+        ` | ${confidences} |`
+    );
+  }
+  console.log(`\nanswers with a candidate: ${asked}/${usable.length}`);
+}
+
 async function report(paths: string[]): Promise<void> {
   const records: RunRecord[] = [];
   let backend = "";
@@ -683,8 +733,11 @@ async function report(paths: string[]): Promise<void> {
 // rules without booting a server and spending money.
 if (import.meta.main) {
   const reportIndex = process.argv.indexOf("--report");
+  const classifyIndex = process.argv.indexOf("--classify");
   if (reportIndex > 0) {
     await report(process.argv.slice(reportIndex + 1));
+  } else if (classifyIndex > 0) {
+    await classifyRecorded(process.argv.slice(classifyIndex + 1));
   } else {
     await measure();
   }
