@@ -2729,8 +2729,9 @@ has to be in the model's context, and each backend says how.**
 
 D43's pi section above already establishes that pi has no deferral to apply to
 a statically registered tool and that its shipping configuration is therefore
-the structural equivalent of the `--always-load` arm, so that ground is not
-re-covered here. One detail found independently while deciding this and worth
+the structural equivalent of the `--always-load` **brief** arm and of that one
+only — pi has no no-brief arm, so it corroborates the loaded *rate* and says
+nothing about whether the brief matters. That ground is not re-covered here. One detail found independently while deciding this and worth
 adding to it: the mechanism is `splitDeferredTools` in pi's shipped bundle,
 which puts a tool in the deferred set only when an earlier tool result added it
 to the conversation and nothing has called it since. A statically registered
