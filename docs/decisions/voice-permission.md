@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`packages/ui-sdk/src/server/permission-gate.ts:94-105`). In chat the user is
+(`packages/ui-sdk/src/server/permission-gate.ts:105-116`). In chat the user is
 looking at a card: the transcript copy in
 `packages/ui-react/src/components/chat/tool-call-timeline.tsx:317-355`, the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
@@ -49,7 +49,7 @@ Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`packages/ui-backend-claude/src/tool-policy.ts:17`), the five bridge tools the
-backend appends per turn (`packages/ui-backend-claude/src/sdk-options.ts:44-59`)
+backend appends per turn (`packages/ui-backend-claude/src/sdk-options.ts:45-60`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`packages/ui-sdk/src/server/confirm-patterns.ts:21`). Tools that exist only in
 the recording harness and have no counterpart in this product were excluded from
@@ -119,18 +119,39 @@ p90 and longest of those payloads and synthesized with a local neural TTS voice
   it is derived from the *pattern that matched*, not from the command. That
   makes it cheap — and it also makes it non-verifying: the listener learns what
   class of thing will happen, never which thing.
-- **The rarity is real.** In the workload voice is actually for — talking to
-  your own knowledge base — 98.2% of sessions raise no approval at all, and the
-  ones that do raise one. A permission model that refuses to grant by voice
-  costs almost nothing there. In repo work it costs a great deal, which is the
-  honest reason repo work is not what a voice conversation is for.
+- **The rarity is real, and it is lumpy.** In the workload voice is actually
+  for — talking to your own knowledge base — 110 of 112 sessions raised no
+  approval at all. The other two raised all six between them: one raised a
+  single approval and one raised five. So a permission model that cannot grant
+  by voice costs nothing in 110 sessions, one thing in one, and five things in
+  one. That is still the argument for the decision and it is the true shape of
+  it; "the ones that do raise one" would have been the convenient version. In
+  repo work the cost is much higher, which is the honest reason repo work is not
+  what a voice conversation is for.
 
 ### What the corpus does not prove
 
 The transcripts are coding sessions recorded by a CLI harness, not brain-ui
 conversations, and that harness is configured to prefer `Bash` over the file
-tools — 12,793 of the 16,480 calls are Bash. Two directions of bias, named
-rather than corrected:
+tools. The whole distribution, because the bias claim is worth being checkable
+rather than asserted:
+
+| tool | calls |
+| --- | --- |
+| `Bash` | 12,793 |
+| `Edit` | 1,639 |
+| `Read` | 974 |
+| `Write` | 411 |
+| `Agent` | 398 |
+| `WebSearch` | 96 |
+| `Skill` | 94 |
+| `WebFetch` | 71 |
+| `Grep` | 2 |
+| `Glob` | 1 |
+| `mcp__brain-ui__show_block` | 1 |
+| **total** | **16,480** |
+
+Two directions of bias, named rather than corrected:
 
 - It **over-states** the approval rate, because every measured approval is a
   Bash confirm-pattern hit and Bash is over-represented. The knowledge-base
@@ -142,6 +163,26 @@ rather than corrected:
 Neither direction touches the finding that decides the question, which is the
 payload length, and that is a property of shell commands rather than of the
 corpus.
+
+**And the citations go stale.** This record's evidence is `file:line`, which
+prose is not, and it drifted in eleven days: between the branch's base and its
+merge, sixteen of thirty-six pointers moved and three came to describe code that
+says the opposite of what they were cited for — because the work this record
+asked for shipped. That is the good case. Anyone rereading this months from now
+should check the pointers before trusting a claim built on one, and anyone
+changing the permission path should expect to correct this file in the same PR.
+
+**None of this is reproducible from this repository, and that is deliberate.**
+The 208 transcripts are the maintainer's own recorded agent sessions: personal
+content, and `AGENTS.md`'s leakage gate has no exempt directories, so neither
+the corpus nor a manifest naming it can be committed. The replay harness and the
+speech-synthesis prototype were thrown away with it, which is also what issue #55
+asked for. What can be re-derived from the tree is the *policy* the replay ran
+against — `decideToolPermission`, `DEFAULT_ALLOWED_TOOLS` and
+`DEFAULT_CONFIRM_BASH_PATTERNS` are all exported and all tested — so anyone with
+their own transcripts can run the same measurement over their own workload and
+get a comparable number. The numbers above are evidence with a stated
+provenance, not a fixture.
 
 ## The voice posture
 
@@ -162,7 +203,7 @@ posture, it is a wish.
 | `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action. It is the one entry here that can lose prior content; it is recoverable because the content repo is git, and it goes through the frontmatter/index path rather than raw bytes. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:44-59`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:45-60`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 **Excluded, each for its own reason:**
 
@@ -177,9 +218,9 @@ posture, it is a wish.
 
 **The archive boundary leaks, and it leaks today.** `brain_archive` is off the
 auto-allow list because archiving is a visibility change. But `brain_update`
-takes `status: "archived"` (`packages/core/src/mcp-server.ts:529,552`), writes
+takes `status: "archived"` (`packages/core/src/mcp-server.ts:534,557`), writes
 it and reindexes, and search excludes archived documents by default
-(`mcp-server.ts:175`) — so the visibility change `brain_archive`'s card exists
+(`mcp-server.ts:180`) — so the visibility change `brain_archive`'s card exists
 to gate is reachable through a tool that is auto-allowed in *every* surface,
 chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closes the `brain archive` CLI
 spelling (`confirm-patterns.ts:27`) and not this one.
@@ -220,7 +261,7 @@ words:
 
 **Two cases the six phrases do not cover, and the announcement must not assume
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
-description comes from the SDK (`permission-hooks.ts:73-79`) and is not written
+description comes from the SDK (`permission-hooks.ts:117-127`) and is not written
 to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`packages/ui-backend-claude/src/options.ts:48-58`) lets a deployment supply its
 own patterns, which will have no phrase. Both fall back to the same payload-free
@@ -276,11 +317,22 @@ further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
 (`packages/ui-server/src/ws/run-session.ts:197` →
-`packages/ui-server/src/ws/turns.ts:299-311`), so **nothing is left waiting
-anywhere** — not on the card, not on the Actions page. The model therefore says
-that it stopped and that the thing has to be asked for again, and never that it
-is still waiting: "I stopped without doing it. Ask me again when you can look at
-a screen."
+`packages/ui-server/src/ws/turns.ts:299-311`), so **on the server nothing is
+left waiting**: the request is resolved, not parked. The model therefore says
+that it stopped and that the thing has to be asked for again, never that it is
+still waiting: "I stopped without doing it. Ask me again when you can look at a
+screen."
+
+What the *client* does with the card at that moment is not established by
+those two citations and is left to #54. The chat store clears a pending
+approval on `tool_result`
+(`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
+path `abortController.abort()` fires before the drain
+(`run-session.ts:192,197`), so whether a `tool_result` still streams for that
+tool use is a question a live turn has to answer. It matters only for the
+wording: if a dead card can survive on screen, the spoken line above is right
+and the screen is wrong, and that is a client defect rather than a change to
+this design.
 
 **Ambiguity is denial, explicitly.** A partial match, a low-confidence
 transcript, an overlapping speaker, a refusal phrase heard while two requests
@@ -290,19 +342,19 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(`packages/ui-server/src/ws/dispatch.ts:177-178`) and it is the one decision on
+(`packages/ui-server/src/ws/dispatch.ts:182-186`) and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
 permission by reflex is the one footgun in the vocabulary"*
 (`docs/decisions/design-feedback.md:1243-1250`). A microphone is a reflex
 surface with worse recognition than a keyboard. This costs nothing measurable: the server already refuses `always`
-for kind `command` requests (`dispatch.ts:177`, `ws/bridge.ts:90-98`), and 192
+for kind `command` requests (`dispatch.ts:182-186`, `ws/bridge.ts:99-110`), and 192
 of 192 measured approvals were kind `command`.
 
 ### When the announcement actually fires
 
-Under the voice posture, with the three re-admission paths closed, **no approval
-card can arise at all**. Every tool in the posture is auto-allowed; every tool
+Under the voice posture, once #110 closes the last gap, **no approval card can
+arise at all**. Every tool in the posture is auto-allowed; every tool
 outside it is ungrantable and therefore denied; and a kind-`command` request
 only ever comes from `Bash`, which is not in the posture. That is the intended
 end state and it is worth saying out loud, because it means the interaction
@@ -323,10 +375,10 @@ than an edge:
    a live pending card and a listener who cannot see it. That is where the
    announcement and the refusal phrase do their work, and it is why the rule is
    written as "within any turn".
-3. **Before the posture is enforceable.** Until #110 and #124 land, a tool
-   outside the posture parks a card rather than being denied. The announcement
-   is what the user hears in the meantime, and the refusal phrase is the only
-   way they can resolve it.
+3. **Before the posture is enforceable.** Until #110 lands, a tool outside the
+   posture parks a card rather than being denied — the enforcement hook shipped
+   in #141 answers `ask`, not `deny`. The announcement is what the user hears in
+   the meantime, and the refusal phrase is the only way they can resolve it.
 
 A design that only worked in case 1 would be a design for a state the product
 is not in yet.
@@ -338,7 +390,7 @@ tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
 (`packages/ui-server/src/activity/recorder.ts:310-325`), fed from the bridge's
-`recorded()` wrapper (`packages/ui-server/src/ws/bridge.ts:139-154`).
+`recorded()` wrapper (`packages/ui-server/src/ws/bridge.ts:150-165`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -349,7 +401,7 @@ the record is by construction a bug — which makes the field a detector, not ju
 provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
-(`packages/ui-server/src/ws/dispatch.ts:193-203`) with a message naming the
+(`packages/ui-server/src/ws/dispatch.ts:200-210`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -360,11 +412,42 @@ The mechanism is the one the repo already has: a declared tool allowlist bound
 to a turn — `InferenceProfile.allowedTools`
 (`packages/ui-backend-claude/src/profiles.ts:23`) and
 `ClaudeBackendOptions.allowedTools` (`options.ts:46-47`), resolved into the
-SDK's `allowedTools` per turn (`sdk-options.ts:44,97`). The voice posture is one
-named entry in that mechanism. #51's restricted execution profile (its U15, on
-that epic's critical path) must be another. **If U15 invents a second gate, that
-is the two-containment-models failure #54 named, and this record is the place
-that says so in advance.**
+SDK's `allowedTools` per turn (`sdk-options.ts:45,98`). The voice posture is one
+named entry in that mechanism.
+
+**#51's U15 chose a different mechanism first, and it chose it for this
+record's own reason.** `docs/plans/async-collaboration.md`, under U15, specifies
+*"Tool **availability** control (`tools`), not `allowedTools` — an allowlisted
+tool is auto-allowed and never reaches `canUseTool`, so removing a tool from the
+allowlist does not remove the tool"* (`docs/plans/async-collaboration.md:1176-1178`),
+and it names the pi implementation as the check on the Claude one: a filtered
+`ToolDefinition[]`, *"no SDK allowlist exists, therefore no auto-allow bypass
+exists to defeat"* (`:1188-1191`). That plan is epic #51's design record. It was
+written before #141 and #154 measured the runtime paths described below, and
+those measurements make its reason stronger, not weaker: a tool that was never
+registered has no safe-command classifier, no built-in check and no settings
+hook to get past.
+
+**So this record does not require U15 to use an allowlist, and an earlier draft
+of it did.** That requirement would have left two contradictory bindings
+standing, which is the failure this section exists to prevent, produced by the
+section. What the record requires is narrower and mechanism-agnostic:
+
+> **One containment mechanism, two postures.** Whichever mechanism U15 settles
+> on — availability control or an enforced allowlist — the voice posture must be
+> expressible in it as a second named membership. A voice turn and an unattended
+> turn must differ in *which set they name*, not in *how the set is enforced*.
+
+On the merits, availability control is the better mechanism and the voice
+posture should follow U15 there if U15 lands first. It removes three problems
+this record otherwise has to legislate around: the runtime bypasses below stop
+being reachable, the bridge-tool append stops being an exclusion nobody can
+enforce, and the "announce a denial" case collapses into the model simply not
+having the tool. The enforced allowlist is what exists today
+(`StartTurnRequest.enforceAllowedTools`, shipped in #141), so it is what the
+voice posture is specified against; that is a statement about sequencing, not a
+preference. **What must not happen is the two being enforced differently**, and
+naming U15's choice here is how that is prevented.
 
 The memberships differ because the threats differ, and conflating them would
 make both worse:
@@ -377,56 +460,93 @@ make both worse:
 | `WebSearch` / `WebFetch` | in — a listening user is the mitigation, and the exposure equals chat's | probably out — that is precisely the untrusted input |
 | escalation to a human | synchronous, on the card already on screen | asynchronous, via the Action the plan describes |
 
-The single requirement this record places on #51: express the restricted profile
-as a **declared allowlist bound to a turn**, so the two postures differ only in
-which named set a turn names. The second requirement is the fail-closed
-primitive below, which both need and neither has.
+One requirement remains, and it is the fail-closed primitive below: under either
+mechanism, a tool the posture excludes has to *fail* rather than *ask*. Both
+postures need it and neither has it.
 
 ## What has to exist that does not
 
 One mechanism is missing, and both postures need it. Today, a tool outside the
-allowlist does not *fail* — it **asks** (`permission-hooks.ts:51-95`), and in a
+allowlist does not *fail* — it **asks** (`permission-hooks.ts:95-143`), and in a
 turn with no reachable grant surface that ask parks until the turn budget
 expires. `requestToolPermission` already fails closed when there is **no
-bridge** at all (`permission-gate.ts:98-103`); what is missing is the same
+bridge** at all (`permission-gate.ts:109-114`); what is missing is the same
 behaviour when the bridge exists but has no way to grant. A turn must be able to
 declare that it has no grant surface, and a request in such a turn resolves
 `deny` immediately with a reason the model can act on and the user can hear.
 Without it, "not in the posture" means "prompts anyway", and the posture is
 decoration.
 
-**Three things re-admit a removed tool, and the allowlist is load-bearing only
-once all three are closed.** The record's central claim — that a tool outside
-the posture becomes *ungrantable* — is false on today's code in three separate
-places, and each is a precondition for both this posture and #51's.
+**Removing a tool from the allowlist has never been enough on its own, and the
+list of reasons is longer than this record first knew.** An earlier draft named
+three re-admission paths and said all three were open. Two have since been
+closed and three more were found. What follows is the state on `main`, which
+matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
-1. **It asks instead of failing**, as above.
-2. **The input-rewrite hooks allow outright.** `createAgentHook` and
-   `createRtkHook` return `permissionDecision: "allow"` so that `updatedInput`
-   takes effect, which short-circuits `canUseTool` entirely. The source says so
-   in as many words — *"a deployment that removes it from allowedTools should
-   know this rewrite re-admits it"*
-   (`packages/ui-backend-claude/src/input-rewrite-hooks.ts:34-37,51-53`). Any
-   Bash command rtk chooses to rewrite therefore runs in a turn whose allowlist
-   does not contain Bash, with no card and no decision.
-3. **A remembered grant answers before any card exists.**
-   `host.toolPermissions?.isAutoAllowed(req.toolName)` resolves `allow` at the
-   top of `requestPermission` (`packages/ui-server/src/ws/bridge.ts:90-98`), so
-   a tool the user once chose to always allow is granted in a voice turn
-   regardless of the posture. Posture enforcement has to be evaluated *before*
-   that lookup, not after.
+**Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
+`StartTurnRequest.enforceAllowedTools` (`packages/ui-sdk/src/server/backend.ts:236`)
+— the declaration this record asked for, by that name — and under it:
 
-Closing all three is filed as #110 (the ask-vs-fail gap) and #124 (the two
-re-admission paths). Until they are closed, a narrower
-allowlist is a statement of intent — which is the same shape as the archive
-boundary above, and worth noticing that this architecture has produced the same
-failure twice.
+- The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
+  take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
+  without granting
+  (`packages/ui-backend-claude/src/input-rewrite-hooks.ts:16-30,60-68`, wired at
+  `permission-hooks.ts:215-222`). The premise the old grant rested on was
+  measured false in the process: `permissionDecision: "allow"` was never what
+  made `updatedInput` take effect, so the grant was a side effect and it is the
+  side effect that got dropped (`input-rewrite-hooks.ts:4-15`).
+- A remembered grant no longer answers. The host still *reads* its store — on
+  purpose, so a grant that exists and is deliberately not applied can be logged
+  — but refuses to answer from it or add to it for a tool the enforced allowlist
+  left out (`packages/ui-server/src/ws/bridge.ts:99-110`,
+  `packages/ui-server/src/ws/dispatch.ts:178-186`). The evaluation happens
+  before the lookup, which is what this record asked for.
+
+**Still open, and it is #110.** The enforcement hook answers `ask`, not `deny`
+(`permission-hooks.ts:73-88`). An off-posture tool therefore still parks a card
+rather than failing closed, which in a voice turn is a card nobody can answer.
+This is the whole of what #110 now is — the earlier framing of it, "declare a
+turn has no grant surface", partly shipped in #141.
+
+**Found since, and the reason the `ask` carries the load.** Withholding this
+codebase's own shortcuts was never sufficient: the runtime has permission
+opinions of its own that also land before `canUseTool`
+(`permission-hooks.ts:63-72`, with the measurements in #154) — a safe-command
+classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
+never consulted), a built-in tool's own check (`ToolSearch` executed twice under
+the same conditions), and a `PreToolUse` hook in the project settings this
+backend loads under `settingSources: ["project"]`. An explicit `ask` is the one
+answer that beats all three, and it exists only under the declaration.
+
+That last group is the strongest available argument for the fail-closed
+primitive, and against the intuition the record started from. "Take it off the
+allowlist and `canUseTool` will catch it" was false in five ways, not one —
+and, as U15 saw first, none of them exists for a tool that was never registered.
+
+**A tool the posture cannot exclude at all.** `request_image_mask` is appended
+to the turn's allowlist after the profile's list, gated only on whether the
+bridge offers the handler (`packages/ui-backend-claude/src/sdk-options.ts:43,53`),
+and that same array is what enforcement is evaluated against (`:104`). So under
+`enforceAllowedTools` the mask tool is *inside* the enforced allowlist whatever
+the voice posture declares, and the model can open an editor a listener cannot
+see — then block on a painted region that will never arrive. Nothing is granted
+that the deployment did not configure, so this is not a grant hole; it is a
+third instance of the shape named twice already in this record, an exclusion
+that is a statement of intent rather than enforcement. It widens #110: a turn
+that declares an enforced posture has to filter the bridge-tool append against
+it, or suppress the capabilities that need eyes. Under availability control it
+does not arise, because the tool is simply not registered.
+
+Until #110 lands, a narrower allowlist is a statement of intent — the same shape
+as the archive boundary above. This architecture has now produced that shape
+three times, which is the argument for fixing it at the mechanism rather than
+one exclusion at a time.
 
 **The fail-closed rule has to cover both request kinds, and the `command` one is
 the one that matters.** Removing `Bash` from the allowlist does not route a Bash call through
 `canUseTool` first: the PreToolUse `mutatingHook` fires before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
-adds `Bash` back unconditionally (`permission-hooks.ts:45-49,118-126`). So a
+adds `Bash` back unconditionally (`permission-hooks.ts:89-93,166-174`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about
@@ -490,9 +610,17 @@ answer and is adopted as such.
 prepared to accept. Rejected because it removes the thing voice is *for*: saying
 "add a note that the roof quote came in at X" while driving is capture, capture
 is a write, and a read-only voice mode is a search box you talk to. The
-measurement supports the narrower claim instead — the knowledge-base workload
-raises an approval in 1.8% of sessions, so allowing the two document writes
-costs almost no approvals while restoring the whole use case.
+cost of allowing the two document writes is not a measured figure and must not
+be dressed as one: `brain_add` and `brain_update` are on `DEFAULT_ALLOWED_TOOLS`
+(`tool-policy.ts:47-48`), so they raise **zero** approvals by construction, and
+the corpus contains no brain MCP calls at all (see "What the corpus does not
+prove"). Allowing them therefore costs no approvals for a structural reason, not
+an empirical one. The measurement's contribution here is different and
+narrower: it shows that the workload this posture serves is one where approvals
+are rare in the first place, so a posture that cannot grant is not being asked
+to carry much. Pricing the two writes off the 1.8% would be the same error this
+record refuses for form A — letting a number reach a conclusion it cannot
+support.
 
 **(d) A payload-length threshold — speak short payloads, refuse long ones.**
 Rejected outright. Length is attacker-controlled and is not a security boundary;
