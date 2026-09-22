@@ -21,12 +21,22 @@ what taxonomy, tone) lives here. Deterministic checks and file/index operations 
 brain init --check
 ```
 
-Read the JSON: bun version, git repo, `core.hooksPath`, existing `brain.config`, existing
+Read the JSON: bun version, git repo, `core.hooksPath`, the `config` block, existing
 content dirs, key presence.
 
-- If `brain.config` **already exists** → switch to **amend mode**. Never proceed as if fresh
+- Branch on **`config.initialized`**, never on `config.exists`. The template ships a
+  `brain.config.ts` with every field commented out, so `exists` is true on a brain that has
+  never been through this interview — branching on it sent every new user into amend mode.
+  `initialized` is true only once the config declares something: a profile, a taxonomy, a
+  module, an embedding provider.
+- If `config.initialized` is **true** → switch to **amend mode**. Never proceed as if fresh
   and never overwrite user content. Offer: add a domain, regenerate CLAUDE.md marked
   sections, re-run validation. Run the relevant stages below against the existing config only.
+- If `config.initialized` is **false** → run the full interview, even when `exists` is true.
+  Stage 4 writes over the starter config; that is what it is for.
+- If `config.valid` is **false**, the config file is there but broken (`config.error` says how).
+  Fix or replace it with the user before interviewing — do not interview against a brain whose
+  config does not load.
 - If preflight reports a blocking problem (no bun, not a git repo), explain it plainly and stop.
 
 ## Stage 1 — Identity interview
