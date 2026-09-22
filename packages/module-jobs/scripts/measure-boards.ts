@@ -116,12 +116,15 @@ function companyLooksReal(company: string, title: string): boolean {
  * This is how a repair is checked against a committed fixture without going
  * back to the live site — and how the fixture's own numbers were produced.
  *
- * Opening a captured page in an ordinary browser is NOT offline: the markup
- * still references the site's images, stylesheets and scripts, and anything it
- * manages to fetch can mutate the DOM before the extractor sees it. So this
- * launches Chrome with every hostname resolving to nothing. The page is then
- * exactly the bytes on disk, which is the only way the replay's numbers mean
- * anything.
+ * Opening a captured page in an ordinary browser is NOT a replay of it. The
+ * markup still references the site's images, stylesheets and scripts, and the
+ * inline scripts a rendered capture contains will run AGAIN — a framework that
+ * rehydrates can rebuild or drop the very cards being counted. So this launches
+ * Chrome with every hostname resolving to nothing AND turns page scripts off.
+ * `page.evaluate` still works with script execution disabled, which is what
+ * makes it possible to run the extractor over a page that cannot run its own
+ * code. The DOM is then exactly the bytes on disk, which is the only way the
+ * replay's numbers mean anything.
  */
 async function replay(source: string, file: string): Promise<void> {
   const adapter = getAdapter(source as Source);
@@ -133,7 +136,7 @@ async function replay(source: string, file: string): Promise<void> {
   const session = createBrowserSession({
     launch: async () => {
       const puppeteer = (await import("puppeteer-core")).default;
-      return puppeteer.launch({
+      const browser = await puppeteer.launch({
         executablePath: env.chromePath ?? CHROME_FALLBACKS.find((path) => existsSync(path)),
         headless: true,
         args: [
@@ -144,6 +147,15 @@ async function replay(source: string, file: string): Promise<void> {
           ...(env.noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
         ],
       });
+      // The session owns page creation, so this is where script execution gets
+      // turned off for every page it opens.
+      const newPage = browser.newPage.bind(browser);
+      browser.newPage = async () => {
+        const page = await newPage();
+        await page.setJavaScriptEnabled(false);
+        return page;
+      };
+      return browser;
     },
   });
   const records = await session.load<unknown[]>({

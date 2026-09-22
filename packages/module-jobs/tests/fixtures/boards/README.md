@@ -49,10 +49,13 @@ network at all:
 bun packages/module-jobs/scripts/measure-boards.ts --replay <source> <file.html>
 ```
 
-That launches Chrome with every hostname resolving to nothing, so the page is
-exactly the bytes on disk — opening a captured page in an ordinary browser is
-not offline, and anything it re-fetched could change the DOM before the
-extractor ran. The file must end in `.html`, or Chrome serves it as text and
+That launches Chrome with every hostname resolving to nothing and page scripts
+turned off, so the DOM is exactly the bytes on disk. Opening a captured page in
+an ordinary browser is not a replay of it: it can re-fetch what the markup
+references, and the inline scripts a rendered capture contains run again and
+can rebuild or drop the very cards being counted. (`page.evaluate` still works
+with script execution disabled, which is what makes the extractor runnable over
+a page that cannot run its own code.) The file must end in `.html`, or Chrome serves it as text and
 there is no DOM to extract from.
 
 ## What the measurement found
