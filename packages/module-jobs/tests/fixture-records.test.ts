@@ -38,24 +38,26 @@ interface Capture {
 }
 
 /**
- * Every directory under `fixtures/` that carries a `capture.json`, found
- * rather than listed.
+ * Every directory under `fixtures/` that holds captured bytes.
  *
- * It was one per board when this guard was written. #34's JSON-LD captures are
- * organised by the SHAPE they demonstrate rather than by board, so they sit
- * beside `boards/` instead of inside it — and a record directory the guard
- * does not know about is a record directory nothing checks. Walking for the
- * file means the next one is covered on the day it lands.
+ * Found by the FIXTURES it holds, never by the record beside them. Listing the
+ * board directories was what made a missing `capture.json` fail this suite,
+ * and a walk that looks for `capture.json` instead would quietly drop a
+ * directory the moment its record went missing — turning the one check nobody
+ * can do by reading into a check that disables itself.
+ *
+ * The walk exists because the captures are no longer one shape: #34's are
+ * organised by the JSON-LD shape they demonstrate rather than by board, so
+ * they sit beside `boards/` instead of inside it, and the next such directory
+ * is covered on the day it lands rather than the day someone remembers.
  */
-function recordDirs(): string[] {
+function fixtureDirs(): string[] {
   const dirs: string[] = [];
   const walk = (relative: string): void => {
-    const full = join(FIXTURES, relative);
-    if (existsSync(join(full, "capture.json"))) {
-      dirs.push(relative);
-      return;
-    }
-    for (const entry of readdirSync(full, { withFileTypes: true })) {
+    const entries = readdirSync(join(FIXTURES, relative), { withFileTypes: true });
+    const holdsFixtures = entries.some((entry) => entry.isFile() && !NOT_A_FIXTURE.has(entry.name));
+    if (relative && holdsFixtures) dirs.push(relative);
+    for (const entry of entries) {
       if (entry.isDirectory()) walk(relative ? join(relative, entry.name) : entry.name);
     }
   };
@@ -113,24 +115,29 @@ describe("capture records", () => {
     // The check above `continue`s past an excerpt, which is nine of the ten
     // captures. If the tenth ever stops being a complete response the check
     // becomes unreachable and reads as coverage it is not providing.
-    const whole = recordDirs()
+    const whole = fixtureDirs()
       .flatMap(capturesOf)
       .filter((c) => c.full_response_bytes !== null && c.excerpt_bytes === c.full_response_bytes);
     expect(whole.length).toBeGreaterThan(0);
   });
 
-  test("there is at least one record directory, and none is empty", () => {
-    const dirs = recordDirs();
+  test("every directory holding fixtures has a record, and none is empty", () => {
+    const dirs = fixtureDirs();
     expect(dirs.length).toBeGreaterThan(0);
     // Both roots are covered: the per-board captures and #34's per-shape ones.
     expect(dirs.some((dir) => dir.startsWith("boards"))).toBe(true);
     expect(dirs).toContain("jsonld");
     for (const dir of dirs) {
+      // Named here rather than left to throw out of `capturesOf`, because
+      // "this directory has no record" is the failure this guard exists for.
+      expect(existsSync(join(FIXTURES, dir, "capture.json")), `${dir} has no capture.json`).toBe(
+        true
+      );
       expect(capturesOf(dir).length).toBeGreaterThan(0);
     }
   });
 
-  for (const board of recordDirs()) {
+  for (const board of fixtureDirs()) {
     describe(board, () => {
       test("every recorded fixture exists, and its bytes match the record", () => {
         for (const capture of capturesOf(board)) {
