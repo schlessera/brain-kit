@@ -18,7 +18,11 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { countMarkdownTables, escapesBrain } from "../scripts/measure-show-block-server.ts";
+import {
+  assertMeasurableBrainPath,
+  countMarkdownTables,
+  escapesBrain,
+} from "../scripts/measure-show-block-server.ts";
 
 function tables(...parts: string[]): number {
   return countMarkdownTables(...parts);
@@ -107,12 +111,23 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ path: "/home/someone/brain-backup/notes.md" }], home)).toBe(true);
   });
 
-  test("a brain whose name carries a space or a non-ASCII character is still itself", () => {
-    const spaced = "/home/someone/brain copy";
-    expect(escapesBrain([{ path: `${spaced}/notes/a.md` }], spaced)).toBe(false);
-    expect(escapesBrain([{ path: "/home/someone/brain/notes/a.md" }], spaced)).toBe(true);
+  test("a brain whose name carries a non-ASCII character is still itself", () => {
     const accented = "/home/someone/cerveau-privé";
     expect(escapesBrain([{ path: `${accented}/notes/a.md` }], accented)).toBe(false);
+    expect(escapesBrain([{ path: "/home/someone/autre/a.md" }], accented)).toBe(true);
+  });
+
+  test("a brain path with whitespace is refused rather than judged", () => {
+    // `<brain> copy/notes.md` and `find <brain> -type f` are the same string
+    // with opposite answers, and the blob cannot tell them apart.
+    expect(() => assertMeasurableBrainPath("/home/someone/brain copy")).toThrow(/whitespace/);
+    expect(() => assertMeasurableBrainPath("/home/someone/brain")).not.toThrow();
+  });
+
+  test("a quoted traversal out of the brain is outside it", () => {
+    const home = "/home/someone/brain";
+    expect(escapesBrain([{ command: `ls '${home}/..'` }], home)).toBe(true);
+    expect(escapesBrain([{ command: `ls "${home}/../private"` }], home)).toBe(true);
   });
 
   test("the brain named as one argument of a shell command is not an escape", () => {

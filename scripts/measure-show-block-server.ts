@@ -122,7 +122,29 @@ interface RunRecord {
  * failure mode is deliberately the loud one: a turn wrongly judged to have
  * escaped is EXCLUDED, and `--report` prints how many were, so an over-eager
  * rule shows up as a shrunken denominator rather than as a wrong rate.
+ *
+ * It reads a serialised blob of tool arguments, not a parsed command line, so
+ * whitespace after the brain has to mean "the next shell argument" — which is
+ * why `assertMeasurableBrainPath` refuses a brain whose own path contains
+ * any. Without that precondition `<brain> copy/notes.md` and
+ * `find <brain> -type f` are the same string with opposite answers.
  */
+/**
+ * A brain whose own path contains whitespace makes the escape rule
+ * ambiguous, so it is refused rather than measured wrongly. Exported for the
+ * gate test.
+ */
+export function assertMeasurableBrainPath(brainPath: string): void {
+  if (/\s/.test(brainPath)) {
+    throw new Error(
+      `--brain ${JSON.stringify(brainPath)} contains whitespace. The escape rule reads` +
+        " serialised tool arguments, where a space after the brain has to mean the next" +
+        " shell argument, so a brain path with one cannot be judged. Copy the brain to a" +
+        " path without whitespace."
+    );
+  }
+}
+
 /** Characters that could continue a directory name, so are not a boundary. */
 const NAME_CHAR = /[A-Za-z0-9._\-+~#%@]/;
 
@@ -144,7 +166,7 @@ export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
         // Anything but a separator means the path IS the brain, quoted or
         // followed by another shell argument.
         if (next !== "/") continue;
-        const tail = /^[^"\s\\]*/.exec(rest)?.[0] ?? "";
+        const tail = /^[^"'`\s\\]*/.exec(rest)?.[0] ?? "";
         const full = resolve(brain + tail);
         if (full === brain || full.startsWith(`${brain}/`)) continue;
       }
@@ -195,6 +217,7 @@ async function measure(): Promise<void> {
   const brainPath = flag("brain");
   const outPath = flag("out");
   if (!brainPath || !outPath) throw new Error("--brain and --out are required");
+  assertMeasurableBrainPath(brainPath);
 
   const backend = (flag("backend") ?? "pi") as ToolAdapter;
   const model = flag("model") ?? "claude-sonnet-4-6";
