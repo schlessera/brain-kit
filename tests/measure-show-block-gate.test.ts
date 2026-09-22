@@ -148,6 +148,15 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ command: `cat ${home}/../private/notes.md` }], home)).toBe(true);
   });
 
+  test("a traversal ended by a shell separator is still a traversal", () => {
+    const home = "/home/someone/brain";
+    expect(escapesBrain([{ command: `cd ${home}/..; ls` }], home)).toBe(true);
+    expect(escapesBrain([{ command: `cd ${home}/..&&ls` }], home)).toBe(true);
+    expect(escapesBrain([{ command: `cat ${home}/..|head` }], home)).toBe(true);
+    // The brain itself, ended the same way, is not.
+    expect(escapesBrain([{ command: `cd ${home}; ls` }], home)).toBe(false);
+  });
+
   test("reads every argument, not only the first", () => {
     expect(
       escapesBrain([{ path: `${brain}/a.md` }, { command: "ls /home/someone" }], brain)

@@ -211,7 +211,10 @@ export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
         // Anything but a separator means the path IS the brain, quoted or
         // followed by another shell argument.
         if (next !== "/") continue;
-        const tail = /^[^"'`\s\\]*/.exec(rest)?.[0] ?? "";
+        // A shell separator ends the path as surely as a space does, or
+        // `cd <brain>/..; ls` resolves `..;` as a directory name and the
+        // traversal slips through.
+        const tail = /^[^"'`\s\\;&|<>()]*/.exec(rest)?.[0] ?? "";
         const full = resolve(brain + tail);
         if (full === brain || full.startsWith(`${brain}/`)) continue;
       }
@@ -552,10 +555,10 @@ async function report(paths: string[]): Promise<void> {
   const records: RunRecord[] = [];
   let backend = "";
   let model = "";
-  let environment: Record<string, boolean> | undefined;
+  const environments: Array<{ path: string; environment: Record<string, boolean> }> = [];
   for (const path of paths) {
     const parsed = (await Bun.file(path).json()) as RunFile;
-    environment ??= parsed.environment;
+    if (parsed.environment) environments.push({ path, environment: parsed.environment });
     if (backend && (parsed.backend !== backend || parsed.model !== model)) {
       throw new Error(
         `${path} is ${parsed.backend}/${parsed.model}, not ${backend}/${model} —` +
@@ -721,11 +724,31 @@ async function report(paths: string[]): Promise<void> {
       .map(([k, n]) => `${k} ×${n}`)
       .join(", ")}`
   );
-  if (environment) {
-    const set = Object.entries(environment)
+  // Per file, never merged: pooling a classifier-off run with a
+  // classifier-on one is legitimate for the block rate and NOT legitimate to
+  // describe with one configuration line, and printing only the first file's
+  // would make the file order change the reported configuration.
+  const named = (env: Record<string, boolean>) =>
+    Object.entries(env)
       .filter(([, present]) => present)
-      .map(([name]) => name);
-    console.log(`environment set at record time: ${set.join(", ") || "none"}`);
+      .map(([name]) => name)
+      .join(", ") || "none";
+  const unknown = paths.length - environments.length;
+  const distinct = new Set(environments.map((e) => named(e.environment)));
+  if (distinct.size === 1 && unknown === 0) {
+    console.log(`environment set at record time: ${[...distinct][0]}`);
+  } else {
+    console.log("environment set at record time, per run file:");
+    for (const entry of environments) {
+      console.log(`  ${entry.path.split("/").pop()}: ${named(entry.environment)}`);
+    }
+    // A run file written before the harness recorded this says nothing about
+    // its configuration, and must not inherit another file's.
+    for (const path of paths) {
+      if (!environments.some((e) => e.path === path)) {
+        console.log(`  ${path.split("/").pop()}: not recorded`);
+      }
+    }
   }
 }
 
