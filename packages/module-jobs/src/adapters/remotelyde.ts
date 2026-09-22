@@ -109,6 +109,11 @@ export class RemotelyDeAdapter extends BaseAdapter {
 
       // Row layout: "<company> · <location> · …". Featured layout: the company
       // sits beside the logo and the location is left to the badge row.
+      //
+      // The meta line keeps its empty pieces until the company has been taken
+      // off the front: dropping them first would promote the location into the
+      // company slot on a card whose company is blank, which is the "Unknown"
+      // failure wearing a different name.
       const metaParts = splitOnMiddot(card.find("p.truncate").first().text());
       const badgeParts = splitOnMiddot(
         card
@@ -116,14 +121,17 @@ export class RemotelyDeAdapter extends BaseAdapter {
           .map((_j, badge) => $(badge).text())
           .get()
           .join(" · ")
-      );
+      ).filter(Boolean);
       const company = card.find("span.truncate").first().text().trim() || (metaParts.shift() ?? "");
 
       if (!title) missing.title++;
       if (!company) missing.company++;
       if (!title || !company) return;
 
-      const locationParts = [...metaParts, ...badgeParts.filter((part) => !REMOTE_BADGE.test(part))];
+      const locationParts = [
+        ...metaParts.filter(Boolean),
+        ...badgeParts.filter((part) => !REMOTE_BADGE.test(part)),
+      ];
       const description = card.find("p.line-clamp-5").first().text().trim();
       const url = `${ORIGIN}${href}`;
 
@@ -144,10 +152,7 @@ export class RemotelyDeAdapter extends BaseAdapter {
   }
 }
 
-/** Split a card's meta line on its middot separator, dropping empty pieces. */
+/** Split a card's meta line on its middot separator. Empty pieces are kept. */
 function splitOnMiddot(text: string): string[] {
-  return text
-    .split("·")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return text.split("·").map((part) => part.trim());
 }

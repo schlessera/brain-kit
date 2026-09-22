@@ -219,6 +219,9 @@ describe("remotelyde against its captured listing", () => {
     // The featured layout carries a five-line teaser. A full description
     // still needs the detail page (#36).
     expect(job.description).toContain("Audio Transcriber");
+    // And nothing at all came from the chrome: not one stored row is a
+    // /remote-jobs/<slug> category page.
+    expect(result.jobs.filter((row) => row.url?.includes("/remote-jobs/"))).toEqual([]);
     expect(result.errors).toEqual([]);
   });
 
@@ -246,6 +249,22 @@ describe("remotelyde against its captured listing", () => {
     const html = fixture("remotelyde", "listing-row-cards.html").replace(
       "Do Good Ventures \u00b7 Weltweit",
       ""
+    );
+    const result = await scrapeAgainst(new RemotelyDeAdapter(), (url) =>
+      url.endsWith("/remote-jobs") ? html : ""
+    );
+
+    expect(result.jobs.map((job) => job.company)).toEqual(["Grafana Labs"]);
+    expect(result.errors).toEqual(["remotely.de page 1: 1 card(s) carried no company"]);
+  });
+
+  test("a blank company is not filled in from the location beside it (#35)", async () => {
+    // The meta line is "<company> \u00b7 <location>". Emptying the company half
+    // leaves " \u00b7 Weltweit", and a parser that drops empty pieces before
+    // taking the first one stores "Weltweit" as the employer.
+    const html = fixture("remotelyde", "listing-row-cards.html").replace(
+      "Do Good Ventures \u00b7 Weltweit",
+      " \u00b7 Weltweit"
     );
     const result = await scrapeAgainst(new RemotelyDeAdapter(), (url) =>
       url.endsWith("/remote-jobs") ? html : ""

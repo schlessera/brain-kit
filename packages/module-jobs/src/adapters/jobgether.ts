@@ -53,13 +53,12 @@ function parseSalaryRange(raw: string | undefined): {
   if (!raw) return {};
   const match = raw.match(/^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*([A-Z]{3})\s*$/);
   if (!match) return {};
-  const min = Number(match[1]);
-  const max = Number(match[2]);
-  return {
-    min: min > 0 ? min : undefined,
-    max: max > 0 ? max : undefined,
-    currency: match[3],
-  };
+  const min = Number(match[1]) > 0 ? Number(match[1]) : undefined;
+  const max = Number(match[2]) > 0 ? Number(match[2]) : undefined;
+  // A currency with no amount behind it is not a salary, so `0-0 EUR` maps to
+  // nothing rather than to a bare "EUR".
+  if (min === undefined && max === undefined) return {};
+  return { min, max, currency: match[3] };
 }
 
 function mapRemoteType(remote: string | undefined): RawJob["remote_type"] {
@@ -98,7 +97,7 @@ export class JobgetherAdapter extends BaseAdapter {
 
       const offers = Array.isArray(data?.jobs) ? data.jobs : [];
       if (offers.length === 0) {
-        errors.push(`Jobgether ${API_URL} returned no jobs array`);
+        errors.push(`Jobgether ${API_URL} carried no jobs array`);
       }
 
       // A record that cannot name its own employer is not a job posting; drop
