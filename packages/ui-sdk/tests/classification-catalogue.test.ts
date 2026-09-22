@@ -591,14 +591,34 @@ describe("what the classifier answered, for tuning the thresholds", () => {
       "p0c0.shape": choice("comparison", 0.9),
       "p0c0.criteria_first": noul(0.9),
       "p1c0.shape": choice("steps", 0.7),
+      // Not this plan's candidate at all.
       "p9c9.shape": choice("steps", 0.99),
+      // This plan's candidate, but a question the catalogue never asks of an
+      // ordered list. Recording it would put a figure in the distribution
+      // that no transform ever compared against anything.
+      "p1c0.tone": choice("teal", 0.99),
+      // And an id that only looks like one of p0c0's, because `p0c0` is a
+      // prefix of `p0c01`.
+      "p0c01.shape": choice("comparison", 0.99),
     };
     const observed = observeClassification(plan, answers, applyClassification(plan, answers));
-    expect(observed.map((o) => [o.candidateId, o.candidateKind, o.outcome])).toEqual([
-      ["p0c0", "table", "swapped"],
-      ["p0c0", "table", "swapped"],
-      ["p1c0", "ordered_list", "swapped"],
+    expect(observed.map((o) => [o.candidateId, o.candidateKind, o.question, o.outcome])).toEqual([
+      ["p0c0", "table", "shape", "swapped"],
+      ["p0c0", "table", "criteria_first", "swapped"],
+      ["p1c0", "ordered_list", "shape", "swapped"],
     ]);
+  });
+
+  test("a question the classifier left unanswered is simply absent", () => {
+    const plan = planClassification([COMPARISON])!;
+    // The catalogue asks three questions of a table; only two came back.
+    const answers: ClassificationAnswers = {
+      "p0c0.shape": choice("comparison", 0.9),
+      "p0c0.criteria_first": noul(0.9),
+    };
+    const observed = observeClassification(plan, answers, applyClassification(plan, answers));
+    expect(Object.keys(questionsFor(plan.candidates[0]!.candidate))).toHaveLength(3);
+    expect(observed.map((o) => o.question)).toEqual(["shape", "criteria_first"]);
   });
 
   test("two candidates in one part are told apart by their own span", () => {

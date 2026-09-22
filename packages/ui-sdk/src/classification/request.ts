@@ -136,9 +136,14 @@ export interface QuestionObservation {
  * a question learns whether its candidate was swapped or kept, without
  * running a transform twice.
  *
+ * The plan's OWN questions are the list walked, never the answer map: an
+ * answer the plan did not ask for is a question the surface has no threshold
+ * for and no transform reading it, and recording it would put a number in the
+ * distribution that nothing was ever compared against. Unanswered questions
+ * are simply absent.
+ *
  * Pure, and cheap enough to run after every answered pass: one walk of the
- * answers per candidate, no strings built, nothing re-parsed. Answers to
- * questions this plan did not ask are ignored.
+ * questions, no strings built, nothing re-parsed.
  */
 export function observeClassification(
   plan: ClassificationPlan,
@@ -146,12 +151,22 @@ export function observeClassification(
   blocks: readonly MessageBlock[]
 ): QuestionObservation[] {
   const drawn = new Set(blocks.map((block) => `${block.partIndex}:${block.start}:${block.end}`));
+  // The asked question ids, grouped by the candidate they name, in the order
+  // the catalogue asks them.
+  const asked = new Map<string, string[]>();
+  for (const id of Object.keys(plan.request.questions)) {
+    const candidateId = id.slice(0, id.lastIndexOf("."));
+    const ids = asked.get(candidateId);
+    if (ids) ids.push(id);
+    else asked.set(candidateId, [id]);
+  }
   const out: QuestionObservation[] = [];
   for (const { partIndex, candidate } of plan.candidates) {
     const outcome = drawn.has(`${partIndex}:${candidate.start}:${candidate.end}`) ? "swapped" : "kept";
     const prefix = `${candidate.id}.`;
-    for (const [id, answer] of Object.entries(answers)) {
-      if (!id.startsWith(prefix)) continue;
+    for (const id of asked.get(candidate.id) ?? []) {
+      const answer = answers[id];
+      if (!answer) continue;
       const threshold = thresholdFor(id);
       const confidence = answer.type === "choice" ? answer.confidence : answer.noul;
       out.push({
