@@ -2260,10 +2260,15 @@ what a later turn read.
 **Numbers.** Claude backend, `claude-sonnet-5`, 102 completed turns of 108.
 
 *Quote this entry from the tables in this section and the always-loaded one
-below, never from a sentence.* Three figures in this record had to be corrected
-within a day of writing it, every one of them a number restated in prose that
-drifted from the table it came from, or lifted from another document quoting an
-earlier version of this one. The tables are the record; the prose cites them.
+below, never from a sentence — and give a figure that arrives from another
+record, another agent or a summary the same treatment before repeating it.*
+Five figures in this record had to be corrected within a day of writing it.
+Two were numbers restated in prose that drifted from the table they came from.
+**Three arrived from outside**: lifted from another document quoting an earlier
+version of this one, or taken from one agent's summary of one run when the
+pooled data said otherwise. A figure is reconciled against its own primary
+table or it is not quoted, whoever sent it. The tables are the record; the
+prose cites them.
 
 | arm | turns | a `show_block` call | rate | no call, but a candidate the pass would see |
 | --- | --- | --- | --- | --- |
@@ -2336,9 +2341,15 @@ turns into a `quote` block; that is the designed fallback working. A declined
 
 **The pi backend does not reproduce any of this, and the reason is probably in
 the code.** #50 measured pi at the server level and #137 records the gap: on
-the same four prompts, same model, same corpus, pi called the tool on 27 of 30
-counted turns (90%) against this record's 59% brief-arm rate in the table
-above, and on the two prompts this record measured at zero — "Compare Bun and
+the same four prompts, same model, same corpus, pi called the tool on 52 of 60
+counted turns (87%) across two runs against this record's 59% brief-arm rate in
+the table above (pooling those two runs is sound because each pi turn is its
+own session — `scripts/measure-show-block-server.ts` clears state per turn —
+and because that harness excludes turns that never reached a result, the same
+discipline as this one; the reason offered for it, that the classification pass
+runs after the result frame, is true but answers a different question, since it
+rules out the pass contaminating a turn rather than establishing that two runs
+sample the same thing), and on the two prompts this record measured at zero — "Compare Bun and
 Node.js … keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
 pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
 different run and not the one above.)
@@ -2362,9 +2373,9 @@ stops caring whether the brief is present.
 
 What that does NOT settle, and #137 owns:
 
-- **The remaining height.** pi's 90% against 77% always-loaded here — and
-  #148's 76–77% on the shipped always-loaded configuration — is a real gap,
-  and deferral does not explain it.
+- **The remaining height.** pi's 87% over 60 turns against 77% always-loaded
+  here, and #148's 76–77% over 47–48 on the shipped configuration, is a real
+  gap of about ten points, and deferral does not explain it.
 - **`contact`.** 3 of 6 on pi against 1 of 6 loaded here. Six turns a side is
   not enough to call a difference, and this record should not be read as
   having found one.
@@ -2374,11 +2385,12 @@ What that does NOT settle, and #137 owns:
 
 The prediction this makes is falsifiable, and #148 has since checked it: if the
 Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
-90% rather than merely upward. **They landed at 76–77%, short of it.** So the
+87% rather than merely upward. **They landed at 76–77%, short of it.** So the
 prediction partly failed, which is the useful outcome — deferral is not the
 whole cause, and whatever else separates the two backends is #137's to find.
-Roughly a third of the gap this record attributed to deferral is unexplained by
-it.
+About ten points of the gap this record attributed to deferral is unexplained
+by it, now on 60 pi turns against 47–48, which is better powered than the
+comparison #137 was filed with and did not close.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
 configuration that ships today, it is
