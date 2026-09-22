@@ -275,6 +275,8 @@ export function commitDerivedCaches(root: string, caches: string[], branch: stri
   );
   const staged = stageable.length > 0 ? git(root, ["add", "--", ...stageable]) : { code: 0, stderr: "" };
   if (staged.code !== 0) return `FAILED to stage — ${staged.stderr}`;
+  // Staging can leave nothing to commit: a staged change the reindex undid.
+  if (git(root, ["diff", "--cached", "--quiet", "HEAD", "--", ...caches]).code === 0) return "clean";
   const committed = git(root, ["commit", "--only", "-m", "Refresh derived index caches", "--", ...caches]);
   if (committed.code !== 0) return `FAILED to commit — ${committed.stderr || committed.stdout}`;
   const pushed = git(root, ["push", "origin", "main"]);
@@ -412,7 +414,11 @@ export const syncCommand: CoreCommand = {
         // A cache this clone's reindex rewrote blocks a merge that touches it,
         // and post-sync pushes caches, so the other clone's commit usually does.
         // Set it aside for the merge and union it back after.
-        const aside = remoteAhead > 0 ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
+        // A merge already in progress owns the caches' index stages; setting
+        // them aside would erase a cache conflict before it is resolved.
+        const alreadyMerging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+        const aside =
+          remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
 
         let status: string;
         let conflicts: string[] = [];

@@ -105,6 +105,15 @@ describe("commitDerivedCaches", () => {
     expectUnrelatedUntouched(root);
   });
 
+  test("a staged change the reindex undid is clean, not a failed commit", () => {
+    const { root } = fixture();
+    const head = git(root, "rev-parse", "HEAD");
+    git(root, "add", CACHE);
+    writeFileSync(join(root, CACHE), "");
+    expect(commitDerivedCaches(root, [CACHE], "main")).toBe("clean");
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+  });
+
   test("off main nothing is staged or committed", () => {
     const { root } = fixture();
     const head = git(root, "rev-parse", "HEAD");
@@ -254,6 +263,24 @@ describe("sync pull with a locally rewritten cache", () => {
 
     const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
     expect(body.status).toBe("merged");
+    expect(body.conflicts).toEqual([]);
+    expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
+  });
+
+  test("a pull during an unfinished merge resolves its cache conflict from the stages", async () => {
+    const { root, remote } = brainWithRemote();
+    git(root, "config", "merge.conflictStyle", "diff3");
+    writeFileSync(join(root, CACHE), '{"k":"a","v":"base"}\n{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    git(root, "push", "-q", "origin", "main");
+    pushFromOtherClone(remote, { [CACHE]: '{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n' });
+    writeFileSync(join(root, CACHE), '{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    git(root, "fetch", "-q", "origin", "main");
+    Bun.spawnSync(["git", "-C", root, "merge", "origin/main", "--no-edit"]);
+    expect(git(root, "diff", "--name-only", "--diff-filter=U")).toBe(CACHE);
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
     expect(body.conflicts).toEqual([]);
     expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
   });
