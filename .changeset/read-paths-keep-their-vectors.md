@@ -25,6 +25,15 @@ stored vectors are not in. And `sqlite-vec not available` is now printed only
 when the extension really failed to load; a read-only connection that could not
 write used to report it, sending readers off to reinstall a working dependency.
 
+The migrations themselves are now atomic. Each runs in a transaction, so a
+half-applied one — a table dropped and not rebuilt, or rebuilt and not
+refilled — can no longer leave the vector index gone, and a failure is
+reported rather than swallowed: `migrateVecSchema` used to return true having
+emptied the store. `storedVectorWidth` reads the width off `vec_chunks`' own
+declaration before believing `index_metadata`, and accepts one only as plain
+decimal within sqlite-vec's 1..8192 range.
+
 `initVecSupport` is gone from `@schlessera/brain`'s exports. Out-of-tree callers
-that only read vectors want `loadVecSupport`; callers that are about to embed
-want `migrateVecSchema`.
+that only read vectors want `loadVecSupport`, branching on the exported
+`VecSupport`/`VecUnavailableReason` when they need the cause; callers that are
+about to embed want `migrateVecSchema`.
