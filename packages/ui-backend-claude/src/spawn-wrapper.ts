@@ -138,10 +138,13 @@ export function createWrappedSpawn(
             signalGroup();
           });
           helper.once("exit", (code) => {
-            if (code === 0 || code === null) return;
+            // Only a clean zero is success. `code === null` means the helper
+            // was itself signalled — it crashed or was killed — which cancels
+            // nothing at all.
+            if (code === 0) return;
             console.error(
-              `${EXEC_KILLER_ENV} at ${killer} exited ${code} cancelling process group ` +
-                `${pid}. Falling back to an unprivileged signal.`
+              `${EXEC_KILLER_ENV} at ${killer} did not cancel process group ${pid} ` +
+                `(exit ${code ?? "by signal"}). Falling back to an unprivileged signal.`
             );
             signalGroup();
           });

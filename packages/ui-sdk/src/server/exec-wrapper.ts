@@ -79,11 +79,44 @@ export function validateExecWrapper(raw: string | undefined): string | undefined
 }
 
 /**
- * `[program, ...args]` → `[wrapper, program, ...args]`, or unchanged when no
- * wrapper is configured.
+ * `[program, ...args]` → `[wrapper, /absolute/program, ...args]`, or unchanged
+ * when no wrapper is configured.
+ *
+ * The program is resolved to an absolute path, for two reasons that point the
+ * same way. A helper of the shape this seam is built for becomes the target
+ * with `execv` and does no PATH lookup, so a bare `bash` is simply refused.
+ * And the security reason underneath that: `PATH` in a subprocess environment
+ * must not get to choose which `bash` runs, because agent-writable code on it
+ * would then be selected by the very mechanism meant to contain the agent
+ * (`docs/decisions/container-privilege.md`, "Use absolute commands").
+ *
+ * Resolution uses THIS process's PATH, which the agent cannot write, and
+ * happens only on the wrapped path — an unwrapped spawn passes the argv
+ * through exactly as before.
+ *
+ * @throws when a wrapper is configured and the program cannot be resolved.
+ * Failing here beats handing a helper something it will refuse for reasons the
+ * operator then has to guess at.
  */
 export function wrapCommand(argv: readonly string[], wrapper?: string): string[] {
-  return wrapper ? [wrapper, ...argv] : [...argv];
+  if (!wrapper) return [...argv];
+  const [program, ...args] = argv;
+  if (program === undefined) throw new Error("wrapCommand needs a program to run");
+  return [wrapper, absoluteProgram(program, wrapper), ...args];
+}
+
+function absoluteProgram(program: string, wrapper: string): string {
+  if (isAbsolute(program)) return program;
+  const resolved = Bun.which(program);
+  if (!resolved) {
+    throw new Error(
+      `Cannot run ${JSON.stringify(program)} through the exec wrapper at ${wrapper}: ` +
+        "it is not an absolute path and was not found on this process's PATH. A wrapper " +
+        "execs its target directly, and an absolute path is also what keeps PATH from " +
+        "selecting agent-writable code."
+    );
+  }
+  return resolved;
 }
 
 /**

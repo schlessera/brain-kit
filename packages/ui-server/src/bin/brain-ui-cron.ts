@@ -4,7 +4,11 @@
 import { statSync } from "fs";
 import { join } from "path";
 
-import { resolveCronConfig } from "../config/env.js";
+import { execConfig, resolveCronConfig } from "../config/env.js";
+import {
+  execWrapperSpawnOptions,
+  wrapCommand,
+} from "@schlessera/brain-ui-sdk/server";
 import { runDigest } from "../cron/digest.js";
 import {
   emitCrontab,
@@ -95,11 +99,15 @@ async function readModuleList(
   env: Record<string, string | undefined>
 ): Promise<BrainModuleListPayload | null> {
   try {
-    const proc = Bun.spawn(["brain", "module", "list", "--json"], {
+    // The CLI imports the repository's config, so this read goes through the
+    // wrapper like every other CLI launch.
+    const exec = execConfig();
+    const proc = Bun.spawn(wrapCommand(["brain", "module", "list", "--json"], exec.wrapper), {
       cwd: brainPath,
       env,
       stdout: "pipe",
       stderr: "ignore",
+      ...execWrapperSpawnOptions(exec.wrapper),
     });
     const [exitCode, stdout] = await Promise.all([
       proc.exited,

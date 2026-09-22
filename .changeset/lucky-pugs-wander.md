@@ -13,9 +13,12 @@ full of metacharacters is a filename rather than a command. A wrapped child
 leads its own process group and an abort signals the group, because a uid drop
 otherwise makes `kill(2)` fail with EPERM and leaves an aborted turn running.
 
-Every brain CLI launch is covered too, not only the agent's tool spawns: the CLI
-imports the repository's `brain.config.ts`, so a search executes repository code
-exactly as a tool call does.
+Every brain CLI launch is covered too, not only the agent's tool spawns — and
+scheduled cron jobs with them: the CLI imports the repository's
+`brain.config.ts`, so a search executes repository code exactly as a tool call
+does. When a wrapper is configured the program is resolved to an absolute path,
+because a wrapper execs its target directly and because `PATH` must not get to
+choose which `bash` runs.
 
 `BRAIN_UI_EXEC_KILLER` is the companion seam. `kill(2)` matches uids and group
 membership grants no exception, so once a wrapper has dropped privileges the

@@ -10,6 +10,11 @@ import { createActivityStore } from "../activity/store.js";
 import { createUiDb } from "../db/client.js";
 import { resolveSystemPrincipal } from "../db/principals.js";
 import { recordCronRun } from "./scheduler.js";
+import { execConfig } from "../config/env.js";
+import {
+  execWrapperSpawnOptions,
+  wrapCommand,
+} from "@schlessera/brain-ui-sdk/server";
 
 /** Tail of stderr retained for the cron_runs error row. */
 export const STDERR_TAIL_CHARS = 2_000;
@@ -219,11 +224,17 @@ export async function runJob(
 
   try {
     const spawn = dependencies.spawn ?? ((command, spawnOptions) => Bun.spawn(command, spawnOptions));
-    const proc = spawn(options.command, {
+    // Through the exec wrapper like every other child. A scheduled job runs a
+    // command out of the brain repository, which makes it the same class of
+    // input as an agent tool call — and the recorder around it stays outside
+    // the wrapper, because it writes the server's own database.
+    const cronExec = execConfig();
+    const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
       stdin: "inherit",
       stdout: "pipe",
       stderr: "pipe",
       env: { ...options.childEnv, [SPAN_SINK_ENV]: sinkPath },
+      ...execWrapperSpawnOptions(cronExec.wrapper),
     });
 
     let stderrTail = "";

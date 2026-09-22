@@ -53,10 +53,22 @@ describe("a wrapper is a path, not a command line", () => {
   test("it becomes argv[0] and the program stays a separate element", () => {
     expect(wrapCommand(["bash", "-lc", "echo hi"], "/opt/run-as-brain")).toEqual([
       "/opt/run-as-brain",
-      "bash",
+      // Resolved: a wrapper execs its target, and PATH must not get to choose.
+      Bun.which("bash")!,
       "-lc",
       "echo hi",
     ]);
+    // An already-absolute program is passed through untouched.
+    expect(wrapCommand(["/usr/bin/env", "true"], "/opt/run-as-brain")).toEqual([
+      "/opt/run-as-brain",
+      "/usr/bin/env",
+      "true",
+    ]);
+    // And a program that resolves to nothing fails loudly rather than handing
+    // the helper something it will refuse.
+    expect(() => wrapCommand(["definitely-not-a-program"], "/opt/run-as-brain")).toThrow(
+      /not an absolute path/
+    );
   });
 
   test("a prefix with arguments is refused, because refusing is the whole defence", () => {
@@ -76,6 +88,7 @@ describe("a wrapper is a path, not a command line", () => {
     const nasty = "/tmp/wrap; touch /tmp/pwned";
     expect(validateExecWrapper(nasty)).toBe(nasty);
     expect(wrapCommand(["echo", "hi"], nasty)[0]).toBe(nasty);
+    expect(wrapCommand(["echo", "hi"], nasty)[1]).toBe(Bun.which("echo")!);
   });
 });
 
@@ -115,7 +128,7 @@ describe("aborting a wrapped spawn kills the process group", () => {
 
     // The wrapper saw the program as its own argument, unsplit.
     expect((await Bun.file(argvLog).text()).split("\n").filter(Boolean)).toEqual([
-      "sleep",
+      Bun.which("sleep")!,
       "300",
     ]);
 

@@ -75,7 +75,9 @@ describe("the bash tool", () => {
       expect(resultText(res)).toContain("brain-kit-ok");
       // And it ran through the wrapper, with the program unsplit in argv[1].
       expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
-        "bash",
+        // Absolute, so the helper can execv it and PATH cannot choose which
+        // bash runs.
+        Bun.which("bash")!,
         "-lc",
         "echo brain-kit-ok",
       ]);
@@ -121,7 +123,7 @@ describe("the bash tool", () => {
       );
       expect(resultText(res)).toContain("still-fine");
       expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
-        "bash",
+        Bun.which("bash")!,
         "-lc",
         "echo still-fine",
       ]);
@@ -149,7 +151,7 @@ describe("the grep tool", () => {
       );
       expect(resultText(res)).toContain("needle");
       expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
-        "grep",
+        Bun.which("grep")!,
         "-rInE",
         "--",
         "needle",
