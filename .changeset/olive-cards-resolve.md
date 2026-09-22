@@ -14,4 +14,7 @@ guessed at by scanning the card's text lines, which had left one row in ten
 stored as the literal `Unknown`.
 
 `source_id` is unchanged — still the relative path — so the next scrape updates
-the rows already stored rather than inserting a second copy of each.
+the rows already stored rather than inserting a second copy of each. The ingest
+upsert refreshes `url` but not `source_url` or `company`, so a row stored before
+this release keeps the older values in those two fields; new rows are correct in
+all three.

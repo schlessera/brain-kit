@@ -138,7 +138,9 @@ page, offline (see above) — the numbers the fixtures actually support — give
   and takes the company off the selector. `source_id` deliberately stays the
   relative path, so the rows already stored are updated rather than orphaned —
   a Dice row with a real company fingerprints on company+title, so a re-keyed
-  row would be marked a duplicate of the broken one it replaces.
+  row would be marked a duplicate of the broken one it replaces. What that
+  leaves behind: the ingest upsert refreshes `url` but not `source_url` or
+  `company`, so rows stored before the repair keep those two — **#159**.
   Fixture: `dice/rendered-card.html`.
 - **`remotelyde`** — two independent defects. The JSON-LD script carries
   `id="collection-page-jsonld"`, which the bare-tag regex at

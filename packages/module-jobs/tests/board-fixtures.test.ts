@@ -35,6 +35,10 @@ import { RemoteInEuropeAdapter } from "../src/adapters/remoteineurope";
 import { SimplyHiredAdapter } from "../src/adapters/simplyhired";
 import { JobgetherAdapter } from "../src/adapters/jobgether";
 import type { BaseAdapter } from "../src/adapters/base";
+import { openDatabase } from "../src/db";
+import { runDedup } from "../src/dedup";
+import { ingestJobs } from "../src/scrape";
+import type { RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
 
@@ -383,5 +387,88 @@ describe("dice's rendered card", () => {
     // Half the upsert key in src/scrape.ts. UNCHANGED by this repair, so the
     // next scrape updates the rows already stored instead of orphaning them.
     expect(job.source_id).toBe(CARD_PATH);
+  });
+
+  /** The row the pre-repair adapter stored, 102 times, in the #33 run. */
+  function rowAsStoredBefore(overrides: Partial<RawJob> = {}): RawJob {
+    return {
+      source: "dice",
+      source_id: CARD_PATH,
+      title: "Radar Software Engineer",
+      company: "FishEye Software",
+      url: CARD_PATH,
+      source_url: CARD_PATH,
+      location: "Remote",
+      remote_type: "fully_remote",
+      job_type: "full_time",
+      ...overrides,
+    };
+  }
+
+  async function repairedRow(): Promise<RawJob> {
+    const { ctx } = browserContextServing(fixture("dice", "rendered-card.html"));
+    const result = await new DiceAdapter().bind(ctx).scrape({
+      incremental: false,
+      queries: ["software engineer"],
+    });
+    return result.jobs[0];
+  }
+
+  test("re-scraping updates the row already stored — it does not add a second (#129)", async () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [rowAsStoredBefore({ company: "Unknown" })]);
+      const stats = ingestJobs(db, [await repairedRow()]);
+
+      // The point of keeping the key: one row, updated in place.
+      expect(stats).toEqual({ new: 0, updated: 1 });
+      const rows = db.query("SELECT url, source_url, company FROM jobs WHERE source = 'dice'").all();
+      expect(rows).toHaveLength(1);
+      // CHARACTERIZATION, not an endorsement: `ON CONFLICT ... DO UPDATE SET`
+      // in src/scrape.ts refreshes `url` and nothing else that this repair
+      // touches, so a row stored before it keeps its relative `source_url` and
+      // its "Unknown" company. Filed as #159; both are cosmetic next to `url`,
+      // which is what every consumer follows (`job.url || job.source_url`).
+      expect(rows[0]).toEqual({
+        url: CARD_URL,
+        source_url: CARD_PATH,
+        company: "Unknown",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("re-keying the row would have hidden the repair behind the defect (#129)", async () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [rowAsStoredBefore()]);
+      // The row was first seen in the #33 run, so it is the older of the two.
+      db.query("UPDATE jobs SET first_seen_at = ? WHERE source_id = ?").run(
+        "2026-09-22T16:18:00.000Z",
+        CARD_PATH
+      );
+      // What choosing the card's data-job-guid as `source_id` would have done.
+      const rekeyed = await repairedRow();
+      rekeyed.source_id = "c267e627-504f-412f-b8e8-cc8a387b525d";
+      expect(ingestJobs(db, [rekeyed])).toEqual({ new: 1, updated: 0 });
+
+      expect(runDedup(db)).toEqual({ checked: 2, duplicates_found: 1 });
+
+      // computeFingerprint keys a row with a real company on company+title,
+      // not on identity — so the repaired row collides with the one it was
+      // meant to replace, and `runDedup` keeps the OLDER, broken row.
+      const rows = db
+        .query(
+          "SELECT source_id, url, is_duplicate FROM jobs WHERE source = 'dice' ORDER BY first_seen_at ASC"
+        )
+        .all();
+      expect(rows).toEqual([
+        { source_id: CARD_PATH, url: CARD_PATH, is_duplicate: 0 },
+        { source_id: "c267e627-504f-412f-b8e8-cc8a387b525d", url: CARD_URL, is_duplicate: 1 },
+      ]);
+    } finally {
+      db.close();
+    }
   });
 });
