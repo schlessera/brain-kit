@@ -375,18 +375,19 @@ approvals were kind `command`.
 
 ### When the announcement actually fires
 
-Under the voice posture, once #110 closes the last gap, **no approval card can
-arise at all**. Every tool in the posture is auto-allowed; every tool
+Under the voice posture, now that #110 has closed the last gap, **no approval
+card can arise at all**. Every tool in the posture is auto-allowed; every tool
 outside it is ungrantable and therefore denied; and a kind-`command` request
 only ever comes from `Bash`, which is not in the posture — so the
-`commandAllowed` re-add described below raises a request that #110 denies rather
-than one that parks. "No card" is not "nothing can stall", and the one exception
-is named below: `request_image_mask` sits inside the enforced allowlist whatever
-the posture declares, so it is auto-allowed, raises no card, and blocks the turn
-on a region nobody will paint. That is why filtering the bridge-tool append is
-part of #110 rather than a separate nicety. That is the intended end state and
-it is worth saying out loud, because it means the interaction above is not the
-common case — it is the case that must not be got wrong.
+`commandAllowed` re-add described below raises a request that a turn with no
+grant surface denies rather than one that parks. "No card" is not "nothing can
+stall", and the one exception named below closed with it:
+`request_image_mask` used to sit inside the enforced allowlist whatever the
+posture declared, so it was auto-allowed, raised no card, and blocked the turn
+on a region nobody would paint; the append is now withheld from a turn that
+declared no grant surface. That is the intended end state and it is worth
+saying out loud, because it means the interaction above is not the common case
+— it is the case that must not be got wrong.
 
 It fires in three situations, and they are the reason the design exists rather
 than an edge:
@@ -403,10 +404,13 @@ than an edge:
    a live pending card and a listener who cannot see it. That is where the
    announcement and the refusal phrase do their work, and it is why the rule is
    written as "within any turn".
-3. **Before the posture is enforceable.** Until #110 lands, a tool outside the
-   posture parks a card rather than being denied — the enforcement hook shipped
-   in #141 answers `ask`, not `deny`. The announcement is what the user hears in
-   the meantime, and the refusal phrase is the only way they can resolve it.
+3. **A turn that declares enforcement but not "no grant surface".** The
+   enforcement hook answers `ask`, not `deny` — deliberately, because the
+   `ask` is what beats the runtime's own shortcuts — so a tool outside the
+   allowlist parks a card unless the turn also declared it has nobody to
+   answer one (#110). A deployment that narrows the allowlist without making
+   that second declaration gets a parked card, and the announcement plus the
+   refusal phrase is how the user resolves it.
 
 A design that only worked in case 1 would be a design for a state the product
 is not in yet.
@@ -490,27 +494,32 @@ make both worse:
 | `WebSearch` / `WebFetch` | in — a listening user is the mitigation, and the exposure equals chat's | probably out — that is precisely the untrusted input |
 | escalation to a human | synchronous, on the card already on screen | asynchronous, via the Action the plan describes |
 
-One requirement remains, and it applies to **one** of the two mechanisms. If the
-posture is an enforced allowlist, a tool it excludes has to *fail* rather than
-*ask* — the fail-closed primitive below, which neither posture has yet. Under
+One requirement applies to **one** of the two mechanisms. If the posture is an
+enforced allowlist, a tool it excludes has to *fail* rather than *ask* — the
+fail-closed primitive below, which #110 built and which the voice posture is
+the first to declare. Under
 availability control the requirement is vacuous rather than satisfied: an
 unregistered tool raises nothing to fail or ask about, which is the same reason
 the `request_image_mask` problem below does not arise there. That asymmetry is
 the strongest practical argument for U15's choice, and it is why this record
 does not make the primitive a condition on #51.
 
-## What has to exist that does not
+## The fail-closed primitive, and how it was reached
 
-One mechanism is missing, and both postures need it. Today, a tool outside the
-allowlist does not *fail* — it **asks** (`permission-hooks.ts:95-143`), and in a
-turn with no reachable grant surface that ask parks until the turn budget
-expires. `requestToolPermission` already fails closed when there is **no
-bridge** at all (`permission-gate.ts:109-114`); what is missing is the same
-behaviour when the bridge exists but has no way to grant. A turn must be able to
-declare that it has no grant surface, and a request in such a turn resolves
+One mechanism was missing and both postures needed it. A tool outside the
+allowlist does not *fail* — it **asks** — and in a turn with no reachable grant
+surface that ask parks until the turn budget expires.
+`requestToolPermission` already failed closed when there was **no bridge** at
+all; what was missing was the same behaviour when the bridge exists but has no
+way to grant. A turn can now declare that it has no grant surface
+(`StartTurnRequest.noGrantSurface`), and a request in such a turn resolves
 `deny` immediately with a reason the model can act on and the user can hear.
-Without it, "not in the posture" means "prompts anyway", and the posture is
+Without it, "not in the posture" meant "prompts anyway", and the posture was
 decoration.
+
+The rest of this section is the inventory that got it there: which
+re-admission paths were open, which are closed, and by what. It is kept
+because a narrower posture is only as good as that list.
 
 **Removing a tool from the allowlist has never been enough on its own, and the
 list of reasons is longer than this record first knew.** An earlier draft named
@@ -537,11 +546,16 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   `packages/ui-server/src/ws/dispatch.ts:178-186`). The evaluation happens
   before the lookup, which is what this record asked for.
 
-**Still open, and it is #110.** The enforcement hook answers `ask`, not `deny`
-(`permission-hooks.ts:73-88`). An off-posture tool therefore still parks a card
-rather than failing closed, which in a voice turn is a card nobody can answer.
-This is the whole of what #110 now is — the earlier framing of it, "declare a
-turn has no grant surface", partly shipped in #141.
+**Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
+(`permission-hooks.ts:79-94`) — that is what beats the runtime's own shortcuts
+below, and replacing it would reopen all three. What changed is the decision the
+`ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
+backends then refuse the request in the shared
+`requestToolPermission` (`packages/ui-sdk/src/server/permission-gate.ts`)
+instead of handing it to the bridge, with a message that names the tool and is
+written to be read aloud. It covers both request kinds because that one call is
+where both pass through, and the refusal is reported on the activity side
+channel so the record shows a denied span rather than a call that errored.
 
 **Found since, and the reason the `ask` carries the load.** Withholding this
 codebase's own shortcuts was never sufficient: the runtime has permission
@@ -564,24 +578,25 @@ primitive, and against the intuition the record started from. "Take it off the
 allowlist and `canUseTool` will catch it" was false in five ways, not one —
 and, as U15 saw first, none of them exists for a tool that was never registered.
 
-**A tool the posture cannot exclude at all.** `request_image_mask` is appended
-to the turn's allowlist after the profile's list, gated only on whether the
-bridge offers the handler (`packages/ui-backend-claude/src/sdk-options.ts:43,53`),
-and that same array is what enforcement is evaluated against (`:104`). So under
-`enforceAllowedTools` the mask tool is *inside* the enforced allowlist whatever
-the voice posture declares, and the model can open an editor a listener cannot
-see — then block on a painted region that will never arrive. Nothing is granted
-that the deployment did not configure, so this is not a grant hole; it is a
-third instance of the shape named twice already in this record, an exclusion
-that is a statement of intent rather than enforcement. It widens #110: a turn
-that declares an enforced posture has to filter the bridge-tool append against
-it, or suppress the capabilities that need eyes. Under availability control it
-does not arise, because the tool is simply not registered.
+**A tool the posture could not exclude at all, closed with #110.**
+`request_image_mask` is appended to the turn's allowlist after the profile's
+list, gated only on whether the bridge offers the handler
+(`packages/ui-backend-claude/src/sdk-options.ts`), and that same array is what
+enforcement is evaluated against. So the mask tool was *inside* the enforced
+allowlist whatever the voice posture declared, and the model could open an
+editor a listener cannot see — then block on a painted region that would never
+arrive. Nothing was granted that the deployment did not configure, so it was
+never a grant hole; it was a third instance of the shape named twice already in
+this record, an exclusion that is a statement of intent rather than
+enforcement. It is fixed as the record asked — the capability that needs eyes
+is suppressed for a turn that declared it has none, rather than the whole
+bridge-tool append being filtered — so the four tools that ask nothing of a
+viewer are unaffected. Under availability control it would not have arisen,
+because the tool is simply not registered.
 
-Until #110 lands, a narrower allowlist is a statement of intent — the same shape
-as the archive boundary above. This architecture has now produced that shape
-three times, which is the argument for fixing it at the mechanism rather than
-one exclusion at a time.
+This architecture produced the "exclusion that is a statement of intent" shape
+three times before it was fixed at the mechanism, which is the argument for
+fixing it there rather than one exclusion at a time.
 
 **The fail-closed rule has to cover both request kinds, and the `command` one is
 the one that matters.** Removing `Bash` from the allowlist does not route a

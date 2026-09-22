@@ -113,6 +113,26 @@ describe("tool_call permission gate", () => {
     expect(res).toBeUndefined();
   });
 
+  test("a turn with no grant surface blocks without asking, for either kind", async () => {
+    // The declaration is honoured on both shipped backends, or it is a
+    // statement of intent on whichever one ignores it (#110).
+    for (const call of [
+      { toolName: "bash", toolCallId: "no-surface-command", input: { command: "rm -rf notes" } },
+      { toolName: "some_mcp_tool", toolCallId: "no-surface-tool", input: {} },
+    ]) {
+      const turn = createTurnContext();
+      const mock = makeMockBridge({ decision: { behavior: "allow" } });
+      turn.bridge = mock.bridge;
+      turn.noGrantSurface = true;
+      const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+      const res = await handler(call);
+      expect(res?.block).toBe(true);
+      expect(res?.reason).toContain(call.toolName);
+      expect(mock.permissionCalls).toHaveLength(0);
+    }
+  });
+
   test("gated call asks, denial blocks with the host's message", async () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "user said no" } });

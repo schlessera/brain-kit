@@ -186,6 +186,22 @@ export type BackendActivityEvent =
       toolUseId: string;
       role: "assistant" | "user";
       text: string;
+    }
+  | {
+      /**
+       * The backend refused a permission request instead of putting it to the
+       * bridge (`noGrantSurface`). The host records a user's denial as the
+       * card is answered, inside `requestPermission`; this one never gets
+       * there, so it is reported here rather than left to close as the
+       * backend's own error tool result.
+       */
+      kind: "permission_denied";
+      /** The tool call the refusal belongs to. */
+      toolUseId: string;
+      /** The request that would have been raised, had anyone been able to answer it. */
+      requestKind: "tool" | "command";
+      /** Why, in the words the model was given. */
+      reason: string;
     };
 
 export interface StartTurnRequest {
@@ -234,6 +250,28 @@ export interface StartTurnRequest {
    * @experimental
    */
   enforceAllowedTools?: boolean;
+  /**
+   * This turn has NO surface that could grant a permission request: nobody is
+   * looking at an approval card and nothing else can answer one. A backend
+   * that honours it resolves such a request `{ behavior: "deny", message }`
+   * itself, naming the tool, instead of putting it to the bridge — a card
+   * raised here is a card nobody can answer, and it parks until the turn
+   * budget expires. A capability that needs a human surface is withheld from
+   * the turn for the same reason, rather than offered and then blocked on.
+   *
+   * Distinct from `enforceAllowedTools`, and normally declared WITH it: a turn
+   * may enforce its allowlist and still have a human able to answer a card,
+   * and it is enforcement that makes the decision happen here at all rather
+   * than be skipped by one of the runtime's own shortcuts.
+   *
+   * Absent or false (the default) every existing deployment behaves exactly as
+   * it always has. A backend that does not understand the field ignores it,
+   * which is why a posture with no grant surface must also verify its backend
+   * honours it.
+   *
+   * @experimental
+   */
+  noGrantSurface?: boolean;
 }
 
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */

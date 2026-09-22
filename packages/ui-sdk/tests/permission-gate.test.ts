@@ -78,6 +78,78 @@ describe("shared permission gate", () => {
     });
   });
 
+  test("fails closed for a turn with no grant surface, and never asks", async () => {
+    // The refusal belongs here rather than in either binding: both request
+    // kinds come through this one call, and a rule that lands only in the
+    // Claude backend's canUseTool misses the command path entirely.
+    const asked: string[] = [];
+    const reported: unknown[] = [];
+    const bridge = {
+      requestPermission: async (req: { toolName: string }) => {
+        asked.push(req.toolName);
+        return { behavior: "allow" } as const;
+      },
+      activity: (event: unknown) => reported.push(event),
+    };
+
+    for (const kind of ["tool", "command"] as const) {
+      const request = {
+        toolUseId: `t-${kind}`,
+        toolName: "Bash",
+        input: { command: "rm -rf notes" },
+        description: "reason",
+        kind,
+      };
+      const decision = await requestToolPermission(bridge, request, {
+        noGrantSurface: true,
+      });
+      expect(decision.behavior).toBe("deny");
+      // Named, so the model knows which call failed and a listener hears it.
+      expect(decision.behavior === "deny" && decision.message).toContain("Bash");
+      expect(decision.behavior === "deny" && decision.message.trimEnd().endsWith(".")).toBe(
+        true
+      );
+    }
+
+    // Nothing was put to the host, so no card was parked anywhere.
+    expect(asked).toEqual([]);
+    expect(reported).toEqual([
+      {
+        kind: "permission_denied",
+        toolUseId: "t-tool",
+        requestKind: "tool",
+        reason: expect.any(String),
+      },
+      {
+        kind: "permission_denied",
+        toolUseId: "t-command",
+        requestKind: "command",
+        reason: expect.any(String),
+      },
+    ]);
+  });
+
+  test("a turn that did not declare it still reaches the bridge", async () => {
+    const asked: string[] = [];
+    const bridge = {
+      requestPermission: async (req: { toolName: string }) => {
+        asked.push(req.toolName);
+        return { behavior: "allow" } as const;
+      },
+    };
+
+    await expect(
+      requestToolPermission(bridge, {
+        toolUseId: "t3",
+        toolName: "Bash",
+        input: {},
+        description: "reason",
+        kind: "command" as const,
+      })
+    ).resolves.toEqual({ behavior: "allow" });
+    expect(asked).toEqual(["Bash"]);
+  });
+
   test("fails closed when no live bridge can approve the request", async () => {
     const request = {
       toolUseId: "t2",

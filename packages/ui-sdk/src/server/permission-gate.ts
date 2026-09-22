@@ -113,16 +113,59 @@ export function createToolPermissionRequest(
   };
 }
 
+/** @experimental */
+export interface RequestToolPermissionOptions {
+  /**
+   * The turn declared `StartTurnRequest.noGrantSurface`: no card can be
+   * answered, so the request is refused here rather than handed to a bridge
+   * that would park it until the turn budget expires.
+   */
+  noGrantSurface?: boolean;
+}
+
 /**
- * Ask the live turn bridge for approval, failing closed when there is no
- * bridge available to ask.
+ * What the model is told when a turn with no grant surface refuses a request.
+ *
+ * It names the tool, because the model has to know which call failed, and it
+ * is written to be read aloud: no payload, no punctuation a listener has to
+ * spell out, and the reason before the instruction.
+ */
+function noGrantSurfaceMessage(request: PermissionRequest): string {
+  const what =
+    request.kind === "command"
+      ? `the ${request.toolName} command it wanted to confirm`
+      : request.toolName;
+  return (
+    `This turn has no way to ask anyone for permission, so ${what} cannot be approved here and did not run. ` +
+    "Carry on with what this turn already allows, or say what you needed and why."
+  );
+}
+
+/**
+ * Ask the live turn bridge for approval, failing closed when there is nobody
+ * to ask — no bridge at all, or a turn that declared it has no grant surface.
  *
  * @experimental
  */
 export function requestToolPermission(
-  bridge: Pick<BackendBridge, "requestPermission"> | null | undefined,
-  request: PermissionRequest
+  bridge: Pick<BackendBridge, "requestPermission" | "activity"> | null | undefined,
+  request: PermissionRequest,
+  options: RequestToolPermissionOptions = {}
 ): Promise<PermissionDecision> {
+  if (options.noGrantSurface) {
+    const message = noGrantSurfaceMessage(request);
+    // Reported on the activity side channel because this decision never
+    // reaches the host's requestPermission, which is where a user's denial is
+    // recorded. Without it the span would close later as the backend's error
+    // tool result — a call that errored rather than one that was denied.
+    bridge?.activity?.({
+      kind: "permission_denied",
+      toolUseId: request.toolUseId,
+      requestKind: request.kind ?? "tool",
+      reason: message,
+    });
+    return Promise.resolve({ behavior: "deny", message });
+  }
   if (!bridge) {
     return Promise.resolve({
       behavior: "deny",

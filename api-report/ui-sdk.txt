@@ -765,6 +765,7 @@ export "./server" (./src/server/index.ts)
   type RenderFormat
   type RenderRequest
   type RequestImageMaskInput
+  type RequestToolPermissionOptions
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult

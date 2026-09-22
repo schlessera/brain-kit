@@ -20,6 +20,9 @@
  * - When the turn declared `enforceAllowedTools`, that card is marked
  *   `outsideEnforcedAllowlist` so the host decides it on its own merits
  *   instead of answering from a grant remembered under a wider posture.
+ * - When the turn declared `noGrantSurface`, no card is raised at all: there
+ *   is nothing that could answer one, so the shared gate refuses the request
+ *   and the model is told why.
  *
  * A denial returns `{ block: true, reason }`, which pi feeds back to the
  * model as an error tool result — the turn survives. An approval with
@@ -94,7 +97,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           outsideEnforcedAllowlist:
             turn.enforceAllowedTools && approval.kind === "tool",
         });
-        const decision = await requestToolPermission(turn.bridge, request);
+        const decision = await requestToolPermission(turn.bridge, request, {
+          noGrantSurface: turn.noGrantSurface,
+        });
         if (decision.behavior === "deny") {
           return {
             block: true,
