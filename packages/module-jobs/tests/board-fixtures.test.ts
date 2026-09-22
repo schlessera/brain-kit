@@ -14,6 +14,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { Window } from "happy-dom";
+
 import {
   RobotsCache,
   ScrapeClient,
@@ -22,6 +24,10 @@ import {
   type ScrapeContext,
 } from "@schlessera/brain-scrape";
 
+import { BuiltInAdapter } from "../src/adapters/builtin";
+import { DiceAdapter } from "../src/adapters/dice";
+import { NodeskAdapter } from "../src/adapters/nodesk";
+import type { BrowserJobRecord } from "../src/adapters/browser-base";
 import { RemotelyDeAdapter } from "../src/adapters/remotelyde";
 import { RemoteInEuropeAdapter } from "../src/adapters/remoteineurope";
 import { SimplyHiredAdapter } from "../src/adapters/simplyhired";
@@ -47,6 +53,39 @@ class StubClient extends ScrapeClient {
 
 function contextServing(answer: string | Error): ScrapeContext {
   return { http: new StubClient(answer), log: () => {} };
+}
+
+/**
+ * Run a browser board's page function over a fixture in a real DOM.
+ *
+ * The extractor is written to run inside Chrome and closes over nothing, so it
+ * only needs a `document` — which is why this can be a keyless test rather
+ * than a Chrome launch. What happy-dom does NOT have is layout, so `innerText`
+ * is effectively `textContent` here: an extractor that recovers a field by
+ * scanning a card's visible LINES gets different lines than Chrome would. Dice
+ * is the one that does, so its company is asserted against the live
+ * measurement and `--replay`, not here.
+ */
+function extractFrom(
+  adapter: { extract(): BrowserJobRecord[] },
+  html: string
+): BrowserJobRecord[] {
+  const window = new Window({ url: "https://example.test/" });
+  window.document.body.innerHTML = html;
+  const globals = globalThis as unknown as { document: unknown };
+  const saved = globals.document;
+  globals.document = window.document;
+  try {
+    return adapter.extract();
+  } finally {
+    globals.document = saved;
+    window.close();
+  }
+}
+
+/** The page function, reachable without constructing a browser context. */
+function pageFunctionOf<T>(cls: new (...args: never[]) => T): { extract(): BrowserJobRecord[] } {
+  return cls.prototype as unknown as { extract(): BrowserJobRecord[] };
 }
 
 /** Run an adapter over a fixture, with no network and no browser. */
@@ -196,6 +235,18 @@ describe("builtin's listing JSON-LD", () => {
 });
 
 describe("builtin's rendered card", () => {
+  test("the extractor returns no company at all (#35)", () => {
+    const records = extractFrom(
+      pageFunctionOf(BuiltInAdapter),
+      fixture("builtin", "rendered-card.html")
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0].title).toBe("Staff Software Engineer, Assets");
+    // Which BrowserAdapter.toRawJob turns into the literal "Unknown" — 35 of
+    // 35 rows in the live run, 19 of 19 cards on the captured page.
+    expect(records[0].company).toBe("");
+  });
+
   test("the anchor's own class is why closest() never reaches the card (#35)", () => {
     const $ = parseHtml(fixture("builtin", "rendered-card.html"));
     const link = $('a[href*="/job/"]').first();
@@ -210,6 +261,21 @@ describe("builtin's rendered card", () => {
 });
 
 describe("nodesk's rendered card", () => {
+  test("the extractor returns no company at all (#35)", () => {
+    const records = extractFrom(
+      pageFunctionOf(NodeskAdapter),
+      fixture("nodesk", "rendered-card.html")
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0].title).toBe("Customer Support Representative");
+    expect(records[0].href).toBe(
+      "https://nodesk.co/remote-jobs/co2lift-customer-support-representative/"
+    );
+    // The company is CO2Lift, and it is in the markup. 39 of the 103 cards on
+    // the captured page come back like this.
+    expect(records[0].company).toBe("");
+  });
+
   test("the card has no company LINK, only a company heading (#35)", () => {
     const html = fixture("nodesk", "rendered-card.html");
     const $ = parseHtml(html);
@@ -230,6 +296,20 @@ describe("nodesk's rendered card", () => {
 });
 
 describe("dice's rendered card", () => {
+  test("the extractor hands on a relative href (#129)", () => {
+    const records = extractFrom(
+      pageFunctionOf(DiceAdapter),
+      fixture("dice", "rendered-card.html")
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0].title).toBe("Radar Software Engineer");
+    // BrowserAdapter.toRawJob stores this as source_id, url AND source_url, so
+    // all 102 rows in the live run carry an unresolvable link.
+    expect(records[0].href).toBe("/job-detail/c267e627-504f-412f-b8e8-cc8a387b525d");
+    // The company is NOT asserted: it is recovered by scanning innerText
+    // lines, and happy-dom has no layout. See extractFrom's header.
+  });
+
   test("the card link is relative, and is stored unchanged (#35)", () => {
     const $ = parseHtml(fixture("dice", "rendered-card.html"));
     const link = $('a[aria-label^="View Details for"]').first();

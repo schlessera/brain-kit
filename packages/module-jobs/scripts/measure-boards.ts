@@ -63,26 +63,28 @@ const CHROME_FALLBACKS = [
 /** The queries the shipped module config defaults to, for the two query boards. */
 const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engineer"];
 
-/** An HTTP client that keeps a copy of everything it was given. */
+/**
+ * An HTTP client that keeps a copy of every response it was given.
+ *
+ * Teeing at `get` rather than at `getText`/`getJson` is deliberate: those two
+ * read the body and THEN throw on a non-2xx, so a tee above them loses exactly
+ * the responses worth keeping — jobgether's 410 and simplyhired's 403 are the
+ * measurement, not noise. A robots.txt refusal still produces nothing here,
+ * correctly: no request went out.
+ */
 class TeeingClient extends ScrapeClient {
-  readonly captures: Array<{ url: string; body: string }> = [];
+  readonly captures: Array<{ url: string; status: number; body: string }> = [];
 
-  override async getText(url: string, opts: FetchOptions = {}): Promise<string> {
-    const body = await super.getText(url, opts);
-    this.captures.push({ url, body });
-    return body;
-  }
-
-  override async getJson<T = unknown>(url: string, opts: FetchOptions = {}): Promise<T> {
-    const text = await super.getText(url, opts);
-    this.captures.push({ url, body: text });
-    return JSON.parse(text) as T;
+  override async get(url: string, opts: FetchOptions = {}): Promise<Response> {
+    const response = await super.get(url, opts);
+    this.captures.push({ url, status: response.status, body: await response.clone().text() });
+    return response;
   }
 }
 
-function safeName(url: string, index: number): string {
+function safeName(url: string, index: number, status: number): string {
   const slug = url.replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").slice(0, 80);
-  return `${String(index).padStart(2, "0")}-${slug}`;
+  return `${String(index).padStart(2, "0")}-${status}-${slug}`;
 }
 
 /** Does this look like a job title rather than navigation chrome or a slug? */
@@ -183,17 +185,24 @@ async function main() {
 
   const http = new TeeingClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
   let browser: BrowserSession | undefined;
-  let browserError: string | undefined;
+  let chromeStatus = "n/a";
   if (adapter.needsBrowser) {
+    browser = createBrowserSession({
+      browserUrl: env.chromeUrl,
+      executablePath: env.chromePath,
+      noSandbox: env.noSandbox,
+      userAgent: env.userAgent,
+    });
+    // `createBrowserSession` launches LAZILY and never throws at construction,
+    // so a try/catch around it reports nothing — the same dead branch this
+    // measurement found in src/scrape.ts. Probe instead, on about:blank, which
+    // needs no network.
     try {
-      browser = createBrowserSession({
-        browserUrl: env.chromeUrl,
-        executablePath: env.chromePath,
-        noSandbox: env.noSandbox,
-        userAgent: env.userAgent,
-      });
+      await browser.load({ url: "about:blank", extract: () => true });
+      chromeStatus = "launched";
     } catch (e) {
-      browserError = `${(e as Error).message}`;
+      chromeStatus = `unavailable: ${(e as Error).message}`;
+      browser = undefined;
     }
   }
 
@@ -213,7 +222,7 @@ async function main() {
 
   // The rendered DOM is what a browser board's extractor actually saw; the
   // HTTP captures above are empty for those boards by construction.
-  const renderedPages: Array<{ url: string; body: string }> = [];
+  const renderedPages: Array<{ url: string; status: number; body: string }> = [];
   if (browser) {
     for (const url of (adapter as unknown as { urls(o: unknown): string[] }).urls({
       queries: DEFAULT_QUERIES,
@@ -224,7 +233,7 @@ async function main() {
           settleMs: 2000,
           extract: () => document.documentElement.outerHTML,
         });
-        renderedPages.push({ url, body: html });
+        renderedPages.push({ url, status: 200, body: html });
       } catch (e) {
         errors.push(`rendered capture ${url}: ${e}`);
       }
@@ -233,7 +242,7 @@ async function main() {
   await browser?.close();
 
   for (const [i, capture] of [...http.captures, ...renderedPages].entries()) {
-    writeFileSync(join(outDir, "raw", `${safeName(capture.url, i)}.txt`), capture.body);
+    writeFileSync(join(outDir, "raw", `${safeName(capture.url, i, capture.status)}.txt`), capture.body);
   }
 
   // Stored, not just found: `ingestJobs` drops a row with no source_id, title
@@ -253,7 +262,7 @@ async function main() {
       captured_at_utc: startedAt,
       egress_country: egressCountry ?? "unrecorded",
       user_agent: env.userAgent,
-      chrome: adapter.needsBrowser ? (browserError ? `unavailable: ${browserError}` : "launched") : "n/a",
+      chrome: chromeStatus,
     },
     duration_ms: durationMs,
     found: jobs.length,
@@ -264,7 +273,7 @@ async function main() {
       companies_ok: stored.filter((r) => companyLooksReal(r.company, r.title)).length,
       descriptions_present: stored.filter((r) => (r.description_text ?? "").trim().length > 0).length,
     },
-    urls_fetched: http.captures.map((c) => c.url),
+    urls_fetched: http.captures.map((c) => ({ url: c.url, status: c.status })),
     rendered_pages: renderedPages.map((p) => p.url),
     sample,
   };

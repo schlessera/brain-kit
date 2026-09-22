@@ -37,8 +37,10 @@ between a reproducible result and an anecdote.
 bun packages/module-jobs/scripts/measure-boards.ts <source> <out-dir> <country>
 ```
 
-One board per run. It needs the network, so **no test may call it** — the
-fixtures here are what tests use.
+One board per run. It writes every response it saw to `raw/`, named with its
+HTTP status, so a 410 or a 403 is kept rather than thrown away with the
+exception. It needs the network, so **no test may call it** — the fixtures here
+are what tests use.
 
 To run a browser board's page extractor against a capture instead, with no
 network at all:
