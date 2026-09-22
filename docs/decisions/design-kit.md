@@ -2757,6 +2757,22 @@ like `askUser`, `location`, `activity` and `mask` on the lines above it. So
 every pi number was measured with the brief present. The 77%/77% and 76%/77%
 cells are one backend measured twice, not two backends agreeing.
 
+**A consequence for the brief that only exists because of this decision.**
+Deferred, `show_block`'s *description* was not in the prompt either — it
+arrived with the tool when a search fetched it — which is why D43 found the
+brief was the only enumeration of the eleven kinds the model could see without
+searching. Always-loading puts the description in every prompt, and the
+description names all eleven kinds too: 11 of 11, with nothing in the brief's
+enumeration that the description omits (2107 characters against the brief's
+749). D41's decision 6 divides them — *"The brief says WHEN, the description
+says HOW"* — and the brief does not honour it, enumerating all eleven with a
+clause each. Under deferral that duplication was load-bearing. Under this
+decision it is duplication, and the eleven kind names now ride every turn
+twice. That is not a reason to cut anything here — nothing has been measured
+against it, and the kind names are the one part of the brief whose removal a
+rate metric could not detect — but it is a fact this decision created and #157
+is where it is priced.
+
 **What this changes in D43.** Its decision — the brief stays — stands, and its
 measurement is the evidence this entry rests on; the deferral finding is D43's,
 not this one's. What this supersedes is its *reason*. D43 kept the brief
