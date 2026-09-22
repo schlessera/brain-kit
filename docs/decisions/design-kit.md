@@ -2199,100 +2199,122 @@ which is the kit's decision. Whether the pass should also run over the
 share PNG's source.
 
 
-## 2026-09-22 — measured: the `show_block` rate is a property of the backend
+## 2026-09-22 — measured: pi draws the block, so the net never gets cast
 
 **Question.** D41 left the tool's use rate to be measured and D42 measured
 the classification pass once. Both numbers are the Claude backend's, because
 the test deployment configures no other, and D43 has since replaced the
-first of them with a 108-turn A/B. The pi backend has never had a number at
-all. The two backends hand a tool to a model differently enough — pi builds
-it as one of its own `ToolDefinition`s in process
-(`packages/ui-backend-pi/src/bridge-tools.ts:171`), Claude hands it to the
-Agent SDK's `tool()` and inherits the SDK's permission path
-(`packages/ui-backend-claude/src/show-block-tool.ts:23`) — that the gap was
-worth a measurement rather than an assumption.
+first with a 108-turn A/B. The pi backend had never had a number at all, and
+the two backends hand a tool to a model differently enough that the gap was
+worth measuring rather than assuming.
 
 **Method.** `scripts/measure-show-block-server.ts`, a companion to D43's
 harness rather than a copy of it: that one drives the Agent SDK directly,
 which is what an A/B over the brief needs and what pi has no equivalent of,
 while this one boots a real ui-server on loopback and drives it with the
 shipped client over a real socket, so any backend can be put through the
-same measurement. Thirty-two live turns on 2026-09-22, `claude-sonnet-5`
-through pi's builtin Anthropic provider, against a copy of
-`packages/core/fixtures/corpus/`, $1.21 of API spend. D43's counting rules
-are carried over — a call counts only when the handler accepted its payload,
-subagent frames are skipped, a turn that did not complete is excluded — and
-one is added: a turn whose shell named a path outside the brain answered
-about something else and is excluded too. Two did. Thirty turns counted.
+same measurement. Two runs of the same 32 turns on 2026-09-22,
+`claude-sonnet-5` through pi's builtin Anthropic provider, against a copy of
+`packages/core/fixtures/corpus/`: the first with the classification pass
+off, the second with it on, 18:29:13Z to 18:44:35Z. $2.18 of API spend.
+D43's counting rules are carried over — a call counts only when the handler
+accepted its payload, subagent frames are skipped, a turn that did not
+complete is excluded — and one is added: a turn whose tool arguments named a
+path outside the brain answered about a different brain and is excluded too.
+Two of each 32 were. Thirty turns counted per run.
 
 The environment can redirect a turn without showing up in a number — a
 different endpoint, a different credential store, a different binary — so
-what was set is part of the measurement. On this run: `ANTHROPIC_API_KEY`
-only. `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH`,
-`PI_CODING_AGENT_DIR` and `TYPESAFE_API_KEY` were all unset, so the turns
-went to Anthropic's own endpoint with pi's default agent directory and the
-classification pass was off. The harness records that set of presences with
-every run it writes from now on, and `--report` prints it.
+what was set is part of the measurement. Both runs: `ANTHROPIC_API_KEY`, and
+`TYPESAFE_API_KEY` on the second. `ANTHROPIC_BASE_URL`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH` and `PI_CODING_AGENT_DIR` were
+unset, so the turns went to Anthropic's own endpoint with pi's default agent
+directory. The harness records that set of presences with every run and
+`--report` prints it.
 
-**Numbers.** Beside D43's brief arm, which is the same four prompts, the
-same model and the same corpus, measured at the SDK instead of at the
-socket. D43 is on PR #121 and unmerged as this is written, so the Claude
-column is quoted from that branch rather than from this file.
+**pi has no deferral, so this is the always-loaded regime.**
+`packages/ui-backend-pi/src/bridge-tools.ts:171` registers `show_block` as
+one of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever
+defers a name that arrived through a tool-result's `addedToolNames` and has
+not been called since — a statically registered tool can never be deferred.
+Across all 64 turns the complete roster the model reached for was `bash`,
+`show_block`, `brain_read`, `grep`, `brain_search`, `read_file`,
+`brain_list`, `brain_graph`: no search-then-load round trip, ever. The brief
+is in the prompt on every turn unconditionally
+(`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a
+capability check like the four bridge tools beside it). So pi is the
+structural twin of D43's `--always-load` arm and has never run any other
+configuration.
 
-| prompt | Claude (D43, brief) | pi |
-| --- | --- | --- |
-| `compare-short` — "…Keep it short." | 0 / 6 | **6 / 6** |
-| `compare-long` — the same without it | 6 / 6 | 6 / 6 |
-| `trend` | 6 / 6 | 4 / 4 |
-| `contact` | 0 / 6 | **3 / 6** |
-| overall, brief arm | 30 / 54 (56%) | **27 / 30 (90%)** |
+**The rate.** Each cell is turns that drew at least one accepted block.
 
-The four prompts pi was additionally run on — steps, schedule, quote and a
-project summary — drew a block on all eight turns, as `steps`, `timeline`,
-`quote` and `receipt`. Across all thirty counted turns the model typed
-**zero markdown tables** and the handler rejected **zero** payloads. An
-earlier pass of the same eight prompts on `claude-sonnet-4-6` drew a block
-on 21 of 23 turns — counted before the exclusion rules existed, so it is a
-corroboration and not a second measurement — and the rate is therefore not
-one model's habit.
+| prompt | expected kind | run 1 | run 2 | pooled | right kind |
+| --- | --- | --- | --- | --- | --- |
+| `compare-short` — "…Keep it short." | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `compare-long` — the same without it | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `trend` | `trend` | 4/4 | 4/4 | **8/8** | 8/8 |
+| `contact` | `contact` | 3/6 | 2/6 | **5/12** | 5/5 |
+| `steps` | `steps` | 2/2 | 2/2 | **4/4** | 4/4 |
+| `schedule` | `schedule` | 2/2 | 2/2 | **4/4** | **0/4** |
+| `quote` | `quote` | 2/2 | 1/2 | **3/4** | 3/3 |
+| project summary | — | 2/2 | 2/2 | **4/4** | not scored |
+| overall | | 27/30 | 25/30 | **52/60 (87%)** | **44/48** |
 
-**What it means.** Two of D43's findings are the Claude backend's, not the
-tool's — with the method difference standing: the two harnesses agree on
-`compare-long` and on `trend`, which is what makes the disagreement on the
-other two a backend difference rather than a measurement one, but only a
-Claude run on this harness settles it. That is #137.
+Pooling the two runs is legitimate for this number: the classification pass
+runs after the result frame and cannot change what the model did during the
+turn. Across all sixty turns the model typed **zero markdown tables**. Two
+calls were rejected by the handler, both `comparison`, both on a turn that
+retried and succeeded — the same shape D43 saw at three in 108, and the
+reason a call is not counted until its payload parses.
 
-- **"Keep it short" does not suppress the tool; it suppresses it on
-  Claude.** D43 measures that prompt at 0 of 6 in both arms and reads it as
-  the reader asking for prose. pi calls the tool on every one of six runs of
-  the identical sentence, with the identical brief. Whether a block is the
-  short answer is still the product question #120 states — but it is not a
-  question the model has already answered, because on the other backend it
-  answers the other way.
-- **`contact` is reachable.** D43 measures 0 of 6 in both arms and #119 asks
-  whether the kind is worth keeping. pi drew it on three of six runs of the
-  same prompt. The three that did not answered in prose, as D43 describes,
-  so the kind is not unreachable — it is marginal, on both backends, and
-  further down on one of them.
+Beside D43, on one axis:
 
-D43's central decision is untouched: the brief is what makes the difference
-between a tool being called and not, and nothing here is an argument for
-retiring it. What moves is the denominator the brief is judged against. The
-lift D43 measured — 56% against 0% — is measured on the backend that reaches
-for the tool least.
+| configuration | rate |
+| --- | --- |
+| Claude, behind tool search — what ships, with brief | 23 / 43 (53%) |
+| Claude, behind tool search, no brief | 1 / 47 (2%) |
+| Claude, `--always-load`, either arm | 17 / 22 (77%) |
+| pi, always loaded by construction | **52 / 60 (87%)** |
 
-**The classification pass is only half measured.** It calls Jev and needs
-`TYPESAFE_API_KEY`; there is none in this environment and an unauthenticated
-POST to the endpoint answers 403, so no swap, latency or confidence was
-produced and none was guessed. What needs no key is `planClassification`,
-the deterministic walk that decides what counts as a candidate, and it is
-the only half of the pass that depends on which backend wrote the answer.
-Over the thirty counted pi answers it found **two candidates, both
-`kv_run`, in two answers; the other twenty-eight had none** — so the pass
-would have skipped 93% of these turns before making a call. That is the
-mirror image of D43's no-brief arm, where 68% of turns left a candidate: pi
-leaves nothing to classify because it draws the block itself. The live
-half is #138.
+**pi does not contradict D43; it replicates D43's always-loaded arm on a
+different backend.** What is not accounted for is the remaining height, 87%
+against 77%, on 60 turns against 22. Three things could explain it and none
+is measured: the layer (D43 drives the SDK, this drives the whole server,
+and no backend has been measured at both), the roster the block competes in
+(D43 records that narrowing it moves the absolute rate, and pi's roster here
+carried four brain tools), or the backend itself. That is #137.
+
+**Which kind, not just whether.** Every measurement before this one scored
+whether a block was drawn and never which one, so a model reaching for the
+wrong kind scored as a success. Scoring against the kind the brief itself
+prescribes — clause by clause from `SHOW_BLOCK_CONTRACT.brief`, with the
+project-summary prompt left unscored because the brief prescribes nothing
+single for it — gives **44 of 48**, and every miss is the same miss: asked
+what is coming up over the next few weeks, pi drew a `timeline` rather than
+the `schedule` the brief names for "what is coming", 4 times out of 4. A
+kind can be reachable and still be reached for the wrong question, and no
+rate measures that.
+
+**The classification pass, live.** Thirty-two turns with the pass enabled
+against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
+1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
+breaker never opened.** The one swap drew a `receipt` from a key-value run
+in the trail-signage answer. Latency sits in the 700–800 ms band D42
+measured on the Claude side.
+
+The shape of the difference is not the classifier; it is that pi hardly ever
+leaves it anything. D42's Claude measurement was eight turns, three swaps,
+five with no candidate — 3 of 8 answers carried a candidate. Here **1 of 30
+did**, and D43's no-brief arm, where the tool is invisible and the model
+types markdown instead, carries one on 62% of turns. **pi draws the block
+itself, so the net is cast over an empty deck.**
+
+Put the other way round, so the absence is not the only evidence: sending
+every recorded pi answer that *does* carry a candidate through the real
+classifier (`--classify`, same client, same 2 s budget) answered both of
+them, at 716 ms and 259 ms — one drew a `receipt` at 0.96 confidence, one
+cleared nothing and kept its markdown. The pass behaves the same against
+pi-authored markdown as against Claude's. There is just almost none of it.
 
 **Trap, recorded.** The brain the harness points at must live outside any
 checkout of this repo. The agent's cwd is the brain, and a brain nested in
@@ -2300,9 +2322,21 @@ the worktree lets the model walk up into it: on the first attempt two pi
 answers compared Bun and Node by quoting this repo's own `AGENTS.md`. The
 shell is not confined to the brain either — the deployment container is that
 boundary (`container-privilege.md`) and a developer host does not have one —
-so the harness now records when a tool argument names a path outside the
-brain and drops that turn from the rate. A Claude-backend control on this
-harness was attempted and abandoned for the same reason from the other
-direction: the Agent SDK picks up the host's own project context, so the
-control answered about this repository rather than about the brain, which
-measures the host and not the backend. That control is #137.
+so the harness records when a tool argument names a path outside the brain
+and drops that turn from the rate. Four turns across the two runs were
+dropped that way, and **all four were the `trend` prompt** — the one that
+sends the model counting notes, so it is the one that goes looking. Three
+plainly answered about a different brain (one reported 1,953 files, against
+this corpus's 25). The fourth answered from the corpus and was dropped
+anyway, because it named a path outside it: the rule is deliberately the
+conservative one, since an over-eager exclusion shrinks a printed
+denominator while an under-eager one quietly corrupts a rate. It is why the
+`trend` row reads 4 of 4 rather than 6 of 6 in both runs.
+
+A Claude-backend control on this harness is still owed and is #137's. Two of
+its three blockers now have known fixes: keep the brain outside any
+checkout, and point `CLAUDE_CONFIG_DIR` at an empty directory, which stops
+the Agent SDK answering about this repository instead of about the brain.
+The third is open — in the probe turn no brain MCP tool came up at all,
+where pi had four, and a control whose roster is missing them is not
+comparable.
