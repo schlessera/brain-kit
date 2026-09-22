@@ -83,11 +83,18 @@ const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engi
  * correctly: no request went out.
  */
 class TeeingClient extends ScrapeClient {
-  readonly captures: Array<{ url: string; status: number; body: string }> = [];
+  readonly captures: Array<{ url: string; status: number; finalUrl?: string; body: string }> = [];
 
   override async get(url: string, opts: FetchOptions = {}): Promise<Response> {
     const response = await super.get(url, opts);
-    this.captures.push({ url, status: response.status, body: await response.clone().text() });
+    this.captures.push({
+      url,
+      status: response.status,
+      // `fetch` follows redirects, so this is where a board that has moved
+      // shows itself: remoteineurope.com answers for weworkremotely.com.
+      finalUrl: response.url && response.url !== url ? response.url : undefined,
+      body: await response.clone().text(),
+    });
     return response;
   }
 }
@@ -139,16 +146,38 @@ function companyVsUrl(
       split.unknown++;
       continue;
     }
-    const path = row.url ? new URL(row.url, "https://example.invalid").pathname : "";
-    const slug = slugify(path);
-    if (!slug || /^[-0-9a-f]{16,}$/.test(path.split("/").pop() ?? "")) {
+    const company = slugify(row.company);
+    // The last segment is the posting's own slug. Matching anywhere in the
+    // whole path counts a company that merely appears in the TITLE as
+    // verified — "Stripe" in "integrations engineer stripe" — and short names
+    // match almost anything. These boards build the slug as
+    // `<company>-<title>`, so the prefix is the check.
+    const posting = lastPathSegment(row.url);
+    if (!company || !posting || isOpaqueId(posting)) {
       split.not_applicable++;
       continue;
     }
-    if (slug.includes(slugify(row.company))) split.matched++;
+    if (posting.startsWith(`${company}-`) || posting === company) split.matched++;
     else split.other++;
   }
   return split;
+}
+
+/** Trailing slash tolerated; an unparseable URL yields "". */
+function lastPathSegment(url: string | null): string {
+  if (!url) return "";
+  let path: string;
+  try {
+    path = new URL(url, "https://example.invalid").pathname;
+  } catch {
+    return "";
+  }
+  return slugify(path.split("/").filter(Boolean).pop() ?? "");
+}
+
+/** A guid or a hash, which no company name will ever agree with. */
+function isOpaqueId(segment: string): boolean {
+  return /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(segment) || /^[0-9a-f]{16,}$/.test(segment);
 }
 
 function companyLooksReal(company: string, title: string): boolean {
@@ -210,7 +239,7 @@ function sortedKeys(_key: string, value: unknown): unknown {
 function browserLauncher(options: {
   offline?: boolean;
   scripts?: boolean;
-  onMainFrameStatus?: (url: string, status: number) => void;
+  onMainFrameResponse?: (url: string, status: number) => void;
 }): () => Promise<unknown> {
   const env = resolveEnv();
   if (options.offline && env.chromeUrl) {
@@ -245,12 +274,25 @@ function browserLauncher(options: {
     browser.newPage = async () => {
       const page = await newPage();
       if (options.scripts === false) await page.setJavaScriptEnabled(false);
-      if (options.onMainFrameStatus) {
-        page.on("response", (response: { url(): string; status(): number; frame(): unknown }) => {
-          if (response.frame() === page.mainFrame()) {
-            options.onMainFrameStatus?.(response.url(), response.status());
+      if (options.onMainFrameResponse) {
+        // NAVIGATION responses only. `response.frame()` is the main frame for
+        // every stylesheet, script and analytics beacon the page fires too, so
+        // filtering on the frame alone yields the whole request log and its
+        // last entry is whatever XHR happened to finish last. What is wanted
+        // is the document: the redirect hops in order, then the page itself.
+        page.on(
+          "response",
+          (response: {
+            url(): string;
+            status(): number;
+            frame(): unknown;
+            request(): { isNavigationRequest(): boolean };
+          }) => {
+            if (response.frame() !== page.mainFrame()) return;
+            if (!response.request().isNavigationRequest()) return;
+            options.onMainFrameResponse?.(response.url(), response.status());
           }
-        });
+        );
       }
       return page;
     };
@@ -346,8 +388,9 @@ async function main() {
   const http = new TeeingClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
   let browser: BrowserSession | undefined;
   let chromeStatus = "n/a";
-  // What the site actually answered, per URL, as observed on the wire.
-  const observedStatus = new Map<string, number>();
+  // Every main-frame response of the page currently loading, in order. The
+  // session is held to one page at a time below so this cannot interleave.
+  let mainFrameChain: Array<{ url: string; status: number }> = [];
   if (adapter.needsBrowser) {
     browser = createBrowserSession({
       userAgent: env.userAgent,
@@ -356,8 +399,10 @@ async function main() {
       // launched the browser and closes an attached one out from under whoever
       // else is using it.
       browserUrl: env.chromeUrl,
+      // One page at a time, so the response chain below belongs to one load.
+      concurrency: 1,
       launch: browserLauncher({
-        onMainFrameStatus: (url, status) => observedStatus.set(url, status),
+        onMainFrameResponse: (url, status) => mainFrameChain.push({ url, status }),
       }),
     });
     // `createBrowserSession` launches LAZILY and never throws at construction,
@@ -389,22 +434,35 @@ async function main() {
 
   // The rendered DOM is what a browser board's extractor actually saw; the
   // HTTP captures above are empty for those boards by construction.
-  const renderedPages: Array<{ url: string; status: number; body: string }> = [];
+  const renderedPages: Array<{
+    url: string;
+    status: number;
+    body: string;
+    redirects: Array<{ url: string; status: number }>;
+  }> = [];
   if (browser) {
     for (const url of (adapter as unknown as { urls(o: unknown): string[] }).urls({
       queries: DEFAULT_QUERIES,
     })) {
       try {
+        mainFrameChain = [];
         const html = await browser.load<string>({
           url,
           settleMs: 2000,
           extract: () => document.documentElement.outerHTML,
         });
         // Not assumed. `browser.load` resolves on a 403 or a challenge page
-        // exactly as it does on a 200, so the status comes from the response
-        // hook, and a capture whose status was never seen says 0 rather than
-        // wearing a number nobody observed.
-        renderedPages.push({ url, status: observedStatus.get(url) ?? 0, body: html });
+        // exactly as it does on a 200, so the status is the LAST main-frame
+        // response of this load — the end of any redirect chain, not its
+        // first hop — and a capture whose status was never seen says 0 rather
+        // than wearing a number nobody observed.
+        const chain = [...mainFrameChain];
+        renderedPages.push({
+          url,
+          status: chain.at(-1)?.status ?? 0,
+          body: html,
+          redirects: chain.slice(0, -1),
+        });
       } catch (e) {
         errors.push(`rendered capture ${url}: ${e}`);
       }
@@ -471,8 +529,18 @@ async function main() {
     // `distinct_fingerprints` is a genuine repost, not a bug.
     distinct_source_ids: new Set(stored.map((r) => r.source_id)).size,
     distinct_fingerprints: new Set(stored.map((r) => r.fingerprint)).size,
-    urls_fetched: http.captures.map((c) => ({ url: c.url, status: c.status })),
-    rendered_pages: renderedPages.map((p) => p.url),
+    urls_fetched: http.captures.map((c) => ({
+      url: c.url,
+      status: c.status,
+      ...(c.finalUrl ? { final_url: c.finalUrl } : {}),
+    })),
+    rendered_pages: renderedPages.map((p) => ({
+      url: p.url,
+      status: p.status,
+      // Empty unless the board sent us somewhere else on the way, which is
+      // how remoteineurope's disappearance would have shown up here.
+      redirects: p.redirects,
+    })),
     sample,
   };
 

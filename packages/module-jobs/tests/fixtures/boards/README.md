@@ -179,9 +179,14 @@ somewhere else. Boards whose job URLs are opaque ids report `not_applicable` —
 dice returns 92 of them, so its "92/102" is the shape check and not a
 verification.
 
-Re-running the harness gives a different day's numbers: nodesk answered 26/18/7
-on 2026-09-22 and 29/15/7 four hours later. The method reproduces; the board
-does not hold still.
+The company slug is matched as the PREFIX of the posting's own slug, not
+anywhere in the path: these boards build the URL as `<company>-<title>`, so a
+match anywhere counts a company that merely appears in the title, and a short
+name matches almost anything. On nodesk that difference was one row.
+
+Re-running gives a different day's numbers: nodesk answered 26/18/7 on
+2026-09-22 and 28/15/8 four hours later. The method reproduces; the board does
+not hold still.
 
 ## The four cross-cutting claims
 

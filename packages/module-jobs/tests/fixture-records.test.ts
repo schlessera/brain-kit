@@ -86,6 +86,16 @@ describe("trimmed JSON-LD fixtures", () => {
 });
 
 describe("board capture records", () => {
+  test("some fixture is a whole response, so that check is not dead", () => {
+    // The check above `continue`s past an excerpt, which is nine of the ten
+    // captures. If the tenth ever stops being a complete response the check
+    // becomes unreachable and reads as coverage it is not providing.
+    const whole = boardDirs()
+      .flatMap(capturesOf)
+      .filter((c) => c.full_response_bytes !== null && c.excerpt_bytes === c.full_response_bytes);
+    expect(whole.length).toBeGreaterThan(0);
+  });
+
   test("there is at least one board, and each has a record", () => {
     const boards = boardDirs();
     expect(boards.length).toBeGreaterThan(0);
