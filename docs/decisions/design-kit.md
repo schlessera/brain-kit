@@ -2321,7 +2321,7 @@ default configuration on the left:
 
 | `show_block` in the prompt? | brief | no-brief |
 | --- | --- | --- |
-| behind tool search — what ships | 23 of 43 (53%) | **1 of 47 (2%)** |
+| behind tool search — what shipped when this was measured | 23 of 43 (53%) | **1 of 47 (2%)** |
 | always loaded | 17 of 22 (77%) | **17 of 22 (77%)** |
 
 The two rows are a harness generation apart and it shows in the denominators:
@@ -2372,7 +2372,10 @@ rules out the pass contaminating a turn rather than establishing that two runs
 sample the same thing), and on the two prompts this record measured at zero — "Compare Bun and
 Node.js … keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
 pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
-different run and not the one above.)
+different run and not the one above.) **No pi turn was run or re-scored for
+this entry.** Every pi number here was reconciled against #137's own per-run
+table for arithmetic and provenance before being repeated, which is a weaker
+claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
@@ -2385,7 +2388,8 @@ block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
 one backend measured twice, not two backends agreeing. It is also not the
-Claude backend's shipping configuration, and `--always-load` is the controlled
+Claude backend's configuration as this entry measured it, and `--always-load`
+is the controlled
 version of the same comparison: it flips deferral alone, on one backend, one
 model, one host. Flipped, this backend also calls on `compare-short` — 3 of 3
 in both arms, against 0 to 6 of 6 depending on the run when deferred — and also
@@ -2426,7 +2430,8 @@ by it, now on 60 pi turns against 47–48, which is better powered than the
 comparison #137 was filed with and did not close.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
-configuration that ships today, it is
+configuration this entry measured — tools deferred behind tool search, which
+#148 changes the same day — it is
 not encouragement to use a tool the model can already see; it is the only thing
 that tells the model the tool exists. Retiring it does not lower the rate from
 59% to something smaller — it takes the rate to the noise floor and makes three
