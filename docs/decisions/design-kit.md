@@ -2217,7 +2217,8 @@ API spend. The arms differ in exactly one thing — `buildSystemPromptAppend`'s
 registered, allowed and byte-identically described in both, so the `no-brief`
 arm is precisely the "retire the brief, keep the tool" shape. Production's own
 `createAgentHook()` is registered, so the 18 turns that delegated behaved the
-way they do there rather than losing a backgrounded subagent at turn end.
+way they do there rather than losing a backgrounded subagent at turn end;
+18 of the completed turns delegated, 24 of all 108.
 
 Four rules decide what counts, and each of them changed a number:
 
@@ -2249,7 +2250,10 @@ Named divergence from production: `disallowedTools` withholds `Bash`, `Edit`,
 real host; `Edit`/`Write` because every turn shares one staged brain, so a
 mutation would leak into every later turn in both arms; the two network tools
 because a live search is neither reproducible nor free. It is identical in both
-arms, so it cannot move the contrast — only where both arms sit.
+arms, so it cannot move the contrast — only where both arms sit. Checked
+afterwards: every staged brain still matches the fixture corpus byte for byte,
+except for an empty `.claude/` the CLI creates beside it, so no turn changed
+what a later turn read.
 
 **Numbers.** 102 completed turns of 108.
 
@@ -2274,7 +2278,8 @@ reluctance. The SDK **defers an MCP server's tools behind tool search by
 default** — they are not in the model's context at all until it runs
 `ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:104` does
 not pass `alwaysLoad`, so this is production's behaviour and the harness
-inherits it. Over two runs of the corrected harness, 216 turns:
+inherits it. Over two runs of the corrected harness, 210 completed turns of
+216:
 
 | | ran `ToolSearch` | called `show_block` |
 | --- | --- | --- |
