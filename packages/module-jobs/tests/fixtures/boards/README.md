@@ -134,6 +134,11 @@ page, offline (see above) — the numbers the fixtures actually support — give
   `source_id` and `url`, so all 102 rows carry an unresolvable URL. The company
   has a stable selector here too (`a[href^="/company-profile/"]`) while the
   adapter recovers it by scanning card text. No descriptions.
+  **Repaired in #129**, which resolves the link against `https://www.dice.com`
+  and takes the company off the selector. `source_id` deliberately stays the
+  relative path, so the rows already stored are updated rather than orphaned —
+  a Dice row with a real company fingerprints on company+title, so a re-keyed
+  row would be marked a duplicate of the broken one it replaces.
   Fixture: `dice/rendered-card.html`.
 - **`remotelyde`** — two independent defects. The JSON-LD script carries
   `id="collection-page-jsonld"`, which the bare-tag regex at

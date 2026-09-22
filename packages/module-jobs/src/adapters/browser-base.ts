@@ -26,6 +26,15 @@ import type { RawJob, ScrapeOptions } from "../types.js";
 export interface BrowserJobRecord {
   title?: string;
   company?: string;
+  /**
+   * Stable identity for this posting, when it is not the link.
+   *
+   * `source_id` falls back to `href`, which is half the upsert key in
+   * `src/scrape.ts`. So a board that starts resolving a relative `href`
+   * against its origin re-keys every row it has already stored unless it
+   * pins the identity here — which is what Dice does (#129).
+   */
+  id?: string;
   href?: string;
   location?: string;
   salary?: string;
@@ -77,7 +86,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
         }
 
         for (const record of records) {
-          const id = record.href || `${record.company}-${record.title}`;
+          const id = record.id || record.href || `${record.company}-${record.title}`;
           if (!id || seen.has(id)) continue;
           seen.add(id);
           jobs.push(this.toRawJob(record, id));
