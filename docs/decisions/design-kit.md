@@ -2378,7 +2378,8 @@ table for arithmetic and provenance before being repeated, which is a weaker
 claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
-in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
+in its own tool list (the `showBlock` definition and the unconditional push
+into `tools`, `packages/ui-backend-pi/src/bridge-tools.ts:180-196`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
