@@ -36,6 +36,7 @@ export function createPiTurnRunner(
     // Bind this session's tool plumbing to the current turn's bridge/signal.
     turnContext.bridge = req.bridge;
     turnContext.signal = req.signal;
+    turnContext.enforceAllowedTools = req.enforceAllowedTools === true;
     // Everything from here on runs inside the try: a throw from subscribe() or
     // the first emit() would otherwise leave entry.running stuck true, bricking
     // this session id (later turns reject busy and eviction skips it).
@@ -87,6 +88,7 @@ export function createPiTurnRunner(
       req.signal.removeEventListener("abort", onAbort);
       turnContext.bridge = null;
       turnContext.signal = null;
+      turnContext.enforceAllowedTools = false;
       // Now that this session is idle, drop cold sessions above the cap.
       pool.finish(entry);
     }

@@ -187,6 +187,13 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "subagent",
 ];
 
+/**
+ * Name of the document update tool. Auto-allowed above, and gated on one
+ * input shape (`status: "archived"`) by the permission gate — the two must
+ * agree, so they read the same constant.
+ */
+export const PI_BRAIN_UPDATE_TOOL_NAME = "brain_update";
+
 /** Name of pi's tappable-choice tool — also stated in the agent surface brief. */
 export const PI_ASK_USER_TOOL_NAME = BRIDGE_TOOL_POSTURE.names[0];
 
@@ -507,7 +514,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   } satisfies ToolDefinition;
 
   const brain_update = {
-    name: "brain_update",
+    name: PI_BRAIN_UPDATE_TOOL_NAME,
     label: "Update brain document",
     description:
       "Update an existing brain document: set frontmatter fields (summary, status, " +

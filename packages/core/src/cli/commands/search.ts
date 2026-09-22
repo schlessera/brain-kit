@@ -1,8 +1,8 @@
 import type { SearchOptions } from "../../lib/types.js";
 import { hybridSearch } from "../../lib/search-engine.js";
-import { initVecSupport } from "../../lib/db.js";
+import { loadVecSupport } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
-import { emit, embeddingDims, openReadonlyDb, parseArgs, UsageError } from "../io.js";
+import { emit, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain search <query> — hybrid FTS5 + vector search
 
@@ -28,7 +28,9 @@ export const searchCommand: CoreCommand = {
     const db = openReadonlyDb(cli.brain);
     try {
       if (flags.mode !== "fts") {
-        await initVecSupport(db, embeddingDims(cli.embeddings));
+        // Read path: load the extension only. hybridSearch reports why vector
+        // search is unavailable in `warnings`, so the result is not re-warned.
+        await loadVecSupport(db);
       }
 
       const opts: SearchOptions = {

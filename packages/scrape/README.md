@@ -104,3 +104,29 @@ reports that in its own result while the rest of the run completes.
 For sites whose markup is genuinely declarative, `SiteSelectors` + `extractCards`
 express the whole extraction as data, so a broken selector is a config edit
 rather than a release.
+
+## Structured data
+
+`extractJsonLd(html)` returns every `application/ld+json` document a page
+serves, plus one error per script that did not parse — a malformed tag costs
+its own rows and nothing else.
+
+It matches the script tag regardless of what other attributes it carries, in
+whatever order, quoted or not, because that is what real pages serve: of the
+boards measured on 2026-09-22, one wrote `id=` before the type, two appended a
+framework or test hook after it, and one did not quote the value at all. A
+pattern that required a bare tag read all four as having no structured data.
+
+`jsonLdNodes` then flattens what came back — a bare node, an array, a `@graph`,
+or a node nested inside another — and `jsonLdByType` / `itemListEntries` pick
+out what the caller is after. What a `JobPosting` or a `Recipe` MEANS is still
+the consuming module's business.
+
+```ts
+import { extractJsonLd, jsonLdByType } from "@schlessera/brain-scrape";
+
+const { documents, errors } = extractJsonLd(html);
+for (const posting of jsonLdByType(documents, "JobPosting")) {
+  // …your vocabulary, your mapping.
+}
+```

@@ -67,8 +67,23 @@ the brain CLI's own MCP tools — `brain_search`, `brain_context`, `brain_read`,
 needed `brain_add` to do it, and routing the change through the brain tools is
 what keeps frontmatter and the search index correct.
 
-`brain_archive` is the exception — it moves files between directories, so it
-stays behind an approval card.
+`brain_archive` is the exception, and the reason is VISIBILITY, not the file
+move it also does: an archived document drops out of search, briefings and
+context assembly, so a silent archive shows up later as holes in output nobody
+can account for. It stays behind an approval card.
+
+An approval that carries an edited input is refused rather than applied: the
+SDK honours `updatedInput` only alongside `permissionDecision: "allow"`, and
+emitting that from a PreToolUse hook re-admits a tool a deployment removed from
+`allowedTools`. The pi backend applies such an edit instead, so the two
+deliberately differ here (#145).
+
+That argument reaches one input shape of an auto-allowed tool, too.
+`brain_update` takes the same `status` field, so `status: "archived"` is the
+identical visibility change — it raises a per-use confirmation from the
+PreToolUse hook (never a grantable "always allow brain_update"). Every other
+update — no `status`, or `"active"`/`"draft"` — runs unprompted, because a card
+on every document edit is the noise that gets the mechanism switched off.
 
 The prefix assumes the brain repo registers the MCP server under the key
 `brain` in its `.mcp.json` (what `brain setup` writes). A different key means a

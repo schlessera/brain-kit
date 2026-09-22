@@ -199,4 +199,23 @@ describe("audit orphan", () => {
     expect(orphans.map((o) => o.path)).toEqual(["notes/lonely.md"]);
     db.close();
   });
+
+  test("an incoming link rescues a document, and a broken one rescues nobody", () => {
+    const db = freshDb();
+    const source = insertDoc(db, { path: "notes/source.md", type: "note", updated: "2026-06-20" });
+    const target = insertDoc(db, { path: "notes/target.md", type: "note", updated: "2026-06-20" });
+    insertDoc(db, { path: "notes/lonely.md", type: "note", updated: "2026-06-20" });
+
+    // One resolved link and one broken one out of the same document. The
+    // broken row carries target_id NULL, which must not count as an incoming
+    // link for anything — the orphan scan reads target_id in bulk now, and a
+    // NULL swept into that set would silently rescue whichever document the
+    // set was keyed on.
+    db.run("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)", [source, "target", target]);
+    db.run("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)", [source, "nowhere", null]);
+
+    const orphans = categories(audit(db, taxonomy, { now: NOW }), "orphan");
+    expect(orphans.map((o) => o.path)).toEqual(["notes/lonely.md"]);
+    db.close();
+  });
 });

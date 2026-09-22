@@ -32,10 +32,13 @@ export class DiceAdapter extends BrowserAdapter {
   }
 
   /**
-   * Runs INSIDE the page. Dice puts the title in an aria-label and everything
-   * else in unlabelled sibling text, so the company/salary/type are recovered
-   * by scanning the card's lines AFTER the title line and rejecting known
-   * chrome.
+   * Runs INSIDE the page. Dice puts the title in an aria-label, the company
+   * behind a `/company-profile/` link, and the salary and employment type in
+   * unlabelled sibling text — so those last two are recovered by scanning the
+   * card's lines AFTER the title line and rejecting known chrome.
+   *
+   * The card link is RELATIVE, unlike every other board's, and is resolved
+   * here rather than stored raw (#129).
    */
   protected extract(): BrowserJobRecord[] {
     const jobs: BrowserJobRecord[] = [];
@@ -44,17 +47,31 @@ export class DiceAdapter extends BrowserAdapter {
       const label = link.getAttribute("aria-label") || "";
       const titleMatch = label.match(/View Details for (.+?)\s*\([a-f0-9]+\)$/);
       const title = titleMatch ? titleMatch[1] : "";
-      const href = link.getAttribute("href") || "";
-      if (!title || !href.includes("/job-detail/")) continue;
+      const path = link.getAttribute("href") || "";
+      if (!title || !path.includes("/job-detail/")) continue;
 
-      const context =
-        (link.parentElement?.parentElement as HTMLElement | null | undefined)?.innerText || "";
-      const lines = context
+      const card =
+        (link.closest('[data-testid="job-card"]') as HTMLElement | null) ||
+        (link.parentElement?.parentElement as HTMLElement | null | undefined);
+      const lines = (card?.innerText || "")
         .split("\n")
         .map((l) => l.trim())
         .filter(Boolean);
 
+      // The company link comes before the line scan on purpose: scanning left
+      // 10 of 102 rows at "Unknown" in the #33 run, and the logo link that
+      // shares this selector has no text, so the first non-empty one wins.
       let company = "";
+      for (const named of card?.querySelectorAll(
+        '[data-testid="job-card-company-name"], a[href^="/company-profile/"]'
+      ) || []) {
+        const text = (named as HTMLElement).textContent?.trim() || "";
+        if (text) {
+          company = text;
+          break;
+        }
+      }
+
       let salary = "";
       let empType = "";
       let foundTitle = false;
@@ -84,7 +101,18 @@ export class DiceAdapter extends BrowserAdapter {
         }
       }
 
-      jobs.push({ title, company, href, location: "Remote", salary, empType, remote_type: "fully_remote" });
+      jobs.push({
+        title,
+        company,
+        // The path, not the resolved URL: it is what `source_id` falls back
+        // to, and every Dice row already stored is keyed by it.
+        id: path,
+        href: path.startsWith("http") ? path : `https://www.dice.com${path}`,
+        location: "Remote",
+        salary,
+        empType,
+        remote_type: "fully_remote",
+      });
     }
     return jobs;
   }

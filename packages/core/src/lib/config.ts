@@ -190,6 +190,21 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     /**
+     * Warn levels for the health figures `brain stats` reports. Ratios in
+     * 0..1; a missing key falls back to DEFAULT_STATS_THRESHOLDS. Staleness
+     * and orphan rules are NOT here — they live on the type spec (staleDays,
+     * orphanExempt) and `brain stats` reads them the way `brain audit` does.
+     */
+    stats: z
+      .object({
+        /** Embedding coverage (vec_chunks / chunks) below this ratio needs attention. */
+        coverageFloor: z.number().min(0).max(1).optional(),
+        /** Broken-link rate (broken / links) above this ratio needs attention. */
+        brokenLinkCeiling: z.number().min(0).max(1).optional(),
+      })
+      .strict()
+      .optional(),
+    /**
      * package name or ./local/path → module config block (validated by the
      * module's configSchema). Keys lead to import() — constrain them: a
      * `./`-prefixed key must stay inside the repo (no `..`, no absolute), and
@@ -243,6 +258,9 @@ export const DEFAULT_EXCLUDE = {
 export const DEFAULT_DIR_ANCHORS = ["_index.md"];
 
 export const DEFAULT_STALENESS = { days: 180, severity: "info" as const };
+
+/** Warn levels `brain stats` applies when the `stats` config block is absent. */
+export const DEFAULT_STATS_THRESHOLDS = { coverageFloor: 0.9, brokenLinkCeiling: 0.05 };
 
 export const DEFAULT_CANONICAL: Record<string, string> = {
   identity: "me/identity.md",

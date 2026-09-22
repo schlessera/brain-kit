@@ -3,13 +3,24 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
-import { bashCommand } from "./confirm-patterns.js";
+import {
+  ARCHIVING_UPDATE_REASON,
+  archivesDocument,
+  bashCommand,
+} from "./confirm-patterns.js";
 
 /** @experimental */
 export interface ToolPermissionDecisionInput {
   toolName: string;
   /** Exact tool name this runtime uses for shell commands. */
   shellToolName: string;
+  /**
+   * Exact tool name this runtime uses for the brain document update tool, if
+   * it exposes one. Runtimes spell it differently — `brain_update` as a
+   * curated tool, `mcp__brain__brain_update` through the brain MCP server —
+   * and it is matched exactly, for the same reason `shellToolName` is.
+   */
+  updateToolName?: string;
   input: unknown;
   allowedTools: ReadonlySet<string>;
   confirmPatterns: readonly RegExp[];
@@ -25,17 +36,20 @@ export interface ToolPermissionApproval {
  * Decide whether one tool call needs host approval.
  *
  * A tool outside the deployment allowlist needs a grantable tool approval. An
- * allowlisted bash command that matches a confirm pattern needs a per-use
- * command approval, which the host must never remember as a tool grant.
- * `shellToolName` is matched exactly because runtime tool names are
- * case-sensitive and may collide with extension-provided names.
+ * allowlisted call that is destructive in its own right needs a per-use
+ * command approval, which the host must never remember as a tool grant: a
+ * bash command matching a confirm pattern, or a document update that
+ * archives. `shellToolName` and `updateToolName` are matched exactly because
+ * runtime tool names are case-sensitive and may collide with
+ * extension-provided names.
  *
  * @experimental
  */
 export function decideToolPermission(
   options: ToolPermissionDecisionInput
 ): ToolPermissionApproval | null {
-  const { toolName, shellToolName, input, allowedTools, confirmPatterns } = options;
+  const { toolName, shellToolName, updateToolName, input, allowedTools, confirmPatterns } =
+    options;
   if (!allowedTools.has(toolName)) {
     return {
       kind: "tool",
@@ -51,6 +65,9 @@ export function decideToolPermission(
       };
     }
   }
+  if (updateToolName !== undefined && toolName === updateToolName && archivesDocument(input)) {
+    return { kind: "command", reason: ARCHIVING_UPDATE_REASON };
+  }
   return null;
 }
 
@@ -61,6 +78,14 @@ export interface CreateToolPermissionRequestInput {
   input: Record<string, unknown>;
   description: string | undefined;
   approval: ToolPermissionApproval;
+  /**
+   * The turn declared `enforceAllowedTools` and this tool is not on its
+   * allowlist. Computed by the binding rather than here: a runtime that
+   * evaluates `decideToolPermission` against an empty allowlist on purpose
+   * (the Claude backend's `canUseTool` does) cannot have it derived from the
+   * arguments to this call.
+   */
+  outsideEnforcedAllowlist?: boolean;
 }
 
 /**
@@ -82,6 +107,9 @@ export function createToolPermissionRequest(
     input: options.input,
     description: options.description,
     kind: options.approval.kind,
+    // Only when true: an explicit `false` would change the shape every
+    // existing host and test asserts on for a turn that declared nothing.
+    ...(options.outsideEnforcedAllowlist ? { outsideEnforcedAllowlist: true } : {}),
   };
 }
 

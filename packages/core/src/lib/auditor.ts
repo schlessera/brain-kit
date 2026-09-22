@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 
 import type { AuditIssue } from "./types.js";
-import type { Taxonomy } from "./taxonomy.js";
+import type { Severity, Taxonomy } from "./taxonomy.js";
 
 /** Milliseconds per day. */
 const MS_PER_DAY = 86_400_000;
@@ -10,6 +10,138 @@ const MS_PER_DAY = 86_400_000;
 export interface AuditOptions {
   /** Wall clock to measure ages against — injected for deterministic tests. */
   now?: Date;
+}
+
+/** One indexed markdown document, as the audit checks see it. */
+export interface AuditDoc {
+  id: number;
+  path: string;
+  title: string;
+  type: string;
+  status: string;
+  relevance: string;
+  updated: string;
+  content: string;
+}
+
+/**
+ * Load all markdown documents. Binary assets (pdf/jpg/png) can't carry
+ * wiki-links or frontmatter, so auditing them only produces noise
+ * (orphan and type-mismatch findings for every asset).
+ */
+export function loadAuditDocs(db: Database): AuditDoc[] {
+  return db
+    .prepare(
+      `SELECT id, path, title, type, status, relevance, updated, content
+       FROM documents
+       WHERE asset_type = 'markdown'
+       ORDER BY path`
+    )
+    .all() as AuditDoc[];
+}
+
+export interface StaleDoc {
+  doc: AuditDoc;
+  ageDays: number;
+  threshold: number;
+  severity: Severity;
+}
+
+/**
+ * The documents past their staleness threshold at `now` (epoch ms). Archived
+ * documents never go stale. This is THE definition of "stale" — `brain audit`
+ * reports it and `brain stats` counts it, so the two cannot drift.
+ */
+export function findStale(docs: AuditDoc[], taxonomy: Taxonomy, now: number): StaleDoc[] {
+  const stale: StaleDoc[] = [];
+  for (const doc of docs) {
+    if (doc.status === "archived") continue;
+
+    const updatedMs = new Date(doc.updated).getTime();
+    const ageDays = Math.floor((now - updatedMs) / MS_PER_DAY);
+
+    // Threshold + severity come from the taxonomy (longest matching prefix
+    // rule, else the configured default).
+    const { days: threshold, severity } = taxonomy.stalenessFor(doc.path);
+
+    if (ageDays > threshold) stale.push({ doc, ageDays, threshold, severity });
+  }
+  return stale;
+}
+
+/**
+ * The documents with no wiki-link in either direction and no plain-markdown
+ * link pointing at them, minus orphan-exempt types and `_index.md` anchors.
+ * Shared by `brain audit` and `brain stats` for the same reason as findStale.
+ */
+export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy): AuditDoc[] {
+  // Exclude orphan-exempt types (index/context and any config-declared
+  // exemptions) and _index.md files.
+  const candidateDocs = docs.filter(
+    (d) => !taxonomy.isOrphanExempt(d.type) && !d.path.endsWith("_index.md")
+  );
+
+  // Pre-compute plain-markdown incoming links so detail files referenced
+  // via `[text](slug/)` from _index.md files are not flagged as orphans.
+  const allPaths = new Set(docs.map((d) => d.path));
+  const plainIncoming = new Set<string>();
+  const linkRegex = /\]\(([^)]+)\)/g;
+
+  for (const src of docs) {
+    const srcDir = src.path.includes("/")
+      ? src.path.slice(0, src.path.lastIndexOf("/"))
+      : "";
+    let match: RegExpExecArray | null;
+    while ((match = linkRegex.exec(src.content)) !== null) {
+      let target = match[1].split("#")[0].split("?")[0].trim();
+      if (
+        !target ||
+        target.startsWith("http") ||
+        target.startsWith("mailto:") ||
+        target.startsWith("[")
+      )
+        continue;
+
+      const candidates: string[] = [];
+      const join = (a: string, b: string) =>
+        (a ? `${a}/${b}` : b).replace(/\/\.\//g, "/").replace(/^\.\//, "");
+
+      if (target.endsWith("/")) {
+        // A directory link resolves to one of the directory's anchor files —
+        // taxonomy.dirAnchors names them (e.g. _index.md, status.md).
+        const stripped = target.replace(/\/$/, "");
+        for (const anchor of taxonomy.dirAnchors) {
+          candidates.push(join(srcDir, `${stripped}/${anchor}`));
+        }
+      } else if (target.endsWith(".md")) {
+        candidates.push(join(srcDir, target));
+        candidates.push(target);
+      }
+
+      for (const c of candidates) {
+        if (allPaths.has(c)) plainIncoming.add(c);
+      }
+    }
+  }
+
+  // Which documents have a wiki-link at all, in one pass each rather than two
+  // COUNT(*) per candidate: `links` has no index on target_id, so the
+  // per-document form scanned the whole table N times (9s at 10k docs / 50k
+  // links). A document is linked iff its id appears, which is the same
+  // question `COUNT(*) = 0` asked — a NULL target_id never matched `= ?`
+  // either, so dropping the broken links here changes nothing.
+  const ids = (sql: string) =>
+    new Set((db.prepare(sql).all() as { id: number }[]).map((r) => r.id));
+  const hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
+  const hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+
+  const orphans: AuditDoc[] = [];
+  for (const doc of candidateDocs) {
+    if (!hasOutgoing.has(doc.id) && !hasIncoming.has(doc.id) && !plainIncoming.has(doc.path)) {
+      orphans.push(doc);
+    }
+  }
+  return orphans;
 }
 
 /**
@@ -29,49 +161,19 @@ export function audit(
   const issues: AuditIssue[] = [];
   const now = (opts.now ?? new Date()).getTime();
 
-  // Load all markdown documents. Binary assets (pdf/jpg/png) can't carry
-  // wiki-links or frontmatter, so auditing them only produces noise
-  // (orphan and type-mismatch findings for every asset).
-  const docs = db
-    .prepare(
-      `SELECT id, path, title, type, status, relevance, updated, content
-       FROM documents
-       WHERE asset_type = 'markdown'
-       ORDER BY path`
-    )
-    .all() as {
-    id: number;
-    path: string;
-    title: string;
-    type: string;
-    status: string;
-    relevance: string;
-    updated: string;
-    content: string;
-  }[];
+  const docs = loadAuditDocs(db);
 
   // ---------------------------------------------------------------
   // 1. Staleness checks
   // ---------------------------------------------------------------
-  for (const doc of docs) {
-    if (doc.status === "archived") continue;
-
-    const updatedMs = new Date(doc.updated).getTime();
-    const ageDays = Math.floor((now - updatedMs) / MS_PER_DAY);
-
-    // Threshold + severity come from the taxonomy (longest matching prefix
-    // rule, else the configured default).
-    const { days: threshold, severity } = taxonomy.stalenessFor(doc.path);
-
-    if (ageDays > threshold) {
-      issues.push({
-        path: doc.path,
-        severity,
-        category: "staleness",
-        message: `Last updated ${ageDays} days ago (threshold: ${threshold} days)`,
-        suggestion: `Review and update ${doc.path}`,
-      });
-    }
+  for (const { doc, ageDays, threshold, severity } of findStale(docs, taxonomy, now)) {
+    issues.push({
+      path: doc.path,
+      severity,
+      category: "staleness",
+      message: `Last updated ${ageDays} days ago (threshold: ${threshold} days)`,
+      suggestion: `Review and update ${doc.path}`,
+    });
   }
 
   // ---------------------------------------------------------------
@@ -237,77 +339,14 @@ export function audit(
   // ---------------------------------------------------------------
   // 5. Orphan detection
   // ---------------------------------------------------------------
-  // Exclude orphan-exempt types (index/context and any config-declared
-  // exemptions) and _index.md files.
-  const candidateDocs = docs.filter(
-    (d) => !taxonomy.isOrphanExempt(d.type) && !d.path.endsWith("_index.md")
-  );
-
-  // Pre-compute plain-markdown incoming links so detail files referenced
-  // via `[text](slug/)` from _index.md files are not flagged as orphans.
-  const allPaths = new Set(docs.map((d) => d.path));
-  const plainIncoming = new Set<string>();
-  const linkRegex = /\]\(([^)]+)\)/g;
-
-  for (const src of docs) {
-    const srcDir = src.path.includes("/")
-      ? src.path.slice(0, src.path.lastIndexOf("/"))
-      : "";
-    let match: RegExpExecArray | null;
-    while ((match = linkRegex.exec(src.content)) !== null) {
-      let target = match[1].split("#")[0].split("?")[0].trim();
-      if (
-        !target ||
-        target.startsWith("http") ||
-        target.startsWith("mailto:") ||
-        target.startsWith("[")
-      )
-        continue;
-
-      const candidates: string[] = [];
-      const join = (a: string, b: string) =>
-        (a ? `${a}/${b}` : b).replace(/\/\.\//g, "/").replace(/^\.\//, "");
-
-      if (target.endsWith("/")) {
-        // A directory link resolves to one of the directory's anchor files —
-        // taxonomy.dirAnchors names them (e.g. _index.md, status.md).
-        const stripped = target.replace(/\/$/, "");
-        for (const anchor of taxonomy.dirAnchors) {
-          candidates.push(join(srcDir, `${stripped}/${anchor}`));
-        }
-      } else if (target.endsWith(".md")) {
-        candidates.push(join(srcDir, target));
-        candidates.push(target);
-      }
-
-      for (const c of candidates) {
-        if (allPaths.has(c)) plainIncoming.add(c);
-      }
-    }
-  }
-
-  for (const doc of candidateDocs) {
-    // Check for outgoing links
-    const outgoing = db
-      .prepare("SELECT COUNT(*) as count FROM links WHERE source_id = ?")
-      .get(doc.id) as { count: number };
-
-    // Check for incoming links
-    const incoming = db
-      .prepare("SELECT COUNT(*) as count FROM links WHERE target_id = ?")
-      .get(doc.id) as { count: number };
-
-    const hasPlainIncoming = plainIncoming.has(doc.path);
-
-    if (outgoing.count === 0 && incoming.count === 0 && !hasPlainIncoming) {
-      issues.push({
-        path: doc.path,
-        severity: "info",
-        category: "orphan",
-        message: "Document has no incoming or outgoing wiki-links",
-        suggestion: "Add [[wiki-links]] to connect this document to others",
-      });
-    }
+  for (const doc of findOrphans(db, docs, taxonomy)) {
+    issues.push({
+      path: doc.path,
+      severity: "info",
+      category: "orphan",
+      message: "Document has no incoming or outgoing wiki-links",
+      suggestion: "Add [[wiki-links]] to connect this document to others",
+    });
   }
 
   return issues;

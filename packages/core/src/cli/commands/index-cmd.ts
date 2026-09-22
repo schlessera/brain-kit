@@ -1,5 +1,5 @@
 import { indexAll } from "../../lib/indexer.js";
-import { openDatabase, initVecSupport } from "../../lib/db.js";
+import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 
@@ -20,7 +20,7 @@ export const indexCommand: CoreCommand = {
 
     const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
     try {
-      await initVecSupport(db, dims);
+      await migrateVecSchema(db, storedVectorWidth(db, dims));
 
       // Incremental is the default; --force does a full rebuild. --incremental
       // is accepted as a no-op for backward compatibility (hooks pass it).

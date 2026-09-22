@@ -118,6 +118,7 @@ export function createClaudeTurnRunner(options: {
         allowedTools,
         confirmPatterns: options.confirmPatterns,
         turnLock,
+        log: options.log,
       });
       const result = queryFn({ prompt: sdkTurn.prompt, options: sdkTurn.options });
 

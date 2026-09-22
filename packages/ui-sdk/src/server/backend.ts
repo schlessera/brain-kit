@@ -85,6 +85,18 @@ export interface PermissionRequest {
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
   kind?: "tool" | "command";
+  /**
+   * This turn declared `enforceAllowedTools` and the tool is NOT on its
+   * allowlist. The host must decide the request on its own merits: it may
+   * neither answer it from its remembered "always allow" set nor add to that
+   * set from the answer. A grant belongs to the posture it was given under,
+   * and a narrower turn is a different posture in both directions.
+   *
+   * Absent (the default) the host behaves exactly as it always has.
+   *
+   * @experimental
+   */
+  outsideEnforcedAllowlist?: boolean;
 }
 
 export interface AskUserResult {
@@ -204,6 +216,24 @@ export interface StartTurnRequest {
    * advisory and never required.
    */
   client?: ClientEnvironment;
+  /**
+   * Treat this turn's tool allowlist as a BOUNDARY rather than merely an
+   * auto-allow list. A backend that honours it must not admit a tool absent
+   * from the allowlist through any shortcut that skips the permission
+   * decision — input-rewrite hooks that grant so their rewrite applies, a
+   * host's remembered "always allow" set, or anything else it adds later.
+   * The tool is not forbidden; the decision is simply never skipped, and the
+   * request carries `outsideEnforcedAllowlist` so the host cannot skip it
+   * either.
+   *
+   * Absent or false (the default) every existing deployment behaves exactly
+   * as it always has. A backend that does not understand the field ignores
+   * it, which is why a narrower posture must also verify its backend honours
+   * it.
+   *
+   * @experimental
+   */
+  enforceAllowedTools?: boolean;
 }
 
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */

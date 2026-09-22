@@ -147,6 +147,37 @@ by the cross-backend suite:
 builds the shared brain-ui system-prompt block; backends that can vary their
 system prompt per turn feed it the advisory `req.client` environment.
 
+### An enforced allowlist (`@experimental`)
+
+A tool allowlist is normally an *auto-allow* list: tools on it run without a
+card, tools off it raise one. `req.enforceAllowedTools` asks for the stronger
+reading — the allowlist is a **boundary**, and nothing may admit a tool absent
+from it without a permission decision actually being taken. It exists because a
+deployment that narrows the list for one kind of turn (a voice posture, an
+unattended profile) otherwise gets a list that several shortcuts quietly
+re-admit tools past.
+
+A backend that honours it must:
+
+- not let its own input-rewrite hooks grant a tool the allowlist leaves out.
+  The Claude backend's hooks return a `PreToolUse` `permissionDecision:
+  "allow"` because that historically looked necessary for `updatedInput` to
+  apply; it is not, so under enforcement they rewrite without granting and the
+  call falls through to `canUseTool`. The rewrite is the point; the grant was a
+  side effect.
+- set `outsideEnforcedAllowlist: true` on every `PermissionRequest` it raises
+  for such a tool, so the host knows not to answer from — or add to — its
+  remembered "always allow" grants. A grant belongs to the posture it was given
+  under, in both directions.
+
+A turn that does not declare it behaves exactly as it always has, and a backend
+that ignores the field is simply a backend a narrower posture cannot be built
+on: check before relying on one.
+
+`enforceAllowedTools` does not itself deny anything. It removes the ways a
+decision gets skipped; what happens to a request that reaches the host is the
+host's own policy.
+
 ## The bridge
 
 `BackendBridge` is the host plumbing handed to the backend for one turn:
@@ -163,7 +194,9 @@ export interface BackendBridge {
 
 - `requestPermission` is the tool gate: the host renders an approval card,
   and resolves with `{ behavior: "allow", updatedInput? }` or
-  `{ behavior: "deny", message }`. The host owns the per-turn timeout.
+  `{ behavior: "deny", message }`. The host owns the per-turn timeout. A
+  request carrying `outsideEnforcedAllowlist` is one the host must decide on
+  its own merits — see the enforced-allowlist section above.
 - The optional members signal HOST capability — gate your ask-user /
   location / mask tooling on their presence, either at registration (the
   Claude backend) or at execution time (the pi backend always lists

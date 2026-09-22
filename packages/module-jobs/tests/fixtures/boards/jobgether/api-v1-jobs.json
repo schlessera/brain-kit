@@ -1,0 +1,54 @@
+{
+  "jobs": [
+    {
+      "id": "6ab29f4c865119c687dc0c01",
+      "title": "Senior Backend Engineer - Databases - Analytics | Germany | Remote",
+      "company": "Grafana Labs",
+      "url": "https://jobgether.com/offer/6ab29f4c865119c687dc0c01-senior-backend-engineer---databases---analytics-germany-remote",
+      "location": "Spain, United Kingdom, Sweden, Germany, Ireland",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "Senior (5-10 years)",
+      "salaryRange": "186240-186240 EUR",
+      "jobFunctions": [
+        "Backend Engineer"
+      ],
+      "postedAt": "2026-09-22T15:31:24.289Z"
+    },
+    {
+      "id": "6ab29f4c865119c687dc0bb7",
+      "title": "Remote Response Associate, Roadside Assistance (CSR)",
+      "company": "Agero, Inc.",
+      "url": "https://jobgether.com/offer/6ab29f4c865119c687dc0bb7-remote-response-associate-roadside-assistance-csr",
+      "location": "Tennessee (USA)",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "Expert & Leadership (>10 years)",
+      "salaryRange": "31200-31200 USD",
+      "jobFunctions": [],
+      "postedAt": "2026-09-22T15:31:24.289Z"
+    },
+    {
+      "id": "6ab29131865119c687dbcdac",
+      "title": "AI Architect - GTM Systems",
+      "company": "Samsara ",
+      "url": "https://jobgether.com/offer/6ab29131865119c687dbcdac-ai-architect---gtm-systems",
+      "location": "Canada",
+      "remote": "Full Remote",
+      "contractType": "Full time",
+      "experience": "Expert & Leadership (>10 years)",
+      "salaryRange": "175450-175450 USD",
+      "jobFunctions": [
+        "Architect (Building)"
+      ],
+      "postedAt": "2026-09-22T14:31:13.739Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "hasMore": true
+  },
+  "browseOnSiteUrl": "https://jobgether.com/search-offers?",
+  "docs": "/astroapi/ai/jobs/docs"
+}

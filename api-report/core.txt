@@ -15,10 +15,12 @@ export "." (./src/index.ts)
   BUILTIN_EMITTERS
   type BrainConfig
   type BrainContext
+  type BrainStats
   CORE_TYPES
   type Chunk
   type ChunkMatch
   type Classification
+  type CollectStatsOptions
   type CommandContext
   type CommandModule
   type CompletionProvider
@@ -68,12 +70,15 @@ export "." (./src/index.ts)
   type SkillEmitter
   type SkillManifest
   type StalenessVerdict
+  type StatsThresholds
   Taxonomy
   type TaxonomyConfig
   type TypeSpec
   VALID_RELEVANCES
   VALID_STATUSES
   type ValidationIssue
+  type VecSupport
+  type VecUnavailableReason
   archiveDocument
   audit
   brainConfigSchema
@@ -83,6 +88,7 @@ export "." (./src/index.ts)
   chunkDocument
   chunkTextForEmbedding
   classifyContent
+  collectStats
   createEnrichment
   defineAgentRunner
   defineCompletionProvider
@@ -105,11 +111,12 @@ export "." (./src/index.ts)
   indexAll
   ingest
   initContext
-  initVecSupport
   installBinLinks
   lintSkills
   loadModules
   loadUserConfig
+  loadVecSupport
+  migrateVecSchema
   normalizeFrontmatterDates
   openDatabase
   readEnvVar
@@ -125,6 +132,7 @@ export "." (./src/index.ts)
   safeResolve
   setContext
   setMeta
+  storedVectorWidth
   stringifyDocument
   syncSkills
   validate
