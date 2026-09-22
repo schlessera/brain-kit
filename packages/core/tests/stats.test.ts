@@ -483,6 +483,63 @@ describe("size figures", () => {
     db.close();
   });
 
+  test("the walk keeps exactly what the indexer's glob would keep", async () => {
+    // Pinned because the walk was rewritten from `Glob(...).scanSync` to a
+    // pruning readdir: every rule the glob applied has to survive the move.
+    // A differential run over this same shape confirmed the two produce an
+    // identical file set; this is the part of it that stays checked.
+    const root = tempDir();
+    for (const dir of [
+      "notes/deep/a",
+      "logs/x",         // core default exclude
+      "node_modules/p", // core default exclude
+      "attic/y",        // user dir exclude
+      "docs/private",   // user SEGMENT exclude, below a kept directory
+      ".git/objects",   // dot directory
+    ]) {
+      mkdirSync(join(root, dir), { recursive: true });
+    }
+    const body = "x".repeat(10);
+    for (const file of [
+      "notes/keep.md",
+      "notes/deep/a/keep.md",
+      "logs/x/drop.md",
+      "node_modules/p/drop.js",
+      "attic/y/drop.md",
+      "docs/keep.md",
+      "docs/private/drop.md",
+      ".git/objects/drop",
+      ".hidden.md",     // dot file
+      "README.md",      // core default `files` exclude
+      "CLAUDE.md",      // likewise
+      "AGENTS.md",      // likewise
+    ]) {
+      writeFileSync(join(root, file), body);
+    }
+    // A symlink is not the corpus in either direction: its target's bytes are
+    // already counted where the target lives, and a directory link is a cycle
+    // waiting to happen.
+    symlinkSync(join(root, "notes/keep.md"), join(root, "link-to-file.md"));
+    symlinkSync(join(root, "notes"), join(root, "link-to-dir"));
+
+    const db = openDatabase(":memory:");
+    const taxonomy = buildTaxonomy({
+      user: brainConfigSchema.parse({ exclude: { dirs: ["attic"], segments: ["private"] } }),
+    });
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath: join(root, "brain.db"),
+      taxonomy,
+      config: null,
+      now: NOW,
+    });
+
+    // notes/keep.md, notes/deep/a/keep.md, docs/keep.md — and nothing else.
+    expect(stats.size.corpus).toEqual({ files: 3, bytes: 30 });
+    db.close();
+  });
+
   testUnlessRoot("an unreadable EXCLUDED directory does not cost the corpus figure", async () => {
     // Found by review: the walk used to list everything and filter afterwards,
     // so a `workspaces/` the user cannot read — a core default exclude, and a
@@ -584,6 +641,23 @@ describe("the stats config block", () => {
   test("the documented defaults apply when the block is missing", () => {
     expect(resolveStatsThresholds(null)).toEqual(DEFAULT_STATS_THRESHOLDS);
     expect(resolveStatsThresholds(brainConfigSchema.parse({}))).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(resolveStatsThresholds(brainConfigSchema.parse({ stats: {} }))).toEqual(
+      DEFAULT_STATS_THRESHOLDS
+    );
+  });
+
+  test("an explicitly-undefined level falls back instead of vanishing", () => {
+    // Found by review. `stats: { coverageFloor: undefined }` is what a
+    // brain.config.ts writes when a level is behind a conditional, and zod
+    // keeps the key. Spreading the block over the defaults let that undefined
+    // win, and JSON.stringify then dropped coverageFloor from --json
+    // altogether — a field disappearing from the machine surface.
+    const config = brainConfigSchema.parse({ stats: { coverageFloor: undefined } });
+    expect(Object.keys(config.stats!)).toContain("coverageFloor");
+
+    const resolved = resolveStatsThresholds(config);
+    expect(resolved).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(JSON.parse(JSON.stringify(resolved))).toEqual(DEFAULT_STATS_THRESHOLDS);
   });
 
   test("a configured level overrides only itself", async () => {

@@ -68,9 +68,20 @@ export interface CollectStatsOptions {
   statfs?: (path: string) => { bavail: number | bigint; bsize: number | bigint };
 }
 
-/** The effective warn levels: the config `stats` block over the documented defaults. */
+/**
+ * The effective warn levels: the config `stats` block over the documented
+ * defaults. Resolved key by key rather than by spreading the block, because
+ * zod keeps an explicitly-`undefined` optional key (`{ coverageFloor:
+ * undefined }` parses to an object that HAS `coverageFloor`), and a spread
+ * would let it overwrite the default with `undefined` — which JSON.stringify
+ * then drops, taking the field out of `--json` entirely.
+ */
 export function resolveStatsThresholds(config: BrainConfig | null): StatsThresholds {
-  return { ...DEFAULT_STATS_THRESHOLDS, ...(config?.stats ?? {}) };
+  const stats = config?.stats;
+  return {
+    coverageFloor: stats?.coverageFloor ?? DEFAULT_STATS_THRESHOLDS.coverageFloor,
+    brokenLinkCeiling: stats?.brokenLinkCeiling ?? DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling,
+  };
 }
 
 function count(db: Database, sql: string): number {
@@ -142,25 +153,20 @@ function corpusSize(
       if (entry.name.startsWith(".")) continue;
       const path = rel ? `${rel}/${entry.name}` : entry.name;
 
-      // A symlink is resolved once, here: a link to a file counts as that
-      // file, a link to a directory is not descended into (the indexer's glob
-      // does not follow them either, and a cycle would not terminate).
-      let isDir = entry.isDirectory();
-      if (entry.isSymbolicLink()) {
-        try {
-          isDir = statSync(join(root, path)).isDirectory();
-        } catch {
-          continue; // dangling link — nothing on disk to weigh
-        }
-        if (isDir) continue;
-      }
+      // Symlinks are skipped in both directions, which is what the indexer's
+      // glob does (`followSymlinks` is off by default). A link to a directory
+      // is not descended into — a cycle would not terminate — and a link to a
+      // file is not weighed, because its bytes are already counted where the
+      // target lives. A differential run over a tree of links, dotfiles and
+      // nested excludes says this walk keeps exactly the set the glob kept.
+      if (entry.isSymbolicLink()) continue;
 
-      if (isDir) {
+      if (entry.isDirectory()) {
         if (taxonomy.isExcludedPath(`${path}/`)) continue;
         if (!walk(path)) complete = false;
         continue;
       }
-      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      if (!entry.isFile()) continue;
       if (indexFiles.has(path)) continue;
       if (taxonomy.isExcludedPath(path)) continue;
       try {
