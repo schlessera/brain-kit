@@ -2577,7 +2577,19 @@ decision is responsible for.
 
 Deferred: **93 tokens** for the whole set, and the same 93 for one deferred
 tool as for five — the API prices the deferred set as a fixed block rather than
-per tool.
+per tool. Both figures are insensitive to which tool-search tool is declared
+alongside them: `tool_search_tool_bm25_20251119` and
+`tool_search_tool_regex_20251119` give 93 and 7335 alike, differing only in
+their own weight (682 against 710), which is subtracted as the floor either
+way. The five per-tool rows sum to the measured all-five figure exactly
+(374 + 756 + 552 + 383 + 5270 = 7335), so the floor subtraction is linear here
+rather than hiding a per-request constant.
+
+The brief column is counted the same way but against its own floor — the same
+system prompt with and without that brief, no tools declared in either request.
+Each column is a delta against a matched baseline; the two columns are not
+measured in the same request and should not be added to a single "what the
+prompt costs" figure.
 
 Ten to one, then, and `show_block` is 5270 of the 7335: 72% of the bridge
 surface is one eleven-variant union, 11,452 serialised characters of which
@@ -2603,10 +2615,22 @@ wall time to the first assistant frame.
 D43's 79%/79% replicates at 78%/78%. Across the two runs that is 51 turns per
 cell agreeing: **once the tool is in the prompt, the brief changes nothing.**
 
-The deferred no-brief arm against the loaded no-brief arm isolates the schema
-cleanly — neither searches, so the only difference is the schema in the prompt:
-21,417 against 26,885, a delta of 5468 against the 5270 `count_tokens` priced.
-The arithmetic is confirmed by the live run.
+The two no-brief arms isolate the schema as cleanly as this harness can —
+neither searches, so the only difference between them is the schema in the
+prompt: 21,417 against 26,885, a delta of **5468** against the 5270
+`count_tokens` priced. Over non-delegating turns only, where `usage`'s
+main-loop scope and `num_turns` cannot disagree, it is 20,279 against 26,296, a
+delta of **6017**. The live run brackets the counted figure rather than
+reproducing it: it confirms the sign and the order of magnitude, which is what
+the decision rests on, and not the third digit.
+
+A note on provenance, because the two tables below do not share a source. The
+token columns come from the result message's `usage`, which the SDK documents
+as the main agent loop only, divided by `num_turns`; the dollar column comes
+from `total_cost_usd`, which covers the whole query pipeline including
+subagents. Nothing here reasons across the two — the token claim and the cost
+claim are made separately, and the cost table excludes delegating turns for
+exactly the reason the scopes differ.
 
 **What it costs, which is the part the ratio got wrong.** Turns that delegated
 to a subagent are excluded from the cost comparison — a subagent's bill is
@@ -2712,7 +2736,11 @@ about it changes here** and its budget in
 - The cost figures are 21–23 turns per cell, and they are the least stable
   numbers here: mean and median disagree by up to 20% within a cell. The
   direction is consistent across both statistics and both arms; the magnitude
-  is not to be quoted to two figures.
+  is not to be quoted to two figures. **"6%" is the mean-to-mean figure in the
+  brief arm and it is the weakest number in the headline** — the same
+  comparison by median runs the other way, because the deferred arm's search
+  round-trips sit in its tail. What both statistics agree on is that the ten to
+  one the schemas imply is not what the turn pays.
 - The two runs were taken in different windows against a shared rate limit, so
   wall-clock durations are not comparable between them and no claim here rests
   on one. First-frame latency is reported because it is what #148 asked for,

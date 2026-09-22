@@ -738,11 +738,13 @@ describe("bridge tool loading posture", () => {
       expect(tools.map((tool) => tool.name).sort()).toEqual(
         [...shared.BRIDGE_TOOL_POSTURE.names].sort()
       );
-      // Nothing in a pi tool definition can ask for deferral: the shape has no
-      // field for it, which is the point.
+      // The invariant that matters is not a missing field — asserting an
+      // absence on a plain object proves nothing. It is that each tool arrives
+      // with its schema already attached, which is what makes it a static
+      // registration rather than something a search hands over later.
       for (const tool of tools) {
-        expect(Object.keys(tool)).not.toContain("deferLoading");
-        expect(Object.keys(tool)).not.toContain("defer_loading");
+        expect(tool.parameters).toBeDefined();
+        expect(typeof tool.execute).toBe("function");
       }
     } finally {
       rmSync(root, { recursive: true, force: true });
