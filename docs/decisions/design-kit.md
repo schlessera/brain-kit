@@ -2291,13 +2291,23 @@ reluctance. The SDK **defers an MCP server's tools behind tool search by
 default** — they are not in the model's context at all until it runs
 `ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:104` does
 not pass `alwaysLoad`, so this is production's behaviour and the harness
-inherits it. Over two runs of the corrected harness, 210 completed turns of
-216:
+inherits it. Over the two runs below — **run A**, 108 turns, taken before the
+turn budget was enforced and therefore losing none, and **run B**, the 108-turn
+run this entry's rate tables report, losing 6 to the budget — 210 completed
+turns of 216. The two are a harness generation apart and the table pools them,
+which is sound for this quantity because enforcing the budget changes which
+turns are counted and not how the model reached the tool. Each run's rows are
+printed by the harness itself under "`ToolSearch` against calls", so this is
+reproduced rather than hand-assembled, and either generation can be read alone:
 
-| | ran `ToolSearch` | called `show_block` |
-| --- | --- | --- |
-| brief | 62 | 62 |
-| no-brief | 4 | 1 |
+| run | arm | completed | ran `ToolSearch` | called `show_block` | called without searching |
+| --- | --- | --- | --- | --- | --- |
+| A (pre-budget) | brief | 54 | 33 | 33 | **0** |
+| A | no-brief | 54 | 1 | 0 | **0** |
+| B (enforced) | brief | 49 | 29 | 29 | **0** |
+| B | no-brief | 53 | 3 | 1 | **0** |
+| pooled | brief | 103 | 62 | 62 | **0** |
+| pooled | no-brief | 107 | 4 | 1 | **0** |
 
 **No turn in either run ever called `show_block` without first running
 `ToolSearch`, and in the brief arm every turn that searched then called.** The
@@ -2314,9 +2324,18 @@ default configuration on the left:
 | behind tool search — what ships | 23 of 43 (53%) | **1 of 47 (2%)** |
 | always loaded | 17 of 22 (77%) | **17 of 22 (77%)** |
 
+The two rows are a harness generation apart and it shows in the denominators:
+the top row is run B, with the turn budget enforced, and the always-loaded row
+was taken before that and is reported over the turns that finished inside the
+same 180 s. That is why 22 rather than 24.
+
 Identical, and higher than the brief reaches on its own. **The brief's entire
 measured effect is discoverability, not persuasion.** Once the model can see
-the tool, the brief adds nothing at all.
+the tool, the brief adds nothing at all **to the rate**. That qualifier is
+load-bearing and it is not a hedge: every figure in this entry scores whether a
+block was drawn and never which kind, while the brief's text is mostly about
+*which* kind to pick. Nothing here licenses deleting that text — see "What is
+not claimed" below, and #157, which is where it is decided.
 
 Per prompt in that loaded condition, which is the table the per-kind claims
 below cite:
@@ -2344,7 +2363,8 @@ the code.** #50 measured pi at the server level and #137 records the gap: on
 the same four prompts, same model, same corpus, pi called the tool on 52 of 60
 counted turns (87%) across two runs against this record's 59% brief-arm rate in
 the table above (pooling those two runs is sound because each pi turn is its
-own session — `scripts/measure-show-block-server.ts` clears state per turn —
+own session — `scripts/measure-show-block-server.ts`, which ships with #149
+and is not in the tree yet, clears state per turn —
 and because that harness excludes turns that never reached a result, the same
 discipline as this one; the reason offered for it, that the classification pass
 runs after the result frame, is true but answers a different question, since it
@@ -2385,7 +2405,20 @@ What that does NOT settle, and #137 owns:
 
 The prediction this makes is falsifiable, and #148 has since checked it: if the
 Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
-87% rather than merely upward. **They landed at 76–77%, short of it.** So the
+87% rather than merely upward. **They landed at 76–77%, short of it.** In
+points, which is the only form that does not depend on a chosen baseline:
+
+| step | rate | moved |
+| --- | --- | --- |
+| Claude, deferred, no brief | 2% | — |
+| Claude, deferred, brief (this entry's headline) | 59% | +57, the brief |
+| Claude, always-loaded (#148, shipped) | 76–77% | +17 to +18, the loading |
+| pi, always-loaded by construction | 87% | **+10 to +11, unexplained** |
+
+Stated as a fraction it is whatever the denominator is chosen to be — an
+earlier revision of this entry said "roughly a third" without showing which,
+which is the failure this entry's own quoting rule is about. Ten points is the
+measured distance and it is what #137 owns. So the
 prediction partly failed, which is the useful outcome — deferral is not the
 whole cause, and whatever else separates the two backends is #137's to find.
 About ten points of the gap this record attributed to deferral is unexplained
@@ -2442,11 +2475,23 @@ reaches for `table` where `comparison` was right, or `timeline` where
 `schedule` was right, scores identically in all of it. So "the brief's entire
 measured effect is discoverability" is a claim about the **rate** and says
 nothing about whether its content — which is mostly *which* kind to pick —
-does work. #50's kind-correctness pass on pi is the first evidence on that
-question and it points the other way: 23 of 25 scorable turns drew the right
+does work. Nothing measured anywhere yet answers that, on either backend.
+
+#50's kind-correctness pass on pi — 23 of 25 scorable turns drawing the right
 kind, with one systematic miss (`schedule` prescribed, `timeline` drawn, 2 of
-2). Nobody should read the 77%/77% as licence to delete the brief's text;
-#157 is where that is decided, and it needs a kind-scored measurement.
+2) — is sometimes read as evidence the brief's content works. It is not, and
+this record refused the same move 100 lines above: pi has no no-brief arm, so
+every pi turn was measured **with the brief present** and a single-arm result
+cannot attribute anything to it. What that pass does establish is narrower and
+still useful: **kind-correctness is a dimension with real variance**, it can be
+scored, and a systematic error lives in it that every rate table on both
+backends is blind to. That is a reason to measure the brief on kind-correctness
+before touching it, not evidence of how that measurement will come out.
+
+So nobody should read the 77%/77% as licence to delete the brief's text, and
+nobody should read pi's 23 of 25 as licence to keep it. #157 is where it is
+decided and it needs a two-armed, kind-scored measurement, which nothing has
+run.
 
 Per-prompt rates are noisy — `compare-short` measured
 0 of 6, then 5 of 6, then 6 of 6 across three runs of the corrected harness,
@@ -2456,15 +2501,20 @@ is stable because it is a discoverability effect rather than a preference. One
 model, one backend: every number here is `claude-sonnet-5` on the Claude
 backend, driven through the Agent SDK directly. A reader who takes any of them
 as "the block rate" will be wrong on pi, and wrong on this backend too once
-`alwaysLoad` ships. `scripts/measure-show-block-server.ts` (#50) is the
-instrument for the other level — it drives the whole server over a real socket
+`alwaysLoad` ships. `scripts/measure-show-block-server.ts` — #50's harness,
+which arrives with #149 and is not in this tree — is the instrument for the
+other level — it drives the whole server over a real socket
 and is backend-agnostic, so it sees the classification pass, the wire frames
-and the client that this harness, sitting below all three, cannot. The `--always-load` figures
-were taken before the turn budget was enforced and are reported over the turns
-that finished inside it.
+and the client that this harness, sitting below all three, cannot.
 
 **Reproducing it.** `bun scripts/measure-show-block.ts --reps 6 --concurrency 6
---out runs.json --md report.md`, with `ANTHROPIC_API_KEY` set; add
-`--always-load` for the second table. It is a script and not a test: it needs
+--out runs.json --md report.md`, with `ANTHROPIC_API_KEY` set. The
+always-loaded table is a different shape — eight prompts at three reps, not
+nine at six, with `recommend` the one this entry's nine that it omits:
+
+```sh
+bun scripts/measure-show-block.ts --always-load --reps 3 --only \
+  compare-short,compare-long,trend,contact,table,steps,quote,bars
+``` It is a script and not a test: it needs
 the network and a key, so CI never runs it. Re-run it before changing the brief
 again.

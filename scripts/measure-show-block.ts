@@ -314,6 +314,14 @@ function optionsFor(arm: ArmName, abortController: AbortController): Options {
     maxTurns: 14,
     permissionMode: "bypassPermissions",
     mcpServers: {
+      // A SECOND named divergence, and it is material to a tool-search claim:
+      // production's `createBridgeMcpServer` registers up to five tools on
+      // this server (`ask-user-tool.ts:95-108`) and this registers one. They
+      // are deferred together, so a real deployment's `ToolSearch` returns a
+      // roster this one never shows, and a model weighing whether to spend
+      // the round-trip is weighing a different payoff. It cannot move the
+      // contrast — both arms register the same one tool — but the absolute
+      // search rate here is the rate for a one-tool server.
       "brain-ui": createSdkMcpServer({
         name: "brain-ui",
         version: "0.1.0",
@@ -549,7 +557,21 @@ function report(
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
-    `MCP tools ${ALWAYS_LOAD ? "were forced into the prompt (\`--always-load\`), which is NOT what ships" : "sat behind tool search, as they do in production"}. Turns that ran \`ToolSearch\`: ${runs.filter((run) => run.otherTools.includes("ToolSearch")).length}.`,
+    `MCP tools ${ALWAYS_LOAD ? "were forced into the prompt (\`--always-load\`), which is NOT what ships" : "sat behind tool search, as they do in production"}.`,
+    "",
+    "## `ToolSearch` against calls",
+    "",
+    "A deferred tool is not in the model's context until it searches, so this is the mechanism table. Completed turns only, like every rate above.",
+    "",
+    "| arm | ran `ToolSearch` | called `show_block` | called without searching |",
+    "| --- | --- | --- | --- |",
+    ...ARMS.map((arm) => {
+      const mine = completed(runs).filter((run) => run.arm === arm);
+      const searched = mine.filter((run) => run.otherTools.includes("ToolSearch"));
+      const called = mine.filter((run) => run.calls > 0);
+      const blind = called.filter((run) => !run.otherTools.includes("ToolSearch"));
+      return `| ${arm} | ${searched.length} of ${mine.length} | ${called.length} | ${blind.length} |`;
+    }),
     "",
     "## Rate per arm",
     "",
