@@ -133,10 +133,11 @@ blocked, and it can be picked up now. An agent picking work should filter
 
 **Status is derived, not typed.** `bun scripts/sync-project.ts --apply`
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
-open PR says it closes the issue — so closing a blocker makes its dependant
-Ready without anyone remembering to move a card. `In progress` and `Done` are
-statements about a person or an agent rather than about labels, so the script
-reads them and leaves them alone.
+open PR says it closes the issue. It reads the `blocked` label, not the blocker:
+closing a blocker does not clear the label on its dependant, so the dependant
+stays out of Ready until someone removes it (#188 tracks deriving it).
+`In progress` and `Done` are statements about a person or an agent rather than
+about labels, so the script reads them and leaves them alone.
 
 That is what the `blocked` label is for, and why it is worth applying: four of
 the container issues and two of the template ones are `agent-ready` and *not*
@@ -161,6 +162,12 @@ sit in the Ready view as traps.
 
 An issue that turns out to be wrong gets closed with a comment saying why.
 `wontfix` is a legitimate outcome and does not need an apology.
+
+Between those steps the issue has to stay true: its body is the current
+specification and its comments are the history. Corrections are folded into the
+body, a ruling is recorded where it unblocks the work, `blocked` comes off when
+the blocker closes, and a duplicate is closed into one survivor. The `github`
+skill's "Keeping an issue true" has the procedure.
 
 ## What an agent does before writing code
 
