@@ -556,6 +556,14 @@ export interface ProviderInfo {
    * when the host cannot classify the profile.
    */
   billingMode?: BillingMode;
+  /**
+   * Which catalog runs on this profile are billed through (additive), when the
+   * backend can say. Absent when the route is unknown — a proxy the backend
+   * does not recognise, or a backend that does not classify routes. Server
+   * side it selects the pricing catalog; the client must not switch behavior
+   * on it, only presentation.
+   */
+  pricingRoute?: PricingRoute;
 }
 
 // --- Model catalog (HTTP: /api/models) ---
@@ -1410,6 +1418,25 @@ export type BillingMode = "subscription" | "api";
  *  span attrs). */
 export function isBillingMode(v: unknown): v is BillingMode {
   return v === "subscription" || v === "api";
+}
+
+/**
+ * Which catalog a run's inference was billed through: `openrouter` (routed
+ * over OpenRouter, billed at its resale rate) or `direct` (the model vendor's
+ * own endpoint, billed at the vendor's rate). Resolved once at run start from
+ * the run's inference profile, exactly like {@link BillingMode}.
+ *
+ * It exists because a model id does not identify its own price: both pricing
+ * catalogs carry some of the same ids at different rates, so only the route
+ * says which of the two a given run was actually billed at. Absent means
+ * unknown — pricing then falls back to id-alone resolution.
+ */
+export type PricingRoute = "openrouter" | "direct";
+
+/** THE membership check for {@link PricingRoute} — one definition for every
+ *  boundary that validates an untrusted value (span attrs, stored profiles). */
+export function isPricingRoute(v: unknown): v is PricingRoute {
+  return v === "openrouter" || v === "direct";
 }
 
 export interface ActivityRunSummary {

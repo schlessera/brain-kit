@@ -2,6 +2,7 @@ import type {
   BillingMode,
   ChatImageAttachment,
   ClientEnvironment,
+  PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
@@ -342,7 +343,9 @@ async function resolveRunBilling(
   registry: BackendRegistry,
   backendId: string,
   profileId: string | undefined
-): Promise<{ profileId: string; billingMode?: BillingMode } | undefined> {
+): Promise<
+  { profileId: string; billingMode?: BillingMode; pricingRoute?: PricingRoute } | undefined
+> {
   try {
     const providers = await registry.listAllProviders({ includeHidden: true });
     const resolved = profileId
@@ -352,6 +355,7 @@ async function resolveRunBilling(
     return {
       profileId: resolved.id,
       ...(resolved.billingMode ? { billingMode: resolved.billingMode } : {}),
+      ...(resolved.pricingRoute ? { pricingRoute: resolved.pricingRoute } : {}),
     };
   } catch {
     return undefined;
