@@ -190,8 +190,11 @@ function restoreDerivedCaches(root: string): string[] {
   const dirty = classifyPostSyncDirt(workingTreeDirt(root)).caches;
   for (const file of dirty) {
     const tracked = git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0;
-    if (tracked) git(root, ["checkout", "HEAD", "--", file]);
-    else {
+    // Hooks off: restoring a file fires post-checkout, whose reindex can
+    // rewrite the cache straight back.
+    if (tracked) {
+      git(root, ["-c", "core.hooksPath=/dev/null", "restore", "--source=HEAD", "--staged", "--worktree", "--", file]);
+    } else {
       git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
       rmSync(resolve(root, file), { force: true });
     }

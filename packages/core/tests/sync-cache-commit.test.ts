@@ -8,7 +8,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commitDerivedCaches } from "../src/cli/commands/sync.js";
@@ -128,8 +128,9 @@ describe("sync pull with a locally rewritten cache", () => {
     return { root, remote };
   }
 
-  for (const ahead of [false, true]) {
-    test(`does not fail the ${ahead ? "merge" : "fast-forward"}; the cache takes the remote copy`, async () => {
+  for (const [ahead, hooked] of [[false, false], [true, false], [false, true]] as const) {
+    const name = `${ahead ? "merge" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
+    test(`does not fail the ${name}; the cache takes the remote copy`, async () => {
       // Another clone's post-sync pushed its cache while this clone's reindex
       // rewrote the same file. `ahead` adds a local content commit, so the
       // pull has to merge rather than fast-forward.
@@ -147,6 +148,15 @@ describe("sync pull with a locally rewritten cache", () => {
         git(root, "commit", "-qm", "local content");
       }
       writeFileSync(join(root, CACHE), OURS);
+      if (hooked) {
+        // The shipped post-checkout reindexes, and an index run can rewrite
+        // the cache. Restoring it must not fire that and re-dirty it.
+        const hooks = join(root, ".git", "test-hooks");
+        mkdirSync(hooks);
+        writeFileSync(join(hooks, "post-checkout"), `#!/bin/sh\nprintf 'pruned\\n' > "${CACHE}"\n`);
+        chmodSync(join(hooks, "post-checkout"), 0o755);
+        git(root, "config", "core.hooksPath", hooks);
+      }
 
       const result = await runCli(root, ["sync", "pull", "--json"]);
       const body = JSON.parse(result.stdout);
