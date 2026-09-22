@@ -85,7 +85,7 @@ describe("show_block", () => {
     // rather than merely lower, because the tools were deferred behind tool
     // search and the brief was the only text naming them. D44 always-loads
     // them, and in that configuration the brief measures at no effect at all
-    // (77%/77% and 78%/78%, two runs). The budgets stay pinned at what was
+    // (77%/77% and 76%/77%, two runs). The budgets stay pinned at what was
     // measured until #156 re-decides what the brief is for; they are a ceiling
     // on drift, not evidence that the lines earn their place. Measured on the
     // name the Claude backend actually sends: the MCP prefix is fifteen of

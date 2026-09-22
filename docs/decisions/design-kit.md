@@ -2607,17 +2607,26 @@ wall time to the first assistant frame.
 
 | configuration | arm | a `show_block` call | ran `ToolSearch` | input per round-trip | first frame |
 | --- | --- | --- | --- | --- | --- |
-| deferred — what shipped | brief | 15 of 27 (**56%**) | 16 | 24,458 | 3883 ms |
-| deferred | no-brief | 0 of 27 (**0%**) | 0 | 21,417 | 4449 ms |
-| always loaded | brief | 21 of 27 (**78%**) | 1 | 26,340 | 4277 ms |
-| always loaded | no-brief | 21 of 27 (**78%**) | 1 | 26,885 | 4620 ms |
+| deferred — what shipped | brief | 14 of 25 (**56%**) | 15 | 24,087 | 3897 ms |
+| deferred | no-brief | 0 of 25 (**0%**) | 0 | 21,088 | 4549 ms |
+| always loaded | brief | 19 of 25 (**76%**) | 0 | 26,694 | 4371 ms |
+| always loaded | no-brief | 20 of 26 (**77%**) | 0 | 27,522 | 4716 ms |
 
-D43's 77%/77% replicates at 78%/78%. Across the two runs that is 49 turns per
-cell agreeing: **once the tool is in the prompt, the brief changes nothing.**
+**These runs were taken on the harness before `e017715` enforced the 180 s turn
+budget it advertises**, which is the same correction that moved D43's
+always-load arm from 19 of 24 to 17 of 22. Seven of the 108 turns ran over, six
+of them the `trend` prompt, and the table above already excludes them the way
+the enforced harness would. Left in, the four cells read 56%, 0%, 78% and 78%
+over 27 turns each; the conclusion does not move either way, and the enforced
+figures are published because they are what a re-run will produce.
+
+D43's 77%/77% replicates at 76%/77%. Across the two runs that is 47–48 turns
+per cell agreeing: **once the tool is in the prompt, the brief changes
+nothing** — on rate, which is the only thing any of it measures.
 
 The two no-brief arms isolate the schema as cleanly as this harness can —
 neither searches, so the only difference between them is the schema in the
-prompt: 21,417 against 26,885, a delta of **5468** against the 5270
+prompt: 21,088 against 27,522, a delta of **6434** against the 5270
 `count_tokens` priced. Over non-delegating turns only, where `usage`'s
 main-loop scope and `num_turns` cannot disagree, it is 20,279 against 26,296, a
 delta of **6017**. The live run brackets the counted figure rather than
@@ -2651,8 +2660,8 @@ avoid the schema; it postpones it. A tool search **appends** the matched
 definition rather than swapping it, so from the search onwards every remaining
 round-trip of that turn carries the full 5270 anyway — and the turn has also
 paid for an extra model round-trip to get it. Measured across the shipped
-configuration: turns that ran `ToolSearch` billed 26,029 input tokens per
-round-trip against 21,636 for turns that did not. **Deferral saves the schema
+configuration: turns that ran `ToolSearch` billed 25,715 input tokens per
+round-trip against 21,247 for turns that did not. **Deferral saves the schema
 only on the turns that never wanted the tool.**
 
 First frame did not move in any direction the samples can distinguish
@@ -2661,7 +2670,7 @@ First frame did not move in any direction the samples can distinguish
 numbers agree.
 
 **Decision. `createBrainUiMcpServer` sets `alwaysLoad: true`.** The bridge
-tools ride every prompt. 22 percentage points of call rate for 6% of a turn,
+tools ride every prompt. 20 percentage points of call rate for 6% of a turn,
 no measurable latency, and the end of a structural fragility: under deferral a
 tool's existence depended on a line of prompt text, so an editor shortening a
 brief could silently remove a tool and no test would notice. That is not a
@@ -2731,7 +2740,7 @@ about it.
 
 **The prediction, with the condition that would falsify it.** If deferral is
 the whole of the difference, this change moves the Claude backend *toward* pi's
-90% and not merely upward from 56%. It has already landed at 77–78% in the
+90% and not merely upward from 56%. It has already landed at 76–77% in the
 measurement above, which is short of pi. **That shortfall is the prediction
 failing, not confirming**, and it says something besides deferral is also in
 play — so #137's search stays live and this entry does not close it. The
@@ -2745,7 +2754,7 @@ matters — **pi has no no-brief arm and no supported way to have one.**
 `packages/ui-backend-pi/src/session-resources.ts:157` passes the block brief
 into `buildSystemPromptAppend` unconditionally, not behind a capability check
 like `askUser`, `location`, `activity` and `mask` on the lines above it. So
-every pi number was measured with the brief present. The 77%/77% and 78%/78%
+every pi number was measured with the brief present. The 77%/77% and 76%/77%
 cells are one backend measured twice, not two backends agreeing.
 
 **What this changes in D43.** Its decision — the brief stays — stands, and its
@@ -2753,7 +2762,8 @@ measurement is the evidence this entry rests on; the deferral finding is D43's,
 not this one's. What this supersedes is its *reason*. D43 kept the brief
 because removing it took the rate to 2%, and that was true only of the
 deferred configuration. With the tools loaded, the brief measures at no effect
-at all: 78% with it and 78% without it here, 77%/77% there, 49 turns per cell.
+at all: 76% with it and 77% without it here, 77%/77% there, 47–48 turns per
+cell.
 The brief is no longer the tool's discovery path, so whether it earns 655
 tokens across five tools has to be re-argued on its own merits rather than
 inherited. **#148 scoped the brief's wording out of this decision, so nothing
@@ -2767,7 +2777,7 @@ earn their place. The question is #156.
 - **Every rate in this entry scores whether a block was drawn, never which
   kind.** A turn that reached for `table` where `comparison` was right counts
   as a call in all of it, in both configurations and both arms. So "always
-  loading raises the rate from 56% to 78%" is a claim about reaching for the
+  loading raises the rate from 56% to 77%" is a claim about reaching for the
   tool and not about the answer being better, and the brief's measured
   no-effect is a no-effect on rate only. This is not a hedge — #50's
   kind-correctness pass on the pi backend found a systematic miss (`schedule`
