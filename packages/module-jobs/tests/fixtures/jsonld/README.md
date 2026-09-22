@@ -15,8 +15,20 @@ response, joined by an `<!-- ... elided ... -->` comment where the page served
 more than one. Nothing inside the JSON was rewritten except invisible
 codepoints, which are spelled as `\u` escapes so the tree stays greppable
 (`bun run lint`); a JSON parser sees the same characters. `capture.json`
-records the URL, the SHA-256 and byte count of the **full** response each slice
-came from, and the vantage point.
+records the URL, the vantage point, the SHA-256 and byte count of the **full**
+response each slice came from, and the same two facts about the slice itself.
+
+Those byte facts are **sealed from the committed files**, not typed — a fact
+nobody re-checks is a fact that rots, which is what happened to the board
+records next door:
+
+```sh
+bun packages/module-jobs/scripts/measure-boards.ts --seal packages/module-jobs/tests/fixtures
+```
+
+The generator reads one level of record directories, and this directory and
+`../boards/` are siblings, so each root is sealed by pointing the same command
+at it.
 
 ## Vantage point
 
