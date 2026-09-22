@@ -182,9 +182,28 @@ export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
   return false;
 }
 
+/**
+ * The ambient variables that can redirect a turn without showing up in the
+ * numbers: a different endpoint, a different credential store, a different
+ * binary, or a classifier that was or was not asked. Presence only — these
+ * are secrets or home paths, and a report gets pasted into issues.
+ */
+function redirectingEnvironment(): Record<string, boolean> {
+  return {
+    TYPESAFE_API_KEY: Boolean(process.env.TYPESAFE_API_KEY?.trim()),
+    ANTHROPIC_BASE_URL: Boolean(process.env.ANTHROPIC_BASE_URL?.trim()),
+    ANTHROPIC_API_KEY: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+    CLAUDE_CODE_OAUTH_TOKEN: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim()),
+    CLAUDE_CODE_PATH: Boolean(process.env.CLAUDE_CODE_PATH?.trim()),
+    PI_CODING_AGENT_DIR: Boolean(process.env.PI_CODING_AGENT_DIR?.trim()),
+  };
+}
+
 interface RunFile {
   backend: string;
   model: string;
+  /** Set on runs recorded after 2026-09-22; absent on older files. */
+  environment?: Record<string, boolean>;
   records: RunRecord[];
 }
 
@@ -272,8 +291,12 @@ async function measure(): Promise<void> {
   console.error(`[measure] ${url} backend=${backend} model=${vendor}/${model} brain=${brainPath}`);
 
   const records: RunRecord[] = [];
+  const environment = redirectingEnvironment();
   const save = () =>
-    Bun.write(outPath, JSON.stringify({ backend, model: `${vendor}/${model}`, records }, null, 2));
+    Bun.write(
+      outPath,
+      JSON.stringify({ backend, model: `${vendor}/${model}`, environment, records }, null, 2)
+    );
 
   try {
     for (const promptIndex of indexes) {
@@ -336,6 +359,14 @@ async function runOnce(
   // The turn ends at `result`, or at a bare `error` when it died before a
   // session existed. Wait a little past `result` for the additive
   // `message_blocks` frame the classification pass sends after it.
+  //
+  // Every other shape ends at the 450 s deadline with no `result`, so it is
+  // `completed: false` and excluded from the rate: an `error` that carries a
+  // session, a dropped socket, a server that never answers. The one shape
+  // that is silently COUNTED is a `message_blocks` frame that arrives later
+  // than the window below — the turn's block count is right and its
+  // classifier column reads empty. The window is therefore generous rather
+  // than tight: the pass has a 2 s budget and then transforms and persists.
   const deadline = Date.now() + 450_000;
   let resultAt: number | null = null;
   while (Date.now() < deadline) {
@@ -416,8 +447,10 @@ async function report(paths: string[]): Promise<void> {
   const records: RunRecord[] = [];
   let backend = "";
   let model = "";
+  let environment: Record<string, boolean> | undefined;
   for (const path of paths) {
     const parsed = (await Bun.file(path).json()) as RunFile;
+    environment ??= parsed.environment;
     if (backend && (parsed.backend !== backend || parsed.model !== model)) {
       throw new Error(
         `${path} is ${parsed.backend}/${parsed.model}, not ${backend}/${model} —` +
@@ -437,7 +470,17 @@ async function report(paths: string[]): Promise<void> {
 
   const byPrompt = new Map<number, RunRecord[]>();
   for (const record of counted) {
-    byPrompt.set(record.promptIndex, [...(byPrompt.get(record.promptIndex) ?? []), record]);
+    const group = byPrompt.get(record.promptIndex) ?? [];
+    // The label comes from the first record in a group, so a prompt list
+    // edited between two runs would print one prompt's text over another's
+    // numbers.
+    if (group.length && group[0].prompt !== record.prompt) {
+      throw new Error(
+        `prompt ${record.promptIndex} is two different prompts across these files:` +
+          `\n  ${group[0].prompt}\n  ${record.prompt}`
+      );
+    }
+    byPrompt.set(record.promptIndex, [...group, record]);
   }
   const order = [...byPrompt.keys()].sort((a, b) => a - b);
 
@@ -535,7 +578,17 @@ async function report(paths: string[]): Promise<void> {
     const key = `${record.result?.outcome ?? "none"}/numTurns=${record.result?.numTurns ?? "none"}`;
     outcomes.set(key, (outcomes.get(key) ?? 0) + 1);
   }
-  console.log(`outcomes: ${[...outcomes].map(([k, n]) => `${k} ×${n}`).join(", ")}`);
+  console.log(
+    `outcomes, all ${records.length} turns: ${[...outcomes]
+      .map(([k, n]) => `${k} ×${n}`)
+      .join(", ")}`
+  );
+  if (environment) {
+    const set = Object.entries(environment)
+      .filter(([, present]) => present)
+      .map(([name]) => name);
+    console.log(`environment set at record time: ${set.join(", ") || "none"}`);
+  }
 }
 
 // Guarded, so `tests/measure-show-block-gate.test.ts` can import the counting

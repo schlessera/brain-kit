@@ -2225,9 +2225,19 @@ subagent frames are skipped, a turn that did not complete is excluded — and
 one is added: a turn whose shell named a path outside the brain answered
 about something else and is excluded too. Two did. Thirty turns counted.
 
+The environment can redirect a turn without showing up in a number — a
+different endpoint, a different credential store, a different binary — so
+what was set is part of the measurement. On this run: `ANTHROPIC_API_KEY`
+only. `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH`,
+`PI_CODING_AGENT_DIR` and `TYPESAFE_API_KEY` were all unset, so the turns
+went to Anthropic's own endpoint with pi's default agent directory and the
+classification pass was off. The harness records that set of presences with
+every run it writes from now on, and `--report` prints it.
+
 **Numbers.** Beside D43's brief arm, which is the same four prompts, the
 same model and the same corpus, measured at the SDK instead of at the
-socket.
+socket. D43 is on PR #121 and unmerged as this is written, so the Claude
+column is quoted from that branch rather than from this file.
 
 | prompt | Claude (D43, brief) | pi |
 | --- | --- | --- |
@@ -2242,10 +2252,15 @@ project summary — drew a block on all eight turns, as `steps`, `timeline`,
 `quote` and `receipt`. Across all thirty counted turns the model typed
 **zero markdown tables** and the handler rejected **zero** payloads. An
 earlier pass of the same eight prompts on `claude-sonnet-4-6` drew a block
-on 21 of 23 turns, so the rate is not one model's habit.
+on 21 of 23 turns — counted before the exclusion rules existed, so it is a
+corroboration and not a second measurement — and the rate is therefore not
+one model's habit.
 
 **What it means.** Two of D43's findings are the Claude backend's, not the
-tool's.
+tool's — with the method difference standing: the two harnesses agree on
+`compare-long` and on `trend`, which is what makes the disagreement on the
+other two a backend difference rather than a measurement one, but only a
+Claude run on this harness settles it. That is #137.
 
 - **"Keep it short" does not suppress the tool; it suppresses it on
   Claude.** D43 measures that prompt at 0 of 6 in both arms and reads it as
