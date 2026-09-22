@@ -1,0 +1,35 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 1712,
+      "excerpt_sha256": "4b5f61dcf57fcca1c5c2a4b2026c67ce7175760b642deccfad03ea8276c88e69",
+      "fixture": "astroapi-ai-jobs.json",
+      "full_response_bytes": 4495,
+      "full_response_sha256": "4f26f2db1c89fe9cc9f1b5fef173a0d2273f8fc5466f4ffc5f3502009034c2a9",
+      "http_status": 200,
+      "note": "The first three records of the JSON endpoint jobgether's own robots.txt explicitly allows (Allow: /astroapi/ai/jobs.json). It carries title, company, url, location, contract type and salary range - which is what the 410'd category pages were being scraped for. Input for the repair, not a repair. The first record's company, Pearl Meyer, is a US executive-compensation consulting firm (pearlmeyer.com), not an individual - checked, because a company name that reads like a person's is exactly what the leakage gate cannot see.",
+      "records_in_full_response": 10,
+      "source": "jobgether",
+      "transport": "http",
+      "url": "https://jobgether.com/astroapi/ai/jobs.json",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 241,
+      "excerpt_sha256": "a401fa2a36dcef6cf4abfd998a6c19ed6021ae2a86e711cdf97e1e4b822fe400",
+      "fixture": "response-410.html",
+      "full_response_bytes": 940153,
+      "full_response_sha256": "e90624f95820c1de8b79e0d2fcbaa1f9778d278f50e4d08409623684ef665452",
+      "http_status": 410,
+      "note": "Every one of the five category URLs at src/adapters/jobgether.ts:6-12 answers HTTP 410 Gone. The body is the site's search page, whose canonical link names the replacement.",
+      "source": "jobgether",
+      "transport": "http",
+      "url": "https://jobgether.com/remote-jobs/all-locations/software-engineering",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

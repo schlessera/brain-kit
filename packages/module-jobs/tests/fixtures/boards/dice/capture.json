@@ -1,0 +1,18 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 3678,
+      "excerpt_sha256": "7a79ba078e305b81361acbc7ef2209c695782165152b81072cd6e21e57b52d30",
+      "fixture": "rendered-card.html",
+      "full_response_bytes": 446444,
+      "full_response_sha256": "59e54db2d4d45d120b3d284ea19aed345de12ee8691f0f113789b9311c278039",
+      "note": "One verbatim job card from the RENDERED DOM. Two things the measurement found: the card link's href is RELATIVE (/job-detail/<guid>), and src/adapters/dice.ts:47 stores it unchanged as both source_id and url, so all 102 stored rows carry an unresolvable URL; and the company has a stable selector here (a[href^=\"/company-profile/\"]) while the adapter recovers it by scanning card text, which left 10 of 102 rows at \"Unknown\".",
+      "source": "dice",
+      "transport": "rendered",
+      "url": "https://www.dice.com/jobs?q=software%20engineer&filters.isRemote=true",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

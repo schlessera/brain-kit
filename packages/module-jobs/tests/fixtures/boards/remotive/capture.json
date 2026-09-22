@@ -1,0 +1,18 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 648,
+      "excerpt_sha256": "cc40f8ae85eb0946b8e976e29ecb1d344a4ba227e15d9010fc27ea6cbadcc386",
+      "fixture": "robots.txt",
+      "full_response_bytes": 648,
+      "full_response_sha256": "cc40f8ae85eb0946b8e976e29ecb1d344a4ba227e15d9010fc27ea6cbadcc386",
+      "note": "remotive.com/robots.txt disallows /api/*, which is the only path the adapter fetches. The politeness layer refuses all five category requests, so the board returns 0 found and 5 errors - while still being one of the six default-enabled SOURCES in src/types.ts.",
+      "source": "remotive",
+      "transport": "http",
+      "url": "https://remotive.com/robots.txt",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}
