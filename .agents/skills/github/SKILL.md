@@ -1,7 +1,7 @@
 ---
 name: github
 description: Use when filing, triaging, picking up, updating or closing work in the brain-kit or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which of the two repositories an issue belongs in. Also use before recording found work mid-session.
-compatibility: Requires the `gh` CLI, authenticated. Sub-issue and project operations additionally need the `project` scope — `gh auth refresh -s project`.
+compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the classic OAuth `project` scope (`gh auth refresh -s project`) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
 ---
 
 # Working the brain-kit trackers
@@ -116,6 +116,19 @@ does not know it exists.
 Exactly one `type:`. At least one `area:`. A `priority:` only if it is actually
 sorted — an unprioritised backlog item is honest, a guessed `p2` is not.
 Workflow state is never a label; it is the board's Status field.
+
+**The board may be out of reach, and that is fine.** *brain-kit roadmap* is
+owned by a user account, not an organisation, and GitHub exposes user-owned
+ProjectsV2 only to classic OAuth auth. On a fine-grained PAT there is no
+permission to grant — the setting does not exist. The failure misleads on its
+way past, too: `viewer.projectsV2.totalCount` answers, while selecting the node
+under it returns `FORBIDDEN / Resource not accessible by personal access token`.
+Counting works, reading does not.
+
+Do not go looking for the permission. File the issue with its labels and
+milestone and stop there; `bun scripts/sync-project.ts --apply` adds newly filed
+issues to the board and derives their Status, and it runs from a terminal that
+has the `project` scope.
 
 A milestone is a release. Attach one only when the work is committed to that
 release:
