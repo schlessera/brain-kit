@@ -100,7 +100,11 @@ page, offline (see above) — the numbers the fixtures actually support — give
   own class is `card-alias-after-overlay`, so `closest()` returns the anchor
   itself and the card text it scans is just the title. The company has a stable
   selector, `a[data-id="company-title"]`, contradicting the comment at `:26`.
-  Fixture: `builtin/rendered-card.html`.
+  The same page also carries an `@graph` whose `ItemList` holds a name, a url
+  and a **description** for every job on it — 19 descriptions the adapter
+  throws away by reading the DOM instead. No `hiringOrganization`, so the
+  company still has to come from the card.
+  Fixtures: `builtin/rendered-card.html`, `builtin/listing-jsonld.html`.
 - **`nodesk`** — the company is the `<h3>` under the title, but
   `src/adapters/nodesk.ts:66` looks for `a[href*="/remote-companies/"]`, and
   an Algolia hit card does not have one. Replaying the extractor against the

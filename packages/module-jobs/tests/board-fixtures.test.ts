@@ -175,6 +175,26 @@ describe("remotive's robots.txt", () => {
 // keyless test can pin is the SHAPE of the rendered markup — which is exactly
 // where each of the three diagnoses lives.
 
+describe("builtin's listing JSON-LD", () => {
+  test("carries a description for every job the adapter throws away (#34, #36)", () => {
+    const html = fixture("builtin", "listing-jsonld.html");
+    // Bare tag here, unlike remotely.de — the attribute intolerance is a real
+    // defect but it is not what costs builtin its descriptions. Reading the
+    // DOM instead of the structured data is.
+    expect(html).toContain('<script type="application/ld+json">');
+    const data = JSON.parse(html.slice(html.indexOf(">") + 1, html.lastIndexOf("</script>")));
+    const list = data["@graph"].find((node: { "@type": string }) => node["@type"] === "ItemList");
+    expect(list.itemListElement.length).toBeGreaterThan(0);
+    for (const entry of list.itemListElement) {
+      expect(entry.name).toBeTruthy();
+      expect(entry.url).toStartWith("https://builtin.com/job/");
+      expect(entry.description.length).toBeGreaterThan(50);
+      // Still no company: #35 cannot get that from here.
+      expect(entry.hiringOrganization).toBeUndefined();
+    }
+  });
+});
+
 describe("builtin's rendered card", () => {
   test("the anchor's own class is why closest() never reaches the card (#35)", () => {
     const $ = parseHtml(fixture("builtin", "rendered-card.html"));

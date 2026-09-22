@@ -12,6 +12,20 @@
       "transport": "rendered",
       "url": "https://builtin.com/jobs/remote",
       "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 2479,
+      "excerpt_edited": "itemListElement trimmed from 19 entries to 3, and the JSON re-indented for reading; every field is otherwise as served",
+      "fixture": "listing-jsonld.html",
+      "full_response_bytes": 1301248,
+      "full_response_sha256": "50a3b1ee2b4ed4758b967b82db1d18dc791a10faf68f70f5c999e9e7c3c8c53d",
+      "note": "The same rendered page carries an @graph whose ItemList holds a name, a url AND a description for every job on it - 19 of them, all 19 of which the adapter throws away because it reads the DOM instead. No hiringOrganization, so the company still has to come from the card. Input for #34 and #36, not a repair.",
+      "source": "builtin",
+      "transport": "rendered",
+      "url": "https://builtin.com/jobs/remote",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
     }
   ]
 }
