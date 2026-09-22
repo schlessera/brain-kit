@@ -1,7 +1,7 @@
 ---
 name: github
 description: Use when filing, triaging, picking up, updating or closing work in the brain-kit or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which of the two repositories an issue belongs in. Also use before recording found work mid-session.
-compatibility: Requires the `gh` CLI, authenticated. Sub-issue and project operations additionally need the `project` scope — `gh auth refresh -s project`.
+compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the `project` scope on an OAuth token or classic PAT (`gh auth refresh -s project` for an OAuth login) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
 ---
 
 # Working the brain-kit trackers
@@ -116,6 +116,20 @@ does not know it exists.
 Exactly one `type:`. At least one `area:`. A `priority:` only if it is actually
 sorted — an unprioritised backlog item is honest, a guessed `p2` is not.
 Workflow state is never a label; it is the board's Status field.
+
+**The board may be out of reach, and that is fine.** *brain-kit roadmap* is
+owned by a user account, not an organisation, and GitHub exposes user-owned
+ProjectsV2 only to an OAuth token or classic PAT. On a fine-grained PAT there is no
+permission to grant — the setting does not exist. The failure misleads on its
+way past, too: `viewer.projectsV2.totalCount` answers, while selecting the node
+under it returns `FORBIDDEN / Resource not accessible by personal access token`.
+Counting works, reading does not.
+
+GitHub documents this under [fine-grained PAT limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations).
+If the current token cannot access the board, file the issue with its labels
+and milestone; `bun scripts/sync-project.ts --apply` adds newly filed
+issues to the board and derives their Status, and it runs from a terminal that
+has the `project` scope.
 
 A `needs:` label says what is blocking the work. `needs: design` is the one
 that is useless on its own — see "Issues that need design" below for what has
