@@ -94,38 +94,62 @@ export function createWrappedSpawn(
       },
       kill(sig: NodeJS.Signals): boolean {
         if (child.pid === undefined) return false;
+        const pid = child.pid;
+
+        /** The unprivileged route: correct unless the wrapper changed uid. */
+        const signalGroup = (): boolean => {
+          try {
+            process.kill(-pid, sig);
+            signalled = true;
+            return true;
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === "ESRCH") return true; // already gone
+            const direct = child.kill(sig);
+            if (!direct && code === "EPERM") {
+              console.error(
+                `Could not signal Claude Code's process group ${pid} (EPERM). ` +
+                  `The wrapper at ${wrapper} runs as a uid this process cannot signal, ` +
+                  `so the aborted turn is STILL RUNNING. Configure ${EXEC_KILLER_ENV}.`
+              );
+            }
+            return direct;
+          }
+        };
+
         // An authorised helper is the only thing that works once the wrapper
         // has dropped uid: kill(2) matches uids, and group membership grants
         // no exception (docs/decisions/container-privilege.md, "Cancellation").
         if (killer) {
-          try {
-            spawn(killer, [String(child.pid), sig.replace(/^SIG/, "")], {
-              stdio: "ignore",
-              detached: false,
-            }).unref();
-            signalled = true;
-            return true;
-          } catch {
-            // Fall through: an unprivileged signal is still worth attempting.
-          }
-        }
-        try {
-          process.kill(-child.pid, sig);
+          const helper = spawn(killer, [String(pid), sig.replace(/^SIG/, "")], {
+            stdio: "ignore",
+            detached: false,
+          });
+          helper.unref();
+          // A missing or non-executable helper surfaces ASYNCHRONOUSLY here.
+          // With no listener, node throws the 'error' event and takes the
+          // server down — cancelling a turn would crash the process rather
+          // than fall back.
+          helper.once("error", (error) => {
+            console.error(
+              `${EXEC_KILLER_ENV} at ${killer} could not be run to cancel process ` +
+                `group ${pid}: ${error.message}. Falling back to an unprivileged signal.`
+            );
+            signalGroup();
+          });
+          helper.once("exit", (code) => {
+            if (code === 0 || code === null) return;
+            console.error(
+              `${EXEC_KILLER_ENV} at ${killer} exited ${code} cancelling process group ` +
+                `${pid}. Falling back to an unprivileged signal.`
+            );
+            signalGroup();
+          });
           signalled = true;
           return true;
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === "ESRCH") return true; // already gone
-          const direct = child.kill(sig);
-          if (!direct && code === "EPERM") {
-            console.error(
-              `Could not signal Claude Code's process group ${child.pid} (EPERM). ` +
-                `The wrapper at ${wrapper} runs as a uid this process cannot signal, ` +
-                `so the aborted turn is STILL RUNNING. Configure ${EXEC_KILLER_ENV}.`
-            );
-          }
-          return direct;
         }
+
+        return signalGroup();
       },
       on(event: "exit" | "error", listener: never) {
         child.on(event, listener);

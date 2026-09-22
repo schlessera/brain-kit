@@ -80,3 +80,39 @@ test("the wrapper receives the SDK's command as an argument, and abort kills the
   expect(alive(childPid)).toBe(false);
   expect(proc.killed).toBe(true);
 }, 30_000);
+
+test("a missing cancellation helper is reported, not thrown at the event loop", async () => {
+  // node's spawn reports a missing executable ASYNCHRONOUSLY. With no 'error'
+  // listener the event is thrown, which takes the server down — cancelling a
+  // turn would crash the process rather than fall back to a plain signal.
+  const dir = mkdtempSync(join(tmpdir(), "claude-killer-"));
+  temps.push(dir);
+  const wrapper = join(dir, "exec.sh");
+  writeFileSync(wrapper, `#!/bin/sh\nexec "$@"\n`, { mode: 0o755 });
+  chmodSync(wrapper, 0o755);
+
+  const spawn = createWrappedSpawn({ wrapper, killer: join(dir, "not-here") });
+  const proc = spawn({
+    command: "sleep",
+    args: ["300"],
+    cwd: dir,
+    env: { PATH: process.env.PATH },
+    signal: new AbortController().signal,
+  });
+  const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+
+  const errors: unknown[] = [];
+  const onUncaught = (error: unknown) => errors.push(error);
+  process.on("uncaughtException", onUncaught);
+  try {
+    expect(proc.kill("SIGTERM")).toBe(true);
+    // Let the async spawn error land, then the fallback.
+    await exited;
+    await new Promise((r) => setTimeout(r, 100));
+  } finally {
+    process.off("uncaughtException", onUncaught);
+  }
+
+  expect(errors).toEqual([]);
+  expect(proc.killed).toBe(true);
+}, 30_000);

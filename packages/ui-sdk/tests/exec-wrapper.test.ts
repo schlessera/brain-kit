@@ -238,3 +238,57 @@ describe("the cancellation helper", () => {
     expect(alive(proc.pid)).toBe(false);
   }, 30_000);
 });
+
+describe("failures of the helper itself are not mistaken for success", () => {
+  test("a helper that exits non-zero is reported and the unprivileged route is tried", async () => {
+    const dir = tempDir();
+    const wrapper = join(dir, "exec.sh");
+    writeFileSync(wrapper, `#!/bin/sh\nexec "$@"\n`, { mode: 0o755 });
+    chmodSync(wrapper, 0o755);
+
+    // Launches fine, cancels nothing — what a real helper does when its own
+    // privilege transition fails. Reporting that as a successful cancellation
+    // is how a turn keeps running with a clean log.
+    const killer = join(dir, "always-fails.sh");
+    writeFileSync(killer, `#!/bin/sh\nexit 3\n`, { mode: 0o755 });
+    chmodSync(killer, 0o755);
+
+    const proc = Bun.spawn(wrapCommand(["sleep", "300"], wrapper), {
+      stdout: "ignore",
+      stderr: "ignore",
+      ...execWrapperSpawnOptions(wrapper),
+    });
+
+    const failures: string[] = [];
+    killWrapped(proc, { wrapper, killer }, "SIGTERM", (m) => failures.push(m));
+    await proc.exited;
+
+    expect(failures.join("\n")).toContain("exited 3");
+    expect(alive(proc.pid)).toBe(false);
+  }, 30_000);
+
+  test("without a wrapper the requested signal is the one that is sent", async () => {
+    // `execBrain` asks for SIGKILL when a pipe read fails. Sending SIGTERM
+    // instead lets a CLI that ignores it survive to the deadline — a
+    // regression on the path every existing deployment is on.
+    const dir = tempDir();
+    const trapped = join(dir, "ignores-term.sh");
+    const ready = join(dir, "ready");
+    writeFileSync(
+      trapped,
+      `#!/bin/sh\ntrap '' TERM\ntouch '${ready}'\nwhile : ; do sleep 0.05; done\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(trapped, 0o755);
+
+    const proc = Bun.spawn([trapped], { stdout: "ignore", stderr: "ignore" });
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(ready) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    killWrapped(proc, {}, "SIGKILL");
+    await proc.exited;
+    expect(alive(proc.pid)).toBe(false);
+  }, 30_000);
+});

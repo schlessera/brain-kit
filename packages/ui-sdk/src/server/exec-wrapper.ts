@@ -133,47 +133,78 @@ export function killWrapped(
 ): void {
   const { wrapper, killer } = config;
   if (!wrapper) {
-    proc.kill();
+    // The requested signal, not the default: `execBrain` asks for SIGKILL when
+    // a pipe read fails, and a CLI that ignores SIGTERM would otherwise
+    // survive until the search deadline. Dropping it here was a regression on
+    // the path every existing deployment is on.
+    proc.kill(signal);
     return;
   }
 
-  if (killer) {
+  /** The unprivileged route: correct unless the wrapper changed uid. */
+  const signalGroup = (): void => {
     try {
-      // Fire and forget: the helper is a few syscalls, and awaiting it would
-      // put an abort path behind a process spawn.
-      Bun.spawn([killer, String(proc.pid), signal.replace(/^SIG/, "")], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
+      process.kill(-proc.pid, signal);
       return;
     } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ESRCH") return; // already gone is a success
+      try {
+        proc.kill(signal);
+        return;
+      } catch (direct) {
+        if ((direct as NodeJS.ErrnoException | undefined)?.code === "ESRCH") return;
+      }
       onFailure(
-        `${EXEC_KILLER_ENV} at ${killer} could not be run to cancel process group ` +
-          `${proc.pid}: ${error instanceof Error ? error.message : String(error)}. ` +
-          "Falling back to an unprivileged signal, which fails if the wrapper changed uid."
+        `Could not signal process group ${proc.pid} (${code ?? "unknown error"}). ` +
+          `The wrapper at ${wrapper} appears to run as a uid this process cannot signal, ` +
+          `so the aborted work is STILL RUNNING. Configure ${EXEC_KILLER_ENV} with an ` +
+          "authorised cancellation helper — see docs/decisions/container-privilege.md."
       );
     }
+  };
+
+  if (!killer) {
+    signalGroup();
+    return;
   }
 
+  let helper: { exited: Promise<number> };
   try {
-    process.kill(-proc.pid, signal);
-    return;
+    helper = Bun.spawn([killer, String(proc.pid), signal.replace(/^SIG/, "")], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    // Already gone is a success, not a failure.
-    if (code === "ESRCH") return;
-    try {
-      proc.kill(signal);
-      return;
-    } catch (direct) {
-      const directCode = (direct as NodeJS.ErrnoException | undefined)?.code;
-      if (directCode === "ESRCH") return;
-    }
     onFailure(
-      `Could not signal process group ${proc.pid} (${code ?? "unknown error"}). ` +
-        `The wrapper at ${wrapper} appears to run as a uid this process cannot signal, ` +
-        `so the aborted work is STILL RUNNING. Configure ${EXEC_KILLER_ENV} with an ` +
-        "authorised cancellation helper — see docs/decisions/container-privilege.md."
+      `${EXEC_KILLER_ENV} at ${killer} could not be run to cancel process group ` +
+        `${proc.pid}: ${error instanceof Error ? error.message : String(error)}. ` +
+        "Falling back to an unprivileged signal, which fails if the wrapper changed uid."
     );
+    signalGroup();
+    return;
   }
+
+  // Not awaited — an abort path must not wait on a process spawn — but not
+  // ignored either. A helper that starts and then fails its own privilege
+  // transition exits non-zero and kills nothing, and reporting that as a
+  // successful cancellation is how a turn keeps running with a clean log.
+  void helper.exited.then(
+    (code) => {
+      if (code === 0) return;
+      onFailure(
+        `${EXEC_KILLER_ENV} at ${killer} exited ${code} cancelling process group ` +
+          `${proc.pid}. Falling back to an unprivileged signal, which fails if the ` +
+          "wrapper changed uid."
+      );
+      signalGroup();
+    },
+    (error: unknown) => {
+      onFailure(
+        `${EXEC_KILLER_ENV} at ${killer} failed cancelling process group ${proc.pid}: ` +
+          `${error instanceof Error ? error.message : String(error)}.`
+      );
+      signalGroup();
+    }
+  );
 }
