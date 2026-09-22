@@ -13,9 +13,11 @@ tags: [getting-started, example]
 This is the one note your brain ships with. It exists so there is something to
 find before you have written anything of your own — a pre-init smoke test.
 
-Try it now, no API key required:
+Try it now, no API key required — index once first, because nothing has been
+indexed yet:
 
 ```sh
+brain index
 brain search hello
 ```
 

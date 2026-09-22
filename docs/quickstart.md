@@ -32,13 +32,19 @@ bun run setup
 ```
 
 The explicit setup step configures the git hooks path, syncs skills into your
-agent's discovery location, and installs the `brain` command. When it finishes,
-the CLI already works — no API keys, no further setup:
+agent's discovery location, and installs the `brain` command. It does not build
+the search index — nothing has been indexed yet, and a search before the first
+`brain index` answers `Database not found. Run \`brain index\` first.` So index
+once, and the CLI works with no API keys and no further setup:
 
 ```sh
+brain index                            # builds brain.db from the markdown
 brain search "hello"                   # finds the example note, notes/hello-brain.md
 brain add "a thought I want to keep"   # captures a note into the inbox
 ```
+
+`brain add` indexes what it writes, so after the first capture the index keeps
+itself current; `brain index` is what you run after editing files by hand.
 
 ## 3. Run the onboarding interview
 
@@ -148,6 +154,18 @@ everything is green.
 
 The underlying command is `brain doctor --json`; its output is also the
 artifact to paste into a bug report — the doctor doubles as the support tool.
+
+On a keyless brain — Tier 0, the configuration you have the moment you clone —
+every check passes except one, and that one is expected:
+
+```
+embeddings  warn  GEMINI_API_KEY not set — vector search disabled (FTS still works)
+```
+
+That is the doctor reporting the tier you are on, not a problem to fix. It turns
+into a pass when you add a key and re-index (see
+[Turn on semantic search](#turn-on-semantic-search-optional)). Any *other*
+warning is worth reading.
 
 ## See also
 
