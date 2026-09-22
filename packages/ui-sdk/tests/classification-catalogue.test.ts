@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  BLOCK_KINDS,
   BLOCK_SCHEMA,
 } from "../src/tool-contracts/index";
 import {
   CANDIDATE_KINDS,
+  CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
   applyClassification,
   detectCandidates,
@@ -13,6 +15,8 @@ import {
   transformCandidate,
   type ClassificationAnswers,
 } from "../src/classification/index";
+
+const CONTACT_RUN = "**Name:** Odysseus\n**Role:** King of Ithaca\n**Last seen:** Ogygia";
 
 const COMPARISON = `| | Ithaca | Pylos |
 |---|---|---|
@@ -179,6 +183,165 @@ describe("the catalogue", () => {
     });
     const [words] = detectCandidates("**Host:** Penelope\n**Port:** Ithaca");
     expect(transformCandidate(words!, { "c0.shape": choice("stats", 0.9) })).toBeNull();
+  });
+
+  test("a key-value run the classifier calls a contact becomes a contact card, the named row its label", () => {
+    const [run] = detectCandidates(CONTACT_RUN);
+    const result = transformCandidate(run!, {
+      "c0.shape": choice("contact", 0.88),
+      "c0.subject": choice("Name", 0.93),
+      "c0.contact_kind": choice("person", 0.9),
+    });
+    expect(result?.confidence).toBe(0.88);
+    expect(result?.block).toEqual({
+      kind: "contact",
+      label: "Odysseus",
+      contactKind: "person",
+      facts: [
+        { k: "Role", v: "King of Ithaca" },
+        { k: "Last seen", v: "Ogygia" },
+      ],
+    });
+    expect(BLOCK_SCHEMA.safeParse(result?.block).success).toBe(true);
+  });
+
+  test("a contact the run does not name stays markdown, and so does a run the classifier calls plain", () => {
+    const [run] = detectCandidates("**Role:** King of Ithaca\n**Last seen:** Ogygia");
+    // The run is about someone, but no line carries the name; a label the
+    // text does not hold is one the surface would have to invent.
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("none", 0.95) })
+    ).toBeNull();
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Role", CONFIDENCE.swap - 0.01) })
+    ).toBeNull();
+    expect(transformCandidate(run!, { "c0.shape": choice("contact", 0.9) })).toBeNull();
+    expect(transformCandidate(run!, { "c0.shape": choice("plain", 0.95) })).toBeNull();
+  });
+
+  test("a value tone colours the row it was asked about, on a receipt and on a contact's facts", () => {
+    const [run] = detectCandidates("**Ships:** 12\n**Crew:** lost");
+    expect(
+      transformCandidate(run!, {
+        "c0.shape": choice("receipt", 0.9),
+        "c0.value_tone_0": choice("neutral", 0.95),
+        "c0.value_tone_1": choice("red", 0.9),
+      })?.block
+    ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost", tone: "red" }] });
+
+    const [contact] = detectCandidates(CONTACT_RUN);
+    expect(
+      transformCandidate(contact!, {
+        "c0.shape": choice("contact", 0.9),
+        "c0.subject": choice("Name", 0.9),
+        "c0.value_tone_2": choice("amber", 0.9),
+      })?.block
+    ).toEqual({
+      kind: "contact",
+      label: "Odysseus",
+      facts: [{ k: "Role", v: "King of Ithaca" }, { k: "Last seen", v: "Ogygia", tone: "amber" }],
+    });
+  });
+
+  test("a value tone below the tone bar is not drawn", () => {
+    const [run] = detectCandidates("**Ships:** 12\n**Crew:** lost");
+    expect(
+      transformCandidate(run!, {
+        "c0.shape": choice("receipt", 0.9),
+        "c0.value_tone_1": choice("red", CONFIDENCE.tone - 0.01),
+      })?.block
+    ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost" }] });
+  });
+
+  test("a run longer than a card is not asked for tones, so the question count follows the shape, not the length", () => {
+    const long = Array.from({ length: 9 }, (_, i) => `**Oar ${i + 1}:** shipped`).join("\n");
+    const [run] = detectCandidates(long);
+    expect(run?.kind).toBe("kv_run");
+    const ids = Object.keys(questionsFor(run!));
+    expect(ids.some((id) => id.includes("value_tone"))).toBe(false);
+
+    const [short] = detectCandidates(CONTACT_RUN);
+    expect(Object.keys(questionsFor(short!))).toEqual([
+      "c0.shape",
+      "c0.subject",
+      "c0.contact_kind",
+      "c0.value_tone_0",
+      "c0.value_tone_1",
+      "c0.value_tone_2",
+    ]);
+  });
+});
+
+/*
+ * D42's decision 6 lists the catalogue's routes, and nothing asserted that
+ * the code still had them: two of the six were missing from the day the pass
+ * shipped and were found by a reader, not a test (#132). This is that
+ * assertion — the set of block kinds the transforms can produce, proved by
+ * driving every one of them rather than by reading the table.
+ */
+describe("the kinds the catalogue can draw", () => {
+  const DRIVEN: Array<{ text: string; answers: ClassificationAnswers }> = [
+    {
+      text: COMPARISON,
+      answers: { "c0.shape": choice("comparison", 0.9), "c0.criteria_first": noul(0.9) },
+    },
+    {
+      text: "| Island | Nights |\n|---|---|\n| Aeaea | 365 |",
+      answers: { "c0.shape": choice("data", 0.9) },
+    },
+    { text: "1. Go\n2. Stay", answers: { "c0.shape": choice("steps", 0.9) } },
+    {
+      text: "- 09:40 Sail\n- 18:00 Land",
+      answers: { "c0.shape": choice("timeline", 0.9) },
+    },
+    {
+      text: "- 09:40 Sail\n- 18:00 Land",
+      answers: { "c0.shape": choice("schedule", 0.9) },
+    },
+    { text: "> Words.", answers: { "c0.shape": choice("quote", 0.9) } },
+    {
+      text: "**Host:** Penelope\n**Port:** Ithaca",
+      answers: { "c0.shape": choice("receipt", 0.9) },
+    },
+    {
+      text: "**Ships:** 12\n**Crew:** 600",
+      answers: { "c0.shape": choice("stats", 0.9) },
+    },
+    {
+      text: CONTACT_RUN,
+      answers: { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Name", 0.9) },
+    },
+  ];
+
+  test("every kind the rows declare is one a transform actually produces", () => {
+    const drawn = new Set<string>();
+    for (const { text, answers } of DRIVEN) {
+      const [candidate] = detectCandidates(text);
+      const classified = transformCandidate(candidate!, answers);
+      expect(classified).not.toBeNull();
+      drawn.add(classified!.block.kind);
+    }
+    expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
+  });
+
+  test("the pass draws the nine kinds a text can carry; `trend` and `bars` are the tool's alone", () => {
+    expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
+      "comparison",
+      "table",
+      "steps",
+      "timeline",
+      "schedule",
+      "quote",
+      "receipt",
+      "stats",
+      "contact",
+    ]);
+    // The two the pass leaves are exactly the two whose payload is numbers
+    // rather than the answer's own strings — D45.
+    expect(BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind))).toEqual([
+      "trend",
+      "bars",
+    ]);
   });
 });
 

@@ -13,9 +13,21 @@
  * Every transform's output is re-validated against `BLOCK_SCHEMA` before it
  * leaves this module: a block the kit cannot draw is a null, and the
  * markdown stays.
+ *
+ * The rows between them reach nine of D41's eleven block kinds
+ * (`CATALOGUE_BLOCK_KINDS`). The two they leave, `trend` and `bars`, are the
+ * two whose payload is numbers rather than the answer's own strings, and
+ * deriving those from prose is not a judgment the classifier is asked to
+ * make — D45.
  */
 
-import { BLOCK_SCHEMA, BLOCK_QUOTE_TONES, type Block } from "../tool-contracts/blocks.js";
+import {
+  BLOCK_SCHEMA,
+  BLOCK_CONTACT_KINDS,
+  BLOCK_QUOTE_TONES,
+  BLOCK_VALUE_TONES,
+  type Block,
+} from "../tool-contracts/blocks.js";
 import type {
   BlockquoteCandidate,
   Candidate,
@@ -107,12 +119,20 @@ const isNumeric = (value: string): boolean => value.trim() !== "" && NUMERIC.tes
 // ---------------------------------------------------------------------------
 
 interface CatalogueRow<C extends Candidate> {
+  /**
+   * The block kinds this row's transform can return, in the order it tries
+   * them. D42's decision 6 is the route list and the code drifted from it
+   * unnoticed (#132); this is what `CATALOGUE_BLOCK_KINDS` is built from, so
+   * a route that appears or disappears moves a tested set.
+   */
+  produces: ReadonlyArray<Block["kind"]>;
   /** The questions for one candidate; keys are suffixes under the candidate id. */
   questions(candidate: C): Record<string, ClassificationQuestion>;
   transform(candidate: C, answers: ClassificationAnswers): Classified | null;
 }
 
 const table: CatalogueRow<TableCandidate> = {
+  produces: ["comparison", "table"],
   questions(candidate) {
     const headerOptions: Record<string, string> = { none: "No column is presented as the recommended one." };
     for (const header of candidate.headers.slice(1)) {
@@ -182,6 +202,7 @@ const table: CatalogueRow<TableCandidate> = {
 };
 
 const orderedList: CatalogueRow<OrderedListCandidate> = {
+  produces: ["steps"],
   questions(candidate) {
     return {
       shape: {
@@ -220,6 +241,7 @@ const orderedList: CatalogueRow<OrderedListCandidate> = {
 };
 
 const timedList: CatalogueRow<TimedListCandidate> = {
+  produces: ["timeline", "schedule"],
   questions(candidate) {
     return {
       shape: {
@@ -259,6 +281,7 @@ const timedList: CatalogueRow<TimedListCandidate> = {
 };
 
 const blockquote: CatalogueRow<BlockquoteCandidate> = {
+  produces: ["quote"],
   questions(candidate) {
     return {
       shape: {
@@ -300,8 +323,59 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
   },
 };
 
+/**
+ * A colour per value is D42's "per-row value tone". It is asked only of a run
+ * short enough to read as one card: past that the run is a record dump, a
+ * colour on every line is noise, and the question count would follow the
+ * text's length rather than its shape. The same bound caps stat tiles.
+ */
+const TONED_ROWS_MAX = 8;
+
+/** The tones a value can be given, each named by what the text says, not by its colour. */
+const VALUE_TONE_CRITERIA: Record<string, string> = {
+  teal: "It reports something that went well, is finished, or is healthy.",
+  amber: "It reports something that wants attention: pending, overdue, a warning.",
+  red: "It reports a failure, an error, or an outcome the reader would not want.",
+  dim: "There is no value: none, unset, not applicable, unknown.",
+  neutral: "A plain fact with no good or bad reading. Most values are this.",
+};
+
+/** The tone for one row's value, or undefined to leave the kit's default. */
+function valueToneAt(
+  candidate: KeyValueRunCandidate,
+  answers: ClassificationAnswers,
+  index: number
+): string | undefined {
+  const answer = choiceAt(answers, `${candidate.id}.value_tone_${index}`, CONFIDENCE.tone);
+  if (!answer || answer.choice === "neutral") return undefined;
+  return (BLOCK_VALUE_TONES as readonly string[]).includes(answer.choice) ? answer.choice : undefined;
+}
+
 const kvRun: CatalogueRow<KeyValueRunCandidate> = {
+  produces: ["receipt", "stats", "contact"],
   questions(candidate) {
+    // Which line holds the name, asked over the keys the run actually has —
+    // the same move the table's `recommended` question makes over its
+    // headers. A contact needs a label, and a label the text does not carry
+    // is one the surface would be inventing.
+    const subjectOptions: Record<string, string> = {
+      none: "No line names it: the lines are facts about something the run does not name.",
+    };
+    for (const row of candidate.rows) {
+      if (row.k && !(row.k in subjectOptions)) {
+        subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
+      }
+    }
+    const tones: Record<string, ClassificationQuestion> = {};
+    if (candidate.rows.length <= TONED_ROWS_MAX) {
+      candidate.rows.forEach((row, index) => {
+        tones[`value_tone_${index}`] = {
+          type: "choice",
+          instructions: `In \`${candidate.id}\`, how does the text read the value on the "${row.k}" line? Answer only from what is written.`,
+          criteria: VALUE_TONE_CRITERIA,
+        };
+      });
+    }
     return {
       shape: {
         type: "choice",
@@ -309,21 +383,68 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
         criteria: {
           receipt: "A record of what was done or what something is: settings, outcomes, facts about one thing, each key naming a field.",
           stats: "Headline figures: every value is a number or a measurement the reader would scan as a dashboard.",
-          plain: "Neither: definitions, a glossary, or prose that happens to use colons.",
+          contact: "Facts about one person, company or project — who they are, how to reach them, what they are to the reader.",
+          plain: "None of those: definitions, a glossary, or prose that happens to use colons.",
         },
       },
+      subject: {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
+        criteria: subjectOptions,
+      },
+      contact_kind: {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
+        criteria: {
+          person: "A human being.",
+          company: "An organisation, a business, an institution.",
+          project: "A piece of work, a product, a repository, an effort.",
+        },
+      },
+      ...tones,
     };
   },
   transform(candidate, answers) {
     const shape = choiceAt(answers, `${candidate.id}.shape`, CONFIDENCE.swap);
     if (!shape) return null;
+    const tones = candidate.rows.map((_, index) => valueToneAt(candidate, answers, index));
+    const toned = (index: number) => (tones[index] ? { tone: tones[index] } : {});
     if (shape.choice === "receipt") {
-      return validated({ kind: "receipt", rows: candidate.rows }, shape.confidence);
+      const rows = candidate.rows.map((row, index) => ({ ...row, ...toned(index) }));
+      return validated({ kind: "receipt", rows }, shape.confidence);
     }
     if (shape.choice === "stats") {
-      if (candidate.rows.length > 8 || !candidate.rows.every((row) => isNumeric(row.v))) return null;
-      const tiles = candidate.rows.map((row) => ({ label: row.k, value: row.v }));
+      if (candidate.rows.length > TONED_ROWS_MAX || !candidate.rows.every((row) => isNumeric(row.v))) {
+        return null;
+      }
+      const tiles = candidate.rows.map((row, index) => ({
+        label: row.k,
+        value: row.v,
+        ...toned(index),
+      }));
       return validated({ kind: "stats", tiles }, shape.confidence);
+    }
+    if (shape.choice === "contact") {
+      const subject = choiceAt(answers, `${candidate.id}.subject`, CONFIDENCE.swap);
+      if (!subject) return null;
+      // "none", or a key the run does not carry: no label, so no card.
+      const named = candidate.rows.findIndex((row) => row.k === subject.choice);
+      if (named < 0) return null;
+      const facts = candidate.rows.flatMap((row, index) =>
+        index === named ? [] : [{ k: row.k, v: row.v, ...toned(index) }]
+      );
+      const contactKind = choiceAt(answers, `${candidate.id}.contact_kind`, CONFIDENCE.swap);
+      return validated(
+        {
+          kind: "contact",
+          label: candidate.rows[named]!.v,
+          ...(contactKind && (BLOCK_CONTACT_KINDS as readonly string[]).includes(contactKind.choice)
+            ? { contactKind: contactKind.choice }
+            : {}),
+          ...(facts.length ? { facts } : {}),
+        },
+        shape.confidence
+      );
     }
     return null;
   },
@@ -339,6 +460,14 @@ const CATALOGUE: { [K in CandidateKind]: CatalogueRow<Extract<Candidate, { kind:
 
 /** The candidate kinds the catalogue knows, in a stable order. */
 export const CANDIDATE_KINDS = Object.keys(CATALOGUE) as CandidateKind[];
+
+/**
+ * Every block kind the pass can draw, in catalogue order. The rest of
+ * D41's union is the tool's alone.
+ */
+export const CATALOGUE_BLOCK_KINDS: ReadonlyArray<Block["kind"]> = Object.freeze([
+  ...new Set(Object.values(CATALOGUE).flatMap((row) => row.produces)),
+]);
 
 /** The questions for one candidate, keyed `${id}.${suffix}`. */
 export function questionsFor(candidate: Candidate): Record<string, ClassificationQuestion> {

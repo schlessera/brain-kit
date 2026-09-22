@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D42, dated, with the alternatives that were rejected
+way they are. D1 through D45, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -2912,3 +2912,123 @@ Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
 the harness's default arms now measure the shipped configuration only when
 `--always-load` is passed, because what ships changed — the flag's name is left
 alone so D43's invocations keep reproducing D43's tables.
+
+## 2026-09-22 — D45: the pass routes to `contact`; `trend` stays the tool's, because its payload is numbers
+
+**Question.** D42's decision 6 names six catalogue routes. Two of them were
+never built, and nothing recorded a decision to drop them (#132): `contact`
+from a key-value run, and `trend` from a number series — together with the
+per-row value tone named in the same sentence as the first. `bars` is not in
+that list, so the gap is exactly the two routes the record claims are covered
+and the code does not have. The question is per route: build it, or correct the
+record.
+
+**Decision.**
+
+1. **`contact` is built, from the key-value run D42 names.** The run's `shape`
+   question gains a fourth option, and the transform draws a `ContactCard` from
+   the lines the text already has. The block's `label` is required and a run
+   does not say which line is the name, so a `subject` question asks the
+   classifier to choose one of the run's own keys, or `none` — the same move
+   the table row's `recommended` question already makes over its headers. The
+   chosen line's value becomes the label, the remaining lines become the card's
+   facts, and a `contact_kind` question fills D42's "+ contact kind". A run the
+   classifier calls a contact but cannot name stays markdown: a label the text
+   does not carry is one the surface would be inventing, which
+   `docs/integration-contract.md` already forbids.
+
+2. **`trend` is not built, and D42's "number series → trend | plain (+ delta
+   tone)" is withdrawn.** Three reasons, in the order that decided it.
+
+   *Its payload is numbers, and the pass only ever passes strings through.*
+   `trend.values` is a `number[]` and `bars.pct` is a `number`; those two are
+   the only members of D41's eleven whose payload is not text the answer
+   already contains. Every transform in the catalogue hands the kit the
+   candidate's own strings, verbatim. A `trend` route would have to turn
+   "1,200", "$1.2M" or "12%" into numbers — a parse with no ground truth and a
+   locale ambiguity a reader cannot see ("1.200" is twelve hundred in one place
+   and one-point-two in another), feeding a sparkline whose shape is the claim.
+   That is precisely the reason D42 gave for never routing `bars`. It applies
+   to `trend` unchanged, and D42's route list was inconsistent on the point;
+   this entry makes it consistent. The consumer rule it also satisfies is
+   already written down: *"Blocks contain only what the text carried. The
+   classifier chooses a shape and a tone; it never invents a footnote, a
+   figure, or a source line."*
+
+   *There is no gap to fill.* The two routes look symmetric and the
+   measurements say they are not. With the tool loaded — the configuration D44
+   ships — `trend` fires 3 of 3 in both arms in D43's run and again in #148's,
+   while `contact` is 1 of 12 pooled across the same two runs (#119 carries the
+   pooled table; the full count across both loading configurations is on that
+   issue). A fallback earns its place for the kind the model declines, not for
+   the kind it reaches every time.
+
+   *It needs a candidate that does not exist, and the detector under it is the
+   part the classifier cannot rescue.* D42 hands judgment to the classifier and
+   keeps extraction deterministic. "These lines are a series, oldest first" is a
+   judgment and could be asked; "1.2M is 1200000" is extraction, and it is the
+   half with no answer in the text.
+
+   What this does **not** claim is that `trend` is unreachable. It is reached by
+   `show_block`, where the figures come from an author who knows what they mean
+   — which is the right place for a number.
+
+3. **Per-row value tone is built, and bounded.** One `choice` per line of the
+   run, with the options named by what the text says rather than by their
+   colour ("it reports a failure, an error, or an outcome the reader would not
+   want" → red), gated at the tone threshold of 0.8 like every other tone. It
+   is one question set on the run and whichever branch wins reads it, so a
+   receipt's rows, a stat tile and a contact's facts are coloured by the same
+   answers. It is asked only of a run of eight lines or fewer — the bound stat
+   tiles already had — so the question count follows the run's shape and not
+   the text's length.
+
+4. **The route list is a test now, not a reading.** Each catalogue row declares
+   the block kinds its transform can return, `CATALOGUE_BLOCK_KINDS` is their
+   union, and `packages/ui-sdk/tests/classification-catalogue.test.ts` drives
+   every declared kind through a real transform and asserts that what is left
+   over is exactly `trend` and `bars`. #132 was found by a reader comparing a
+   decision record to a file. The next divergence fails a test instead.
+
+**What the pass reaches, after this.** Nine of the eleven: `comparison`,
+`table`, `steps`, `timeline`, `schedule`, `quote`, `receipt`, `stats`,
+`contact` — every kind whose payload is the answer's own strings. The two it
+leaves are the two whose payload is numbers. That is now a sentence with a
+reason in it, rather than a count nobody had taken.
+
+**Alternatives refused.**
+
+- *Routing `trend` from the key-value run instead of building a new candidate.*
+  A run of `period: figure` lines is nearly what the detector already finds, and
+  a `trend` option on the run's `shape` question would need no detector work at
+  all. It was the cheapest way to build the route, and it is refused for the
+  first reason above: it moves where the route hangs without touching the number
+  parse, which is the actual objection.
+- *Restricting `trend` to bare integers* (`^\d+$`), which removes the locale
+  ambiguity by construction. It also removes the case. A model writing a series
+  writes "1,200" or "$1.2M"; a route that fires only on the shape nobody types
+  is a route in name.
+- *Dropping `contact` as well, on the ground that prose is the right answer to
+  "who is this person".* That is #119's question and this entry does not settle
+  it. What it settles is narrower and mechanical: when the model **does** type a
+  run of facts about a person, the pass now draws it, where before the best it
+  could do was a receipt. #119's own reframing is that `contact` was the one
+  kind where a low call rate reached the reader as a missing block; after this
+  it is a kind whose decline is caught, like `quote`'s.
+- *Asking the classifier for the display name as a string.* It generates no
+  text by design (D42), and a name is not a judgment. Choosing among lines the
+  text already has is.
+
+**What this corrects in D42.** Decision 6's fourth route is now built as
+written. Its sixth route is withdrawn, with the reason above; there is no
+number-series candidate, no `trend` transform and no delta-tone question, and
+the record no longer says there is. The other four routes were already built and
+are untouched.
+
+**Known limit, recorded rather than fixed.** GFM autolinks a bare email address
+or URL, a link is inline markup the kit's cells cannot hold, and so a run
+carrying one is not a candidate at all — which removes the most natural shape a
+contact has. The rejection rule predates this work and applies to every
+candidate kind, so widening it is its own decision: #167.
+`packages/ui-sdk/tests/classification-detect.test.ts` pins the behaviour so the
+next reader meets it on purpose.
