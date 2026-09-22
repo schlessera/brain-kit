@@ -121,10 +121,14 @@ export function StreamingPanel({
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines]);
 
-  const isRunning = state === "running";
+  // Closing unmounts the panel, and the unmount aborts the stream, so a stray
+  // click on the backdrop must not close it: mid-run it would cancel the job,
+  // and afterwards it would discard a log nobody has read. Escape is refused
+  // only while the job runs; the header's X is always the way out.
+  const closedBy = state === "running" ? "none" : "closerequest";
 
   return (
-    <SlidePanel open={open} onClose={isRunning ? () => {} : onClose} title={title}>
+    <SlidePanel open={open} onClose={onClose} title={title} closedBy={closedBy}>
       <StreamingOutput
         state={state}
         lines={lines.map((line) => linkifyPaths(line))}

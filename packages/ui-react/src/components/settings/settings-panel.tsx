@@ -1,7 +1,7 @@
 import { Suspense, lazy } from "react";
 import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
-import { SlidePanel } from "../layout/slide-panel.js";
+import { SlidePanel, type SlidePanelClosedBy } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -73,10 +73,10 @@ export function SettingsPanel({
   const oneTimeCredential = usePrincipalStore((s) => s.oneTimeCredential);
   const credentialProtected = mintPending || oneTimeCredential !== null;
   const pane = useMediaQuery(PANE_QUERY);
-
-  function closeIfSafe() {
-    if (!credentialProtected) onClose();
-  }
+  // While a mint is in flight or its one-time value is unacknowledged, the
+  // panel does not light-dismiss: a stray click or Escape must not hide the
+  // surface the credential is about to land on. Its close control stays live.
+  const closedBy = credentialProtected ? "none" : "any";
 
   function select(id: SettingsTab) {
     if (!credentialProtected) setTab(id);
@@ -88,8 +88,9 @@ export function SettingsPanel({
         open={open}
         tab={tab}
         credentialProtected={credentialProtected}
+        closedBy={closedBy}
         onSelect={select}
-        onClose={closeIfSafe}
+        onClose={onClose}
       />
     );
   }
@@ -99,7 +100,7 @@ export function SettingsPanel({
   const stripTab: StripTab = tab === "appearance" ? "models" : tab;
 
   return (
-    <SlidePanel open={open} onClose={closeIfSafe} title="Settings" wide>
+    <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy}>
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 gap-1 border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: TabIcon }) => (
@@ -158,18 +159,20 @@ function SettingsPane({
   open,
   tab,
   credentialProtected,
+  closedBy,
   onSelect,
   onClose,
 }: {
   open: boolean;
   tab: SettingsTab;
   credentialProtected: boolean;
+  closedBy: SlidePanelClosedBy;
   onSelect: (tab: SettingsTab) => void;
   onClose: () => void;
 }) {
   const appName = useBrainUiRoot().config.appName;
   return (
-    <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane">
+    <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane" closedBy={closedBy}>
       {/* The kit header is `width: 100%`; it needs a shrinking flex child
           around it, or it fills the row and pushes Close past the viewport
           (the Files pane wraps its header the same way). */}
