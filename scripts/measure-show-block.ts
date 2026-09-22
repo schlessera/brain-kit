@@ -31,6 +31,14 @@
  * it, and on which backend.
  *
  *   bun scripts/measure-show-block.ts --reps 3 --out runs.json --md report.md
+ *   bun scripts/measure-show-block.ts --always-load   # tools in the prompt
+ *   bun scripts/measure-show-block.ts --tokens        # the schema arithmetic
+ *
+ * `--always-load` and `--tokens` were added for #148, which asked whether the
+ * bridge server should be created with `alwaysLoad: true`. It should, and D44
+ * is the record; `--always-load` is therefore the configuration that ships
+ * today, and a bare invocation measures the one that shipped before it. The
+ * flag keeps its name so D43's commands keep reproducing D43's tables.
  *
  * Two counting rules keep the rate honest. A call is counted only when its
  * argument parses through the contract's schema, because a rejected call drew
@@ -55,9 +63,12 @@ import { basename, join } from "node:path";
 
 import { createSdkMcpServer, query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import {
+  BRIDGE_TOOL_CONTRACTS,
+  BRIDGE_TOOL_POSTURE,
   buildSystemPromptAppend,
   planClassification,
   SHOW_BLOCK_CONTRACT,
+  type BridgeToolName,
   type ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -244,6 +255,29 @@ interface TurnResult {
   durationMs: number;
   /** What this turn cost, as the SDK priced it. Summed into the report. */
   costUsd: number;
+  /**
+   * What the turn actually billed on the input side, split the way the API
+   * splits it. #148 turns on "does putting the schemas in the prompt cost more
+   * than fetching them when wanted", and the tools block sits at the very
+   * front of the cache prefix, so the fresh/created/read split is the
+   * difference between a number that decides it and one that looks alarming.
+   * `modelTurns` is the divisor: a turn is several model round-trips, and the
+   * prompt is re-sent on each one.
+   */
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  modelTurns: number;
+  /**
+   * Wall time from `query()` to the first assistant frame. The SDK warns that
+   * `alwaysLoad` "blocks startup until the server is connected (capped at the
+   * standard 5s connect timeout)", so first-turn latency is one of the three
+   * axes #148 has to decide on.
+   */
+  firstFrameMs: number;
+  /** The SDK's own time-to-first-token, when it reports one. */
+  ttftMs?: number;
   /** The answer as the reader would have seen it, for the transcript. */
   answer: string;
   error?: string;
@@ -254,12 +288,18 @@ interface TurnResult {
  * search.
  *
  * The SDK defers an MCP server's tools by default — they are not in the
- * model's context at all until it runs `ToolSearch` — and production does not
- * set `alwaysLoad` either (`packages/ui-backend-claude/src/ask-user-tool.ts:104`),
- * so the measured arms inherit that. This flag flips it, which is the only
- * way to tell "the brief makes the model WANT the tool" apart from "the brief
- * is the only thing that tells the model the tool EXISTS". Off by default:
- * the default arms must measure the surface that ships.
+ * model's context at all until it runs `ToolSearch`. This flag opts out of
+ * that, which is the only way to tell "the brief makes the model WANT the
+ * tool" apart from "the brief is the only thing that tells the model the tool
+ * EXISTS".
+ *
+ * **It is off by default and production is now on.** D43 ran the arms without
+ * it, because at the time deferral was what shipped; D44 read those arms and
+ * flipped production to `alwaysLoad: true`
+ * (`packages/ui-backend-claude/src/ask-user-tool.ts`). The default is left
+ * alone anyway, so a bare invocation keeps reproducing D43's tables rather
+ * than silently measuring something else under the same command. Pass
+ * `--always-load` for the configuration that ships today.
  */
 const ALWAYS_LOAD = process.argv.includes("--always-load");
 
@@ -349,11 +389,25 @@ async function runTurn(
   const textParts: string[] = [];
   let costUsd = 0;
   let error: string | undefined;
+  // Input-token accounting and first-frame latency, the two axes #148 adds to
+  // the call rate. Both are read off the run rather than modelled.
+  let inputTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheReadTokens = 0;
+  let outputTokens = 0;
+  let modelTurns = 0;
+  let firstFrameMs = 0;
+  let ttftMs: number | undefined;
   try {
     for await (const message of query({
       prompt: prompt.text,
       options: optionsFor(arm, abortController),
     })) {
+      // The first frame the model produced, whatever its kind: what "the
+      // answer started" means to a reader watching the surface.
+      if (firstFrameMs === 0 && message.type === "assistant") {
+        firstFrameMs = Date.now() - started;
+      }
       // `parent_tool_use_id` is non-null on frames a subagent produced. Those
       // are not the answer, so neither their text nor their tool calls count.
       if (message.type === "assistant" && message.parent_tool_use_id === null) {
@@ -371,6 +425,16 @@ async function runTurn(
       }
       if (message.type === "result") {
         costUsd = message.total_cost_usd;
+        // `usage` is the main agent loop only — subagent and auxiliary calls
+        // are excluded — which is the right scope here: the bridge server's
+        // tools are offered to the main loop, and subagent frames are not
+        // counted anywhere else in this harness either.
+        inputTokens = message.usage.input_tokens;
+        cacheCreationTokens = message.usage.cache_creation_input_tokens ?? 0;
+        cacheReadTokens = message.usage.cache_read_input_tokens ?? 0;
+        outputTokens = message.usage.output_tokens;
+        modelTurns = message.num_turns;
+        if (message.subtype === "success") ttftMs = message.ttft_ms;
         if (message.subtype !== "success") error = message.subtype;
       }
     }
@@ -397,6 +461,13 @@ async function runTurn(
     answerChars: textParts.join("").length,
     durationMs: Date.now() - started,
     costUsd,
+    inputTokens,
+    cacheCreationTokens,
+    cacheReadTokens,
+    outputTokens,
+    modelTurns,
+    firstFrameMs,
+    ...(ttftMs === undefined ? {} : { ttftMs }),
     answer: textParts.join("\n\n"),
     ...(error ? { error } : {}),
   };
@@ -407,6 +478,123 @@ function arg(name: string, fallback: string): string {
   return index >= 0 && process.argv[index + 1] !== undefined
     ? process.argv[index + 1]!
     : fallback;
+}
+
+/**
+ * `--tokens`: what the bridge tools weigh, both ways, with no live turn.
+ *
+ * #148's whole question is arithmetic, and the issue is explicit that it has
+ * to be counted rather than estimated. So the schemas are taken from the real
+ * server — `createBrainUiMcpServer` with every handler supplied, listed over
+ * an in-memory MCP client, which is the same serialisation the CLI forwards —
+ * and priced by `count_tokens` in the two shapes the API actually receives:
+ * a plain tool definition, and one carrying `defer_loading: true` alongside a
+ * tool-search tool. The CLI uses the API's own tool search rather than a
+ * client-side index (`tool_search_tool_regex` / `tool_search_tool_bm25` are in
+ * the shipped binary, as is `defer_loading`), so those two shapes are what
+ * `alwaysLoad` chooses between.
+ *
+ *   bun scripts/measure-show-block.ts --tokens
+ */
+async function schemaCost(apiKey: string): Promise<{
+  rows: { name: string; loaded: number; briefTokens: number; briefLines: number }[];
+  baseline: number;
+  deferredAll: number;
+  loadedAll: number;
+}> {
+  // Imported here rather than at the top: the rate measurement does not need
+  // an MCP client, and a `--tokens` run should not pay for a staged brain.
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { createBrainUiMcpServer } = await import(
+    "../packages/ui-backend-claude/src/ask-user-tool.js"
+  );
+
+  // Every handler supplied, because a handler the host does not pass means a
+  // tool that is never registered: the roster this prices is the one a fully
+  // wired deployment offers. The handlers are never called.
+  const unreachable = () => Promise.reject(new Error("not called"));
+  const server = createBrainUiMcpServer({
+    askUser: unreachable as never,
+    getLocation: unreachable as never,
+    requestMask: unreachable as never,
+    queryActivity: unreachable as never,
+    brainPath: BRAIN_PATH,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "measure-show-block", version: "0.1.0" }, {});
+  await server.instance.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+
+  const count = async (body: Record<string, unknown>): Promise<number> => {
+    const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [{ role: "user", content: "hi" }],
+        ...body,
+      }),
+    });
+    if (!res.ok) throw new Error(`count_tokens ${res.status}: ${await res.text()}`);
+    return ((await res.json()) as { input_tokens: number }).input_tokens;
+  };
+
+  // The tool-search tool and one ordinary tool are the floor both sides are
+  // measured against: the API rejects a request in which every tool is
+  // deferred, and the search tool is present either way, since the CLI defers
+  // plenty of other servers. Subtracting this floor leaves the delta that
+  // `alwaysLoad` is actually responsible for.
+  const search = {
+    type: "tool_search_tool_bm25_20251119",
+    name: "tool_search_tool_bm25",
+  };
+  const anchor = {
+    name: "noop",
+    description: "An undeferred tool, so the request is legal.",
+    input_schema: { type: "object", properties: {} },
+  };
+  const asApi = (tool: (typeof tools)[number], defer: boolean) => ({
+    // The MCP prefix is part of what the model reads, so it is part of the
+    // count.
+    name: `${BRIDGE_TOOL_POSTURE.claudePrefix}${tool.name}`,
+    description: tool.description,
+    input_schema: tool.inputSchema,
+    ...(defer ? { defer_loading: true } : {}),
+  });
+
+  const baseline = await count({ tools: [search, anchor] });
+  const rows: { name: string; loaded: number; briefTokens: number; briefLines: number }[] = [];
+  const emptySystem = await count({ system: "x" });
+  for (const tool of tools) {
+    const contract = BRIDGE_TOOL_CONTRACTS.find((entry) => entry.name === tool.name);
+    const brief = contract
+      ? contract.brief(
+          BRIDGE_TOOL_POSTURE.visibleName(contract.name as BridgeToolName, "claude")
+        )
+      : "";
+    rows.push({
+      name: tool.name,
+      loaded: (await count({ tools: [search, anchor, asApi(tool, false)] })) - baseline,
+      briefTokens: brief ? (await count({ system: `x${brief}` })) - emptySystem : 0,
+      briefLines: brief ? brief.split("\n").length : 0,
+    });
+  }
+  return {
+    rows,
+    baseline,
+    deferredAll:
+      (await count({ tools: [search, anchor, ...tools.map((t) => asApi(t, true))] })) -
+      baseline,
+    loadedAll:
+      (await count({ tools: [search, anchor, ...tools.map((t) => asApi(t, false))] })) -
+      baseline,
+  };
 }
 
 /**
@@ -537,6 +725,39 @@ function splitRows(runs: readonly TurnResult[]): string[] {
   return rows;
 }
 
+/** Mean of `pick` over the turns, rounded — every cell below is a mean. */
+function mean(runs: readonly TurnResult[], pick: (run: TurnResult) => number): number {
+  if (runs.length === 0) return 0;
+  return Math.round(runs.reduce((sum, run) => sum + pick(run), 0) / runs.length);
+}
+
+/**
+ * What a turn billed on the input side and how long it took to say anything.
+ * The prompt is re-sent on every model round-trip, so the per-round-trip
+ * column is the one that compares against a per-turn schema cost; the
+ * fresh/cached split matters because the tools block sits at the front of the
+ * cache prefix, where a re-read is a tenth of the price of a fresh read.
+ */
+function costRows(runs: readonly TurnResult[]): string[] {
+  const rows = [
+    "| arm | turns | model round-trips | fresh input | cache writes | cache reads | input per round-trip | first frame | ttft | $ / turn |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const arm of ARMS) {
+    const mine = completed(runs).filter((run) => run.arm === arm);
+    const perTrip = mean(mine, (run) =>
+      run.modelTurns > 0
+        ? (run.inputTokens + run.cacheCreationTokens + run.cacheReadTokens) / run.modelTurns
+        : 0
+    );
+    const withTtft = mine.filter((run) => run.ttftMs !== undefined);
+    rows.push(
+      `| ${arm} | ${mine.length} | ${mean(mine, (r) => r.modelTurns)} | ${mean(mine, (r) => r.inputTokens)} | ${mean(mine, (r) => r.cacheCreationTokens)} | ${mean(mine, (r) => r.cacheReadTokens)} | ${perTrip} | ${mean(mine, (r) => r.firstFrameMs)} ms | ${withTtft.length ? `${mean(withTtft, (r) => r.ttftMs ?? 0)} ms` : "—"} | $${(mine.reduce((sum, run) => sum + run.costUsd, 0) / Math.max(mine.length, 1)).toFixed(3)} |`
+    );
+  }
+  return rows;
+}
+
 function report(
   runs: readonly TurnResult[],
   cost: { lines: number; chars: number; tokens: number },
@@ -557,7 +778,7 @@ function report(
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
-    `MCP tools ${ALWAYS_LOAD ? "were forced into the prompt (\`--always-load\`), which is NOT what ships" : "sat behind tool search, as they do in production"}.`,
+    `MCP tools ${ALWAYS_LOAD ? "were in the prompt (\`--always-load\`), which is what ships since D44" : "sat behind tool search (\`--always-load\` not passed), which is what shipped BEFORE D44"}.`,
     "",
     "## `ToolSearch` against calls",
     "",
@@ -587,6 +808,14 @@ function report(
     "",
     ...promptRows(runs),
     "",
+    "## What a turn billed, and how fast it started",
+    "",
+    "Means over completed turns. Read `input per round-trip` against the schema",
+    "arithmetic from `--tokens`: the prompt is re-sent on every round-trip, so",
+    "that is the column a per-turn tool schema is actually added to.",
+    "",
+    ...costRows(runs),
+    "",
     errors.length
       ? `## Turns excluded\n\n${errors.map((run) => `- \`${run.prompt}\` ${run.arm} rep${run.rep}: ${run.error}`).join("\n")}\n\nThe arms are only comparable when the excluded counts are close. Re-run the missing cells before reading the table above as an A/B.`
       : "No turn errored.",
@@ -602,6 +831,36 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  // `--tokens` answers #148's arithmetic half. It runs no live turn, so it
+  // costs a handful of `count_tokens` calls rather than dollars.
+  if (process.argv.includes("--tokens")) {
+    const schema = await schemaCost(apiKey);
+    const brief = await briefCost(apiKey);
+    console.log(
+      [
+        "# What the bridge tools weigh, both ways",
+        "",
+        `Model \`${MODEL}\`, counted by \`count_tokens\` over the schemas \`createBrainUiMcpServer\` actually registers. Taken ${new Date().toISOString().slice(0, 10)}.`,
+        "",
+        `Floor both columns are measured against — a tool-search tool plus one undeferred tool, which is the minimum legal shape: ${schema.baseline} tokens.`,
+        "",
+        "| bridge tool | always loaded | its brief | brief lines |",
+        "| --- | --- | --- | --- |",
+        ...schema.rows.map(
+          (row) =>
+            `| \`${row.name}\` | ${row.loaded} | ${row.briefTokens} | ${row.briefLines} |`
+        ),
+        `| **all five** | **${schema.loadedAll}** | **${schema.rows.reduce((sum, row) => sum + row.briefTokens, 0)}** | ${schema.rows.reduce((sum, row) => sum + row.briefLines, 0)} |`,
+        "",
+        `All five DEFERRED, which is what ships: **${schema.deferredAll}** tokens — and the same number for one deferred tool as for five, so the API prices the deferred set as a fixed block rather than per tool.`,
+        "",
+        `The block brief alone: ${brief.tokens} tokens, ${brief.lines} lines, ${brief.chars} characters.`,
+        "",
+      ].join("\n")
+    );
+    return;
+  }
+
   const reps = Number(arg("reps", "3"));
   const concurrency = Number(arg("concurrency", "4"));
   const only = arg("only", "");
