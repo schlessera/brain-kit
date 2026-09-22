@@ -6,18 +6,21 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 
 With no verb, delegates the full workflow to the coding agent (/sync skill).
 Mechanical verbs (structured output for the skill to drive):
 
-  assess       Classify local changes (SENSITIVE|ARTIFACT|TRACK|UNKNOWN)
+  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|UNKNOWN)
   group        Group tracked changes by taxonomy domain
   pull         Fetch origin/main and fast-forward or merge
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
   push         Push to origin/main
-  post-sync    Re-sync skills + reindex, then report head parity`;
+  post-sync    Re-sync skills + reindex, commit the derived caches it rewrote,
+               then report head parity and any remaining working-tree dirt`;
 
 // Artifact + sensitive path globs (ported from sync.sh). No personal patterns.
 const ARTIFACT_PATTERNS = [
@@ -34,6 +37,15 @@ const CONFIG_FILES = new Set([
   ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
 ]);
 
+/**
+ * Sidecars that an embeddings index run rewrites (see `saveContextCache` /
+ * `saveAssetCache` in lib/indexer). They are derived from brain.db but are
+ * committed so fresh clones and rebuilds skip regeneration — which means the
+ * reindex at the end of a sync routinely dirties the tree *after* the push.
+ * post-sync owns that dirt and commits it itself.
+ */
+const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
+
 interface GitResult {
   stdout: string;
   stderr: string;
@@ -47,6 +59,30 @@ function git(root: string, args: string[], raw = false): GitResult {
     stderr: new TextDecoder().decode(proc.stderr).trim(),
     code: proc.exitCode ?? 0,
   };
+}
+
+/**
+ * One record per `git status` entry: the two-character code and the path.
+ *
+ * `--porcelain=v1 -z` rather than the default: NUL-separated records keep the
+ * leading space of an unstaged code (` M path`) that trimming would eat, and
+ * paths arrive literal — no quoting, no ` -> ` arrow to re-split, so a path
+ * containing either is not mis-parsed. Renames and copies emit the destination
+ * first and the original as the following record, which is skipped.
+ */
+function porcelainRecords(root: string): { xy: string; file: string }[] {
+  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
+  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
+  const records = result.stdout.split("\0");
+  const entries: { xy: string; file: string }[] = [];
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i]!;
+    if (!line) continue;
+    const xy = line.slice(0, 2);
+    entries.push({ xy, file: line.slice(3) });
+    if (xy.includes("R") || xy.includes("C")) i++;
+  }
+  return entries;
 }
 
 function globToRegex(pattern: string): RegExp {
@@ -89,23 +125,13 @@ function currentBranch(root: string): string {
 
 interface AssessedFile {
   status: string;
-  class: "SENSITIVE" | "ARTIFACT" | "TRACK" | "UNKNOWN";
+  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "UNKNOWN";
   path: string;
 }
 
 function assess(root: string): AssessedFile[] {
-  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
-  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
-  const records = result.stdout.split("\0");
   const files: AssessedFile[] = [];
-  for (let i = 0; i < records.length; i++) {
-    const line = records[i]!;
-    if (!line) continue;
-    const xy = line.slice(0, 2);
-    const file = line.slice(3);
-    // Porcelain -z emits destination first, followed by the original path
-    // for renames/copies. Paths are literal, including newlines and arrows.
-    if (xy.includes("R") || xy.includes("C")) i++;
+  for (const { xy, file } of porcelainRecords(root)) {
 
     let status: string;
     const trimmed = xy.trim();
@@ -122,12 +148,141 @@ function assess(root: string): AssessedFile[] {
     let klass: AssessedFile["class"];
     if (matchesAny(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
     else if (matchesAny(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
+    // Committed on purpose, but post-sync commits them after its reindex —
+    // taking them here too would just commit a stale copy and duplicate work.
+    else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
     else if (isTrackable(file)) klass = "TRACK";
     else klass = "UNKNOWN";
 
     files.push({ status, class: klass, path: file });
   }
   return files;
+}
+
+function workingTreeDirt(root: string): string[] {
+  return porcelainRecords(root).map((record) => record.file);
+}
+
+export interface DirtDisposition {
+  /** Derived sidecars post-sync rewrote — safe for it to commit unattended. */
+  caches: string[];
+  /** Everything else — reported, never auto-committed. */
+  other: string[];
+}
+
+/**
+ * Split post-reindex working-tree dirt into what post-sync may commit itself
+ * and what only a human/agent should decide about. Pure so the policy is
+ * testable without a git fixture or an API key.
+ */
+export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
+  const caches: string[] = [];
+  const other: string[] = [];
+  for (const file of dirty) (DERIVED_CACHES.has(file) ? caches : other).push(file);
+  return { caches, other };
+}
+
+/** A cache as this clone had it: the file (null when gone) and its index entry (`ls-files -s`). */
+interface CacheAside {
+  file: string | null;
+  index: string;
+}
+
+/**
+ * Set local changes to the derived caches aside so a merge can touch them.
+ * Hooks off: restoring a file fires post-checkout, whose reindex can rewrite
+ * it right back.
+ */
+function setDerivedCachesAside(root: string): Map<string, CacheAside> {
+  const aside = new Map<string, CacheAside>();
+  for (const file of classifyPostSyncDirt(workingTreeDirt(root)).caches) {
+    const path = resolve(root, file);
+    aside.set(file, {
+      file: existsSync(path) ? readFileSync(path, "utf-8") : null,
+      index: git(root, ["ls-files", "-s", "--", file]).stdout,
+    });
+    if (git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0) {
+      git(root, ["-c", "core.hooksPath=/dev/null", "restore", "--source=HEAD", "--staged", "--worktree", "--", file]);
+    } else {
+      git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
+      rmSync(path, { force: true });
+    }
+  }
+  return aside;
+}
+
+/** Put the caches back exactly as they were, index and file, for when no merge happened. */
+function putDerivedCachesBack(root: string, aside: Map<string, CacheAside>): void {
+  for (const [file, saved] of aside) {
+    const entry = /^(\d+) ([0-9a-f]+) 0\t/.exec(saved.index);
+    if (entry) git(root, ["update-index", "--add", "--cacheinfo", `${entry[1]},${entry[2]},${file}`]);
+    else git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
+    const path = resolve(root, file);
+    if (saved.file === null) rmSync(path, { force: true });
+    else writeFileSync(path, saved.file, "utf-8");
+  }
+}
+
+/**
+ * Union each cache's entries into one sorted file, first copy of a key wins:
+ * what this clone set aside, then the merge's result. For a conflicted cache
+ * the result is read from the two sides' index stages, not the working file,
+ * whose conflict rendering can carry the ancestor's stale lines (diff3). An
+ * entry only this clone has may belong to a chunk the merge re-chunks, and the
+ * reindex can recover it only from the file.
+ */
+function unionDerivedCaches(
+  root: string,
+  files: Iterable<string>,
+  aside: Map<string, CacheAside>,
+  conflicted: ReadonlySet<string>
+): void {
+  for (const file of files) {
+    const path = resolve(root, file);
+    const sources = [aside.get(file)?.file ?? ""];
+    if (conflicted.has(file)) {
+      for (const stage of [2, 3]) sources.push(git(root, ["show", `:${stage}:${file}`], true).stdout);
+    } else if (existsSync(path)) {
+      sources.push(readFileSync(path, "utf-8"));
+    }
+    const byKey = new Map<string, string>();
+    for (const line of sources.join("\n").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const { k } = JSON.parse(line) as { k?: unknown };
+        if (typeof k === "string" && !byKey.has(k)) byKey.set(k, line);
+      } catch {
+        // skip malformed line
+      }
+    }
+    const lines = [...byKey.values()].sort();
+    writeFileSync(path, lines.length ? lines.join("\n") + "\n" : "", "utf-8");
+  }
+}
+
+/**
+ * Commit and push the derived caches post-sync rewrote, and nothing else.
+ * Returns the outcome reported as `cacheCommit`.
+ */
+export function commitDerivedCaches(root: string, caches: string[], branch: string): string {
+  if (caches.length === 0) return "clean";
+  if (branch !== "main") return `skipped — not on main (${branch})`;
+  // Stage and commit by explicit path. `--only` builds the commit from HEAD
+  // plus these paths, so anything already staged stays staged and out of it.
+  // A deletion already staged has nothing left to add, and `add` would fail.
+  const stageable = caches.filter(
+    (file) => existsSync(resolve(root, file)) || git(root, ["ls-files", "--error-unmatch", "--", file]).code === 0
+  );
+  const staged = stageable.length > 0 ? git(root, ["add", "--", ...stageable]) : { code: 0, stderr: "" };
+  if (staged.code !== 0) return `FAILED to stage — ${staged.stderr}`;
+  // Staging can leave nothing to commit: a staged change the reindex undid.
+  if (git(root, ["diff", "--cached", "--quiet", "HEAD", "--", ...caches]).code === 0) return "clean";
+  const committed = git(root, ["commit", "--only", "-m", "Refresh derived index caches", "--", ...caches]);
+  if (committed.code !== 0) return `FAILED to commit — ${committed.stderr || committed.stdout}`;
+  const pushed = git(root, ["push", "origin", "main"]);
+  return pushed.code === 0
+    ? `committed + pushed (${caches.join(", ")})`
+    : `committed, push rejected — ${pushed.stderr || pushed.stdout}`;
 }
 
 async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
@@ -163,16 +318,33 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
     index = `FAILED — ${(e as Error).message}`;
   }
 
+  // The reindex above rewrites the derived sidecars, so the tree is routinely
+  // dirty at this point — after the push. Commit and push those caches here so
+  // a sync ends clean instead of leaving the caller to notice and do it.
   const branch = currentBranch(root);
+  const { caches, other } = classifyPostSyncDirt(workingTreeDirt(root));
+  const cacheCommit = commitDerivedCaches(root, caches, branch);
+
   const localHead = git(root, ["rev-parse", "--short", "HEAD"]).stdout;
   const remoteHead = git(root, ["rev-parse", "--short", "origin/main"]).stdout || "unknown";
+
+  // "complete" must mean complete: heads agree *and* nothing is left behind.
+  // Anything the caches step could not finish leaves the tree dirty too.
+  const cacheUnresolved = cacheCommit.startsWith("FAILED") || cacheCommit.startsWith("skipped");
+  let sync: string;
+  if (localHead !== remoteHead) sync = "diverged";
+  else if (other.length > 0 || cacheUnresolved) sync = "dirty";
+  else sync = "complete";
+
   return {
     skills,
     index,
+    cacheCommit,
+    treeDirty: other,
     branch,
     localHead,
     remoteHead,
-    sync: localHead === remoteHead ? "complete" : "diverged",
+    sync,
     warnings,
   };
 }
@@ -239,6 +411,15 @@ export const syncCommand: CoreCommand = {
         const localAhead = parseInt(git(root, ["rev-list", "--count", "origin/main..HEAD"]).stdout || "0", 10);
         const remoteAhead = parseInt(git(root, ["rev-list", "--count", "HEAD..origin/main"]).stdout || "0", 10);
 
+        // A cache this clone's reindex rewrote blocks a merge that touches it,
+        // and post-sync pushes caches, so the other clone's commit usually does.
+        // Set it aside for the merge and union it back after.
+        // A merge already in progress owns the caches' index stages; setting
+        // them aside would erase a cache conflict before it is resolved.
+        const alreadyMerging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+        const aside =
+          remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
+
         let status: string;
         let conflicts: string[] = [];
         if (remoteAhead === 0) {
@@ -252,11 +433,29 @@ export const syncCommand: CoreCommand = {
           conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
         }
 
-        emit(cli.json, { status, localAhead, remoteAhead, conflicts }, () => {
+        // No merge started (git refused before touching the tree): put the
+        // caches back as they were. Otherwise union them, which also resolves
+        // a cache conflict, so Phase 4 never sees one.
+        const merging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+        const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
+        const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
+        if (status === "fast-forwarded" || status === "merged" || merging) {
+          unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
+          if (cacheConflicts.length > 0) {
+            git(root, ["add", "--", ...cacheConflicts]);
+            conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
+            if (conflicts.length === 0 && git(root, ["commit", "--no-edit"]).code === 0) status = "merged";
+          }
+        } else {
+          putDerivedCachesBack(root, aside);
+        }
+
+        emit(cli.json, { status, localAhead, remoteAhead, conflicts, mergedCaches }, () => {
           console.log(`LOCAL_AHEAD=${localAhead}`);
           console.log(`REMOTE_AHEAD=${remoteAhead}`);
           console.log(`STATUS=${status}`);
           for (const c of conflicts) console.log(`CONFLICT=${c}`);
+          for (const c of mergedCaches) console.log(`MERGED_CACHE=${c}`);
         });
         return status === "merge-failed" ? 1 : 0;
       }

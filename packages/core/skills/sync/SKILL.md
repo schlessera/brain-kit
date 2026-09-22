@@ -52,6 +52,9 @@ Outputs `STATUS\tCLASS\tPATH` for every changed/untracked file. Handle each clas
 - **ARTIFACT** — delete if useless (`*.pyc`, `__pycache__/`, `*.swp`); add to `.gitignore` if the
   pattern may recur and isn't covered. If `.gitignore` changed, stage and commit it first.
 - **SENSITIVE** — ensure it's gitignored; if not, add it to `.gitignore`, commit, and warn the user.
+- **DERIVED** — leave it alone. These are the sidecar caches; the Phase 5 reindex rewrites them
+  and `post-sync` commits them itself. Committing one here just banks a stale copy that the
+  reindex immediately supersedes, and `pull` merges a local change to one itself.
 - **UNKNOWN** — read the file. Generated output / test fixture / temp data → treat as ARTIFACT;
   otherwise TRACK.
 
@@ -85,6 +88,12 @@ brain sync pull
 - `STATUS=synced` / `fast-forwarded` / `merged` → skip to Phase 5.
 - `STATUS=conflicted` → Phase 4.
 - `STATUS=fetch-failed` → warn the user (network?) and stop.
+
+When the remote has new commits, `pull` sets local changes to the derived caches aside for the
+merge, unions this clone's entries back into the merged copy, and reports each as
+`MERGED_CACHE=<path>`. It resolves a conflicted cache the same way, and concludes the merge itself
+when that was the only conflict. The cache is dirty again afterwards; that is expected, and
+`post-sync` commits it.
 
 ## Phase 4 — Knowledge-aware conflict resolution
 
@@ -120,8 +129,9 @@ keep both (more recent first) unless one clearly supersedes; never silently drop
 `{filename}-remote.md`; if only one side changed, take that side.
 **latest-wins-additive** — take the latest-`updated` version of stable sections, but include any
 section either side added that the other lacks.
-**cache-union** — these JSONL sidecars are rebuilt from brain.db on the next `--embeddings` index;
-union lines by their `k` key (keep OURS on collision), sort, write. Never hand-merge hunks.
+**cache-union** — `pull` already does this and never reports a sidecar as conflicted. If one
+shows up here anyway, union lines by their `k` key (keep OURS on collision), sort, write. Never
+hand-merge hunks.
 **code-merge** — compare BASE→OURS and BASE→THEIRS; combine non-overlapping changes; use
 engineering judgment when they conflict semantically.
 
@@ -144,8 +154,20 @@ brain sync post-sync
 ```
 
 This rebuilds the search index with embeddings (`brain index --incremental --embeddings`); check
-for `INDEX=ok` or `INDEX=failed`. Report tersely: commits created (one line each), conflicts
-resolved (strategy + brief description each), index status, and final sync status.
+for `INDEX=ok` or `INDEX=failed`.
+
+That reindex rewrites the derived sidecar caches, so it dirties the tree *after* the push.
+`post-sync` commits and pushes those caches itself — **do not commit them by hand.** Read the
+result off its output:
+
+- `cacheCommit` — `clean`, `committed + pushed (…)`, or a failure/skip reason.
+- `treeDirty` — anything still uncommitted that is *not* a derived cache. Non-empty means
+  something was missed in Phases 1–2; surface it rather than committing it blindly.
+- `sync` — `complete` only when the heads agree **and** nothing is left behind; `diverged` when
+  the heads differ; `dirty` when files remain uncommitted.
+
+Report tersely: commits created (one line each), conflicts resolved (strategy + brief description
+each), index status, and final sync status.
 
 ## Notes
 
@@ -163,5 +185,6 @@ resolved (strategy + brief description each), index status, and final sync statu
 ## CLI it relies on
 
 - `brain sync assess|group|pull|conflicts|push|post-sync` — mechanical git operations + reindex.
-- `brain index --incremental --embeddings` — invoked by `post-sync`.
+- `brain index --incremental --embeddings` — invoked by `post-sync`, which also commits and
+  pushes the sidecar caches that run rewrites.
 - `git` — staging, HEREDOC commits, and `git commit --no-edit` after conflict resolution.
