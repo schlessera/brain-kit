@@ -13,7 +13,8 @@
  * An answered pass also records the confidence each question came back with
  * (see `confidence-store.ts`), which is what a threshold can be tuned on.
  * That write happens after the call has resolved, so it takes none of the
- * call's budget, and its own failure costs the reader nothing.
+ * HTTP deadline. A write failure leaves the answer intact; a SQLite lock
+ * wait can still add latency after the classifier returns (decision #49).
  */
 
 import type { Database } from "bun:sqlite";

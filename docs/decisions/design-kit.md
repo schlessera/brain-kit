@@ -2134,7 +2134,10 @@ in one call, with the code doing every extraction and every render.
    (`AbortSignal.timeout(2000)`; planned at 1 s, raised the same day the
    live run measured Jev at 700–800 ms, which left no room for the
    retry), one retry on 429/529 inside that
-   budget, and no other retry. A timeout, an error, a missing key, an
+   budget, and no other retry. Per the decision on #49, this deadline covers
+   the HTTP request, not the complete pass. Local confidence recording is
+   synchronous afterward and can add SQLite lock-wait latency (the server
+   connection has a 5000 ms busy timeout). A timeout, an error, a missing key, an
    answer below the confidence threshold, or a candidate the transform
    cannot map all mean the same thing: the markdown stays. Nothing about
    an answer waits on Jev, and nothing about an answer can be worse for

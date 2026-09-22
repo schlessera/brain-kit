@@ -540,13 +540,10 @@ describe("the confidence record", () => {
         return { outcome: "answered", answers: GOOD_ANSWERS as never, durationMs: 120 };
       },
     };
-    const startedAt = Date.now();
     await classifier(jev).run("s-budget", [TEXT]);
-    const elapsed = Date.now() - startedAt;
     expect(rowsDuringCall).toBe(0);
     // And it is done by the time the pass resolves — not deferred past it.
     expect(rows("s-budget")).toHaveLength(3);
-    expect(elapsed).toBeLessThan(JEV_TIMEOUT_MS);
   });
 
   test("nothing leaves the machine: the classifier call is the only outbound request", async () => {
