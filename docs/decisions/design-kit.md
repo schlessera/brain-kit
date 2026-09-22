@@ -3031,11 +3031,11 @@ brief prescribes is not evidence that the brief's *content* is what did it.
 Every pi turn was measured with the brief present, because pi has no
 supported way to run without it, so this is a single-arm result and
 attributes nothing to the brief in either direction — the description names
-all eleven kinds too, and several of these prompts have an obvious kind. D44
-corrects an earlier revision of itself for exactly this inference, and a
-comment of mine on #157 made it as well: it is wrong there for the same
-reason. What survives is narrower and still useful: a wrong kind was drawn
-reliably, and a rate would have scored it as a success.
+all eleven kinds too, and several of these prompts have an obvious kind. A
+comment of mine on #157 drew that inference and is retracted there; D44 is
+where it was caught. What survives is the part that needs no attribution:
+**a wrong kind was drawn reliably, and a call-rate metric would have scored
+all four of those turns as successes.**
 
 That clause is worth naming precisely, because it bears on whether the
 brief's enumeration earns its tokens now that the tools are always loaded
