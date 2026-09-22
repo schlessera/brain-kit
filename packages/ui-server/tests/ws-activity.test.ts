@@ -15,7 +15,7 @@ import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
-import { WsHost } from "../src/ws/host";
+import { WsHost, type ToolPermissions } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
@@ -61,7 +61,8 @@ function setup(
   backendOptions: {
     capabilities?: Partial<AgentBackend["capabilities"]>;
     followUp?: AgentBackend["followUp"];
-  } = {}
+  } = {},
+  hostOptions: { toolPermissions?: ToolPermissions } = {}
 ): Setup {
   const db = createUiDb(":memory:");
   const observability = createRecordingObservability();
@@ -77,6 +78,9 @@ function setup(
     catalog: createSessionCatalog(() => db),
     observability,
     activity: { store, stream },
+    ...(hostOptions.toolPermissions
+      ? { toolPermissions: hostOptions.toolPermissions }
+      : {}),
   });
   return { db, store, stream, host, handlers: createWsHandlers(host, testPrincipal()) };
 }
@@ -628,7 +632,13 @@ describe("activity stream over the ws path", () => {
   });
 
   test("principal B is recorded for ordinary and always-allow approvals on A's turn", async () => {
-    const s = setup(async ({ bridge }) => {
+    // A real grants store, because "always_allow" on the record means a grant
+    // was actually kept — not that the user asked for one. Without it the host
+    // refuses to remember and records an ordinary `allow`, which is correct
+    // and would make this test's second row stop covering the path it names.
+    const granted = new Set<string>();
+    const s = setup(
+      async ({ bridge }) => {
       bridge.emit({ type: "session_info", sessionId: "sess-affirmative", isNew: true });
       for (const toolUseId of ["t-ordinary", "t-always"]) {
         bridge.emit({ type: "tool_use_start", toolUseId, toolName: "Write" });
@@ -648,7 +658,15 @@ describe("activity stream over the ws path", () => {
         numTurns: 1,
         isError: false,
       });
-    });
+      },
+      {},
+      {
+        toolPermissions: {
+          isAutoAllowed: (name) => granted.has(name),
+          add: (name) => granted.add(name),
+        },
+      }
+    );
     cleanup = () => {
       s.stream.close();
       s.db.close();
@@ -706,6 +724,8 @@ describe("activity stream over the ws path", () => {
     ]);
     expect(s.store.getSpan("t-ordinary")!.principalId).toBe("principal-b");
     expect(s.store.getSpan("t-always")!.principalId).toBe("principal-b");
+    // The `always_allow` row above is only honest if a grant was in fact kept.
+    expect([...granted]).toEqual(["Write"]);
   });
 
   test("an ask-user answer records the responding principal", async () => {

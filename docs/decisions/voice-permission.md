@@ -172,6 +172,16 @@ asked for shipped. That is the good case. Anyone rereading this months from now
 should check the pointers before trusting a claim built on one, and anyone
 changing the permission path should expect to correct this file in the same PR.
 
+That obligation is not only about time passing. **A PR that moves the lines
+under a citation invalidates it at merge, and owns it**, even when everything
+the PR changed is correct and nothing it wrote is wrong — inserting a comment
+above a cited block is enough. The failure is quiet in the worst way: a pointer
+does not break, it silently comes to name the neighbouring code, and a reader
+following a citation to `tool_denial` can land inside `tool_approval` without
+anything looking amiss. Where a line range is doing no work beyond locating a
+symbol, prefer naming the symbol and letting the range follow it, so a drifted
+pointer is recoverable instead of merely wrong.
+
 **None of this is reproducible from this repository, and that is deliberate.**
 The 208 transcripts are the maintainer's own recorded agent sessions: personal
 content, and `AGENTS.md`'s leakage gate has no exempt directories, so neither
@@ -271,8 +281,9 @@ words:
 
 **Two cases the six phrases do not cover, and the announcement must not assume
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
-description comes from the SDK (`permission-hooks.ts:117-127`) and is not written
-to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
+description is the SDK's own (`canUseTool` passes `description:
+opts.description` straight through, `permission-hooks.ts:149-159`) and is not
+written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`packages/ui-backend-claude/src/options.ts:48-58`) lets a deployment supply its
 own patterns, which will have no phrase. Both fall back to the same payload-free
 shape, which names the tool and nothing else:
@@ -418,7 +429,8 @@ the record is by construction a bug — which makes the field a detector, not ju
 provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
-(`packages/ui-server/src/ws/dispatch.ts:200-210`) with a message naming the
+(the `case "tool_denial"` arm of `handleClientMessage`,
+`packages/ui-server/src/ws/dispatch.ts:218-228`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
