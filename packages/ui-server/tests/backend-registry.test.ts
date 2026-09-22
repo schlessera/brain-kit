@@ -375,6 +375,29 @@ describe("billing classification", () => {
     }
   });
 
+  test("a custom OpenRouter model routes to openrouter, listed or re-listed (#57)", async () => {
+    // Custom models are minted inside the backend's memoized profiles()
+    // closure, so their route is learned on the FIRST listing and must
+    // survive the cache hit on every later one. classifyBilling has the same
+    // dependency; this pins it for the route too.
+    const registry = registryFor(
+      { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
+      { getCustomOpenRouterModels: () => ["z-ai/glm-4.7"] }
+    );
+
+    const routeOnListing = async () => {
+      const providers = await registry.listAllProviders();
+      const custom = providers.find((p) => p.id === "openrouter:z-ai/glm-4.7");
+      expect(custom).toBeDefined();
+      return custom?.pricingRoute;
+    };
+
+    // First listing mints the profile; the second is served from the closure's
+    // merge cache, which skips the branch that learned the route.
+    expect(await routeOnListing()).toBe("openrouter");
+    expect(await routeOnListing()).toBe("openrouter");
+  });
+
   test("an inherited ANTHROPIC_BASE_URL decides the route, not the missing override (#57)", async () => {
     // A profile that declares no baseUrl does not thereby reach Anthropic:
     // buildEnv() sets nothing and the host's own ANTHROPIC_BASE_URL rides the
