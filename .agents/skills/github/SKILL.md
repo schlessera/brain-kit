@@ -71,7 +71,7 @@ The body follows `.github/ISSUE_TEMPLATE/task.yml`: **Context** (with real
 **Verification**, **Contract impact**. An issue missing any of those is not
 `agent-ready`, whatever else it has.
 
-Three rules that decide whether the issue is usable six weeks from now:
+Four rules that decide whether the issue is usable six weeks from now:
 
 1. **Cite the code.** `packages/ui-server/src/middleware/auth.ts:253`, not "the
    auth middleware". A reader should never start by searching.
@@ -80,6 +80,14 @@ Three rules that decide whether the issue is usable six weeks from now:
 3. **Make every acceptance criterion checkable by someone else.** "Works
    correctly" is not one. "A symlinked root resolves to the same decision as its
    target, proven by a test that fails before the change" is.
+4. **Title it `<area>: <what is wrong or wanted>`.** `core: a stats health ratio
+   rounded to its threshold reads as contradicting its verdict`, not
+   `fix(core): …` and not `CONTRACT: …`. Commit prefixes belong on commits; the
+   type, `contract` and `breaking` are labels. An epic is `Epic: <outcome>`.
+
+When the work waits on another issue, say so on its own line in the body —
+`Blocked by #42` — and add the `blocked` label. The line is what lets the next
+reader, and a script, find the dependant when #42 closes.
 
 ## Epics and sub-issues
 
@@ -98,6 +106,10 @@ gh api -X POST "repos/$REPO/issues/7/sub_issues" -F sub_issue_id="$SUB_ID"
 Limits worth knowing before designing a hierarchy: 100 direct sub-issues per
 parent, eight levels of nesting, and **one parent per issue**. Two epics cannot
 share a task — split the task or merge the epics.
+
+Attach every issue filed from an epic's work, not only the ones planned up
+front. "Part of #39" in prose does not put it in the epic's progress count or
+on its track; the API call does.
 
 List what is attached:
 
@@ -136,7 +148,8 @@ that is useless on its own — see "Issues that need design" below for what has
 to be posted with it.
 
 A milestone is a release. Attach one only when the work is committed to that
-release:
+release — so not while a `needs:` label is on it; an undecided issue is not a
+commitment. Rule first, then schedule:
 
 ```sh
 gh issue edit 42 --repo schlessera/brain-kit --milestone "0.37.0"
@@ -214,6 +227,48 @@ Then, before writing code — this is the part that is skipped and should not be
 
 Branch as `<type>/<issue-number>-<slug>`, e.g. `feat/42-session-principal`.
 
+## Keeping an issue true
+
+An issue is read by someone who was not there. The body is the current
+specification; the comments are the history of how it got that way. Every rule
+below exists because the tracker drifted without it.
+
+- **Fold corrections into the body.** When a comment corrects an issue's
+  figures, scope or acceptance criteria, edit the body in the same sitting and
+  end it with a dated line saying what changed. Do not leave the reader to
+  reconcile ten comments against a body that contradicts them. A banner reading
+  "parts of this body are wrong, see below" means this step was skipped.
+- **Record a ruling where it unblocks.** When a `needs: decision` is answered,
+  comment `**Decision (maintainer, <date>):** …` with the option chosen and what
+  it implies, point the body's acceptance criteria at that branch, remove the
+  `needs:` label, and add `agent-ready` if the criteria are now complete. A
+  ruling that binds later work, not only this issue, also gets a
+  `docs/decisions/` record — file it as its own issue if it is not written now.
+- **Clear `blocked` when the blocker closes.** The label does not clear itself,
+  and the board keeps the dependant out of Ready until someone removes it. When
+  work merges or an issue closes, find what named it:
+
+  ```sh
+  gh issue list --repo schlessera/brain-kit --state open --label blocked \
+    --search '"#42" in:body' --json number,title
+  ```
+
+  The search is fuzzy; read each hit before removing its label.
+- **Keep one of two duplicates, and check before closing.** Keep the
+  better-scoped one, or the older if they are equal. Move anything the other has
+  into the survivor's body, then close the other pointing at it. Before closing
+  your own issue into another, confirm the other is open and nobody is closing
+  it into yours: two authors each deferring to the other left one question with
+  no open issue at all.
+- **Epic state is a dated comment.** When an epic's breakdown moves, post
+  what is done, what is open and in what order, dated. Rewrite the epic body
+  only where it is now wrong, not to track progress; the sub-issue list is the
+  progress.
+- **A model's citation audit is a lead, not a result.** When an automated pass
+  reports a drifted `file:line` or a fixed defect, open the line before
+  rewriting the body. Such passes misread a moved comment as a missing one, and
+  a correct paragraph elsewhere in the file as the fix.
+
 ## Closing it
 
 The PR closes the issue; do not close it by hand.
@@ -229,6 +284,9 @@ prevent.
 
 An epic closes when its last sub-issue closes **and** its definition of done is
 met. Those are not the same thing, and the gap between them is usually docs.
+
+After the merge, look for issues that named this one as a blocker (see "Keeping
+an issue true") and clear their `blocked` label.
 
 ## Filing found work mid-session
 
