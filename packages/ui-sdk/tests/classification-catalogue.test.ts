@@ -233,6 +233,20 @@ describe("the catalogue", () => {
     ).toBeNull();
   });
 
+  test("a key that also names something on Object.prototype is still offered", () => {
+    // The run's keys are model output, and `toString` or `constructor` would
+    // be masked by a plain `in` check: unoffered by the question, accepted by
+    // the transform.
+    const [run] = detectCandidates("**toString:** Odysseus\n**Role:** King of Ithaca");
+    const subject = questionsFor(run!)["c0.subject"];
+    expect(subject?.type).toBe("choice");
+    if (subject?.type !== "choice") return;
+    expect(Object.keys(subject.criteria)).toEqual(["none", "toString", "Role"]);
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("toString", 0.9) })?.block
+    ).toMatchObject({ kind: "contact", label: "Odysseus" });
+  });
+
   test("a name that strips to nothing is no name, so the markdown stays", () => {
     // A value that was only a code span survives detection as an empty
     // string; `label` is a plain string in the schema, so a blank card would
@@ -329,6 +343,21 @@ describe("the catalogue", () => {
  * assertion — the set of block kinds the transforms can produce, proved by
  * driving every one of them rather than by reading the table.
  */
+/** Does this block variant's payload carry a number anywhere? Walks the schema. */
+function carriesAFigure(kind: string): boolean {
+  const variant = BLOCK_SCHEMA.options.find((option) => option.shape.kind.value === kind);
+  const walk = (schema: unknown): boolean => {
+    const def = (schema as { _zod?: { def?: Record<string, unknown> } })?._zod?.def;
+    if (!def) return false;
+    if (def.type === "number") return true;
+    if (def.innerType) return walk(def.innerType);
+    if (def.element) return walk(def.element);
+    if (def.shape) return Object.values(def.shape as Record<string, unknown>).some(walk);
+    return false;
+  };
+  return !!variant && walk(variant);
+}
+
 describe("the kinds the catalogue can draw", () => {
   const DRIVEN: Array<{ text: string; answers: ClassificationAnswers }> = [
     {
@@ -387,11 +416,12 @@ describe("the kinds the catalogue can draw", () => {
       "contact",
     ]);
     // The two the pass leaves are exactly the two whose payload is numbers
-    // rather than the answer's own strings — D45.
-    expect(BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind))).toEqual([
-      "trend",
-      "bars",
-    ]);
+    // rather than the answer's own strings. That is D45's reason for not
+    // routing them, so it is read off the schemas rather than listed here: a
+    // twelfth variant carrying a figure has to be argued, not absorbed.
+    const leftOver = BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind));
+    expect(leftOver).toEqual(["trend", "bars"]);
+    expect(leftOver).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });
 });
 

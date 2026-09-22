@@ -365,7 +365,10 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
     };
     for (const row of candidate.rows) {
-      if (row.k && !(row.k in subjectOptions)) {
+      // `in` would also see `toString` and the rest of Object.prototype, and
+      // a key the run really has would then go unoffered while the transform
+      // below still accepted it. The keys come from model output.
+      if (row.k && !Object.prototype.hasOwnProperty.call(subjectOptions, row.k)) {
         subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
       }
     }

@@ -2943,8 +2943,11 @@ record.
    *Its payload is numbers, and the pass only ever passes strings through.*
    `trend.values` is a `number[]` and `bars.pct` is a `number`; those two are
    the only members of D41's eleven whose payload is not text the answer
-   already contains. Every transform in the catalogue hands the kit the
-   candidate's own strings, verbatim. A `trend` route would have to turn
+   already contains — checked against the schemas rather than read off, and
+   asserted by a test, because the whole entry rests on it. Every transform in
+   the catalogue hands the kit the candidate's own strings verbatim; the only
+   text any of them authors is a fixed label, the one-group schedule's "Coming
+   up", and never a value. A `trend` route would have to turn
    "1,200", "$1.2M" or "12%" into numbers — a parse with no ground truth and a
    locale ambiguity a reader cannot see ("1.200" is twelve hundred in one place
    and one-point-two in another), feeding a sparkline whose shape is the claim.
