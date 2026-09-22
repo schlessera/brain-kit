@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`packages/ui-sdk/src/server/permission-gate.ts:105-116`). In chat the user is
+(`packages/ui-sdk/src/server/permission-gate.ts:150-182`). In chat the user is
 looking at a card: the transcript copy in
 `packages/ui-react/src/components/chat/tool-call-timeline.tsx:317-355`, the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
@@ -49,7 +49,7 @@ Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`packages/ui-backend-claude/src/tool-policy.ts:24`), the five bridge tools the
-backend appends per turn (`packages/ui-backend-claude/src/sdk-options.ts:45-60`)
+backend appends per turn (`packages/ui-backend-claude/src/sdk-options.ts:52-67`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`packages/ui-sdk/src/server/confirm-patterns.ts:21`). Tools that exist only in
 the recording harness and have no counterpart in this product were excluded from
@@ -213,7 +213,7 @@ posture, it is a wish.
 | `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`packages/core/src/mcp-server.ts:574-578`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`:533-538`), applied independently (`:556-572`), so **a single call can overwrite all six** — and `tags` is a comma-separated string that replaces the whole tag list rather than merging into it (`:536,559-561`), while `deadline` and `next_review` take `""` as *delete the field* (`:563-572`). `updated` is bumped unconditionally (`:582`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:45-60`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:52-67`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 **Excluded, each for its own reason:**
 
@@ -282,7 +282,7 @@ words:
 **Two cases the six phrases do not cover, and the announcement must not assume
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
-opts.description` straight through, `permission-hooks.ts:149-159`) and is not
+opts.description` straight through, `permission-hooks.ts:155-161`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`packages/ui-backend-claude/src/options.ts:48-58`) lets a deployment supply its
 own patterns, which will have no phrase. Both fall back to the same payload-free
@@ -445,7 +445,7 @@ The mechanism is the one the repo already has: a declared tool allowlist bound
 to a turn — `InferenceProfile.allowedTools`
 (`packages/ui-backend-claude/src/profiles.ts:23`) and
 `ClaudeBackendOptions.allowedTools` (`options.ts:46-47`), resolved into the
-SDK's `allowedTools` per turn (`sdk-options.ts:45,98`). The voice posture is one
+SDK's `allowedTools` per turn (`sdk-options.ts:52,105`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 chose a different mechanism first, and it chose it for this
@@ -535,7 +535,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
   without granting
   (`packages/ui-backend-claude/src/input-rewrite-hooks.ts:16-30,60-68`, wired at
-  `permission-hooks.ts:215-222`). The premise the old grant rested on was
+  `permission-hooks.ts:294-301`). The premise the old grant rested on was
   measured false in the process: `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
   side effect that got dropped (`input-rewrite-hooks.ts:4-15`).
@@ -547,7 +547,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`permission-hooks.ts:79-94`) — that is what beats the runtime's own shortcuts
+(`permission-hooks.ts:102-117`) — that is what beats the runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
 backends then refuse the request in the shared
@@ -560,18 +560,19 @@ channel so the record shows a denied span rather than a call that errored.
 **Found since, and the reason the `ask` carries the load.** Withholding this
 codebase's own shortcuts was never sufficient: the runtime has permission
 opinions of its own that also land before `canUseTool`
-(`permission-hooks.ts:63-72`, with the measurements in #154) — a safe-command
+(`permission-hooks.ts:70-101`, with the measurements in #154) — a safe-command
 classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
 never consulted), a built-in tool's own check (`ToolSearch` executed twice under
 the same conditions), and a `PreToolUse` hook in the project settings this
 backend loads under `settingSources: ["project"]`. An explicit `ask` is the one
 answer that beats all three, and it exists only under the declaration.
 
-That third vector is stated here as #154 measured it. The in-tree comment at
-`permission-hooks.ts:67` still names an **allow rule** in those settings, which
-#154 shows does not bypass — a settings `PreToolUse` hook returning `allow` is
-the one that does. That comment is #154's to correct and this record does not
-touch it; the vector above is the accurate one.
+That third vector is stated here as #154 measured it, and the in-tree comment
+now says the same: the vector is a settings `PreToolUse` hook returning
+`allow`, not an **allow rule**, which #154 measured as not bypassing at all.
+One more thing it measured belongs here, because this record's whole design
+rests on it: an in-process `deny` beats a settings `allow`, so the decision the
+`ask` forces is decisive rather than advisory.
 
 That last group is the strongest available argument for the fail-closed
 primitive, and against the intuition the record started from. "Take it off the
@@ -603,7 +604,7 @@ the one that matters.** Removing `Bash` from the allowlist does not route a
 Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
-adds `Bash` back unconditionally (`permission-hooks.ts:89-93,166-174`). So a
+adds `Bash` back unconditionally (`permission-hooks.ts:129-131,221-227`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about
