@@ -1,0 +1,4 @@
+```json
+[
+  {"id": "h5a", "route": "needs_agent", "stakes": 1, "summary": "Fix the dangling links under talks/"},
+  {"id": "h6a", "route": "rule", "stakes": 1, "summary": "Accountant files under power of att
