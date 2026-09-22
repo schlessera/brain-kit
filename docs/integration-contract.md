@@ -57,11 +57,21 @@ One flat count did change value, though its name and type did not. Before
 0.37.0 the command counted `vec_chunks` on a read-only connection that had
 never loaded sqlite-vec, so the query raised `no such module: vec0` and a bare
 `catch` reported `embeddings: 0` — on a fully embedded brain as much as on a
-keyless one. It now loads the extension before counting, so `embeddings` is
-the real number of stored vectors. A consumer that treated `0` as "this brain
-does not embed" was reading a measurement failure, and will now see the true
-count; one that charted the figure over time will see a step at this version,
-not a re-embedding run.
+keyless one. It now loads the extension before counting, so on any host where
+sqlite-vec loads, `embeddings` is the real number of stored vectors. A consumer
+that treated `0` as "this brain does not embed" was reading a measurement
+failure, and will now see the true count; one that charted the figure over time
+will see a step at this version, not a re-embedding run.
+
+**The failure is narrowed, not closed.** `embeddings` is typed `number` and is
+emitted as `embeddingCount ?? 0`, so when the extension will not load *at all*
+on a host it still reads `0` for a brain that holds vectors. The two states
+remain indistinguishable in that field. What separates them is its sibling:
+`health.embeddingCoverage` is `null` when the count is unknown and a ratio when
+it is known, so a consumer that needs to tell "no vectors" from "could not
+count" must read the coverage, not the count. Making `embeddings` itself
+nullable would say this in the field's own type, but that is a breaking shape
+change and is deliberately not made here.
 
 ```jsonc
 {

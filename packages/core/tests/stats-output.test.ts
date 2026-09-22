@@ -301,10 +301,13 @@ describe("null figures never read as a number", () => {
   });
 
   // A standing guard rather than one more case: it holds for every health
-  // line, including one a later change adds. Removing either null check in
-  // healthSection makes `null < floor` / `null > ceiling` evaluate to false,
-  // which renders as "within"/"meets" — an unknown reading as a pass. A
-  // mutation run with both guards deleted fails this test.
+  // line, including one a later change adds. Removing a null check lets the
+  // comparison coerce: `null > ceiling` is false and renders "within" — an
+  // unknown reading as a pass — while `null < floor` is true and renders
+  // "below", an unknown reading as a failure. Both are the same defect, a
+  // figure nobody could measure being given a verdict, so this guard tests
+  // for the verdict rather than for either direction. A mutation run with
+  // the guards deleted fails it.
   test("no health line ever pairs n/a with a verdict", () => {
     const allNull = formatStats(
       statsWith({
@@ -377,6 +380,29 @@ describe("empty brain", () => {
 });
 
 describe("staleThresholdsFor", () => {
+  // The golden over fixtures/corpus cannot catch this: its three windows
+  // (30/60/90) are all distinct, so the tie-break never runs there.
+  test("types sharing a window tie-break by code unit, not by locale", () => {
+    const taxonomy: Taxonomy = buildTaxonomy({
+      user: {
+        taxonomy: {
+          types: {
+            Zeta: { dir: "zeta", staleDays: 60 },
+            alpha: { dir: "alpha", staleDays: 60 },
+            beta: { dir: "beta", staleDays: 60 },
+          },
+        },
+      },
+    });
+
+    expect(staleThresholdsFor(taxonomy).perType).toEqual([
+      { type: "context", days: 30 },
+      { type: "Zeta", days: 60 },
+      { type: "alpha", days: 60 },
+      { type: "beta", days: 60 },
+    ]);
+  });
+
   test("names the types carrying a window, shortest first, and the fallback", () => {
     const taxonomy: Taxonomy = buildTaxonomy({
       user: {
@@ -514,6 +540,43 @@ describe("the stale line with no per-type windows", () => {
     });
     expect(out).toContain("past their type's staleDays (180)");
     expect(out).not.toContain("else 180");
+  });
+});
+
+describe("the embeddings count cannot carry the unknown", () => {
+  // `embeddings` is a plain number emitted as `embeddingCount ?? 0`, so a
+  // brain whose vectors could not be counted reports 0 exactly as one holding
+  // none does. The help text, docs/cli.md and the contract all say so rather
+  // than claiming the figure is always real; this pins the behaviour those
+  // sentences describe, so a later change cannot quietly falsify them.
+  test("0 embeddings with a null coverage is the unknown-count shape", () => {
+    const uncounted = statsWith({
+      embeddings: 0,
+      chunks: 12,
+      health: { ...statsWith().health, embeddingCoverage: null },
+    });
+    const out = formatStats(uncounted, { all: false, stale: STALE });
+
+    // The inventory row is suppressed at 0, so the count says nothing at all
+    // and the coverage line is the only signal.
+    expect(out).not.toMatch(/^ {2}Embeddings:/m);
+    expect(out).toContain("  Embedding coverage: n/a — not measured (floor 90.0%)");
+
+    // A brain holding no vectors renders identically — which is the point the
+    // prose has to make, rather than claim the count is always real.
+    const none = statsWith({
+      embeddings: 0,
+      chunks: 0,
+      health: { ...statsWith().health, embeddingCoverage: null },
+    });
+    const noneOut = formatStats(none, { all: false, stale: STALE });
+    const line = (t: string) => t.split("\n").find((l) => l.includes("Embedding coverage"));
+    expect(line(noneOut)).toBe(line(out));
+  });
+
+  test("a counted brain does show the row", () => {
+    const out = formatStats(statsWith({ embeddings: 12 }), { all: false, stale: STALE });
+    expect(out).toMatch(/^ {2}Embeddings: 12$/m);
   });
 });
 

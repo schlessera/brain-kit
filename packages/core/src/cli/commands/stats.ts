@@ -38,10 +38,15 @@ the stale line names the windows in force. Orphan means what \`brain audit\`
 means, honouring orphanExempt.
 
 Inventory, printed second: documents (by type/status/relevance), tags, links,
-chunks, embeddings, corpus bytes and files on disk (configured excludes apply),
-brain.db bytes and row counts, free space on the volume.
+chunks, corpus bytes and files on disk (configured excludes apply), brain.db
+bytes and row counts, free space on the volume. An \`Embeddings\` row appears
+only when vectors were counted.
 
-A figure that cannot be measured is reported as \`n/a\`, never as 0.
+A health figure that cannot be measured is reported as \`n/a\`, never as 0, and
+carries no verdict. The inventory's \`embeddings\` count is the exception: it
+reads 0 both for a brain holding no vectors and for one whose vectors could
+not be counted (sqlite-vec absent on this host). \`Embedding coverage: n/a\` is
+the signal that the count is unknown rather than zero — read it, not the row.
 
 --json: unaffected by --all — it always carries the full, uncapped breakdowns.`;
 
@@ -60,13 +65,20 @@ export interface StaleThresholds {
  * `Taxonomy` applies when it builds its own rules — a `staleDays` on a type
  * with no directory never matches a path, so naming it here would describe a
  * window nothing is judged against.
+ *
+ * Types sharing a window break the tie by name, by code unit for the same
+ * reason `breakdown()` does: `localeCompare` reads the runtime's default
+ * locale, which neither CI nor a user's shell pins. Less is at stake here —
+ * nothing is capped, so no window can vanish, only the order it is named in —
+ * but it is the same defect, and fixing one occurrence of a shape is not
+ * fixing the shape.
  */
 export function staleThresholdsFor(taxonomy: Taxonomy): StaleThresholds {
   return {
     perType: Object.entries(taxonomy.types)
       .filter(([, spec]) => spec.staleDays !== undefined && spec.dir !== null)
       .map(([type, spec]) => ({ type, days: spec.staleDays as number }))
-      .sort((a, b) => a.days - b.days || a.type.localeCompare(b.type)),
+      .sort((a, b) => a.days - b.days || (a.type < b.type ? -1 : a.type > b.type ? 1 : 0)),
     defaultDays: taxonomy.defaultStaleness.days,
   };
 }

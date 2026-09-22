@@ -25,9 +25,14 @@ One figure to know about when reading either output: `embeddings` changed
 value in this release, though not its name or type. `brain stats` used to
 count `vec_chunks` on a connection that had never loaded sqlite-vec, so the
 query failed and the count was reported as `0` on every brain, embedded or
-not. It now loads the extension first and reports the real number of stored
-vectors — so a brain that always showed `0` embeddings was showing a
-measurement failure, not an empty index.
+not. It now loads the extension first, so on any host where sqlite-vec loads
+the figure is the real number of stored vectors — a brain that always showed
+`0` embeddings was showing a measurement failure, not an empty index.
+
+Where sqlite-vec cannot load at all, `embeddings` still reads `0` for a brain
+that holds vectors: the field is a plain `number`. `health.embeddingCoverage`
+is the figure that distinguishes the two — `null` when the count is unknown, a
+ratio when it is known.
 
 Also in the human output: byte counts scale to KB/MB/GB instead of always
 printing MB (a 22 KB corpus used to read as `0.0 MB`), and a brain with no
