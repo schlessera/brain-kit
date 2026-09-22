@@ -36,9 +36,11 @@ Ask what they want:
 **Always verify repo visibility after `gh repo create`.** A brain pushed to a public repo is a
 serious leak; confirm private before pushing content, and stop if the check disagrees.
 
-Before deploying brain-ui 0.33.0, bump the brain repo's `@schlessera/brain`
-pin to 0.33.0 or newer and refresh its lockfile. Rolling back the image does
-not roll back that repo-owned pin; treat the two rollback actions separately.
+The server refuses to boot against `@schlessera/brain` older than 0.33.0 — a
+standing floor, not a one-release migration. Bump the content repo's pin and
+refresh its lockfile before deploying, or the container will not start. Rolling
+back the image does not roll back that repo-owned pin; treat the two rollback
+actions separately.
 
 ## Auth defaults
 

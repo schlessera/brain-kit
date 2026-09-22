@@ -71,3 +71,25 @@ describe("public documents do not send readers to the private deployment", () =>
     expect(hosting).toContain("not published yet");
   });
 });
+
+/**
+ * The hosting page states a minimum brain CLI version, and the server enforces
+ * one. They were written at the same time and have no reason to stay equal —
+ * the doc called it "Upgrading to 0.33.0" three releases after 0.33.0, which is
+ * how a standing requirement reads as old news and gets skipped.
+ */
+describe("the documented CLI floor is the one the server enforces", () => {
+  test("docs/hosting/README.md states MIN_BRAIN_CLI_VERSION", () => {
+    const source = readFileSync(
+      join(ROOT, "packages/ui-server/src/brain/client.ts"),
+      "utf8"
+    );
+    const enforced = /MIN_BRAIN_CLI_VERSION = "([^"]+)"/.exec(source)?.[1];
+    expect(enforced).toBeTruthy();
+
+    for (const doc of ["docs/hosting/README.md", "packages/core/skills/brain-host/SKILL.md"]) {
+      const text = readFileSync(join(ROOT, doc), "utf8");
+      expect(text).toContain(`older than ${enforced}`);
+    }
+  });
+});

@@ -30,14 +30,22 @@ holds your data and your API tokens. That is powerful and it is a real attack
 surface — which is why auth is mandatory (below) and why the content repo must
 stay private.
 
-## Upgrading to 0.33.0
+## The brain CLI your content repo pins
 
-Before deploying brain-ui 0.33.0, bump the brain repo's
-`@schlessera/brain` pin to 0.33.0 or newer and refresh its lockfile. The
-ui-server now places `--` before user-controlled CLI positionals, which requires
-the end-of-options parser added in core 0.33.0. Rolling the image back does not
-roll back the brain repo's package pin; manage that pin separately (and leaving
-the compatible newer core pinned is safe).
+**The server refuses to boot against `@schlessera/brain` older than 0.33.0.**
+This is not an upgrade note for one release; it is a standing floor, enforced at
+`MIN_BRAIN_CLI_VERSION` (`packages/ui-server/src/brain/client.ts:58`). The server
+places `--` before user-controlled CLI positionals, and a core below 0.33.0 eats
+that separator — every search then silently returns nothing, which is why the
+version is checked at startup instead.
+
+The pin lives in your **content** repo's `package.json` and lockfile, not in the
+deployment. Two consequences people meet the hard way:
+
+- Bump the pin and refresh the lockfile **before** you deploy, not after. The
+  symptom of skipping it is a container that will not start.
+- Rolling the image back does not roll the pin back. They are two separate
+  actions, and leaving a newer compatible core pinned is safe.
 
 ## Subprocess environment allowlist (0.33.1+)
 
