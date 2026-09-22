@@ -260,3 +260,86 @@ test("doctor reports a dead MCP source-file registration", async () => {
   );
   expect(currentMcp.status).toBe("pass");
 });
+
+/**
+ * The pre-commit hook runs tests whenever the staged change touches
+ * `brain.config.*`, which is exactly what /brain-init's single commit does.
+ * `bun test` errors rather than passing when a brain has no test files, so
+ * that commit — the interview's own revert point — was rejected on every
+ * brand-new brain (#75).
+ *
+ * Driven through a real `git commit` rather than by reading the script: the
+ * bug lived in how sh and bun compose, which no predicate test would have
+ * seen.
+ */
+function gitBrainWithHooks(): { root: string; shimDir: string } {
+  const root = tempBrain({ empty: true });
+  for (const args of [
+    ["init", "-q"],
+    ["config", "user.email", "test@example.invalid"],
+    ["config", "user.name", "Test"],
+    ["config", "commit.gpgsign", "false"],
+  ]) {
+    const done = Bun.spawnSync(["git", "-C", root, ...args]);
+    if (done.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
+  }
+  installGitHooks(root);
+
+  // The hook resolves the brain CLI from PATH and exits 0 outright when it
+  // finds none — which would make every assertion below vacuous. A stub that
+  // always validates clean puts the hook on the path under test.
+  const shimDir = join(root, ".shim");
+  mkdirSync(shimDir, { recursive: true });
+  writeFileSync(join(shimDir, "brain"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  return { root, shimDir };
+}
+
+function commit(root: string, shimDir: string, message: string) {
+  const proc = Bun.spawnSync(["git", "-C", root, "commit", "-q", "-m", message], {
+    env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` },
+  });
+  return {
+    code: proc.exitCode,
+    stderr: new TextDecoder().decode(proc.stderr),
+  };
+}
+
+test("pre-commit lets the first brain.config.ts commit through when the brain has no tests", () => {
+  const { root, shimDir } = gitBrainWithHooks();
+  writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+  Bun.spawnSync(["git", "-C", root, "add", "-A"]);
+
+  const { code, stderr } = commit(root, shimDir, "brain-init: personalized structure");
+  expect(stderr).toContain("no tests in this brain");
+  expect(stderr).not.toContain("tests failed");
+  expect(code).toBe(0);
+});
+
+test("pre-commit still rejects that commit when the brain has a failing test", () => {
+  const { root, shimDir } = gitBrainWithHooks();
+  writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+  writeFileSync(
+    join(root, "regression.test.ts"),
+    'import { expect, test } from "bun:test";\ntest("fails", () => {\n  expect(1).toBe(2);\n});\n'
+  );
+  Bun.spawnSync(["git", "-C", root, "add", "-A"]);
+
+  const { code, stderr } = commit(root, shimDir, "brain-init: personalized structure");
+  expect(stderr).toContain("tests failed");
+  expect(stderr).not.toContain("no tests in this brain");
+  expect(code).not.toBe(0);
+});
+
+test("pre-commit lets it through when the brain's tests pass", () => {
+  const { root, shimDir } = gitBrainWithHooks();
+  writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+  writeFileSync(
+    join(root, "regression.test.ts"),
+    'import { expect, test } from "bun:test";\ntest("passes", () => {\n  expect(1).toBe(1);\n});\n'
+  );
+  Bun.spawnSync(["git", "-C", root, "add", "-A"]);
+
+  const { code, stderr } = commit(root, shimDir, "brain-init: personalized structure");
+  expect(stderr).not.toContain("tests failed");
+  expect(code).toBe(0);
+});

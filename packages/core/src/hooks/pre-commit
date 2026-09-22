@@ -34,10 +34,26 @@ if git diff --cached --name-only | grep -qE '^(brain\.config\.(ts|json)|\.agents
         exit 1
       }
     fi
-    bun test >/dev/null 2>&1 || {
-      echo "pre-commit: tests failed (bun test)" >&2
-      exit 1
-    }
+    # `bun test` treats "no test files" as an error rather than a vacuous
+    # pass, and a brand-new brain has none — which rejected the very first
+    # commit /brain-init makes, the one the interview promises as its revert
+    # point. Tell the two cases apart by what bun actually says, rather than
+    # reimplementing its glob patterns here and drifting from them.
+    #
+    # Fail closed: if that message ever changes, this reports a failure. A
+    # false red is noticed and fixed; tests that silently stop running are not.
+    if ! TEST_OUTPUT=$(bun test 2>&1); then
+      case "$TEST_OUTPUT" in
+        *"0 test files matching"*)
+          echo "pre-commit: no tests in this brain — nothing to run" >&2
+          ;;
+        *)
+          echo "pre-commit: tests failed (bun test)" >&2
+          printf '%s\n' "$TEST_OUTPUT" | tail -20 >&2
+          exit 1
+          ;;
+      esac
+    fi
   fi
 fi
 
