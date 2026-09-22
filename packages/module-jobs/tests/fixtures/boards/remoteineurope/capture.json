@@ -1,0 +1,18 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 3155,
+      "fixture": "redirect-target.html",
+      "full_response_bytes": 134623,
+      "full_response_sha256": "1773076bcddf7118cbcd43868c9a2217cbbca7adca835124462d01061c840e3f",
+      "note": "remoteineurope.com no longer exists as a board: every configured URL answers 301 to weworkremotely.com, and this is a slice of what comes back. The page has no /job/<slug> links at all - We Work Remotely uses /remote-jobs/<slug> - so the regex at src/adapters/remoteineurope.ts:57 matches nothing and the adapter returns 0 found with 0 errors.",
+      "redirect": "301 -> https://weworkremotely.com/remote-software-developer-jobs",
+      "source": "remoteineurope",
+      "transport": "http",
+      "url": "https://remoteineurope.com/categories/programming",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

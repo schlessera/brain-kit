@@ -1,0 +1,33 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 240,
+      "fixture": "response-410.html",
+      "full_response_bytes": 940153,
+      "full_response_sha256": "e90624f95820c1de8b79e0d2fcbaa1f9778d278f50e4d08409623684ef665452",
+      "http_status": 410,
+      "note": "Every one of the five category URLs at src/adapters/jobgether.ts:6-12 answers HTTP 410 Gone. The body is the site's search page, whose canonical link names the replacement.",
+      "source": "jobgether",
+      "transport": "http",
+      "url": "https://jobgether.com/remote-jobs/all-locations/software-engineering",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 1711,
+      "fixture": "astroapi-ai-jobs.json",
+      "full_response_bytes": 4495,
+      "full_response_sha256": "4f26f2db1c89fe9cc9f1b5fef173a0d2273f8fc5466f4ffc5f3502009034c2a9",
+      "http_status": 200,
+      "note": "The first three records of the JSON endpoint jobgether's own robots.txt explicitly allows (Allow: /astroapi/ai/jobs.json). It carries title, company, url, location, contract type and salary range - which is what the 410'd category pages were being scraped for. Input for the repair, not a repair.",
+      "records_in_full_response": 10,
+      "source": "jobgether",
+      "transport": "http",
+      "url": "https://jobgether.com/astroapi/ai/jobs.json",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

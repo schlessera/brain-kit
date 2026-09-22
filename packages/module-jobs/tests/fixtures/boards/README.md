@@ -1,0 +1,112 @@
+# Board fixtures
+
+What each job board actually served, on the day it was measured, for the boards
+whose adapter got it wrong. This is the durable half of issue #33: the table
+below moves, the markup does not.
+
+Every fixture is a **verbatim slice** of a real response, cut down to what a
+parser reads. Where several slices come from one page they are joined by an
+`<!-- ... elided ... -->` comment; where anything else was changed, the board's
+`capture.json` says so in `excerpt_edited`. Raw no-break spaces are spelled
+`&#160;` so the tree stays greppable (`bun run lint`); an HTML parser sees the
+same character.
+
+`capture.json` next to each fixture records the URL, the HTTP status where it
+matters, the SHA-256 and byte count of the **full** response the slice came
+from, and the vantage point of the capture.
+
+## Vantage point
+
+| | |
+| --- | --- |
+| Captured | 2026-09-22, 16:18–16:45 UTC |
+| Egress country | DE |
+| User-Agent | `brain-scrape (+https://github.com/schlessera/brain-kit)` — the shipped default |
+| Browser | Chrome, headless, for the three `needsBrowser` boards |
+
+This is not decoration. A board that geo-gates its markup, rewrites it for a
+test bucket, or rate-limits one User-Agent and not another looks exactly like a
+parser bug to whoever reads the fixture next. `simplyhired` answered 403 and then
+200 to the same URL fifteen minutes apart from this one vantage point, and
+`nodesk` returned 51 rows and then 103 — so the header above is the difference
+between a reproducible result and an anecdote.
+
+## How to re-measure
+
+```sh
+bun packages/module-jobs/scripts/measure-boards.ts <source> <out-dir> <country>
+```
+
+One board per run. It needs the network, so **no test may call it** — the
+fixtures here are what tests use.
+
+## What the measurement found
+
+Each board scraped on its own, 2026-09-22. "Stored" is rows
+that survived `ingestJobs`, which drops anything with no `source_id`, `title` or
+`company`.
+
+| board | found | stored | errors | title | company | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `remoteok` | 99 | 99 | 0 | job titles | 91 distinct, none `Unknown` | 99/99 |
+| `remotive` | 0 | 0 | 5 | — | — | — |
+| `weworkremotely` | 82 | 82 | 0 | job titles | 55 distinct, none `Unknown` | 82/82 |
+| `workingnomads` | 56 | 56 | 0 | job titles | 16 distinct, none `Unknown` | 56/56 |
+| `builtin` | 35 | 35 | 0 | job titles | **0/35** — all `Unknown` | 0/35 |
+| `nodesk` | 51 | 51 | 0 | job titles, 2 category links | **26/51** right, 18 `Unknown`, 7 a neighbour's | 0/51 |
+| `simplyhired` | 20 | 20 | 2 | job titles | 20/20 | **0/20** |
+| `jobgether` | 0 | 0 | 5 | — | — | — |
+| `dice` | 102 | 102 | 0 | job titles | 92/102, 10 `Unknown` | **0/102** |
+| `remotelyde` | 18 | 18 | 0 | **0/18** — all category chrome | 0/18 — all `Unknown` | 0/18 |
+| `remoteineurope` | 0 | 0 | **0** | — | — | — |
+
+Healthy: `remoteok`, `weworkremotely`, `workingnomads`. They have no fixture
+here because there is nothing to repair.
+
+### Board by board
+
+- **`remotive`** — `remotive.com/robots.txt` disallows `/api/*`, the only path
+  the adapter fetches, so the politeness layer refuses all five category
+  requests. Reported as five errors, not silently. It is still one of the six
+  default-enabled `SOURCES` in `src/types.ts`. Fixture: `remotive/robots.txt`.
+- **`builtin`** — the browser path works (August's "parser matched nothing" is
+  closed), but the company is never extracted. `src/adapters/builtin.ts:44`
+  calls `link.closest('[class*="job"], [class*="card"], …')` and the anchor's
+  own class is `card-alias-after-overlay`, so `closest()` returns the anchor
+  itself and the card text it scans is just the title. The company has a stable
+  selector, `a[data-id="company-title"]`, contradicting the comment at `:26`.
+  Fixture: `builtin/rendered-card.html`.
+- **`nodesk`** — the company is the `<h3>` under the title, but
+  `src/adapters/nodesk.ts:66` looks for `a[href*="/remote-companies/"]`, which
+  the card does not have. The container walk at `:59` keeps climbing until it
+  swallows a neighbouring **promoted** card, whose company link is what gets
+  stored. The slug filter at `:51-52` also admits two category pages
+  (`blockchain-cryptocurrency-jobs`, `full-time-remote`).
+  Fixture: `nodesk/rendered-card.html`.
+- **`simplyhired`** — title and company parse correctly. There is no description
+  anywhere in the listing markup, so every stored row has `description_text`
+  NULL. The 403s are intermittent rate limiting, not a block: the same URL
+  answered 200 fifteen minutes later. Fixture: `simplyhired/listing-card.html`.
+- **`jobgether`** — all five category URLs in `src/adapters/jobgether.ts:6-12`
+  answer HTTP 410, exactly as measured in August. The body's canonical link
+  names the replacement page, and the site's own `robots.txt` explicitly allows
+  a JSON endpoint carrying title, company, url, location and salary.
+  Fixtures: `jobgether/response-410.html`, `jobgether/astroapi-ai-jobs.json`.
+- **`dice`** — the biggest board and the best titles, but the card link's `href`
+  is **relative**, and `src/adapters/dice.ts:47` stores it unchanged as both
+  `source_id` and `url`, so all 102 rows carry an unresolvable URL. The company
+  has a stable selector here too (`a[href^="/company-profile/"]`) while the
+  adapter recovers it by scanning card text. No descriptions.
+  Fixture: `dice/rendered-card.html`.
+- **`remotelyde`** — two independent defects. The JSON-LD script carries
+  `id="collection-page-jsonld"`, which the bare-tag regex at
+  `src/adapters/remotelyde.ts:53` does not match; and the `ListItem`s inside it
+  carry only `@id` and `name`, so `mapJobPosting` would skip them even if the
+  regex matched. The fallback at `:102` then stores `/remote-jobs/<slug>`
+  category chrome — real jobs are `/job/<slug>`.
+  Fixture: `remotelyde/listing.html`.
+- **`remoteineurope`** — the board no longer exists. Every configured URL
+  answers 301 to `weworkremotely.com`, so the adapter parses We Work Remotely's
+  markup, finds no `/job/<slug>` links, and returns **0 found with 0 errors** —
+  the failure mode the epic is named after.
+  Fixture: `remoteineurope/redirect-target.html`.

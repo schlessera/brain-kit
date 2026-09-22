@@ -1,0 +1,17 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 7122,
+      "fixture": "rendered-card.html",
+      "full_response_bytes": 1301248,
+      "full_response_sha256": "50a3b1ee2b4ed4758b967b82db1d18dc791a10faf68f70f5c999e9e7c3c8c53d",
+      "note": "One verbatim job card from the RENDERED DOM. The company is right there, in a[data-id=\"company-title\"] - but src/adapters/builtin.ts:44 calls link.closest('[class*=\"job\"], [class*=\"card\"], ...') and the anchor's own class is card-alias-after-overlay, so closest() returns the anchor itself. The card text it then scans is just the title, no other line is found, and every stored row gets company \"Unknown\".",
+      "source": "builtin",
+      "transport": "rendered",
+      "url": "https://builtin.com/jobs/remote",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}

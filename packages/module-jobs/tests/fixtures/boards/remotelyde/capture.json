@@ -1,0 +1,17 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T16:18Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 7028,
+      "fixture": "listing.html",
+      "full_response_bytes": 593663,
+      "full_response_sha256": "3754e8e06cdc98a2eb14c3dfdea09b2e0e4b81301aa8a6bb5eaf20f7c58ff7f6",
+      "note": "Three verbatim slices of the listing page. (1) The JSON-LD the adapter means to read: its script tag carries id=\"collection-page-jsonld\", which the bare-tag regex at src/adapters/remotelyde.ts:53 does not match; and its ListItems carry only @id and name - no @type JobPosting, no hiringOrganization, no description - so mapJobPosting would skip them even if the regex did match. (2) A real job card: the link is /job/<slug> and the card carries the company name and a description teaser. (3) What the fallback at :102 stores instead - a /remote-jobs/<slug> category link.",
+      "source": "remotelyde",
+      "transport": "http",
+      "url": "https://remotely.de/remote-jobs",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}
