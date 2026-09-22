@@ -2209,9 +2209,11 @@ comparison prompts, zero tool calls, after the prompt had been rewritten twice
 the model never calls the tool for what the pass already reaches, most of the
 brief is being paid for on every turn and returning nothing.
 
-**Method.** `scripts/measure-show-block.ts`, an A/B over the real backend
-options. Nine prompts, two arms, six repetitions: 108 live turns on
-`claude-sonnet-5`, against a copy of `packages/core/fixtures/corpus/`, $7.15 of
+**Method.** `scripts/measure-show-block.ts`, an A/B over the **Claude
+backend's** real SDK options — every rate in this record is that backend on
+`claude-sonnet-5`, and the pi section below says why that qualifier is
+load-bearing rather than pedantic. Nine prompts, two arms, six repetitions: 108
+live turns, against a copy of `packages/core/fixtures/corpus/`, $7.15 of
 API spend. The arms differ in exactly one thing — `buildSystemPromptAppend`'s
 `tools.block`, which is what puts the brief in the system prompt. The tool is
 registered, allowed and byte-identically described in both, so the `no-brief`
@@ -2255,7 +2257,7 @@ afterwards: every staged brain still matches the fixture corpus byte for byte,
 except for an empty `.claude/` the CLI creates beside it, so no turn changed
 what a later turn read.
 
-**Numbers.** 102 completed turns of 108.
+**Numbers.** Claude backend, `claude-sonnet-5`, 102 completed turns of 108.
 
 | arm | turns | a `show_block` call | rate | no call, but a candidate the pass would see |
 | --- | --- | --- | --- | --- |
@@ -2305,7 +2307,31 @@ Identical, and higher than the brief reaches on its own. **The brief's entire
 measured effect is discoverability, not persuasion.** Once the model can see
 the tool, the brief adds nothing at all.
 
-**Decision. The brief stays, unchanged.** In the configuration that ships it is
+**The pi backend does not reproduce any of this, and the reason is in the
+code.** #50 measured pi at the server level and found what looks like a flat
+contradiction: "Compare Bun and Node.js … keep it short" calls the tool on
+every run where the Claude backend called it on none, `contact` drew 3 of 3
+where the Claude backend drew 0 of 12, and 21 of 23 pi turns drew a block at
+all. None of that is a property of pi's model or of the brief. **pi has no
+deferral.** It registers `show_block` as a plain `ToolDefinition` in its own
+tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`); there is no
+MCP server, no tool search, and no `alwaysLoad` to set, so the tool is in the
+prompt on every pi turn by construction.
+
+That makes pi's shipping configuration the structural equivalent of this
+record's `--always-load` arm, not of the Claude backend's. Read against the
+right row, the two backends agree rather than conflict: in the always-loaded
+condition the Claude backend also calls on `compare-short`, also stops caring
+whether the brief is present, and also runs at 77%. The one figure that still
+differs is `contact` — 3 of 3 on pi against 1 of 6 loaded here — and that is a
+real open question rather than an artifact, which is what its issue now says.
+
+The prediction this makes is falsifiable and someone should check it: if the
+Claude backend adopts `alwaysLoad: true`, its numbers should move onto pi's,
+not merely upward.
+
+**Decision. The brief stays, unchanged.** On the Claude backend, in the
+configuration that ships today, it is
 not encouragement to use a tool the model can already see; it is the only thing
 that tells the model the tool exists. Retiring it does not lower the rate from
 59% to something smaller — it takes the rate to the noise floor and makes three
@@ -2351,7 +2377,13 @@ the prompt at all.
 because the variance is in whether the model spends a `ToolSearch` round-trip,
 not in whether it wants a block. Only the arm-level contrast is stable, and it
 is stable because it is a discoverability effect rather than a preference. One
-model, one backend; the pi backend is unmeasured. The `--always-load` figures
+model, one backend: every number here is `claude-sonnet-5` on the Claude
+backend, driven through the Agent SDK directly. A reader who takes any of them
+as "the block rate" will be wrong on pi, and wrong on this backend too once
+`alwaysLoad` ships. `scripts/measure-show-block-server.ts` (#50) is the
+instrument for the other level — it drives the whole server over a real socket
+and is backend-agnostic, so it sees the classification pass, the wire frames
+and the client that this harness, sitting below all three, cannot. The `--always-load` figures
 were taken before the turn budget was enforced and are reported over the turns
 that finished inside it.
 

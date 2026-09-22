@@ -11,8 +11,24 @@
  * registered and allowed. The only difference between the two arms is the
  * brief; the tool description the model reads is byte-identical in both.
  *
+ * Note that the arms only mean what they say on a backend that DEFERS the tool
+ * behind tool search, which the Claude backend does and pi does not — pi
+ * registers `show_block` as a plain tool, so it is always in the prompt and
+ * `--always-load` below is the arm that corresponds to it.
+ *
  * It needs `ANTHROPIC_API_KEY` and the network, so it is a script and not a
  * test: CI never runs it. Re-run it before changing the brief again.
+ *
+ * WHAT THIS HARNESS CANNOT SEE. It drives the Claude Agent SDK directly, so it
+ * measures one backend below the server: no ui-server, no socket, no client,
+ * and no classification pass actually running — `planClassification` is called
+ * here only to score what the pass WOULD have seen. `scripts/measure-show-block-server.ts`
+ * is the instrument one level up: it drives the whole server over a real
+ * socket and is backend-agnostic, so it is the one to reach for when the
+ * question involves pi, the wire frames, the swap actually happening, or what
+ * the reader ends up looking at. The two are different instruments, not
+ * duplicates; a claim about "the block rate" needs to say which one produced
+ * it, and on which backend.
  *
  *   bun scripts/measure-show-block.ts --reps 3 --out runs.json --md report.md
  *
