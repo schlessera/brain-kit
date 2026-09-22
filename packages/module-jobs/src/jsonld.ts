@@ -134,6 +134,28 @@ function numeric(value: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * The board's own id for a posting — never the label printed beside it.
+ *
+ * `identifier` is a bare string on some boards and a `PropertyValue` on others,
+ * where the id is in `value` and `name` is a human label. Dice's label is the
+ * COMPANY, so reading the wrong half of that pair gives every posting by one
+ * employer the same `source_id` and the run stores one of them. The list form
+ * is allowed too, which is why this recurses rather than reading `.name`.
+ */
+function identifierValue(value: unknown): string | undefined {
+  if (typeof value === "string" || typeof value === "number") return text(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = identifierValue(entry);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  const property = node(value);
+  return property ? text(property.value) : undefined;
+}
+
 function node(value: unknown): JsonLdNode | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as JsonLdNode;
@@ -294,9 +316,7 @@ export function mapJobPosting(posting: JsonLdNode, opts: JobPostingMapOptions): 
   const company = text(node(posting.hiringOrganization)?.name) ?? UNKNOWN_COMPANY;
   const url = resolve(text(posting.url) ?? text(posting["@id"]), opts.pageUrl);
 
-  const identifier = node(posting.identifier);
-  const sourceId =
-    text(identifier?.value) ?? text(posting.identifier) ?? url ?? `${company}::${title}`;
+  const sourceId = identifierValue(posting.identifier) ?? url ?? `${company}::${title}`;
 
   const salary = mapBaseSalary(posting, opts.defaultCurrency);
   const description = text(posting.description);

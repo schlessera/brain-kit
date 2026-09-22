@@ -288,6 +288,35 @@ describe("baseSalary", () => {
   });
 });
 
+describe("the source id", () => {
+  test("comes from the identifier's value, never from its label", () => {
+    // Dice's label is the COMPANY. Two postings by one employer would collapse
+    // into one stored row if the label were read as the id.
+    const first = { "@type": "JobPosting", title: "A", identifier: { "@type": "PropertyValue", name: "FishEye Software", value: "uuid-1" }, url: "https://example.test/1" };
+    const second = { ...first, title: "B", identifier: { "@type": "PropertyValue", name: "FishEye Software", value: "uuid-2" }, url: "https://example.test/2" };
+    const listed = { "@type": "JobPosting", title: "C", identifier: [{ "@type": "PropertyValue", name: "FishEye Software", value: "uuid-3" }], url: "https://example.test/3" };
+
+    const html = `<script type="application/ld+json">${JSON.stringify([first, second, listed])}</script>`;
+    const result = jobsFromJsonLd(html, { source: "dice" });
+
+    expect(result.jobs.map((job) => job.source_id)).toEqual(["uuid-1", "uuid-2", "uuid-3"]);
+  });
+
+  test("falls back to the URL when the identifier carries only a label", () => {
+    const job = jobsFromJsonLd(
+      `<script type="application/ld+json">${JSON.stringify({
+        "@type": "JobPosting",
+        title: "A",
+        identifier: { "@type": "PropertyValue", name: "FishEye Software" },
+        url: "https://example.test/1",
+      })}</script>`,
+      { source: "dice" }
+    ).jobs[0];
+
+    expect(job.source_id).toBe("https://example.test/1");
+  });
+});
+
 describe("employmentType", () => {
   test("maps the spellings boards use into the three buckets", () => {
     expect(mapEmploymentType("FULL_TIME")).toBe("full_time");
