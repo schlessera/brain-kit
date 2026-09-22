@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
 import { StreamingPanel } from "../../src/components/quick-actions/streaming-modal.js";
+import { WhatsupPanel } from "../../src/components/quick-actions/whatsup-modal.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
@@ -93,20 +94,23 @@ describe("SlidePanel dismissal (closedBy)", () => {
   });
 });
 
-describe("StreamingPanel dismissal", () => {
-  function transport() {
-    const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
-    const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://sync.example" },
-      request: (url, init) => {
-        const response = deferred<Response>();
-        requests.push({ url, init, response });
-        return response.promise;
-      },
-    });
-    return { root, requests };
-  }
-  const stream = (text: string) => new Response(`data: ${JSON.stringify({ type: "progress", text })}\n\ndata: {"type":"done","success":true}\n\n`);
+/** A root whose every request is held open until the test resolves it. */
+function transport() {
+  const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
+  const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://sync.example" },
+    request: (url, init) => {
+      const response = deferred<Response>();
+      requests.push({ url, init, response });
+      return response.promise;
+    },
+  });
+  return { root, requests };
+}
 
+/** One progress event and a successful done, the shape both streamed panels read. */
+const stream = (text: string) => new Response(`data: ${JSON.stringify({ type: "progress", text })}\n\ndata: {"type":"done","success":true}\n\n`);
+
+describe("StreamingPanel dismissal", () => {
   test("a backdrop click during and after a sync leaves the panel open and the stream untouched", async () => {
     const { root, requests } = transport();
     const onClose = mock(() => {});
@@ -154,6 +158,105 @@ describe("StreamingPanel dismissal", () => {
       expect(onClose).toHaveBeenCalledTimes(1);
       // Closing is the caller's; the X itself does not abort the request.
       expect(requests[0]!.init?.signal?.aborted).toBe(false);
+    } finally { view.unmount(); root.dispose(); }
+  });
+});
+
+// What dismisses the briefing drawer (#105). `WhatsupPanel` has `StreamingPanel`'s
+// shape: closing it unmounts the panel, and the unmount aborts the briefing
+// request, so a stray backdrop click cancels a model call mid-flight or throws
+// away the briefing it paid for.
+describe("WhatsupPanel dismissal", () => {
+  const briefing = "Three things need you today.";
+
+  const mount = (onClose: () => void, root: ReturnType<typeof transport>["root"]) =>
+    render(
+      <BrainUiProvider root={root}>
+        <WhatsupPanel open onClose={onClose} />
+      </BrainUiProvider>
+    );
+
+  test("the backdrop and Escape are inert while the briefing loads, and the request survives both", async () => {
+    const { root, requests } = transport();
+    const onClose = mock(() => {});
+    const view = mount(onClose, root);
+    try {
+      expect(requests[0]!.url).toBe("https://sync.example/api/brain/whatsup");
+      expect(view.getByText("Generating briefing...")).toBeTruthy();
+      const signal = requests[0]!.init?.signal;
+      expect(signal?.aborted).toBe(false);
+
+      fireEvent.click(backdropOf(view));
+      expect(onClose).toHaveBeenCalledTimes(0);
+      escape();
+      expect(onClose).toHaveBeenCalledTimes(0);
+
+      // Closing unmounts the panel and the unmount aborts the briefing, so the
+      // proof is the request, not just the callback.
+      expect(signal?.aborted).toBe(false);
+      expect(view.getByText("Generating briefing...")).toBeTruthy();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  test("the backdrop is inert once the briefing has arrived, and Escape dismisses it", async () => {
+    const { root, requests } = transport();
+    const onClose = mock(() => {});
+    const view = mount(onClose, root);
+    try {
+      await act(async () => { requests[0]!.response.resolve(stream(briefing)); await flushPromises(); });
+      expect(view.queryByText("Generating briefing...")).toBeNull();
+      expect(view.getByText(briefing)).toBeTruthy();
+
+      // A briefing costs a model call, so it goes only when it is dismissed
+      // deliberately — Escape is deliberate, a click beside the drawer is not.
+      fireEvent.click(backdropOf(view));
+      expect(onClose).toHaveBeenCalledTimes(0);
+      expect(view.getByText(briefing)).toBeTruthy();
+
+      escape();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  // The X is never inert: `closedBy` governs the backdrop and Escape, and the
+  // header's control stays the way out of every state the briefing reaches.
+  const arrivals = {
+    loading: null,
+    done: () => stream(briefing),
+    error: () => new Response("", { status: 500, statusText: "Server Error" }),
+  } as const;
+
+  for (const state of ["loading", "done", "error"] as const) {
+    test(`the header's X closes the panel in the ${state} state`, async () => {
+      const { root, requests } = transport();
+      const onClose = mock(() => {});
+      const view = mount(onClose, root);
+      try {
+        const arrive = arrivals[state];
+        if (arrive) await act(async () => { requests[0]!.response.resolve(arrive()); await flushPromises(); });
+        expect(view.queryByText("Generating briefing...") !== null).toBe(state === "loading");
+
+        fireEvent.click(view.getByRole("button", { name: "Close Whatsup" }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        // Closing is the caller's; the X itself does not abort the request.
+        expect(requests[0]!.init?.signal?.aborted).toBe(false);
+      } finally { view.unmount(); root.dispose(); }
+    });
+  }
+
+  test("the footer's Cancel still aborts the briefing, and the X closes the cancelled panel", () => {
+    const { root, requests } = transport();
+    const onClose = mock(() => {});
+    const view = mount(onClose, root);
+    try {
+      expect(view.getByText("Generating briefing...")).toBeTruthy();
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      expect(requests[0]!.init?.signal?.aborted).toBe(true);
+      expect(view.getAllByText("Cancelled.").length).toBe(1);
+      expect(onClose).toHaveBeenCalledTimes(0);
+
+      fireEvent.click(view.getByRole("button", { name: "Close Whatsup" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
     } finally { view.unmount(); root.dispose(); }
   });
 });

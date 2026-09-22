@@ -3,11 +3,13 @@ import type {
   BackendModuleContext,
   BackendProfileError,
   BackendProfileParseResult,
+  PricingRoute,
   ProviderInfo,
 } from "@schlessera/brain-ui-sdk/server";
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "./backend.js";
+import { readEnvVar } from "./config/env.js";
 import { createModelSource } from "./model-discovery.js";
 import {
   defineProfiles,
@@ -96,6 +98,29 @@ function configNumber(context: BackendModuleContext, key: string): number | unde
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Where requests to a given endpoint actually go, for pricing. An endpoint on
+ * OpenRouter is billed at OpenRouter's resale rates, which differ from the
+ * vendor's for the ids both catalogs carry. No endpoint at all means the SDK's
+ * own Anthropic base URL — a direct vendor call. Any other Anthropic-compatible
+ * proxy resells at rates no catalog describes, so its route stays unknown
+ * rather than being guessed: an unknown route prices by model id, while a
+ * wrong one freezes a rate the run was never billed at.
+ */
+function routeForBaseUrl(baseUrl: string | undefined): PricingRoute | undefined {
+  if (!baseUrl) return "direct";
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    // An unparseable baseUrl says nothing about the route.
+    return undefined;
+  }
+  return host === "openrouter.ai" || host.endsWith(".openrouter.ai")
+    ? "openrouter"
+    : undefined;
+}
+
 export const backendModule: BackendModule = defineBackendModule({
   id: "claude",
   profileSchema: {
@@ -124,6 +149,13 @@ export const backendModule: BackendModule = defineBackendModule({
       const defaultModel = configString(context, "defaultModel");
       const inputs = context.profiles as InferenceProfileInput[];
       const declaredApiProfileIds = new Set<string>();
+      // Declared endpoint per profile id, for pricing-route classification.
+      // The URL is stored rather than a resolved route because a profile that
+      // declares none inherits the ambient one, which is only knowable later.
+      const profileBaseUrls = new Map<string, string>();
+      const rememberRoute = (input: InferenceProfileInput) => {
+        if (input.baseUrl) profileBaseUrls.set(input.id, input.baseUrl);
+      };
       const normalized = inputs.map((input) => {
         const resolved =
           input.id === "claude" && input.source === "builtin"
@@ -132,6 +164,7 @@ export const backendModule: BackendModule = defineBackendModule({
         if (resolved.authTokenEnv || resolved.apiKeyEnv) {
           declaredApiProfileIds.add(resolved.id);
         }
+        rememberRoute(resolved);
         return resolved;
       });
       const declared = defineProfiles(normalized);
@@ -165,12 +198,16 @@ export const backendModule: BackendModule = defineBackendModule({
         }
         const declaredIds = new Set(declared.map((profile) => profile.id));
         const customExtra = custom.filter((input) => !declaredIds.has(input.id));
-        for (const input of customExtra) declaredApiProfileIds.add(input.id);
+        for (const input of customExtra) {
+          declaredApiProfileIds.add(input.id);
+          rememberRoute(input);
+        }
         const knownIds = new Set([
           ...declaredIds,
           ...customExtra.map((input) => input.id),
         ]);
         const extra = discovered.filter((input) => !knownIds.has(input.id));
+        for (const input of extra) rememberRoute(input);
         const result = [...declared, ...defineProfiles([...customExtra, ...extra])];
         mergeCache = { discovered, customKey, result };
         return result;
@@ -194,6 +231,19 @@ export const backendModule: BackendModule = defineBackendModule({
           backend,
           classifyBilling(profile: ProviderInfo) {
             return declaredApiProfileIds.has(profile.id) ? "api" : ambientBilling;
+          },
+          classifyRoute(profile: ProviderInfo) {
+            // A profile that declares no baseUrl does NOT thereby reach
+            // Anthropic: `buildEnv()` sets nothing, the host's own
+            // ANTHROPIC_BASE_URL survives the subprocess env filter (it is on
+            // the agent allowlist), and the turn goes wherever that points. An
+            // operator who set it to OpenRouter globally would otherwise have
+            // every run frozen at Anthropic's rates. Read at classify time,
+            // never cached at setup: this value decides which rate lands in a
+            // rollup, and a stale read would freeze the wrong one.
+            return routeForBaseUrl(
+              profileBaseUrls.get(profile.id) ?? readEnvVar("ANTHROPIC_BASE_URL")
+            );
           },
         },
       };

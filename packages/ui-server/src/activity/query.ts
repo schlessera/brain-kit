@@ -10,11 +10,10 @@
  */
 import type { Database } from "bun:sqlite";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
-import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { latestActivityDigest } from "./digest.js";
 import type { ActivityNotifier } from "./notify.js";
-import { rowToRunRollup, sumEffectiveCost, type ActivityStore, type SpanRow } from "./store.js";
+import { rowToRunRollup, summarizeRollups, type ActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
@@ -138,18 +137,18 @@ export function runActivityQuery(
           .all(since) as any[]
       ).map(rowToRunRollup);
       const digest = latestActivityDigest(db);
-      const effective = sumEffectiveCost(rows);
+      const summary = summarizeRollups(rows);
       return {
         windowHours: hoursBack,
-        runs: rows.length,
-        failures: rows.filter((r) => isFailureOutcome(r.outcome)).length,
+        runs: summary.runs,
+        failures: summary.failures,
         // Both sums are sum-of-KNOWNS; the runs excluded from the effective
         // sum ride along as unpricedRuns so unknown never reads as $0 (AE3).
-        costUsd: round(rows.reduce((a, r) => a + (r.costUsd ?? 0), 0)),
-        effectiveCostUsd: round(effective.effectiveCostUsd),
-        unpricedRuns: effective.unpricedRuns,
-        inputTokens: rows.reduce((a, r) => a + (r.inputTokens ?? 0), 0),
-        outputTokens: rows.reduce((a, r) => a + (r.outputTokens ?? 0), 0),
+        costUsd: round(summary.costUsd),
+        effectiveCostUsd: round(summary.effectiveCostUsd),
+        unpricedRuns: summary.unpricedRuns,
+        inputTokens: summary.inputTokens,
+        outputTokens: summary.outputTokens,
         ...(digest ? { lastDigestAt: iso(digest.generatedAt) } : {}),
       };
     }

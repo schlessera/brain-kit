@@ -113,6 +113,26 @@ describe("tool_call permission gate", () => {
     expect(res).toBeUndefined();
   });
 
+  test("a turn with no grant surface blocks without asking, for either kind", async () => {
+    // The declaration is honoured on both shipped backends, or it is a
+    // statement of intent on whichever one ignores it (#110).
+    for (const call of [
+      { toolName: "bash", toolCallId: "no-surface-command", input: { command: "rm -rf notes" } },
+      { toolName: "some_mcp_tool", toolCallId: "no-surface-tool", input: {} },
+    ]) {
+      const turn = createTurnContext();
+      const mock = makeMockBridge({ decision: { behavior: "allow" } });
+      turn.bridge = mock.bridge;
+      turn.noGrantSurface = true;
+      const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+      const res = await handler(call);
+      expect(res?.block).toBe(true);
+      expect(res?.reason).toContain(call.toolName);
+      expect(mock.permissionCalls).toHaveLength(0);
+    }
+  });
+
   test("gated call asks, denial blocks with the host's message", async () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "user said no" } });
@@ -383,6 +403,36 @@ describe("bridge-capability tool registration", () => {
       expect(full.get_current_location).toBeDefined();
       expect(full.query_activity).toBeDefined();
       expect(full.request_image_mask).toBeDefined();
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("the mask editor refuses a turn with no grant surface instead of blocking on it", async () => {
+    // The tool set is built once per session, so the posture is checked when
+    // the tool runs. It is registered and it fails fast, rather than opening
+    // an editor and waiting for a region nobody can paint.
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      const mock = makeMockBridge();
+      turn.bridge = mock.bridge;
+      (turn.bridge as { requestMask?: unknown }).requestMask = () => {
+        throw new Error("the editor must not open");
+      };
+      const tools = toolMap(
+        createBrainTools({
+          brain: createBrainAccess(brain.root),
+          turn,
+          lock: toolLockFromKeyed(createKeyedLock()),
+          capabilities: { mask: true },
+        })
+      );
+
+      turn.noGrantSurface = true;
+      await expect(
+        tools.request_image_mask!.execute("m1", { imagePath: "a.png" }, undefined, undefined, CTX)
+      ).rejects.toThrow(/no way to show anyone an image/);
     } finally {
       brain.cleanup();
     }

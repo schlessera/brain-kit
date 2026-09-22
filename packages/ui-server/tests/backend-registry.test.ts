@@ -57,6 +57,9 @@ describe("backend registry", () => {
         // No credential in the resolved env at all → "api" (nothing
         // subscription-billed can run without the OAuth token).
         billingMode: "api",
+        // No baseUrl, so the turn goes to Anthropic's own endpoint and is
+        // billed at Anthropic's rates — the "direct" pricing catalog.
+        pricingRoute: "direct",
       },
     ]);
 
@@ -135,6 +138,47 @@ describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
     const byId = new Map(providers.map((provider) => [provider.id, provider]));
     expect(byId.get("gpt-sol")?.billingMode).toBe("subscription");
     expect(byId.get("gpt-api")?.billingMode).toBe("api");
+  });
+
+  test("pi profile pricing route keys on the vendor: only openrouter resells (#57)", async () => {
+    const registry = registryFor({
+      BRAIN_UI_PI_PROFILES: JSON.stringify([
+        { id: "gpt-sol", label: "GPT", vendor: "openai-codex", model: "gpt-5.6-sol" },
+        { id: "or-glm", label: "GLM", vendor: "openrouter", model: "z-ai/glm-4.7" },
+      ]),
+    });
+    const byId = new Map(
+      (await registry.listAllProviders()).map((provider) => [provider.id, provider])
+    );
+    // A pi vendor IS the provider endpoint, so it names the route — but only
+    // for providers we can actually place.
+    expect(byId.get("or-glm")?.pricingRoute).toBe("openrouter");
+    expect(byId.get("gpt-sol")?.pricingRoute).toBe("direct");
+  });
+
+  test("pi aggregators and inference hosts get no route, not a guessed one (#57)", async () => {
+    const registry = registryFor({
+      BRAIN_UI_PI_PROFILES: JSON.stringify([
+        // Aggregators: they resell, and neither catalog carries their rates.
+        { id: "via-vercel", label: "V", vendor: "vercel-ai-gateway", model: "anthropic/claude-sonnet-4.5" },
+        { id: "via-opencode", label: "O", vendor: "opencode", model: "anthropic/claude-sonnet-4.5" },
+        // An inference host serving someone else's open weights at its own
+        // price — not the model vendor, so not the vendor's rate either.
+        { id: "via-groq", label: "G", vendor: "groq", model: "openai/gpt-oss-120b" },
+      ]),
+    });
+    const byId = new Map(
+      (await registry.listAllProviders()).map((provider) => [provider.id, provider])
+    );
+
+    // Present in the roster, but deliberately unrouted: calling any of these
+    // "direct" would make a vendor list price authoritative for a run that was
+    // never billed at it. No route means pricing falls back to model id, which
+    // is what every run did before routes existed.
+    for (const id of ["via-vercel", "via-opencode", "via-groq"]) {
+      expect(byId.get(id)).toBeDefined();
+      expect(byId.get(id)?.pricingRoute).toBeUndefined();
+    }
   });
 
   test("malformed BRAIN_UI_PI_PROFILES fails at registry build, loudly", async () => {
@@ -279,6 +323,122 @@ describe("billing classification", () => {
     } finally {
       if (saved === undefined) delete process.env[key];
       else process.env[key] = saved;
+    }
+  });
+
+  test("a profile's pricing route follows its declared endpoint (#57)", async () => {
+    const key = "BRAIN_UI_TEST_ROUTE_KEY";
+    const saved = process.env[key];
+    process.env[key] = "test-token";
+    try {
+      const registry = registryFor({
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+        BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
+          {
+            id: "via-openrouter",
+            label: "GLM 4.7 (OpenRouter)",
+            baseUrl: "https://openrouter.ai/api",
+            authTokenEnv: key,
+          },
+          {
+            id: "via-openrouter-subdomain",
+            label: "GLM 4.7 (OpenRouter, regional)",
+            baseUrl: "https://eu.openrouter.ai/api",
+            authTokenEnv: key,
+          },
+          {
+            id: "via-unknown-proxy",
+            label: "Something behind a gateway",
+            baseUrl: "https://gateway.example/api",
+            authTokenEnv: key,
+          },
+        ]),
+      });
+      const byId = new Map(
+        (await registry.listAllProviders()).map((provider) => [provider.id, provider])
+      );
+
+      // Routed through OpenRouter, so OpenRouter's resale rates apply.
+      expect(byId.get("via-openrouter")?.pricingRoute).toBe("openrouter");
+      expect(byId.get("via-openrouter-subdomain")?.pricingRoute).toBe("openrouter");
+      // No baseUrl: Anthropic's own endpoint, billed at Anthropic's rates.
+      expect(byId.get("claude")?.pricingRoute).toBe("direct");
+      // Some other Anthropic-compatible proxy may resell at rates neither
+      // catalog describes. Claiming "direct" would freeze a rate this run was
+      // never billed at, so the route is left absent and pricing falls back to
+      // resolving by model id — what it did before routes existed.
+      expect(byId.get("via-unknown-proxy")).toBeDefined();
+      expect(byId.get("via-unknown-proxy")?.pricingRoute).toBeUndefined();
+    } finally {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
+  });
+
+  test("a custom OpenRouter model routes to openrouter, listed or re-listed (#57)", async () => {
+    // Custom models are minted inside the backend's memoized profiles()
+    // closure, so their route is learned on the FIRST listing and must
+    // survive the cache hit on every later one. classifyBilling has the same
+    // dependency; this pins it for the route too.
+    //
+    // A custom profile declares OPENROUTER_API_KEY, and profile availability
+    // reads the REAL process env for it. Set it here rather than inheriting
+    // whatever the machine happens to have: on a developer box that exports a
+    // real key this passed for the wrong reason, and the roster came back
+    // empty as soon as another suite cleared it.
+    const saved = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    try {
+      const registry = registryFor(
+        { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" },
+        { getCustomOpenRouterModels: () => ["z-ai/glm-4.7"] }
+      );
+
+      const routeOnListing = async () => {
+        const providers = await registry.listAllProviders();
+        const custom = providers.find((p) => p.id === "openrouter:z-ai/glm-4.7");
+        expect(custom).toBeDefined();
+        return custom?.pricingRoute;
+      };
+
+      // First listing mints the profile; the second is served from the
+      // closure's merge cache, which skips the branch that learned the route.
+      expect(await routeOnListing()).toBe("openrouter");
+      expect(await routeOnListing()).toBe("openrouter");
+    } finally {
+      if (saved === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = saved;
+    }
+  });
+
+  test("an inherited ANTHROPIC_BASE_URL decides the route, not the missing override (#57)", async () => {
+    // A profile that declares no baseUrl does not thereby reach Anthropic:
+    // buildEnv() sets nothing and the host's own ANTHROPIC_BASE_URL rides the
+    // subprocess env allowlist into the turn. An operator who pointed that at
+    // OpenRouter would otherwise have every run frozen at Anthropic's rates —
+    // exactly the mispricing this issue is about, one level up.
+    const saved = process.env.ANTHROPIC_BASE_URL;
+    try {
+      process.env.ANTHROPIC_BASE_URL = "https://openrouter.ai/api";
+      const viaEnv = new Map(
+        (await registryFor({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" })
+          .listAllProviders())
+          .map((provider) => [provider.id, provider])
+      );
+      expect(viaEnv.get("claude")?.pricingRoute).toBe("openrouter");
+
+      // An inherited endpoint nobody can place is no route at all.
+      process.env.ANTHROPIC_BASE_URL = "https://gateway.example/api";
+      const viaProxy = new Map(
+        (await registryFor({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" })
+          .listAllProviders())
+          .map((provider) => [provider.id, provider])
+      );
+      expect(viaProxy.get("claude")).toBeDefined();
+      expect(viaProxy.get("claude")?.pricingRoute).toBeUndefined();
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = saved;
     }
   });
 

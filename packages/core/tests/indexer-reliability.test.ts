@@ -5,33 +5,16 @@ import { join } from "path";
 import { openDatabase, migrateVecSchema, getMeta, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
-import type { EmbeddingProvider } from "../src/lib/seams";
 import { acquireEmbeddingLock } from "../src/lib/indexer/embedding-lock";
+import { fakeEmbeddingProvider as provider, vecAvailable } from "./vec-fixture";
 import { Database } from "bun:sqlite";
 
 const taxonomy = buildTaxonomy({ user: null });
-let vecAvailable = false;
-const probe = new Database(":memory:");
-try {
-  const { load } = await import("sqlite-vec");
-  load(probe);
-  vecAvailable = true;
-} catch {
-  // Keep the same optional-extension policy as indexer.test.ts.
-} finally { probe.close(); }
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 function markdown(body: string): string {
   return `---\ntitle: Alex Example\ntype: note\ncreated: "2026-01-01"\nupdated: "2026-01-02"\n---\n${body}\n`;
-}
-
-function provider(dimensions = 16): EmbeddingProvider {
-  return {
-    id: `fake:${dimensions}`, dimensions,
-    async embed(texts) { return texts.map(() => new Float32Array(dimensions).fill(0.1)); },
-    async embedQuery() { return new Float32Array(dimensions).fill(0.1); },
-  };
 }
 
 async function corpus(body = "Original content.", vectors = true) {

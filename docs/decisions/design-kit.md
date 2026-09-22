@@ -2321,7 +2321,7 @@ default configuration on the left:
 
 | `show_block` in the prompt? | brief | no-brief |
 | --- | --- | --- |
-| behind tool search — what ships | 23 of 43 (53%) | **1 of 47 (2%)** |
+| behind tool search — what shipped when this was measured | 23 of 43 (53%) | **1 of 47 (2%)** |
 | always loaded | 17 of 22 (77%) | **17 of 22 (77%)** |
 
 The two rows are a harness generation apart and it shows in the denominators:
@@ -2372,7 +2372,10 @@ rules out the pass contaminating a turn rather than establishing that two runs
 sample the same thing), and on the two prompts this record measured at zero — "Compare Bun and
 Node.js … keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
 pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
-different run and not the one above.)
+different run and not the one above.) **No pi turn was run or re-scored for
+this entry.** Every pi number here was reconciled against #137's own per-run
+table for arithmetic and provenance before being repeated, which is a weaker
+claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (`packages/ui-backend-pi/src/bridge-tools.ts:170-184`);
@@ -2385,7 +2388,8 @@ block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
 one backend measured twice, not two backends agreeing. It is also not the
-Claude backend's shipping configuration, and `--always-load` is the controlled
+Claude backend's configuration as this entry measured it, and `--always-load`
+is the controlled
 version of the same comparison: it flips deferral alone, on one backend, one
 model, one host. Flipped, this backend also calls on `compare-short` — 3 of 3
 in both arms, against 0 to 6 of 6 depending on the run when deferred — and also
@@ -2426,7 +2430,8 @@ by it, now on 60 pi turns against 47–48, which is better powered than the
 comparison #137 was filed with and did not close.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
-configuration that ships today, it is
+configuration this entry measured — tools deferred behind tool search, which
+#148 changes the same day — it is
 not encouragement to use a tool the model can already see; it is the only thing
 that tells the model the tool exists. Retiring it does not lower the rate from
 59% to something smaller — it takes the rate to the noise floor and makes three
@@ -2724,8 +2729,9 @@ has to be in the model's context, and each backend says how.**
 
 D43's pi section above already establishes that pi has no deferral to apply to
 a statically registered tool and that its shipping configuration is therefore
-the structural equivalent of the `--always-load` arm, so that ground is not
-re-covered here. One detail found independently while deciding this and worth
+the structural equivalent of the `--always-load` **brief** arm and of that one
+only — pi has no no-brief arm, so it corroborates the loaded *rate* and says
+nothing about whether the brief matters. That ground is not re-covered here. One detail found independently while deciding this and worth
 adding to it: the mechanism is `splitDeferredTools` in pi's shipped bundle,
 which puts a tool in the deferred set only when an earlier tool result added it
 to the conversation and nothing has called it since. A statically registered
@@ -3102,3 +3108,42 @@ the Agent SDK answering about this repository instead of about the brain.
 The third is open — in the probe turn no brain MCP tool came up at all,
 where pi had four, and a control whose roster is missing them is not
 comparable.
+
+## 2026-09-22 — the composer follows soft wrap
+
+"`Composer` is net-new work, and it is finished" recorded a trade: height from
+a controlled value's newline count, capped at five rows, keeping the component
+a pure function of its props at the cost of not growing on soft wrap. The cost
+landed on the most common input there is — a paragraph typed into a
+phone-width field scrolled inside one visible line (#92) — and the trade is
+replaced, keeping the half that mattered.
+
+**What replaced it.** `field-sizing: content` on the textarea, applied only when
+there is text to follow. The browser's own line layout, which runs on every
+keystroke regardless, is the measurement; the component stays a pure function
+of its props with no ref, no measuring and no layout effect, so a keystroke is
+still one render of the subtree that re-renders on every keystroke by design.
+The newline count stays on `rows` as the floor: a browser without
+`field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
+from `rows` alone and gets exactly the old behaviour. Where `field-sizing`
+applies, `rows` bounds nothing, so the cap has to carry `maxRows` itself: it is
+`maxRows` whole lines or the design's 96px, whichever is smaller. That is what
+the constant `maxHeight: 96` already produced while `rows` did the bounding —
+the default still stops at exactly 96px, a smaller `maxRows` gets that many
+whole lines rather than a fraction of 96, and a larger one does not raise the
+ceiling. Scaling 96px by `maxRows` instead was tried first and rejected: it
+spreads the default's deliberate ~4.90-line shortfall to every other row count,
+so a three-row field clipped by a pixel that no shipped behaviour had clipped.
+
+**Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
+forced synchronous layout per keystroke, and either a `setState` that commits
+twice per character or a direct style write that makes the height a thing the
+render does not know about. *The stacked-grid replica* (a hidden copy of the
+value in the same grid cell): works everywhere, but doubles the text in the
+DOM, and its correctness rests on two elements' text metrics never diverging.
+Both buy back browsers that will have `field-sizing` before either would ship
+its next bug.
+
+**An empty field stays one row.** With no text there is nothing to follow, and
+a placeholder longer than the field would otherwise take a second row that the
+first character typed took away again. The uncontrolled composer is untouched.

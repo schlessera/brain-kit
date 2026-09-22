@@ -52,6 +52,12 @@ export function createPermissionWiring(options: {
   // this first — the two rewrite hooks here, and the host's remembered-grant
   // lookup, which is told through the request rather than guessed at.
   const enforced = req.enforceAllowedTools === true;
+  // Nothing in this turn can answer a card (StartTurnRequest.noGrantSurface),
+  // so every request the paths below raise is refused where it is raised
+  // rather than put to the bridge, which would park it until the turn budget
+  // expires. Passed to the shared gate rather than decided here: both request
+  // kinds go through it, and the refusal is the same fact in both.
+  const permissionOptions = { noGrantSurface: req.noGrantSurface === true };
   /** A tool the enforced allowlist left out: no shortcut may admit it. */
   const outsideEnforcedAllowlist = (toolName: string): boolean =>
     enforced && !allowed.has(toolName);
@@ -157,7 +163,7 @@ export function createPermissionWiring(options: {
       // remembered on a wider posture is not an answer to it.
       outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
-    const decision = await requestToolPermission(req.bridge, request);
+    const decision = await requestToolPermission(req.bridge, request, permissionOptions);
     // A mutating tool runs inside this subprocess the moment we return
     // "allow", so take its lock BEFORE allowing and hold it until the tool's
     // result frame is observed (see the stream loop) or the turn ends. Denials
@@ -230,7 +236,7 @@ export function createPermissionWiring(options: {
         description: approval.reason,
         approval,
       });
-      const decision = await requestToolPermission(req.bridge, request);
+      const decision = await requestToolPermission(req.bridge, request, permissionOptions);
       if (decision.behavior !== "allow") {
         return {
           continue: true,

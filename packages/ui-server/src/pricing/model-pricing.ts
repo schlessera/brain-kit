@@ -16,8 +16,15 @@
 //
 //  2. OPENROUTER (`GET /api/v1/models`): the vendor's own catalog, keyed
 //     `vendor/model`, prices as STRING per-token USD. `"0"` is genuinely
-//     free, not unknown. OpenRouter wins for ids its catalog carries, since
-//     an openrouter-routed run is billed at OpenRouter's rate.
+//     free, not unknown.
+//
+// Some ids appear in BOTH at different rates — OpenRouter resells what the
+// model vendor also sells directly — so a model id does not identify its own
+// price. Which catalog is right for a given run is the run's ROUTE, resolved
+// at run start from its inference profile and passed to `resolve()`. Without
+// a route (a pre-route run, a proxy the backend cannot classify) OpenRouter
+// keeps the precedence it had before routes existed: a rate from the wrong
+// side of a collision is still far better than an unpriced run.
 //
 // Pricing is best-effort by construction: no network, a broken response, or a
 // corrupt cache degrades to the last good table (or the snapshot), never to a
@@ -27,7 +34,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+import { canonicalModelId, type PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 
 const LITELLM_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -53,7 +60,12 @@ export interface PricingRates {
   output: number;
   cacheRead: number | null;
   cacheWrite: number | null;
-  /** True when the rates came from the bundled snapshot (genuinely dated). */
+  /**
+   * True when these rates are not what the run was billed at: they came from
+   * the bundled snapshot (genuinely dated), from a routing variant's base id,
+   * or from the catalog the run did NOT go through (the route's own catalog
+   * had no entry for the model).
+   */
   estimate: boolean;
   source: "litellm" | "openrouter" | "snapshot";
 }
@@ -338,7 +350,12 @@ export interface ModelPricingState {
  * current table.
  */
 export interface ModelPricing {
-  resolve(modelId: string): PricingRates | null;
+  /**
+   * Rates for one model on one route. `route` picks which catalog is
+   * authoritative for the run; omitting it resolves by model id alone, which
+   * is what a run whose route is unknown gets.
+   */
+  resolve(modelId: string, route?: PricingRoute): PricingRates | null;
   state(): ModelPricingState;
   /** Refresh if stale. Awaits only when no remote data has ever been fetched. */
   ensureFresh(): Promise<void>;
@@ -426,40 +443,60 @@ export function createModelPricing(options: ModelPricingOptions): ModelPricing {
     return inFlight;
   }
 
-  function lookup(id: string): PricingRates | null {
+  /** Own-property read: an id like "toString" must never resolve a prototype
+   *  member as phantom rates. */
+  function rateFor(table: Record<string, RawRate>, id: string): RawRate | undefined {
+    return Object.hasOwn(table, id) ? table[id] : undefined;
+  }
+
+  function lookup(id: string, route?: PricingRoute): PricingRates | null {
     if (remote) {
-      // OpenRouter wins for ids its catalog carries — an openrouter-routed
-      // run is billed at OpenRouter's rate, not LiteLLM's idea of it.
-      // Own-property lookups only: an id like "toString" must never resolve
-      // a prototype member as phantom rates.
-      const or = Object.hasOwn(remote.openrouter.rates, id)
-        ? remote.openrouter.rates[id]
-        : undefined;
-      if (or) return { ...or, estimate: false, source: "openrouter" };
-      const ll = Object.hasOwn(remote.litellm.rates, id)
-        ? remote.litellm.rates[id]
-        : undefined;
-      if (ll) return { ...ll, estimate: false, source: "litellm" };
+      // The run's route decides which catalog is authoritative for it: an
+      // openrouter-routed run is billed at OpenRouter's rate, a direct one at
+      // the vendor's. With no route, OpenRouter leads exactly as it did
+      // before routes existed, so an unclassified run resolves to the same
+      // figure it always did.
+      const preferDirect = route === "direct";
+      const billed = preferDirect
+        ? { rate: rateFor(remote.litellm.rates, id), source: "litellm" as const }
+        : { rate: rateFor(remote.openrouter.rates, id), source: "openrouter" as const };
+      if (billed.rate) return { ...billed.rate, estimate: false, source: billed.source };
+
+      // The billing catalog has no entry for this id, so the other one's rate
+      // serves — coverage must never regress into an unpriced run. But when a
+      // route was known, that rate is demonstrably not the one this run was
+      // billed at, so it rides as an ESTIMATE. With no route there is nothing
+      // to be wrong about and the flag stays off, as before.
+      const other = preferDirect
+        ? { rate: rateFor(remote.openrouter.rates, id), source: "openrouter" as const }
+        : { rate: rateFor(remote.litellm.rates, id), source: "litellm" as const };
+      if (other.rate) {
+        return { ...other.rate, estimate: route !== undefined, source: other.source };
+      }
       return null;
     }
-    const snap = Object.hasOwn(snapshot, id) ? snapshot[id] : undefined;
+    // The snapshot is stored pre-merged and is dated anyway, so it cannot
+    // answer per-route — every snapshot hit is already an estimate.
+    const snap = rateFor(snapshot, id);
     return snap ? { ...snap, estimate: true, source: "snapshot" } : null;
   }
 
-  const resolveId = (id: string) => lookup(id) ?? lookup(canonicalModelId(id));
+  const resolveId = (id: string, route?: PricingRoute) =>
+    lookup(id, route) ?? lookup(canonicalModelId(id), route);
 
   return {
-    resolve(modelId: string): PricingRates | null {
+    resolve(modelId: string, route?: PricingRoute): PricingRates | null {
       if (!enabled) return null;
-      const direct = resolveId(modelId);
-      if (direct) return direct;
+      const exact = resolveId(modelId, route);
+      if (exact) return exact;
       // An OpenRouter routing suffix (`:nitro` / `:floor`) is a request-time
       // shortcut with no catalog price of its own — price at the base id's
       // rate, flagged ESTIMATE regardless of source: the routed premium is in
-      // no catalog (AE2).
+      // no catalog (AE2). The route carries into the base lookup: the premium
+      // is unknown either way, but which catalog it sits on top of is not.
       const variant = modelId.match(/^(.+):(nitro|floor)$/);
       if (variant) {
-        const base = resolveId(variant[1]!);
+        const base = resolveId(variant[1]!, route);
         if (base) return { ...base, estimate: true };
       }
       return null;
