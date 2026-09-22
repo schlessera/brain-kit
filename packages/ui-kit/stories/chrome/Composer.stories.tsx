@@ -1,8 +1,35 @@
 import preview from "#.storybook/preview";
+import { Profiler, useState } from "react";
 import { expect, fn } from "storybook/test";
 
 import { Composer } from "../../src/chrome/Composer.js";
 import { stage, wide } from "../_stage.js";
+
+/** One line of the field, in px: the `13.5px/1.45` of its `font`. */
+const LINE = 13.5 * 1.45;
+/** How many lines tall the field is drawn, from its laid-out box. */
+const rowsShown = (field: HTMLElement) => Math.round(field.getBoundingClientRect().height / LINE);
+
+/** Wraps to three lines in the 390px stage and has no newline in it. */
+const THREE_LINES = "Which of the herdsmen still keep faith with the house, and which of them took the suitors’ silver?";
+/** Wraps well past five lines. */
+const MANY_LINES =
+  "Tell Penelope nothing of the raft until it floats. Tell Telemachus that the bow is still strung and that the axes are where Laertes buried them, twelve in a row below the threshing floor, and that a stranger who can string it is not always a stranger. Tell Eumaeus to count the swine tonight and again at dawn. Tell nobody that I asked.";
+
+/** Every Profiler commit of a `Composer` under `Draft`, so a play function can
+ * count what one keystroke costs. */
+const commits: string[] = [];
+
+/** A controlled composer with its draft in local state, for the stories that
+ * have to type into a field and watch it change size. */
+function Draft(props: { initial: string; maxRows?: number }) {
+  const [value, setValue] = useState(props.initial);
+  return (
+    <Profiler id="composer" onRender={(_, phase) => commits.push(phase)}>
+      <Composer value={value} onChange={setValue} maxRows={props.maxRows} />
+    </Profiler>
+  );
+}
 
 const meta = preview.meta({
   title: "Chrome/Composer",
@@ -99,12 +126,90 @@ export const EnterIsInertWithoutOnSend = meta.story({
   },
 });
 
-/** The field grows with a controlled value's newlines and stops at five rows.
- * A pure function of props, at the cost of not growing on soft wrap. */
+/** The field grows with a controlled value's newlines. The newline count is
+ * still written to `rows`: it is the floor a browser without `field-sizing`
+ * falls back to, and it is what the value's own line breaks come to. */
 export const GrowsWithNewlines = meta.story({
   args: { value: "one\ntwo\nthree", onChange: fn() },
   play: async ({ canvas }) => {
-    await expect(await canvas.findByRole("textbox")).toHaveAttribute("rows", "3");
+    const field = await canvas.findByRole("textbox");
+    await expect(field).toHaveAttribute("rows", "3");
+    await expect(rowsShown(field)).toBe(3);
+  },
+});
+
+/**
+ * The field grows with the text it is DISPLAYING, not with the newlines in it.
+ * A paragraph typed into a phone-width field wraps, and the wrap is what the
+ * reader sees, so it is what the field follows: three visual lines, three rows,
+ * with `rows` still at its one-line floor.
+ */
+export const GrowsOnSoftWrap = meta.story({
+  args: { value: THREE_LINES, onChange: fn() },
+  play: async ({ canvas }) => {
+    const field = await canvas.findByRole("textbox");
+    await expect(field).toHaveAttribute("rows", "1");
+    await expect(rowsShown(field)).toBe(3);
+  },
+});
+
+/**
+ * Growth stops at the cap and the field scrolls from there. That the caret
+ * stays in view while typing at the cap is the browser's own editing
+ * behaviour, and a synthetic key event does not trigger it — so that half is
+ * proven with real keys in `tests/visual/composer-caret.visual.tsx`.
+ */
+export const StopsAtTheCap = meta.story({
+  render: () => <Draft initial={MANY_LINES} />,
+  play: async ({ canvas }) => {
+    const field = await canvas.findByRole("textbox");
+    await expect(field.getBoundingClientRect().height).toBe(96);
+    await expect(field.scrollHeight).toBeGreaterThan(field.clientHeight);
+    await expect(getComputedStyle(field).overflowY).toBe("auto");
+  },
+});
+
+/** `maxRows` moves the cap, and the cap keeps the design's pitch: five rows
+ * are 96px, so three are three fifths of that. */
+export const StopsAtMaxRows = meta.story({
+  render: () => <Draft initial={MANY_LINES} maxRows={3} />,
+  play: async ({ canvas }) => {
+    const field = await canvas.findByRole("textbox");
+    await expect(field.getBoundingClientRect().height).toBeCloseTo((96 * 3) / 5, 1);
+    await expect(field.scrollHeight).toBeGreaterThan(field.clientHeight);
+  },
+});
+
+/**
+ * Two things a measuring implementation gets wrong, checked together.
+ *
+ * Shrinking: a field that only ever grows is a field that is five rows tall
+ * for the rest of the conversation. Deleting the draft back to nothing returns
+ * it to one row.
+ *
+ * Cost: the composer re-renders on every keystroke by design (the draft lives
+ * in the nearest component so nothing above it re-renders), so a fix that
+ * measured in a layout effect and set state would commit TWICE per character.
+ * The Profiler counts commits; each typed character is exactly one.
+ */
+export const ShrinksBackAndRendersOnce = meta.story({
+  render: () => <Draft initial={THREE_LINES} />,
+  play: async ({ canvas, userEvent }) => {
+    const field = await canvas.findByRole("textbox");
+    await expect(rowsShown(field)).toBe(3);
+
+    await userEvent.clear(field);
+    await expect(field).toHaveValue("");
+    await expect(rowsShown(field)).toBe(1);
+
+    const before = commits.length;
+    await userEvent.type(field, "abc");
+    await expect(field).toHaveValue("abc");
+    await expect(commits.length - before).toBe(3);
+    // And the first character does not jump the box: an empty field sizes from
+    // `rows`, a field with text from its content, and one line is one line
+    // either way.
+    await expect(rowsShown(field)).toBe(1);
   },
 });
 

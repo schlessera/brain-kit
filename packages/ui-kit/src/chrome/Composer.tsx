@@ -56,10 +56,27 @@ import type { ComposerVariant, Tone } from "../types.js";
  *     itself, and still cannot be typed into — which is honest in a way a
  *     `<span role="textbox">` is not.
  *
- * Height follows the newline count of a CONTROLLED value, capped at five rows.
- * That keeps the component a pure function of its props — no ref, no measuring,
- * no layout effect — at the cost of not growing on soft wrap. An uncontrolled
- * composer stays one row and scrolls, which is the browser's own behaviour.
+ * ## Height follows the text a CONTROLLED value displays, capped at five rows
+ *
+ * Wrapped lines included: `field-sizing: content` hands the sizing to the
+ * browser's own line layout, which it runs on every keystroke anyway. That
+ * keeps the component a pure function of its props — still no ref, no
+ * measuring, no layout effect, and so still exactly one render per keystroke
+ * in the subtree that re-renders on every keystroke by design — and the
+ * per-keystroke cost is the browser re-laying out the field it was already
+ * re-laying out. The newline count is still written to `rows`, because that is
+ * the floor: a browser without `field-sizing` (Chrome 123, Safari 26.2 and
+ * Firefox 152 have it) sizes from `rows` alone and gets exactly the height it
+ * used to, which grew on ⇧⏎ and not on soft wrap. The old trade is now that
+ * fallback, not a second sizing mechanism.
+ *
+ * The cap stays the design's 96px for five rows — a hair under five lines of
+ * `13.5px/1.45`, which it always was — and a custom `maxRows` scales that same
+ * pitch, so the default renders as it always has. An empty field, controlled
+ * or not, stays one row: there is no text to follow, and a placeholder longer
+ * than the field is clipped rather than given a second row that the first
+ * character typed would take away. An uncontrolled composer stays one row and
+ * scrolls, which is the browser's own behaviour.
  *
  * D20 throughout: the attach menu trigger, the microphone, the provider chip,
  * the send and stop discs and each recall chip's × are controls only when a
@@ -103,7 +120,7 @@ export interface ComposerProps {
   /** Opens the app's own capture menu (photo, camera, file). */
   onAttach?: () => void;
   onMic?: () => void;
-  /** Rows the field may grow to on ⇧⏎. */
+  /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
 
@@ -145,8 +162,9 @@ export function Composer(p: ComposerProps) {
   const hintRow = Boolean(p.provider || hint || blockedWhy);
   const hintId = useId();
 
+  const maxRows = Number(p.maxRows) || 5;
   const lines = (p.value ?? "").split("\n").length;
-  const rows = Math.max(1, Math.min(Number(p.maxRows) || 5, lines));
+  const rows = Math.max(1, Math.min(maxRows, lines));
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Escape" && streaming && p.onStop) {
@@ -177,7 +195,11 @@ export function Composer(p: ComposerProps) {
   const input: CSSProperties = {
     flex: 1,
     minWidth: 0,
-    maxHeight: 96,
+    // The design's cap is 96px for five rows; another `maxRows` keeps the pitch.
+    maxHeight: (96 * maxRows) / 5,
+    // Only with text to follow: an empty field is one row whatever its
+    // placeholder, and an uncontrolled one is the browser's.
+    fieldSizing: p.value ? "content" : undefined,
     font: `400 13.5px/1.45 ${font.body}`,
     color: color.ink,
     background: "transparent",

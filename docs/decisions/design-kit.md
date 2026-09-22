@@ -2913,3 +2913,36 @@ Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
 the harness's default arms now measure the shipped configuration only when
 `--always-load` is passed, because what ships changed — the flag's name is left
 alone so D43's invocations keep reproducing D43's tables.
+
+## 2026-09-22 — the composer follows soft wrap
+
+"`Composer` is net-new work, and it is finished" recorded a trade: height from
+a controlled value's newline count, capped at five rows, keeping the component
+a pure function of its props at the cost of not growing on soft wrap. The cost
+landed on the most common input there is — a paragraph typed into a
+phone-width field scrolled inside one visible line (#92) — and the trade is
+replaced, keeping the half that mattered.
+
+**What replaced it.** `field-sizing: content` on the textarea, applied only when
+there is text to follow. The browser's own line layout, which runs on every
+keystroke regardless, is the measurement; the component stays a pure function
+of its props with no ref, no measuring and no layout effect, so a keystroke is
+still one render of the subtree that re-renders on every keystroke by design.
+The newline count stays on `rows` as the floor: a browser without
+`field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
+from `rows` alone and gets exactly the old behaviour. The design's 96px cap is
+kept for five rows, and `maxRows` scales that pitch, since `rows` no longer
+bounds anything where `field-sizing` applies.
+
+**Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
+forced synchronous layout per keystroke, and either a `setState` that commits
+twice per character or a direct style write that makes the height a thing the
+render does not know about. *The stacked-grid replica* (a hidden copy of the
+value in the same grid cell): works everywhere, but doubles the text in the
+DOM, and its correctness rests on two elements' text metrics never diverging.
+Both buy back browsers that will have `field-sizing` before either would ship
+its next bug.
+
+**An empty field stays one row.** With no text there is nothing to follow, and
+a placeholder longer than the field would otherwise take a second row that the
+first character typed took away again. The uncontrolled composer is untouched.
