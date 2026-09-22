@@ -2914,6 +2914,201 @@ the harness's default arms now measure the shipped configuration only when
 `--always-load` is passed, because what ships changed — the flag's name is left
 alone so D43's invocations keep reproducing D43's tables.
 
+## 2026-09-22 — measured: pi draws the block, so the net never gets cast
+
+**Question.** D41 left the tool's use rate to be measured and D42 measured
+the classification pass once. Both numbers are the Claude backend's, because
+the test deployment configures no other, and D43 has since replaced the
+first with a 108-turn A/B. The pi backend had never had a number at all, and
+the two backends hand a tool to a model differently enough that the gap was
+worth measuring rather than assuming.
+
+**Method.** `scripts/measure-show-block-server.ts`, a companion to D43's
+harness rather than a copy of it: that one drives the Agent SDK directly,
+which is what an A/B over the brief needs and what pi has no equivalent of,
+while this one boots a real ui-server on loopback and drives it with the
+shipped client over a real socket, so any backend can be put through the
+same measurement. Two runs of the same 32 turns on 2026-09-22,
+`claude-sonnet-5` through pi's builtin Anthropic provider, against a copy of
+`packages/core/fixtures/corpus/`: the first with the classification pass
+off, the second with it on, 18:29:13Z to 18:44:35Z. $2.18 of API spend.
+D43's counting rules are carried over — a call counts only when the handler
+accepted its payload, subagent frames are skipped, a turn that did not
+complete is excluded — and one is added: a turn whose tool arguments named a
+path outside the brain answered about a different brain and is excluded too.
+Two of each 32 were. Thirty turns counted per run.
+
+The environment can redirect a turn without showing up in a number — a
+different endpoint, a different credential store, a different binary — so
+what was set is part of the measurement. Both runs: `ANTHROPIC_API_KEY`, and
+`TYPESAFE_API_KEY` on the second. `ANTHROPIC_BASE_URL`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PATH` and `PI_CODING_AGENT_DIR` were
+unset, so the turns went to Anthropic's own endpoint with pi's default agent
+directory. The harness records that set of presences with every run and
+`--report` prints it.
+
+**pi has no deferral, so this is the always-loaded regime.**
+`packages/ui-backend-pi/src/bridge-tools.ts:171` registers `show_block` as
+one of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever
+defers a name that arrived through a tool-result's `addedToolNames` and has
+not been called since — a statically registered tool can never be deferred.
+Across all 64 turns the complete roster the model reached for was `bash`,
+`show_block`, `brain_read`, `grep`, `brain_search`, `read_file`,
+`brain_list`, `brain_graph`: no search-then-load round trip, ever. The brief
+is in the prompt on every turn unconditionally
+(`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a
+capability check like the four bridge tools beside it). So pi is the
+structural twin of D43's `--always-load` arm and has never run any other
+configuration.
+
+**The rate.** Each cell is turns that drew at least one accepted block.
+
+| prompt | expected kind | run 1 | run 2 | pooled | right kind |
+| --- | --- | --- | --- | --- | --- |
+| `compare-short` — "…Keep it short." | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `compare-long` — the same without it | `comparison` | 6/6 | 6/6 | **12/12** | 12/12 |
+| `trend` | `trend` | 4/4 | 4/4 | **8/8** | 8/8 |
+| `contact` | `contact` | 3/6 | 2/6 | **5/12** | 5/5 |
+| `steps` | `steps` | 2/2 | 2/2 | **4/4** | 4/4 |
+| `schedule` | `schedule` | 2/2 | 2/2 | **4/4** | **0/4** |
+| `quote` | `quote` | 2/2 | 1/2 | **3/4** | 3/3 |
+| project summary | — | 2/2 | 2/2 | **4/4** | not scored |
+| overall | | 27/30 | 25/30 | **52/60 (87%)** | **44/48** |
+
+Pooling the two runs is legitimate for this number: the classification pass
+runs after the result frame and cannot change what the model did during the
+turn. **A figure of 90% circulated before the second run existed** — that is
+27 of 30, the first run alone. D43 and D44 both quoted it and both now carry
+52 of 60, read off this record's per-run breakdown rather than relayed. The
+spread between 90% and 87% is what 30 turns of sampling noise looks like on
+this measurement, which is worth knowing before either is treated as
+precise. Across all sixty turns the model typed **zero markdown tables**. Two
+calls were rejected by the handler, both `comparison`, both on a turn that
+retried and succeeded — the same shape D43 saw at three in 108, and the
+reason a call is not counted until its payload parses.
+
+Beside the Claude backend, on one axis. The two Claude columns are
+independent runs of the same four cells — D43's and D44's, both above —
+quoted from those records rather than relayed:
+
+| configuration | Claude, D43 | Claude, D44 | pi |
+| --- | --- | --- | --- |
+| behind tool search — what shipped, with brief | 23 / 43 (53%) | 14 / 25 (56%) | n/a |
+| behind tool search, no brief | 1 / 47 (2%) | 0 / 25 (0%) | n/a |
+| always loaded, with brief | 17 / 22 (77%) | 19 / 25 (76%) | **52 / 60 (87%)** |
+| always loaded, no brief | 17 / 22 (77%) | 20 / 26 (77%) | unreachable |
+
+D43's deferred rows here are the ones from its own `--always-load`
+comparison, so both of its rows come from one run; its headline A/B is a
+larger, separate run at 59% and 2%. pi's cell sits on the "with brief" row
+and nowhere else: the brief is
+hardcoded into pi's prompt, so pi has no no-brief arm and no supported way
+to have one. The two Claude no-brief cells are therefore one backend
+measured twice and not two backends agreeing.
+
+**pi does not contradict either record; it replicates their always-loaded
+arm on a different backend.** What is not accounted for is the remaining
+height — **87% against 76–77%**, on 60 turns against 47–48 across the two
+Claude runs. Three things could explain it and none is measured: the layer
+(both Claude records drive the Agent SDK, this drives the whole server, and
+no backend has been measured at both), the roster the block competes in
+(D43 records that narrowing it moves the absolute rate, and pi's roster here
+carried four brain tools), or the backend itself. That is #137.
+
+D44 puts the same residue the other way round and names its own failure
+condition: if deferral were the whole difference, making the Claude backend
+always-load should move it toward pi's rate rather than merely upward. It
+moved to 76–77%. That is the prediction failing, and the shortfall is what
+#137 is for.
+
+**Which kind, not just whether.** Every measurement before this one scored
+whether a block was drawn and never which one, so a model reaching for the
+wrong kind scored as a success. Scoring against the kind the brief itself
+prescribes — clause by clause from `SHOW_BLOCK_CONTRACT.brief`, with the
+project-summary prompt left unscored because the brief prescribes nothing
+single for it — gives **44 of 48**, and every miss is the same miss: asked
+what is coming up over the next few weeks, pi drew a `timeline` rather than
+the `schedule` the brief names for "what is coming", 4 times out of 4. A
+kind can be reachable and still be reached for the wrong question, and no
+rate measures that.
+
+**What this does not say.** Seven of eight prompts drawing the kind the
+brief prescribes is not evidence that the brief's *content* is what did it.
+Every pi turn was measured with the brief present, because pi has no
+supported way to run without it, so this is a single-arm result and
+attributes nothing to the brief in either direction — the description names
+all eleven kinds too, and several of these prompts have an obvious kind. A
+comment of mine on #157 drew that inference and is retracted there; D44 is
+where it was caught. What survives is the part that needs no attribution:
+**a wrong kind was drawn reliably, and a call-rate metric would have scored
+all four of those turns as successes.**
+
+That clause is worth naming precisely, because it bears on whether the
+brief's enumeration earns its tokens now that the tools are always loaded
+(#157). The brief says "a `timeline` for what happened when; a `schedule`
+for what is coming". The tool's own description already says, at
+`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, "timeline: what happened
+when, oldest first … schedule: what is coming, grouped by day". The model
+drew the wrong one of the two 4 times out of 4 **with both surfaces in the
+prompt saying nearly the same words**. So for this pair the brief duplicates
+the description rather than adding to it, and saying it twice does not fix
+the miss — the same lesson D42 recorded when the brief was rewritten twice
+and still measured zero. More text is not the lever.
+
+One thing only a per-kind count shows: the `trend` prompt drew 14 blocks
+across 8 turns — the prescribed `trend` every time, plus an unprescribed
+`bars` companion on most of them. "One or two blocks per answer" is a
+description rule being stretched, and a rate cannot see it.
+
+**The classification pass, live.** Thirty-two turns with the pass enabled
+against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
+1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
+breaker never opened.** The one swap drew a `receipt` from a key-value run
+in the trail-signage answer. Latency sits in the 700–800 ms band D42
+measured on the Claude side.
+
+The shape of the difference is not the classifier; it is that pi hardly ever
+leaves it anything. D42's Claude measurement was eight turns, three swaps,
+five with no candidate — 3 of 8 answers carried a candidate. Here **1 of 30
+did**, and D43's no-brief arm, where the tool is invisible and the model
+types markdown instead, carries one on 62% of turns. **pi draws the block
+itself, so the net is cast over an empty deck.**
+
+Put the other way round, so the absence is not the only evidence: sending
+every recorded pi answer that *does* carry a candidate through the real
+classifier (`--classify`, same client, same 2 s budget) answered both of
+them, at 716 ms and 259 ms — one drew a `receipt` at 0.96 confidence, one
+cleared nothing and kept its markdown. That is three live calls in total,
+counting the swap inside the turn: too few to say the classifier is
+*indifferent* to which backend wrote the markdown, enough to say nothing
+observed suggests otherwise, and all three inside D42's measured latency
+band. There is just almost no pi-authored markdown to ask about.
+
+**Trap, recorded.** The brain the harness points at must live outside any
+checkout of this repo. The agent's cwd is the brain, and a brain nested in
+the worktree lets the model walk up into it: on the first attempt two pi
+answers compared Bun and Node by quoting this repo's own `AGENTS.md`. The
+shell is not confined to the brain either — the deployment container is that
+boundary (`container-privilege.md`) and a developer host does not have one —
+so the harness records when a tool argument names a path outside the brain
+and drops that turn from the rate. Four turns across the two runs were
+dropped that way, and **all four were the `trend` prompt** — the one that
+sends the model counting notes, so it is the one that goes looking. Three
+plainly answered about a different brain (one reported 1,953 files, against
+this corpus's 25). The fourth answered from the corpus and was dropped
+anyway, because it named a path outside it: the rule is deliberately the
+conservative one, since an over-eager exclusion shrinks a printed
+denominator while an under-eager one quietly corrupts a rate. It is why the
+`trend` row reads 4 of 4 rather than 6 of 6 in both runs.
+
+A Claude-backend control on this harness is still owed and is #137's. Two of
+its three blockers now have known fixes: keep the brain outside any
+checkout, and point `CLAUDE_CONFIG_DIR` at an empty directory, which stops
+the Agent SDK answering about this repository instead of about the brain.
+The third is open — in the probe turn no brain MCP tool came up at all,
+where pi had four, and a control whose roster is missing them is not
+comparable.
+
 ## 2026-09-22 — the composer follows soft wrap
 
 "`Composer` is net-new work, and it is finished" recorded a trade: height from
