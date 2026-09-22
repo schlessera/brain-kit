@@ -119,16 +119,24 @@ export function probeBrainCliVersion(brainPath: string, log: Logger): void {
     // Through the wrapper like every other CLI launch. Deliberately including
     // the probe: it proves at boot that the wrapper can actually run the CLI,
     // rather than leaving that to be discovered by the first user request.
+    const exec = execConfig();
     result = Bun.spawnSync(
-      wrapCommand([...brainCliCommand(brainPath), "--version"], execConfig().wrapper),
+      wrapCommand([...brainCliCommand(brainPath), "--version"], exec.wrapper),
       {
         cwd: brainPath,
         stdout: "pipe",
         stderr: "pipe",
         env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
         timeout: 5_000,
+        ...execWrapperSpawnOptions(exec.wrapper),
       }
     );
+    // spawnSync's timeout kills the process it started — with a supervising
+    // wrapper that is the wrapper, and the CLI it launched is orphaned for as
+    // long as it feels like running. Sweep the group unconditionally: when
+    // everything already exited this is an ESRCH no-op, and when it did not,
+    // a hung `brain --version` does not outlive the boot that gave up on it.
+    if (exec.wrapper) killWrapped({ pid: result.pid, kill: () => {} }, exec, "SIGKILL");
   } catch (error) {
     log.emit({
       severityText: "WARN",

@@ -423,6 +423,43 @@ describe("the exec wrapper covers the shared CLI client", () => {
     expect(existsSync(log)).toBe(false);
   }, 30_000);
 
+  test("a probe that times out does not orphan the CLI behind its wrapper", async () => {
+    // spawnSync's timeout kills the process it started, which with a
+    // supervising wrapper is the wrapper — the CLI it launched keeps running.
+    const root = temporaryBrain();
+    const childPidFile = join(root, "child.pid");
+    installBrainCli(root, `console.log("0.36.0");\n`);
+
+    const wrapper = join(root, "supervise.sh");
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\nsleep 300 &\necho $! > '${childPidFile}'\nsleep 300\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(wrapper, 0o755);
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
+
+    // Times out after 5s, logs a warning, and continues — the probe is
+    // advisory. What must not survive it is the child.
+    probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+
+    const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
+    const deadline = Date.now() + 10_000;
+    const alive = () => {
+      try {
+        process.kill(childPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    while (alive() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(alive()).toBe(false);
+  }, 60_000);
+
   test("the version probe goes through it too, so a broken wrapper fails at boot", () => {
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.36.0");\n`);
