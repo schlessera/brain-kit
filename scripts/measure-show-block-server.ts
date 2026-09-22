@@ -52,6 +52,7 @@ import {
   type ToolAdapter,
 } from "../packages/ui-sdk/src/tool-contracts/index.ts";
 import { createApp } from "../packages/ui-server/src/app.ts";
+import { createRecordingObservability } from "../packages/ui-server/src/observability/index.ts";
 import { TurnTextCollector } from "../packages/ui-server/src/classification/classify-turn.ts";
 import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
 
@@ -63,6 +64,29 @@ import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
  * classification half has answers to walk. None of them names a block or a
  * tool: the question is whether the model reaches for one unprompted.
  */
+/**
+ * The kind the brief itself prescribes for each prompt, so a measurement can
+ * score WHICH block was drawn and not only whether one was (#156). Taken
+ * from `SHOW_BLOCK_CONTRACT.brief` clause by clause — "the reader is
+ * choosing between options" is a `comparison`, "one figure over time" a
+ * `trend`, "the answer is a person" a `contact`, "a procedure" `steps`,
+ * "what is coming" a `schedule`, "the words themselves are the evidence" a
+ * `quote`. `null` where the brief prescribes nothing single: prompt 7 asks
+ * for a status, some materials and an audience, and no clause covers that,
+ * so it is counted but not scored for correctness rather than being given an
+ * invented right answer.
+ */
+const EXPECTED_KIND: Array<string | null> = [
+  "comparison",
+  "comparison",
+  "trend",
+  "contact",
+  "steps",
+  "schedule",
+  "quote",
+  null,
+];
+
 const PROMPTS = [
   "Compare Bun and Node.js as a runtime for a small CLI tool. Keep it short.",
   "Compare Bun and Node.js as a runtime for a small CLI tool.",
@@ -95,6 +119,17 @@ interface RunRecord {
   textParts: string[];
   /** Blocks the classification pass swapped in, when it ran at all. */
   messageBlocks: unknown[];
+  /**
+   * The pass's own record for this turn, read from the server's
+   * instrumentation rather than inferred from the frames: with no key it is
+   * absent, because the pass returns before recording.
+   */
+  classification: {
+    outcome: string;
+    candidates: number;
+    blocks: number;
+    durationMs: number;
+  } | null;
   result: Record<string, unknown> | null;
   errors: string[];
   wallMs: number;
@@ -280,7 +315,11 @@ async function measure(): Promise<void> {
     BRAIN_UI_TURN_TIMEOUT_MS: "420000",
   });
 
-  const app = createApp({ config, dbPath });
+  // The server's own log stream, recorded rather than printed, so the
+  // classification pass's outcome and latency come from the instrumentation
+  // D42 already writes instead of being guessed from the frames.
+  const observability = createRecordingObservability();
+  const app = createApp({ config, dbPath, observability });
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -302,11 +341,24 @@ async function measure(): Promise<void> {
     for (const promptIndex of indexes) {
       for (let runIndex = 0; runIndex < runs; runIndex++) {
         console.error(`[measure] prompt ${promptIndex} run ${runIndex + 1}/${runs}`);
+        observability.logs.clear();
         const record = await runOnce(url, profile, brainPath, blockTool, promptIndex, runIndex);
+        // One turn is one session here, and the log was cleared before it, so
+        // the pass's record for this turn is the only one present.
+        const pass = observability.logs.find({ body: "classification pass" }).at(-1);
+        record.classification = pass
+          ? {
+              outcome: String(pass.attributes["classification.outcome"] ?? "?"),
+              candidates: Number(pass.attributes["classification.candidates"] ?? 0),
+              blocks: Number(pass.attributes["classification.blocks"] ?? 0),
+              durationMs: Number(pass.attributes["duration.ms"] ?? 0),
+            }
+          : null;
         records.push(record);
         console.error(
           `[measure]   show_block=${record.showBlockCalls.length}` +
             ` tables=${record.markdownTables} tools=[${record.toolNames.join(",")}]` +
+            ` class=${record.classification ? `${record.classification.outcome}/${record.classification.durationMs}ms` : "off"}` +
             ` ${record.wallMs}ms errors=${record.errors.length}`
         );
         await save();
@@ -422,6 +474,9 @@ async function runOnce(
     markdownTables: countMarkdownTables(...textParts),
     textParts,
     messageBlocks: blocksFrame?.blocks ?? [],
+    // Filled by the caller from the server's log, which is only readable
+    // once the turn is over.
+    classification: null,
     result,
     errors: [
       ...protocolErrors,
@@ -493,10 +548,17 @@ async function report(paths: string[]): Promise<void> {
 
   console.log("## show_block\n");
   // The rate is turns, not calls: one turn can draw two blocks, and what the
-  // question asks is how often the model reached for the tool at all.
-  console.log("| prompt | turns | turns with a block | blocks drawn | kinds | markdown tables |");
-  console.log("| --- | --- | --- | --- | --- | --- |");
+  // question asks is how often the model reached for the tool at all. The
+  // kind column is the other half of the question (#156) — a block of the
+  // wrong kind scores the same as the right one on rate alone.
+  console.log(
+    "| prompt | turns | turns with a block | blocks drawn | expected kind | right kind | kinds drawn | markdown tables |"
+  );
+  console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
   let rejected = 0;
+  let scorable = 0;
+  let rightKind = 0;
+  const wrongKinds = new Map<string, number>();
   for (const index of order) {
     const list = byPrompt.get(index)!;
     const drawn = list.flatMap((r) => r.showBlockCalls.filter((c) => c.ok));
@@ -508,15 +570,41 @@ async function report(paths: string[]): Promise<void> {
     // escape flag cannot be recounted this way — it is decided from tool
     // arguments, which are not kept — so fixing that rule needs a re-run.
     const tables = list.reduce((n, r) => n + countMarkdownTables(...r.textParts), 0);
+
+    const expected = EXPECTED_KIND[index] ?? null;
+    let right = 0;
+    if (expected) {
+      for (const record of list) {
+        const accepted = record.showBlockCalls.filter((c) => c.ok);
+        if (accepted.length === 0) continue;
+        scorable++;
+        if (accepted.some((c) => c.kind === expected)) right++;
+        else {
+          for (const call of accepted) {
+            wrongKinds.set(
+              `${expected}\u2192${call.kind ?? "?"}`,
+              (wrongKinds.get(`${expected}\u2192${call.kind ?? "?"}`) ?? 0) + 1
+            );
+          }
+        }
+      }
+      rightKind += right;
+    }
+
     console.log(
       `| ${list[0].prompt} | ${list.length} | ${turnsWithBlock} | ${drawn.length}` +
-        ` | ${kinds.join(", ") || "—"} | ${tables} |`
+        ` | ${expected ?? "\u2014"} | ${expected ? `${right}/${turnsWithBlock}` : "not scored"}` +
+        ` | ${kinds.join(", ") || "\u2014"} | ${tables} |`
     );
   }
   const withBlock = counted.filter((r) => r.showBlockCalls.some((c) => c.ok)).length;
   console.log(
     `\nturns that drew at least one block: ${withBlock}/${counted.length}` +
       `; calls the handler rejected: ${rejected}`
+  );
+  console.log(
+    `right kind: ${rightKind}/${scorable} scorable turns` +
+      (wrongKinds.size ? `; wrong: ${[...wrongKinds].map(([k, n]) => `${k} \u00d7${n}`).join(", ")}` : "")
   );
 
   console.log("\n## classification candidates\n");
