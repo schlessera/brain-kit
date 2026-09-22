@@ -215,7 +215,9 @@ describe("release manifests", () => {
     expect(offenders).toEqual([]);
     const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Manifest;
     expect(root.scripts?.test).toContain("--timeout 30000");
-    expect(CI_YML).toContain("run: bun run test\n");
+    // Arguments may follow (CI shards the suite), but the command is the root
+    // script's, so its `--timeout` still applies.
+    expect(CI_YML).toMatch(/run: bun run test( [^\n]*)?\n/);
   });
 
   // Changesets majors any package that peer-depends on something being
