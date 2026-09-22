@@ -560,6 +560,50 @@ describe("a board that says it has no postings is believed", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 3b. The other direction: a healthy run stays quiet
+// ---------------------------------------------------------------------------
+
+describe("an ordinary run raises no alarm", () => {
+  // Every assertion above pushes towards reporting more. These are the ones
+  // that keep it from reporting everything: a change that made `unparseable`
+  // the answer to any awkward response would pass the whole suite above and
+  // fail here.
+
+  test("remotive: one empty category among four healthy ones is not an error", async () => {
+    const result = await serve("remotive", (url) =>
+      url.includes("category=data")
+        ? fixture("remotive-empty.json")
+        : '{"jobs":[{"id":1,"title":"Staff Platform Engineer","company_name":"Example Corp"}]}'
+    );
+
+    expect(result.jobs).toHaveLength(4);
+    expect(result.status).toBe("ok");
+    expect(result.errors).toEqual([]);
+  });
+
+  test("remotelyde: running out of pages is the end of the list, not a failure", async () => {
+    // Page 1 carries one card; page 2 carries none, which stops the loop.
+    // This is the only board that paginates, and the only place `continuation`
+    // is claimed in production code.
+    const result = await serve("remotelyde", (url) =>
+      url.endsWith("/remote-jobs")
+        ? '<a href="/job/a"><h3>Staff Platform Engineer</h3><span class="truncate">Example Corp</span></a>'
+        : "<html><body>no cards here</body></html>"
+    );
+
+    expect(result.jobs).toHaveLength(1);
+    expect(result.status).toBe("ok");
+    expect(result.errors).toEqual([]);
+  });
+
+  test("remoteok: an envelope holding only its legal notice is a quiet zero", async () => {
+    const result = await serve("remoteok", "[]");
+    expect(result.status).toBe("empty");
+    expect(result.errors).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4. The envelope the run report and `--json` carry it in
 // ---------------------------------------------------------------------------
 

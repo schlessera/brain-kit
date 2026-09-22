@@ -55,6 +55,13 @@ export interface PageReadOptions {
  * prefix or a subdomain. Apex-to-`www` and `m.`-to-apex are the redirects
  * every one of these boards does routinely; a hop to a different registrable
  * name is the one worth reporting.
+ *
+ * The leading dot in the suffix test is what keeps `notexample.com` from
+ * counting as `example.com`. What it does NOT do is consult the public suffix
+ * list, so a hop between two sites under a shared one — `a.github.io` to
+ * `github.io` — reads as the same site. Closing that means shipping the list,
+ * and no board here is hosted under one; the miss is recorded rather than
+ * traded for a dependency.
  */
 function sameSite(a: string, b: string): boolean {
   const bare = (url: string) => hostOf(url).replace(/^www\./, "");
