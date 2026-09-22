@@ -19,8 +19,37 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  typecheck:
+    # Split out of `test` so the 30s typecheck runs beside the test shards
+    # rather than ahead of them.
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck (strict)
+        run: bunx tsc --noEmit
+      - name: Invisible-character gate
+        # A raw NUL byte makes grep/ripgrep treat a source file as binary, so it
+        # drops out of every search silently. Caught that way once already
+        # (indexer.ts, chunkContextKey). Escapes, not raw bytes.
+        run: bun run lint
+      - name: Env docs are in sync with the chokepoint descriptors
+        run: bun scripts/env-docs.ts --check
+
+  test:
+    # Two shards of the suite, each in one process. The suite is wall-clock
+    # bound, not CPU bound (about 105s serial on a CI runner and on a
+    # 32-core machine alike), so shards across jobs pay off where a bigger
+    # runner would not. Bun's own `--parallel` workers would too, but they
+    # imply `--isolate` and 16 tests do not survive that yet.
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -48,28 +77,19 @@ jobs:
           fi
           "$CHROME" --version
           echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
-      - name: Typecheck (strict)
-        run: bunx tsc --noEmit
-      - name: Invisible-character gate
-        # A raw NUL byte makes grep/ripgrep treat a source file as binary, so it
-        # drops out of every search silently. Caught that way once already
-        # (indexer.ts, chunkContextKey). Escapes, not raw bytes.
-        run: bun run lint
       - name: Unit + integration tests (keyless, deterministic)
         # The root script, not a copy of its command: the script carries
         # `--timeout 30000` (the CLI contract and onboarding suites spawn a
         # `brain` subprocess per assertion, which tips over bun's 5s default
         # under full-suite parallelism), and a duplicated command here would
         # drift from what developers actually run.
-        run: bun run test
+        run: bun run test --shard=${{ matrix.shard }}/2
         env:
           # Belt and braces: tests must never reach for real providers.
           GEMINI_API_KEY: ""
           ANTHROPIC_API_KEY: ""
           # A missing Chrome is a failed test file here, never a silent skip.
           BRAIN_REQUIRE_CHROME: "1"
-      - name: Env docs are in sync with the chokepoint descriptors
-        run: bun scripts/env-docs.ts --check
 
   pack:
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
@@ -378,7 +398,16 @@ jobs:
     # the failure does not even look like a visual diff. `scripts/visual.mjs` is
     # what a developer runs locally through `docker run`, and it is what runs
     # here inside the same image, precisely so the two cannot drift.
+    #
+    # Two shards, each running all three projects in one vitest call: one call
+    # spreads the files over both cores, which a project at a time did not
+    # (72s against 99s for the whole suite at 2 CPUs). A third shard saves
+    # about 20s more, but `pack` finishes later than that anyway.
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       # Chromium's default 64MB /dev/shm makes it die on a large page in ways
@@ -398,17 +427,13 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - name: Storybook interaction + accessibility tests
-        run: node scripts/visual.mjs --inside --project=storybook
-      - name: Every story on paper, same gate (D32)
-        run: node scripts/visual.mjs --inside --project=storybook-light
-      - name: Visual regression against the committed baselines
-        run: node scripts/visual.mjs --inside --project=visual
+      - name: Stories on dark and on paper (D32), and the visual baselines
+        run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
       - name: The actual and diff images, when a baseline moved
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: visual-diffs
+          name: visual-diffs-${{ matrix.shard }}
           path: packages/ui-kit/.vitest-attachments/
           if-no-files-found: ignore
 
