@@ -122,7 +122,9 @@ describe("the fixture client", () => {
   test("answers from the fixture on every read path, and refuses the raw one", async () => {
     const client = new StubClient('{"jobs":[{"title":"X"}]}');
     expect(await client.getText("https://example.test/")).toBe('{"jobs":[{"title":"X"}]}');
-    expect(await client.getJson("https://example.test/")).toEqual({ jobs: [{ title: "X" }] });
+    expect(await client.getJson<{ jobs: Array<{ title: string }> }>("https://example.test/")).toEqual({
+      jobs: [{ title: "X" }],
+    });
     // `get` is what reaches robots.txt over the network before it has even
     // looked at the URL, so it is sealed shut rather than stubbed.
     await expect(client.get("https://example.test/")).rejects.toThrow("must never");

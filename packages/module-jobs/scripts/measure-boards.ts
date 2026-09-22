@@ -109,6 +109,48 @@ function titleLooksLikeAJob(title: string): boolean {
   return true;
 }
 
+/**
+ * Normalise a company name the way a job board slugifies it.
+ *
+ * Several boards put the company in the job's own URL, which is the only
+ * ground truth available without opening every posting — it is how the
+ * nodesk split below is counted rather than guessed.
+ */
+function slugify(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
+ * Split the stored companies three ways against the job's own URL.
+ *
+ * `companyLooksReal` is a shape check and cannot tell a company that is right
+ * from one belonging to the card next to it — which is exactly the nodesk
+ * failure. Where the board's URL carries the company slug, it can: `matched`
+ * is the company the posting's own URL agrees with, `unknown` is the literal
+ * placeholder, `other` is a name that came from somewhere else. Boards whose
+ * URLs are opaque ids (dice) report everything as `not_applicable`.
+ */
+function companyVsUrl(
+  rows: Array<{ company: string; url: string | null }>
+): { matched: number; unknown: number; other: number; not_applicable: number } {
+  const split = { matched: 0, unknown: 0, other: 0, not_applicable: 0 };
+  for (const row of rows) {
+    if (row.company === "Unknown") {
+      split.unknown++;
+      continue;
+    }
+    const path = row.url ? new URL(row.url, "https://example.invalid").pathname : "";
+    const slug = slugify(path);
+    if (!slug || /^[-0-9a-f]{16,}$/.test(path.split("/").pop() ?? "")) {
+      split.not_applicable++;
+      continue;
+    }
+    if (slug.includes(slugify(row.company))) split.matched++;
+    else split.other++;
+  }
+  return split;
+}
+
 function companyLooksReal(company: string, title: string): boolean {
   if (!company) return false;
   const c = company.trim();
@@ -156,6 +198,56 @@ function sortedKeys(_key: string, value: unknown): unknown {
 }
 
 /**
+ * A Chrome launcher the session drives, with two hooks the session cannot
+ * offer: what a page is allowed to do, and what its main-frame response was.
+ *
+ * `BrowserSession.load` returns only what the extractor produced — it never
+ * surfaces the HTTP status, so a 403 or a challenge page comes back looking
+ * exactly like a page that rendered. A capture written with an assumed 200 on
+ * it is worse than one with no status at all, because the next reader believes
+ * it.
+ */
+function browserLauncher(options: {
+  offline?: boolean;
+  scripts?: boolean;
+  onMainFrameStatus?: (url: string, status: number) => void;
+}): () => Promise<unknown> {
+  const env = resolveEnv();
+  return async () => {
+    const puppeteer = (await import("puppeteer-core")).default;
+    const browser = env.chromeUrl
+      ? await puppeteer.connect({ browserURL: env.chromeUrl })
+      : await puppeteer.launch({
+          executablePath: env.chromePath ?? CHROME_FALLBACKS.find((path) => existsSync(path)),
+          headless: true,
+          args: [
+            "--disable-dev-shm-usage",
+            // Every lookup fails, so nothing a captured page references can be
+            // re-fetched from the site it came from.
+            ...(options.offline ? ["--host-resolver-rules=MAP * ~NOTFOUND"] : []),
+            ...(env.noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+          ],
+        });
+    // The session owns page creation, so this is the only place the hooks can
+    // be attached to every page it opens.
+    const newPage = browser.newPage.bind(browser);
+    browser.newPage = async () => {
+      const page = await newPage();
+      if (options.scripts === false) await page.setJavaScriptEnabled(false);
+      if (options.onMainFrameStatus) {
+        page.on("response", (response: { url(): string; status(): number; frame(): unknown }) => {
+          if (response.frame() === page.mainFrame()) {
+            options.onMainFrameStatus?.(response.url(), response.status());
+          }
+        });
+      }
+      return page;
+    };
+    return browser;
+  };
+}
+
+/**
  * Run one browser board's page extractor against a local capture.
  *
  * This is how a repair is checked against a committed fixture without going
@@ -177,31 +269,8 @@ async function replay(source: string, file: string): Promise<void> {
     console.error(`${source} is not a browser board; run it against its fixture directly`);
     process.exit(2);
   }
-  const env = resolveEnv();
   const session = createBrowserSession({
-    launch: async () => {
-      const puppeteer = (await import("puppeteer-core")).default;
-      const browser = await puppeteer.launch({
-        executablePath: env.chromePath ?? CHROME_FALLBACKS.find((path) => existsSync(path)),
-        headless: true,
-        args: [
-          "--disable-dev-shm-usage",
-          // Every lookup fails, so no subresource and no script of the
-          // captured page can reach the site it came from.
-          "--host-resolver-rules=MAP * ~NOTFOUND",
-          ...(env.noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
-        ],
-      });
-      // The session owns page creation, so this is where script execution gets
-      // turned off for every page it opens.
-      const newPage = browser.newPage.bind(browser);
-      browser.newPage = async () => {
-        const page = await newPage();
-        await page.setJavaScriptEnabled(false);
-        return page;
-      };
-      return browser;
-    },
+    launch: browserLauncher({ offline: true, scripts: false }),
   });
   const records = await session.load<unknown[]>({
     url: `file://${resolve(file)}`,
@@ -253,12 +322,14 @@ async function main() {
   const http = new TeeingClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
   let browser: BrowserSession | undefined;
   let chromeStatus = "n/a";
+  // What the site actually answered, per URL, as observed on the wire.
+  const observedStatus = new Map<string, number>();
   if (adapter.needsBrowser) {
     browser = createBrowserSession({
-      browserUrl: env.chromeUrl,
-      executablePath: env.chromePath,
-      noSandbox: env.noSandbox,
       userAgent: env.userAgent,
+      launch: browserLauncher({
+        onMainFrameStatus: (url, status) => observedStatus.set(url, status),
+      }),
     });
     // `createBrowserSession` launches LAZILY and never throws at construction,
     // so a try/catch around it reports nothing — the same dead branch this
@@ -300,7 +371,11 @@ async function main() {
           settleMs: 2000,
           extract: () => document.documentElement.outerHTML,
         });
-        renderedPages.push({ url, status: 200, body: html });
+        // Not assumed. `browser.load` resolves on a 403 or a challenge page
+        // exactly as it does on a 200, so the status comes from the response
+        // hook, and a capture whose status was never seen says 0 rather than
+        // wearing a number nobody observed.
+        renderedPages.push({ url, status: observedStatus.get(url) ?? 0, body: html });
       } catch (e) {
         errors.push(`rendered capture ${url}: ${e}`);
       }
@@ -314,15 +389,33 @@ async function main() {
 
   // Stored, not just found: `ingestJobs` drops a row with no source_id, title
   // or company, which is exactly the gap #32 is about.
+  //
+  // Counted by asking the database, not by adding up `ingestJobs`'s return.
+  // That function looks `existing` up per job INSIDE its loop, so two jobs an
+  // adapter emitted under one key come back as `new: 1, updated: 1` — two
+  // outcomes for the one row the upsert actually left behind. The whole point
+  // of this column is how many rows exist.
   const dbPath = join(outDir, "measure.db");
   const db = openDatabase(dbPath);
   const stats = ingestJobs(db, jobs);
   const stored = db
-    .query("SELECT title, company, description_text, url FROM jobs")
-    .all() as Array<{ title: string; company: string; description_text: string | null; url: string | null }>;
+    .query("SELECT title, company, description_text, url, source_id, fingerprint FROM jobs")
+    .all() as Array<{
+    title: string;
+    company: string;
+    description_text: string | null;
+    url: string | null;
+    source_id: string;
+    fingerprint: string;
+  }>;
   db.close();
 
-  const sample = stored.slice(0, 5);
+  const sample = stored.slice(0, 5).map(({ title, company, description_text, url }) => ({
+    title,
+    company,
+    description_text,
+    url,
+  }));
   const result = {
     source,
     vantage: {
@@ -333,13 +426,22 @@ async function main() {
     },
     duration_ms: durationMs,
     found: jobs.length,
-    stored: stats.new + stats.updated,
+    stored: stored.length,
+    ingest_outcomes: { new: stats.new, updated: stats.updated },
     errors,
     quality: {
       titles_ok: stored.filter((r) => titleLooksLikeAJob(r.title)).length,
       companies_ok: stored.filter((r) => companyLooksReal(r.company, r.title)).length,
       descriptions_present: stored.filter((r) => (r.description_text ?? "").trim().length > 0).length,
+      // The shape check above cannot tell a right company from a neighbour's.
+      company_vs_url: companyVsUrl(stored),
     },
+    // Whether the adapter emitted the same posting twice. `stored` collapses a
+    // repeated key through the upsert, so `found === stored === distinct` is
+    // what rules out a surviving duplicate — and the gap between `found` and
+    // `distinct_fingerprints` is a genuine repost, not a bug.
+    distinct_source_ids: new Set(stored.map((r) => r.source_id)).size,
+    distinct_fingerprints: new Set(stored.map((r) => r.fingerprint)).size,
     urls_fetched: http.captures.map((c) => ({ url: c.url, status: c.status })),
     rendered_pages: renderedPages.map((p) => p.url),
     sample,

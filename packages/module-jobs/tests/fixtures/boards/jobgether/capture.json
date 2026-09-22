@@ -9,7 +9,7 @@
       "full_response_bytes": 4495,
       "full_response_sha256": "4f26f2db1c89fe9cc9f1b5fef173a0d2273f8fc5466f4ffc5f3502009034c2a9",
       "http_status": 200,
-      "note": "The first three records of the JSON endpoint jobgether's own robots.txt explicitly allows (Allow: /astroapi/ai/jobs.json). It carries title, company, url, location, contract type and salary range - which is what the 410'd category pages were being scraped for. Input for the repair, not a repair.",
+      "note": "The first three records of the JSON endpoint jobgether's own robots.txt explicitly allows (Allow: /astroapi/ai/jobs.json). It carries title, company, url, location, contract type and salary range - which is what the 410'd category pages were being scraped for. Input for the repair, not a repair. The first record's company, Pearl Meyer, is a US executive-compensation consulting firm (pearlmeyer.com), not an individual - checked, because a company name that reads like a person's is exactly what the leakage gate cannot see.",
       "records_in_full_response": 10,
       "source": "jobgether",
       "transport": "http",

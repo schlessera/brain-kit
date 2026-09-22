@@ -46,6 +46,45 @@ function capturesOf(board: string): Capture[] {
   }).captures;
 }
 
+/**
+ * A trimmed JSON-LD fixture must not claim entries it does not carry.
+ *
+ * Both structured-data fixtures were cut down, and both kept the served
+ * `numberOfItems` — 15 against 12, 19 against 3. #34's mapper is pointed at
+ * them, and "the list says 15 and I found 12" is precisely the kind of thing a
+ * mapper is entitled to treat as a parse failure.
+ */
+describe("trimmed JSON-LD fixtures", () => {
+  const structured = [
+    ["remotelyde", "listing.html"],
+    ["builtin", "listing-jsonld.html"],
+  ] as const;
+
+  for (const [board, fixture] of structured) {
+    test(`${board}/${fixture} declares the number of entries it has`, () => {
+      const html = readFileSync(join(BOARDS, board, fixture), "utf-8");
+      const json = html.slice(html.indexOf(">") + 1, html.lastIndexOf("</script>"));
+      const lists: Array<{ numberOfItems?: number; itemListElement: unknown[] }> = [];
+      const walk = (node: unknown): void => {
+        if (Array.isArray(node)) return node.forEach(walk);
+        if (!node || typeof node !== "object") return;
+        const record = node as Record<string, unknown>;
+        if (record["@type"] === "ItemList") {
+          lists.push(record as unknown as { numberOfItems?: number; itemListElement: unknown[] });
+        }
+        Object.values(record).forEach(walk);
+      };
+      walk(JSON.parse(json));
+
+      expect(lists.length).toBeGreaterThan(0);
+      for (const list of lists) {
+        if (list.numberOfItems === undefined) continue;
+        expect(list.numberOfItems).toBe(list.itemListElement.length);
+      }
+    });
+  }
+});
+
 describe("board capture records", () => {
   test("there is at least one board, and each has a record", () => {
     const boards = boardDirs();

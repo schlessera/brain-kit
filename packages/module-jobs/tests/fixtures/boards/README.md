@@ -60,7 +60,10 @@ there is no DOM to extract from.
 
 ## What the measurement found
 
-Each board scraped on its own, 2026-09-22. "Stored" is rows
+Each board scraped on its own, 2026-09-22. "Stored" is the number of rows in
+the database afterwards — not `ingestJobs`'s `new + updated`, which counts
+OUTCOMES and reports two for one row when an adapter emits the same key twice.
+It is rows
 that survived `ingestJobs`, which drops anything with no `source_id`, `title` or
 `company`.
 
@@ -84,14 +87,30 @@ here because there is nothing to repair.
 **A rendered fixture is a second page load.** For the three `needsBrowser`
 boards the harness scrapes the page and then re-opens it to capture the DOM, so
 a site that rotates promoted cards or paginates differently serves a slightly
-different page the second time. Replaying each extractor against the captured
-page, offline (see above) — the numbers the fixtures actually support — gives:
+different page the second time. Replaying each extractor against that captured
+page, offline (see above), gives:
 
 | board | cards on the captured page | company blank | company right | href relative |
 | --- | --- | --- | --- | --- |
 | `builtin` | 19 | **19** | 0 | 0 |
 | `nodesk` | 103 | 39 | 63 | 0 |
 | `dice` | 35 | 0 | 35 | **35** |
+
+**Those three rows are not reproducible from this directory**, and saying so
+matters more than the numbers do. They were measured against the FULL captured
+pages — 1.3 MB, 528 KB, 436 KB — which are not committed, because "small
+enough to read" and "a whole rendered page" cannot both be true. What is
+committed is a one-card slice of each. Each `capture.json` carries the full
+response's SHA-256 and byte count, so a fresh capture can be compared against
+the page these counts came from, but the count itself cannot be re-derived
+here.
+
+What the committed slices DO support is every per-card claim below, and
+`tests/board-fixtures.test.ts` asserts each of them by running the real page
+extractor over the slice: builtin's card yields no company, nodesk's card
+yields no company, dice's card yields a relative href. Those are the facts the
+repairs in #34-#37 are tested against. The page-level counts are context for
+how often each one bites.
 
 ### Board by board
 
@@ -147,6 +166,22 @@ page, offline (see above) — the numbers the fixtures actually support — give
   markup, finds no `/job/<slug>` links, and returns **0 found with 0 errors** —
   the failure mode the epic is named after.
   Fixture: `remoteineurope/redirect-target.html`.
+
+### How the company column is counted
+
+`companies_ok` in the harness output is a shape check — it cannot tell a
+company that is right from one belonging to the card next to it, which is the
+whole of the nodesk failure. The three-way split in the table above comes from
+`quality.company_vs_url`, which compares each stored company against the slug
+in the posting's own URL: `matched` is the company its own URL agrees with,
+`unknown` is the literal placeholder, `other` is a name that came from
+somewhere else. Boards whose job URLs are opaque ids report `not_applicable` —
+dice returns 92 of them, so its "92/102" is the shape check and not a
+verification.
+
+Re-running the harness gives a different day's numbers: nodesk answered 26/18/7
+on 2026-09-22 and 29/15/7 four hours later. The method reproduces; the board
+does not hold still.
 
 ## The four cross-cutting claims
 
