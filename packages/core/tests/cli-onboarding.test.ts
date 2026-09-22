@@ -343,3 +343,15 @@ test("pre-commit lets it through when the brain's tests pass", () => {
   expect(stderr).not.toContain("tests failed");
   expect(code).toBe(0);
 });
+
+test("the hook does not decide by parsing bun's output", () => {
+  // bun 1.3.14 says "0 test files matching …" on one machine and "No tests
+  // found!" on another. The first version of this fix read that prose and
+  // passed locally, then failed on CI. Its wording is not an interface.
+  const code = readFileSync(join(import.meta.dir, "../src/hooks/pre-commit"), "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line)) // the comments quote both, on purpose
+    .join("\n");
+  expect(code).not.toContain("0 test files matching");
+  expect(code).not.toContain("No tests found");
+});

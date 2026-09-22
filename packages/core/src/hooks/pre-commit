@@ -37,22 +37,33 @@ if git diff --cached --name-only | grep -qE '^(brain\.config\.(ts|json)|\.agents
     # `bun test` treats "no test files" as an error rather than a vacuous
     # pass, and a brand-new brain has none — which rejected the very first
     # commit /brain-init makes, the one the interview promises as its revert
-    # point. Tell the two cases apart by what bun actually says, rather than
-    # reimplementing its glob patterns here and drifting from them.
+    # point.
     #
-    # Fail closed: if that message ever changes, this reports a failure. A
-    # false red is noticed and fixed; tests that silently stop running are not.
+    # Do NOT tell the two apart by what bun printed. The first version of this
+    # did, and CI disproved it inside an hour: bun 1.3.14 says "0 test files
+    # matching …" on one machine and "No tests found!" on another. Its prose is
+    # not an interface.
+    #
+    # So ask the filesystem, with a pattern deliberately WIDER than bun's
+    # (anything named like a test, not just its four exact forms). Wider errs
+    # toward reporting a failure — a file called `latest.ts` would make a
+    # genuine "no tests" read as a failed run, which is loud and gets fixed.
+    # Narrower would let real tests stop running silently, and this repo has
+    # paid for that once already.
     if ! TEST_OUTPUT=$(bun test 2>&1); then
-      case "$TEST_OUTPUT" in
-        *"0 test files matching"*)
-          echo "pre-commit: no tests in this brain — nothing to run" >&2
-          ;;
-        *)
-          echo "pre-commit: tests failed (bun test)" >&2
-          printf '%s\n' "$TEST_OUTPUT" | tail -20 >&2
-          exit 1
-          ;;
-      esac
+      MAYBE_TESTS=$(find "$ROOT" \
+        \( -name node_modules -o -name .git \) -prune -o \
+        -type f \( -name '*test*.js' -o -name '*test*.jsx' \
+                 -o -name '*test*.ts' -o -name '*test*.tsx' \
+                 -o -name '*spec*.js' -o -name '*spec*.jsx' \
+                 -o -name '*spec*.ts' -o -name '*spec*.tsx' \) \
+        -print 2>/dev/null | head -n 1)
+      if [ -n "$MAYBE_TESTS" ]; then
+        echo "pre-commit: tests failed (bun test)" >&2
+        printf '%s\n' "$TEST_OUTPUT" | tail -20 >&2
+        exit 1
+      fi
+      echo "pre-commit: no tests in this brain — nothing to run" >&2
     fi
   fi
 fi
