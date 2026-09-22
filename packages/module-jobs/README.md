@@ -140,6 +140,32 @@ Scraping goes through the shared client, so every board obeys `robots.txt`,
 honours `Crawl-delay`, and identifies itself honestly. See
 [@schlessera/brain-scrape](../scrape/README.md).
 
+## What a scrape reports
+
+A board that parsed nothing used to look exactly like a board that had nothing
+to offer: both said `0 found, 0 errors`. So a run reports a **state** per board
+as well as a count, in the summary and in `--json`:
+
+| State | What it means |
+| --- | --- |
+| `ok` | Rows came out. Pages that drifted are still listed in `errors`, so this does not mean "no errors". |
+| `empty` | Every page that arrived said, **in the board's own terms**, that it holds no postings. The only state allowed to carry no errors. |
+| `unparseable` | A page arrived, did not say it was empty, and yielded nothing: selector drift, a challenge page, or markup from another site. |
+| `not_run` | Nothing readable arrived at all — never invoked, or every page failed before a body could be parsed (a `robots.txt` refusal, an HTTP 410, no Chrome). |
+
+A board may only claim `empty` from a positive signal: an API answering with
+its own envelope and an empty record list, a feed with a channel and no items.
+A board with no way to prove its own empty state — the HTML listings, and the
+three browser boards, none of which has a captured no-results marker — reports a
+served page it read nothing off as `unparseable` instead. That direction is
+deliberate: a false alarm costs one look at a fixture, and the silence it
+replaces went unnoticed for months.
+
+The same judgement is recorded in the jobs database: `ok` and `empty` are logged
+as `completed`, `unparseable` and `not_run` as `failed`, so a board that could
+not be read stops advancing its cursor. The exact `--json` shape is in
+[the integration contract](../../docs/integration-contract.md).
+
 ## Boards & sources
 
 Full-feed / category boards (no browser, enabled by default): `remoteok`,

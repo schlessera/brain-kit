@@ -431,9 +431,13 @@ describe("malformed JSON", () => {
       readonly tier = 2 as const;
 
       async scrape() {
-        const html = await this.http.getText("https://example.test/jobs");
+        const url = "https://example.test/jobs";
+        const html = await this.http.getText(url);
         const { jobs, errors } = jobsFromJsonLd(html, { source: this.source });
-        return this.makeResult(jobs, errors);
+        const pages = this.ledger();
+        for (const error of errors) pages.note(error);
+        pages.read(url, jobs.length);
+        return this.makeResult(jobs, pages);
       }
     }
 
@@ -461,13 +465,17 @@ describe("malformed JSON", () => {
     const broken = await serving(truncated);
     expect(broken.jobs).toEqual([]);
     // Reported, named, and returned -- not thrown.
-    expect(broken.errors).toHaveLength(1);
     expect(broken.errors[0]).toContain("JSON-LD script 1");
+    // And the page it could not read off is reported as one, so the board
+    // does not come back as a board that simply had no jobs (#37).
+    expect(broken.status).toBe("unparseable");
+    expect(broken.errors[1]).toContain("parsed 0 jobs");
 
     // The same adapter over the same capture intact, so the failure path is
     // not the only one this exercises.
     const whole = await serving(fixture("jsonld", "dice-detail.html"));
     expect(whole.errors).toEqual([]);
+    expect(whole.status).toBe("ok");
     expect(whole.jobs).toHaveLength(1);
   });
 });

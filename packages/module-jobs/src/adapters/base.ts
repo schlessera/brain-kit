@@ -4,15 +4,131 @@
  * Everything generic about scraping — the HTTP client, robots.txt, per-host
  * pacing, retries, HTML stripping, RSS parsing, the headless browser — now
  * lives in `@schlessera/brain-scrape`. What is left here is the part that is
- * actually about jobs: the `RawJob` shape and the `ScrapeResult` envelope.
+ * actually about jobs: the `RawJob` shape, the `ScrapeResult` envelope, and
+ * the `PageLedger` that decides whether a board's zero is a zero or a
+ * failure.
  *
  * `bind()` is how an adapter receives its context. It is called by the runner
  * before `scrape()`, so an adapter never constructs a client and two adapters
  * never end up with two rate limiters for the same host.
  */
-import { parseRssItems, stripHtml, type ScrapeContext } from "@schlessera/brain-scrape";
+import { hostOf, parseRssItems, stripHtml, type ScrapeContext } from "@schlessera/brain-scrape";
 
-import type { RawJob, ScrapeResult, ScraperAdapter, Source } from "../types.js";
+import type { RawJob, ScrapeResult, ScraperAdapter, Source, SourceStatus } from "../types.js";
+
+/** What one page an adapter read turned out to be. */
+export type PageReading = "parsed" | "empty" | "unrecognised";
+
+/** Options for `PageLedger.read`; each key is a separate claim about the page. */
+export interface PageReadOptions {
+  /**
+   * The page said, in the board's OWN terms, that it holds no postings: an
+   * API answering with its envelope and an empty record list, a feed with a
+   * channel and no items. Not "the body was short", and not a guess.
+   *
+   * A board with no way to prove its own empty state leaves this alone, and
+   * zero rows from it is reported as a parse failure. That direction is
+   * deliberate: a false alarm is one look at a fixture, and the silence this
+   * issue is named after cost the epic several months.
+   */
+  declaredEmpty?: boolean;
+  /**
+   * This page was only fetched because the one before it parsed, so nothing
+   * on it means the end of the list rather than a parser that cannot read the
+   * board. Only pagination may claim this — a board's second CATEGORY is not
+   * a continuation of its first, and an empty one there is a real finding.
+   */
+  continuation?: boolean;
+  /** Where the body came from, when that can differ from `url`. */
+  from?: string;
+}
+
+/**
+ * Two hosts belong to the same site when one is the other, modulo a `www.`
+ * prefix or a subdomain. Apex-to-`www` and `m.`-to-apex are the redirects
+ * every one of these boards does routinely; a hop to a different registrable
+ * name is the one worth reporting.
+ */
+function sameSite(a: string, b: string): boolean {
+  const bare = (url: string) => hostOf(url).replace(/^www\./, "");
+  const [left, right] = [bare(a), bare(b)];
+  return left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`);
+}
+
+/**
+ * The pages one `scrape()` read, what each turned out to be, and what that
+ * adds up to.
+ *
+ * It exists so the judgement "is zero rows a zero or a failure?" is made in
+ * ONE place for eleven boards, rather than eleven times by omission. An
+ * adapter reports each page it read and each one it could not reach; the
+ * ledger derives the errors a silent page deserves and the `SourceStatus` the
+ * run gets, and `BaseAdapter.makeResult` will not build a result without one.
+ */
+export class PageLedger {
+  /** Everything worth telling the operator, in the order it happened. */
+  readonly errors: string[] = [];
+  private readonly readings: PageReading[] = [];
+
+  /** `board` prefixes the messages, so a joined run report stays attributable. */
+  constructor(private readonly board: string) {}
+
+  /**
+   * Record what one page turned out to be.
+   *
+   * `rows` is what the parser read off it. What the page arriving with
+   * content and yielding nothing MEANS is decided by `opts` — see
+   * `PageReadOptions`.
+   */
+  read(url: string, rows: number, opts: PageReadOptions = {}): void {
+    const from = opts.from ?? url;
+    if (!sameSite(url, from)) {
+      // A redirect to another site answers 200 and parses like a healthy page.
+      // Reported whatever the row count is: rows scraped off somebody else's
+      // markup under this board's name are worse than no rows at all.
+      this.errors.push(
+        `${this.board} ${url}: served by ${hostOf(from)} after a redirect — the board may have moved or been retired`
+      );
+    }
+
+    if (rows > 0) {
+      this.readings.push("parsed");
+      return;
+    }
+    if (opts.declaredEmpty || opts.continuation) {
+      this.readings.push("empty");
+      return;
+    }
+    this.readings.push("unrecognised");
+    this.errors.push(
+      `${this.board} ${url}: parsed 0 jobs from a page that does not say it is empty — ` +
+        `selector drift, a challenge page, or markup that is not this board's`
+    );
+  }
+
+  /** The page never arrived, or never reached a state the parser could read. */
+  unreachable(url: string, cause: unknown): void {
+    this.errors.push(`${this.board} ${url} failed: ${cause}`);
+  }
+
+  /**
+   * Something wrong with the rows themselves — a card that carried no
+   * company, a description that had to be dropped. It is an error, but it is
+   * not a claim about whether the page was readable, so it does not move the
+   * status. #36's truncation and enrichment failures belong here.
+   */
+  note(message: string): void {
+    this.errors.push(message);
+  }
+
+  /** What the run adds up to. `rows` is the adapter's whole deduplicated set. */
+  status(rows: number): SourceStatus {
+    if (rows > 0) return "ok";
+    if (this.readings.length === 0) return "not_run";
+    if (this.readings.includes("unrecognised")) return "unparseable";
+    return "empty";
+  }
+}
 
 export abstract class BaseAdapter implements ScraperAdapter {
   abstract readonly source: Source;
@@ -49,7 +165,25 @@ export abstract class BaseAdapter implements ScraperAdapter {
     return parseRssItems(xml);
   }
 
-  protected makeResult(jobs: RawJob[], errors: string[], cursor?: string): ScrapeResult {
-    return { source: this.source, jobs, errors, cursor };
+  /** A fresh ledger for one `scrape()` call. */
+  protected ledger(): PageLedger {
+    return new PageLedger(this.name);
+  }
+
+  /**
+   * The envelope, with the run's status derived from the ledger.
+   *
+   * The ledger is required rather than optional: an adapter that reported no
+   * page readings gets `not_run`, which is the honest answer for one that
+   * never fetched anything and a loud one for a board that forgot to report.
+   */
+  protected makeResult(jobs: RawJob[], pages: PageLedger, cursor?: string): ScrapeResult {
+    return {
+      source: this.source,
+      jobs,
+      errors: pages.errors,
+      cursor,
+      status: pages.status(jobs.length),
+    };
   }
 }

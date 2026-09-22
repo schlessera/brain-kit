@@ -15,6 +15,7 @@ export "." (./src/index.ts)
   type EnvVarSpec
   type FeedItem
   type FetchOptions
+  type FetchedPage
   type FieldSelector
   type JsonLdExtraction
   type JsonLdNode

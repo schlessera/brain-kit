@@ -20,7 +20,7 @@ export class WorkingNomadsAdapter extends BaseAdapter {
   readonly tier = 1 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
@@ -31,8 +31,9 @@ export class WorkingNomadsAdapter extends BaseAdapter {
       });
 
       if (!Array.isArray(data)) {
-        errors.push("Working Nomads API returned non-array response");
-        return this.makeResult(jobs, errors);
+        pages.note("Working Nomads API returned non-array response");
+        pages.read(API_URL, 0);
+        return this.makeResult(jobs, pages);
       }
 
       // The FULL feed is ingested every run (single cheap request) so the
@@ -76,11 +77,17 @@ export class WorkingNomadsAdapter extends BaseAdapter {
         });
       }
 
+      // The endpoint answers with a bare array of postings, so an empty one
+      // is the API's own way of saying it has none. Records that no longer
+      // carry a `title` and a `company_name` leave the array non-empty, so
+      // they report drift rather than emptiness.
+      pages.read(API_URL, jobs.length, { declaredEmpty: data.length === 0 });
+
       if (opts.verbose) console.log(`[workingnomads] Found ${jobs.length} jobs`);
-      return this.makeResult(jobs, errors, newestDate || undefined);
+      return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {
-      errors.push(`Working Nomads fetch failed: ${err}`);
-      return this.makeResult(jobs, errors);
+      pages.unreachable(API_URL, err);
+      return this.makeResult(jobs, pages);
     }
   }
 }

@@ -15,13 +15,17 @@ export "." (./src/index.ts)
   type RawJob
   type ReviewStatus
   SOURCES
+  SOURCE_STATUSES
   type ScoreBreakdown
   type ScoreJobInput
   type ScoringConfig
   type ScoringGroup
   type ScoringTier
+  type ScrapeReport
+  type ScrapeResult
   type ScraperAdapter
   type Source
+  type SourceStatus
   autoClassify
   configSchema
   default

@@ -23,18 +23,42 @@ const BOARDS = join(FIXTURES, "boards");
 /** What sits beside a record and is not one of the bytes it describes. */
 const NOT_A_FIXTURE = new Set(["capture.json", "README.md"]);
 
+/**
+ * Where a fixture's bytes came from.
+ *
+ * `captured` is the original and the default: a verbatim slice of what a real
+ * site served, described by a vantage point. `constructed` exists because one
+ * thing this suite has to test cannot be captured at all — what a HEALTHY
+ * board serves on a day it has no postings (#37). Nobody can go and record
+ * that, and a constructed body given a URL and an egress country would be a
+ * record that lies. So it says what it is, and carries the reason instead.
+ *
+ * The byte facts are checked for both. A constructed fixture rots the same
+ * way: its README and the test reading it both describe bytes nobody re-hashes.
+ */
+type Provenance = "captured" | "constructed";
+
 interface Capture {
   fixture: string;
   source: string;
-  url: string;
-  transport: "http" | "rendered";
-  captured_at_utc: string;
-  egress_country: string;
-  user_agent: string;
+  provenance?: Provenance;
+  /** Constructed only: why these bytes exist and what they stand for. */
+  why?: string;
+  /** Captured only. */
+  url?: string;
+  transport?: "http" | "rendered";
+  captured_at_utc?: string;
+  egress_country?: string;
+  user_agent?: string;
   excerpt_bytes: number;
   excerpt_sha256: string;
   full_response_bytes: number | null;
   full_response_sha256: string | null;
+}
+
+/** Absent means captured — every record written before #37 is one. */
+function provenanceOf(capture: Capture): Provenance {
+  return capture.provenance ?? "captured";
 }
 
 /**
@@ -127,6 +151,7 @@ describe("capture records", () => {
     // Both roots are covered: the per-board captures and #34's per-shape ones.
     expect(dirs.some((dir) => dir.startsWith("boards"))).toBe(true);
     expect(dirs).toContain("jsonld");
+    expect(dirs).toContain("reporting");
     for (const dir of dirs) {
       // Named here rather than left to throw out of `capturesOf`, because
       // "this directory has no record" is the failure this guard exists for.
@@ -155,12 +180,36 @@ describe("capture records", () => {
 
       test("the vantage point is stated, and names no host or address", () => {
         for (const capture of capturesOf(board)) {
+          // No IP in either kind of record. An address or a host name would be
+          // personal infrastructure, and the leakage gate does not know what
+          // an IP is.
+          expect(JSON.stringify(capture)).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/);
+
+          if (provenanceOf(capture) === "constructed") {
+            // A constructed body has no vantage point to state. What it owes
+            // the next reader instead is why it exists, and a record that it
+            // is not standing in for a real response.
+            expect(capture.why, `${capture.fixture} says nothing about why it exists`).toBeTruthy();
+            expect(capture.url).toBeUndefined();
+            expect(capture.full_response_sha256).toBeNull();
+            expect(capture.full_response_bytes).toBeNull();
+            continue;
+          }
+
           expect(capture.captured_at_utc).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-          // Country only. An address or a host name would be personal
-          // infrastructure, and the leakage gate does not know what an IP is.
+          // Country only, for the same reason.
           expect(capture.egress_country).toMatch(/^[A-Z]{2}$/);
           expect(capture.user_agent).toBeTruthy();
-          expect(JSON.stringify(capture)).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/);
+        }
+      });
+
+      test("nothing constructed is filed under the captured boards", () => {
+        // `boards/` and `jsonld/` are evidence: four issues take what they
+        // hold as the premise for a repair. A constructed body among them
+        // would read as one more measurement.
+        if (board === "reporting") return;
+        for (const capture of capturesOf(board)) {
+          expect(provenanceOf(capture), `${board}/${capture.fixture}`).toBe("captured");
         }
       });
 

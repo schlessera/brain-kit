@@ -28,7 +28,7 @@ export class RemoteOKAdapter extends BaseAdapter {
   readonly tier = 1 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
@@ -40,8 +40,16 @@ export class RemoteOKAdapter extends BaseAdapter {
         proxy: opts.proxy,
       });
 
-      // First element is legal notice / metadata, skip it
-      const jobEntries = Array.isArray(data) ? data.filter((d) => d.position && d.company) : [];
+      // The feed is a legal notice followed by one object per posting. The
+      // notice is dropped by NAME rather than by position, because the two
+      // things that must not read the same are "the notice and nothing else"
+      // (a feed with no jobs) and "objects whose fields have been renamed"
+      // (a feed whose shape moved) — and `filter(position && company)` maps
+      // both to an empty array.
+      const entries = Array.isArray(data)
+        ? data.filter((d) => d && typeof d === "object" && !("legal" in d))
+        : [];
+      const jobEntries = entries.filter((d) => d.position && d.company);
 
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
@@ -76,12 +84,14 @@ export class RemoteOKAdapter extends BaseAdapter {
         });
       }
 
+      pages.read(API_URL, jobs.length, { declaredEmpty: entries.length === 0 });
+
       if (opts.verbose) console.log(`[remoteok] Found ${jobs.length} jobs`);
 
-      return this.makeResult(jobs, errors, newestDate || undefined);
+      return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {
-      errors.push(`RemoteOK fetch failed: ${err}`);
-      return this.makeResult(jobs, errors);
+      pages.unreachable(API_URL, err);
+      return this.makeResult(jobs, pages);
     }
   }
 }

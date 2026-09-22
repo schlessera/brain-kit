@@ -169,9 +169,13 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
 
   console.log("\n--- Scrape Summary ---");
   for (const s of report.sources) {
-    const status = s.errors.length > 0 ? ` (${s.errors.length} errors)` : "";
+    // The count is not the health signal — a board that parsed nothing and a
+    // board that had nothing both say "0 found" — so the state is printed
+    // whenever it is not a plain success. See SourceStatus.
+    const state = s.status === "ok" ? "" : ` [${s.status}]`;
+    const errors = s.errors.length > 0 ? ` (${s.errors.length} errors)` : "";
     console.log(
-      `  ${s.source}: ${s.jobs_found} found, ${s.jobs_new} new, ${s.jobs_updated} updated (${s.duration_ms}ms)${status}`
+      `  ${s.source}: ${s.jobs_found} found, ${s.jobs_new} new, ${s.jobs_updated} updated (${s.duration_ms}ms)${state}${errors}`
     );
   }
   if (report.dedup.duplicates_found > 0) console.log(`\nDedup: ${report.dedup.duplicates_found} duplicates found`);

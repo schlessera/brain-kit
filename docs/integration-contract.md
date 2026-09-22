@@ -44,6 +44,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
 | `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively; every earlier field keeps its name and type. `embeddings` keeps its name and type but **changed value** in 0.37.0: it now reports the real vector count on an embedded brain, where before it read `0` on every brain |
+| `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
@@ -103,6 +104,58 @@ change and is deliberately not made here.
 configuration it adds is the `stats` block on `brain.config.*`
 (`coverageFloor`, `brokenLinkCeiling`, both ratios in 0..1), which supplies the
 `health.thresholds` echoed above and defaults to the values shown when absent.
+
+`brain jobs scrape --json` prints `{ report }` and nothing else. Its per-source
+rows gained a `status` in 0.37.0, additively — every earlier field keeps its
+name and type — because the count alone could not say what a zero meant. A
+board that had nothing to offer and a board whose parser had stopped working
+both reported `jobs_found: 0` with an empty `errors`, and that is what
+[#37](https://github.com/schlessera/brain-kit/issues/37) closes.
+
+```jsonc
+{
+  "report": {
+    "sources": [
+      {
+        "source": "remoteineurope",
+        // One of exactly four values. A consumer branches on this, not on the
+        // count, and must tolerate an unknown fifth rather than assuming.
+        //
+        //   "ok"          rows came out. Pages that drifted are still listed
+        //                 in `errors`, so `ok` does not mean "no errors".
+        //   "empty"       every page that arrived said, in the board's own
+        //                 terms, that it holds no postings. The only one of
+        //                 the four allowed to carry an empty `errors`.
+        //   "unparseable" a page arrived, did not say it was empty, and
+        //                 yielded nothing: selector drift, a challenge page,
+        //                 or markup from another site.
+        //   "not_run"     nothing readable arrived at all — never invoked, or
+        //                 every page failed before a body could be parsed
+        //                 (robots.txt refusal, HTTP 410, no Chrome).
+        "status": "unparseable",
+        "jobs_found": 0,
+        "jobs_new": 0,
+        "jobs_updated": 0,
+        "errors": ["Remote in Europe https://remoteineurope.com/: parsed 0 jobs from a page that does not say it is empty — selector drift, a challenge page, or markup that is not this board's"],
+        "duration_ms": 4213
+      }
+    ],
+    "dedup": { "checked": 0, "duplicates_found": 0 },
+    "scored": 0,
+    "total_new": 0,
+    "total_errors": ["..."]   // every source's errors, concatenated
+  }
+}
+```
+
+Every selected board gets a row, including one whose adapter never returned: it
+appears with `status: "not_run"` rather than dropping out of `sources`, because
+a missing row reads as a board that was never asked for.
+
+The jobs database records the same judgement in `scrape_runs.status`: `ok` and
+`empty` are `completed`, `unparseable` and `not_run` are `failed`. A board that
+could not be read therefore stops advancing its cursor even when it threw
+nothing.
 
 ## MCP server (stdio, `brain mcp` or `src/mcp-server.ts`)
 

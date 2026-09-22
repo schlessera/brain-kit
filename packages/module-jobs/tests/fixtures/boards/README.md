@@ -177,8 +177,11 @@ how often each one bites.
   Fixtures: `remotelyde/listing.html`, `remotelyde/listing-row-cards.html`.
 - **`remoteineurope`** — the board no longer exists. Every configured URL
   answers 301 to `weworkremotely.com`, so the adapter parses We Work Remotely's
-  markup, finds no `/job/<slug>` links, and returns **0 found with 0 errors** —
-  the failure mode the epic is named after.
+  markup and finds no `/job/<slug>` links. It returned **0 found with 0 errors**
+  — the failure mode the epic is named after — until **#37**, which reports one
+  error per page and a run status of `unparseable`, and names the site serving
+  the redirect when the response's own URL shows it. Whether the board is
+  retired is still #128's decision.
   Fixture: `remoteineurope/redirect-target.html`.
 
 ### How the company column is counted
@@ -212,4 +215,4 @@ PR #2 reported four problems that were not about one board. Re-measured against
 | `dice` rows duplicated because the HTTP and browser passes keyed them differently | **closed by the refactor** | There is one Dice adapter (`src/adapters/dice.ts`), registered once (`src/scrape.ts`), and `--browser` unions the source list through a `Set` (`src/cli.ts`). A live run stored 102 rows with 102 distinct `source_id`s. |
 | the rate limiter lets concurrent callers burst past the pacing | **still live** | `packages/scrape/src/politeness/rate-limit.ts` reads `lastStart`, awaits, and only then claims the slot. Pinned by `packages/scrape/tests/politeness.test.ts` — "CONCURRENT callers to one host all wake at the same instant". |
 | `SOURCES` shadowed by the `boards` config default | **still live** | `src/module.ts` defaults `boards` to `["remoteok"]`, and the selection in `src/cli.ts` prefers the configured boards over `SOURCES`. An ordinary `brain jobs scrape` therefore scrapes one board, and the six in `SOURCES` are reachable only via `--all` or an edited config. |
-| a missing Chrome is indistinguishable from an empty browser result | **closed, but not by the cited mechanism** | Three errors naming the missing executable, and `jobs_found: 0` alongside them. The `Browser boards unavailable` branch in `src/scrape.ts` is unreachable: `createBrowserSession` launches lazily and never throws at construction. Pinned by `tests/browser-absence.test.ts`. |
+| a missing Chrome is indistinguishable from an empty browser result | **closed, but not by the cited mechanism** | Three errors naming the missing executable, `jobs_found: 0` alongside them, and `status: "not_run"` since #37. The `Browser boards unavailable` branch in `src/scrape.ts` was unreachable — `createBrowserSession` launches lazily and never throws at construction — and #37 deleted it. Pinned by `tests/browser-absence.test.ts`. |

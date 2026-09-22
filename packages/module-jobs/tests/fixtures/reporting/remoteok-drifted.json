@@ -1,0 +1,23 @@
+[
+  {
+    "legal": "Using this API implies acceptance of the terms of service. Attribution required."
+  },
+  {
+    "id": "1000001",
+    "slug": "example-corp-staff-platform-engineer",
+    "date": "2026-09-20T09:00:00+00:00",
+    "role": "Staff Platform Engineer",
+    "employer": "Example Corp",
+    "location": "Worldwide",
+    "tags": ["platform", "kubernetes"]
+  },
+  {
+    "id": "1000002",
+    "slug": "example-labs-backend-engineer",
+    "date": "2026-09-21T09:00:00+00:00",
+    "role": "Backend Engineer",
+    "employer": "Example Labs",
+    "location": "Europe",
+    "tags": ["go", "postgres"]
+  }
+]

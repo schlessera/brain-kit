@@ -45,7 +45,7 @@ export class RemotelyDeAdapter extends BaseAdapter {
   readonly tier = 2 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const allJobs: RawJob[] = [];
     const seenIds = new Set<string>();
 
@@ -54,17 +54,23 @@ export class RemotelyDeAdapter extends BaseAdapter {
       try {
         if (opts.verbose) console.log(`[remotelyde] Fetching page ${page}...`);
 
-        const html = await this.http.getText(url, {
+        const fetched = await this.http.getPage(url, {
           delayMs: 2000,
           proxy: opts.proxy,
         });
 
-        const { jobs, missing } = this.parseCards(html);
+        const { jobs, missing } = this.parseCards(fetched.body);
         for (const [field, count] of Object.entries(missing)) {
           if (count > 0) {
-            errors.push(`remotely.de page ${page}: ${count} card(s) carried no ${field}`);
+            pages.note(`remotely.de page ${page}: ${count} card(s) carried no ${field}`);
           }
         }
+        // Page 1 is the listing; 2..5 exist only because the page before them
+        // parsed, so nothing on one of those is the end of the list rather
+        // than a parser that has stopped working. Page 1 gets no such excuse:
+        // there is no captured no-results markup for this board, so a served
+        // first page with no cards on it is reported as drift.
+        pages.read(url, jobs.length, { continuation: page > 1, from: fetched.url });
         if (jobs.length === 0) break;
 
         for (const job of jobs) {
@@ -76,12 +82,12 @@ export class RemotelyDeAdapter extends BaseAdapter {
 
         if (opts.verbose) console.log(`[remotelyde] Page ${page}: ${jobs.length} jobs`);
       } catch (err) {
-        errors.push(`remotely.de page ${page} failed: ${err}`);
+        pages.unreachable(url, err);
       }
     }
 
     if (opts.verbose) console.log(`[remotelyde] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
+    return this.makeResult(allJobs, pages);
   }
 
   /**

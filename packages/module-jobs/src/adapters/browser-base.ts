@@ -60,7 +60,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
   }
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const jobs: RawJob[] = [];
     const seen = new Set<string>();
     const browser = this.browser(this.ctx);
@@ -75,15 +75,26 @@ export abstract class BrowserAdapter extends BaseAdapter {
         });
 
         if (!Array.isArray(records)) {
-          errors.push(`${url}: extractor returned non-array`);
+          pages.note(`${url}: extractor returned non-array`);
+          pages.read(url, 0);
           continue;
         }
-        if (records.length === 0) {
-          // Worth an error rather than silence: an empty page almost always
-          // means the selectors drifted or a challenge page was served, and
-          // both look identical to "this board had no jobs today".
-          errors.push(`${url}: 0 jobs extracted — selector drift or challenge page?`);
-        }
+
+        // No `declaredEmpty` here, and it is not an omission: all three of
+        // these boards anchor `readySelector` on the CARD LINK itself, so
+        // reaching this line at all means the page rendered job links. Zero
+        // records after that is the extractor's own selectors drifting, with
+        // nothing ambiguous about it. A board that genuinely had no jobs never
+        // satisfies the ready selector and times out in `browser.load`, which
+        // is reported below as an unreachable page — the honest answer, since
+        // a card-anchored wait cannot tell an empty board apart from a
+        // broken one.
+        //
+        // Giving `BrowserAdapter` a per-board no-results selector would change
+        // that, and it is deliberately not added: none of the three renders a
+        // marker anyone has captured, so it would be a seam with no
+        // implementation and a guess at the markup behind it.
+        pages.read(url, records.length);
 
         for (const record of records) {
           const id = record.id || record.href || `${record.company}-${record.title}`;
@@ -93,11 +104,11 @@ export abstract class BrowserAdapter extends BaseAdapter {
         }
         if (opts.verbose) console.log(`[${this.source}] ${records.length} jobs from ${url}`);
       } catch (err) {
-        errors.push(`${url}: ${err}`);
+        pages.unreachable(url, err);
       }
     }
 
-    return this.makeResult(jobs, errors);
+    return this.makeResult(jobs, pages);
   }
 
   /** The one place a page record becomes a job. Was duplicated in the old path. */

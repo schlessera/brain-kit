@@ -22,6 +22,7 @@ export {
 } from "./score.js";
 export { openDatabase } from "./db.js";
 export { runScrape, ingestJobs, getAdapter } from "./scrape.js";
+export type { ScrapeReport } from "./scrape.js";
 export {
   getReviewQueue,
   getJobById,
@@ -34,10 +35,12 @@ export type {
   JobRow,
   ScoreBreakdown,
   Source,
+  SourceStatus,
   ReviewStatus,
+  ScrapeResult,
   ScraperAdapter,
 } from "./types.js";
-export { ALL_SOURCES, SOURCES, REVIEW_STATUSES } from "./types.js";
+export { ALL_SOURCES, SOURCES, REVIEW_STATUSES, SOURCE_STATUSES } from "./types.js";
 
 export { default, configSchema, type JobsConfig } from "./module.js";
 

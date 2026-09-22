@@ -9,18 +9,18 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
   readonly tier = 1 as const;
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
-    const errors: string[] = [];
+    const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
       if (opts.verbose) console.log("[weworkremotely] Fetching RSS feed...");
 
-      const xml = await this.http.getText(RSS_URL, {
+      const page = await this.http.getPage(RSS_URL, {
         headers: { Accept: "application/rss+xml, application/xml, text/xml" },
         proxy: opts.proxy,
       });
 
-      const items = this.parseRssItems(xml);
+      const items = this.parseRssItems(page.body);
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
       // only tracks the newest publication date for run metadata.
@@ -85,11 +85,20 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
         });
       }
 
+      // A feed document with a channel and no items is the board saying it
+      // has no postings. A Cloudflare interstitial or an HTML error page
+      // served with a 200 parses to no items too, and carries no channel —
+      // which is the difference this records.
+      pages.read(RSS_URL, jobs.length, {
+        declaredEmpty: /<channel[\s>]/i.test(page.body),
+        from: page.url,
+      });
+
       if (opts.verbose) console.log(`[weworkremotely] Found ${jobs.length} jobs`);
-      return this.makeResult(jobs, errors, newestDate || undefined);
+      return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {
-      errors.push(`WeWorkRemotely fetch failed: ${err}`);
-      return this.makeResult(jobs, errors);
+      pages.unreachable(RSS_URL, err);
+      return this.makeResult(jobs, pages);
     }
   }
 }
