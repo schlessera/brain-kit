@@ -51,6 +51,16 @@
       "why": "The endpoint answering with valid JSON that is not its feed. It produces no entries, exactly as an empty feed does, and must not be reported as one \u2014 the envelope check in the adapter is what separates them."
     },
     {
+      "excerpt_bytes": 124,
+      "excerpt_sha256": "8bc1ccdf875dda4d6c7e85615b46133d96e65e83e28e03111b5902803e23ca71",
+      "fixture": "remoteok-null-records.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remoteok",
+      "why": "The legal notice followed by unusable records. The feed HAS records \u2014 it is corrupt, not empty \u2014 and a filter that dropped everything it could not use would report it as a board with no jobs."
+    },
+    {
       "excerpt_bytes": 877,
       "excerpt_sha256": "f3d4548a017991007f7c9a58ed9160d75f99779c285bacb678d893b293329fac",
       "fixture": "remotive-drifted.json",
@@ -69,6 +79,16 @@
       "provenance": "constructed",
       "source": "remotive",
       "why": "A Remotive category answering with `\"jobs\": []` \u2014 the API saying it has none, rather than a body the adapter could not read."
+    },
+    {
+      "excerpt_bytes": 503,
+      "excerpt_sha256": "1aec2181ec2bbaf29e3c061c9761587385f4904f3b4e9ca3863fffaba790eebc",
+      "fixture": "remotive-unusable-record.json",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "provenance": "constructed",
+      "source": "remotive",
+      "why": "One otherwise-valid posting whose `job_type` is an object, so mapping it throws after the response has arrived. A category that fetched fine and could not be read must not disappear from the status roll-up and leave the other categories to report a clean empty."
     },
     {
       "excerpt_bytes": 1075,

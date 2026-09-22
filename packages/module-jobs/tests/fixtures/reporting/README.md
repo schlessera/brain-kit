@@ -25,6 +25,8 @@ in for real markup, and no claim about how a site behaves rests on these files.
 | `weworkremotely-empty.rss` | A valid feed document with a channel and no `<item>`s. |
 | `jobgether-empty.json` | The `/api/v1/jobs` envelope with an empty `jobs` array. |
 | `remoteok-maintenance.json` | Valid JSON that is not the RemoteOK feed. Produces no entries, exactly as an empty feed does. |
+| `remoteok-null-records.json` | The legal notice followed by unusable records. The feed **has** records; it is corrupt, not empty. |
+| `remotive-unusable-record.json` | A posting whose `job_type` is an object, so mapping it throws after the response arrived. |
 | `weworkremotely-attributed-items.rss` | A **populated** feed whose `<item>` tags carry an attribute, which `parseRssItems` matches by bare tag and therefore skips. |
 
 The `-empty` and `-drifted` pairs are the same envelope and produce the same row
@@ -32,12 +34,15 @@ count — zero. An adapter that decides on the count alone cannot tell them apar
 which is why it does not: see `PageLedger.read` in
 `src/adapters/base.ts`.
 
-The last two files are the near misses, and they are here because a review
-found them rather than because they were predicted. Both produce zero rows off
-a 200 that is not an empty listing, and both would have been reported as one by
-an empty check that asked a slightly easier question — "is this JSON?" instead
-of "is this the feed's envelope?", "is there a channel?" instead of "is there a
-channel and no item markup at all?".
+The last four files are the near misses, and they are here because review found
+them rather than because they were predicted. Each produces zero rows off a 200
+that is not an empty listing, and each would have been reported as one by a
+check that asked a slightly easier question — "is this JSON?" instead of "is
+this the feed's envelope?"; "is there a channel?" instead of "is there a channel
+and no item markup at all?"; "is there anything I can use?" instead of "is there
+anything here?". `remotive-unusable-record.json` is the odd one out: it is read
+alongside four empty categories, and what it proves is that a page that arrived
+and could not be read is not outvoted by the pages that were genuinely empty.
 
 The placeholder employers (`Example Corp`, `Example Labs`) are fictional and
 carry no relationship to the real postings in `boards/`.

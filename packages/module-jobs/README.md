@@ -149,7 +149,7 @@ as well as a count, in the summary and in `--json`:
 | State | What it means |
 | --- | --- |
 | `ok` | Rows came out. Pages that drifted are still listed in `errors`, so this does not mean "no errors". |
-| `empty` | Every page that arrived said, **in the board's own terms**, that it holds no postings. The only state allowed to carry no errors. |
+| `empty` | **Every** page the board attempted came back readable, and said **in the board's own terms** that it holds no postings. One page that failed, or that was not recognised, denies the board this. The only state allowed to carry no errors. |
 | `unparseable` | A page arrived, did not say it was empty, and yielded nothing: selector drift, a challenge page, or markup from another site. |
 | `not_run` | Nothing readable arrived at all — never invoked, or every page failed before a body could be parsed (a `robots.txt` refusal, an HTTP 410, no Chrome). |
 

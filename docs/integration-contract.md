@@ -123,10 +123,12 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
         //
         //   "ok"          rows came out. Pages that drifted are still listed
         //                 in `errors`, so `ok` does not mean "no errors".
-        //   "empty"       every page that arrived said, in the board's own
-        //                 terms, that it holds no postings — an API's own
-        //                 envelope with an empty record list, a feed with a
-        //                 channel and no item markup. The only one of the four
+        //   "empty"       EVERY page the board attempted came back readable,
+        //                 and they said, in the board's own terms, that it
+        //                 holds no postings — an API's own envelope with an
+        //                 empty record list, a feed with a channel and no item
+        //                 markup. One page that failed or was not recognised
+        //                 denies the board this. The only one of the four
         //                 allowed to carry an empty `errors`.
         //   "unparseable" a page arrived, did not say it was empty, and
         //                 yielded nothing: selector drift, a challenge page,

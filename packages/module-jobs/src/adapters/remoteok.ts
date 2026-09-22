@@ -22,6 +22,11 @@ interface RemoteOKJob {
   original?: boolean;
 }
 
+/** The feed's first element: its terms, not a posting. */
+function isLegalNotice(entry: unknown): boolean {
+  return !!entry && typeof entry === "object" && "legal" in entry;
+}
+
 export class RemoteOKAdapter extends BaseAdapter {
   readonly source = "remoteok" as const;
   readonly name = "RemoteOK";
@@ -46,10 +51,12 @@ export class RemoteOKAdapter extends BaseAdapter {
       // (a feed with no jobs) and "objects whose fields have been renamed"
       // (a feed whose shape moved) — and `filter(position && company)` maps
       // both to an empty array.
-      const entries = Array.isArray(data)
-        ? data.filter((d) => d && typeof d === "object" && !("legal" in d))
-        : [];
-      const jobEntries = entries.filter((d) => d.position && d.company);
+      //
+      // Only the RECOGNISED metadata is dropped. Anything else stays an entry
+      // even when it is unusable, so a feed of nulls counts as a feed with
+      // records in it and cannot be reported as one with no jobs in it.
+      const entries = Array.isArray(data) ? data.filter((d) => !isLegalNotice(d)) : [];
+      const jobEntries = entries.filter((d) => d?.position && d?.company);
 
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor

@@ -16,8 +16,8 @@ import { hostOf, parseRssItems, stripHtml, type ScrapeContext } from "@schlesser
 
 import type { RawJob, ScrapeResult, ScraperAdapter, Source, SourceStatus } from "../types.js";
 
-/** What one page an adapter read turned out to be. */
-export type PageReading = "parsed" | "empty" | "unrecognised";
+/** What one page an adapter attempted turned out to be. */
+export type PageReading = "parsed" | "empty" | "unrecognised" | "failed";
 
 /** Options for `PageLedger.read`; each key is a separate claim about the page. */
 export interface PageReadOptions {
@@ -113,8 +113,21 @@ export class PageLedger {
     );
   }
 
-  /** The page never arrived, or never reached a state the parser could read. */
+  /**
+   * The page never arrived, or never reached a state the parser could read.
+   *
+   * It is RECORDED, not merely reported. A failed attempt that left no
+   * reading behind would let the other pages decide the status on their own,
+   * so a board with four empty categories and one that threw would come back
+   * as a clean `empty` — a zero with an error next to it, which is the shape
+   * this whole change exists to remove.
+   *
+   * Callers cannot always tell a fetch that failed from a parse that threw
+   * over a body that did arrive, because one `try` usually covers both. That
+   * is why this takes the pessimistic reading rather than asking.
+   */
   unreachable(url: string, cause: unknown): void {
+    this.readings.push("failed");
     this.errors.push(`${this.board} ${url} failed: ${cause}`);
   }
 
@@ -128,12 +141,23 @@ export class PageLedger {
     this.errors.push(message);
   }
 
-  /** What the run adds up to. `rows` is the adapter's whole deduplicated set. */
+  /**
+   * What the run adds up to. `rows` is the adapter's whole deduplicated set.
+   *
+   * `empty` is the strict one: EVERY page attempted has to have come back
+   * readable, and at least reading as empty. One page that failed or that was
+   * not recognised is enough to deny the board a clean zero, because a board
+   * that could not read one of its own listings does not know whether it has
+   * postings there.
+   */
   status(rows: number): SourceStatus {
     if (rows > 0) return "ok";
-    if (this.readings.length === 0) return "not_run";
-    if (this.readings.includes("unrecognised")) return "unparseable";
-    return "empty";
+    // No attempt at all, or nothing that arrived: the board did not run.
+    if (this.readings.every((reading) => reading === "failed")) return "not_run";
+    if (this.readings.every((reading) => reading === "empty" || reading === "parsed")) {
+      return "empty";
+    }
+    return "unparseable";
   }
 }
 

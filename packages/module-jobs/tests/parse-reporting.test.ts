@@ -68,7 +68,8 @@ class StubClient extends ScrapeClient {
   readonly requests: string[] = [];
 
   constructor(
-    private readonly body: string,
+    /** One body for every URL, or one per URL for a board that reads several. */
+    private readonly body: string | ((url: string) => string),
     /** Where the body claims to come from, for the redirect cases. */
     private readonly servedBy?: string
   ) {
@@ -77,7 +78,8 @@ class StubClient extends ScrapeClient {
 
   override async getPage(url: string, _opts: FetchOptions = {}): Promise<FetchedPage> {
     this.requests.push(url);
-    return { body: this.body, url: this.servedBy ?? url };
+    const body = typeof this.body === "function" ? this.body(url) : this.body;
+    return { body, url: this.servedBy ?? url };
   }
 
   override async getText(url: string, opts: FetchOptions = {}): Promise<string> {
@@ -151,10 +153,14 @@ function browserContextServing(html: string): ScrapeContext {
  * The HTTP boards and the browser boards are asserted through the same call,
  * because the guarantee #37 is about belongs to neither half of the registry.
  */
-function serve(source: Source, body: string, servedBy?: string): Promise<ScrapeResult> {
+function serve(
+  source: Source,
+  body: string | ((url: string) => string),
+  servedBy?: string
+): Promise<ScrapeResult> {
   const adapter = getAdapter(source);
   const ctx: ScrapeContext = adapter.needsBrowser
-    ? browserContextServing(body)
+    ? browserContextServing(typeof body === "function" ? body("") : body)
     : { http: new StubClient(body, servedBy), log: () => {} };
   return adapter.bind(ctx).scrape({ incremental: false });
 }
@@ -233,6 +239,31 @@ class PagingBoard extends BaseAdapter {
   }
 }
 
+/** A board reading several independent listings, each with its own outcome. */
+class MixedBoard extends BaseAdapter {
+  readonly source = "remoteok" as const;
+  readonly name = "Mixed board";
+  readonly tier = 1 as const;
+
+  constructor(private readonly outcomes: Array<"empty" | "failed" | "unrecognised">) {
+    super();
+  }
+
+  async scrape() {
+    const pages = this.ledger();
+    for (const [index, outcome] of this.outcomes.entries()) {
+      const url = `https://board.test/category/${index + 1}`;
+      if (outcome === "failed") {
+        pages.unreachable(url, new Error(`page ${index + 1} died`));
+        continue;
+      }
+      await this.http.getPage(url);
+      pages.read(url, 0, { declaredEmpty: outcome === "empty" });
+    }
+    return this.makeResult([], pages);
+  }
+}
+
 /** A board whose every page throws. */
 class UnreachableBoard extends BaseAdapter {
   readonly source = "remoteok" as const;
@@ -308,6 +339,23 @@ describe("the page ledger", () => {
     // The honest answer for an adapter that never read anything, and a loud
     // one for an adapter that forgot to say what it read.
     const result = await runBoard(new SilentBoard());
+    expect(result.status).toBe("not_run");
+  });
+
+  test("one page that failed denies the board a clean `empty`", async () => {
+    // A board with four empty categories and one that threw used to come back
+    // as `empty` with an error beside it — a zero that the run log then wrote
+    // down as `completed`. A board that could not read one of its own
+    // listings does not know whether it has postings there.
+    const result = await runBoard(new MixedBoard(["empty", "failed", "empty"]));
+
+    expect(result.status).toBe("unparseable");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("page 2 died");
+  });
+
+  test("but every page failing is still `not_run`, not `unparseable`", async () => {
+    const result = await runBoard(new MixedBoard(["failed", "failed"]));
     expect(result.status).toBe("not_run");
   });
 
@@ -464,6 +512,30 @@ describe("a board that says it has no postings is believed", () => {
     expect(result.jobs).toEqual([]);
     expect(result.status).toBe("unparseable");
     expect(result.errors.join("\n")).toContain("parsed 0 jobs");
+  });
+
+  test("remoteok: a feed of unusable records is corrupt, not empty", async () => {
+    // The records are there. A filter that dropped everything it could not use
+    // would leave nothing behind and report a board with no jobs in it.
+    const result = await serve("remoteok", fixture("remoteok-null-records.json"));
+
+    expect(result.jobs).toEqual([]);
+    expect(result.status).toBe("unparseable");
+  });
+
+  test("remotive: a category that arrived and could not be read is not outvoted", async () => {
+    // One category holds a posting whose `job_type` is an object, so mapping
+    // it throws AFTER the response arrived; the other four answer with an
+    // empty `jobs` array. The four must not decide the run on their own.
+    const broken = fixture("remotive-unusable-record.json");
+    const empty = fixture("remotive-empty.json");
+    const result = await serve("remotive", (url) =>
+      url.includes("category=data") ? broken : empty
+    );
+
+    expect(result.jobs).toEqual([]);
+    expect(result.status).toBe("unparseable");
+    expect(result.errors.join("\n")).toContain("category=data");
   });
 
   test("jobgether's captured endpoint, with its fields renamed, is drift", async () => {
