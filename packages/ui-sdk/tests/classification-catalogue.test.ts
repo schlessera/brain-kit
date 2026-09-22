@@ -495,6 +495,29 @@ describe("what the classifier answered, for tuning the thresholds", () => {
     "**Ships:** 12\n**Crew:** 600",
   ];
 
+  test("each question retains its pre-refactor threshold (#179)", () => {
+    const expected: Record<string, Record<string, number>> = {
+      table: { shape: 0.6, recommended: 0.8, criteria_first: 0.7 },
+      ordered_list: { shape: 0.6, variant: 0.6 },
+      timed_list: { shape: 0.6 },
+      blockquote: { shape: 0.6, tone: 0.8 },
+      kv_run: {
+        shape: 0.6, subject: 0.6, contact_kind: 0.6,
+        ...Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`value_tone_${i}`, 0.8])),
+      },
+    };
+    const samples = [...SAMPLES.slice(0, -1), Array.from({ length: 8 }, (_, i) => `**Field ${i}:** ${i}`).join("\n")];
+    const actual: Record<string, Record<string, number>> = {};
+    for (const sample of samples) {
+      for (const candidate of detectCandidates(sample)) {
+        actual[candidate.kind] = Object.fromEntries(
+          Object.entries(questionsFor(candidate)).map(([id, question]) => [id.slice(id.lastIndexOf(".") + 1), question.threshold])
+        );
+      }
+    }
+    expect(actual).toEqual(expected);
+  });
+
   test("every question the catalogue asks declares its own line, generated ids included", () => {
     // A question with no line is recorded with `threshold: null` and
     // `cleared: false` whatever its answer was — a lie in the tuning table

@@ -574,9 +574,8 @@ export function thresholdOf(questions: ClassificationQuestions, id: string): num
  */
 export function transformCandidate(
   candidate: Candidate,
-  answers: ClassificationAnswers,
-  questions: ClassificationQuestions = questionsFor(candidate)
+  answers: ClassificationAnswers
 ): Classified | null {
   const row = CATALOGUE[candidate.kind] as CatalogueRow<Candidate>;
-  return row.transform(candidate, answers, questions);
+  return row.transform(candidate, answers, questionsFor(candidate));
 }
