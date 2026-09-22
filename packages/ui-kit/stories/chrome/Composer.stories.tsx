@@ -186,13 +186,18 @@ export const StopsAtTheCap = meta.story({
   },
 });
 
-/** `maxRows` moves the cap, and the cap keeps the design's pitch: five rows
- * are 96px, so three are three fifths of that. */
+/**
+ * `maxRows` lowers the cap to that many WHOLE lines — three of them, not three
+ * fifths of the default's 96px. Scaling the default's ceiling would spread its
+ * deliberate ~4.90-line shortfall to every other row count and clip a
+ * three-row field by a pixel, which a constant `maxHeight: 96` never did.
+ */
 export const StopsAtMaxRows = meta.story({
   render: () => <Draft initial={MANY_LINES} maxRows={3} />,
   play: async ({ canvas }) => {
     const field = await canvas.findByRole("textbox");
-    await expect(field.getBoundingClientRect().height).toBeCloseTo((96 * 3) / 5, 1);
+    await expect(rowsShown(field)).toBe(3);
+    await expect(field.getBoundingClientRect().height).toBeCloseTo(3 * LINE, 1);
     await expect(field.scrollHeight).toBeGreaterThan(field.clientHeight);
   },
 });

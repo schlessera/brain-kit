@@ -53,14 +53,21 @@ describe("Composer field sizing", () => {
     expect(f.rows).toBe("1");
   });
 
-  test("the cap is the design's 96px for five rows", () => {
+  test("the cap is the design's 96px for the five-row default", () => {
     expect(field({ value: "x", onChange: () => {} }).style).toContain("max-height:96px");
   });
 
-  test("maxRows moves the cap and bounds the rows floor at the same pitch", () => {
+  test("a smaller maxRows caps at that many whole lines", () => {
+    // Three lines of `13.5px/1.45`, not three fifths of 96px: the old constant
+    // `maxHeight: 96` never clipped a three-row field, and this must not either.
     const f = field({ value: "1\n2\n3\n4\n5\n6", onChange: () => {}, maxRows: 3 });
-    expect(f.style).toContain("max-height:57.6px");
+    expect(f.style).toContain("max-height:58.725px");
     expect(f.rows).toBe("3");
+  });
+
+  test("a larger maxRows does not raise the design's ceiling", () => {
+    // What a constant `maxHeight: 96` did before, when `rows` bounded growth.
+    expect(field({ value: "x", onChange: () => {}, maxRows: 12 }).style).toContain("max-height:96px");
   });
 });
 

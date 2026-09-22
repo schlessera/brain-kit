@@ -2930,9 +2930,15 @@ of its props with no ref, no measuring and no layout effect, so a keystroke is
 still one render of the subtree that re-renders on every keystroke by design.
 The newline count stays on `rows` as the floor: a browser without
 `field-sizing` (it arrived in Chrome 123, Safari 26.2 and Firefox 152) sizes
-from `rows` alone and gets exactly the old behaviour. The design's 96px cap is
-kept for five rows, and `maxRows` scales that pitch, since `rows` no longer
-bounds anything where `field-sizing` applies.
+from `rows` alone and gets exactly the old behaviour. Where `field-sizing`
+applies, `rows` bounds nothing, so the cap has to carry `maxRows` itself: it is
+`maxRows` whole lines or the design's 96px, whichever is smaller. That is what
+the constant `maxHeight: 96` already produced while `rows` did the bounding —
+the default still stops at exactly 96px, a smaller `maxRows` gets that many
+whole lines rather than a fraction of 96, and a larger one does not raise the
+ceiling. Scaling 96px by `maxRows` instead was tried first and rejected: it
+spreads the default's deliberate ~4.90-line shortfall to every other row count,
+so a three-row field clipped by a pixel that no shipped behaviour had clipped.
 
 **Alternatives refused.** *Measuring `scrollHeight` in a layout effect:* a
 forced synchronous layout per keystroke, and either a `setState` that commits

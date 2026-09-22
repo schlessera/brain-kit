@@ -70,9 +70,11 @@ import type { ComposerVariant, Tone } from "../types.js";
  * used to, which grew on ⇧⏎ and not on soft wrap. The old trade is now that
  * fallback, not a second sizing mechanism.
  *
- * The cap stays the design's 96px for five rows — a hair under five lines of
- * `13.5px/1.45`, which it always was — and a custom `maxRows` scales that same
- * pitch, so the default renders as it always has. An empty field, controlled
+ * The cap is `maxRows` lines or the design's 96px, whichever is smaller — which
+ * is what a constant `maxHeight: 96` already produced when `rows` was the thing
+ * that bounded the growth, so no `maxRows` renders differently than it used to.
+ * The default still stops at exactly 96px, a hair under five lines of
+ * `13.5px/1.45`, which it always was. An empty field, controlled
  * or not, stays one row: there is no text to follow, and a placeholder longer
  * than the field is clipped rather than given a second row that the first
  * character typed would take away. An uncontrolled composer stays one row and
@@ -133,6 +135,20 @@ export interface ComposerRecall {
   /** `purple` — untrusted origin, which recalled context is — when omitted. */
   tone?: Tone;
 }
+
+/**
+ * The field's type, in one place, because the cap is a count of its lines.
+ *
+ * `CEILING` is the design's own 96px — a hair under five lines, which it has
+ * been since this component shipped. It stays the ceiling rather than becoming
+ * five times a line so the default's rendered maximum height does not move.
+ * `maxRows` lowers it and never raises it, which is exactly what a constant
+ * `maxHeight: 96` did back when `rows` was what bounded the growth.
+ */
+const FONT_SIZE = 13.5;
+const LINE_RATIO = 1.45;
+const LINE = FONT_SIZE * LINE_RATIO;
+const CEILING = 96;
 
 /** Each state's placeholder and hint; `why` is the offline reason. */
 const STATE: Record<ComposerState, { ph: string; hint: string; why?: string }> = {
@@ -195,12 +211,15 @@ export function Composer(p: ComposerProps) {
   const input: CSSProperties = {
     flex: 1,
     minWidth: 0,
-    // The design's cap is 96px for five rows; another `maxRows` keeps the pitch.
-    maxHeight: (96 * maxRows) / 5,
+    // `maxRows` lines, but never past the design's 96px ceiling — which is what
+    // a constant `maxHeight: 96` already did while `rows` bounded the growth.
+    // Rounded because `3 * 19.575` is `58.724999999999994` in binary floating
+    // point, and that is what would land in the style attribute.
+    maxHeight: Math.round(Math.min(CEILING, maxRows * LINE) * 1000) / 1000,
     // Only with text to follow: an empty field is one row whatever its
     // placeholder, and an uncontrolled one is the browser's.
     fieldSizing: p.value ? "content" : undefined,
-    font: `400 13.5px/1.45 ${font.body}`,
+    font: `400 ${FONT_SIZE}px/${LINE_RATIO} ${font.body}`,
     color: color.ink,
     background: "transparent",
     border: "none",
