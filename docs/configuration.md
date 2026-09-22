@@ -274,6 +274,29 @@ skills: { emitters: ["codex", "pi"] }   // .codex/prompts + AGENTS.md index; .pi
 
 See [extending/skill-emitters.md](extending/skill-emitters.md).
 
+## `stats`
+
+Warn levels for the health figures `brain stats` reports. Both are **ratios in
+`0..1`**, not percentages, and each falls back to its default on its own.
+
+| Key                 | Type     | Default | Means                                                            |
+| ------------------- | -------- | ------- | ---------------------------------------------------------------- |
+| `coverageFloor`     | `number` | `0.9`   | Embedding coverage (vectors / chunks) below this needs attention |
+| `brokenLinkCeiling` | `number` | `0.05`  | Broken-link rate (broken / links) above this needs attention     |
+
+```ts
+stats: { coverageFloor: 0.75 }   // brokenLinkCeiling stays at 0.05
+```
+
+The effective values are echoed back in `brain stats --json` under
+`health.thresholds`, so a consumer never has to duplicate the defaults.
+
+This block holds **only** the warn levels. Staleness and orphans are not
+configured here: `brain stats` counts exactly what `brain audit` reports, from
+the per-type [`staleDays`](#taxonomytypes) / `orphanExempt` and
+[`taxonomy.defaultStaleness`](#taxonomydefaultstaleness). There is no second
+stale window.
+
 ## `modules`
 
 Enables workflow modules. A key is either an npm package name

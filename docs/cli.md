@@ -46,7 +46,7 @@ hosts; `data:` URIs always render.
 |---|---|---|
 | `search "q"` ⚖ | Hybrid FTS + vector search | `{results, warnings}`; `--mode fts\|vector\|hybrid`, `--rerank`, `--type/--tag/--relevance/--status/--archived/--assets/--limit`; degrades to FTS with a warning when embeddings are unavailable |
 | `context "q"` ⚖ | Assemble a markdown context block for agent consumption | `--max-tokens N`; includes identity/current-focus canonicals when configured |
-| `stats` | Corpus statistics | |
+| `stats` ⚖ | Corpus counts, health figures and sizes | adds `health` (broken-link rate, embedding coverage, stale/orphan/untagged, the thresholds in force) and `size` (corpus bytes+files, `brain.db` bytes and row counts, free space); stale and orphan mean what `audit` means; an unmeasurable figure is `null`, never `0`; warn levels come from the [`stats` config block](configuration.md#stats) |
 
 ## Index + quality
 

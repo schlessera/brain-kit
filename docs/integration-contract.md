@@ -43,10 +43,46 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
+| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively; every earlier field keeps its name and type |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
 additive; never rely on field order.
+
+`brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
+renamed, so a consumer reading only the flat counts (as
+`packages/ui-react/src/lib/api-client.ts` does) needs no change.
+
+```jsonc
+{
+  // health: what needs attention. A figure that cannot be known is null,
+  // never 0 — an unmeasurable ratio must not read as a failing one.
+  "health": {
+    "brokenLinkRate": 0.054,       // brokenLinks / links; null when there are no links
+    "embeddingCoverage": null,     // vectors / chunks; null when this brain neither
+                                   // embeds nor holds vectors, or has no chunks
+    "stale": 2,                    // past the per-type staleDays — the `brain audit` definition
+    "orphans": 1,                  // no link either way, honouring orphanExempt — likewise
+    "untagged": 1,                 // non-archived markdown documents with no tags
+    "thresholds": { "coverageFloor": 0.9, "brokenLinkCeiling": 0.05 }
+  },
+  // size: what the brain weighs. brain.db is disposable; its size is a
+  // rebuild-cost figure, not a claim that it holds authoritative state.
+  "size": {
+    "corpus": { "bytes": 22231, "files": 29 },   // null when a directory under the
+                                                 // root could not be read
+    "db": { "bytes": 453208, "tables": { "documents": 25, "links": 37 } },
+    "freeBytes": 643825672192     // null when the platform call fails
+  }
+}
+```
+
+`stale` and `orphans` are the same counts `brain audit` reports in its
+`staleness` and `orphan` categories, from the same per-type `staleDays` /
+`orphanExempt`. `brain stats` does not carry a threshold of its own; the only
+configuration it adds is the `stats` block on `brain.config.*`
+(`coverageFloor`, `brokenLinkCeiling`, both ratios in 0..1), which supplies the
+`health.thresholds` echoed above and defaults to the values shown when absent.
 
 ## MCP server (stdio, `brain mcp` or `src/mcp-server.ts`)
 
