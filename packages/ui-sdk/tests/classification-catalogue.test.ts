@@ -499,13 +499,18 @@ describe("what the classifier answered, for tuning the thresholds", () => {
   test("every question the catalogue asks has a line to clear", () => {
     // A question with no entry would be recorded with no threshold, and the
     // distribution behind it would be unreadable.
+    const kindsSeen = new Set<string>();
     for (const sample of SAMPLES) {
       for (const candidate of detectCandidates(sample)) {
+        kindsSeen.add(candidate.kind);
         for (const id of Object.keys(questionsFor(candidate))) {
           expect(thresholdFor(id)).toBeTypeOf("number");
         }
       }
     }
+    // The samples have to reach every row, or a kind's questions go unchecked
+    // and the assertion above passes by not looking.
+    expect([...kindsSeen].sort()).toEqual([...CANDIDATE_KINDS].sort());
     // And no line names a figure of its own: they all come from CONFIDENCE.
     for (const threshold of Object.values(QUESTION_THRESHOLD)) {
       expect(Object.values(CONFIDENCE)).toContain(threshold);

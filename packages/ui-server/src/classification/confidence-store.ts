@@ -71,6 +71,10 @@ export function recordQuestionConfidence(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const prune = db.prepare("DELETE FROM classification_confidence WHERE recorded_at < ?");
+  // `.immediate` takes the write lock up front. A deferred transaction that
+  // starts reading and upgrades on the first INSERT loses the snapshot race to
+  // a concurrent writer with SQLITE_BUSY, which busy_timeout does not rescue —
+  // the same reason the activity store writes this way.
   db.transaction(() => {
     for (const observation of observations) {
       insert.run(
@@ -87,7 +91,7 @@ export function recordQuestionConfidence(
       );
     }
     prune.run(now - CONFIDENCE_RETENTION_MS);
-  })();
+  }).immediate();
 }
 
 /**

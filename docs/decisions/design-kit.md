@@ -2165,7 +2165,31 @@ in one call, with the code doing every extraction and every render.
 5. **Confidence gates the swap.** Start at 0.6 for a swap and 0.8 for a
    tone; below that the block stays markdown and the answer records why.
    Thresholds are measured on the transcript corpus, not assumed —
-   TypeSafe calibrates the probabilities, we pick where to act.
+   TypeSafe calibrates the probabilities, we pick where to act. Measuring
+   needs the numbers, and the first cut recorded only the outcome, so a
+   `kept` was a count with nothing behind it. The pass now also records
+   what it was confident about (added 2026-09-22): one row per answered
+   question in `classification_confidence` — the candidate kind, the
+   question, the answer, its confidence, the line that confidence had to
+   clear, and whether the candidate ended up drawn — written after the
+   call has resolved, so it takes none of the call's budget. It is read
+   back with `confidenceDistribution`
+   (`packages/ui-server/src/classification/confidence-store.ts`, exported
+   from the package root), or straight off the file:
+
+   ```sql
+   SELECT candidate_kind, question, threshold,
+          CAST(confidence * 10 AS INTEGER) / 10.0 AS bucket,
+          COUNT(*) AS n, SUM(cleared) AS cleared,
+          SUM(outcome = 'swapped') AS swapped
+     FROM classification_confidence
+    GROUP BY candidate_kind, question, threshold, bucket
+    ORDER BY candidate_kind, question, bucket;
+   ```
+
+   Instrumentation, not state: nothing renders or replays from it, a write
+   that fails is a log line rather than a block the reader does not get,
+   and rows age out after 30 days.
 6. **The catalogue is the contract.** The candidate kinds, the questions
    asked of each, and the transform from answers to `Block` are one
    table in ui-sdk (`classification/catalogue.ts`), so a new kind is one
