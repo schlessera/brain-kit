@@ -6,6 +6,8 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
+import { rmSync } from "fs";
+import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 
@@ -181,6 +183,23 @@ export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
 }
 
 /**
+ * Drop local changes to the derived caches, tracked or not, and return their
+ * paths. Only safe ahead of a reindex, which rebuilds them from brain.db.
+ */
+function restoreDerivedCaches(root: string): string[] {
+  const dirty = classifyPostSyncDirt(workingTreeDirt(root)).caches;
+  for (const file of dirty) {
+    const tracked = git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0;
+    if (tracked) git(root, ["checkout", "HEAD", "--", file]);
+    else {
+      git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
+      rmSync(resolve(root, file), { force: true });
+    }
+  }
+  return dirty;
+}
+
+/**
  * Commit and push the derived caches post-sync rewrote, and nothing else.
  * Returns the outcome reported as `cacheCommit`.
  */
@@ -325,6 +344,12 @@ export const syncCommand: CoreCommand = {
         const localAhead = parseInt(git(root, ["rev-list", "--count", "origin/main..HEAD"]).stdout || "0", 10);
         const remoteAhead = parseInt(git(root, ["rev-list", "--count", "HEAD..origin/main"]).stdout || "0", 10);
 
+        // A cache this clone's reindex rewrote blocks a merge that touches it,
+        // and post-sync pushes caches, so the other clone's commit usually does.
+        // Take the remote copy: the reindex after the pull rebuilds the file
+        // from brain.db, so nothing in it is lost.
+        const restoredCaches = remoteAhead > 0 ? restoreDerivedCaches(root) : [];
+
         let status: string;
         let conflicts: string[] = [];
         if (remoteAhead === 0) {
@@ -338,11 +363,12 @@ export const syncCommand: CoreCommand = {
           conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
         }
 
-        emit(cli.json, { status, localAhead, remoteAhead, conflicts }, () => {
+        emit(cli.json, { status, localAhead, remoteAhead, conflicts, restoredCaches }, () => {
           console.log(`LOCAL_AHEAD=${localAhead}`);
           console.log(`REMOTE_AHEAD=${remoteAhead}`);
           console.log(`STATUS=${status}`);
           for (const c of conflicts) console.log(`CONFLICT=${c}`);
+          for (const c of restoredCaches) console.log(`RESTORED_CACHE=${c}`);
         });
         return status === "merge-failed" ? 1 : 0;
       }

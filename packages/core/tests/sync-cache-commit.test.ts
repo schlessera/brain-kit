@@ -1,9 +1,10 @@
 /**
- * post-sync's cache commit, against a real repository and remote.
+ * The derived caches through a sync, against a real repository and remote.
  *
  * The commit must carry the derived caches and nothing else. A path staged
  * before post-sync ran belongs to whoever staged it: it stays staged and
  * uncommitted whether the cache commit succeeds, fails, or cannot be pushed.
+ * And a cache this clone rewrote must not stop the pull that precedes it.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -11,6 +12,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commitDerivedCaches } from "../src/cli/commands/sync.js";
+import { makeTempBrain, runCli } from "./cli-harness";
 
 const CACHE = ".context-cache.jsonl";
 const dirs: string[] = [];
@@ -71,7 +73,7 @@ describe("commitDerivedCaches", () => {
     const other = join(dirs[0]!, "other");
     Bun.spawnSync(["git", "clone", "-q", remote, other]);
     git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
-      "commit", "-q", "--allow-empty", "-m", "remote moved on");
+      "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "remote moved on");
     git(other, "push", "-q", "origin", "main");
 
     const outcome = commitDerivedCaches(root, [CACHE], "main");
@@ -100,5 +102,69 @@ describe("commitDerivedCaches", () => {
     expect(commitDerivedCaches(root, [CACHE], "feature")).toBe("skipped — not on main (feature)");
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
     expect(git(root, "diff", "--cached", "--name-only")).toBe("staged.md");
+  });
+});
+
+describe("sync pull with a locally rewritten cache", () => {
+  const OURS = '{"k":"ours","v":"rebuilt from this brain.db"}\n';
+
+  /** The fixture corpus, committed with an empty cache and pushed to a bare remote. */
+  function brainWithRemote(): { root: string; remote: string } {
+    const root = makeTempBrain();
+    const base = mkdtempSync(join(tmpdir(), "brain-sync-remote-"));
+    dirs.push(root, base);
+    const remote = join(base, "remote.git");
+    Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
+    git(root, "init", "-q", "-b", "main");
+    git(root, "config", "user.name", "Alex Example");
+    git(root, "config", "user.email", "alex@example.test");
+    git(root, "config", "commit.gpgsign", "false");
+    writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\n");
+    writeFileSync(join(root, CACHE), "");
+    git(root, "add", "-A");
+    git(root, "commit", "-qm", "fixture");
+    git(root, "remote", "add", "origin", remote);
+    git(root, "push", "-q", "origin", "main");
+    return { root, remote };
+  }
+
+  for (const ahead of [false, true]) {
+    test(`does not fail the ${ahead ? "merge" : "fast-forward"}; the cache takes the remote copy`, async () => {
+      // Another clone's post-sync pushed its cache while this clone's reindex
+      // rewrote the same file. `ahead` adds a local content commit, so the
+      // pull has to merge rather than fast-forward.
+      const { root, remote } = brainWithRemote();
+      const other = join(remote, "..", "other");
+      Bun.spawnSync(["git", "clone", "-q", remote, other]);
+      const theirs = '{"k":"theirs","v":"from the other clone"}\n';
+      writeFileSync(join(other, CACHE), theirs);
+      git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
+        "-c", "commit.gpgsign=false", "commit", "-qam", "Refresh derived index caches");
+      git(other, "push", "-q", "origin", "main");
+      if (ahead) {
+        writeFileSync(join(root, "local-note.md"), "# Local\n");
+        git(root, "add", "local-note.md");
+        git(root, "commit", "-qm", "local content");
+      }
+      writeFileSync(join(root, CACHE), OURS);
+
+      const result = await runCli(root, ["sync", "pull", "--json"]);
+      const body = JSON.parse(result.stdout);
+      expect(body.status).toBe(ahead ? "merged" : "fast-forwarded");
+      expect(body.conflicts).toEqual([]);
+      expect(body.restoredCaches).toEqual([CACHE]);
+      expect(result.code).toBe(0);
+      expect(await Bun.file(join(root, CACHE)).text()).toBe(theirs);
+    });
+  }
+
+  test("a pull with nothing to merge leaves the rewritten cache alone", async () => {
+    const { root } = brainWithRemote();
+    writeFileSync(join(root, CACHE), OURS);
+
+    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(body.status).toBe("synced");
+    expect(body.restoredCaches).toEqual([]);
+    expect(await Bun.file(join(root, CACHE)).text()).toBe(OURS);
   });
 });
