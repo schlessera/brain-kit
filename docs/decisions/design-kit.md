@@ -2187,9 +2187,11 @@ in one call, with the code doing every extraction and every render.
     ORDER BY candidate_kind, question, bucket;
    ```
 
-   One pass writes every row with the same `recorded_at`, so
-   `(session_id, recorded_at, candidate_id)` names one candidate within one
-   pass. Some questions have to be read that way or they are meaningless:
+   One pass's rows share a `pass_id`, so `(pass_id, candidate_id)` names one
+   candidate — a minted id rather than the clock, because the pass is fire
+   and forget and a session's slow pass can still be writing when the next
+   turn's starts. Some questions have to be read per candidate or they are
+   meaningless:
    the catalogue asks `criteria_first` of every table, including the ones
    the shape answer calls `data`, so unconditioned its answers are two
    populations stacked on each other (measured 2026-09-22: 12 of 26 at or

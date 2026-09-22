@@ -19,9 +19,8 @@
  * write, which is what keeps a long-running install from carrying years of
  * instrumentation it will never look at.
  *
- * One pass writes every row with the same `recorded_at`, so
- * `(session_id, recorded_at, candidate_id)` names one candidate within one
- * pass. Some questions can only be read that way: the catalogue asks
+ * One pass's rows share a `pass_id`, so `(pass_id, candidate_id)` names one
+ * candidate. Some questions can only be read that way: the catalogue asks
  * `criteria_first` of every table, including the ones the shape answer calls
  * `data`, where the question means nothing — read unconditioned, its answers
  * are two populations stacked on top of each other.
@@ -72,10 +71,15 @@ export function recordQuestionConfidence(
   now: number = Date.now()
 ): void {
   if (observations.length === 0) return;
+  // One id for this pass, so a candidate's answers can be joined back to each
+  // other. Minted rather than derived from the clock: the pass is fire and
+  // forget, so one session's slow pass can still be writing when the next
+  // turn's starts, and a timestamp does not separate them.
+  const passId = crypto.randomUUID();
   const insert = db.prepare(
     `INSERT INTO classification_confidence
-       (session_id, candidate_id, recorded_at, candidate_kind, question, answer_type, choice, confidence, threshold, cleared, outcome)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (session_id, pass_id, candidate_id, recorded_at, candidate_kind, question, answer_type, choice, confidence, threshold, cleared, outcome)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const prune = db.prepare("DELETE FROM classification_confidence WHERE recorded_at < ?");
   // `.immediate` takes the write lock up front. A deferred transaction that
@@ -86,6 +90,7 @@ export function recordQuestionConfidence(
     for (const observation of observations) {
       insert.run(
         sessionId,
+        passId,
         observation.candidateId,
         now,
         observation.candidateKind,

@@ -11,10 +11,9 @@ An answered pass writes one row per answered question to a new
 `classification_confidence` table (migration 016, additive): the candidate it
 was asked about, its kind, the question, the answer, its confidence, the line
 that confidence had to clear, and whether the candidate ended up drawn as a
-block or left as markdown. One pass shares one `recorded_at`, so
-`(session_id, recorded_at, candidate_id)` names one candidate within one pass
-and a question can be read conditioned on another answer about the same
-candidate — which some of them must be, since the catalogue asks
+block or left as markdown. One pass's rows share a `pass_id`, so
+`(pass_id, candidate_id)` names one candidate and a question can be read
+conditioned on another answer about the same candidate — which some of them must be, since the catalogue asks
 `criteria_first` of every table including the ones the shape answer calls
 `data`.
 The write happens after the classifier call has resolved, so it takes none of

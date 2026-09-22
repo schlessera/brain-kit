@@ -451,27 +451,48 @@ describe("the confidence record", () => {
       ["p0c1", "shape", 0.9],
       ["p0c1", "criteria_first", 0.05],
     ]);
-    // One pass, one `recorded_at`, so the candidate is what tells them apart.
-    const stamps = db
-      .query("SELECT DISTINCT recorded_at AS at FROM classification_confidence WHERE session_id = ?")
+    // One pass, one pass id, and it is what pairs a candidate's answers.
+    const passes = db
+      .query("SELECT DISTINCT pass_id AS id FROM classification_confidence WHERE session_id = ?")
       .all("s-pair");
-    expect(stamps).toHaveLength(1);
+    expect(passes).toHaveLength(1);
     // Which is what makes the conditional read possible: only the comparison's
     // noul belongs in a distribution the 0.7 line is tuned on.
-    const conditioned = db
-      .query(
-        `SELECT noul.confidence AS confidence
-           FROM classification_confidence AS noul
-           JOIN classification_confidence AS shape
-             ON shape.session_id = noul.session_id
-            AND shape.recorded_at = noul.recorded_at
-            AND shape.candidate_id = noul.candidate_id
-          WHERE noul.question = 'criteria_first'
-            AND shape.question = 'shape'
-            AND shape.choice = 'comparison'`
-      )
-      .all() as Array<{ confidence: number }>;
-    expect(conditioned.map((row) => row.confidence)).toEqual([0.95]);
+    const conditioned = () =>
+      (db
+        .query(
+          `SELECT noul.confidence AS confidence
+             FROM classification_confidence AS noul
+             JOIN classification_confidence AS shape
+               ON shape.pass_id = noul.pass_id
+              AND shape.candidate_id = noul.candidate_id
+            WHERE noul.question = 'criteria_first'
+              AND shape.question = 'shape'
+              AND shape.choice = 'comparison'
+            ORDER BY noul.id`
+        )
+        .all() as Array<{ confidence: number }>).map((row) => row.confidence);
+    expect(conditioned()).toEqual([0.95]);
+
+    // A second pass in the same session, on the same millisecond, must not
+    // pair its `p0c0` with the first pass's. The pass is fire and forget, so
+    // two of them really can overlap, and a clock-derived key would not
+    // separate these two rows.
+    const at = Date.now();
+    for (const noul of [0.11, 0.22]) {
+      recordQuestionConfidence(
+        db,
+        "s-pair",
+        [
+          { candidateId: "p0c0", candidateKind: "table", question: "shape", answerType: "choice", choice: "comparison", confidence: 0.9, threshold: CONFIDENCE.swap, cleared: true, outcome: "swapped" },
+          { candidateId: "p0c0", candidateKind: "table", question: "criteria_first", answerType: "noul", confidence: noul, threshold: CONFIDENCE.noul, cleared: false, outcome: "swapped" },
+        ],
+        at
+      );
+    }
+    // Four rows on one millisecond, two passes, and each noul still belongs to
+    // exactly one shape answer — not to both.
+    expect(conditioned()).toEqual([0.95, 0.11, 0.22]);
   });
 
   test("a pass with no answers — timeout, error, open breaker — records nothing", async () => {
