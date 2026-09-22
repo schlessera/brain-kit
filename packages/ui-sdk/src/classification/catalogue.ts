@@ -371,16 +371,16 @@ function valueToneAt(
 const kvRun: CatalogueRow<KeyValueRunCandidate> = {
   produces: ["receipt", "stats", "contact"],
   questions(candidate) {
-    // Which line holds the name, asked over the keys the run actually has —
-    // the same move the table's `recommended` question makes over its
-    // headers. A contact needs a label, and a label the text does not carry
-    // is one the surface would be inventing.
-    // Both the contact questions and the tones are card-sized questions; a run
-    // longer than a card is asked neither, and the transform refuses the same
-    // way rather than relying on the answers being absent.
+    // The contact questions and the tones are both card-sized: a run longer
+    // than one is asked neither, and the transform refuses it the same way
+    // rather than relying on the answers being absent.
     const cardSized = candidate.rows.length <= CARD_ROWS_MAX;
-    const contact: Record<string, ClassificationQuestion> = {};
+    const perCard: Record<string, ClassificationQuestion> = {};
     if (cardSized) {
+      // Which line holds the name, asked over the keys the run actually has —
+      // the same move the table's `recommended` question makes over its
+      // headers. A contact needs a label, and a label the text does not carry
+      // is one the surface would be inventing.
       const subjectOptions: Record<string, string> = {
         [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
       };
@@ -392,12 +392,12 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
           subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
         }
       }
-      contact.subject = {
+      perCard.subject = {
         type: "choice",
         instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
         criteria: subjectOptions,
       };
-      contact.contact_kind = {
+      perCard.contact_kind = {
         type: "choice",
         instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
         criteria: {
@@ -406,11 +406,8 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
           project: "A piece of work, a product, a repository, an effort.",
         },
       };
-    }
-    const tones: Record<string, ClassificationQuestion> = {};
-    if (cardSized) {
       candidate.rows.forEach((row, index) => {
-        tones[`value_tone_${index}`] = {
+        perCard[`value_tone_${index}`] = {
           type: "choice",
           instructions: `In \`${candidate.id}\`, how does the text read the value on the "${row.k}" line? Answer only from what is written.`,
           criteria: VALUE_TONE_CRITERIA,
@@ -428,8 +425,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
           plain: "None of those: definitions, a glossary, or prose that happens to use colons.",
         },
       },
-      ...contact,
-      ...tones,
+      ...perCard,
     };
   },
   transform(candidate, answers) {
