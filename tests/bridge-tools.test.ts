@@ -655,3 +655,97 @@ describe("tool results parse through their contracts", () => {
     }
   });
 });
+
+// D44. The Claude backend hands its bridge tools to the model through an
+// in-process MCP server, and the Agent SDK defers an MCP server's tools behind
+// tool search unless the server is created with `alwaysLoad`. Nothing in the
+// tree recorded which of those two it was, so the posture was an absence
+// rather than a decision and could have flipped either way without anyone
+// noticing. These assertions are the record: the shipped posture, and the
+// counterfactual that proves the first assertion is not vacuous.
+describe("bridge tool loading posture", () => {
+  /** What the CLI forwards for this server: the tool list as MCP serialises it. */
+  async function listBridgeTools(server: {
+    instance: { connect(transport: unknown): Promise<void> };
+  }) {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import(
+      "@modelcontextprotocol/sdk/inMemory.js"
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "bridge-tools-test", version: "0.1.0" }, {});
+    await server.instance.connect(serverTransport);
+    await client.connect(clientTransport);
+    return (await client.listTools()).tools;
+  }
+
+  /** Every handler supplied, so the full five-tool roster is registered. */
+  function fullServer() {
+    const unreachable = () => Promise.reject(new Error("not called in this test"));
+    return claudeAsk.createBrainUiMcpServer({
+      askUser: unreachable as never,
+      getLocation: unreachable as never,
+      requestMask: unreachable as never,
+      queryActivity: unreachable as never,
+      brainPath: "/nonexistent",
+    });
+  }
+
+  test("every bridge tool ships ALWAYS LOADED, not deferred behind tool search", async () => {
+    // D44, measured over 108 live turns: deferred, `show_block` fired on 56%
+    // of turns with its brief and on 0% without it, because a deferred tool is
+    // not in the model's context until it runs `ToolSearch` and the brief is
+    // the only text that names it. Loaded, 78% either way. Dropping this flag
+    // does not merely lower a rate — it makes a prompt line load-bearing for
+    // whether a tool exists at all, which is the failure mode this test is
+    // here to prevent.
+    const tools = await listBridgeTools(fullServer());
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      [...shared.BRIDGE_TOOL_POSTURE.names].sort()
+    );
+    for (const tool of tools) {
+      expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);
+    }
+  });
+
+  test("the same tool registered without the flag carries no meta, so the check above can fail", async () => {
+    // Without this the assertion above would pass against an SDK that had
+    // started stamping the flag unconditionally, or a probe that could not
+    // tell the two apart. Same tool factory the backend uses, registered the
+    // one way the backend does not.
+    const { createSdkMcpServer } = await import("@anthropic-ai/claude-agent-sdk");
+    const tools = await listBridgeTools(
+      createSdkMcpServer({
+        name: "brain-ui",
+        version: "0.1.0",
+        tools: [claudeBlock.createShowBlockTool()],
+      })
+    );
+    expect(tools.map((tool) => tool.name)).toEqual([shared.SHOW_BLOCK_TOOL_NAME]);
+    expect(tools[0]!._meta?.["anthropic/alwaysLoad"]).toBeUndefined();
+  });
+
+  test("pi had no deferral to decide: its bridge tools are always in the prompt", async () => {
+    // The other half of D44, and the reason the decision is scoped to the
+    // Claude SDK. pi's `splitDeferredTools` defers a tool only when an earlier
+    // tool result added it to the conversation and nothing has called it since;
+    // a statically registered `ToolDefinition` can never be in that set. So
+    // `createPiBridgeTools` returns tools that ride every prompt, and pi has
+    // never run any other configuration — which is what #137's gap was.
+    const root = mkdtempSync(join(tmpdir(), "bridge-posture-"));
+    try {
+      const tools = makeAdapters(root).pi;
+      expect(tools.map((tool) => tool.name).sort()).toEqual(
+        [...shared.BRIDGE_TOOL_POSTURE.names].sort()
+      );
+      // Nothing in a pi tool definition can ask for deferral: the shape has no
+      // field for it, which is the point.
+      for (const tool of tools) {
+        expect(Object.keys(tool)).not.toContain("deferLoading");
+        expect(Object.keys(tool)).not.toContain("defer_loading");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

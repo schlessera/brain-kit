@@ -2518,3 +2518,217 @@ bun scripts/measure-show-block.ts --always-load --reps 3 --only \
 ``` It is a script and not a test: it needs
 the network and a key, so CI never runs it. Re-run it before changing the brief
 again.
+
+## 2026-09-22 — D44: the bridge tools are always loaded, not deferred behind tool search
+
+**Question.** D43 ended with a filed finding rather than a decision:
+`packages/ui-backend-claude/src/ask-user-tool.ts` created the `brain-ui` MCP
+server without `alwaysLoad`, so the Agent SDK deferred all five bridge tools
+behind tool search, and forcing them into the prompt reached 79% with no brief
+at all. #148 asked whether that is the configuration that should ship. It is an
+arithmetic question and nobody had done the arithmetic.
+
+**What the SDK actually offers**, checked against the installed
+`@anthropic-ai/claude-agent-sdk@0.3.278` rather than recalled:
+
+- `createSdkMcpServer({ alwaysLoad: true })` stamps
+  `_meta["anthropic/alwaysLoad"]` on every tool it registers. Leaving it unset
+  is deferral, and that is the default.
+- **A per-tool split is possible.** `tool(name, description, schema, handler,
+  { alwaysLoad })` exists and is OR'd with the server-level flag, so "load some
+  and not others" was a real option; it is rejected below on its merits rather
+  than for being unavailable. The same extras object carries `searchHint`,
+  which steers the search index. Nothing in the tree sets one.
+- **The startup-latency objection does not apply to this server.** The warning
+  that `alwaysLoad` "blocks startup until the server is connected (capped at
+  the standard 5s connect timeout)" is attached to `McpStdioServerConfig`,
+  `McpHttpServerConfig` and `McpSSEServerConfig` — the out-of-process
+  transports. `CreateSdkMcpServerOptions` carries no such warning and
+  `McpSdkServerConfig` has no `alwaysLoad` field at all, because an in-process
+  server has nothing to connect to. The measurement below confirms it.
+- The deferral is the API's mechanism rather than a client-side index: the
+  shipped CLI binary contains `defer_loading`, `tool_search_tool_regex` and
+  `tool_search_tool_bm25`, which is what makes both shapes priceable by
+  `count_tokens`.
+
+**The arithmetic, counted rather than estimated.**
+`bun scripts/measure-show-block.ts --tokens` takes the schemas from the real
+server — `createBrainUiMcpServer` with every handler supplied, listed over an
+in-memory MCP client, which is the serialisation the CLI forwards — and prices
+them with `count_tokens` on `claude-sonnet-5` in the two shapes the API
+receives: a plain tool definition, and one carrying `defer_loading: true`
+beside a tool-search tool. Both columns are measured against the same floor (a
+search tool plus one undeferred tool, 682 tokens), so what is left is what this
+decision is responsible for.
+
+| bridge tool | in the prompt | its brief | brief lines |
+| --- | --- | --- | --- |
+| `show_block` | **5270** | 256 | 11 |
+| `ask_user` | 756 | 87 | 4 |
+| `query_activity` | 552 | 108 | 4 |
+| `request_image_mask` | 383 | 110 | 5 |
+| `get_current_location` | 374 | 94 | 4 |
+| **all five** | **7335** | **655** | 28 |
+
+Deferred: **93 tokens** for the whole set, and the same 93 for one deferred
+tool as for five — the API prices the deferred set as a fixed block rather than
+per tool.
+
+Ten to one, then, and `show_block` is 5270 of the 7335: 72% of the bridge
+surface is one eleven-variant union, 11,452 serialised characters of which
+11,319 are a flat `oneOf` with no `$defs` and no `$ref`. **That ratio is the
+number this decision was expected to turn on, and it is not what decided it.**
+
+**The measurement.** `scripts/measure-show-block.ts`, nine prompts, two arms,
+three repetitions, run once in each configuration: 108 live turns on
+`claude-sonnet-5` against a copy of `packages/core/fixtures/corpus/`, $11.43 of
+API spend, **every turn completed in both runs**. D43's counting rules carry
+over unchanged — only calls whose argument parses through the contract's schema
+count, subagent frames are skipped, an incomplete turn is excluded from every
+rate. Two columns are new: per-turn input tokens as the SDK reports them, and
+wall time to the first assistant frame.
+
+| configuration | arm | a `show_block` call | ran `ToolSearch` | input per round-trip | first frame |
+| --- | --- | --- | --- | --- | --- |
+| deferred — what shipped | brief | 15 of 27 (**56%**) | 16 | 24,458 | 3883 ms |
+| deferred | no-brief | 0 of 27 (**0%**) | 0 | 21,417 | 4449 ms |
+| always loaded | brief | 21 of 27 (**78%**) | 1 | 26,340 | 4277 ms |
+| always loaded | no-brief | 21 of 27 (**78%**) | 1 | 26,885 | 4620 ms |
+
+D43's 79%/79% replicates at 78%/78%. Across the two runs that is 51 turns per
+cell agreeing: **once the tool is in the prompt, the brief changes nothing.**
+
+The deferred no-brief arm against the loaded no-brief arm isolates the schema
+cleanly — neither searches, so the only difference is the schema in the prompt:
+21,417 against 26,885, a delta of 5468 against the 5270 `count_tokens` priced.
+The arithmetic is confirmed by the live run.
+
+**What it costs, which is the part the ratio got wrong.** Turns that delegated
+to a subagent are excluded from the cost comparison — a subagent's bill is
+several times the turn's own and the two runs drew a different number of them
+(11 and 10), so leaving them in measures delegation rather than loading.
+
+| configuration | arm | turns | $ / turn | median $ / turn | rate |
+| --- | --- | --- | --- | --- | --- |
+| deferred | brief | 21 | $0.0559 | $0.0550 | 57% |
+| deferred | no-brief | 22 | $0.0383 | $0.0327 | 0% |
+| always loaded | brief | 23 | **$0.0594** | $0.0472 | 78% |
+| always loaded | no-brief | 21 | $0.0475 | $0.0419 | 81% |
+
+**Like for like, always loading the tool raised the bill by 6%** — not by the
+ten to one the token ratio implies, and not by the 24% the isolated no-brief
+comparison shows either. The reason is that the deferred configuration does not
+avoid the schema; it postpones it. A tool search **appends** the matched
+definition rather than swapping it, so from the search onwards every remaining
+round-trip of that turn carries the full 5270 anyway — and the turn has also
+paid for an extra model round-trip to get it. Measured across the shipped
+configuration: turns that ran `ToolSearch` billed 26,029 input tokens per
+round-trip against 21,636 for turns that did not. **Deferral saves the schema
+only on the turns that never wanted the tool.**
+
+First frame did not move in any direction the samples can distinguish
+(3883–4449 ms deferred, 4277–4620 ms loaded; medians 3185–3804 against
+3263–3553). The in-process server has no connect step to block on, and the
+numbers agree.
+
+**Decision. `createBrainUiMcpServer` sets `alwaysLoad: true`.** The bridge
+tools ride every prompt. 22 percentage points of call rate for 6% of a turn,
+no measurable latency, and the end of a structural fragility: under deferral a
+tool's existence depended on a line of prompt text, so an editor shortening a
+brief could silently remove a tool and no test would notice. That is not a
+trade-off anyone would choose on purpose, and D43 found it by accident.
+
+`tests/bridge-tools.test.ts` ("bridge tool loading posture") holds it: every
+registered bridge tool carries `_meta["anthropic/alwaysLoad"]`, with a
+companion test registering the same factory without the flag and asserting the
+meta is absent, so the first assertion cannot pass vacuously.
+
+**Why not keep deferral.** Its case is the 7335-against-93 ratio, and the live
+run says that ratio does not reach the bill. Its second argument — that D42's
+classification pass already reaches eight of the eleven kinds, so the extra
+calls are redundant — holds as far as it goes, and the split table says the gain
+is indeed concentrated there (9 of 18 to 15 of 18 on pass-reachable kinds, 6 of
+9 either way on the three the pass cannot reach). But D42's own rule is that no
+code path may depend on the pass having run: it needs a key, a live classifier
+inside 2 s and an answer over the confidence gate, and a deployment missing any
+of those gets nothing on those eight kinds unless the tool fires. Redundancy
+with a conditional path is not redundancy.
+
+**Why not a per-tool split.** The SDK allows one, so it was considered rather
+than assumed away. It loses on coherence: the only tool with a measured
+discoverability gap is also the expensive one, so loading "just the cheap four"
+spends 2065 tokens on tools that have no measured problem and leaves the one
+that does behind the search — and a surface where four tools are found one way
+and the fifth another is a thing every later reader has to be told.
+
+**Why `searchHint` is still unused.** It steers the search index, and the
+search index is not where the loss was: over 54 turns in the deferred
+configuration, 16 ran `ToolSearch` and 15 of those called `show_block`. The
+search found the tool essentially every time it ran. The loss was in the model
+not running one — and with the tools loaded there is no search to steer.
+
+**What this means for backends that are not the Claude SDK.** Deferral is a
+property of the Claude Agent SDK, not of the bridge, so this decision is scoped
+to that backend. The backend-neutral obligation is one line: **a bridge tool
+has to be in the model's context, and each backend says how.** The pi backend
+already met it and had nothing to decide. `createPiBridgeTools` returns
+ordinary in-process `ToolDefinition`s, and pi's own `splitDeferredTools` defers
+a tool only when an earlier tool result added it to the conversation and
+nothing has called it since — a statically registered tool can never be in that
+set.
+
+That reframes #137. It measured pi at 21 of 23 against a much lower Claude
+number on the same prompts, and the natural reading was that the two backends
+disagree about the tool. They do not: pi was already in the always-loaded
+configuration and had never run any other one, and its 21 of 23 sits where the
+always-loaded Claude numbers sit. The gap was this decision's gap. Any future
+comparison of the two backends has to say which loading configuration each side
+was in, and a rate measured on one backend is not a property of the tool.
+
+**What this changes in D43.** Its decision — the brief stays — stands, and its
+measurement is the evidence this entry rests on; the deferral finding is D43's,
+not this one's. What this supersedes is its *reason*. D43 kept the brief
+because removing it took the rate to zero, and that was true only of the
+deferred configuration. With the tools loaded, the brief measures at no effect
+at all: 78% with it and 78% without it here, 79%/79% there, 51 turns per cell.
+The brief is no longer the tool's discovery path, so whether it earns 655
+tokens across five tools has to be re-argued on its own merits rather than
+inherited. **#148 scoped the brief's wording out of this decision, so nothing
+about it changes here** and its budget in
+`packages/ui-sdk/tests/tool-contracts.test.ts` is untouched at eleven lines and
+749 characters. The question is filed.
+
+**What is not claimed.**
+
+- One model (`claude-sonnet-5`, pinned so a re-run compares like for like) and
+  one brain, a copy of `packages/core/fixtures/corpus/`. A larger brain means a
+  larger base prompt, so the 7335 is a smaller share of it — and also more
+  round-trips to pay it on.
+- The cost figures are 21–23 turns per cell, and they are the least stable
+  numbers here: mean and median disagree by up to 20% within a cell. The
+  direction is consistent across both statistics and both arms; the magnitude
+  is not to be quoted to two figures.
+- The two runs were taken in different windows against a shared rate limit, so
+  wall-clock durations are not comparable between them and no claim here rests
+  on one. First-frame latency is reported because it is what #148 asked for,
+  and the honest reading of it is "no detectable difference", not a number.
+- Only `show_block` was registered in the measured server, as it was in D43, so
+  the live arms measure 5270 tokens of schema and the 7335 figure is the
+  arithmetic for the roster a fully wired deployment registers. The four other
+  tools' briefs have never been A/B'd against anything.
+- `count_tokens` prices the deferred set as a flat 93 tokens whether one tool
+  is deferred or five. That is the API's own accounting and it is what gets
+  billed, but it means this entry cannot say what a sixth deferred tool costs.
+
+**Reproducing it.**
+
+```sh
+bun scripts/measure-show-block.ts --tokens
+bun scripts/measure-show-block.ts --reps 3 --concurrency 6 --out deferred.json --md deferred.md
+bun scripts/measure-show-block.ts --always-load --reps 3 --concurrency 6 --out loaded.json --md loaded.md
+```
+
+Both need `ANTHROPIC_API_KEY` and the network; CI runs none of it. Note that
+the harness's default arms now measure the shipped configuration only when
+`--always-load` is passed, because what ships changed — the flag's name is left
+alone so D43's invocations keep reproducing D43's tables.

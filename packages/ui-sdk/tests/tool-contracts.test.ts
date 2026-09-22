@@ -83,11 +83,15 @@ describe("show_block", () => {
     // D43 measured what these eleven lines buy and what they cost: 257 input
     // tokens on every turn, against a `show_block` rate of 59% with them and
     // 2% without, over 102 completed live turns. Near zero rather than merely
-    // lower, because the SDK defers an MCP server's tools behind tool search —
-    // the brief is the only text that tells the model the tool exists. Both
-    // budgets are pinned at what was measured rather than at a round number
-    // above it, so a twelfth line, or a longer one, has to be argued for and
-    // re-measured instead of drifting in. Measured on the name the Claude
+    // lower, because the SDK deferred an MCP server's tools behind tool search
+    // and the brief was the only text that told the model the tool existed.
+    // D44 removed that deferral (`alwaysLoad: true` on the bridge server), and
+    // with the tool in the prompt the same A/B measures 78% with the brief and
+    // 78% without it. So these budgets no longer stand on that near-zero: they
+    // stand on nobody having re-argued the brief since, which is filed rather
+    // than settled here. They stay pinned at what was measured rather than at
+    // a round number above it, so a twelfth line, or a longer one, still has
+    // to be argued for instead of drifting in. Measured on the name the Claude
     // backend actually sends: the MCP prefix is fifteen of those characters.
     const brief = SHOW_BLOCK_CONTRACT.brief(
       visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude")

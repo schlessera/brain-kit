@@ -105,6 +105,19 @@ export function createBrainUiMcpServer(handlers: {
     name: MCP_SERVER_NAME,
     version: "0.1.0",
     tools,
+    // D44. The SDK defers an MCP server's tools behind tool search unless this
+    // is set, and a deferred tool is not in the model's context at all until
+    // the model decides to go looking for it. Measured over 108 live turns:
+    // `show_block` fired on 56% of turns deferred against 78% loaded, and on
+    // none at all when the brief that names it was removed — the deferral made
+    // a prompt line load-bearing for whether a tool existed. The schemas cost
+    // 7335 input tokens per round-trip against 93 deferred, which sounds
+    // decisive and is not: the deferred path spends a `ToolSearch` round-trip
+    // instead, and that costs more than the schemas save. Like for like the
+    // bill rose 6%. Nothing here blocks startup — the SDK's connect-timeout
+    // caveat is on the stdio/HTTP/SSE server configs, and an in-process server
+    // has nothing to connect to.
+    alwaysLoad: true,
   });
 }
 
