@@ -2352,7 +2352,7 @@ configuration the structural equivalent of this record's `--always-load`
 to have one: `packages/ui-backend-pi/src/session-resources.ts:157` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
-all about whether the brief matters; the 77%/77% here and #148's 78%/78% are
+all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
 one backend measured twice, not two backends agreeing. It is also not the
 Claude backend's shipping configuration, and `--always-load` is the controlled
 version of the same comparison: it flips deferral alone, on one backend, one
@@ -2362,8 +2362,9 @@ stops caring whether the brief is present.
 
 What that does NOT settle, and #137 owns:
 
-- **The remaining height.** pi's 90% against 77% always-loaded here is a real
-  gap and deferral does not explain it.
+- **The remaining height.** pi's 90% against 77% always-loaded here — and
+  #148's 76–77% on the shipped always-loaded configuration — is a real gap,
+  and deferral does not explain it.
 - **`contact`.** 3 of 6 on pi against 1 of 6 loaded here. Six turns a side is
   not enough to call a difference, and this record should not be read as
   having found one.
@@ -2373,7 +2374,7 @@ What that does NOT settle, and #137 owns:
 
 The prediction this makes is falsifiable, and #148 has since checked it: if the
 Claude backend adopts `alwaysLoad: true`, its numbers should move toward pi's
-90% rather than merely upward. **They landed at 77–78%, short of it.** So the
+90% rather than merely upward. **They landed at 76–77%, short of it.** So the
 prediction partly failed, which is the useful outcome — deferral is not the
 whole cause, and whatever else separates the two backends is #137's to find.
 Roughly a third of the gap this record attributed to deferral is unexplained by
