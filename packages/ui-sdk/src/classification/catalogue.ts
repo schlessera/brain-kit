@@ -331,6 +331,9 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
  */
 const TONED_ROWS_MAX = 8;
 
+/** The `subject` answer that means no line of the run holds the name. */
+const NO_SUBJECT = "none";
+
 /** The tones a value can be given, each named by what the text says, not by its colour. */
 const VALUE_TONE_CRITERIA: Record<string, string> = {
   teal: "It reports something that went well, is finished, or is healthy.",
@@ -359,7 +362,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     // headers. A contact needs a label, and a label the text does not carry
     // is one the surface would be inventing.
     const subjectOptions: Record<string, string> = {
-      none: "No line names it: the lines are facts about something the run does not name.",
+      [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
     };
     for (const row of candidate.rows) {
       if (row.k && !(row.k in subjectOptions)) {
@@ -426,10 +429,16 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     }
     if (shape.choice === "contact") {
       const subject = choiceAt(answers, `${candidate.id}.subject`, CONFIDENCE.swap);
-      if (!subject) return null;
-      // "none", or a key the run does not carry: no label, so no card.
+      // The sentinel wins over a line that happens to be keyed "none": that
+      // line is never offered as an option, so the answer cannot mean it.
+      if (!subject || subject.choice === NO_SUBJECT) return null;
+      // A key the run does not carry: no label, so no card.
       const named = candidate.rows.findIndex((row) => row.k === subject.choice);
       if (named < 0) return null;
+      // A value that was nothing but a code span strips to empty. A card with
+      // no name on it is worse than the markdown it would replace.
+      const label = candidate.rows[named]!.v.trim();
+      if (!label) return null;
       const facts = candidate.rows.flatMap((row, index) =>
         index === named ? [] : [{ k: row.k, v: row.v, ...toned(index) }]
       );
@@ -437,7 +446,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       return validated(
         {
           kind: "contact",
-          label: candidate.rows[named]!.v,
+          label,
           ...(contactKind && (BLOCK_CONTACT_KINDS as readonly string[]).includes(contactKind.choice)
             ? { contactKind: contactKind.choice }
             : {}),

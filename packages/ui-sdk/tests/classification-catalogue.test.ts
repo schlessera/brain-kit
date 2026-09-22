@@ -219,6 +219,56 @@ describe("the catalogue", () => {
     expect(transformCandidate(run!, { "c0.shape": choice("plain", 0.95) })).toBeNull();
   });
 
+  test("a line keyed `none` does not become a label, because it was never offered as one", () => {
+    const [run] = detectCandidates("**none:** Nobody\n**Role:** King of Ithaca");
+    // `none` is the answer for "no line names it", and it is the only meaning
+    // available: the line keyed `none` is not among the options the question
+    // lists, so an answer of `none` cannot be pointing at it.
+    const options = questionsFor(run!)["c0.subject"];
+    expect(options?.type).toBe("choice");
+    if (options?.type !== "choice") return;
+    expect(Object.keys(options.criteria)).toEqual(["none", "Role"]);
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("none", 0.95) })
+    ).toBeNull();
+  });
+
+  test("a name that strips to nothing is no name, so the markdown stays", () => {
+    // A value that was only a code span survives detection as an empty
+    // string; `label` is a plain string in the schema, so a blank card would
+    // otherwise validate.
+    const [run] = detectCandidates("**Name:** `` \n**Role:** King of Ithaca");
+    expect((run as { rows: Array<{ k: string; v: string }> }).rows[0]).toEqual({ k: "Name", v: "" });
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Name", 0.95) })
+    ).toBeNull();
+  });
+
+  test("when two lines share a key, the first is the name and the second stays a fact", () => {
+    const [run] = detectCandidates("**Name:** Odysseus\n**Name:** Nobody\n**Role:** King of Ithaca");
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Name", 0.95) })?.block
+    ).toEqual({
+      kind: "contact",
+      label: "Odysseus",
+      facts: [{ k: "Name", v: "Nobody" }, { k: "Role", v: "King of Ithaca" }],
+    });
+  });
+
+  test("a contact kind the block schema does not carry is dropped, not passed on", () => {
+    const [run] = detectCandidates(CONTACT_RUN);
+    const result = transformCandidate(run!, {
+      "c0.shape": choice("contact", 0.9),
+      "c0.subject": choice("Name", 0.9),
+      "c0.contact_kind": choice("deity", 0.95),
+    });
+    expect(result?.block).toEqual({
+      kind: "contact",
+      label: "Odysseus",
+      facts: [{ k: "Role", v: "King of Ithaca" }, { k: "Last seen", v: "Ogygia" }],
+    });
+  });
+
   test("a value tone colours the row it was asked about, on a receipt and on a contact's facts", () => {
     const [run] = detectCandidates("**Ships:** 12\n**Crew:** lost");
     expect(
