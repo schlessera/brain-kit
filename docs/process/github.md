@@ -135,10 +135,9 @@ blocked, and it can be picked up now. An agent picking work should filter
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
 open PR says it closes the issue. It reads the `blocked` label, not the blocker:
 closing a blocker does not clear the label on its dependant, so the dependant
-stays out of Ready until someone removes it (#188 tracks deriving it). `In
-progress` and `Done` are
-statements about a person or an agent rather than about labels, so the script
-reads them and leaves them alone.
+stays out of Ready until someone removes it (#188 tracks deriving it).
+`In progress` and `Done` are statements about a person or an agent rather than
+about labels, so the script reads them and leaves them alone.
 
 That is what the `blocked` label is for, and why it is worth applying: four of
 the container issues and two of the template ones are `agent-ready` and *not*
