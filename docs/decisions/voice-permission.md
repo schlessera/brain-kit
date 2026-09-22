@@ -200,7 +200,7 @@ posture, it is a wish.
 | `mcp__brain__brain_list` | Read-only enumeration. |
 | `mcp__brain__brain_graph` | Read-only. |
 | `mcp__brain__brain_add` | Creates a new document. The single most valuable eyes-free action there is — capture. A create destroys nothing: the worst case is a document the user did not want, which appears in Files and is removable. |
-| `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action. It is the one entry here that can lose prior content; it is recoverable because the content repo is git, and it goes through the frontmatter/index path rather than raw bytes. |
+| `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`packages/core/src/mcp-server.ts:574-578`), so no prose can be lost. What it can overwrite is a frontmatter scalar — `summary`, `status`, `relevance`, `tags`, `deadline`, `next_review` (`:556-572`) — replacing a prior value in place with no checkpoint. Git recovers that only if the document was committed, so the honest claim is "loses at most one frontmatter field, recoverable if committed", not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
 | the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:45-60`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
@@ -356,8 +356,13 @@ of 192 measured approvals were kind `command`.
 Under the voice posture, once #110 closes the last gap, **no approval card can
 arise at all**. Every tool in the posture is auto-allowed; every tool
 outside it is ungrantable and therefore denied; and a kind-`command` request
-only ever comes from `Bash`, which is not in the posture. That is the intended
-end state and it is worth saying out loud, because it means the interaction
+only ever comes from `Bash`, which is not in the posture — so the
+`commandAllowed` re-add described below raises a request that #110 denies rather
+than one that parks. "No card" is not "nothing can stall", and the one exception
+is named below: `request_image_mask` sits inside the enforced allowlist whatever
+the posture declares, so it is auto-allowed, raises no card, and blocks the turn
+on a region nobody will paint. That is why filtering the bridge-tool append is
+part of #110 rather than a separate nicety. That is the intended end state and it is worth saying out loud, because it means the interaction
 above is not the common case — it is the case that must not be got wrong.
 
 It fires in three situations, and they are the reason the design exists rather
@@ -637,8 +642,17 @@ spoken grant would be genuinely verifiable. It is still refused in v1, because
 admitting it requires a per-tool "this payload is speakable" declaration, that
 declaration is a seam, and ROADMAP binding decision 2 does not buy a seam for
 one caller. The test it must pass to be revisited: a second tool that needs the
-same declaration. Until then, archiving by voice means the model says it is
-waiting and the card is answered on a screen.
+same declaration.
+
+Until then, what happens depends on which turn it is, and the two must not be
+confused. **Under an enforced voice posture, `brain_archive` is outside the
+allowlist, so it is denied — immediately, with no card**, like every other
+excluded tool; the user hears that it did not happen and that it needs a screen.
+**On an ordinary turn where the user happens to be listening** — situation 2 of
+"When the announcement actually fires" — the card is live, the announcement uses
+the payload-free fallback, and the decision is made on the screen. An earlier
+draft of this paragraph described the second case as though it were the first,
+which would have asked an implementer for a card the posture forbids.
 
 **Whether the voice posture should also be the phone posture.** A phone in a
 pocket and a phone in a hand are different, and nothing here measures the
