@@ -2729,6 +2729,25 @@ this they are not. The remaining height between them — D43 puts it at 90%
 against 77% always-loaded — is #137's to explain, and this entry makes no claim
 about it.
 
+**The prediction, with the condition that would falsify it.** If deferral is
+the whole of the difference, this change moves the Claude backend *toward* pi's
+90% and not merely upward from 56%. It has already landed at 77–78% in the
+measurement above, which is short of pi. **That shortfall is the prediction
+failing, not confirming**, and it says something besides deferral is also in
+play — so #137's search stays live and this entry does not close it. The
+honest claim is narrower than "the backends now agree": the configuration
+difference is gone, and a residue of roughly thirteen points is not.
+
+Two things stop that residue being read as a like-for-like gap, and both cut
+against reading pi as a second replication of the brief result. pi is on a
+different harness driving the model directly, and — this is the one that
+matters — **pi has no no-brief arm and no supported way to have one.**
+`packages/ui-backend-pi/src/session-resources.ts:157` passes the block brief
+into `buildSystemPromptAppend` unconditionally, not behind a capability check
+like `askUser`, `location`, `activity` and `mask` on the lines above it. So
+every pi number was measured with the brief present. The 77%/77% and 78%/78%
+cells are one backend measured twice, not two backends agreeing.
+
 **What this changes in D43.** Its decision — the brief stays — stands, and its
 measurement is the evidence this entry rests on; the deferral finding is D43's,
 not this one's. What this supersedes is its *reason*. D43 kept the brief
@@ -2740,10 +2759,21 @@ tokens across five tools has to be re-argued on its own merits rather than
 inherited. **#148 scoped the brief's wording out of this decision, so nothing
 about it changes here** and its budget in
 `packages/ui-sdk/tests/tool-contracts.test.ts` is untouched at eleven lines and
-749 characters. The question is filed.
+749 characters — now a ceiling on drift rather than evidence that the lines
+earn their place. The question is #156.
 
 **What is not claimed.**
 
+- **Every rate in this entry scores whether a block was drawn, never which
+  kind.** A turn that reached for `table` where `comparison` was right counts
+  as a call in all of it, in both configurations and both arms. So "always
+  loading raises the rate from 56% to 78%" is a claim about reaching for the
+  tool and not about the answer being better, and the brief's measured
+  no-effect is a no-effect on rate only. This is not a hedge — #50's
+  kind-correctness pass on the pi backend found a systematic miss (`schedule`
+  prescribed, `timeline` drawn, 2 of 2), which is exactly the failure mode a
+  rate cannot see. **Nothing here should be quoted as evidence that the surface
+  draws the right block.** #156 makes kind-correctness its metric.
 - One model (`claude-sonnet-5`, pinned so a re-run compares like for like) and
   one brain, a copy of `packages/core/fixtures/corpus/`. A larger brain means a
   larger base prompt, so the 7335 is a smaller share of it — and also more
