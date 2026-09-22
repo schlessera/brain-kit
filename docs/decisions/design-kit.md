@@ -2431,7 +2431,7 @@ comparison #137 was filed with and did not close.
 
 **Decision. The brief stays, unchanged.** On the Claude backend, in the
 configuration this entry measured — tools deferred behind tool search, which
-D44 changes the same day — it is
+#148 changes the same day — it is
 not encouragement to use a tool the model can already see; it is the only thing
 that tells the model the tool exists. Retiring it does not lower the rate from
 59% to something smaller — it takes the rate to the noise floor and makes three
