@@ -429,6 +429,26 @@ describe("brain stats (spawned)", () => {
     }
   });
 
+  // --all is in the global BOOLEAN_FLAGS set, which predates this change and
+  // is shared with `brain process --all`. These are the parser interactions
+  // that set creates for `stats`.
+  test("--all parses like every other boolean flag", async () => {
+    // Piped stdout defaults to JSON, so `--all` alone must not turn on human
+    // output or be mistaken for a value flag swallowing the next argument.
+    const bare = await runCli(root, ["stats", "--all"]);
+    expect(bare.code).toBe(0);
+    expect(() => JSON.parse(bare.stdout)).not.toThrow();
+
+    // After a bare `--`, "--all" is a positional, not a flag: the human output
+    // stays capped.
+    const afterSeparator = await runCli(root, ["stats", "--human", "--", "--all"]);
+    expect(afterSeparator.code).toBe(0);
+    expect(afterSeparator.stdout).toContain("+3 more (6 documents)");
+
+    // And a genuine typo is still a usage error rather than a silent no-op.
+    expect((await runCli(root, ["stats", "--alll"])).code).toBe(1);
+  });
+
   test("--help documents --all and the cap", async () => {
     const { stdout, code } = await runCli(root, ["stats", "--help"]);
     expect(code).toBe(0);
@@ -496,4 +516,17 @@ describe("byte scaling", () => {
       expect(out).toContain(`  Index: ${rendered}\n`);
     });
   }
+});
+
+describe("ordering is not locale-dependent", () => {
+  // The cap makes the tie-break decide which rows print at all, so it must
+  // give the same answer under every runtime locale. Byte order does; a
+  // locale-aware collation does not agree with it on case or on accents.
+  test("ties break by code unit, the same answer under any ICU collation", () => {
+    const tied = { Zeta: 3, alpha: 3, Ábra: 3, beta: 3, gamma: 3, delta: 3, epsilon: 3 };
+    const out = formatStats(statsWith({ byType: tied, documents: 21 }), { all: false, stale: STALE });
+    const rows = out.slice(out.indexOf("  By type:")).split("\n").slice(1, 1 + BREAKDOWN_CAP);
+    expect(rows).toEqual(["    Zeta: 3", "    alpha: 3", "    beta: 3", "    delta: 3", "    epsilon: 3"]);
+    expect(out).toContain("+2 more (6 documents)");
+  });
 });

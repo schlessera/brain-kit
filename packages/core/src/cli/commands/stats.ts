@@ -115,10 +115,17 @@ function healthLine(label: string, value: string): string {
  * `collectStats` hands them over as an object, and JavaScript reorders
  * integer-like keys of an object ahead of the rest — a status or type whose
  * name is all digits would otherwise jump the ranking and make the cap keep
- * the wrong five. Ties break by name so the output is deterministic.
+ * the wrong five.
+ *
+ * Ties break by name, compared by code unit rather than `localeCompare`: the
+ * cap makes the tie-break decide which rows are printed at all, and
+ * `localeCompare` reads the runtime's default locale, which neither CI nor a
+ * user's shell pins. Byte order is the same answer everywhere.
  */
 function breakdown(label: string, counts: Record<string, number>, all: boolean): string[] {
-  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const rows = Object.entries(counts).sort(
+    (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
+  );
   if (rows.length === 0) return [`  ${label}: none`];
 
   const lines = [`  ${label}:`];
