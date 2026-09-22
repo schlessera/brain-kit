@@ -213,6 +213,17 @@ function browserLauncher(options: {
   onMainFrameStatus?: (url: string, status: number) => void;
 }): () => Promise<unknown> {
   const env = resolveEnv();
+  if (options.offline && env.chromeUrl) {
+    // An attached browser was launched by somebody else, so its command line
+    // is not ours to set and the offline guarantee cannot be made. Refusing is
+    // the only honest answer: a replay that quietly reached the live site
+    // would produce numbers that look exactly like the offline ones.
+    throw new Error(
+      "--replay cannot use SCRAPE_CHROME_URL: an attached browser's network " +
+        "flags belong to whoever launched it, and the replay must not reach " +
+        "the site the capture came from. Unset it and let this launch its own."
+    );
+  }
   return async () => {
     const puppeteer = (await import("puppeteer-core")).default;
     const browser = env.chromeUrl
@@ -269,6 +280,19 @@ async function replay(source: string, file: string): Promise<void> {
     console.error(`${source} is not a browser board; run it against its fixture directly`);
     process.exit(2);
   }
+  if (resolveEnv().chromeUrl) {
+    // A usage error, not a crash: say what to do and stop.
+    console.error(
+      "--replay cannot use SCRAPE_CHROME_URL. An attached browser's network flags\n" +
+        "belong to whoever launched it, so the replay cannot promise it will not\n" +
+        "reach the site the capture came from — and a replay that quietly did\n" +
+        "would produce numbers indistinguishable from the offline ones.\n" +
+        "Unset SCRAPE_CHROME_URL and let this launch its own browser."
+    );
+    process.exit(2);
+  }
+  // No `browserUrl` here: an attached browser is refused above, so this
+  // session always owns the one it gets and closing it is correct.
   const session = createBrowserSession({
     launch: browserLauncher({ offline: true, scripts: false }),
   });
@@ -327,6 +351,11 @@ async function main() {
   if (adapter.needsBrowser) {
     browser = createBrowserSession({
       userAgent: env.userAgent,
+      // `launch` wins over the session's own connect/launch, but `browserUrl`
+      // is still what decides OWNERSHIP: without it the session believes it
+      // launched the browser and closes an attached one out from under whoever
+      // else is using it.
+      browserUrl: env.chromeUrl,
       launch: browserLauncher({
         onMainFrameStatus: (url, status) => observedStatus.set(url, status),
       }),
