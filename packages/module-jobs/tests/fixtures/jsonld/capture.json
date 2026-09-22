@@ -1,0 +1,79 @@
+{
+  "captures": [
+    {
+      "captured_at_utc": "2026-09-22T19:30Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 13130,
+      "excerpt_edited": "no. Whole <script> elements only, joined by an elided comment where the page served more than one. Invisible codepoints inside the JSON are spelled as \\u escapes, which parse to the same characters.",
+      "fixture": "remotelyde-detail.html",
+      "full_response_bytes": 539729,
+      "full_response_sha256": "bca0f44ea08ad53d66396d191b5205a8aa74eb519e611da7d6c287e8a7d8a7b1",
+      "note": "Both JSON-LD scripts the job page serves, verbatim. The posting one is `id=\"job-posting-jsonld\" type=\"application/ld+json\"` - the attribute comes FIRST, which is what the bare-tag regex this issue removes could not match. The second is a BreadcrumbList of ListItem -> {@id, name}, the same shape as the listing's job entries, and it must not become jobs. The posting itself is the bare-object shape: no @graph, no array, no baseSalary.",
+      "source": "remotelyde",
+      "status": 200,
+      "transport": "http",
+      "url": "https://www.remotely.de/job/grafana-labs-senior-backend-engineer-databases-analytics-germany-remote",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T19:30Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 3270,
+      "excerpt_edited": "no. Whole <script> elements only, joined by an elided comment where the page served more than one. Invisible codepoints inside the JSON are spelled as \\u escapes, which parse to the same characters.",
+      "fixture": "nodesk-detail.html",
+      "full_response_bytes": 53930,
+      "full_response_sha256": "4187090935faa4fab6a69ec03d06cbd190b32ba30ef46886e39a3028ede94e11",
+      "note": "The one JSON-LD script, verbatim. Its attribute value is UNQUOTED (`type=application/ld+json`), `employmentType` is an array rather than a string, and `baseSalary` is the full MonetaryAmount -> QuantitativeValue shape with minValue/maxValue and unitText YEAR. `datePosted` has no time part.",
+      "source": "nodesk",
+      "status": 200,
+      "transport": "http",
+      "url": "https://nodesk.co/remote-jobs/co2lift-customer-support-representative/",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T19:30Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 4100,
+      "excerpt_edited": "no. Whole <script> elements only, joined by an elided comment where the page served more than one. Invisible codepoints inside the JSON are spelled as \\u escapes, which parse to the same characters.",
+      "fixture": "simplyhired-detail.html",
+      "full_response_bytes": 224237,
+      "full_response_sha256": "5bf80c3d12c36e306359a67e0e1dfd3c21f011d85b95283a7a6edb70cab7e969",
+      "note": "The one JSON-LD script, verbatim. `data-next-head` follows the type attribute, and `baseSalary` is quoted per HOUR - the annualization case.",
+      "source": "simplyhired",
+      "status": 200,
+      "transport": "http",
+      "url": "https://www.simplyhired.com/job/q2D3z11eIkUKZLcAFKXx5YtYL_tAtaklzk7ll0XaLc7gqplL4kHH0g",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T19:30Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 5710,
+      "excerpt_edited": "no. Whole <script> elements only, joined by an elided comment where the page served more than one. Invisible codepoints inside the JSON are spelled as \\u escapes, which parse to the same characters.",
+      "fixture": "dice-detail.html",
+      "full_response_bytes": 222939,
+      "full_response_sha256": "e2a154430d0c811f445665467aacb6b84c6c4f85ea122bbdc5cb32d68e57ed4a",
+      "note": "The one JSON-LD script, verbatim. `data-testid` and `id` follow the type attribute - the exact shape PR #2 recorded as the reason Dice never matched - and `baseSalary` is the SHORT documented form, a MonetaryAmount whose `value` is the number itself with no QuantitativeValue and no unitText.",
+      "source": "dice",
+      "status": 200,
+      "transport": "http",
+      "url": "https://www.dice.com/job-detail/c267e627-504f-412f-b8e8-cc8a387b525d",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
+      "captured_at_utc": "2026-09-22T19:30Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 12360,
+      "excerpt_edited": "no. Whole <script> elements only, joined by an elided comment where the page served more than one. Invisible codepoints inside the JSON are spelled as \\u escapes, which parse to the same characters.",
+      "fixture": "jobgether-offer.html",
+      "full_response_bytes": 233648,
+      "full_response_sha256": "ad1e2a43a8368a5c9c54fd51255844be829de738a1a3065b413b7f2a90605474",
+      "note": "All three JSON-LD scripts the offer page serves, verbatim: a BreadcrumbList, the JobPosting, and an @graph of Organization/WebSite/WebPage nodes that are not jobs. `datePosted` is a JavaScript Date.toString() - \"Tue Sep 22 2026 06:31:26 GMT+0000 (Coordinated Universal Time)\" - which is the defect PR #2 recorded in August and which #33 could not re-measure because the CATEGORY urls answer 410. The offer pages do not; it is still live.",
+      "source": "jobgether",
+      "status": 200,
+      "transport": "http",
+      "url": "https://jobgether.com/offer/6ab220be865119c687da3191-distinguished-engineer-security-architecture---dgx-cloud",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    }
+  ]
+}
