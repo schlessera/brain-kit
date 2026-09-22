@@ -102,6 +102,12 @@ policy mirrors the Claude backend:
   `pi-mcp-adapter`, exactly like a non-allowlisted MCP tool on the Claude
   backend.
 
+One place the posture does **not** mirror: an approval carrying `updatedInput`.
+pi applies the edit in place, as its runtime intends, without re-checking the
+edited input against the policy — so an approval can redirect a confirmed call.
+The Claude backend cannot apply an edit from its PreToolUse hook and refuses
+the approval instead. #145 holds that question for both.
+
 A denial blocks the call with the host's message; pi feeds the block back to
 the model as an `isError` tool result, so a denial never crashes the turn. An
 approval may carry `updatedInput`, which patches the tool arguments in place

@@ -47,7 +47,9 @@ const result = {
 async function preToolUse(
   toolName: string,
   toolInput: Record<string, unknown>,
-  decision: PermissionDecision = { behavior: "allow" }
+  decision: PermissionDecision = { behavior: "allow" },
+  /** A deployment allowlist narrower than the default, when the case needs one. */
+  allowedTools?: string[]
 ): Promise<{ output: unknown; permissionCalls: PermissionRequest[] }> {
   const permissionCalls: PermissionRequest[] = [];
   const bridge: BackendBridge = {
@@ -81,7 +83,11 @@ async function preToolUse(
       yield result;
     })()) as unknown as typeof query;
 
-  const backend = createClaudeBackend({ brainPath: "/brain", queryFn });
+  const backend = createClaudeBackend({
+    brainPath: "/brain",
+    queryFn,
+    ...(allowedTools ? { allowedTools } : {}),
+  });
   await backend.startTurn({
     prompt: "archive gate",
     signal: new AbortController().signal,
@@ -145,6 +151,61 @@ describe("an update that archives", () => {
         permissionDecisionReason: "Keep it visible.",
       },
     });
+  });
+});
+
+describe("a deployment that narrowed its allowlist", () => {
+  // The fallback card from canUseTool is kind "tool", which ws/bridge.ts lets
+  // a remembered "always allow" answer with nothing shown. If the hook stopped
+  // confirming here, one such grant would make every later archive silent —
+  // the tool taken OFF the allowlist behaving more permissively than the one
+  // left on it. That is the shape of #124, and it would defeat this whole PR
+  // exactly where a careful deployment expected the most protection.
+  const narrowed = ["Read", "Grep", "mcp__brain__brain_search"];
+
+  test("still raises the per-use confirmation, which cannot be remembered", async () => {
+    const { permissionCalls } = await preToolUse(
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/thing.md", status: "archived" },
+      { behavior: "allow" },
+      narrowed
+    );
+
+    expect(permissionCalls).toHaveLength(1);
+    expect(permissionCalls[0].toolName).toBe(BRAIN_UPDATE_TOOL);
+    // The whole point: "command", not "tool". A "tool" card here is answerable
+    // from the remembered-grant store without the user seeing anything.
+    expect(permissionCalls[0].kind).toBe("command");
+  });
+
+  test("a denial under a narrowed allowlist still stops the write", async () => {
+    const { output } = await preToolUse(
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/thing.md", status: "archived" },
+      { behavior: "deny", message: "Keep it visible." },
+      narrowed
+    );
+    expect(output).toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "Keep it visible.",
+      },
+    });
+  });
+
+  test("a non-archiving update under a narrowed allowlist is left to canUseTool", async () => {
+    // It is off the allowlist, so it still needs a grant — but that grant is
+    // canUseTool's job, not a per-use confirmation from this hook.
+    const { output, permissionCalls } = await preToolUse(
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/thing.md", summary: "A new one-liner" },
+      { behavior: "allow" },
+      narrowed
+    );
+    expect(permissionCalls).toEqual([]);
+    expect(output).toEqual({ continue: true });
   });
 });
 

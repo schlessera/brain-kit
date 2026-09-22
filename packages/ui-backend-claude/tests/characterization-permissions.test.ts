@@ -14,6 +14,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
+import { MUTATING_TOOL_MATCHER } from "../src/tool-policy";
 
 function backendFor(
   run: (options: Options) => AsyncGenerator<unknown>,
@@ -202,7 +203,11 @@ describe("createClaudeBackend permission characterization", () => {
       (options) =>
         (async function* () {
           yield init;
-          const matcher = options.hooks?.PreToolUse?.[0];
+          // By matcher, not index: an enforced turn prepends another hook
+          // (#124). The cases above predate that and pin a non-enforced turn.
+          const matcher = options.hooks?.PreToolUse?.find(
+            (entry) => entry.matcher === MUTATING_TOOL_MATCHER
+          );
           if (!matcher)
             throw new Error("missing mutating-tool PreToolUse hook");
           hookOutput = await matcher.hooks[0]!(

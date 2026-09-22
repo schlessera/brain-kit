@@ -90,8 +90,17 @@ export function createPermissionWiring(options: {
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
   // Model that hook path as command-allowed to preserve the two runtime gates.
+  //
+  // BRAIN_UPDATE_TOOL is here for the same reason, and the reason is sharper:
+  // the fallback card from canUseTool is kind "tool", which a remembered
+  // "always allow" answers without showing anything (ws/bridge.ts refuses to
+  // do that only for kind "command"). Without this line, a deployment that
+  // NARROWED its allowlist would lose the archiving confirmation entirely
+  // after one such grant — the tool removed from the allowlist behaving more
+  // permissively than the tool left on it, which is the shape of #124.
   const commandAllowed = new Set(allowed);
   commandAllowed.add("Bash");
+  commandAllowed.add(BRAIN_UPDATE_TOOL);
 
   const canUseTool: NonNullable<Options["canUseTool"]> = async (
     toolName,
@@ -172,9 +181,12 @@ export function createPermissionWiring(options: {
     // can always reach the same effect another way, which is the posture
     // DEFAULT_CONFIRM_BASH_PATTERNS states in full.
     //
-    // A call that is NOT auto-allowed yields kind "tool" here and is left
-    // alone: canUseTool raises its grantable card, and asking twice for one
-    // tool use would be worse than either card on its own.
+    // Any OTHER call that is not auto-allowed yields kind "tool" here and is
+    // left alone: canUseTool raises its grantable card, and asking twice for
+    // one tool use would be worse than either card on its own. Bash and
+    // brain_update are the two exceptions above, deliberately: for them a
+    // narrowed allowlist gets both gates, because the grantable card alone is
+    // rememberable and the per-use one is not.
     //
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
@@ -217,6 +229,11 @@ export function createPermissionWiring(options: {
         // the ORIGINAL input, i.e. archive a document the host just said to
         // leave alone. Refuse, which is both the safe direction and a visible
         // one; canUseTool remains the path that applies an edit.
+        // Recorded for the same reason a withheld re-admission is: a gate
+        // that stops applying must be visible, not silently absent.
+        log("warn", "confirmation approved with an edit this hook cannot apply; refused", {
+          "tool.name": hookInput.tool_name,
+        });
         return {
           continue: true,
           hookSpecificOutput: {

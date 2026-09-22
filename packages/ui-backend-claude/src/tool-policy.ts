@@ -54,6 +54,17 @@ export const DEFAULT_ALLOWED_TOOLS = [
   // matches the command, `archivesDocument` matches that one input shape. No
   // other brain_update asks — a card on every document edit would be worse
   // than the hole.
+  //
+  // A THIRD path is deliberately NOT closed: `Write` and `Edit`, listed
+  // above, can put `status: archived` straight into a document's frontmatter
+  // and nothing here fires. That is not an oversight and not a boundary this
+  // list claims to hold. The raw file tools are a different trust class —
+  // they can write anything anywhere in the repo, so a confirmation keyed on
+  // one frontmatter value would be theatre — and DEFAULT_CONFIRM_BASH_PATTERNS
+  // says what this whole mechanism is: a seatbelt against an agent doing
+  // something you did not intend, not containment of one trying to evade it.
+  // What the gate above buys is that the tools whose PURPOSE is document
+  // management cannot make a document invisible quietly.
   `${BRAIN_MCP_PREFIX}brain_search`,
   `${BRAIN_MCP_PREFIX}brain_context`,
   `${BRAIN_MCP_PREFIX}brain_read`,

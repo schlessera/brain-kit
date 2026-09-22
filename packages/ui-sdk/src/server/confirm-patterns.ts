@@ -75,10 +75,11 @@ export const ARCHIVING_UPDATE_REASON =
  * every document edit is the noise that gets the whole mechanism switched
  * off, which protects nothing.
  *
- * Matched exactly, not case-insensitively: the tool's own schema is an enum
- * of the three lowercase spellings, so any other casing is refused by the
- * tool before it writes anything. Accepting near-misses here would only add
- * cards for calls that never archive.
+ * Matched exactly, not case-insensitively, because both callers refuse any
+ * other spelling before writing: the MCP tool's schema is a zod enum of the
+ * three lowercase values, and pi's takes a free string but throws on anything
+ * outside them. Accepting near-misses here would only add cards for calls
+ * that cannot archive anyway.
  */
 export function archivesDocument(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;

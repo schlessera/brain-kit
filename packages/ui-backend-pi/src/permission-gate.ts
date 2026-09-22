@@ -105,6 +105,14 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           // In-place mutation is pi's runtime contract for patching tool
           // arguments. Claude must instead return a structural updatedInput;
           // this runtime-specific difference deliberately stays in the binding.
+          //
+          // The edit is applied as given and NOT re-run through
+          // decideToolPermission, so an approval can redirect a confirmed call
+          // — an archiving update approved against document A can execute
+          // against document B, with the card having shown A. The Claude
+          // backend cannot apply an edit at all from its hook and refuses one
+          // instead, so the two backends genuinely differ here rather than
+          // mirroring. #145 holds the question for both.
           const target = event.input as Record<string, unknown>;
           for (const key of Object.keys(target)) {
             if (!(key in decision.updatedInput)) delete target[key];
