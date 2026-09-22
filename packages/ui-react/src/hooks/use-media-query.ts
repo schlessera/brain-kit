@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 
 /**
  * Whether a media query matches, kept current as the window changes. Reads
- * `false` where there is no `matchMedia` — the server, and the test DOM —
- * so a component that branches on it renders its mobile shape there.
+ * `fallback` where there is no `matchMedia` — the server, and the test DOM.
+ * It defaults to `false`, so a component that branches on a width query
+ * renders its mobile shape there; a capability query that must fail open
+ * passes `true` (see `useFinePointer`).
  */
-export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => read(query));
+export function useMediaQuery(query: string, fallback = false): boolean {
+  const [matches, setMatches] = useState(() => read(query, fallback));
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     let list: MediaQueryList;
@@ -23,10 +25,11 @@ export function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-function read(query: string): boolean {
+function read(query: string, fallback: boolean): boolean {
   try {
-    return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return fallback;
+    return window.matchMedia(query).matches;
   } catch {
-    return false;
+    return fallback;
   }
 }

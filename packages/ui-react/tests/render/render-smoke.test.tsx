@@ -55,6 +55,9 @@ import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
 import type { ToolCall } from "../../src/stores/chat-store.js";
 import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import { useHashRoutes } from "../../src/hooks/use-hash-routes.js";
+import { useFinePointer } from "../../src/hooks/use-fine-pointer.js";
+import { useMediaQuery } from "../../src/hooks/use-media-query.js";
+import { ApprovalCard } from "../../src/components/activity/approval-card.js";
 import {
   hasUnsentText,
   useServiceWorkerUpdates,
@@ -3977,6 +3980,157 @@ describe("single-key shortcuts (D36)", () => {
     expect(page.queryByText("Dismissed")).toBeNull();
     expect(page.queryByText("Intent 1")).toBeNull();
     page.unmount();
+  });
+});
+
+/* ── #86: printed keys follow the pointer, the bindings do not ──────────── */
+
+describe("printed keys follow the pointer (#86)", () => {
+  const FINE = "(any-pointer: fine)";
+  /** A `matchMedia` that answers the pointer query as given and every other query for real. */
+  function withPointer<T>(fine: boolean, run: () => T): T {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) =>
+      q === FINE ? { matches: fine, media: q, addEventListener() {}, removeEventListener() {} } : real.call(window, q)) as never;
+    try {
+      return run();
+    } finally {
+      window.matchMedia = real;
+    }
+  }
+  function pending(id: string): ToolCall {
+    return { id, name: "Bash", input: { command: "ls" }, inputJson: '{"command":"ls"}', status: "pending_approval", approvalKind: "command" } as ToolCall;
+  }
+
+  test("useFinePointer reports (any-pointer: fine) live and re-renders when it flips", () => {
+    const real = window.matchMedia;
+    let listener: ((e: { matches: boolean }) => void) | undefined;
+    const removed: string[] = [];
+    // One list per query, as a browser keeps one: the hook reads `matches`
+    // off the list it subscribed to when the change event arrives.
+    const list = {
+      matches: true,
+      media: FINE,
+      addEventListener(_: string, fn: typeof listener) { listener = fn; },
+      removeEventListener(type: string) { removed.push(type); },
+    };
+    window.matchMedia = ((q: string) => (q === FINE ? list : { matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
+    try {
+      const hook = renderHook(() => useFinePointer());
+      expect(hook.result.current).toBe(true);
+      // Unpairing the mouse: the list flips and the subscriber re-renders.
+      list.matches = false;
+      act(() => listener!({ matches: false }));
+      expect(hook.result.current).toBe(false);
+      list.matches = true;
+      act(() => listener!({ matches: true }));
+      expect(hook.result.current).toBe(true);
+      hook.unmount();
+      expect(removed).toEqual(["change"]);
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  test("with no matchMedia the pointer reads fine (fail open) while a width query still reads false", () => {
+    const real = window.matchMedia;
+    window.matchMedia = undefined as never;
+    try {
+      const fine = renderHook(() => useFinePointer());
+      expect(fine.result.current).toBe(true);
+      const wide = renderHook(() => useMediaQuery("(min-width: 900px)"));
+      expect(wide.result.current).toBe(false);
+      fine.unmount();
+      wide.unmount();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  test("a coarse-only pointer drops the rail's ⌘n caps and keeps ⌘1–⌘5 working", () => {
+    withPointer(false, () => {
+      const view = render(<SideRail />);
+      // Still expanded (the width query is real and the window is 1024px),
+      // so the row's text is the label alone — no key to a finger.
+      expect(view.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
+      expect(view.container.textContent).not.toMatch(/⌘[1-5]/);
+      // The palette's ⌘K is out of this issue's scope and stays.
+      expect(view.container.textContent).toContain("⌘K");
+      fireEvent.keyDown(window, { key: "4", metaKey: true });
+      expect(useUIStore.getState().activeView).toBe("graph");
+      view.unmount();
+    });
+    useUIStore.getState().setActiveView("chat");
+  });
+
+  test("a coarse-only pointer drops the a / d caps on the transcript's approval buttons, and the letters still decide", () => {
+    const decided: unknown[] = [];
+    withPointer(false, () => {
+      const view = render(
+        <div>
+          <ToolCallTimeline toolCalls={[pending("t1")]} onApproval={(...a) => decided.push(a)} />
+          <textarea data-composer="" aria-label="composer" />
+        </div>
+      );
+      expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allow");
+      expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Deny");
+      const card = view.getByRole("group", { name: "Approval: Bash" });
+      card.focus();
+      fireEvent.keyDown(card, { key: "a" });
+      expect(decided).toEqual([["t1", true, undefined]]);
+      view.unmount();
+    });
+  });
+
+  test("the Actions-pane approval card prints a / d only with a fine pointer, and the letters still decide without one", () => {
+    const fine = render(<ApprovalCard tool={pending("t1")} origin="this conversation" keys onDecide={() => {}} />);
+    expect(fine.container.textContent).toContain("allow a");
+    expect(fine.container.textContent).toContain("deny d");
+    fine.unmount();
+
+    const decided: unknown[] = [];
+    withPointer(false, () => {
+      const view = render(<ApprovalCard tool={pending("t1")} origin="this conversation" keys onDecide={(...a) => decided.push(a)} />);
+      expect(view.container.textContent).not.toContain("allow a");
+      expect(view.container.textContent).not.toContain("deny d");
+      const card = view.getByRole("group", { name: "Approval: Bash" });
+      card.focus();
+      fireEvent.keyDown(card, { key: "d" });
+      expect(decided).toEqual([[false, undefined]]);
+      view.unmount();
+    });
+  });
+
+  test("the search and add panels print their key hints only with a fine pointer", () => {
+    const search = render(<SearchPanel open onClose={() => {}} />);
+    expect(search.getByText(/to pick/).textContent).toContain("to open");
+    expect(search.container.querySelectorAll("kbd").length).toBeGreaterThan(0);
+    search.unmount();
+
+    const draft = { content: "Remember", title: "", type: "", tags: "" };
+    const onSave = mock(() => {});
+    const form = () => (
+      <AddForm state="editing" draft={draft} knownTypes={[]} error="" savedPath="" indexed={undefined} indexing={false} contentRef={{ current: null }} onDraft={() => {}} onSave={onSave} onRetryIndex={() => {}} onAddAnother={() => {}} onClose={() => {}} />
+    );
+    const add = render(form());
+    expect(add.container.textContent).toContain("to save");
+    add.unmount();
+
+    withPointer(false, () => {
+      const touchSearch = render(<SearchPanel open onClose={() => {}} />);
+      expect(touchSearch.getByText(/Type at least 2 characters/)).toBeTruthy();
+      expect(touchSearch.container.textContent).not.toContain("to pick");
+      expect(touchSearch.container.querySelectorAll("kbd")).toHaveLength(0);
+      touchSearch.unmount();
+
+      const touchAdd = render(form());
+      expect(touchAdd.container.textContent).not.toContain("to save");
+      expect(touchAdd.container.querySelectorAll("kbd")).toHaveLength(0);
+      // The binding is untouched: Ctrl+↵ still saves.
+      fireEvent.keyDown(touchAdd.getByPlaceholderText("idea, reading"), { key: "Enter", ctrlKey: true });
+      expect(onSave).toHaveBeenCalledTimes(1);
+      touchAdd.unmount();
+    });
   });
 });
 

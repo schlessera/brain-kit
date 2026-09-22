@@ -23,6 +23,7 @@ import { KeyCap } from "../layout/key-cap.js";
 import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { SpanStatusDot } from "../activity/span-bits.js";
 
 // Sessions that predate backend stamping (old servers, cleared stores) scope
@@ -189,6 +190,11 @@ function ToolCallEntry({
       : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = toolCall.status === "pending_approval";
   const keys = useUIStore((s) => s.singleKeyShortcuts);
+  // The caps are printed only where a key can be pressed (#86); the letters
+  // themselves follow the Settings switch alone, so a paired keyboard works
+  // before the pointer query has noticed it.
+  const finePointer = useFinePointer();
+  const printKeys = keys && finePointer;
   /**
    * A decision hands focus on before the card goes (D36): the next pending
    * approval in the transcript, else the composer — the thing the reader
@@ -332,7 +338,7 @@ function ToolCallEntry({
                   >
                     <Check className="h-3 w-3" />
                     Allow
-                    {keys && <KeyCap>a</KeyCap>}
+                    {printKeys && <KeyCap>a</KeyCap>}
                   </button>
                   {toolCall.approvalKind !== "command" && (
                     <button
@@ -350,7 +356,7 @@ function ToolCallEntry({
                   >
                     <X className="h-3 w-3" />
                     Deny
-                    {keys && <KeyCap>d</KeyCap>}
+                    {printKeys && <KeyCap>d</KeyCap>}
                   </button>
                 </div>
               )}
