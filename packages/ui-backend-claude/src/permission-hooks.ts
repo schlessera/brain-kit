@@ -225,8 +225,12 @@ export function createPermissionWiring(options: {
     canUseTool,
     hooks: {
       PreToolUse: [
-        // First, and over every tool: nothing the runtime would otherwise
-        // wave through gets to skip the decision.
+        // First, and over every tool (no matcher): nothing the runtime would
+        // otherwise wave through gets to skip the decision, including a
+        // subagent's own tool calls, which surface here under their own names.
+        // First rather than last because that is the order the merge was
+        // measured in. Note that tests index this array positionally, so a
+        // test for an enforced turn must match on the matcher, not the index.
         ...(enforced ? [{ hooks: [enforcementHook] }] : []),
         { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
         { matcher: "^Agent$", hooks: [agentHook] },
