@@ -164,6 +164,14 @@ export function createPermissionWiring(options: {
     // such a call is seen before it runs. The decision itself is the shared
     // one; this is just its runtime binding.
     //
+    // Allowlisting is not the only reason it belongs here. This backend loads
+    // the brain repo's project settings (sdk-options.ts:89), and a hook
+    // declared in those can answer a call before canUseTool is reached at all
+    // — #124 has the measurements. This hook fires either way. None of that
+    // makes the confirmation containment: an agent that can write the repo
+    // can always reach the same effect another way, which is the posture
+    // DEFAULT_CONFIRM_BASH_PATTERNS states in full.
+    //
     // A call that is NOT auto-allowed yields kind "tool" here and is left
     // alone: canUseTool raises its grantable card, and asking twice for one
     // tool use would be worse than either card on its own.
