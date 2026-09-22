@@ -15,7 +15,7 @@ import { envSnapshot, resolveExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
-import type { ClaudeBackendOptions } from "./options.js";
+import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWrappedSpawn } from "./spawn-wrapper.js";
@@ -34,8 +34,9 @@ export function createClaudeSdkTurn(options: {
   allowedTools: readonly string[];
   confirmPatterns: readonly RegExp[];
   turnLock: TurnLockBinding;
+  log: BackendLogFn;
 }): ClaudeSdkTurn {
-  const { backend, req, profile, abortController, confirmPatterns, turnLock } = options;
+  const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
   // Only wire ask-user / location tools when the host bridge offers them.
   const askUser = req.bridge.askUser;
   const getLocation = req.bridge.getLocation;
@@ -105,6 +106,7 @@ export function createClaudeSdkTurn(options: {
       brainPath: backend.brainPath,
       turnLock,
       childEnv,
+      log,
     }),
   };
 

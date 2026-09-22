@@ -174,7 +174,14 @@ export async function handleClientMessage(
         coordinator.pendingApprovals.delete(msg.toolUseId);
         // Remember-on-approve. Kind "command" never persists (the client
         // hides the option, but the wire is not trusted to enforce policy).
-        if (msg.always && pending.request.kind !== "command") {
+        // Neither does an approval given under an enforced allowlist that
+        // this tool is outside of: the store is read by every OTHER turn, and
+        // a grant made inside a narrower posture must not widen the ones the
+        // user was not looking at. The call itself still runs — they approved
+        // it — it is only the memory that is refused.
+        const remembers =
+          pending.request.kind !== "command" && !pending.request.outsideEnforcedAllowlist;
+        if (msg.always && remembers) {
           host.toolPermissions?.add(pending.request.toolName);
         }
         pending.resolve(
@@ -183,7 +190,7 @@ export async function handleClientMessage(
             : { behavior: "allow" },
           {
             principalId: connection.authorization.principalId,
-            ...(msg.always && pending.request.kind !== "command" ? { always: true } : {}),
+            ...(msg.always && remembers ? { always: true } : {}),
           }
         );
       }

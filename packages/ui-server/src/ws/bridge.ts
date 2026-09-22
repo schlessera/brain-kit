@@ -90,11 +90,22 @@ export function makeBridge(
       // A remembered "always allow" answers grantable tool requests without
       // a card. NEVER for kind "command" — those are destructive-pattern
       // confirmations for tools that are already auto-allowed, and
-      // remembering them would silently disable the seatbelt.
-      if (
-        req.kind !== "command" &&
-        host.toolPermissions?.isAutoAllowed(req.toolName)
-      ) {
+      // remembering them would silently disable the seatbelt. NEVER either
+      // when the backend says the turn's enforced allowlist left this tool
+      // out: the grant was given under a wider posture and answering with it
+      // would make the narrower one decoration. Evaluated BEFORE the lookup,
+      // and recorded, because a shortcut that stops applying must be visible
+      // rather than merely absent.
+      const remembered =
+        req.kind !== "command" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
+      if (remembered && req.outsideEnforcedAllowlist) {
+        host.log.emit({
+          severityText: "INFO",
+          body: "remembered tool grant not applied: outside this turn's enforced allowlist",
+          attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
+        });
+      }
+      if (remembered && !req.outsideEnforcedAllowlist) {
         return Promise.resolve({ behavior: "allow" });
       }
       if (!host.clients.hasClients()) {

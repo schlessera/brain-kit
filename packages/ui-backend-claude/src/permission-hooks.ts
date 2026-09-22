@@ -13,6 +13,7 @@ import {
 } from "./tool-policy.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 import { createAgentHook, createRtkHook } from "./input-rewrite-hooks.js";
+import type { BackendLogFn } from "./options.js";
 
 const NO_ALLOWED_TOOLS: ReadonlySet<string> = new Set();
 
@@ -39,9 +40,52 @@ export function createPermissionWiring(options: {
   turnLock: TurnLockBinding;
   /** The filtered environment this turn's subprocesses run with. */
   childEnv: NodeJS.ProcessEnv;
+  /** Where a withheld re-admission is recorded. */
+  log: BackendLogFn;
 }): Pick<Options, "canUseTool" | "hooks"> {
-  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv } = options;
+  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv, log } = options;
   const allowed = new Set(allowedTools);
+  // The turn declared its allowlist is a boundary, not merely an auto-allow
+  // list (StartTurnRequest.enforceAllowedTools). Everything below that would
+  // otherwise admit a tool WITHOUT a permission decision is evaluated against
+  // this first — the two rewrite hooks here, and the host's remembered-grant
+  // lookup, which is told through the request rather than guessed at.
+  const enforced = req.enforceAllowedTools === true;
+  /** A tool the enforced allowlist left out: no shortcut may admit it. */
+  const outsideEnforcedAllowlist = (toolName: string): boolean =>
+    enforced && !allowed.has(toolName);
+  const withheld = (toolName: string): void => {
+    log("warn", "allowlist enforced: withheld an input-rewrite auto-allow", {
+      "tool.name": toolName,
+    });
+  };
+
+  // Withholding OUR shortcuts is not enough: the runtime has permission
+  // opinions of its own that also land before canUseTool — its safe-command
+  // classifier (measured on Claude Code 2.1.280: `echo hi` runs with an EMPTY
+  // allowedTools and the callback is never consulted), a built-in tool's own
+  // check, and any allow rule in the project settings this backend loads
+  // (`settingSources: ["project"]`). An explicit "ask" is the one answer that
+  // beats all of them — it forces the callback, and it leaves another hook's
+  // updatedInput intact, so the rewrites still reach the decision (both
+  // measured against 2.1.280 / SDK 0.3.278). Registered only under the
+  // declaration, so nothing moves for a turn that declares nothing.
+  const enforcementHook: HookCallback = async (hookInput) => {
+    if (
+      hookInput.hook_event_name !== "PreToolUse" ||
+      allowed.has(hookInput.tool_name)
+    ) {
+      return { continue: true };
+    }
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: `Tool "${hookInput.tool_name}" is outside this turn's enforced allowlist, so it cannot run until someone decides it.`,
+      },
+    };
+  };
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
   // Model that hook path as command-allowed to preserve the two runtime gates.
@@ -76,6 +120,10 @@ export function createPermissionWiring(options: {
       input,
       description: opts.description,
       approval,
+      // The host answers this one on its own merits: reaching here means the
+      // turn's allowlist left the tool out, and under enforcement a grant
+      // remembered on a wider posture is not an answer to it.
+      outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
     const decision = await requestToolPermission(req.bridge, request);
     // A mutating tool runs inside this subprocess the moment we return
@@ -164,13 +212,26 @@ export function createPermissionWiring(options: {
     return { continue: true };
   };
 
-  const agentHook = createAgentHook();
-  const rtkHook = createRtkHook(childEnv);
+  const agentHook = createAgentHook({
+    mayGrant: !outsideEnforcedAllowlist("Agent"),
+    onGrantWithheld: withheld,
+  });
+  const rtkHook = createRtkHook(childEnv, {
+    mayGrant: !outsideEnforcedAllowlist("Bash"),
+    onGrantWithheld: withheld,
+  });
 
   return {
     canUseTool,
     hooks: {
       PreToolUse: [
+        // First, and over every tool (no matcher): nothing the runtime would
+        // otherwise wave through gets to skip the decision, including a
+        // subagent's own tool calls, which surface here under their own names.
+        // First rather than last because that is the order the merge was
+        // measured in. Note that tests index this array positionally, so a
+        // test for an enforced turn must match on the matcher, not the index.
+        ...(enforced ? [{ hooks: [enforcementHook] }] : []),
         { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },

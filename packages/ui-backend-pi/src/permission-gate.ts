@@ -14,6 +14,9 @@
  * - Any tool NOT on the allowlist raises an approval card — the safe
  *   direction for third-party extension/MCP tools, and exactly how a
  *   non-allowlisted MCP tool behaves on the Claude backend.
+ * - When the turn declared `enforceAllowedTools`, that card is marked
+ *   `outsideEnforcedAllowlist` so the host decides it on its own merits
+ *   instead of answering from a grant remembered under a wider posture.
  *
  * A denial returns `{ block: true, reason }`, which pi feeds back to the
  * model as an error tool result — the turn survives. An approval with
@@ -78,6 +81,12 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           input: (event.input ?? {}) as Record<string, unknown>,
           description: approval.reason,
           approval,
+          // Kind "tool" here means exactly "not on `allowedTools`" — the
+          // decision above was taken against the turn's real allowlist. Under
+          // an enforced posture the host must not answer it from a grant
+          // remembered on a wider one.
+          outsideEnforcedAllowlist:
+            turn.enforceAllowedTools && approval.kind === "tool",
         });
         const decision = await requestToolPermission(turn.bridge, request);
         if (decision.behavior === "deny") {
