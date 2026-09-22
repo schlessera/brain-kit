@@ -17,7 +17,18 @@ const MANY_LINES =
   "Tell Penelope nothing of the raft until it floats. Tell Telemachus that the bow is still strung and that the axes are where Laertes buried them, twelve in a row below the threshing floor, and that a stranger who can string it is not always a stranger. Tell Eumaeus to count the swine tonight and again at dawn. Tell nobody that I asked.";
 
 /** Every Profiler commit of a `Composer` under `Draft`, so a play function can
- * count what one keystroke costs. */
+ * count what one keystroke costs — and whether the Profiler ran at all.
+ *
+ * React's PRODUCTION renderer does not call `onRender`: the identifier appears
+ * nowhere in `react-dom-client.production.js`. A `storybook build` preview
+ * (`packages/ui-kit/README.md`, and the dc-parity tool that serves
+ * `storybook-static`) uses that renderer, so there the array stays empty and a
+ * bare count would fail on `0` rather than on a real double render. The count
+ * below runs where the Profiler is live — `storybook dev` and the Vitest
+ * project, which is where this gates — and the same property is held with no
+ * renderer at all by `tests/composer-sizing.test.tsx`, which reads the source
+ * for the hooks that could cause a second pass. */
+let profiled = false;
 const commits: string[] = [];
 
 /** A controlled composer with its draft in local state, for the stories that
@@ -25,7 +36,13 @@ const commits: string[] = [];
 function Draft(props: { initial: string; maxRows?: number }) {
   const [value, setValue] = useState(props.initial);
   return (
-    <Profiler id="composer" onRender={(_, phase) => commits.push(phase)}>
+    <Profiler
+      id="composer"
+      onRender={(_, phase) => {
+        profiled = true;
+        commits.push(phase);
+      }}
+    >
       <Composer value={value} onChange={setValue} maxRows={props.maxRows} />
     </Profiler>
   );
@@ -205,7 +222,7 @@ export const ShrinksBackAndRendersOnce = meta.story({
     const before = commits.length;
     await userEvent.type(field, "abc");
     await expect(field).toHaveValue("abc");
-    await expect(commits.length - before).toBe(3);
+    if (profiled) await expect(commits.length - before).toBe(3);
     // And the first character does not jump the box: an empty field sizes from
     // `rows`, a field with text from its content, and one line is one line
     // either way.

@@ -10,9 +10,13 @@
  * cap that keeps the design's 96px for five rows whatever `maxRows` says.
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { join, resolve } from "path";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { Composer } from "../src/chrome/Composer.js";
+
+const SOURCE = join(resolve(import.meta.dir, ".."), "src", "chrome", "Composer.tsx");
 
 function field(props: Parameters<typeof Composer>[0]): { style: string; rows: string } {
   const html = renderToStaticMarkup(<Composer {...props} />);
@@ -57,5 +61,34 @@ describe("Composer field sizing", () => {
     const f = field({ value: "1\n2\n3\n4\n5\n6", onChange: () => {}, maxRows: 3 });
     expect(f.style).toContain("max-height:57.6px");
     expect(f.rows).toBe("3");
+  });
+});
+
+/**
+ * The cost of a keystroke, as the acceptance criterion's second option: "the
+ * implementation being ref-only".
+ *
+ * `Composer.stories.tsx` counts React `Profiler` commits, which is the direct
+ * measurement — but React's production renderer does not call `onRender` at
+ * all, so that count is dark in a `storybook build` preview. This holds the
+ * same property over the source, where no renderer is involved: the component
+ * sizes itself with no hook that can schedule a second pass. `useId` is the one
+ * hook it has, and it returns the same string on every render.
+ *
+ * A source scan rather than a render count because the property IS structural
+ * — the way to break it is to add a hook, and a test that names the hooks is
+ * the test that fails when somebody does.
+ */
+describe("Composer costs one render per keystroke", () => {
+  const source = readFileSync(SOURCE, "utf8");
+
+  test("it uses no hook that can schedule a second pass", () => {
+    const hooks = [...source.matchAll(/\buse[A-Z][A-Za-z]*/g)].map((m) => m[0]);
+    expect([...new Set(hooks)].sort()).toEqual(["useId"]);
+  });
+
+  test("it holds no element reference to measure through", () => {
+    // `\bref=` rather than `ref=`, which an `href=` in an icon would satisfy.
+    expect(source).not.toMatch(/\bref=/);
   });
 });
