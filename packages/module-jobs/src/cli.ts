@@ -173,7 +173,8 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     // board that had nothing both say "0 found" — so the state is printed
     // whenever it is not a plain success. See SourceStatus.
     const state = s.status === "ok" ? "" : ` [${s.status}]`;
-    const errors = s.errors.length > 0 ? ` (${s.errors.length} errors)` : "";
+    const errors =
+      s.errors.length > 0 ? ` (${s.errors.length} error${s.errors.length === 1 ? "" : "s"})` : "";
     console.log(
       `  ${s.source}: ${s.jobs_found} found, ${s.jobs_new} new, ${s.jobs_updated} updated (${s.duration_ms}ms)${state}${errors}`
     );
