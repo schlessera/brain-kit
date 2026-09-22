@@ -37,7 +37,12 @@ bun run setup
 ```
 
 Setup configures the repository's git hooks, syncs agent skills, and installs
-the local `brain` command link.
+the local `brain` command link. Build the search index once — setup does not, and
+a search before it says `Database not found`:
+
+```sh
+brain index
+```
 
 Open the repo in your coding agent and run:
 
@@ -50,7 +55,7 @@ up the MCP server, and leaves you with a working brain. Even before it, the CLI
 already works:
 
 ```sh
-brain search "hello"                 # finds notes/hello-brain.md
+brain search "hello"                  # finds notes/hello-brain.md
 brain add "a thought I want to keep"  # captures a note
 ```
 
