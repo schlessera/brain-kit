@@ -334,13 +334,20 @@ const TONED_ROWS_MAX = 8;
 /** The `subject` answer that means no line of the run holds the name. */
 const NO_SUBJECT = "none";
 
-/** The tones a value can be given, each named by what the text says, not by its colour. */
+/**
+ * The tones a value can be given, each named by what the text says rather than
+ * by its colour, plus `none` for "leave it alone". `none` is the fall-through
+ * and `neutral` is deliberately not offered: in this kit `neutral` is the grey
+ * machine-meta accent and means that everywhere, not "default" — a value that
+ * wants the default says nothing, and every tone lookup falls back on its own
+ * (`packages/ui-kit/src/types.ts`, design-feedback §4).
+ */
 const VALUE_TONE_CRITERIA: Record<string, string> = {
   teal: "It reports something that went well, is finished, or is healthy.",
   amber: "It reports something that wants attention: pending, overdue, a warning.",
   red: "It reports a failure, an error, or an outcome the reader would not want.",
   dim: "There is no value: none, unset, not applicable, unknown.",
-  neutral: "A plain fact with no good or bad reading. Most values are this.",
+  none: "A plain fact with no good or bad reading. Most values are this.",
 };
 
 /** The tone for one row's value, or undefined to leave the kit's default. */
@@ -350,7 +357,11 @@ function valueToneAt(
   index: number
 ): string | undefined {
   const answer = choiceAt(answers, `${candidate.id}.value_tone_${index}`, CONFIDENCE.tone);
-  if (!answer || answer.choice === "neutral") return undefined;
+  // Honour only an option the question offered, then only one the kit draws —
+  // which is what drops the `none` fall-through.
+  if (!answer || !Object.prototype.hasOwnProperty.call(VALUE_TONE_CRITERIA, answer.choice)) {
+    return undefined;
+  }
   return (BLOCK_VALUE_TONES as readonly string[]).includes(answer.choice) ? answer.choice : undefined;
 }
 

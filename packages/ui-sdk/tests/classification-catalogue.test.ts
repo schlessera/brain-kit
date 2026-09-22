@@ -288,7 +288,7 @@ describe("the catalogue", () => {
     expect(
       transformCandidate(run!, {
         "c0.shape": choice("receipt", 0.9),
-        "c0.value_tone_0": choice("neutral", 0.95),
+        "c0.value_tone_0": choice("none", 0.95),
         "c0.value_tone_1": choice("red", 0.9),
       })?.block
     ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost", tone: "red" }] });
@@ -313,6 +313,24 @@ describe("the catalogue", () => {
       transformCandidate(run!, {
         "c0.shape": choice("receipt", 0.9),
         "c0.value_tone_1": choice("red", CONFIDENCE.tone - 0.01),
+      })?.block
+    ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost" }] });
+  });
+
+  test("the value-tone question does not offer `neutral`, and an answer it did not offer is ignored", () => {
+    // In this kit `neutral` is the grey machine-meta accent, not "default" —
+    // a value that wants the default carries no tone at all. An off-menu
+    // answer, including one that happens to be a tone the schema accepts,
+    // leaves the row alone rather than colouring it.
+    const [run] = detectCandidates("**Ships:** 12\n**Crew:** lost");
+    const question = questionsFor(run!)["c0.value_tone_1"];
+    expect(question?.type).toBe("choice");
+    if (question?.type !== "choice") return;
+    expect(Object.keys(question.criteria)).toEqual(["teal", "amber", "red", "dim", "none"]);
+    expect(
+      transformCandidate(run!, {
+        "c0.shape": choice("receipt", 0.9),
+        "c0.value_tone_1": choice("neutral", 0.99),
       })?.block
     ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost" }] });
   });

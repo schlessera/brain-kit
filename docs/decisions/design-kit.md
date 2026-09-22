@@ -2979,8 +2979,14 @@ record.
 3. **Per-row value tone is built, and bounded.** One `choice` per line of the
    run, with the options named by what the text says rather than by their
    colour ("it reports a failure, an error, or an outcome the reader would not
-   want" → red), gated at the tone threshold of 0.8 like every other tone. It
-   is one question set on the run and whichever branch wins reads it, so a
+   want" → red), gated at the tone threshold of 0.8 like every other tone. The
+   fall-through option is `none`, not `neutral`: in this kit `neutral` is the
+   grey machine-meta accent and means that everywhere, so a value that wants
+   the default carries no tone at all and each component falls back on its own
+   (`design-feedback.md` §4, `packages/ui-kit/src/types.ts`). Offering `neutral` as "no
+   strong reading" would have taught the classifier a meaning the 2026-09-18
+   drop retired. It is one question set on the run and whichever branch wins
+   reads it, so a
    receipt's rows, a stat tile and a contact's facts are coloured by the same
    answers. It is asked only of a run of eight lines or fewer — the bound stat
    tiles already had — so the question count follows the run's shape and not
