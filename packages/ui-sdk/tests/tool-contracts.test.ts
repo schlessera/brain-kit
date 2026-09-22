@@ -81,12 +81,22 @@ describe("the contract list is the single source", () => {
 describe("show_block", () => {
   test("the brief rides every turn, so it stays at eleven lines and names every kind", () => {
     // D43 measured what these eleven lines buy and what they cost: 257 input
-    // tokens on every turn, against a `show_block` rate of 56% with them and
-    // 0% without, over 107 completed live turns. The budget is pinned at the
-    // length that was measured, not at a round number above it, so a twelfth
-    // line has to be argued for and re-measured rather than drifting in.
-    const brief = SHOW_BLOCK_CONTRACT.brief("show_block");
+    // tokens on every turn, against a `show_block` rate of 61% with them and
+    // 0% without, over 108 live turns. Zero, not merely lower — the SDK defers
+    // an MCP server's tools behind tool search, so the brief is the only text
+    // that tells the model the tool exists. Both budgets are pinned at what
+    // was measured, not at a round number above it, so a twelfth line or a
+    // longer one has to be argued for and re-measured rather than drifting in.
+    // Measured on the name the Claude backend actually sends, not the bare
+    // one: the MCP prefix is fifteen characters of the budget.
+    const brief = SHOW_BLOCK_CONTRACT.brief(
+      visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude")
+    );
     expect(brief.split("\n").length).toBeLessThanOrEqual(11);
+    // Lines alone do not bound it — eleven long ones cost more than twelve
+    // short ones, and tokens are what ride the turn. 749 characters is what
+    // was measured at 257 tokens.
+    expect(brief.length).toBeLessThanOrEqual(749);
     for (const kind of BLOCK_KINDS) expect(brief).toContain(`\`${kind}\``);
   });
 

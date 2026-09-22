@@ -34,9 +34,9 @@ What makes these useful is the part most records leave out:
   measured rather than argued: 486 of 486 coastline rings wound the same way; an
   accessibility gate giving 503 pass / 0 fail at `'todo'` and 497 / 6 at
   `'error'`; five comparison prompts producing zero tool calls after the prompt
-  was rewritten twice, and the 108-turn A/B that found four of those five had
-  been the same suppressing prompt. Those numbers are the record — including
-  when a later one corrects an earlier one.
+  was rewritten twice, and the 108-turn A/B that found the tool had been
+  invisible to the model in one of the two arms all along. Those numbers are
+  the record — including when a later one corrects an earlier one.
 - **The corrections.** When a decision turns out to be wrong, the entry is
   superseded in place with the correction underneath it. The pair is more useful
   than either half — `container-privilege.md` exists because `hardening.md`'s

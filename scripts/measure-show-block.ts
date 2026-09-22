@@ -54,6 +54,7 @@ import {
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME as BLOCK_TOOL,
 } from "../packages/ui-backend-claude/src/show-block-tool.js";
+import { createAgentHook } from "../packages/ui-backend-claude/src/input-rewrite-hooks.js";
 
 /**
  * Pinned rather than left to the CLI default, so a later re-run compares
@@ -214,6 +215,13 @@ interface TurnResult {
   kinds: string[];
   /** Calls the schema rejected. Reported, never counted as a block. */
   rejectedCalls: number;
+  /**
+   * Every other tool the turn used, top-level frames only. Recorded so that
+   * "did a turn delegate to a subagent at all" is answerable from the run
+   * rather than argued about — `Agent` is in the roster, and a delegated turn
+   * is a different turn from one that read the corpus itself.
+   */
+  otherTools: string[];
   /** Candidate kinds `planClassification` found across the turn's text parts. */
   candidates: string[];
   answerChars: number;
@@ -224,6 +232,20 @@ interface TurnResult {
   answer: string;
   error?: string;
 }
+
+/**
+ * `--always-load`: put the MCP tools in the prompt instead of behind tool
+ * search.
+ *
+ * The SDK defers an MCP server's tools by default — they are not in the
+ * model's context at all until it runs `ToolSearch` — and production does not
+ * set `alwaysLoad` either (`packages/ui-backend-claude/src/ask-user-tool.ts:104`),
+ * so the measured arms inherit that. This flag flips it, which is the only
+ * way to tell "the brief makes the model WANT the tool" apart from "the brief
+ * is the only thing that tells the model the tool EXISTS". Off by default:
+ * the default arms must measure the surface that ships.
+ */
+const ALWAYS_LOAD = process.argv.includes("--always-load");
 
 function optionsFor(arm: ArmName): Options {
   return {
@@ -242,27 +264,39 @@ function optionsFor(arm: ArmName): Options {
         tools: { block: arm === "brief" && BLOCK_TOOL },
       }),
     },
-    // Auto-allowed, not restricted. `tools` is what would narrow AVAILABILITY,
-    // and it is deliberately left unset: `sdk-options.ts` does not set it
-    // either, so the model here sees the same built-in roster it sees in
-    // production, `Agent` included. Narrowing it was tried and moved the
-    // absolute rates — with three built-ins left the MCP tool is a far larger
-    // share of the roster — which makes the harness measure a surface nobody
-    // ships. The subagent hazard that motivates narrowing is handled where it
-    // belongs, in the counting: subagent frames are not the reader's answer
-    // and are skipped below, exactly as the chat adapter keeps them off the
-    // surface.
+    // `tools` is what would narrow AVAILABILITY and it is left unset, as
+    // `sdk-options.ts` leaves it: setting it to three built-ins was tried and
+    // moved the absolute rates, because the MCP tool's share of a short roster
+    // is not its share of the real one. `allowedTools` only auto-approves.
     allowedTools: ["Read", "Glob", "Grep", BLOCK_TOOL],
+    // The named divergence from production, which disallows only
+    // `AskUserQuestion`. `disallowedTools` DOES remove a tool from the model's
+    // context, so these five are absent from the roster the model reads here,
+    // and the absolute rates are a measurement of that roster rather than of
+    // production's. Each is withheld for a reason a measurement cannot trade
+    // away: `Bash` because the run is `bypassPermissions` on a real host;
+    // `Edit`/`Write` because every turn shares one staged brain, so a mutation
+    // by any turn would leak into every later turn in BOTH arms; `WebSearch` /
+    // `WebFetch` because a live search makes the answer non-reproducible and
+    // bills per call. The withholding is identical in both arms, so it cannot
+    // move the contrast the A/B measures — only where both arms sit.
+    disallowedTools: ["AskUserQuestion", "Bash", "Edit", "Write", "WebSearch", "WebFetch"],
+    // Production's own hook, so a delegated turn behaves the way it does
+    // there. The SDK backgrounds `Agent` calls by default and a background
+    // agent dies with the turn's subprocess before it reports, which would
+    // score the parent on an answer it never got. Registering the hook is why
+    // `Agent` can stay in the roster rather than being disallowed.
+    hooks: { PreToolUse: [{ matcher: "^Agent$", hooks: [createAgentHook()] }] },
     // One answer, not an investigation: enough turns to read the corpus and
     // reply, few enough that a wandering run cannot stall the measurement.
     maxTurns: 14,
-    disallowedTools: ["AskUserQuestion", "Bash", "Edit", "Write", "WebSearch", "WebFetch"],
     permissionMode: "bypassPermissions",
     mcpServers: {
       "brain-ui": createSdkMcpServer({
         name: "brain-ui",
         version: "0.1.0",
         tools: [createShowBlockTool()],
+        ...(ALWAYS_LOAD ? { alwaysLoad: true } : {}),
       }),
     },
   };
@@ -275,6 +309,7 @@ async function runTurn(
 ): Promise<TurnResult> {
   const started = Date.now();
   const kinds: string[] = [];
+  const otherTools = new Set<string>();
   let rejectedCalls = 0;
   // One entry per contiguous assistant text run, which is how `ui-server`'s
   // collector numbers parts — joining them first would let two structures on
@@ -292,11 +327,14 @@ async function runTurn(
       if (message.type === "assistant" && message.parent_tool_use_id === null) {
         for (const part of message.message.content) {
           if (part.type === "text") textParts.push(part.text);
-          if (part.type === "tool_use" && part.name === BLOCK_TOOL) {
-            const parsed = SHOW_BLOCK_INPUT_SCHEMA.safeParse(part.input);
-            if (parsed.success) kinds.push(parsed.data.block.kind);
-            else rejectedCalls += 1;
+          if (part.type !== "tool_use") continue;
+          if (part.name !== BLOCK_TOOL) {
+            otherTools.add(part.name);
+            continue;
           }
+          const parsed = SHOW_BLOCK_INPUT_SCHEMA.safeParse(part.input);
+          if (parsed.success) kinds.push(parsed.data.block.kind);
+          else rejectedCalls += 1;
         }
       }
       if (message.type === "result") {
@@ -317,6 +355,7 @@ async function runTurn(
     calls: kinds.length,
     kinds,
     rejectedCalls,
+    otherTools: [...otherTools].sort(),
     candidates: (plan?.candidates ?? []).map((planned) => planned.candidate.kind),
     answerChars: textParts.join("").length,
     durationMs: Date.now() - started,
@@ -480,6 +519,8 @@ function report(
     `The brief costs **${cost.tokens} input tokens** (${cost.lines} lines, ${cost.chars} characters) on every turn.`,
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
+    `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
+    `MCP tools ${ALWAYS_LOAD ? "were forced into the prompt (\`--always-load\`), which is NOT what ships" : "sat behind tool search, as they do in production"}. Turns that ran \`ToolSearch\`: ${runs.filter((run) => run.otherTools.includes("ToolSearch")).length}.`,
     "",
     "## Rate per arm",
     "",
