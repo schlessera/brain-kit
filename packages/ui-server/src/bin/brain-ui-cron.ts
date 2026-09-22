@@ -172,8 +172,16 @@ if (subcommand === "crontab") {
 if (subcommand === "environment" && args.length === 0) {
   const config = resolveCronConfig();
   try {
+    // The runner's control configuration is merged back in here, not carried
+    // in childEnv: childEnv is filtered to the cron audience, which is what a
+    // scheduled job receives, and the wrapper is read by the runner before it
+    // spawns anything. Emitting it is what carries the privilege boundary past
+    // the crontab.
     process.stdout.write(
-      emitEnvironment(config.childEnv, config.subprocessEnvExtraNames)
+      emitEnvironment(
+        { ...config.childEnv, ...config.controlEnv },
+        config.subprocessEnvExtraNames
+      )
     );
     process.exit(0);
   } catch (error) {

@@ -15,6 +15,8 @@
 
 import { join } from "path";
 
+import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+
 import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -597,6 +599,14 @@ export interface CronConfig {
   childEnv: EnvRecord;
   /** Valid operator-added names, also used when emitting /etc/environment. */
   subprocessEnvExtraNames: string[];
+  /**
+   * Control configuration the cron RUNNER itself reads — the exec wrapper and
+   * its cancellation helper. Kept apart from `childEnv` on purpose: that one
+   * is filtered to the cron audience and is what a scheduled job receives,
+   * while these are read before anything is spawned and are not forwarded.
+   * Emitting them is what stops the privilege boundary at the crontab.
+   */
+  controlEnv: EnvRecord;
 }
 
 function list(raw: string | undefined): string[] {
@@ -800,6 +810,9 @@ export function resolveCronConfig(
       subprocessEnvExtraNames
     ),
     subprocessEnvExtraNames,
+    controlEnv: Object.fromEntries(
+      CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
+    ),
   };
 }
 

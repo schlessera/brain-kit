@@ -131,6 +131,35 @@ describe("brain-ui-cron subprocess", () => {
     expect(await new Response(proc.stderr).text()).toBe("");
   });
 
+  test("environment carries the exec wrapper through to /etc/environment", async () => {
+    // Through the real entrypoint, not `emitEnvironment` directly. The helper
+    // was right and the wiring was wrong: `resolveCronConfig()` filters the
+    // control variables out of `childEnv`, so the first version of this
+    // emitted nothing and every scheduled job would have run unwrapped while
+    // the unit test passed.
+    const bun = Bun.which("bun");
+    if (!bun) throw new Error("bun executable not found");
+    const path = process.env.PATH ?? "/usr/bin";
+    const proc = Bun.spawn([bun, BIN, "environment"], {
+      env: {
+        PATH: path,
+        BRAIN_PATH: "/data/example-brain",
+        BRAIN_UI_EXEC_WRAPPER: "/opt/run-as-agent",
+        BRAIN_UI_EXEC_KILLER: "/opt/kill-agent-group",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(await proc.exited).toBe(0);
+    expect(await new Response(proc.stdout).text()).toBe(
+      `PATH="${path}"\nBRAIN_PATH="/data/example-brain"\n` +
+        `BRAIN_UI_EXEC_WRAPPER="/opt/run-as-agent"\n` +
+        `BRAIN_UI_EXEC_KILLER="/opt/kill-agent-group"\n`
+    );
+    expect(await new Response(proc.stderr).text()).toBe("");
+  });
+
   test("crontab reads the resolved brain path and honors every deployment flag", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
