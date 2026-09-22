@@ -12,6 +12,15 @@ export {
   type JevResult,
 } from "./jev-client.js";
 export {
+  CONFIDENCE_BUCKETS,
+  CONFIDENCE_BUCKET_WIDTH,
+  CONFIDENCE_RETENTION_MS,
+  confidenceDistribution,
+  recordQuestionConfidence,
+  type ConfidenceBucket,
+  type ConfidenceReadOptions,
+} from "./confidence-store.js";
+export {
   attachMessageBlocks,
   loadMessageBlocks,
   partHash,

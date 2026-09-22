@@ -6,6 +6,9 @@
  * candidate's questions in one map — or null when there is nothing to ask,
  * which must cost nothing. `applyClassification` turns the answers back
  * into the blocks the message carries, each anchored to its part and span.
+ * `observeClassification` reads the same answers a second way: every
+ * confidence that came back, next to the line it had to clear and what
+ * became of its candidate, which is what a threshold can be tuned on.
  *
  * The transport is the server's: this module knows the request and answer
  * shapes and nothing about keys, timeouts, or retries.
@@ -14,11 +17,13 @@
 import type { MessageBlock } from "../protocol.js";
 import {
   questionsFor,
+  thresholdOf,
   transformCandidate,
+  type AskedQuestion,
   type ClassificationAnswers,
-  type ClassificationQuestion,
+  type ClassificationQuestions,
 } from "./catalogue.js";
-import { detectCandidates, type Candidate } from "./detect.js";
+import { detectCandidates, type Candidate, type CandidateKind } from "./detect.js";
 
 /** The classifier's model alias. Pinned here so a bump is one line. */
 export const CLASSIFIER_MODEL = "jev-latest";
@@ -27,7 +32,7 @@ export const CLASSIFIER_MODEL = "jev-latest";
 export interface ClassificationRequest {
   model: string;
   state: Record<string, unknown>;
-  questions: Record<string, ClassificationQuestion>;
+  questions: Record<string, AskedQuestion>;
 }
 
 /** A candidate with the part it came from, so an answer can be anchored. */
@@ -39,6 +44,13 @@ export interface PlannedCandidate {
 export interface ClassificationPlan {
   request: ClassificationRequest;
   candidates: PlannedCandidate[];
+  /**
+   * The questions as the catalogue declared them, with the line each answer
+   * has to clear. `request.questions` is the same set with the lines stripped
+   * — where the surface acts on a probability is nothing the classifier is
+   * asked, and D42's rule is that the request carries only what it needs.
+   */
+  questions: ClassificationQuestions;
 }
 
 /** Only what the classifier needs of a candidate: never the whole answer. */
@@ -68,7 +80,7 @@ function stateOf(candidate: Candidate): Record<string, unknown> {
 export function planClassification(textParts: readonly string[]): ClassificationPlan | null {
   const candidates: PlannedCandidate[] = [];
   const state: Record<string, unknown> = {};
-  const questions: Record<string, ClassificationQuestion> = {};
+  const questions: ClassificationQuestions = {};
   textParts.forEach((text, partIndex) => {
     for (const found of detectCandidates(text)) {
       const candidate: Candidate = { ...found, id: `p${partIndex}${found.id}` };
@@ -78,7 +90,13 @@ export function planClassification(textParts: readonly string[]): Classification
     }
   });
   if (candidates.length === 0) return null;
-  return { request: { model: CLASSIFIER_MODEL, state, questions }, candidates };
+  // The line each answer has to clear is ours, not the classifier's: it never
+  // goes on the wire.
+  const asked: Record<string, AskedQuestion> = {};
+  for (const [id, { threshold: _threshold, ...question }] of Object.entries(questions)) {
+    asked[id] = question;
+  }
+  return { request: { model: CLASSIFIER_MODEL, state, questions: asked }, candidates, questions };
 }
 
 /** The blocks the answers yield, anchored; candidates the answers leave alone are absent. */
@@ -97,6 +115,86 @@ export function applyClassification(
       block: classified.block,
       confidence: classified.confidence,
     });
+  }
+  return out;
+}
+
+/**
+ * One question's answer as it came back, with the line it had to clear and
+ * what became of the candidate it was asked about. The confidence is the
+ * figure a threshold is tuned on: a `choice`'s confidence, or the `noul`
+ * itself, which is what the transforms compare.
+ */
+export interface QuestionObservation {
+  /** The candidate the question was asked about, `p0c0`. */
+  candidateId: string;
+  candidateKind: CandidateKind;
+  /** The question's suffix under that id: `shape`, `tone`, `criteria_first`, … */
+  question: string;
+  answerType: "choice" | "noul";
+  /** The option chosen, for a `choice`; absent for a `noul`. */
+  choice?: string;
+  /** 0-1, as the transform reads it. */
+  confidence: number;
+  /** The line it had to clear, or null for a question the catalogue does not gate. */
+  threshold: number | null;
+  /** Whether the confidence cleared that line. */
+  cleared: boolean;
+  /** What became of the candidate: the block was drawn, or the markdown stayed. */
+  outcome: "swapped" | "kept";
+}
+
+/**
+ * Every answer this plan asked for, with its confidence. `blocks` is what
+ * `applyClassification` returned for the same plan and answers — that is how
+ * a question learns whether its candidate was swapped or kept, without
+ * running a transform twice.
+ *
+ * The plan's OWN questions are the list walked, never the answer map: an
+ * answer the plan did not ask for is a question the surface has no threshold
+ * for and no transform reading it, and recording it would put a number in the
+ * distribution that nothing was ever compared against. Unanswered questions
+ * are simply absent.
+ *
+ * Pure, and cheap enough to run after every answered pass: one walk of the
+ * questions, no strings built, nothing re-parsed.
+ */
+export function observeClassification(
+  plan: ClassificationPlan,
+  answers: ClassificationAnswers,
+  blocks: readonly MessageBlock[]
+): QuestionObservation[] {
+  const drawn = new Set(blocks.map((block) => `${block.partIndex}:${block.start}:${block.end}`));
+  // The asked question ids, grouped by the candidate they name, in the order
+  // the catalogue asks them.
+  const asked = new Map<string, string[]>();
+  for (const id of Object.keys(plan.questions)) {
+    const candidateId = id.slice(0, id.lastIndexOf("."));
+    const ids = asked.get(candidateId);
+    if (ids) ids.push(id);
+    else asked.set(candidateId, [id]);
+  }
+  const out: QuestionObservation[] = [];
+  for (const { partIndex, candidate } of plan.candidates) {
+    const outcome = drawn.has(`${partIndex}:${candidate.start}:${candidate.end}`) ? "swapped" : "kept";
+    const prefix = `${candidate.id}.`;
+    for (const id of asked.get(candidate.id) ?? []) {
+      const answer = answers[id];
+      if (!answer) continue;
+      const threshold = thresholdOf(plan.questions, id);
+      const confidence = answer.type === "choice" ? answer.confidence : answer.noul;
+      out.push({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        question: id.slice(prefix.length),
+        answerType: answer.type,
+        ...(answer.type === "choice" ? { choice: answer.choice } : {}),
+        confidence,
+        threshold: threshold ?? null,
+        cleared: threshold !== undefined && confidence >= threshold,
+        outcome,
+      });
+    }
   }
   return out;
 }

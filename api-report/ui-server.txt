@@ -20,7 +20,12 @@ export "." (./src/index.ts)
   type BrainClient
   BrainDbUnavailableError
   type BrainUiApp
+  CONFIDENCE_BUCKETS
+  CONFIDENCE_BUCKET_WIDTH
+  CONFIDENCE_RETENTION_MS
   type CapturedLog
+  type ConfidenceBucket
+  type ConfidenceReadOptions
   type ConnectionState
   type CreateAppOptions
   type CronRunRecord
@@ -62,6 +67,7 @@ export "." (./src/index.ts)
   assertBackendResolvable
   authGuard
   buildKeyterms
+  confidenceDistribution
   createActivityStore
   createActivityStream
   createApp

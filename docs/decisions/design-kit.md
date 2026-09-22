@@ -2134,7 +2134,10 @@ in one call, with the code doing every extraction and every render.
    (`AbortSignal.timeout(2000)`; planned at 1 s, raised the same day the
    live run measured Jev at 700–800 ms, which left no room for the
    retry), one retry on 429/529 inside that
-   budget, and no other retry. A timeout, an error, a missing key, an
+   budget, and no other retry. Per the decision on #49, this deadline covers
+   the HTTP request, not the complete pass. Local confidence recording is
+   synchronous afterward and can add SQLite lock-wait latency (the server
+   connection has a 5000 ms busy timeout). A timeout, an error, a missing key, an
    answer below the confidence threshold, or a candidate the transform
    cannot map all mean the same thing: the markdown stays. Nothing about
    an answer waits on Jev, and nothing about an answer can be worse for
@@ -2165,7 +2168,42 @@ in one call, with the code doing every extraction and every render.
 5. **Confidence gates the swap.** Start at 0.6 for a swap and 0.8 for a
    tone; below that the block stays markdown and the answer records why.
    Thresholds are measured on the transcript corpus, not assumed —
-   TypeSafe calibrates the probabilities, we pick where to act.
+   TypeSafe calibrates the probabilities, we pick where to act. Measuring
+   needs the numbers, and the first cut recorded only the outcome, so a
+   `kept` was a count with nothing behind it. The pass now also records
+   what it was confident about (added 2026-09-22): one row per answered
+   question in `classification_confidence` — the candidate it was asked
+   about, its kind, the question, the answer, its confidence, the line that
+   confidence had to clear, and whether the candidate ended up drawn —
+   written after the call has resolved, so it takes none of the call's
+   budget. It is read back with `confidenceDistribution`
+   (`packages/ui-server/src/classification/confidence-store.ts`, exported
+   from the package root), or straight off the file:
+
+   ```sql
+   SELECT candidate_kind, question, threshold,
+          CAST(confidence * 10 AS INTEGER) / 10.0 AS bucket,
+          COUNT(*) AS n, SUM(cleared) AS cleared,
+          SUM(outcome = 'swapped') AS swapped
+     FROM classification_confidence
+    GROUP BY candidate_kind, question, threshold, bucket
+    ORDER BY candidate_kind, question, bucket;
+   ```
+
+   One pass's rows share a `pass_id`, so `(pass_id, candidate_id)` names one
+   candidate — a minted id rather than the clock, because the pass is fire
+   and forget and a session's slow pass can still be writing when the next
+   turn's starts. Some questions have to be read per candidate or they are
+   meaningless:
+   the catalogue asks `criteria_first` of every table, including the ones
+   the shape answer calls `data`, so unconditioned its answers are two
+   populations stacked on each other (measured 2026-09-22: 12 of 26 at or
+   below 0.3, 13 at or above 0.9). Join the candidate back to its own shape
+   answer before tuning anything on it.
+
+   Instrumentation, not state: nothing renders or replays from it, a write
+   that fails is a log line rather than a block the reader does not get,
+   and rows age out after 30 days.
 6. **The catalogue is the contract.** The candidate kinds, the questions
    asked of each, and the transform from answers to `Block` are one
    table in ui-sdk (`classification/catalogue.ts`), so a new kind is one

@@ -610,6 +610,7 @@ export "./server" (./src/server/index.ts)
   type AskUserPayload
   type AskUserQuestion
   type AskUserResult
+  type AskedQuestion
   type AsrEvent
   type AsrFinal
   type AsrPartial
@@ -674,6 +675,7 @@ export "./server" (./src/server/index.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationQuestion
+  type ClassificationQuestions
   type ClassificationRequest
   type Classified
   type ClientActivitySubscribe
@@ -769,6 +771,7 @@ export "./server" (./src/server/index.ts)
   QUERY_ACTIVITY_TOOL_NAME
   QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  type QuestionObservation
   RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
@@ -909,6 +912,7 @@ export "./server" (./src/server/index.ts)
   isPricingRoute
   isThinkingLevel
   killWrapped
+  observeClassification
   parseMarkdown
   parseSubprocessEnvExtra
   parseToolPayload
@@ -931,6 +935,7 @@ export "./server" (./src/server/index.ts)
   simplify
   stitch
   sumModelUsage
+  thresholdOf
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema

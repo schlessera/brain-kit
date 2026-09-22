@@ -22,13 +22,16 @@ export {
   CATALOGUE_BLOCK_KINDS,
   CONFIDENCE,
   questionsFor,
+  thresholdOf,
   transformCandidate,
+  type AskedQuestion,
   type ChoiceAnswer,
   type ChoiceQuestion,
   type Classified,
   type ClassificationAnswer,
   type ClassificationAnswers,
   type ClassificationQuestion,
+  type ClassificationQuestions,
   type NoulAnswer,
   type NoulQuestion,
 } from "./catalogue.js";
@@ -36,8 +39,10 @@ export {
 export {
   CLASSIFIER_MODEL,
   applyClassification,
+  observeClassification,
   planClassification,
   type ClassificationPlan,
   type ClassificationRequest,
   type PlannedCandidate,
+  type QuestionObservation,
 } from "./request.js";
