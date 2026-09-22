@@ -118,8 +118,14 @@ interface RunRecord {
  *
  * The comparison is by directory boundary after normalisation, because a
  * plain prefix test puts `/home/x/brain-backup` inside `/home/x/brain` and
- * lets `/home/x/brain/../private` back out.
+ * lets `/home/x/brain/../private` back out. It stays a heuristic, and its
+ * failure mode is deliberately the loud one: a turn wrongly judged to have
+ * escaped is EXCLUDED, and `--report` prints how many were, so an over-eager
+ * rule shows up as a shrunken denominator rather than as a wrong rate.
  */
+/** Characters that could continue a directory name, so are not a boundary. */
+const NAME_CHAR = /[A-Za-z0-9._\-+~#%@]/;
+
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
   const brain = brainPath.startsWith("~") ? brainPath : resolve(brainPath);
   const text = JSON.stringify(inputs);
@@ -130,9 +136,14 @@ export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
     // still recognised as itself.
     if (text.startsWith(brain, at)) {
       const rest = text.slice(at + brain.length);
-      // The brain has to end at a directory boundary — `/home/x/brain-backup`
-      // is not `/home/x/brain` — and what follows must not climb back out.
-      if (rest === "" || /^[/"\\]/.test(rest)) {
+      const next = rest[0];
+      // The brain's name has to end here: a character that could continue it
+      // means this is a sibling, not the brain — `/home/x/brain-backup` is
+      // not `/home/x/brain`.
+      if (next === undefined || !NAME_CHAR.test(next)) {
+        // Anything but a separator means the path IS the brain, quoted or
+        // followed by another shell argument.
+        if (next !== "/") continue;
         const tail = /^[^"\s\\]*/.exec(rest)?.[0] ?? "";
         const full = resolve(brain + tail);
         if (full === brain || full.startsWith(`${brain}/`)) continue;

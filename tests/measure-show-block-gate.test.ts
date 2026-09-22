@@ -115,6 +115,13 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ path: `${accented}/notes/a.md` }], accented)).toBe(false);
   });
 
+  test("the brain named as one argument of a shell command is not an escape", () => {
+    const home = "/home/someone/brain";
+    expect(escapesBrain([{ command: `find ${home} -type f -name '*.md'` }], home)).toBe(false);
+    expect(escapesBrain([{ command: `ls '${home}'` }], home)).toBe(false);
+    expect(escapesBrain([{ command: `cd ${home} && git log` }], home)).toBe(false);
+  });
+
   test("a traversal back out of the brain is outside it", () => {
     const home = "/home/someone/brain";
     expect(escapesBrain([{ command: `cat ${home}/../private/notes.md` }], home)).toBe(true);
