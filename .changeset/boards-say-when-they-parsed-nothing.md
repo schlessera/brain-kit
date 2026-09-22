@@ -10,7 +10,7 @@ zero errors.
 run summary and in the `--json` envelope's `sources[]` rows: `ok`, `empty`
 (the board's own envelope, carrying no postings), `unparseable` (a page arrived,
 did not say it was empty, and yielded nothing) or `not_run` (nothing readable
-arrived at all). `empty` is the only one allowed to carry no errors, and an
+arrived at all). `empty` is the only zero-row state allowed to carry no errors, and an
 adapter may only claim it from a positive signal — an API answering with its
 envelope and an empty record list, a feed with a channel and no item markup
 at all — so a
