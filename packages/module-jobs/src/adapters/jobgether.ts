@@ -1,15 +1,83 @@
 import { BaseAdapter } from "./base.js";
 import type { RawJob, ScrapeOptions } from "../types.js";
 
-// Jobgether has card-based layout with structured job data
-// Use category browse URLs (server-rendered) instead of search (may require JS)
-const SEARCH_URLS = [
-  "https://jobgether.com/remote-jobs/all-locations/software-engineering",
-  "https://jobgether.com/remote-jobs/all-locations/data-science",
-  "https://jobgether.com/remote-jobs/all-locations/devops-cloud",
-  "https://jobgether.com/remote-jobs/germany/software-engineering",
-  "https://jobgether.com/remote-jobs/germany/data-science",
-];
+/**
+ * Jobgether, through the JSON surface its own robots.txt points a crawler at.
+ *
+ * The five `/remote-jobs/<location>/<category>` pages this adapter used to
+ * scrape answer HTTP 410; the site moved to `/search-offers`, and `?page=N`
+ * there was client-side and served byte-identical markup, so paginating it
+ * only burned requests. The postings are published as JSON instead, at
+ * `/api/v1/jobs`, with the title, company, URL, location, contract type and
+ * salary the HTML was being scraped for and an ISO `postedAt`.
+ *
+ * One request, no pagination. The endpoint pages through `?page=`/`?limit=`
+ * and nothing else, and robots.txt disallows `/*?*` for every path but the
+ * deprecated `/astroapi/ai/jobs.json` alias, which the site's own docs retire
+ * on 2026-09-28. So a run takes the first page of the unqualified path and
+ * stops; widening it means asking the site for permission, not adding a loop.
+ */
+const API_URL = "https://jobgether.com/api/v1/jobs";
+
+/**
+ * The site asks for `Crawl-delay: 2`, but places the line above its
+ * `User-agent: *` group, where no parser will attribute it. Honour it here.
+ */
+const CRAWL_DELAY_MS = 2000;
+
+/** One record of `/api/v1/jobs`; every field is optional on the wire. */
+interface JobgetherOffer {
+  id?: string;
+  title?: string;
+  company?: string;
+  url?: string;
+  location?: string;
+  remote?: string;
+  contractType?: string;
+  experience?: string;
+  salaryRange?: string;
+  jobFunctions?: string[];
+  postedAt?: string;
+}
+
+interface JobgetherResponse {
+  jobs?: JobgetherOffer[];
+}
+
+/** `"70000-90000 USD"` → the pieces `RawJob` stores separately. */
+function parseSalaryRange(raw: string | undefined): {
+  min?: number;
+  max?: number;
+  currency?: string;
+} {
+  if (!raw) return {};
+  const match = raw.match(/^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*([A-Z]{3})\s*$/);
+  if (!match) return {};
+  const min = Number(match[1]);
+  const max = Number(match[2]);
+  return {
+    min: min > 0 ? min : undefined,
+    max: max > 0 ? max : undefined,
+    currency: match[3],
+  };
+}
+
+function mapRemoteType(remote: string | undefined): RawJob["remote_type"] {
+  const value = (remote ?? "").toLowerCase();
+  if (value.includes("hybrid")) return "hybrid";
+  if (value.includes("remote")) return "fully_remote";
+  return "unknown";
+}
+
+function mapJobType(contractType: string | undefined): RawJob["job_type"] {
+  const value = (contractType ?? "").toLowerCase();
+  if (value.includes("part")) return "part_time";
+  if (value.includes("fixed") || value.includes("freelance") || value.includes("contract")) {
+    return "contract";
+  }
+  if (value.includes("full")) return "full_time";
+  return undefined;
+}
 
 export class JobgetherAdapter extends BaseAdapter {
   readonly source = "jobgether" as const;
@@ -18,118 +86,64 @@ export class JobgetherAdapter extends BaseAdapter {
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
     const errors: string[] = [];
-    const allJobs: RawJob[] = [];
-    const seenIds = new Set<string>();
-
-    for (const searchUrl of SEARCH_URLS) {
-      try {
-        if (opts.verbose) console.log(`[jobgether] Fetching: ${searchUrl.split("?")[1]}...`);
-
-        const html = await this.http.getText(searchUrl, {
-          delayMs: 3000,
-          proxy: opts.proxy,
-        });
-
-        const jobs = this.parseListings(html);
-        for (const job of jobs) {
-          if (!seenIds.has(job.source_id)) {
-            seenIds.add(job.source_id);
-            allJobs.push(job);
-          }
-        }
-
-        if (opts.verbose) console.log(`[jobgether] Found ${jobs.length} jobs`);
-      } catch (err) {
-        errors.push(`Jobgether search failed: ${err}`);
-      }
-    }
-
-    if (opts.verbose) console.log(`[jobgether] Total: ${allJobs.length} unique jobs`);
-    return this.makeResult(allJobs, errors);
-  }
-
-  private parseListings(html: string): RawJob[] {
     const jobs: RawJob[] = [];
 
-    // Match job offer links: /offer/{id}-{slug}
-    const offerRegex = /<a[^>]*href="(\/offer\/([^"]+))"[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    const seen = new Set<string>();
+    try {
+      if (opts.verbose) console.log(`[jobgether] Fetching: ${API_URL}...`);
 
-    // First pass: collect all offer links with context
-    const offers: Array<{ id: string; href: string; context: string }> = [];
-
-    while ((match = offerRegex.exec(html)) !== null) {
-      const [, href, id] = match;
-      if (seen.has(id)) continue;
-      seen.add(id);
-
-      // Grab surrounding context for metadata
-      const startIdx = Math.max(0, match.index - 200);
-      const context = html.slice(startIdx, match.index + 2000);
-      offers.push({ id, href, context });
-    }
-
-    for (const { id, href, context } of offers) {
-      // Extract title from the link or nearby heading
-      const titleMatch =
-        context.match(new RegExp(`href="${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>([^<]+)<`)) ||
-        context.match(/<h[23][^>]*>([^<]+)<\/h[23]>/i);
-      const title = titleMatch ? this.stripHtml(titleMatch[1]).trim() : "";
-      if (!title || title.length < 5) continue;
-
-      // Extract company
-      const companyMatch =
-        context.match(/company-([a-z0-9-]+)/i) ||
-        context.match(/<(?:span|div|p)[^>]*class="[^"]*company[^"]*"[^>]*>([^<]+)</i);
-      let company = "Unknown";
-      if (companyMatch) {
-        company = companyMatch[1]
-          .replace(/-/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase())
-          .trim();
-      }
-
-      // Extract location (pattern: "Remote from ...")
-      const locationMatch = context.match(/Remote\s+from\s+([^<,]+)/i) || context.match(/(?:Remote|Worldwide|Global)/i);
-      const location = locationMatch ? locationMatch[0].trim() : "Remote";
-
-      // Extract salary
-      const salaryMatch = context.match(/[€$£][\d,.]+\s*(?:-|to|–)\s*[€$£]?[\d,.]+/);
-      const salaryRaw = salaryMatch ? salaryMatch[0] : undefined;
-
-      // Determine currency
-      let currency: string | undefined;
-      if (salaryRaw) {
-        if (salaryRaw.includes("€")) currency = "EUR";
-        else if (salaryRaw.includes("$")) currency = "USD";
-        else if (salaryRaw.includes("£")) currency = "GBP";
-      }
-
-      // Extract experience level / tags
-      const tagMatches = context.match(
-        /(?:Senior|Junior|Mid-level|Lead|Staff|Principal|Entry|Executive)/gi
-      );
-      const tags = tagMatches
-        ? [...new Set(tagMatches.map((t) => t.toLowerCase()))]
-        : undefined;
-
-      jobs.push({
-        source: "jobgether",
-        source_id: id,
-        title,
-        company,
-        url: `https://jobgether.com${href}`,
-        source_url: `https://jobgether.com${href}`,
-        location,
-        remote_type: "fully_remote",
-        job_type: "full_time",
-        tags,
-        salary_raw: salaryRaw,
-        salary_currency: currency,
+      const data = await this.http.getJson<JobgetherResponse>(API_URL, {
+        delayMs: CRAWL_DELAY_MS,
+        proxy: opts.proxy,
       });
+
+      const offers = Array.isArray(data?.jobs) ? data.jobs : [];
+      if (offers.length === 0) {
+        errors.push(`Jobgether ${API_URL} returned no jobs array`);
+      }
+
+      // A record that cannot name its own employer is not a job posting; drop
+      // it and say which field was missing rather than storing "Unknown".
+      const missing = { title: 0, company: 0, url: 0 };
+
+      for (const offer of offers) {
+        const title = offer.title?.trim() ?? "";
+        const company = offer.company?.trim() ?? "";
+        const url = offer.url?.trim() ?? "";
+        if (!title) missing.title++;
+        if (!company) missing.company++;
+        if (!url) missing.url++;
+        if (!title || !company || !url) continue;
+
+        const salary = parseSalaryRange(offer.salaryRange);
+
+        jobs.push({
+          source: "jobgether",
+          source_id: offer.id?.trim() || url,
+          title,
+          company,
+          url,
+          source_url: url,
+          location: offer.location?.trim() || "Remote",
+          remote_type: mapRemoteType(offer.remote),
+          job_type: mapJobType(offer.contractType),
+          tags: offer.jobFunctions?.length ? offer.jobFunctions : undefined,
+          salary_min: salary.min,
+          salary_max: salary.max,
+          salary_currency: salary.currency,
+          salary_raw: offer.salaryRange?.trim() || undefined,
+          published_at: offer.postedAt,
+        });
+      }
+
+      for (const [field, count] of Object.entries(missing)) {
+        if (count > 0) errors.push(`Jobgether: ${count} offer(s) carried no ${field}`);
+      }
+
+      if (opts.verbose) console.log(`[jobgether] Found ${jobs.length} jobs`);
+    } catch (err) {
+      errors.push(`Jobgether ${API_URL} failed: ${err}`);
     }
 
-    return jobs;
+    return this.makeResult(jobs, errors);
   }
 }

@@ -1,6 +1,22 @@
 {
   "captures": [
     {
+      "captured_at_utc": "2026-09-22T17:17Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 1886,
+      "excerpt_sha256": "0354f20d2b123ed52a680d34ff758196530102206941c03784ea82cb420c320f",
+      "fixture": "api-v1-jobs.json",
+      "full_response_bytes": 4543,
+      "full_response_sha256": "ec48d844de06df7aa593af93546623d75783ca893ed26b40f3386f2500b48e22",
+      "http_status": 200,
+      "note": "The first three of the ten records the adapter now fetches, plus the response's pagination/browseOnSiteUrl/docs keys verbatim. /api/v1/jobs is the non-deprecated form of the endpoint captured above: the site's own docs (/astroapi/ai/jobs/docs) list /astroapi/ai/jobs as deprecated with a 2026-09-28 sunset and /api/v1/jobs as its successor, and both serve the same record shape. The companies named - Grafana Labs, Agero and Samsara - are all firms, not individuals; checked, because a company name that reads like a person's is what the leakage gate cannot see. Captured by #35.",
+      "records_in_full_response": 10,
+      "source": "jobgether",
+      "transport": "http",
+      "url": "https://jobgether.com/api/v1/jobs",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
       "captured_at_utc": "2026-09-22T16:18Z",
       "egress_country": "DE",
       "excerpt_bytes": 1712,

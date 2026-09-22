@@ -147,7 +147,11 @@ how often each one bites.
   answer HTTP 410, exactly as measured in August. The body's canonical link
   names the replacement page, and the site's own `robots.txt` explicitly allows
   a JSON endpoint carrying title, company, url, location and salary.
-  Fixtures: `jobgether/response-410.html`, `jobgether/astroapi-ai-jobs.json`.
+  **Repaired in #35**, which fetches that endpoint instead — at
+  `/api/v1/jobs`, since the site's own docs retire the
+  `/astroapi/ai/jobs` alias on 2026-09-28. Both serve the same record shape.
+  Fixtures: `jobgether/response-410.html`, `jobgether/astroapi-ai-jobs.json`,
+  `jobgether/api-v1-jobs.json`.
 - **`dice`** — the biggest board and the best titles, but the card link's `href`
   is **relative**, and `src/adapters/dice.ts:47` stores it unchanged as both
   `source_id` and `url`, so all 102 rows carry an unresolvable URL. The company
@@ -167,7 +171,10 @@ how often each one bites.
   carry only `@id` and `name`, so `mapJobPosting` would skip them even if the
   regex matched. The fallback at `:102` then stores `/remote-jobs/<slug>`
   category chrome — real jobs are `/job/<slug>`.
-  Fixture: `remotelyde/listing.html`.
+  **Repaired in #35** by parsing the `/job/<slug>` cards, which carry the
+  company in both of the listing's two card layouts; the JSON-LD on this page
+  has no company and no description to give, whatever reads it.
+  Fixtures: `remotelyde/listing.html`, `remotelyde/listing-row-cards.html`.
 - **`remoteineurope`** — the board no longer exists. Every configured URL
   answers 301 to `weworkremotely.com`, so the adapter parses We Work Remotely's
   markup, finds no `/job/<slug>` links, and returns **0 found with 0 errors** —
