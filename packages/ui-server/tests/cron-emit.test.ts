@@ -244,3 +244,23 @@ describe("emitEnvironment", () => {
     );
   });
 });
+
+describe("the cron runner's control environment", () => {
+  test("carries the exec wrapper, so the boundary does not stop at the crontab", () => {
+    // /etc/environment is how the runner gets an environment at all. Without
+    // this the wrapper is configured for the server and silently absent for
+    // every scheduled job.
+    const emitted = emitEnvironment({
+      PATH: "/usr/bin",
+      BRAIN_UI_EXEC_WRAPPER: "/opt/run-as-agent",
+      BRAIN_UI_EXEC_KILLER: "/opt/kill-agent-group",
+    });
+    expect(emitted).toContain('BRAIN_UI_EXEC_WRAPPER="/opt/run-as-agent"');
+    expect(emitted).toContain('BRAIN_UI_EXEC_KILLER="/opt/kill-agent-group"');
+  });
+
+  test("emits nothing new when no wrapper is configured", () => {
+    // The goldens above are byte-exact; an unset wrapper must not move them.
+    expect(emitEnvironment({ PATH: "/usr/bin" })).toBe('PATH="/usr/bin"\n');
+  });
+});

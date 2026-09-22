@@ -17,8 +17,12 @@
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
 import {
+  EXEC_KILLER_ENV,
+  EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
+  validateExecWrapper,
+  type ExecWrapperConfig,
 } from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
@@ -44,6 +48,28 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: EXEC_WRAPPER_ENV,
+    description:
+      "Absolute path to an executable the Claude Code subprocess is launched " +
+      "through, as `<wrapper> <program> <args…>`. Lets a host run the agent " +
+      "as another user without this package knowing how. It is an argv[0], " +
+      "never a command line: no shell parses it. Unset, the SDK spawns exactly " +
+      "as it did before.",
+    default: "(none — let the SDK spawn directly)",
+    required: false,
+  },
+  {
+    name: EXEC_KILLER_ENV,
+    description:
+      "Absolute path to an authorised helper that cancels the wrapped Claude " +
+      "Code process group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. " +
+      "Needed only when the wrapper changes uid: signalling then fails with " +
+      "EPERM however the group is arranged, and an aborted turn would keep " +
+      "running.",
+    default: "(none — signal the group directly)",
+    required: false,
+  },
   {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
@@ -144,4 +170,16 @@ export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessE
     ...operatorNames,
     ...extraNames,
   ]);
+}
+
+/**
+ * The exec wrapper, or undefined. Read at turn start rather than cached: the
+ * process may gain the variable after this module loads, and a stale read of a
+ * privilege boundary is the wrong kind of stale.
+ */
+export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
+    killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
+  };
 }

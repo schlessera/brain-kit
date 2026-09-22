@@ -10,6 +10,11 @@ import { createActivityStore } from "../activity/store.js";
 import { createUiDb } from "../db/client.js";
 import { resolveSystemPrincipal } from "../db/principals.js";
 import { recordCronRun } from "./scheduler.js";
+import { execConfig } from "../config/env.js";
+import {
+  execWrapperSpawnOptions,
+  wrapCommand,
+} from "@schlessera/brain-ui-sdk/server";
 
 /** Tail of stderr retained for the cron_runs error row. */
 export const STDERR_TAIL_CHARS = 2_000;
@@ -196,6 +201,14 @@ async function startRecord(
 }
 
 /** Run a job as argv (never through a shell) and return its exact exit code. */
+/**
+ * Jobs the cron runner executes on the server's own behalf, not the
+ * repository's. They are not launched through the exec wrapper: the digest
+ * writes the UI database, which a privilege-dropping wrapper puts out of
+ * reach.
+ */
+const TRUSTED_JOB_NAMES: ReadonlySet<string> = new Set(["digest"]);
+
 export async function runJob(
   options: RunJobOptions,
   dependencies: RunJobDependencies = {}
@@ -219,11 +232,22 @@ export async function runJob(
 
   try {
     const spawn = dependencies.spawn ?? ((command, spawnOptions) => Bun.spawn(command, spawnOptions));
-    const proc = spawn(options.command, {
+    // Through the exec wrapper like every other child. A scheduled job runs a
+    // command out of the brain repository, which makes it the same class of
+    // input as an agent tool call — and the recorder around it stays outside
+    // the wrapper, because it writes the server's own database.
+    //
+    // Except for the trusted jobs below, which ARE the server: the digest
+    // opens and writes the UI database, so running it as a user that dropped
+    // out of reach of that database breaks it. Wrapping is about repository
+    // code, and the digest is not repository code.
+    const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : execConfig();
+    const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
       stdin: "inherit",
       stdout: "pipe",
       stderr: "pipe",
       env: { ...options.childEnv, [SPAN_SINK_ENV]: sinkPath },
+      ...execWrapperSpawnOptions(cronExec.wrapper),
     });
 
     let stderrTail = "";

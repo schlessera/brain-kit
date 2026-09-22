@@ -363,3 +363,112 @@ describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
     });
   });
 });
+
+/**
+ * Every brain CLI launch goes through the host's exec wrapper, not only the
+ * agent's tool spawns. The CLI imports the repository's `brain.config.ts` and
+ * its repo-resolved modules — agent-writable executable inputs — so a search
+ * executes repository code exactly as a tool call does. An independent review
+ * of the first version of this seam found these two spawns still launching
+ * directly, which left the privilege boundary with a hole the size of the
+ * whole read path.
+ */
+describe("the exec wrapper covers the shared CLI client", () => {
+  let previous: string | undefined;
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
+    else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
+  });
+
+  function installWrapper(root: string): string {
+    const log = join(root, "wrapper-argv.log");
+    const wrapper = join(root, "wrapper.sh");
+    writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${log}'\nexec "$@"\n`, {
+      mode: 0o755,
+    });
+    chmodSync(wrapper, 0o755);
+    return log;
+  }
+
+  test("a search runs through the wrapper, with the CLI as its argument", async () => {
+    const root = temporaryBrain();
+    installBrainCli(root, `console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
+    const log = installWrapper(root);
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = join(root, "wrapper.sh");
+
+    await createBrainClient({ brainPath: root }).search("anything", {
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    const argv = readFileSync(log, "utf-8").split("\n").filter(Boolean);
+    // argv[0] of the recorded line is the program the wrapper was asked to
+    // run — the brain CLI — and "search" is among the arguments it kept.
+    expect(argv[0]).toContain("brain");
+    expect(argv).toContain("search");
+  }, 30_000);
+
+  test("with no wrapper configured the CLI is launched directly", async () => {
+    const root = temporaryBrain();
+    installBrainCli(root, `console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
+    const log = installWrapper(root);
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    delete process.env.BRAIN_UI_EXEC_WRAPPER;
+
+    await createBrainClient({ brainPath: root }).search("anything", {
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    expect(existsSync(log)).toBe(false);
+  }, 30_000);
+
+  test("a probe that times out does not orphan the CLI behind its wrapper", async () => {
+    // spawnSync's timeout kills the process it started, which with a
+    // supervising wrapper is the wrapper — the CLI it launched keeps running.
+    const root = temporaryBrain();
+    const childPidFile = join(root, "child.pid");
+    installBrainCli(root, `console.log("0.36.0");\n`);
+
+    const wrapper = join(root, "supervise.sh");
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\nsleep 300 &\necho $! > '${childPidFile}'\nsleep 300\n`,
+      { mode: 0o755 }
+    );
+    chmodSync(wrapper, 0o755);
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
+
+    // Times out after 5s, logs a warning, and continues — the probe is
+    // advisory. What must not survive it is the child.
+    probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+
+    const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
+    const deadline = Date.now() + 10_000;
+    const alive = () => {
+      try {
+        process.kill(childPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    while (alive() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(alive()).toBe(false);
+  }, 60_000);
+
+  test("the version probe goes through it too, so a broken wrapper fails at boot", () => {
+    const root = temporaryBrain();
+    installBrainCli(root, `console.log("0.36.0");\n`);
+    const log = installWrapper(root);
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = join(root, "wrapper.sh");
+
+    probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+
+    expect(readFileSync(log, "utf-8")).toContain("--version");
+  }, 30_000);
+});

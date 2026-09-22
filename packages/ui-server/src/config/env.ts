@@ -15,6 +15,8 @@
 
 import { join } from "path";
 
+import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+
 import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -22,6 +24,8 @@ import { envFlag } from "./env-core.js";
 import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
+  validateExecWrapper,
+  type ExecWrapperConfig,
   type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -57,6 +61,27 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  {
+    name: "BRAIN_UI_EXEC_KILLER",
+    description:
+      "Absolute path to an authorised helper that cancels a wrapped process " +
+      "group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. Needed only when " +
+      "the wrapper changes uid: signalling then fails with EPERM however the " +
+      "group is arranged, and an aborted request would keep running.",
+    default: "(none — signal the group directly)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_EXEC_WRAPPER",
+    description:
+      "Absolute path to an executable every agent and brain-CLI subprocess is " +
+      "launched through, as `<wrapper> <program> <args…>`. Lets a host run " +
+      "those children as another user without this package knowing how. It is " +
+      "an argv[0], never a command line: no shell parses it. Unset, spawns are " +
+      "exactly what they were.",
+    default: "(none — spawn the program directly)",
+    required: false,
+  },
   // core paths / identity
   {
     name: "BRAIN_PATH",
@@ -574,6 +599,14 @@ export interface CronConfig {
   childEnv: EnvRecord;
   /** Valid operator-added names, also used when emitting /etc/environment. */
   subprocessEnvExtraNames: string[];
+  /**
+   * Control configuration the cron RUNNER itself reads — the exec wrapper and
+   * its cancellation helper. Kept apart from `childEnv` on purpose: that one
+   * is filtered to the cron audience and is what a scheduled job receives,
+   * while these are read before anything is spawned and are not forwarded.
+   * Emitting them is what stops the privilege boundary at the crontab.
+   */
+  controlEnv: EnvRecord;
 }
 
 function list(raw: string | undefined): string[] {
@@ -777,6 +810,9 @@ export function resolveCronConfig(
       subprocessEnvExtraNames
     ),
     subprocessEnvExtraNames,
+    controlEnv: Object.fromEntries(
+      CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
+    ),
   };
 }
 
@@ -803,6 +839,21 @@ function filterPackageSubprocessEnv(
  * overrides. The agent default preserves this exported helper's historical
  * no-argument use; every ui-server spawn names its actual audience.
  */
+/**
+ * The exec wrapper and its cancellation helper, or empty when the host
+ * configured neither.
+ *
+ * Read per spawn rather than resolved once into {@link ServerConfig}: this is
+ * a privilege boundary, and the rest of the package's config is resolved at
+ * `createApp()` while these spawns happen for the life of the process.
+ */
+export function execConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER),
+    killer: validateExecWrapper(env.BRAIN_UI_EXEC_KILLER),
+  };
+}
+
 export function subprocessEnv(
   audience: SubprocessEnvAudience = "agent",
   extra: Record<string, string> = {},

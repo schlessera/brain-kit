@@ -20,11 +20,15 @@ import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
 import {
+  EXEC_KILLER_ENV,
+  EXEC_WRAPPER_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
+  validateExecWrapper,
+  type ExecWrapperConfig,
   webSearchProvider,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
@@ -47,6 +51,27 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  {
+    name: EXEC_WRAPPER_ENV,
+    description:
+      "Absolute path to an executable every tool subprocess is launched " +
+      "through, as `<wrapper> <program> <args…>`. Lets a host run the agent's " +
+      "children as another user without this package knowing how. It is an " +
+      "argv[0], never a command line: no shell parses it. Unset, spawns are " +
+      "exactly what they were.",
+    default: "(none — spawn the program directly)",
+    required: false,
+  },
+  {
+    name: EXEC_KILLER_ENV,
+    description:
+      "Absolute path to an authorised helper that cancels a wrapped process " +
+      "group, invoked as `<killer> <pgid> <TERM|KILL|INT>`. Needed only when " +
+      "the wrapper changes uid: signalling then fails with EPERM however the " +
+      "group is arranged, and an aborted turn would keep running.",
+    default: "(none — signal the group directly)",
+    required: false,
+  },
   {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
@@ -103,6 +128,19 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
     reverseGeocodeEnabled: envFlag(env.BRAIN_UI_REVERSE_GEOCODE, true),
     nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",
+  };
+}
+
+/**
+ * The exec wrapper and its cancellation helper. Resolved per spawn rather than
+ * cached at module scope, matching this file's rule for everything else: the
+ * process may gain the variables after this module loads, and a stale read of
+ * a privilege boundary is the wrong kind of stale.
+ */
+export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+  return {
+    wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
+    killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
   };
 }
 

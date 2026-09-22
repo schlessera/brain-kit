@@ -1,7 +1,7 @@
 import { mkdtempSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   OUTPUT_TAIL_CHARS,
@@ -352,5 +352,82 @@ describe("cron lifecycle recovery", () => {
     expect(code).toBe(9);
     expect(closed).toBe(true);
     expect(removed).toBe(true);
+  });
+});
+
+/**
+ * Scheduled jobs run commands out of the brain repository, which is the same
+ * class of input as an agent tool call. A review of the exec-wrapper branch
+ * found cron still launching them directly — a path around the boundary that
+ * the rest of the work had just closed.
+ */
+describe("cron runs jobs through the exec wrapper", () => {
+  let previous: string | undefined;
+  beforeEach(() => {
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+  });
+  afterEach(() => {
+    if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
+    else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
+  });
+
+  async function commandSeenBySpawn(
+    command: string[],
+    jobName = "maintain"
+  ): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-wrapper-"));
+    let seen: string[] = [];
+    try {
+      await runJob(
+        {
+          jobName,
+          command,
+          dbPath: join(dir, "brain-ui.db"),
+          childEnv: {},
+          stdout: textSink().sink,
+          stderr: textSink().sink,
+        },
+        {
+          sinkPath: join(dir, "sink.jsonl"),
+          spawn: (cmd) => {
+            seen = [...cmd];
+            return {
+              stdout: stream(),
+              stderr: stream(),
+              exited: Promise.resolve(0),
+              signalCode: null,
+            };
+          },
+        }
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    return seen;
+  }
+
+  test("prepends the wrapper and makes the command absolute", async () => {
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    expect(await commandSeenBySpawn(["/bin/echo", "hello"])).toEqual([
+      "/opt/run-as-agent",
+      "/bin/echo",
+      "hello",
+    ]);
+  });
+
+  test("leaves the command untouched when no wrapper is configured", async () => {
+    delete process.env.BRAIN_UI_EXEC_WRAPPER;
+    expect(await commandSeenBySpawn(["job", "--flag"])).toEqual(["job", "--flag"]);
+  });
+
+  test("the digest is not wrapped — it writes the server's own database", async () => {
+    // Wrapping is about repository code. The digest IS the server: a wrapper
+    // that drops to a user without access to the UI database would break it,
+    // and the retention marker would quietly stop advancing.
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    expect(await commandSeenBySpawn(["/bin/echo", "hi"], "digest")).toEqual([
+      "/bin/echo",
+      "hi",
+    ]);
   });
 });
