@@ -2750,13 +2750,28 @@ two backends, in two different harnesses.** Two small samples agreeing is not a
 result, but it is a better lead than a rate gap, and it is what #137 and #119
 should be pointed at rather than the ten points.
 
-#50's kind scoring also sees something no rate can: on pi the one *wrong-kind*
-result is `schedule` prescribed and `timeline` drawn, 4 times out of 4 — a kind
-reached reliably and reached for the wrong question, which a call-rate metric
-cannot distinguish from a success. **The SDK-level harness used for this entry
-does not score kind at all**, only `scripts/measure-show-block-server.ts` does,
-so any future Claude-against-pi comparison has half an instrument until that
-changes.
+**The two backends do not fail the same way, and the distinction is on two
+different axes.** The concentration above is a *call-rate* one: which kinds the
+model declines to draw at all. pi's one *wrong-kind* error is a different
+dimension — `schedule` prescribed and `timeline` drawn, 4 times out of 4, a
+kind reached reliably and reached for the wrong question, which a call-rate
+metric cannot distinguish from a success. So `contact`/`quote` and `schedule`
+are not two readings of one phenomenon and should not be merged into one.
+
+That `schedule` miss carries one fact worth having before #157 is worked. The
+clause the model failed to follow is stated **twice**, in near-identical words:
+the brief says "`schedule` for what is coming", and the description says
+"schedule: what is coming, grouped by day"
+(`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, where it sits in the same
+sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
+both surfaces saying nearly the same thing. **Saying it twice did not fix the
+miss** — which is evidence for the description-overlap arm on #157 and against
+assuming duplication is harmless redundancy.
+
+**The SDK-level harness used for this entry does not score kind at all**, only
+the server-level one does, so any future Claude-against-pi comparison has half
+an instrument until that changes — and a per-brief A/B has to score kind on
+both sides, because the two backends' failures do not overlap.
 
 **The prediction, with the condition that would falsify it.** If deferral is
 the whole of the difference, this change moves the Claude backend *toward* pi's
@@ -2823,15 +2838,27 @@ earn their place. The question is #157.
   whether to pick one, so "the brief measures at no effect once the tools are
   loaded" is a **rate** claim, and reading it as a **content** claim is a
   category error. This entry's runs and D43's both support the first and
-  neither touches the second. The only evidence on the second is #50's
-  kind-correctness pass on the pi backend, and it points the other way: 23 of
-  25 scorable turns drew the right kind, with one systematic miss —
-  `schedule` prescribed, `timeline` drawn, 2 of 2. Its author discloses having
-  seen the drawn kinds before writing the expectations, so it is a first
-  reading rather than a clean result; it is also the only reading anyone has,
-  and it suggests the brief's content does measurable work in exactly the place
-  a rate cannot see. #157 makes kind-correctness its metric, and the
-  `schedule`/`timeline` miss is a concrete lead for it.
+  neither touches the second.
+
+  **Nothing else touches it either, and #50's kind-correctness pass on pi is
+  not the exception it looks like.** Every pi turn was measured with the brief
+  present — `packages/ui-backend-pi/src/session-resources.ts` passes it
+  unconditionally and pi has no supported way to run without it — so it is a
+  single-arm result and attributes nothing to the brief's content, in either
+  direction. An earlier revision of this entry said it "points the other way"
+  and "suggests the brief's content does measurable work". **Both are wrong for
+  the reason this entry already gives about pi elsewhere**, and they are
+  recorded here rather than quietly deleted because the same overreach reached
+  D43 and was caught there by review.
+
+  What the pass does establish is narrower and worth having: **kind-correctness
+  is a scorable dimension with real variance, and a systematic error lives in
+  it.** Pooled, 44 of 48 scorable turns drew the prescribed kind, and the whole
+  of the error is one clause — `schedule` prescribed, `timeline` drawn, 4 times
+  out of 4. So: nobody should read 76%/77% as licence to delete the brief's
+  text, and nobody should read 44 of 48 as licence to keep it. #157 makes
+  kind-correctness its metric, and that is a reason to measure before touching
+  it rather than a prediction of how the measurement will come out.
 - **Every figure here that came from another record was reconciled against
   that record's own primary table before being repeated, and the ones that
   could not be are named.** pi's 87% is read off #50's per-run breakdown (27 of
