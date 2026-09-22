@@ -37,7 +37,7 @@
 // disabled and `--report` prints only the deterministic candidate yield,
 // which is the half that depends on the backend.
 
-import { isAbsolute, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -121,7 +121,10 @@ interface RunRecord {
  * lets `/home/x/brain/../private` back out.
  */
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
-  const brain = isAbsolute(brainPath) ? resolve(brainPath) : brainPath;
+  // A relative `--brain` has to become absolute or every absolute path the
+  // agent names reads as an escape. `~` is left alone: it cannot be resolved
+  // without knowing whose home it is.
+  const brain = brainPath.startsWith("~") ? brainPath : resolve(brainPath);
   const text = JSON.stringify(inputs);
   for (const match of text.matchAll(/(?:~|\/home)\/[A-Za-z0-9._\-/]*/g)) {
     const found = match[0];
@@ -147,14 +150,14 @@ function flag(name: string): string | undefined {
 
 /**
  * GFM tables the model typed, counted from the parsed markdown rather than
- * by pattern. A regex over delimiter rows counts a table inside a fenced
- * code block, which draws nothing, and misses a single-column one, whose
- * delimiter row has no interior pipe. This is the same parser the
- * classification pass walks.
+ * by pattern, one text part at a time. A regex over delimiter rows counts a
+ * table inside a fenced code block, which draws nothing, and misses a
+ * single-column one, whose delimiter row has no interior pipe. This is the
+ * same parser the classification pass walks, over the same parts.
  */
 const MARKDOWN = unified().use(remarkParse).use(remarkGfm);
 
-export function countMarkdownTables(text: string): number {
+export function countMarkdownTables(...parts: string[]): number {
   interface Node {
     type: string;
     children?: Node[];
@@ -164,7 +167,10 @@ export function countMarkdownTables(text: string): number {
     if (node.type === "table") tables++;
     for (const child of node.children ?? []) walk(child);
   };
-  walk(MARKDOWN.parse(text) as unknown as Node);
+  // Per part, never over the join: a tool call between prose and a table
+  // makes them two parts, and gluing them together turns the table's header
+  // row into the end of a paragraph, so the table the reader saw disappears.
+  for (const part of parts) walk(MARKDOWN.parse(part) as unknown as Node);
   return tables;
 }
 
@@ -336,7 +342,7 @@ async function runOnce(
         };
       }),
     toolNames: toolCalls.map((c) => c.toolName),
-    markdownTables: countMarkdownTables(textParts.join("")),
+    markdownTables: countMarkdownTables(...textParts),
     textParts,
     messageBlocks: blocksFrame?.blocks ?? [],
     result,
@@ -405,7 +411,7 @@ async function report(paths: string[]): Promise<void> {
     // so a correction to the counter reaches runs already on disk. The
     // escape flag cannot be recounted this way — it is decided from tool
     // arguments, which are not kept — so fixing that rule needs a re-run.
-    const tables = list.reduce((n, r) => n + countMarkdownTables(r.textParts.join("")), 0);
+    const tables = list.reduce((n, r) => n + countMarkdownTables(...r.textParts), 0);
     console.log(
       `| ${list[0].prompt} | ${list.length} | ${turnsWithBlock} | ${drawn.length}` +
         ` | ${kinds.join(", ") || "—"} | ${tables} |`
