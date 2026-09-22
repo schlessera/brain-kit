@@ -208,6 +208,23 @@ words:
 | `git clean -f` | "delete untracked files from the working tree" |
 | `git checkout --` | "discard changes to specific files" |
 
+**Two cases the six phrases do not cover, and the announcement must not assume
+they are exhaustive.** A kind-`tool` request has no pattern at all — the
+description comes from the SDK (`permission-hooks.ts:73-79`) and is not written
+to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
+(`packages/ui-backend-claude/src/options.ts:48-58`) lets a deployment supply its
+own patterns, which will have no phrase. Both fall back to the same payload-free
+shape, which names the tool and nothing else:
+
+> "Before I go on — I need to use *archive a document*, and that's a decision I
+> can't take by voice. It's on the screen. Say *brain, stop* if you'd rather I
+> didn't."
+
+The fallback is deliberately less informative than the six phrases and is not a
+reason to skip writing a phrase: an announcement that says only "a tool" is
+close enough to form C to be worthless, so a new default pattern without a
+phrase is a defect, not a supported state.
+
 Ten seconds, flat in the payload. The announcement says what class of thing is
 about to happen, says that the command itself is on screen, and offers the one
 answer voice can give:
@@ -334,8 +351,35 @@ declare that it has no grant surface, and a request in such a turn resolves
 Without it, "not in the posture" means "prompts anyway", and the posture is
 decoration.
 
-**It has to cover both request kinds, and the `command` one is the one that
-matters.** Removing `Bash` from the allowlist does not route a Bash call through
+**Three things re-admit a removed tool, and the allowlist is load-bearing only
+once all three are closed.** The record's central claim — that a tool outside
+the posture becomes *ungrantable* — is false on today's code in three separate
+places, and each is a precondition for both this posture and #51's.
+
+1. **It asks instead of failing**, as above.
+2. **The input-rewrite hooks allow outright.** `createAgentHook` and
+   `createRtkHook` return `permissionDecision: "allow"` so that `updatedInput`
+   takes effect, which short-circuits `canUseTool` entirely. The source says so
+   in as many words — *"a deployment that removes it from allowedTools should
+   know this rewrite re-admits it"*
+   (`packages/ui-backend-claude/src/input-rewrite-hooks.ts:34-37,51-53`). Any
+   Bash command rtk chooses to rewrite therefore runs in a turn whose allowlist
+   does not contain Bash, with no card and no decision.
+3. **A remembered grant answers before any card exists.**
+   `host.toolPermissions?.isAutoAllowed(req.toolName)` resolves `allow` at the
+   top of `requestPermission` (`packages/ui-server/src/ws/bridge.ts:90-98`), so
+   a tool the user once chose to always allow is granted in a voice turn
+   regardless of the posture. Posture enforcement has to be evaluated *before*
+   that lookup, not after.
+
+Closing all three is filed as #110 (the ask-vs-fail gap) and #124 (the two
+re-admission paths). Until they are closed, a narrower
+allowlist is a statement of intent — which is the same shape as the archive
+boundary above, and worth noticing that this architecture has produced the same
+failure twice.
+
+**The fail-closed rule has to cover both request kinds, and the `command` one is
+the one that matters.** Removing `Bash` from the allowlist does not route a Bash call through
 `canUseTool` first: the PreToolUse `mutatingHook` fires before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`permission-hooks.ts:45-49,118-126`). So a
