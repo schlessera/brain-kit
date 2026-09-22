@@ -48,7 +48,7 @@ existing behaviour.
 Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
-(`packages/ui-backend-claude/src/tool-policy.ts:17`), the five bridge tools the
+(`packages/ui-backend-claude/src/tool-policy.ts:24`), the five bridge tools the
 backend appends per turn (`packages/ui-backend-claude/src/sdk-options.ts:45-60`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`packages/ui-sdk/src/server/confirm-patterns.ts:21`). Tools that exist only in
@@ -74,7 +74,7 @@ their rows do not sum to the first column.
 matching a confirm pattern. **Zero** were kind `tool`. That is not an accident of
 the corpus, it is the policy: everything the model reaches for is on
 `DEFAULT_ALLOWED_TOOLS` already, and the only tool deliberately left off it is
-`mcp__brain__brain_archive` (`tool-policy.ts:34`). The "always allow" path —
+`mcp__brain__brain_archive` (`tool-policy.ts:41-42`). The "always allow" path —
 the whole grantable-tool mechanism, and the one thing the client hides for
 `command` requests — is **almost never exercised in practice**.
 
@@ -211,28 +211,38 @@ posture, it is a wish.
 | --- | --- |
 | `Bash` | 192 of 192 measured approvals came from it, and its payload is the unspeakable one (median 118 spoken seconds). Removing it removes the problem instead of narrating it. This is the whole of the cost of the voice posture, and it is deliberate. |
 | `Write`, `Edit`, `NotebookEdit` | Raw byte writes to arbitrary paths. The brain document tools cover the legitimate eyes-free write and keep frontmatter and the search index correct; these do not. |
-| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`tool-policy.ts:51-56`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
+| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`tool-policy.ts:80-81`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
-| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`confirm-patterns.ts:22-27`). It keeps its card. Its exclusion here does **not** currently close the boundary; see below. |
+| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`confirm-patterns.ts:22-27`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
 
-**The archive boundary leaks, and it leaks today.** `brain_archive` is off the
+**The archive boundary leaked, and is now closed.** `brain_archive` is off the
 auto-allow list because archiving is a visibility change. But `brain_update`
 takes `status: "archived"` (`packages/core/src/mcp-server.ts:534,557`), writes
 it and reindexes, and search excludes archived documents by default
 (`mcp-server.ts:180`) — so the visibility change `brain_archive`'s card exists
-to gate is reachable through a tool that is auto-allowed in *every* surface,
-chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closes the `brain archive` CLI
+to gate was reachable through a tool that is auto-allowed in *every* surface,
+chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closed the `brain archive` CLI
 spelling (`confirm-patterns.ts:27`) and not this one.
 
-This is pre-existing product behaviour rather than something the voice posture
-introduces, and it is filed separately. Two things follow for this record.
-First, the reason given for excluding `brain_archive` is a statement of intent,
-not of enforcement, and is written that way rather than papering over it.
-Second, whatever closes the hole must cover the voice posture too — if the
-answer is that a status change to `archived` raises its own approval, then in a
-voice turn it is ungrantable and therefore denied, which is the correct
-outcome and needs no special case here.
+This was pre-existing product behaviour rather than something the voice posture
+introduced. It was filed as #122 and closed by #144, which took exactly the
+answer this section predicted: a `brain_update` that sets `status: "archived"`
+raises its own per-use approval, from the shared `decideToolPermission`, on
+both backends. So the prediction below holds as written — **in a voice turn
+that approval is ungrantable and the call is therefore denied, which is the
+correct outcome and needs no special case here.** An update that does not touch
+`status`, or sets it to `"active"` or `"draft"`, is unaffected, so the
+`brain_update` row above still stands: eyes-free appending still works.
+
+One thing that did not change: the reason given for excluding `brain_archive`
+is now a statement of enforcement as well as intent, but only for the tools
+whose purpose is document management. `Write` and `Edit` can still put
+`status: archived` into frontmatter directly and nothing fires. That is
+deliberate — they are a different trust class, and this mechanism is a seatbelt
+rather than containment (`confirm-patterns.ts:11-16`) — and it matters here
+because **neither is auto-allowed in a voice turn anyway**, so the voice
+posture is strictly tighter than chat on this point.
 
 **`WebSearch` / `WebFetch`, stated plainly.** They pull content an attacker may
 control into a turn that can write documents. That exposure is identical to the
@@ -632,7 +642,10 @@ prepared to accept. Rejected because it removes the thing voice is *for*: saying
 is a write, and a read-only voice mode is a search box you talk to. The
 cost of allowing the two document writes is not a measured figure and must not
 be dressed as one: `brain_add` and `brain_update` are on `DEFAULT_ALLOWED_TOOLS`
-(`tool-policy.ts:47-48`), so they raise **zero** approvals by construction, and
+(`tool-policy.ts:73-74`), so they raise **zero** approvals by construction —
+with the single exception added by #144, a `brain_update` that sets
+`status: "archived"`, which is the archive boundary above and is denied in a
+voice turn rather than granted — and
 the corpus contains no brain MCP calls at all (see "What the corpus does not
 prove"). Allowing them therefore costs no approvals for a structural reason, not
 an empirical one. The measurement's contribution here is different and

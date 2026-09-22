@@ -571,6 +571,7 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ARCHIVING_UPDATE_REASON
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
@@ -857,6 +858,7 @@ export "./server" (./src/server/index.ts)
   type WikilinkMapResponse
   type WriteLock
   applyClassification
+  archivesDocument
   bashCommand
   bashLockKey
   bridgeContractForToolName

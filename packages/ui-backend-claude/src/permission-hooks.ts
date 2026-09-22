@@ -7,6 +7,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import {
+  BRAIN_UPDATE_TOOL,
   lockKeyForTool,
   MUTATING_TOOL_MATCHER,
   MUTATING_TOOLS,
@@ -89,8 +90,17 @@ export function createPermissionWiring(options: {
   // PreToolUse historically checks confirm patterns even when a deployment
   // removes Bash from its allowlist (canUseTool then performs the tool grant).
   // Model that hook path as command-allowed to preserve the two runtime gates.
+  //
+  // BRAIN_UPDATE_TOOL is here for the same reason, and the reason is sharper:
+  // the fallback card from canUseTool is kind "tool", which a remembered
+  // "always allow" answers without showing anything (ws/bridge.ts refuses to
+  // do that only for kind "command"). Without this line, a deployment that
+  // NARROWED its allowlist would lose the archiving confirmation entirely
+  // after one such grant — the tool removed from the allowlist behaving more
+  // permissively than the tool left on it, which is the shape of #124.
   const commandAllowed = new Set(allowed);
   commandAllowed.add("Bash");
+  commandAllowed.add(BRAIN_UPDATE_TOOL);
 
   const canUseTool: NonNullable<Options["canUseTool"]> = async (
     toolName,
@@ -156,42 +166,83 @@ export function createPermissionWiring(options: {
       return { continue: true };
     }
 
-    // Confirmation for a Bash command that matches a configured pattern. It
-    // happens HERE, not in canUseTool, because Bash is auto-allowed, so
-    // canUseTool is never consulted for it. The PreToolUse hook is the runtime
-    // binding for the shared command decision.
+    // Confirmation for an auto-allowed call that is destructive anyway: a Bash
+    // command matching a configured pattern, or a brain_update that archives.
+    // It happens HERE, not in canUseTool, because both tools are auto-allowed,
+    // so canUseTool is never consulted for them — this hook is the only place
+    // such a call is seen before it runs. The decision itself is the shared
+    // one; this is just its runtime binding.
+    //
+    // Allowlisting is not the only reason it belongs here. This backend loads
+    // the brain repo's project settings (sdk-options.ts:89), and a hook
+    // declared in those can answer a call before canUseTool is reached at all
+    // — #124 has the measurements. This hook fires either way. None of that
+    // makes the confirmation containment: an agent that can write the repo
+    // can always reach the same effect another way, which is the posture
+    // DEFAULT_CONFIRM_BASH_PATTERNS states in full.
+    //
+    // Any OTHER call that is not auto-allowed yields kind "tool" here and is
+    // left alone: canUseTool raises its grantable card, and asking twice for
+    // one tool use would be worse than either card on its own. Bash and
+    // brain_update are the two exceptions above, deliberately: for them a
+    // narrowed allowlist gets both gates, because the grantable card alone is
+    // rememberable and the per-use one is not.
     //
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
-    if (hookInput.tool_name === "Bash") {
-      const approval = decideToolPermission({
+    const approval = decideToolPermission({
+      toolName: hookInput.tool_name,
+      shellToolName: "Bash",
+      updateToolName: BRAIN_UPDATE_TOOL,
+      input: hookInput.tool_input,
+      allowedTools: commandAllowed,
+      confirmPatterns,
+    });
+    if (approval?.kind === "command") {
+      // A per-use confirmation, not a tool grant — the host must never
+      // remember it as "always allow Bash" or "always allow brain_update".
+      const request = createToolPermissionRequest({
+        toolUseId: hookInput.tool_use_id,
         toolName: hookInput.tool_name,
-        shellToolName: "Bash",
-        input: hookInput.tool_input,
-        allowedTools: commandAllowed,
-        confirmPatterns,
+        input: hookInput.tool_input as Record<string, unknown>,
+        description: approval.reason,
+        approval,
       });
-      if (approval?.kind === "command") {
-        // A per-use confirmation, not a tool grant — the host must never
-        // remember it as "always allow Bash".
-        const request = createToolPermissionRequest({
-          toolUseId: hookInput.tool_use_id,
-          toolName: "Bash",
-          input: hookInput.tool_input as Record<string, unknown>,
-          description: approval.reason,
-          approval,
+      const decision = await requestToolPermission(req.bridge, request);
+      if (decision.behavior !== "allow") {
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: decision.message ?? "Denied by the user.",
+          },
+        };
+      }
+      if (decision.updatedInput !== undefined) {
+        // The host approved an EDITED call, and this hook cannot apply the
+        // edit: the SDK honours `updatedInput` only alongside
+        // `permissionDecision: "allow"`, and emitting that here would also
+        // re-admit a tool a deployment deliberately removed from
+        // `allowedTools` — the re-admission hazard the rewrite hooks already
+        // carry (see input-rewrite-hooks.ts). Proceeding would instead run
+        // the ORIGINAL input, i.e. archive a document the host just said to
+        // leave alone. Refuse, which is both the safe direction and a visible
+        // one; canUseTool remains the path that applies an edit.
+        // Recorded for the same reason a withheld re-admission is: a gate
+        // that stops applying must be visible, not silently absent.
+        log("warn", "confirmation approved with an edit this hook cannot apply; refused", {
+          "tool.name": hookInput.tool_name,
         });
-        const decision = await requestToolPermission(req.bridge, request);
-        if (decision.behavior !== "allow") {
-          return {
-            continue: true,
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse",
-              permissionDecision: "deny",
-              permissionDecisionReason: decision.message ?? "Denied by the user.",
-            },
-          };
-        }
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason:
+              "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+          },
+        };
       }
     }
 
