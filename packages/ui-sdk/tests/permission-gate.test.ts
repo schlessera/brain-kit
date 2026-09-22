@@ -129,6 +129,30 @@ describe("shared permission gate", () => {
     ]);
   });
 
+  test("a throwing activity reporter does not swallow the refusal", async () => {
+    // Observability must not break the observed turn, and least of all may it
+    // lose the denial it was reporting.
+    const decision = await requestToolPermission(
+      {
+        requestPermission: async () => ({ behavior: "allow" }) as const,
+        activity: () => {
+          throw new Error("recorder is down");
+        },
+      },
+      {
+        toolUseId: "t-throws",
+        toolName: "Bash",
+        input: {},
+        description: "reason",
+        kind: "tool" as const,
+      },
+      { noGrantSurface: true }
+    );
+
+    expect(decision.behavior).toBe("deny");
+    expect(decision.behavior === "deny" && decision.message).toContain("Bash");
+  });
+
   test("a turn that did not declare it still reaches the bridge", async () => {
     const asked: string[] = [];
     const bridge = {

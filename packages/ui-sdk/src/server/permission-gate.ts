@@ -158,12 +158,18 @@ export function requestToolPermission(
     // reaches the host's requestPermission, which is where a user's denial is
     // recorded. Without it the span would close later as the backend's error
     // tool result — a call that errored rather than one that was denied.
-    bridge?.activity?.({
-      kind: "permission_denied",
-      toolUseId: request.toolUseId,
-      requestKind: request.kind ?? "tool",
-      reason: message,
-    });
+    // Guarded: observability must not break the observed turn, and least of
+    // all must a throwing reporter swallow the refusal it is reporting.
+    try {
+      bridge?.activity?.({
+        kind: "permission_denied",
+        toolUseId: request.toolUseId,
+        requestKind: request.kind ?? "tool",
+        reason: message,
+      });
+    } catch {
+      // The decision stands whether or not anyone recorded it.
+    }
     return Promise.resolve({ behavior: "deny", message });
   }
   if (!bridge) {

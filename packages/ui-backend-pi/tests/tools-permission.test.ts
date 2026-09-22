@@ -408,6 +408,36 @@ describe("bridge-capability tool registration", () => {
     }
   });
 
+  test("the mask editor refuses a turn with no grant surface instead of blocking on it", async () => {
+    // The tool set is built once per session, so the posture is checked when
+    // the tool runs. It is registered and it fails fast, rather than opening
+    // an editor and waiting for a region nobody can paint.
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      const mock = makeMockBridge();
+      turn.bridge = mock.bridge;
+      (turn.bridge as { requestMask?: unknown }).requestMask = () => {
+        throw new Error("the editor must not open");
+      };
+      const tools = toolMap(
+        createBrainTools({
+          brain: createBrainAccess(brain.root),
+          turn,
+          lock: toolLockFromKeyed(createKeyedLock()),
+          capabilities: { mask: true },
+        })
+      );
+
+      turn.noGrantSurface = true;
+      await expect(
+        tools.request_image_mask!.execute("m1", { imagePath: "a.png" }, undefined, undefined, CTX)
+      ).rejects.toThrow(/no way to show anyone an image/);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("risk-class table covers every registered tool", () => {
     const brain = makeEmptyBrain();
     try {
