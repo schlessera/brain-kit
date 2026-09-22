@@ -125,3 +125,15 @@ page — the numbers the fixtures actually support — gives:
   markup, finds no `/job/<slug>` links, and returns **0 found with 0 errors** —
   the failure mode the epic is named after.
   Fixture: `remoteineurope/redirect-target.html`.
+
+## The four cross-cutting claims
+
+PR #2 reported four problems that were not about one board. Re-measured against
+`main` on 2026-09-22:
+
+| claim | verdict | evidence |
+| --- | --- | --- |
+| `dice` rows duplicated because the HTTP and browser passes keyed them differently | **closed by the refactor** | There is one Dice adapter (`src/adapters/dice.ts`), registered once (`src/scrape.ts`), and `--browser` unions the source list through a `Set` (`src/cli.ts`). A live run stored 102 rows with 102 distinct `source_id`s. |
+| the rate limiter lets concurrent callers burst past the pacing | **still live** | `packages/scrape/src/politeness/rate-limit.ts` reads `lastStart`, awaits, and only then claims the slot. Pinned by `packages/scrape/tests/politeness.test.ts` — "CONCURRENT callers to one host all wake at the same instant". |
+| `SOURCES` shadowed by the `boards` config default | **still live** | `src/module.ts` defaults `boards` to `["remoteok"]`, and the selection in `src/cli.ts` prefers the configured boards over `SOURCES`. An ordinary `brain jobs scrape` therefore scrapes one board, and the six in `SOURCES` are reachable only via `--all` or an edited config. |
+| a missing Chrome is indistinguishable from an empty browser result | **closed, but not by the cited mechanism** | Three errors naming the missing executable, and `jobs_found: 0` alongside them. The `Browser boards unavailable` branch in `src/scrape.ts` is unreachable: `createBrowserSession` launches lazily and never throws at construction. Pinned by `tests/browser-absence.test.ts`. |
