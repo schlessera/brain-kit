@@ -9,9 +9,10 @@
  * usage policy asks us not to commit.
  *
  * The two algorithms here replace a 15 MB build-time dependency, so they are
- * tested as algorithms rather than smoke-tested. What is deliberately NOT here
- * is polygon ring closure: D25 measured a hand-rolled version getting three of
- * five locations wrong, and this module does not attempt it.
+ * tested as algorithms rather than smoke-tested. The third, viewport closure,
+ * is the one D25 measured a hand-rolled version getting three of five locations
+ * wrong — so it is tested by asking what a reader asks of the render: is the
+ * point on the land side filled, and is the point on the water side not.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -19,12 +20,15 @@ import { describe, expect, test } from "bun:test";
 import {
   OSM_ATTRIBUTION,
   clipLine,
+  closeAgainstViewport,
   closedRings,
   detailFor,
   prepareLand,
   fetchCoastline,
   prepare,
+  signedArea,
   simplify,
+  stitch,
   toleranceMetres,
   type BBox,
   type CoastlineConfig,
@@ -52,6 +56,24 @@ function jsonResponse(body: unknown): Response {
 /** An Overpass `out geom;` payload: ways whose geometry is `{lat, lon}`. */
 function overpassWays(lines: Coord[][]) {
   return { elements: lines.map((line) => ({ type: "way", geometry: line.map(([lon, lat]) => ({ lat, lon })) })) };
+}
+
+/**
+ * Is this point painted, under the even-odd rule `MapView` draws the rings
+ * with? Written out here rather than imported so the tests measure the fill
+ * rather than agree with it: a ring list is not evidence of anything until
+ * something asks which side of it a point is on.
+ */
+function fills(rings: Coord[][], [x, y]: Coord): boolean {
+  let inside = false;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length - 1; i += 1) {
+      const [ax, ay] = ring[i]!;
+      const [bx, by] = ring[i + 1]!;
+      if (ay! > y !== by! > y && x < ((bx! - ax!) * (y - ay!)) / (by! - ay!) + ax!) inside = !inside;
+    }
+  }
+  return inside;
 }
 
 describe("the simplification tolerance", () => {
@@ -440,6 +462,46 @@ describe("closedRings", () => {
     expect(closedRings(nearlyTouching)).toEqual([]);
   });
 
+  test("joins a shore handed over out of order, from both ends", () => {
+    // Overpass promises no order, and a walk that only goes forwards leaves the
+    // half BEHIND its starting way as a second chain. Both halves then end
+    // inside the box, where a closure has nothing to attach to — which is how
+    // the tip of Sicily, two ways meeting at the Capo Peloro lighthouse, went
+    // missing from the strait's fill.
+    const second: Coord[] = [
+      [15.65, 38.25],
+      [15.8, 38.3],
+    ];
+    const first: Coord[] = [
+      [15.5, 38.2],
+      [15.65, 38.25],
+    ];
+    const { chains } = stitch([second, first]);
+    expect(chains).toHaveLength(1);
+    expect(chains[0]).toEqual([
+      [15.5, 38.2],
+      [15.65, 38.25],
+      [15.8, 38.3],
+    ]);
+  });
+
+  test("never reverses a way to make a join, because that reverses which side is land", () => {
+    // Two ways that meet end-to-end rather than head-to-tail are two shores
+    // facing each other, not one shore. Joining them would silently invert the
+    // winding half the fill depends on.
+    const { chains } = stitch([
+      [
+        [15.5, 38.2],
+        [15.65, 38.25],
+      ],
+      [
+        [15.8, 38.3],
+        [15.65, 38.25],
+      ],
+    ]);
+    expect(chains).toHaveLength(2);
+  });
+
   test("a ring of three points or fewer encloses nothing", () => {
     const degenerate: Coord[][] = [
       [
@@ -488,13 +550,304 @@ describe("prepareLand", () => {
     expect(Math.max(...lons)).toBeGreaterThan(STRAIT[2]);
   });
 
-  test("an open shore yields no land at all", () => {
+  test("an open shore is closed against the viewport, on the land side", () => {
+    // It used to yield nothing at all. West to east means land to the north,
+    // and the fill has to reach the top of the box rather than stop at the
+    // shore — which is the whole of what closure buys.
     const shore: Coord[][] = [
       [
         [15.5, 38.25],
         [15.9, 38.26],
       ],
     ];
-    expect(prepareLand(shore, { bbox: STRAIT, widthPx: 330 })).toEqual([]);
+    const land = prepareLand(shore, { bbox: STRAIT, widthPx: 330 });
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.7, 38.31])).toBe(true);
+    expect(fills(land, [15.7, 38.21])).toBe(false);
+  });
+
+  test("an island beside a mainland shore comes out exactly as it did alone", () => {
+    // The criterion the island fixtures rest on. Adding closure must not move
+    // a ring by a coordinate: this compares the two outputs rather than
+    // eyeballing a render, and the ring is the one the fixtures ship.
+    const island: Coord[][] = [
+      [
+        [15.66, 38.24],
+        [15.7, 38.24],
+        [15.7, 38.28],
+        [15.66, 38.28],
+        [15.66, 38.24],
+      ],
+    ];
+    // The shore runs east to west, so its land is to the SOUTH of it and the
+    // island sits clear to the north — a closure that swallowed the island
+    // would turn it into a hole under the even-odd rule, which is a different
+    // bug with the same symptom.
+    const alone = prepareLand(island, { bbox: STRAIT, widthPx: 330 });
+    const beside = prepareLand([...island, [[15.9, 38.21], [15.5, 38.215]]], { bbox: STRAIT, widthPx: 330 });
+    expect(alone).toHaveLength(1);
+    expect(beside.slice(0, 1)).toEqual(alone);
+    expect(beside).toHaveLength(2);
+  });
+
+  test("a closure smaller than a pixel of the render is not worth a ring", () => {
+    // The same one-pixel rule the island rings are filtered by. A shore that
+    // clips the very corner of the box encloses a smudge.
+    const tiny = 0.0003;
+    const sliver: Coord[][] = [
+      [
+        [STRAIT[2] + tiny, STRAIT[1] + 2 * tiny],
+        [STRAIT[2] - 2 * tiny, STRAIT[1] - tiny],
+      ],
+    ];
+    expect(prepareLand(sliver, { bbox: STRAIT, widthPx: 330 })).toEqual([]);
+  });
+
+  test("a chain that simply stops inside the box is dropped, not closed", () => {
+    // A way whose data ends mid-shore closes into a shape with no meaning, and
+    // nothing in it says which side is water.
+    const dangling: Coord[][] = [
+      [
+        [15.5, 38.25],
+        [15.7, 38.26],
+      ],
+    ];
+    expect(prepareLand(dangling, { bbox: STRAIT, widthPx: 330 })).toEqual([]);
+  });
+});
+
+/**
+ * Closing an open shore against the viewport — the operation D25 measured going
+ * wrong on three of five locations, and the reason this module said for two
+ * waves that it did not do fill.
+ *
+ * Every test here asks the same question a reader asks of the render: is the
+ * point on the land side filled, and is the point on the water side not? A
+ * predicate on the ring's vertices would pass just as happily with land and sea
+ * the wrong way round, which is precisely the bug.
+ */
+describe("closeAgainstViewport", () => {
+  /** Four points, one per edge of `STRAIT`, well inside it. */
+  const NORTH: Coord = [15.7, 38.31];
+  const SOUTH: Coord = [15.7, 38.21];
+  const EAST: Coord = [15.79, 38.26];
+  const WEST: Coord = [15.61, 38.26];
+
+  /** A shore straight across the middle of the box, from `a` to `b`. */
+  const across = (a: Coord, b: Coord): Coord[][] => [[a, b]];
+
+  /** Well past the box on each side, so the chain is clipped rather than
+   * ending on the boundary by construction — which is what real ways do. */
+  const OUTSIDE = { west: 15.4, east: 16.0, south: 38.1, north: 38.4 } as const;
+
+  const close = (chains: Coord[][]) => closeAgainstViewport(chains, { bbox: STRAIT, widthPx: 330 });
+
+  test("west to east puts the land to the north", () => {
+    // OSM winds a coastline with land on the LEFT, and left of due east is
+    // north. This is the fact the whole closure rests on.
+    const land = close(across([OUTSIDE.west, 38.26], [OUTSIDE.east, 38.26]));
+    expect(land).toHaveLength(1);
+    expect(fills(land, NORTH)).toBe(true);
+    expect(fills(land, SOUTH)).toBe(false);
+  });
+
+  test("east to west puts the land to the south", () => {
+    const land = close(across([OUTSIDE.east, 38.26], [OUTSIDE.west, 38.26]));
+    expect(fills(land, SOUTH)).toBe(true);
+    expect(fills(land, NORTH)).toBe(false);
+  });
+
+  test("south to north puts the land to the west", () => {
+    const land = close(across([15.7, OUTSIDE.south], [15.7, OUTSIDE.north]));
+    expect(fills(land, WEST)).toBe(true);
+    expect(fills(land, EAST)).toBe(false);
+  });
+
+  test("north to south puts the land to the east", () => {
+    const land = close(across([15.7, OUTSIDE.north], [15.7, OUTSIDE.south]));
+    expect(fills(land, EAST)).toBe(true);
+    expect(fills(land, WEST)).toBe(false);
+  });
+
+  test("a shore across a corner fills the corner and keeps its right angle", () => {
+    // Entering on the east edge and leaving on the south one, the walk back has
+    // exactly one corner to pick up. Dropping it would cut the corner off with
+    // a diagonal — the seam D25 saw — so the corner is asserted, not assumed.
+    // Crosses the east edge at 38.28 and the south edge at 15.70, so the land
+    // is the triangle between them and the corner.
+    const land = close(across([16.0, 38.44], [15.6, 38.12]));
+    expect(land).toHaveLength(1);
+    expect(land[0]!).toContainEqual([STRAIT[2], STRAIT[1]]);
+    expect(fills(land, [15.78, 38.21])).toBe(true);
+    expect(fills(land, [15.62, 38.31])).toBe(false);
+  });
+
+  test("a peninsula in and out of one edge fills only the peninsula", () => {
+    // The case the earlier attempt got wrong. Land on the left all the way
+    // round: south down the western flank, north back up the eastern one.
+    const land = close([
+      [
+        [15.68, OUTSIDE.north],
+        [15.68, 38.24],
+        [15.72, 38.24],
+        [15.72, OUTSIDE.north],
+      ],
+    ]);
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.7, 38.3])).toBe(true);
+    expect(fills(land, [15.65, 38.3])).toBe(false);
+    expect(fills(land, [15.75, 38.3])).toBe(false);
+  });
+
+  test("a bay in and out of the same edge fills everything except the bay", () => {
+    // The same two points on the same edge, traversed the other way. Nothing
+    // decides between this and the peninsula above: the direction the shore
+    // runs in is the decision, and the walk follows it.
+    const land = close([
+      [
+        [15.72, OUTSIDE.north],
+        [15.72, 38.24],
+        [15.68, 38.24],
+        [15.68, OUTSIDE.north],
+      ],
+    ]);
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.7, 38.3])).toBe(false);
+    expect(fills(land, [15.65, 38.3])).toBe(true);
+    expect(fills(land, [15.75, 38.3])).toBe(true);
+    expect(fills(land, [15.7, 38.21])).toBe(true);
+  });
+
+  test("two shores facing each other across a strait fill both sides and not the water", () => {
+    // Messina, in miniature: Sicily to the west with its shore running north,
+    // Calabria to the east with its shore running south. Each closes on its own
+    // and neither reaches into the channel.
+    const land = close([
+      [
+        [15.66, OUTSIDE.south],
+        [15.66, OUTSIDE.north],
+      ],
+      [
+        [15.74, OUTSIDE.north],
+        [15.74, OUTSIDE.south],
+      ],
+    ]);
+    expect(land).toHaveLength(2);
+    expect(fills(land, [15.62, 38.26])).toBe(true);
+    expect(fills(land, [15.78, 38.26])).toBe(true);
+    expect(fills(land, [15.7, 38.26])).toBe(false);
+  });
+
+  test("the whole closure is counterclockwise, which is what land-on-the-left means", () => {
+    for (const chains of [
+      across([OUTSIDE.west, 38.26], [OUTSIDE.east, 38.26]),
+      across([OUTSIDE.east, 38.26], [OUTSIDE.west, 38.26]),
+      across([15.7, OUTSIDE.south], [15.7, OUTSIDE.north]),
+      across([15.7, OUTSIDE.north], [15.7, OUTSIDE.south]),
+    ]) {
+      for (const ring of close(chains)) expect(signedArea(ring)).toBeGreaterThan(0);
+    }
+  });
+
+  test("a shore running along the boundary encloses nothing", () => {
+    expect(close([[[15.6, 38.2], [15.6, 38.32]]])).toEqual([]);
+  });
+
+  test("a closed ring never reaches here, so an island is never cut against the box", () => {
+    // `stitch` sends loops the other way. This is the guard on that split: a
+    // ring handed to the closure directly would be clipped, and clipping a ring
+    // is the operation that inverts land and sea.
+    const island: Coord[][] = [
+      [
+        [15.66, 38.24],
+        [15.7, 38.24],
+        [15.7, 38.28],
+        [15.66, 38.28],
+        [15.66, 38.24],
+      ],
+    ];
+    expect(stitch(island).chains).toEqual([]);
+    expect(stitch(island).rings).toHaveLength(1);
+  });
+});
+
+describe("the winding convention is checked, not trusted", () => {
+  /** A shore wound the wrong way round: OSM puts land on the left, this puts
+   * it on the right. Everything below is the same geometry twice. */
+  const RIGHT_WAY: Coord[][] = [[[15.4, 38.26], [16.0, 38.26]]];
+  const WRONG_WAY: Coord[][] = [[[16.0, 38.26], [15.4, 38.26]]];
+
+  /** A road grid on the northern half — on land by definition. */
+  const ROADS: Coord[][] = Array.from({ length: 6 }, (_, i) => [
+    [15.62 + i * 0.03, 38.28],
+    [15.62 + i * 0.03, 38.30],
+    [15.63 + i * 0.03, 38.31],
+    [15.64 + i * 0.03, 38.29],
+  ] as Coord[]);
+
+  const request = { bbox: STRAIT, widthPx: 330 };
+
+  test("a fill that contains the roads is kept", () => {
+    const land = prepareLand(RIGHT_WAY, request, { onLand: ROADS });
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.7, 38.31])).toBe(true);
+  });
+
+  test("a fill that puts the roads in the water is refused, not drawn", () => {
+    // Wound the other way the closure is the exact complement — the sea, filled
+    // confidently. The roads are the witness that says so, and the answer is
+    // the stroke-only map this module drew before closure existed rather than a
+    // map that lies about which side is water.
+    expect(prepareLand(WRONG_WAY, request, { onLand: ROADS })).toEqual([]);
+  });
+
+  test("islands survive a refusal, because nothing about them was in doubt", () => {
+    const island: Coord[][] = [
+      [
+        [15.66, 38.24],
+        [15.7, 38.24],
+        [15.7, 38.26],
+        [15.66, 38.26],
+        [15.66, 38.24],
+      ],
+    ];
+    const land = prepareLand([...island, ...WRONG_WAY], request, { onLand: ROADS });
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.68, 38.25])).toBe(true);
+  });
+
+  test("a strait comes out the same from data wound either way, so there is nothing to refuse", () => {
+    // Worth knowing before trusting the witness check further than it goes. A
+    // wrong closure is the exact complement of the right one, and the even-odd
+    // rule cannot tell a set from the set of its complements when there is an
+    // EVEN number of them. Two facing shores are such a pair: both windings
+    // paint the two coasts and leave the channel, which is why the check finds
+    // nothing wrong here — there is nothing wrong here.
+    const strait: Coord[][] = [
+      [
+        [15.66, 38.1],
+        [15.66, 38.4],
+      ],
+      [
+        [15.74, 38.4],
+        [15.74, 38.1],
+      ],
+    ];
+    const flipped = strait.map((shore) => [...shore].reverse());
+    const request = { bbox: STRAIT, widthPx: 330 };
+    for (const land of [prepareLand(strait, request), prepareLand(flipped, request)]) {
+      expect(fills(land, [15.62, 38.26])).toBe(true);
+      expect(fills(land, [15.78, 38.26])).toBe(true);
+      expect(fills(land, [15.7, 38.26])).toBe(false);
+    }
+  });
+
+  test("too few witnesses decide nothing, and the convention stands on its own", () => {
+    // A coast-tier request fetches no roads at all. Refusing every mainland
+    // fill for want of a witness would throw away the whole feature to guard
+    // against a convention that 486 of 486 measured rings hold to.
+    const one: Coord[][] = [[[15.7, 38.29], [15.71, 38.3]]];
+    expect(prepareLand(WRONG_WAY, request, { onLand: one })).toHaveLength(1);
+    expect(prepareLand(WRONG_WAY, request)).toHaveLength(1);
   });
 });

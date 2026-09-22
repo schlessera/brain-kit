@@ -11,6 +11,10 @@ Note the licence boundary it creates: geographic data under
 `packages/ui-kit/fixtures/geo/` is **ODbL, not MIT** — see the LICENSE in that
 directory.
 
+**Superseded in part.** §2.4's ruling — *do not hand-roll viewport closure* —
+held until the winding was measured. §7 records what changed and why the
+conclusion moved; read it before §2.4 sends you to `ogr2ogr`.
+
 ---
 
 
@@ -297,3 +301,77 @@ Per-provider extras do not apply on the recommended route (OSM only).
 
 The design's instinct was right and its escape hatch was the answer all along.
 What was missing was not permission — it was the fixture data.
+
+---
+
+## 7. Viewport closure, reopened — 2026-09-22
+
+Supersedes §2.4's *"do not hand-roll it"* and step 2 of §6. The concern was
+right and the remedy was the wrong shape: what the first attempt was missing was
+not a better clipper, it was **one fact**.
+
+### What was missing
+
+§2.4 tried to decide which side of an open shore is land from the geometry in
+front of it. Nothing in a polyline says that. But OSM's own convention does:
+**a coastline way is wound so that land is on its LEFT**. Measured before this
+was built, and recorded in
+[design-feedback.md](design-feedback.md): **486 of 486 closed rings across Gozo,
+Corfu and Ithaca are counterclockwise**, which is the same statement for a ring
+that encloses its land.
+
+A polygon traversed counterclockwise also has its interior on the left. So the
+shore and the land polygon agree about direction, and closing one stops being a
+judgement: follow the shore, then keep going counterclockwise around the
+rectangle until you are back where you started. `closeAgainstViewport` in
+`packages/ui-sdk/src/server/coastline.ts` is that sentence, and the whole of it.
+
+That single rule also settles the case §2.4's attempt got wrong. A shore that
+enters and leaves through the **same edge** is a peninsula one way round and a
+bay the other, wanting opposite closures — a short hop along the edge, or a walk
+around all four. The direction the shore runs in already says which; nothing has
+to guess.
+
+### Why not the land polygons after all
+
+§2.4's recommended route was `osmdata.openstreetmap.de`'s pre-assembled land
+polygons clipped with `ogr2ogr`. It is still a fine route for a batch pipeline,
+and it is the wrong one here for the same reason mapshaper was dropped from the
+generator: this code has to run **in a request handler**, for an arbitrary bbox,
+against the Overpass response it already has. A second data source with its own
+download, its own staleness and its own 15-MB-class tooling to clip it is a
+larger commitment than the twenty lines above, and it would still have to agree
+with the coastline strokes drawn over it.
+
+### The two things that were not obvious
+
+- **Ways must be stitched in BOTH directions.** The original stitcher only
+  walked forward from a way's end. Overpass returns ways in no particular order,
+  so a walk that starts in the middle of a shore leaves the half behind it as a
+  separate chain — and both halves then end *inside* the box, where a closure
+  has nothing to attach to. Capo Peloro is two ways meeting at the lighthouse:
+  the strait's first regeneration came out with Calabria filled and Sicily
+  missing. An island never showed this, because a loop closes whichever way you
+  walk it.
+- **The even-odd rule is blind to a global winding flip — sometimes.** Closing a
+  chain the wrong way round yields the exact complement of the right closure
+  within the box, and even-odd cannot tell a set of regions from the set of
+  their complements when there is an even number of them. So a strait renders
+  the same picture from data wound either way, and there is nothing to catch.
+  With an odd number of closures, a flip inverts the picture — and that is what
+  `LandOptions.onLand` catches, by asking whether the road network came out
+  inside the fill. Roads are on land by definition. When they are not inside it,
+  the closure is dropped and the map goes back to a stroke, which is what it drew
+  before any of this.
+
+### What it measured
+
+The strait, regenerated through the same generator, with its coastline and road
+geometry coming back **byte-identical** to the committed file — the only change
+is the `land` key, which went from empty to three rings: Calabria, a promontory
+clipping the south edge, and the tip of Sicily closed against the west edge.
+527 road vertices inside the envelope, **99.4% of them inside the fill**. The
+set of six fixtures is 24.3 KB gzipped against a 28 KB guard.
+
+The fill is still `map-land` at 6% alpha under the stroke, and still a Produced
+Work — §3 and §5 are untouched.

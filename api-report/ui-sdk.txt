@@ -723,6 +723,7 @@ export "./server" (./src/server/index.ts)
   type Keyterm
   type KillableProcess
   LOCATION_PAYLOAD_SCHEMA
+  type LandOptions
   type LocationFix
   type LocationHandlerOptions
   type LocationPayload
@@ -865,6 +866,7 @@ export "./server" (./src/server/index.ts)
   claudeMaskFilename
   claudeReportedMaskPath
   clipLine
+  closeAgainstViewport
   closedRings
   compileConfirmPatterns
   createKeyedLock
@@ -909,7 +911,9 @@ export "./server" (./src/server/index.ts)
   reverseGeocode
   rtkAvailable
   rtkRewriteCommand
+  signedArea
   simplify
+  stitch
   sumModelUsage
   toleranceMetres
   toolBriefLines

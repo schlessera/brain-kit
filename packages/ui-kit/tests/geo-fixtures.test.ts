@@ -11,12 +11,13 @@
  * Three groups of assertion, and the third is the licence one.
  */
 
+import { signedArea } from "@schlessera/brain-ui-sdk/server";
 import { describe, expect, test } from "bun:test";
 import { gzipSync } from "bun";
 import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 
-import { OSM_ATTRIBUTION, geo, geoIds, geoPaths } from "../fixtures/geo/index.js";
+import { OSM_ATTRIBUTION, geo, geoIds, geoPaths, type GeoId } from "../fixtures/geo/index.js";
 import { mapScenes } from "../fixtures/places.js";
 
 const KIT = resolve(import.meta.dir, "..");
@@ -26,6 +27,51 @@ const GEO = join(KIT, "fixtures", "geo");
  * `[lat, lon]` pair lands outside it, which a spot check does not catch
  * because at these latitudes the two ranges overlap. */
 const BASIN = { lat: [30, 46], lon: [-6, 37] } as const;
+
+/**
+ * The box a fixture was fetched for, which the file does not carry: the
+ * generator derives it from `center` and `spanKm`, and so does this. The
+ * arithmetic is `tools/geo/generate.ts`'s `bbox()` and the numbers are its
+ * `BLEED_ACROSS` and `BLEED_DOWN` — the one place in this file that has to
+ * agree with the generator rather than with the data.
+ */
+function envelope(id: GeoId): [number, number, number, number] {
+  const { center, spanKm } = geo[id];
+  const [lon, lat] = center;
+  const dLat = spanKm / 2 / 111;
+  const dLon = (spanKm * 1.5) / 2 / 111 / Math.cos((lat * Math.PI) / 180);
+  return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+}
+
+/** Is this point painted, under the even-odd rule `MapView` draws the rings
+ * with? Ray casting, one crossing test per edge. */
+function fills(rings: [number, number][][], [x, y]: [number, number]): boolean {
+  let inside = false;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length - 1; i += 1) {
+      const [ax, ay] = ring[i]!;
+      const [bx, by] = ring[i + 1]!;
+      if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * A ring closed against the viewport, as opposed to one that closed on its own.
+ *
+ * Two or more of its vertices sit ON the box. Rings are never clipped, so an
+ * island's coordinates land on the boundary only by a coincidence that four
+ * decimal places make vanishingly unlikely; a closure's ends and corners are
+ * the boundary by construction.
+ */
+function isClosedAgainstViewport(ring: [number, number][], box: [number, number, number, number]): boolean {
+  // Four decimal places can move a coordinate by about 6 m, which at these
+  // spans is a fifth of a pixel and well inside this.
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-4;
+  const on = ring.filter(([lon, lat]) => near(lon, box[0]) || near(lon, box[2]) || near(lat, box[1]) || near(lat, box[3]));
+  return on.length >= 2;
+}
 
 describe("the geometry is geometry", () => {
   test("every location loaded", () => {
@@ -110,6 +156,55 @@ describe("the geometry is geometry", () => {
         expect(path.width).toBeLessThan(0.6);
       }
     }
+  });
+
+  test("every outer land ring is wound counterclockwise, which is what land-on-the-left means", () => {
+    // The fact the viewport closure rests on: OSM winds a coastline so that
+    // land is on its left, which makes an island's ring counterclockwise.
+    // Measured at 486 of 486 rings across Gozo, Corfu and Ithaca before the
+    // closure was built (`docs/decisions/design-feedback.md`); asserted here so
+    // a regeneration that brought data wound the other way could not land
+    // quietly, because the closure would then fill the sea.
+    //
+    // A ring INSIDE another is an inland water body and is wound the other way
+    // on purpose — that is what makes it a hole under the even-odd rule. None
+    // of these six has one today, which is a fact about the data rather than a
+    // rule, so the exception is written down rather than assumed away.
+    const backwards: string[] = [];
+    for (const id of geoIds) {
+      const rings = geo[id].land ?? [];
+      for (const ring of rings) {
+        const nested = rings.some((other) => other !== ring && fills([other], ring[0]!));
+        if (!nested && signedArea(ring) <= 0) backwards.push(`${id}: a ring of ${ring.length} points`);
+      }
+    }
+    expect(backwards).toEqual([]);
+  });
+
+  test("where a shore was closed against the viewport, the roads came out on the land side", () => {
+    // The check that a predicate on the vertices cannot make: a closure wound
+    // the wrong way round is the exact complement of the right one — the sea,
+    // filled confidently — and its ring list looks just as plausible. A road is
+    // on land by definition, so asking which side of the fill the road network
+    // is on is asking whether the fill is land.
+    //
+    // Only fixtures that actually carry a closure are asked. The rest predate
+    // it and still draw their mainland as a stroke, which is not wrong, only
+    // older; this starts holding them to it the moment they are regenerated.
+    const measured: string[] = [];
+    for (const id of geoIds) {
+      const fixture = geo[id];
+      const box = envelope(id);
+      if (!(fixture.land ?? []).some((ring) => isClosedAgainstViewport(ring, box))) continue;
+      const witnesses = [...fixture.roads, ...(fixture.streets ?? [])]
+        .flat()
+        .filter(([lon, lat]) => lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3]);
+      const onLand = witnesses.filter((point) => fills(fixture.land, point)).length;
+      measured.push(`${id}: ${witnesses.length < 20 ? "too few witnesses" : Math.round((onLand / witnesses.length) * 100) >= 90 ? "on land" : `${Math.round((onLand / witnesses.length) * 100)}% on land`}`);
+    }
+    // Named rather than counted, so a fixture that stops carrying a closure is
+    // as loud as one whose closure inverted.
+    expect(measured).toEqual(["messina: on land"]);
   });
 
   test("the whole set stays in the same league as a single raster tile", () => {

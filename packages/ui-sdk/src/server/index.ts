@@ -51,15 +51,27 @@ export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 export {
   OSM_ATTRIBUTION,
   clipLine,
+  closeAgainstViewport,
   closedRings,
   detailFor,
   fetchCoastline,
   prepare,
   prepareLand,
+  signedArea,
   simplify,
+  stitch,
   toleranceMetres,
 } from "./coastline.js";
-export type { BBox, Coord, CoastlineConfig, CoastlineRequest, CoastlineResult, FetchLike, MapDetail } from "./coastline.js";
+export type {
+  BBox,
+  Coord,
+  CoastlineConfig,
+  CoastlineRequest,
+  CoastlineResult,
+  FetchLike,
+  LandOptions,
+  MapDetail,
+} from "./coastline.js";
 
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
