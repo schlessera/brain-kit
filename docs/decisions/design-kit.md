@@ -2262,10 +2262,12 @@ configuration.
 
 Pooling the two runs is legitimate for this number: the classification pass
 runs after the result frame and cannot change what the model did during the
-turn. **D43 and D44 both quote pi at 90%**, which was the first run alone,
-reported before the second existed; 52 of 60 is the figure to carry, and the
-difference between them is what 30 turns of sampling noise looks like on
-this measurement. Across all sixty turns the model typed **zero markdown tables**. Two
+turn. **A figure of 90% circulated before the second run existed** — that is
+27 of 30, the first run alone. D43 and D44 both quoted it and both now carry
+52 of 60, read off this record's per-run breakdown rather than relayed. The
+spread between 90% and 87% is what 30 turns of sampling noise looks like on
+this measurement, which is worth knowing before either is treated as
+precise. Across all sixty turns the model typed **zero markdown tables**. Two
 calls were rejected by the handler, both `comparison`, both on a turn that
 retried and succeeded — the same shape D43 saw at three in 108, and the
 reason a call is not counted until its payload parses.
@@ -2281,7 +2283,10 @@ independent runs of the same four cells — D43's (PR #121) and D44's
 | always loaded, with brief | 17 / 22 (77%) | 19 / 25 (76%) | **52 / 60 (87%)** |
 | always loaded, no brief | 17 / 22 (77%) | 20 / 26 (77%) | unreachable |
 
-pi's cell sits on the "with brief" row and nowhere else: the brief is
+D43's deferred rows here are the ones from its own `--always-load`
+comparison, so both of its rows come from one run; its headline A/B is a
+larger, separate run at 59% and 2%. pi's cell sits on the "with brief" row
+and nowhere else: the brief is
 hardcoded into pi's prompt, so pi has no no-brief arm and no supported way
 to have one. The two Claude no-brief cells are therefore one backend
 measured twice and not two backends agreeing.
