@@ -2259,6 +2259,12 @@ what a later turn read.
 
 **Numbers.** Claude backend, `claude-sonnet-5`, 102 completed turns of 108.
 
+*Quote this entry from the tables in this section and the always-loaded one
+below, never from a sentence.* Three figures in this record had to be corrected
+within a day of writing it, every one of them a number restated in prose that
+drifted from the table it came from, or lifted from another document quoting an
+earlier version of this one. The tables are the record; the prose cites them.
+
 | arm | turns | a `show_block` call | rate | no call, but a candidate the pass would see |
 | --- | --- | --- | --- | --- |
 | brief | 49 | 29 | **59%** | 6 (12%) |
@@ -2307,12 +2313,33 @@ Identical, and higher than the brief reaches on its own. **The brief's entire
 measured effect is discoverability, not persuasion.** Once the model can see
 the tool, the brief adds nothing at all.
 
+Per prompt in that loaded condition, which is the table the per-kind claims
+below cite:
+
+| prompt | brief | no-brief | combined |
+| --- | --- | --- | --- |
+| `compare-short` | 3/3 | 3/3 | 6/6 |
+| `compare-long` | 3/3 | 3/3 | 6/6 |
+| `table` | 3/3 | 3/3 | 6/6 |
+| `steps` | 3/3 | 3/3 | 6/6 |
+| `bars` | 3/3 | 3/3 | 6/6 |
+| `trend` | 1/1 | 1/1 | 2/2 |
+| `quote` | 0/3 | 1/3 | **1/6** |
+| `contact` | 1/3 | 0/3 | **1/6** |
+
+`trend` has two turns rather than six because the rest exceeded the turn
+budget. `quote` and `contact` are the two kinds the loaded model declines, at
+the same rate — but only one of them matters, and the difference is not the
+rate. A declined `quote` leaves a blockquote, which the classification pass
+turns into a `quote` block; that is the designed fallback working. A declined
+`contact` leaves prose the pass has no route for (#132), so it leaves nothing.
+
 **The pi backend does not reproduce any of this, and the reason is probably in
 the code.** #50 measured pi at the server level and #137 records the gap: on
 the same four prompts, same model, same corpus, pi called the tool on 27 of 30
-counted turns (90%) against this record's 30 of 54 brief-arm turns (56%), and
-on the two prompts this record measured at zero — "Compare Bun and Node.js …
-keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
+counted turns (90%) against this record's 59% brief-arm rate in the table
+above, and on the two prompts this record measured at zero — "Compare Bun and
+Node.js … keep it short" at 6 of 6, `contact` at 3 of 6. (Figures from #137; an earlier
 pi pass on `claude-sonnet-4-6` drew a block on 21 of 23 turns, which is a
 different run and not the one above.)
 
@@ -2377,15 +2404,29 @@ the prompt at all.
 - `alwaysLoad: true` on the bridge MCP server reaches 77% with no brief at all.
   That is the real lever and it may supersede the brief entirely, but it
   changes the backend rather than the advertisement, which #45 scoped out.
-- `contact` is barely reachable by anything: 0 of 12 across both default arms,
-  and 1 of 6 even with the tool loaded, while every other loaded kind fires 3
-  of 3.
+- `contact` is barely reachable by anything: 0 of 12 across both default arms
+  and 1 of 6 with the tool loaded. It is not uniquely low — `quote` is also 1
+  of 6 loaded — but it is uniquely *consequential*, because a declined `quote`
+  still reaches the reader through the classification pass and a declined
+  `contact` reaches them as prose.
 - The pass has no route to `contact` or `trend`, though D42's decision 6
   specifies both. Every transform in `classification/catalogue.ts` returns one
   of eight kinds and `CandidateKind` has no number series. That is a
   discrepancy between this record and the code, not a measurement result.
 
-**What is not claimed.** Per-prompt rates are noisy — `compare-short` measured
+**What is not claimed, and this is the limit that matters most.** Every figure
+here scores *whether* a block was drawn, never *which kind*. A model that
+reaches for `table` where `comparison` was right, or `timeline` where
+`schedule` was right, scores identically in all of it. So "the brief's entire
+measured effect is discoverability" is a claim about the **rate** and says
+nothing about whether its content — which is mostly *which* kind to pick —
+does work. #50's kind-correctness pass on pi is the first evidence on that
+question and it points the other way: 23 of 25 scorable turns drew the right
+kind, with one systematic miss (`schedule` prescribed, `timeline` drawn, 2 of
+2). Nobody should read the 77%/77% as licence to delete the brief's text;
+#157 is where that is decided, and it needs a kind-scored measurement.
+
+Per-prompt rates are noisy — `compare-short` measured
 0 of 6, then 5 of 6, then 6 of 6 across three runs of the corrected harness,
 because the variance is in whether the model spends a `ToolSearch` round-trip,
 not in whether it wants a block. Only the arm-level contrast is stable, and it
