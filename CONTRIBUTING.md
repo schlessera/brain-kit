@@ -61,8 +61,10 @@ needs an API key or the network.
 
 1. **Contract changes** (CLI `--json` shapes, MCP tool names/schemas, db
    `schema_version`, frontmatter semantics): update
-   `docs/integration-contract.md` in the same commit, prefix the commit with
-   `CONTRACT:`, and expect a major-version discussion first.
+   `docs/integration-contract.md` in the same commit and prefix the commit with
+   `CONTRACT:`. Additive changes ship in a minor; a breaking change needs a
+   maintainer ruling on its issue before code is written (see the contract
+   doc's header).
 2. **No new seams.** Extension interfaces exist only where a second
    implementation is plausible within a year. The explicitly-not-pluggable
    list in the README is final: no storage providers, no framework adapters,

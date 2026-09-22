@@ -2,8 +2,18 @@
 
 The machine-readable surface other systems (primarily **brain-ui**) may depend
 on. Anything NOT listed here is an internal implementation detail and can
-change without notice. Contract changes require a `CONTRACT:` commit prefix, a
-same-commit update of this file, and a major version bump of `@schlessera/brain-*`.
+change without notice. Contract changes require a `CONTRACT:` commit prefix and a
+same-commit update of this file. How they are versioned:
+
+- **Additive** — a new field, a new optional input, a new tool, a
+  `schema_version` bump for a migration that only adds. Ships in a minor.
+- **Breaking** — a field removed, renamed or retyped, or a value whose meaning
+  changes. Before 1.0 it ships in a minor as well, and additionally needs the
+  `breaking` label, a maintainer ruling recorded on its issue before code is
+  written, and a changeset that names the break. From 1.0 it needs a major
+  version bump of `@schlessera/brain-*`.
+
+The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.

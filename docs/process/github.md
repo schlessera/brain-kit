@@ -93,8 +93,10 @@ Two labels carry weight beyond their description:
 
 - **`contract`** means the change touches the machine surface in
   [integration-contract.md](../integration-contract.md). That implies a
-  `CONTRACT:` commit prefix, the doc updated in the same commit, and a
-  major-version discussion first. Applying this label is a claim, so check it.
+  `CONTRACT:` commit prefix and the doc updated in the same commit. Add
+  `breaking` when a field is removed, renamed or retyped: that also needs a
+  maintainer ruling on the issue before code is written. Applying either label
+  is a claim, so check it.
 - **`agent-ready`** means a coding agent can take the issue unattended: context
   with real file paths, an explicit out-of-scope section, and acceptance
   criteria somebody else could check. See below.
