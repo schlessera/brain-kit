@@ -19,21 +19,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+// Same optional-extension policy as indexer.test.ts; one shared probe.
+import { vecAvailable } from "./vec-fixture";
 
 /** The width the staged index is built at — deliberately not the default. */
 const STORED_DIM = 16;
-
-let vecAvailable = false;
-const probe = new Database(":memory:");
-try {
-  const { load } = await import("sqlite-vec");
-  load(probe);
-  vecAvailable = true;
-} catch {
-  // Same optional-extension policy as indexer.test.ts.
-} finally {
-  probe.close();
-}
 
 const roots: string[] = [];
 afterEach(() => {
