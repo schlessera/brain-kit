@@ -16,6 +16,14 @@
  *
  *   bun scripts/measure-show-block.ts --reps 3 --out runs.json --md report.md
  *
+ * Two counting rules keep the rate honest. A call is counted only when its
+ * argument parses through the contract's schema, because a rejected call drew
+ * nothing; and frames a subagent produced (`parent_tool_use_id` set) are
+ * skipped, because the chat adapter keeps them off the surface, so they are
+ * not what the reader saw. A turn that errored or hit `maxTurns` produced no
+ * answer at all and is excluded from every rate rather than counted as a turn
+ * that declined to call the tool.
+ *
  * Each turn's text parts are also run through `planClassification` — the same
  * entry point `ui-server` calls, keyless up to the classifier request — so the
  * report says how many of the turns that did NOT call the tool left a
@@ -43,6 +51,7 @@ import {
 // computes rather than a hand-spelled prefix.
 import {
   createShowBlockTool,
+  SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME as BLOCK_TOOL,
 } from "../packages/ui-backend-claude/src/show-block-tool.js";
 
@@ -196,9 +205,15 @@ interface TurnResult {
   classifiable: boolean;
   arm: ArmName;
   rep: number;
-  /** How many times the model called `show_block`, and with which kinds. */
+  /**
+   * Calls that would have RENDERED: the argument parses through the contract's
+   * own schema. A call the tool rejected drew nothing, so counting it would
+   * read a failed attempt as the brief working.
+   */
   calls: number;
   kinds: string[];
+  /** Calls the schema rejected. Reported, never counted as a block. */
+  rejectedCalls: number;
   /** Candidate kinds `planClassification` found across the turn's text parts. */
   candidates: string[];
   answerChars: number;
@@ -227,9 +242,16 @@ function optionsFor(arm: ArmName): Options {
         tools: { block: arm === "brief" && BLOCK_TOOL },
       }),
     },
-    // Read-only retrieval plus the block tool. Narrower than the real
-    // backend's allowlist, which also carries writes and Bash — neither is
-    // reachable by these prompts, and keeping them out bounds the run.
+    // Auto-allowed, not restricted. `tools` is what would narrow AVAILABILITY,
+    // and it is deliberately left unset: `sdk-options.ts` does not set it
+    // either, so the model here sees the same built-in roster it sees in
+    // production, `Agent` included. Narrowing it was tried and moved the
+    // absolute rates — with three built-ins left the MCP tool is a far larger
+    // share of the roster — which makes the harness measure a surface nobody
+    // ships. The subagent hazard that motivates narrowing is handled where it
+    // belongs, in the counting: subagent frames are not the reader's answer
+    // and are skipped below, exactly as the chat adapter keeps them off the
+    // surface.
     allowedTools: ["Read", "Glob", "Grep", BLOCK_TOOL],
     // One answer, not an investigation: enough turns to read the corpus and
     // reply, few enough that a wandering run cannot stall the measurement.
@@ -253,6 +275,7 @@ async function runTurn(
 ): Promise<TurnResult> {
   const started = Date.now();
   const kinds: string[] = [];
+  let rejectedCalls = 0;
   // One entry per contiguous assistant text run, which is how `ui-server`'s
   // collector numbers parts — joining them first would let two structures on
   // either side of a tool call merge into a candidate neither one is.
@@ -264,12 +287,15 @@ async function runTurn(
       prompt: prompt.text,
       options: optionsFor(arm),
     })) {
-      if (message.type === "assistant") {
+      // `parent_tool_use_id` is non-null on frames a subagent produced. Those
+      // are not the answer, so neither their text nor their tool calls count.
+      if (message.type === "assistant" && message.parent_tool_use_id === null) {
         for (const part of message.message.content) {
           if (part.type === "text") textParts.push(part.text);
           if (part.type === "tool_use" && part.name === BLOCK_TOOL) {
-            const input = part.input as { block?: { kind?: unknown } };
-            kinds.push(String(input?.block?.kind ?? "unknown"));
+            const parsed = SHOW_BLOCK_INPUT_SCHEMA.safeParse(part.input);
+            if (parsed.success) kinds.push(parsed.data.block.kind);
+            else rejectedCalls += 1;
           }
         }
       }
@@ -290,6 +316,7 @@ async function runTurn(
     rep,
     calls: kinds.length,
     kinds,
+    rejectedCalls,
     candidates: (plan?.candidates ?? []).map((planned) => planned.candidate.kind),
     answerChars: textParts.join("").length,
     durationMs: Date.now() - started,
@@ -371,10 +398,20 @@ function pct(part: number, whole: number): string {
   return `${((part / Math.max(whole, 1)) * 100).toFixed(0)}%`;
 }
 
+/**
+ * The turns a rate may be computed over. A turn that errored or hit `maxTurns`
+ * produced no answer a reader would have seen, so counting it as "did not call
+ * the tool" would let an API failure read as the brief not working. They are
+ * reported on their own instead.
+ */
+function completed(runs: readonly TurnResult[]): TurnResult[] {
+  return runs.filter((run) => !run.error);
+}
+
 function armRows(runs: readonly TurnResult[]): string[] {
   const rows = ["| arm | turns | turns with a `show_block` call | rate | no call, but a candidate the pass would see |", "| --- | --- | --- | --- | --- |"];
   for (const arm of ARMS) {
-    const mine = runs.filter((run) => run.arm === arm);
+    const mine = completed(runs).filter((run) => run.arm === arm);
     const called = mine.filter((run) => run.calls > 0);
     const missed = mine.filter((run) => run.calls === 0 && run.candidates.length > 0);
     rows.push(
@@ -391,7 +428,9 @@ function promptRows(runs: readonly TurnResult[]): string[] {
   ];
   for (const prompt of PROMPTS) {
     const cell = (arm: ArmName): string => {
-      const mine = runs.filter((run) => run.prompt === prompt.id && run.arm === arm);
+      const mine = completed(runs).filter(
+        (run) => run.prompt === prompt.id && run.arm === arm
+      );
       const called = mine.filter((run) => run.calls > 0);
       const kinds = [...new Set(called.flatMap((run) => run.kinds))];
       return `${called.length}/${mine.length}${kinds.length ? ` (${kinds.join(", ")})` : ""}`;
@@ -410,7 +449,9 @@ function splitRows(runs: readonly TurnResult[]): string[] {
   ];
   for (const arm of ARMS) {
     for (const classifiable of [true, false]) {
-      const mine = runs.filter((run) => run.arm === arm && run.classifiable === classifiable);
+      const mine = completed(runs).filter(
+        (run) => run.arm === arm && run.classifiable === classifiable
+      );
       const called = mine.filter((run) => run.calls > 0);
       rows.push(
         `| ${classifiable ? "yes" : "no"} — ${arm} | ${mine.length} | ${called.length} | ${pct(called.length, mine.length)} |`
@@ -430,10 +471,15 @@ function report(
     "# `show_block` rate with the classification pass on",
     "",
     `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
+    errors.length
+      ? `**${errors.length} turn(s) did not complete** and are excluded from every rate below; they are listed at the end. A rate is only over turns that produced an answer.`
+      : `Every turn completed, so no rate below is drawn over a partial sample.`,
     `Brain: a copy of \`packages/core/fixtures/corpus/\`. Harness: \`scripts/measure-show-block.ts\`.`,
     `Taken ${new Date().toISOString().slice(0, 10)}.`,
     "",
     `The brief costs **${cost.tokens} input tokens** (${cost.lines} lines, ${cost.chars} characters) on every turn.`,
+    "",
+    `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     "",
     "## Rate per arm",
     "",
@@ -450,7 +496,7 @@ function report(
     ...promptRows(runs),
     "",
     errors.length
-      ? `## Errors\n\n${errors.map((run) => `- \`${run.prompt}\` ${run.arm} rep${run.rep}: ${run.error}`).join("\n")}`
+      ? `## Turns excluded\n\n${errors.map((run) => `- \`${run.prompt}\` ${run.arm} rep${run.rep}: ${run.error}`).join("\n")}\n\nThe arms are only comparable when the excluded counts are close. Re-run the missing cells before reading the table above as an A/B.`
       : "No turn errored.",
     "",
   ].join("\n");
@@ -482,7 +528,7 @@ async function main(): Promise<void> {
   const runs = await pool(tasks, concurrency, (result) => {
     done.push(result);
     console.log(
-      `[${done.length}/${tasks.length}] ${result.arm}\trep${result.rep}\t${result.prompt}\tcalls=${result.calls}${result.kinds.length ? `(${result.kinds.join(",")})` : ""}\tcandidates=${result.candidates.join(",") || "-"}\t${result.durationMs}ms${result.error ? `\tERROR ${result.error}` : ""}`
+      `[${done.length}/${tasks.length}] ${result.arm}\trep${result.rep}\t${result.prompt}\tcalls=${result.calls}${result.kinds.length ? `(${result.kinds.join(",")})` : ""}${result.rejectedCalls ? `\trejected=${result.rejectedCalls}` : ""}\tcandidates=${result.candidates.join(",") || "-"}\t${result.durationMs}ms${result.error ? `\tERROR ${result.error}` : ""}`
     );
     if (out) void Bun.write(out, JSON.stringify(done, null, 2));
   });
