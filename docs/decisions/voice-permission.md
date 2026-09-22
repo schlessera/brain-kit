@@ -200,7 +200,7 @@ posture, it is a wish.
 | `mcp__brain__brain_list` | Read-only enumeration. |
 | `mcp__brain__brain_graph` | Read-only. |
 | `mcp__brain__brain_add` | Creates a new document. The single most valuable eyes-free action there is — capture. A create destroys nothing: the worst case is a document the user did not want, which appears in Files and is removable. |
-| `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`packages/core/src/mcp-server.ts:574-578`), so no prose can be lost. What it can overwrite is a frontmatter scalar — `summary`, `status`, `relevance`, `tags`, `deadline`, `next_review` (`:556-572`) — replacing a prior value in place with no checkpoint. Git recovers that only if the document was committed, so the honest claim is "loses at most one frontmatter field, recoverable if committed", not "recoverable". `status` is the field that matters and it is handled separately below. |
+| `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`packages/core/src/mcp-server.ts:574-578`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`:533-538`), applied independently (`:556-572`), so **a single call can overwrite all six** — and `tags` is a comma-separated string that replaces the whole tag list rather than merging into it (`:536,559-561`), while `deadline` and `next_review` take `""` as *delete the field* (`:563-572`). `updated` is bumped unconditionally (`:582`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
 | the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (`sdk-options.ts:45-60`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
@@ -347,9 +347,10 @@ the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
 permission by reflex is the one footgun in the vocabulary"*
 (`docs/decisions/design-feedback.md:1243-1250`). A microphone is a reflex
-surface with worse recognition than a keyboard. This costs nothing measurable: the server already refuses `always`
-for kind `command` requests (`dispatch.ts:182-186`, `ws/bridge.ts:99-110`), and 192
-of 192 measured approvals were kind `command`.
+surface with worse recognition than a keyboard. This costs nothing measurable:
+the server already refuses `always` for kind `command` requests
+(`dispatch.ts:182-186`, `ws/bridge.ts:99-110`), and 192 of 192 measured
+approvals were kind `command`.
 
 ### When the announcement actually fires
 
@@ -362,8 +363,9 @@ than one that parks. "No card" is not "nothing can stall", and the one exception
 is named below: `request_image_mask` sits inside the enforced allowlist whatever
 the posture declares, so it is auto-allowed, raises no card, and blocks the turn
 on a region nobody will paint. That is why filtering the bridge-tool append is
-part of #110 rather than a separate nicety. That is the intended end state and it is worth saying out loud, because it means the interaction
-above is not the common case — it is the case that must not be got wrong.
+part of #110 rather than a separate nicety. That is the intended end state and
+it is worth saying out loud, because it means the interaction above is not the
+common case — it is the case that must not be got wrong.
 
 It fires in three situations, and they are the reason the design exists rather
 than an edge:
@@ -423,9 +425,10 @@ named entry in that mechanism.
 **#51's U15 chose a different mechanism first, and it chose it for this
 record's own reason.** `docs/plans/async-collaboration.md`, under U15, specifies
 *"Tool **availability** control (`tools`), not `allowedTools` — an allowlisted
-tool is auto-allowed and never reaches `canUseTool`, so removing a tool from the
-allowlist does not remove the tool"* (`docs/plans/async-collaboration.md:1176-1178`),
-and it names the pi implementation as the check on the Claude one: a filtered
+tool is auto-allowed and never reaches `canUseTool` (`backend.ts:703-709`), so
+removing a tool from the allowlist does not remove the tool"*
+(`docs/plans/async-collaboration.md:1176-1178`), and it names the pi
+implementation as the check on the Claude one: a filtered
 `ToolDefinition[]`, *"no SDK allowlist exists, therefore no auto-allow bypass
 exists to defeat"* (`:1188-1191`). That plan is epic #51's design record. It was
 written before #141 and #154 measured the runtime paths described below, and
@@ -465,9 +468,14 @@ make both worse:
 | `WebSearch` / `WebFetch` | in — a listening user is the mitigation, and the exposure equals chat's | probably out — that is precisely the untrusted input |
 | escalation to a human | synchronous, on the card already on screen | asynchronous, via the Action the plan describes |
 
-One requirement remains, and it is the fail-closed primitive below: under either
-mechanism, a tool the posture excludes has to *fail* rather than *ask*. Both
-postures need it and neither has it.
+One requirement remains, and it applies to **one** of the two mechanisms. If the
+posture is an enforced allowlist, a tool it excludes has to *fail* rather than
+*ask* — the fail-closed primitive below, which neither posture has yet. Under
+availability control the requirement is vacuous rather than satisfied: an
+unregistered tool raises nothing to fail or ask about, which is the same reason
+the `request_image_mask` problem below does not arise there. That asymmetry is
+the strongest practical argument for U15's choice, and it is why this record
+does not make the primitive a condition on #51.
 
 ## What has to exist that does not
 
@@ -523,6 +531,12 @@ the same conditions), and a `PreToolUse` hook in the project settings this
 backend loads under `settingSources: ["project"]`. An explicit `ask` is the one
 answer that beats all three, and it exists only under the declaration.
 
+That third vector is stated here as #154 measured it. The in-tree comment at
+`permission-hooks.ts:67` still names an **allow rule** in those settings, which
+#154 shows does not bypass — a settings `PreToolUse` hook returning `allow` is
+the one that does. That comment is #154's to correct and this record does not
+touch it; the vector above is the accurate one.
+
 That last group is the strongest available argument for the fail-closed
 primitive, and against the intuition the record started from. "Take it off the
 allowlist and `canUseTool` will catch it" was false in five ways, not one —
@@ -548,8 +562,9 @@ three times, which is the argument for fixing it at the mechanism rather than
 one exclusion at a time.
 
 **The fail-closed rule has to cover both request kinds, and the `command` one is
-the one that matters.** Removing `Bash` from the allowlist does not route a Bash call through
-`canUseTool` first: the PreToolUse `mutatingHook` fires before permission
+the one that matters.** Removing `Bash` from the allowlist does not route a
+Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
+before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`permission-hooks.ts:89-93,166-174`). So a
 destructive shell command in a voice turn raises a `command` request — and
