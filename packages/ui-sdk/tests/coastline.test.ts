@@ -738,6 +738,54 @@ describe("closeAgainstViewport", () => {
     expect(fills(land, [15.7, 38.26])).toBe(false);
   });
 
+  test("two shores bounding a strip of land fill the strip and neither sea", () => {
+    // The case that defeats closing each shore on its own: an island wider than
+    // the view, an isthmus, a coastal plain between two seas. Closed
+    // separately, each shore claims everything on its side, the two claims
+    // overlap, and the even-odd rule paints their symmetric difference — the
+    // two seas, with the land between them left empty. The walk stops at the
+    // next shore instead, which stitches the strip's two sides into one ring.
+    const land = close([
+      [
+        [15.4, 38.24],
+        [16.0, 38.24],
+      ],
+      [
+        [16.0, 38.28],
+        [15.4, 38.28],
+      ],
+    ]);
+    expect(land).toHaveLength(1);
+    expect(fills(land, [15.7, 38.26])).toBe(true);
+    expect(fills(land, [15.7, 38.22])).toBe(false);
+    expect(fills(land, [15.7, 38.3])).toBe(false);
+  });
+
+  test("a linked ring picks up the corners between the shores it joins", () => {
+    // The strip above runs clear across the box, so its ring passes no corner.
+    // Here the second shore cuts the north-east corner off as water, and the
+    // ring has to walk round the north-WEST one to get back to the first
+    // shore. A link that dropped the corner would cut it off with a diagonal —
+    // the seam D25 saw.
+    const land = close([
+      // Enters west at 38.24, leaves east at 38.26; land to the north.
+      [
+        [15.4, 38.22],
+        [16.0, 38.28],
+      ],
+      // Enters east at 38.30, leaves north at 15.70; land to the south.
+      [
+        [16.0, 38.26],
+        [15.6, 38.36],
+      ],
+    ]);
+    expect(land).toHaveLength(1);
+    expect(land[0]!).toContainEqual([STRAIT[0], STRAIT[3]]);
+    expect(fills(land, [15.62, 38.3])).toBe(true);
+    expect(fills(land, [15.78, 38.315])).toBe(false);
+    expect(fills(land, [15.7, 38.21])).toBe(false);
+  });
+
   test("the whole closure is counterclockwise, which is what land-on-the-left means", () => {
     for (const chains of [
       across([OUTSIDE.west, 38.26], [OUTSIDE.east, 38.26]),
@@ -816,13 +864,11 @@ describe("the winding convention is checked, not trusted", () => {
     expect(fills(land, [15.68, 38.25])).toBe(true);
   });
 
-  test("a strait comes out the same from data wound either way, so there is nothing to refuse", () => {
-    // Worth knowing before trusting the witness check further than it goes. A
-    // wrong closure is the exact complement of the right one, and the even-odd
-    // rule cannot tell a set from the set of its complements when there is an
-    // EVEN number of them. Two facing shores are such a pair: both windings
-    // paint the two coasts and leave the channel, which is why the check finds
-    // nothing wrong here — there is nothing wrong here.
+  test("a strait wound the other way fills the channel, and the witnesses refuse it", () => {
+    // Two facing shores, and the flip is not a no-op: wound the other way they
+    // link through the boundary into the water between them instead of the two
+    // coasts. Nothing in the geometry says which of those is land — the roads
+    // do.
     const strait: Coord[][] = [
       [
         [15.66, 38.1],
@@ -835,11 +881,22 @@ describe("the winding convention is checked, not trusted", () => {
     ];
     const flipped = strait.map((shore) => [...shore].reverse());
     const request = { bbox: STRAIT, widthPx: 330 };
-    for (const land of [prepareLand(strait, request), prepareLand(flipped, request)]) {
-      expect(fills(land, [15.62, 38.26])).toBe(true);
-      expect(fills(land, [15.78, 38.26])).toBe(true);
-      expect(fills(land, [15.7, 38.26])).toBe(false);
-    }
+    /** A road on each coast, which is where roads are. */
+    const coastal: Coord[][] = Array.from({ length: 6 }, (_, i) => [
+      [15.62, 38.24 + i * 0.01],
+      [15.63, 38.245 + i * 0.01],
+      [15.78, 38.24 + i * 0.01],
+      [15.77, 38.245 + i * 0.01],
+    ] as Coord[]);
+
+    const right = prepareLand(strait, request, { onLand: coastal });
+    expect(fills(right, [15.62, 38.26])).toBe(true);
+    expect(fills(right, [15.78, 38.26])).toBe(true);
+    expect(fills(right, [15.7, 38.26])).toBe(false);
+
+    const wrong = prepareLand(flipped, request);
+    expect(fills(wrong, [15.7, 38.26])).toBe(true);
+    expect(prepareLand(flipped, request, { onLand: coastal })).toEqual([]);
   });
 
   test("too few witnesses decide nothing, and the convention stands on its own", () => {

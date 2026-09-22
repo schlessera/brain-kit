@@ -353,16 +353,22 @@ with the coastline strokes drawn over it.
   the strait's first regeneration came out with Calabria filled and Sicily
   missing. An island never showed this, because a loop closes whichever way you
   walk it.
-- **The even-odd rule is blind to a global winding flip — sometimes.** Closing a
-  chain the wrong way round yields the exact complement of the right closure
-  within the box, and even-odd cannot tell a set of regions from the set of
-  their complements when there is an even number of them. So a strait renders
-  the same picture from data wound either way, and there is nothing to catch.
-  With an odd number of closures, a flip inverts the picture — and that is what
-  `LandOptions.onLand` catches, by asking whether the road network came out
-  inside the fill. Roads are on land by definition. When they are not inside it,
-  the closure is dropped and the map goes back to a stroke, which is what it drew
-  before any of this.
+- **Closing each shore on its own is wrong the moment two of them bound the same
+  land.** An island wider than the view, an isthmus, a coastal plain between two
+  seas: each shore closes to "everything on my side", the two claims overlap,
+  and the even-odd rule paints their symmetric difference — both seas, with the
+  land between them left empty. An independent review of the first
+  implementation produced exactly this case. The fix is to stop the boundary
+  walk at the next shore's entry point rather than at the walking shore's own,
+  which stitches the two sides of the strip into the one ring they bound. With a
+  single shore in view the next entry IS its own, so the simple case is
+  unchanged.
+- **Which side is land is still not decidable from the geometry.** Wound the
+  other way, the same shores link into the water between them — a shape just as
+  closed and just as plausible. That is what `LandOptions.onLand` is for: roads
+  are on land by definition, so a fill that does not contain them is the sea,
+  and the closure is dropped rather than drawn. The map then goes back to a
+  stroke, which is what it drew before any of this.
 
 ### What it measured
 

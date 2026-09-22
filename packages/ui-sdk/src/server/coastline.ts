@@ -589,6 +589,17 @@ function perimeterAt([lon, lat]: Coord, bbox: BBox): number | null {
  * counterclockwise from the exit point to the entry point produces each of them
  * without a special case.
  *
+ * **The walk stops at the next shore, not at its own start.** Closing each
+ * shore against the box on its own is right until two of them bound the same
+ * piece of land — an island wider than the view, an isthmus, a strip between
+ * two seas. Then each shore closes to "everything on my side", the two
+ * overlap, and the even-odd rule paints their symmetric difference: the two
+ * seas, and not the land between them. So the walk from a shore's exit point
+ * carries on counterclockwise only until it meets the point where the NEXT
+ * shore comes in, and then follows that shore — which stitches the strip's two
+ * sides into the one ring they bound. With a single shore in the view the next
+ * entry is its own, and this is exactly the paragraph above.
+ *
  * Order matters and is not free to change. Chains are clipped first, so every
  * end sits on the boundary; each piece is simplified while its ends are pinned
  * there; and the rectangle walk is added LAST and never simplified. Simplifying
@@ -599,35 +610,79 @@ export function closeAgainstViewport(chains: Coord[][], request: CoastlineReques
   const toleranceM = toleranceMetres(request.bbox, request.widthPx);
   const midLat = (request.bbox[1] + request.bbox[3]) / 2;
   const box = corners(request.bbox);
-  const out: Coord[][] = [];
 
+  /** Each clipped shore, with where it crosses onto the box and back off it. */
+  const pieces: { points: Coord[]; entry: number; exit: number }[] = [];
   for (const chain of chains) {
     for (const piece of clipLine(chain, request.bbox)) {
       const entry = perimeterAt(piece[0]!, request.bbox);
       const exit = perimeterAt(piece[piece.length - 1]!, request.bbox);
       if (entry === null || exit === null) continue;
-
-      const shore = simplify(piece, toleranceM, midLat);
-      const ring = [...shore];
-      // Counterclockwise from the exit back to the entry, picking up every
-      // corner on the way. `+ 4) % 4` makes the walk wrap the rectangle rather
-      // than run backwards when the entry sits "before" the exit.
-      const travel = exit === entry ? 0 : (entry - exit + 4) % 4;
-      // Four steps at most, because the walk is bounded by the rectangle and
-      // the comparison below is modular: a fifth step wraps past the start and
-      // reads as "still ahead of the target" forever.
-      for (let step = 0; step < 4; step += 1) {
-        const corner = Math.floor(exit) + 1 + step;
-        if ((corner - exit + 4) % 4 >= travel) break;
-        ring.push(box[(corner % 4) as 0 | 1 | 2 | 3]);
-      }
-      ring.push(piece[0]!);
-      // A closure that encloses nothing is a shore running along the boundary,
-      // not land. Sign is not checked: the walk above can only produce a
-      // counterclockwise ring, and a negative one would mean this arithmetic is
-      // wrong rather than that the data is.
-      if (ring.length > 3 && signedArea(ring) > 0) out.push(ring);
+      pieces.push({ points: simplify(piece, toleranceM, midLat), entry, exit });
     }
+  }
+
+  /** The first shore that starts at or after `from`, going counterclockwise. */
+  const nextFrom = (from: number): number => {
+    let best = -1;
+    let nearest = Infinity;
+    for (let i = 0; i < pieces.length; i += 1) {
+      const ahead = (pieces[i]!.entry - from + 4) % 4;
+      if (ahead < nearest) {
+        nearest = ahead;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  /** The corners passed walking counterclockwise from `from` to `to`. */
+  const between = (from: number, to: number): Coord[] => {
+    const travel = (to - from + 4) % 4;
+    const picked: Coord[] = [];
+    // Four steps at most, because the walk is bounded by the rectangle and the
+    // comparison is modular: a fifth step wraps past the start and reads as
+    // "still ahead of the target" forever.
+    for (let step = 0; step < 4; step += 1) {
+      const corner = Math.floor(from) + 1 + step;
+      if ((corner - from + 4) % 4 >= travel) break;
+      picked.push(box[(corner % 4) as 0 | 1 | 2 | 3]);
+    }
+    return picked;
+  };
+
+  const used = new Set<number>();
+  const out: Coord[][] = [];
+  for (let seed = 0; seed < pieces.length; seed += 1) {
+    if (used.has(seed)) continue;
+    const ring: Coord[] = [];
+    let at = seed;
+    let closed = false;
+    // Bounded by the number of shores: every one is consumed at most once, and
+    // the guard below stops a ring that would otherwise revisit one.
+    for (let step = 0; step <= pieces.length; step += 1) {
+      used.add(at);
+      const piece = pieces[at]!;
+      ring.push(...piece.points);
+      const next = nextFrom(piece.exit);
+      ring.push(...between(piece.exit, pieces[next]!.entry));
+      if (next === seed) {
+        closed = true;
+        break;
+      }
+      // Only reachable from data whose crossings do not alternate — a shore
+      // that crosses itself, or ways wound inconsistently. There is no honest
+      // fill to draw from it.
+      if (used.has(next)) break;
+      at = next;
+    }
+    if (!closed) continue;
+    ring.push(ring[0]!);
+    // A closure that encloses nothing is a shore running along the boundary,
+    // not land. Sign is not checked beyond that: the walk above can only
+    // produce a counterclockwise ring, and a negative one would mean this
+    // arithmetic is wrong rather than that the data is.
+    if (ring.length > 3 && signedArea(ring) > 0) out.push(ring);
   }
 
   return out;
@@ -650,6 +705,47 @@ function insideLand(point: Coord, rings: Coord[][]): boolean {
   return inside;
 }
 
+/**
+ * Do any two of these closures overlap?
+ *
+ * The even-odd rule composes several closures correctly only while they are
+ * DISJOINT — which is the ordinary case, because each one is a separate
+ * landmass reaching into the view. Where two overlap, even-odd paints their
+ * symmetric difference, and the truth is their union or their intersection: two
+ * bays cutting into the same land from opposite edges each close to "everything
+ * but my bay", and drawn together that fills the two bays and nothing else —
+ * the sea, exactly. Per-chain closure cannot express that shape, and general
+ * polygon booleans are the thing this module is not.
+ *
+ * So the case is detected and refused rather than drawn. Shores do not cross
+ * each other, so two overlapping closures always put one's shore inside the
+ * other, and a vertex is enough to find it. Vertices ON the box are skipped:
+ * every closure has some, they are shared between closures that meet at an
+ * edge, and a crossing test is ill-defined there anyway.
+ */
+function overlapping(rings: Coord[][], bbox: BBox): boolean {
+  const [west, south, east, north] = bbox;
+  const eps = Math.max(east - west, north - south) * 1e-4;
+  const inner = ([lon, lat]: Coord) =>
+    lon > west + eps && lon < east - eps && lat > south + eps && lat < north - eps;
+
+  const extents = rings.map(extent);
+  for (let i = 0; i < rings.length; i += 1) {
+    for (let j = 0; j < rings.length; j += 1) {
+      if (i === j) continue;
+      // Cheap first: two closures whose extents miss each other cannot overlap,
+      // and that is nearly every pair on nearly every view.
+      const a = extents[i]!;
+      const b = extents[j]!;
+      if (a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]) continue;
+      for (const point of rings[i]!) {
+        if (inner(point) && insideLand(point, [rings[j]!])) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export interface LandOptions {
   /**
    * Lines that are on land by definition — the road network from the same
@@ -663,15 +759,10 @@ export interface LandOptions {
    * is the sea, and this module would rather draw no fill than lie about which
    * side is water.
    *
-   * What the check is actually up against is narrower than it looks, and worth
-   * knowing before trusting it further than it goes. Closing a chain the wrong
-   * way round produces the EXACT complement of the right closure within the
-   * box, and the even-odd rule these rings are drawn under does not distinguish
-   * a set from the set of its complements when there is an EVEN number of them:
-   * the parities are equal. So a viewport whose shores come in pairs — a
-   * strait, two facing headlands — renders the same picture from data wound
-   * either way, and there is nothing there to catch. With an odd number, the
-   * flip inverts the whole picture, and that is the case this catches.
+   * Nothing else can tell. Wound the other way, the same shores close into the
+   * water between them instead of the land around them — a shape just as
+   * plausible, just as closed, and wrong. The roads are the only thing in the
+   * response that knows which of the two is the land.
    */
   onLand?: Coord[][];
 }
@@ -730,6 +821,11 @@ export function prepareLand(lines: Coord[][], request: CoastlineRequest, options
     }),
   );
   if (!closures.length) return islands;
+  // Linking the shores together is what keeps these disjoint, and disjoint is
+  // what the even-odd rule needs to compose them. This is the backstop for
+  // geometry that defeats it — shores that cross, ways wound against each
+  // other — where the honest answer is the stroke-only map.
+  if (overlapping(closures, request.bbox)) return islands;
 
   // The witnesses an island ring already accounts for say nothing about the
   // closure, so they are not counted for or against it.
