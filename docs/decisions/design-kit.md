@@ -2989,8 +2989,14 @@ record.
    reads it, so a
    receipt's rows, a stat tile and a contact's facts are coloured by the same
    answers. It is asked only of a run of eight lines or fewer — the bound stat
-   tiles already had — so the question count follows the run's shape and not
-   the text's length.
+   tiles already had, and now the bound on the contact questions too — so the
+   question count follows the run's shape and not the text's length. That bound
+   is not only editorial: the `subject` question offers one option per line,
+   the classifier takes at most 255 of them, and one oversized question fails
+   the whole request, which carries every candidate in the message. A run
+   longer than a card is asked what shape it is and nothing else, and the
+   transform refuses the contact branch on its own rather than relying on the
+   answers being absent.
 
 4. **The route list is a test now, not a reading.** Each catalogue row declares
    the block kinds its transform can return, `CATALOGUE_BLOCK_KINDS` is their

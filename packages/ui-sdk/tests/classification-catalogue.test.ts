@@ -335,12 +335,19 @@ describe("the catalogue", () => {
     ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost" }] });
   });
 
-  test("a run longer than a card is not asked for tones, so the question count follows the shape, not the length", () => {
+  test("a run longer than a card is asked only what shape it is, so the question count follows the shape, not the length", () => {
+    // The `subject` question offers one option per line and the classifier
+    // takes at most 255, and one oversized question fails the request for
+    // every candidate batched into it — so the bound is not only editorial.
     const long = Array.from({ length: 9 }, (_, i) => `**Oar ${i + 1}:** shipped`).join("\n");
     const [run] = detectCandidates(long);
     expect(run?.kind).toBe("kv_run");
-    const ids = Object.keys(questionsFor(run!));
-    expect(ids.some((id) => id.includes("value_tone"))).toBe(false);
+    expect(Object.keys(questionsFor(run!))).toEqual(["c0.shape"]);
+    // And the transform refuses on its own, rather than relying on the
+    // answers being absent.
+    expect(
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Oar 1", 0.95) })
+    ).toBeNull();
 
     const [short] = detectCandidates(CONTACT_RUN);
     expect(Object.keys(questionsFor(short!))).toEqual([

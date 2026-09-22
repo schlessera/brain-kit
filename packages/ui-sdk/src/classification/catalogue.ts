@@ -324,12 +324,15 @@ const blockquote: CatalogueRow<BlockquoteCandidate> = {
 };
 
 /**
- * A colour per value is D42's "per-row value tone". It is asked only of a run
- * short enough to read as one card: past that the run is a record dump, a
- * colour on every line is noise, and the question count would follow the
- * text's length rather than its shape. The same bound caps stat tiles.
+ * A run short enough to read as one card. Past it the run is a record dump: a
+ * colour on every line is noise, it is not stat tiles, and it is not a contact
+ * either — a card is a name and a handful of facts. It also keeps both
+ * question counts bounded by the run's shape rather than the text's length,
+ * which matters because the `subject` question offers one option per line and
+ * the classifier takes at most 255 (D42), and one oversized question would
+ * fail the request for every candidate batched into it.
  */
-const TONED_ROWS_MAX = 8;
+const CARD_ROWS_MAX = 8;
 
 /** The `subject` answer that means no line of the run holds the name. */
 const NO_SUBJECT = "none";
@@ -372,19 +375,40 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
     // the same move the table's `recommended` question makes over its
     // headers. A contact needs a label, and a label the text does not carry
     // is one the surface would be inventing.
-    const subjectOptions: Record<string, string> = {
-      [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
-    };
-    for (const row of candidate.rows) {
-      // `in` would also see `toString` and the rest of Object.prototype, and
-      // a key the run really has would then go unoffered while the transform
-      // below still accepted it. The keys come from model output.
-      if (row.k && !Object.prototype.hasOwnProperty.call(subjectOptions, row.k)) {
-        subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
+    // Both the contact questions and the tones are card-sized questions; a run
+    // longer than a card is asked neither, and the transform refuses the same
+    // way rather than relying on the answers being absent.
+    const cardSized = candidate.rows.length <= CARD_ROWS_MAX;
+    const contact: Record<string, ClassificationQuestion> = {};
+    if (cardSized) {
+      const subjectOptions: Record<string, string> = {
+        [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
+      };
+      for (const row of candidate.rows) {
+        // `in` would also see `toString` and the rest of Object.prototype, and
+        // a key the run really has would then go unoffered while the transform
+        // below still accepted it. The keys come from model output.
+        if (row.k && !Object.prototype.hasOwnProperty.call(subjectOptions, row.k)) {
+          subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
+        }
       }
+      contact.subject = {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
+        criteria: subjectOptions,
+      };
+      contact.contact_kind = {
+        type: "choice",
+        instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
+        criteria: {
+          person: "A human being.",
+          company: "An organisation, a business, an institution.",
+          project: "A piece of work, a product, a repository, an effort.",
+        },
+      };
     }
     const tones: Record<string, ClassificationQuestion> = {};
-    if (candidate.rows.length <= TONED_ROWS_MAX) {
+    if (cardSized) {
       candidate.rows.forEach((row, index) => {
         tones[`value_tone_${index}`] = {
           type: "choice",
@@ -404,20 +428,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
           plain: "None of those: definitions, a glossary, or prose that happens to use colons.",
         },
       },
-      subject: {
-        type: "choice",
-        instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
-        criteria: subjectOptions,
-      },
-      contact_kind: {
-        type: "choice",
-        instructions: `If \`${candidate.id}\` describes one person, company or project, which of the three is it?`,
-        criteria: {
-          person: "A human being.",
-          company: "An organisation, a business, an institution.",
-          project: "A piece of work, a product, a repository, an effort.",
-        },
-      },
+      ...contact,
       ...tones,
     };
   },
@@ -431,7 +442,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       return validated({ kind: "receipt", rows }, shape.confidence);
     }
     if (shape.choice === "stats") {
-      if (candidate.rows.length > TONED_ROWS_MAX || !candidate.rows.every((row) => isNumeric(row.v))) {
+      if (candidate.rows.length > CARD_ROWS_MAX || !candidate.rows.every((row) => isNumeric(row.v))) {
         return null;
       }
       const tiles = candidate.rows.map((row, index) => ({
@@ -442,6 +453,7 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       return validated({ kind: "stats", tiles }, shape.confidence);
     }
     if (shape.choice === "contact") {
+      if (candidate.rows.length > CARD_ROWS_MAX) return null;
       const subject = choiceAt(answers, `${candidate.id}.subject`, CONFIDENCE.swap);
       // The sentinel wins over a line that happens to be keyed "none": that
       // line is never offered as an option, so the answer cannot mean it.
