@@ -2770,7 +2770,7 @@ inherited. **#148 scoped the brief's wording out of this decision, so nothing
 about it changes here** and its budget in
 `packages/ui-sdk/tests/tool-contracts.test.ts` is untouched at eleven lines and
 749 characters — now a ceiling on drift rather than evidence that the lines
-earn their place. The question is #156.
+earn their place. The question is #157.
 
 **What is not claimed.**
 
@@ -2778,12 +2778,23 @@ earn their place. The question is #156.
   kind.** A turn that reached for `table` where `comparison` was right counts
   as a call in all of it, in both configurations and both arms. So "always
   loading raises the rate from 56% to 77%" is a claim about reaching for the
-  tool and not about the answer being better, and the brief's measured
-  no-effect is a no-effect on rate only. This is not a hedge — #50's
-  kind-correctness pass on the pi backend found a systematic miss (`schedule`
-  prescribed, `timeline` drawn, 2 of 2), which is exactly the failure mode a
-  rate cannot see. **Nothing here should be quoted as evidence that the surface
-  draws the right block.** #156 makes kind-correctness its metric.
+  tool and not about the answer being better. **Nothing here should be quoted
+  as evidence that the surface draws the right block.**
+
+  The same distinction applies to the brief, and it is the one most likely to
+  be misused. The brief's text is mostly about *which* kind to pick rather than
+  whether to pick one, so "the brief measures at no effect once the tools are
+  loaded" is a **rate** claim, and reading it as a **content** claim is a
+  category error. This entry's runs and D43's both support the first and
+  neither touches the second. The only evidence on the second is #50's
+  kind-correctness pass on the pi backend, and it points the other way: 23 of
+  25 scorable turns drew the right kind, with one systematic miss —
+  `schedule` prescribed, `timeline` drawn, 2 of 2. Its author discloses having
+  seen the drawn kinds before writing the expectations, so it is a first
+  reading rather than a clean result; it is also the only reading anyone has,
+  and it suggests the brief's content does measurable work in exactly the place
+  a rate cannot see. #157 makes kind-correctness its metric, and the
+  `schedule`/`timeline` miss is a concrete lead for it.
 - One model (`claude-sonnet-5`, pinned so a re-run compares like for like) and
   one brain, a copy of `packages/core/fixtures/corpus/`. A larger brain means a
   larger base prompt, so the 7335 is a smaller share of it — and also more
