@@ -173,7 +173,11 @@ describe("remembered grants under an enforced allowlist", () => {
     controls[0]!.finish();
   });
 
-  test("the same remembered tool is still auto-approved when the turn declares nothing", async () => {
+  // A request for a tool ON an enforced allowlist arrives unmarked, exactly
+  // like one from a turn that declared nothing — the backend only marks what
+  // the allowlist leaves out. So this is both cases at once: the grant still
+  // answers whenever the marker is absent.
+  test("an unmarked request is still auto-approved from the grant store", async () => {
     const { backend, controls } = permissionBackend();
     setBackendForTests(backend);
     const { tp } = memoryGrants([REMEMBERED_TOOL]);
