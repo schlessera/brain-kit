@@ -673,8 +673,10 @@ export function closeAgainstViewport(chains: Coord[][], request: CoastlineReques
     const ring: Coord[] = [];
     let at = seed;
     let closed = false;
-    // Bounded by the number of shores: every one is consumed at most once, and
-    // the guard below stops a ring that would otherwise revisit one.
+    // Every step consumes a shore that has not been consumed, and once they all
+    // have been the only candidate left is the seed — so the ring closes within
+    // this many steps. The bound and the `closed` flag are the belt on that
+    // argument: an unclosed ring is thrown away rather than drawn.
     for (let step = 0; step <= pieces.length; step += 1) {
       used.add(at);
       const piece = pieces[at]!;
