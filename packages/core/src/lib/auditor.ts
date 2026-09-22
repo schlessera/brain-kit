@@ -124,21 +124,20 @@ export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy):
     }
   }
 
+  // Which documents have a wiki-link at all, in one pass each rather than two
+  // COUNT(*) per candidate: `links` has no index on target_id, so the
+  // per-document form scanned the whole table N times (9s at 10k docs / 50k
+  // links). A document is linked iff its id appears, which is the same
+  // question `COUNT(*) = 0` asked — a NULL target_id never matched `= ?`
+  // either, so dropping the broken links here changes nothing.
+  const ids = (sql: string) =>
+    new Set((db.prepare(sql).all() as { id: number }[]).map((r) => r.id));
+  const hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
+  const hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+
   const orphans: AuditDoc[] = [];
   for (const doc of candidateDocs) {
-    // Check for outgoing links
-    const outgoing = db
-      .prepare("SELECT COUNT(*) as count FROM links WHERE source_id = ?")
-      .get(doc.id) as { count: number };
-
-    // Check for incoming links
-    const incoming = db
-      .prepare("SELECT COUNT(*) as count FROM links WHERE target_id = ?")
-      .get(doc.id) as { count: number };
-
-    const hasPlainIncoming = plainIncoming.has(doc.path);
-
-    if (outgoing.count === 0 && incoming.count === 0 && !hasPlainIncoming) {
+    if (!hasOutgoing.has(doc.id) && !hasIncoming.has(doc.id) && !plainIncoming.has(doc.path)) {
       orphans.push(doc);
     }
   }

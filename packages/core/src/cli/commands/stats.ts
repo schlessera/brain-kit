@@ -1,7 +1,7 @@
 import { collectStats } from "../../lib/stats.js";
 import { DEFAULT_STATS_THRESHOLDS } from "../../lib/config.js";
 import type { CoreCommand } from "../types.js";
-import { emit, embeddingDims, openReadonlyDb } from "../io.js";
+import { emit, openReadonlyDb } from "../io.js";
 
 const HELP = `brain stats — corpus statistics and health figures
 
@@ -35,7 +35,6 @@ export const statsCommand: CoreCommand = {
         dbPath: cli.brain.dbPath,
         taxonomy: cli.brain.taxonomy,
         config: cli.brain.config,
-        embeddingDimensions: embeddingDims(cli.embeddings),
         embeddingsConfigured: cli.embeddings !== undefined || cli.brain.config?.embeddings !== undefined,
       });
 
@@ -57,7 +56,9 @@ export const statsCommand: CoreCommand = {
         console.log(`  Stale: ${health.stale}`);
         console.log(`  Orphans: ${health.orphans}`);
         console.log(`  Untagged: ${health.untagged}`);
-        console.log(`  Corpus: ${size.corpus.files} files, ${mb(size.corpus.bytes)}`);
+        console.log(
+          `  Corpus: ${size.corpus ? `${size.corpus.files} files, ${mb(size.corpus.bytes)}` : "n/a"}`
+        );
         console.log(`  Index: ${mb(size.db.bytes)}`);
         console.log(`  Free space: ${mb(size.freeBytes)}`);
       });

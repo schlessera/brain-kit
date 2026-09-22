@@ -8,15 +8,12 @@
  * `orphanExempt` from the taxonomy, so `brain stats` counts exactly what
  * `brain audit` lists.
  */
-import { Glob } from "bun";
 import type { Database } from "bun:sqlite";
-import { statSync, statfsSync } from "fs";
+import { readdirSync, statSync, statfsSync } from "fs";
 import { join, relative } from "path";
 
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
-import { getMeta, initVecSupport } from "./db.js";
-import { EMBEDDING_DIMENSIONS } from "./models.js";
 import type { Taxonomy } from "./taxonomy.js";
 
 export interface StatsThresholds {
@@ -49,8 +46,8 @@ export interface BrainStats {
     thresholds: StatsThresholds;
   };
   size: {
-    /** Files under the root that the index would consider, and their bytes. */
-    corpus: { bytes: number; files: number };
+    /** Files under the root that the index would consider, and their bytes; null when a wanted directory could not be read. */
+    corpus: { bytes: number; files: number } | null;
     /** brain.db plus its WAL on disk (a rebuild-cost figure — the index is disposable) and its row counts. */
     db: { bytes: number | null; tables: Record<string, number> };
     /** Bytes available to this user on the volume holding the brain; null when it could not be read. */
@@ -65,8 +62,6 @@ export interface CollectStatsOptions {
   config: BrainConfig | null;
   /** Wall clock for staleness — injected for deterministic tests. */
   now?: Date;
-  /** Vector width to open vec_chunks with; only matters when the table is absent. */
-  embeddingDimensions?: number;
   /** An embedding provider is configured for this brain (key present or not). */
   embeddingsConfigured?: boolean;
   /** Free-space probe — injected so a test can make it fail. */
@@ -109,27 +104,76 @@ function tableCounts(db: Database): Record<string, number> {
 /**
  * What the brain weighs on disk: every file under the root that is not
  * excluded and not the index itself. This is the corpus as a *user* sees it
- * (notes, assets, the config), not the subset the indexer picks up — the
- * same excludes apply, dot files are skipped the way `Glob` and the indexer's
- * scan skip them (so `.git` never lands here), and brain.db with its journal
+ * (notes, assets, the config), not the subset the indexer picks up — the same
+ * `isExcludedPath` decides, dot files are skipped the way the indexer's glob
+ * skips them (so `.git` never lands here), and brain.db with its journal
  * sidecars is the index, which is disposable and counted separately.
+ *
+ * Excluded directories are pruned BEFORE descending rather than filtered
+ * afterwards. Testing `dir + "/"` gives `isExcludedPath` the same answer it
+ * would give for every file inside — both its `dirs` and its `segments` rules
+ * match on that trailing slash — so pruning cannot change the total. It does
+ * two things a post-filter cannot: `node_modules` is never walked, and a
+ * `workspaces/` the user cannot read cannot raise EACCES from inside a
+ * directory nobody asked about.
+ *
+ * Null, not a smaller number, when a directory that *was* wanted could not be
+ * read: a corpus size short by an unknown amount is worse than no figure.
  */
-function corpusSize(root: string, dbPath: string, taxonomy: Taxonomy): { bytes: number; files: number } {
+function corpusSize(
+  root: string,
+  dbPath: string,
+  taxonomy: Taxonomy
+): { bytes: number; files: number } | null {
   const dbRel = relative(root, dbPath);
   const indexFiles = new Set([dbRel, `${dbRel}-wal`, `${dbRel}-shm`, `${dbRel}-journal`]);
   let bytes = 0;
   let files = 0;
-  for (const path of new Glob("**/*").scanSync({ cwd: root, onlyFiles: true, dot: false })) {
-    if (indexFiles.has(path)) continue;
-    if (taxonomy.isExcludedPath(path)) continue;
+
+  const walk = (rel: string): boolean => {
+    let entries;
     try {
-      bytes += statSync(join(root, path)).size;
-      files += 1;
+      entries = readdirSync(join(root, rel), { withFileTypes: true });
     } catch {
-      // vanished between listing and stat
+      return false;
     }
-  }
-  return { bytes, files };
+    let complete = true;
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+
+      // A symlink is resolved once, here: a link to a file counts as that
+      // file, a link to a directory is not descended into (the indexer's glob
+      // does not follow them either, and a cycle would not terminate).
+      let isDir = entry.isDirectory();
+      if (entry.isSymbolicLink()) {
+        try {
+          isDir = statSync(join(root, path)).isDirectory();
+        } catch {
+          continue; // dangling link — nothing on disk to weigh
+        }
+        if (isDir) continue;
+      }
+
+      if (isDir) {
+        if (taxonomy.isExcludedPath(`${path}/`)) continue;
+        if (!walk(path)) complete = false;
+        continue;
+      }
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      if (indexFiles.has(path)) continue;
+      if (taxonomy.isExcludedPath(path)) continue;
+      try {
+        bytes += statSync(join(root, path)).size;
+        files += 1;
+      } catch {
+        // vanished between listing and stat
+      }
+    }
+    return complete;
+  };
+
+  return walk("") ? { bytes, files } : null;
 }
 
 /** Free bytes on the volume holding `path`; null when the platform call fails. */
@@ -182,14 +226,14 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   let embeddingCount: number | null = null;
   if (hasVecTable(db)) {
     try {
-      // At the width the index was BUILT with, not the currently-configured
-      // one: they can differ, and `brain doctor` learned the same lesson.
-      const stored = Number(getMeta(db, "embedding_dimensions"));
-      const dims =
-        Number.isFinite(stored) && stored > 0
-          ? stored
-          : opts.embeddingDimensions ?? EMBEDDING_DIMENSIONS;
-      await initVecSupport(db, dims);
+      // Load the extension and nothing else. `initVecSupport` would also run
+      // the vec0 schema migrations, and one of them is a bare
+      // `DROP TABLE vec_chunks` — on a writable connection to a pre-cosine
+      // index, merely asking for statistics would destroy the vectors and
+      // charge a re-embedding run to get them back. Counting rows is not a
+      // reason to migrate anything.
+      const { load } = await import("sqlite-vec");
+      load(db);
       embeddingCount = count(db, "SELECT COUNT(*) as count FROM vec_chunks");
     } catch {
       // extension unavailable — same answer as no table

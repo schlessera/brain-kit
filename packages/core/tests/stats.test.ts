@@ -13,7 +13,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -37,6 +37,11 @@ const temps: string[] = [];
 afterAll(() => {
   for (const dir of temps) rmSync(dir, { recursive: true, force: true });
 });
+
+// A chmod 000 directory is still readable by root, so the two unreadable-
+// directory cases cannot be staged in a container that runs as root (CI does).
+const asRoot = process.getuid?.() === 0;
+const testUnlessRoot = asRoot ? test.skip : test;
 
 function tempDir(prefix = "brain-stats-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -126,8 +131,9 @@ describe("collectStats over fixtures/corpus", () => {
     const { size } = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
 
     // Every file the fixture ships; node_modules and brain.db are not corpus.
-    expect(size.corpus.files).toBe(29);
-    expect(size.corpus.bytes).toBeGreaterThan(0);
+    expect(size.corpus).not.toBeNull();
+    expect(size.corpus!.files).toBe(29);
+    expect(size.corpus!.bytes).toBeGreaterThan(0);
 
     expect(size.db.bytes).toBeGreaterThan(0);
     expect(size.db.tables.documents).toBe(25);
@@ -359,6 +365,55 @@ describe("embedding coverage is absent, not zero, when it cannot be known", () =
   });
 });
 
+describe("counting vectors never migrates the index", () => {
+  // Found by review: `collectStats` is exported, so a caller can hand it a
+  // WRITABLE connection. It used to reach vec_chunks through initVecSupport,
+  // whose vec0 migrations include a bare `DROP TABLE vec_chunks` for an index
+  // written before the cosine metric — asking for statistics would have
+  // destroyed the vectors and charged a paid re-embedding run to get them
+  // back.
+  test("a legacy vec_chunks table keeps its rows and its schema", async () => {
+    const root = tempDir();
+    const dbPath = join(root, "brain.db");
+    const db = openDatabase(dbPath);
+    const id = insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(db, id, 0);
+
+    // A pre-cosine, pre-v2 index: the vec0 table with none of the metadata
+    // the current schema carries, and no vec_distance_metric in meta.
+    const { load } = await import("sqlite-vec");
+    load(db);
+    db.run("CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[4])");
+    const chunkId = (db.prepare("SELECT id FROM chunks LIMIT 1").get() as { id: number }).id;
+    db.run("INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)", [
+      chunkId,
+      new Uint8Array(new Float32Array([0.1, 0.2, 0.3, 0.4]).buffer),
+    ]);
+    const schemaBefore = (
+      db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as { sql: string }
+    ).sql;
+
+    const stats = await collectStats(db, {
+      root,
+      dbPath,
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      embeddingsConfigured: true,
+    });
+
+    expect(stats.embeddings).toBe(1);
+    expect(stats.health.embeddingCoverage).toBe(1);
+    // The vector survived, and so did the table it was in.
+    expect((db.prepare("SELECT COUNT(*) as c FROM vec_chunks").get() as { c: number }).c).toBe(1);
+    expect(
+      (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as { sql: string })
+        .sql
+    ).toBe(schemaBefore);
+    db.close();
+  });
+});
+
 describe("size figures", () => {
   test("the corpus walk honours configured excludes", async () => {
     const root = tempDir();
@@ -385,8 +440,7 @@ describe("size figures", () => {
       now: NOW,
     });
 
-    expect(stats.size.corpus.files).toBe(1);
-    expect(stats.size.corpus.bytes).toBe(100);
+    expect(stats.size.corpus).toEqual({ files: 1, bytes: 100 });
     db.close();
   });
 
@@ -405,8 +459,7 @@ describe("size figures", () => {
       now: NOW,
     });
 
-    expect(stats.size.corpus.files).toBe(1);
-    expect(stats.size.corpus.bytes).toBe(42);
+    expect(stats.size.corpus).toEqual({ files: 1, bytes: 42 });
     // A rebuild-cost figure: the index is disposable, and its size says what
     // regenerating it buys back, not that it holds anything authoritative.
     expect(stats.size.db.bytes).toBeGreaterThan(0);
@@ -428,6 +481,60 @@ describe("size figures", () => {
 
     expect(stats.size.db.bytes).toBeNull();
     db.close();
+  });
+
+  testUnlessRoot("an unreadable EXCLUDED directory does not cost the corpus figure", async () => {
+    // Found by review: the walk used to list everything and filter afterwards,
+    // so a `workspaces/` the user cannot read — a core default exclude, and a
+    // real thing to find in a brain — raised EACCES out of scanSync and took
+    // every other figure down with it.
+    const root = tempDir();
+    mkdirSync(join(root, "notes"), { recursive: true });
+    mkdirSync(join(root, "workspaces/locked"), { recursive: true });
+    writeFileSync(join(root, "notes/keep.md"), "x".repeat(70));
+    writeFileSync(join(root, "workspaces/locked/secret.md"), "y".repeat(500));
+    chmodSync(join(root, "workspaces/locked"), 0o000);
+
+    const db = openDatabase(":memory:");
+    try {
+      const stats = await collectStats(db, {
+        root,
+        dbPath: join(root, "brain.db"),
+        taxonomy: taxonomyWith(),
+        config: null,
+        now: NOW,
+      });
+      expect(stats.size.corpus).toEqual({ files: 1, bytes: 70 });
+    } finally {
+      chmodSync(join(root, "workspaces/locked"), 0o755);
+      db.close();
+    }
+  });
+
+  testUnlessRoot("an unreadable WANTED directory makes the corpus figure absent, not short", async () => {
+    const root = tempDir();
+    mkdirSync(join(root, "notes/locked"), { recursive: true });
+    writeFileSync(join(root, "notes/keep.md"), "x".repeat(70));
+    writeFileSync(join(root, "notes/locked/more.md"), "y".repeat(500));
+    chmodSync(join(root, "notes/locked"), 0o000);
+
+    const db = openDatabase(":memory:");
+    try {
+      const stats = await collectStats(db, {
+        root,
+        dbPath: join(root, "brain.db"),
+        taxonomy: taxonomyWith(),
+        config: null,
+        now: NOW,
+      });
+      // 70 bytes would be a wrong answer stated confidently.
+      expect(stats.size.corpus).toBeNull();
+      // And the command still produced everything else.
+      expect(stats.size.db.tables.documents).toBe(0);
+    } finally {
+      chmodSync(join(root, "notes/locked"), 0o755);
+      db.close();
+    }
   });
 
   test("free space is absent, not 0, when the platform call fails", async () => {

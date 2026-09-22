@@ -69,7 +69,8 @@ renamed, so a consumer reading only the flat counts (as
   // size: what the brain weighs. brain.db is disposable; its size is a
   // rebuild-cost figure, not a claim that it holds authoritative state.
   "size": {
-    "corpus": { "bytes": 22231, "files": 29 },
+    "corpus": { "bytes": 22231, "files": 29 },   // null when a directory under the
+                                                 // root could not be read
     "db": { "bytes": 453208, "tables": { "documents": 25, "links": 37 } },
     "freeBytes": 643825672192     // null when the platform call fails
   }
