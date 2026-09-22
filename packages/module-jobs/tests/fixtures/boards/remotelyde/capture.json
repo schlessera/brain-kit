@@ -1,6 +1,21 @@
 {
   "captures": [
     {
+      "captured_at_utc": "2026-09-22T17:15Z",
+      "egress_country": "DE",
+      "excerpt_bytes": 3535,
+      "excerpt_sha256": "b68fd55f324018304eaabbbe2209f94dbdde98b2a9a626fc89a1dec9532825f5",
+      "fixture": "listing-row-cards.html",
+      "full_response_bytes": null,
+      "full_response_sha256": null,
+      "http_status": 200,
+      "note": "Two verbatim job cards in the ORDINARY row layout, which is what most of the listing is and which the capture above does not cover: the company is not beside the logo but in the card's meta line, as '<company> · <location>'. The first card is from page 1 of /remote-jobs, the second from /remote-jobs/seite/6, and the trailing category link is the chrome the old fallback stored. full_response_* are null because the excerpt spans two responses, so no single one describes it. The companies named - Grafana Labs and Do Good Ventures - are firms, not individuals. Captured by #35.",
+      "source": "remotelyde",
+      "transport": "http",
+      "url": "https://www.remotely.de/remote-jobs",
+      "user_agent": "brain-scrape (+https://github.com/schlessera/brain-kit)"
+    },
+    {
       "captured_at_utc": "2026-09-22T16:18Z",
       "egress_country": "DE",
       "excerpt_bytes": 6417,

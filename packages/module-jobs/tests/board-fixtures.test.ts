@@ -46,32 +46,43 @@ function fixture(...parts: string[]): string {
   return readFileSync(join(FIXTURES, ...parts), "utf-8");
 }
 
+/** What a stub answers one request with: a body, or a throw. */
+type StubAnswer = string | Error;
+
 /**
- * An HTTP client that answers every request with one fixture, or throws.
+ * An HTTP client that answers every request from a fixture, or throws.
  *
  * Every read path is sealed, not just the one these tests happen to call.
  * `ScrapeClient.getJson` and `get` are ordinary methods: an override of
  * `getText` alone leaves them inherited, and `get` reaches `clearToFetch`,
  * which fetches robots.txt over the network before it has even looked at the
- * URL. Nothing here calls them today. The next adapter wired into this file
- * would, and the test would go green over a real request.
+ * URL. `getJson` is no longer hypothetical — jobgether reads a JSON endpoint
+ * since #35 — and `get` still is, which is exactly when a seal is cheap.
+ *
+ * A function answer routes by URL, which is how a board with more than one
+ * page is served; `requests` is every URL asked for, in order, so a test can
+ * pin the request count as well as the parse.
  */
 class StubClient extends ScrapeClient {
-  constructor(private readonly answer: string | Error) {
+  readonly requests: string[] = [];
+
+  constructor(private readonly answer: StubAnswer | ((url: string) => StubAnswer)) {
     super();
   }
 
-  private body(): string {
-    if (this.answer instanceof Error) throw this.answer;
-    return this.answer;
+  private body(url: string): string {
+    this.requests.push(url);
+    const answer = typeof this.answer === "function" ? this.answer(url) : this.answer;
+    if (answer instanceof Error) throw answer;
+    return answer;
   }
 
-  override async getText(_url: string, _opts: FetchOptions = {}): Promise<string> {
-    return this.body();
+  override async getText(url: string, _opts: FetchOptions = {}): Promise<string> {
+    return this.body(url);
   }
 
-  override async getJson<T = unknown>(_url: string, _opts: FetchOptions = {}): Promise<T> {
-    return JSON.parse(this.body()) as T;
+  override async getJson<T = unknown>(url: string, _opts: FetchOptions = {}): Promise<T> {
+    return JSON.parse(this.body(url)) as T;
   }
 
   override async get(url: string, _opts: FetchOptions = {}): Promise<Response> {
@@ -82,8 +93,16 @@ class StubClient extends ScrapeClient {
   }
 }
 
-function contextServing(answer: string | Error): ScrapeContext {
-  return { http: new StubClient(answer), log: () => {} };
+/**
+ * A context whose HTTP client answers from a fixture, and the URLs it was
+ * asked for — the same shape `browserContextServing` returns, so an HTTP board
+ * and a browser board are asserted the same way.
+ */
+function contextServing(
+  answer: StubAnswer | ((url: string) => StubAnswer)
+): { ctx: ScrapeContext; requests: string[] } {
+  const http = new StubClient(answer);
+  return { ctx: { http, log: () => {} }, requests: http.requests };
 }
 
 /**
@@ -151,9 +170,19 @@ function pageFunctionOf<T>(cls: new (...args: never[]) => T): { extract(): Brows
   return cls.prototype as unknown as { extract(): BrowserJobRecord[] };
 }
 
-/** Run an adapter over a fixture, with no network and no browser. */
-async function scrapeAgainst(adapter: BaseAdapter, answer: string | Error) {
-  return adapter.bind(contextServing(answer)).scrape({ incremental: false });
+/**
+ * Run an adapter over a fixture, with no network and no browser.
+ *
+ * The result carries `requests` alongside the usual envelope, so a test can
+ * assert what the adapter asked for as well as what it parsed.
+ */
+async function scrapeAgainst(
+  adapter: BaseAdapter,
+  answer: StubAnswer | ((url: string) => StubAnswer)
+) {
+  const { ctx, requests } = contextServing(answer);
+  const result = await adapter.bind(ctx).scrape({ incremental: false });
+  return { ...result, requests };
 }
 
 describe("the fixture client", () => {
@@ -170,25 +199,108 @@ describe("the fixture client", () => {
 });
 
 describe("remotelyde against its captured listing", () => {
-  test("stores category chrome instead of jobs, and reports no error (#35)", async () => {
-    const result = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing.html"));
+  test("parses the featured card and ignores the category chrome (#35)", async () => {
+    const html = fixture("remotelyde", "listing.html");
+    // The link every stored row used to be. It is still in the fixture, so a
+    // parser that goes back to matching /remote-jobs/<slug> fails here.
+    expect(html).toContain('href="/remote-jobs/teilzeit"');
 
-    // The one row it finds is the /remote-jobs/teilzeit category link the
-    // fallback at src/adapters/remotelyde.ts:102 matches.
+    const result = await scrapeAgainst(new RemotelyDeAdapter(), html);
+
     expect(result.jobs).toHaveLength(1);
-    expect(result.jobs[0].url).toBe("https://remotely.de/remote-jobs/teilzeit");
-    expect(result.jobs[0].company).toBe("Unknown");
-    expect(result.jobs[0].description).toBeUndefined();
-    // Nothing went wrong as far as the adapter is concerned. That is the bug
-    // the epic is named after, and #37 is where it starts saying so.
+    const [job] = result.jobs;
+    expect(job.url).toBe(
+      "https://www.remotely.de/job/rws-trainai-audio-transcription-german-germany"
+    );
+    expect(job.title).toBe("Audio Transcription - German (Germany)");
+    expect(job.company).toBe("RWS TrainAI");
+    expect(job.location).toBe("Nur DE");
+    expect(job.remote_type).toBe("fully_remote");
+    // The featured layout carries a five-line teaser. A full description
+    // still needs the detail page (#36).
+    expect(job.description).toContain("Audio Transcriber");
+    // And nothing at all came from the chrome: not one stored row is a
+    // /remote-jobs/<slug> category page.
+    expect(result.jobs.filter((row) => row.url?.includes("/remote-jobs/"))).toEqual([]);
     expect(result.errors).toEqual([]);
   });
 
-  test("the JSON-LD is there; the regex at :53 will not see it (#34)", () => {
+  test("reads the company off the ordinary row layout too (#35)", async () => {
+    const result = await scrapeAgainst(
+      new RemotelyDeAdapter(),
+      fixture("remotelyde", "listing-row-cards.html")
+    );
+
+    // Most cards are this layout, and it puts the company in the meta line
+    // rather than beside the logo: "<company> \u00b7 <location>".
+    expect(result.jobs.map((job) => [job.company, job.location])).toEqual([
+      ["Grafana Labs", "Spanien +4 weitere"],
+      ["Do Good Ventures", "Weltweit"],
+    ]);
+    for (const job of result.jobs) {
+      expect(job.title).toBeTruthy();
+      expect(job.company).not.toBe("Unknown");
+      expect(job.url).toStartWith("https://www.remotely.de/job/");
+    }
+    expect(result.errors).toEqual([]);
+  });
+
+  test("a card with no company is dropped, and the field is named (#35)", async () => {
+    const html = fixture("remotelyde", "listing-row-cards.html").replace(
+      "Do Good Ventures \u00b7 Weltweit",
+      ""
+    );
+    const result = await scrapeAgainst(new RemotelyDeAdapter(), (url) =>
+      url.endsWith("/remote-jobs") ? html : ""
+    );
+
+    expect(result.jobs.map((job) => job.company)).toEqual(["Grafana Labs"]);
+    expect(result.errors).toEqual(["remotely.de page 1: 1 card(s) carried no company"]);
+  });
+
+  test("a blank company is not filled in from the location beside it (#35)", async () => {
+    // The meta line is "<company> \u00b7 <location>". Emptying the company half
+    // leaves " \u00b7 Weltweit", and a parser that drops empty pieces before
+    // taking the first one stores "Weltweit" as the employer.
+    const html = fixture("remotelyde", "listing-row-cards.html").replace(
+      "Do Good Ventures \u00b7 Weltweit",
+      " \u00b7 Weltweit"
+    );
+    const result = await scrapeAgainst(new RemotelyDeAdapter(), (url) =>
+      url.endsWith("/remote-jobs") ? html : ""
+    );
+
+    expect(result.jobs.map((job) => job.company)).toEqual(["Grafana Labs"]);
+    expect(result.errors).toEqual(["remotely.de page 1: 1 card(s) carried no company"]);
+  });
+
+  test("fetches www and /remote-jobs/seite/<n>, each exactly once (#35)", async () => {
+    const pages: Record<string, string> = {
+      "https://www.remotely.de/remote-jobs": fixture("remotelyde", "listing.html"),
+      "https://www.remotely.de/remote-jobs/seite/2": fixture(
+        "remotelyde",
+        "listing-row-cards.html"
+      ),
+    };
+    const result = await scrapeAgainst(new RemotelyDeAdapter(), (url) => pages[url] ?? "");
+
+    // The apex 301s to www and ?page=<n> 308s to /seite/<n>; asking for
+    // either shape is a wasted request the site has already told us about.
+    expect(result.requests).toEqual([
+      "https://www.remotely.de/remote-jobs",
+      "https://www.remotely.de/remote-jobs/seite/2",
+      "https://www.remotely.de/remote-jobs/seite/3",
+    ]);
+    expect(new Set(result.requests).size).toBe(result.requests.length);
+    expect(result.jobs).toHaveLength(3);
+  });
+
+  test("the JSON-LD tag is not bare, which a bare-tag regex misses (#34)", () => {
     const html = fixture("remotelyde", "listing.html");
-    // What the page serves.
+    // What the page serves. The adapter no longer reads JSON-LD at all (#35
+    // moved it to the cards), but the attribute intolerance this pins is what
+    // #34 fixes in the shared extractor, and other boards still hit it.
     expect(html).toContain('<script id="collection-page-jsonld" type="application/ld+json">');
-    // What the adapter looks for.
     expect(html).not.toContain('<script type="application/ld+json">');
   });
 
@@ -202,8 +314,10 @@ describe("remotelyde against its captured listing", () => {
     expect(data["@type"]).toBe("CollectionPage");
     const items = data.mainEntity.itemListElement;
     expect(items.length).toBeGreaterThan(0);
-    // ListItem -> { "@id", "name" }. No @type, so mapJobPosting skips it, and
-    // no hiringOrganization or description to map even if it did not.
+    // ListItem -> { "@id", "name" }. No @type, and no hiringOrganization or
+    // description, so no JobPosting mapper can get a company or a description
+    // out of this page however tolerant it is. That is why #35 reads the
+    // cards instead, and why a real description still needs #36.
     for (const entry of items) {
       expect(entry.item["@type"]).toBeUndefined();
       expect(entry.item.hiringOrganization).toBeUndefined();
@@ -277,32 +391,65 @@ describe("simplyhired against its captured card", () => {
   });
 });
 
-describe("jobgether against the response its category URLs give", () => {
-  test("every configured URL fails, and the adapter says so", async () => {
-    const result = await scrapeAgainst(
-      new JobgetherAdapter(),
-      new Error("HTTP 410 from https://jobgether.com/remote-jobs/all-locations/software-engineering")
-    );
-    expect(result.jobs).toEqual([]);
-    // One per URL in src/adapters/jobgether.ts:6-12.
-    expect(result.errors).toHaveLength(5);
-    expect(result.errors[0]).toContain("410");
-  });
-
+describe("jobgether against the JSON endpoint its robots.txt allows", () => {
   test("the 410 body names the replacement page", () => {
     expect(fixture("jobgether", "response-410.html")).toContain(
       'href="https://jobgether.com/search-offers"'
     );
   });
 
-  test("the endpoint its robots.txt allows carries company and url (#35)", () => {
-    const data = JSON.parse(fixture("jobgether", "astroapi-ai-jobs.json"));
-    expect(data.jobs.length).toBeGreaterThan(0);
-    for (const job of data.jobs) {
+  test("the alias #33 captured and /api/v1/jobs serve the same record (#35)", () => {
+    // The site's own docs retire /astroapi/ai/jobs on 2026-09-28 in favour of
+    // /api/v1/jobs. Same shape, so the capture #33 took still describes what
+    // the adapter now fetches.
+    const alias = JSON.parse(fixture("jobgether", "astroapi-ai-jobs.json"));
+    const current = JSON.parse(fixture("jobgether", "api-v1-jobs.json"));
+    expect(Object.keys(alias.jobs[0]).sort()).toEqual(Object.keys(current.jobs[0]).sort());
+  });
+
+  test("fetches /api/v1/jobs exactly once, with no query string (#35)", async () => {
+    const result = await scrapeAgainst(
+      new JobgetherAdapter(),
+      fixture("jobgether", "api-v1-jobs.json")
+    );
+
+    // robots.txt disallows /*?* on this path, and ?page=/?limit= is the only
+    // way the endpoint pages. One request, and it carries no query string.
+    expect(result.requests).toEqual(["https://jobgether.com/api/v1/jobs"]);
+    expect(result.requests[0]).not.toInclude("?");
+  });
+
+  test("every row carries a title, a real company and its salary (#35)", async () => {
+    const result = await scrapeAgainst(
+      new JobgetherAdapter(),
+      fixture("jobgether", "api-v1-jobs.json")
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.jobs).toHaveLength(3);
+    for (const job of result.jobs) {
       expect(job.title).toBeTruthy();
       expect(job.company).toBeTruthy();
+      expect(job.company).not.toBe("Unknown");
       expect(job.url).toStartWith("https://jobgether.com/offer/");
+      // postedAt is already ISO on this endpoint.
+      expect(job.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
+    expect(result.jobs[0].company).toBe("Grafana Labs");
+    expect(result.jobs[0].salary_min).toBe(186240);
+    expect(result.jobs[0].salary_currency).toBe("EUR");
+    expect(result.jobs[0].job_type).toBe("full_time");
+    // The wire carries "Samsara " with a trailing space.
+    expect(result.jobs[2].company).toBe("Samsara");
+  });
+
+  test("an offer with no company is dropped, and the field is named (#35)", async () => {
+    const data = JSON.parse(fixture("jobgether", "api-v1-jobs.json"));
+    delete data.jobs[0].company;
+    const result = await scrapeAgainst(new JobgetherAdapter(), JSON.stringify(data));
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.errors).toEqual(["Jobgether: 1 offer(s) carried no company"]);
   });
 });
 
