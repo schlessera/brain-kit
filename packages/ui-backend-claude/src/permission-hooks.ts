@@ -61,16 +61,38 @@ export function createPermissionWiring(options: {
     });
   };
 
-  // Withholding OUR shortcuts is not enough: the runtime has permission
-  // opinions of its own that also land before canUseTool — its safe-command
-  // classifier (measured on Claude Code 2.1.280: `echo hi` runs with an EMPTY
-  // allowedTools and the callback is never consulted), a built-in tool's own
-  // check, and any allow rule in the project settings this backend loads
-  // (`settingSources: ["project"]`). An explicit "ask" is the one answer that
-  // beats all of them — it forces the callback, and it leaves another hook's
-  // updatedInput intact, so the rewrites still reach the decision (both
-  // measured against 2.1.280 / SDK 0.3.278). Registered only under the
-  // declaration, so nothing moves for a turn that declares nothing.
+  // DO NOT WEAKEN THIS INTO A FALLTHROUGH. Withholding OUR shortcuts is not
+  // enough: AT LEAST three things outside this file admit a tool before
+  // canUseTool is reached, so "it is off the allowlist, the callback will
+  // catch it" is false. Three is what has been measured, not a closed set —
+  // an ordinal here would go stale the next time someone probes. Each was
+  // measured against Claude Code 2.1.280 / SDK 0.3.278 with a real query()
+  // and an EMPTY allowedTools; what is NOT a bypass is recorded too, because
+  // guessing at this once already put a wrong mechanism here.
+  //
+  // 1. The runtime's safe-command classifier, on the command's SHAPE. `echo
+  //    hi` ran and the callback was never consulted; `touch <path>`, same
+  //    harness, went through it. Picking the wrong probe command hides this.
+  // 2. A built-in tool permitted without the callback at all. `ToolSearch`
+  //    executed twice with nothing on the allowlist and no hook registered.
+  // 3. A PreToolUse hook in the PROJECT SETTINGS this backend loads
+  //    (`settingSources: ["project"]` in sdk-options.ts) returning
+  //    `permissionDecision: "allow"`. That file lives in the brain repo,
+  //    which is the turn's cwd, and Write/Edit are on the default allowlist —
+  //    so a wide-posture turn can write it and re-widen every later narrow
+  //    one. Enforcement therefore cannot be a property of configuration.
+  //    It is a GRANTING vector only: an in-process PreToolUse deny still wins
+  //    over it, measured, so a hook that refuses cannot be talked out of it.
+  //
+  // What does NOT skip the callback, in those same project settings:
+  // `permissions.allow` rules, and `permissions.defaultMode:
+  // "bypassPermissions"`. Both were tried; canUseTool was still consulted.
+  //
+  // An explicit "ask" beats all three — measured for each, and for the
+  // settings hook with a canUseTool deny then holding — and it leaves another
+  // hook's updatedInput intact, so the rewrites still reach the decision.
+  // Registered only under the declaration, so nothing moves for a turn that
+  // declares nothing.
   const enforcementHook: HookCallback = async (hookInput) => {
     if (
       hookInput.hook_event_name !== "PreToolUse" ||

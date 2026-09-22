@@ -159,6 +159,19 @@ re-admit tools past.
 
 A backend that honours it must:
 
+- **override its runtime's own auto-approval, not merely stop adding to it.**
+  Withholding the backend's own shortcuts is not enough if the runtime admits
+  the call first, and runtimes do. Three measured examples from the Claude SDK,
+  all with an empty `allowedTools`: its safe-command classifier runs `echo hi`
+  without ever consulting `canUseTool` (while `touch <path>` does go through
+  it — the difference is the command's shape, so one probe command proves
+  nothing about another); a built-in tool can run with no callback at all
+  (`ToolSearch`, twice); and a `PreToolUse` hook in the project settings it
+  loads can return `permissionDecision: "allow"` outright — from a file in the
+  brain repo, which the turn can write. The Claude backend answers `ask` from a
+  PreToolUse hook for every off-list tool, which overrides all three. Whatever
+  the equivalent is in your runtime, find it before claiming the field is
+  honoured — and probe with more than one tool and one command shape.
 - not let its own input-rewrite hooks grant a tool the allowlist leaves out.
   The Claude backend's hooks return a `PreToolUse` `permissionDecision:
   "allow"` because that historically looked necessary for `updatedInput` to
