@@ -66,6 +66,10 @@ the denominator rather than counted as approvals a real session could not raise.
 | mean / median per session | 0.92 / 0 | 0.05 / 0 | 5.83 / 5 |
 | p90 / p99 / max | 2 / 15 / 32 | 0 / 1 / 5 | 13 / 24 / 24 |
 
+The two cohorts are **subsets of the 208, not a partition of it** — they are the
+knowledge-base repo and this repo, picked because they bracket the workload — so
+their rows do not sum to the first column.
+
 **What kind of approval:** 192 of 192 were kind `command` — a Bash command
 matching a confirm pattern. **Zero** were kind `tool`. That is not an accident of
 the corpus, it is the policy: everything the model reaches for is on
@@ -100,7 +104,13 @@ p90 and longest of those payloads and synthesized with a local neural TTS voice
 
 - **A is dead.** A median approval request takes two minutes of speech and the
   worst takes twenty-six. No amount of prompt tuning moves that: it is the
-  payload, and the payload is what the user would have to verify.
+  payload, and the payload is what the user would have to verify. Note what this
+  does and does not establish. The measurement proves only that **the payload
+  cannot be spoken**; that a spoken grant must therefore be refused is a
+  judgment laid on top of it — that consent to a payload the listener has not
+  perceived is not consent. The measurement removes the option of reading it to
+  them; the judgment is what closes the remaining gap, and it is stated as a
+  judgment rather than smuggled in as a number.
 - **C is worse than dead.** Two seconds, and it conveys nothing a person can
   base a security decision on. "Permission to use Bash?" answered by voice is
   consent to an unseen payload — the failure this record exists to prevent,
@@ -281,11 +291,45 @@ grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
 (`packages/ui-server/src/ws/dispatch.ts:177-178`) and it is the one decision on
-the card with no keyboard shortcut, by D37's ruling 5 — a decision the design
-already judged too consequential for a single keystroke is not one to hand to a
-microphone. This costs nothing measurable: the server already refuses `always`
+the card with no keyboard shortcut, by D37's ruling 5, and the reason given
+there is exactly the one that applies here: *"a letter that grants standing
+permission by reflex is the one footgun in the vocabulary"*
+(`docs/decisions/design-feedback.md:1243-1250`). A microphone is a reflex
+surface with worse recognition than a keyboard. This costs nothing measurable: the server already refuses `always`
 for kind `command` requests (`dispatch.ts:177`, `ws/bridge.ts:90-98`), and 192
 of 192 measured approvals were kind `command`.
+
+### When the announcement actually fires
+
+Under the voice posture, with the three re-admission paths closed, **no approval
+card can arise at all**. Every tool in the posture is auto-allowed; every tool
+outside it is ungrantable and therefore denied; and a kind-`command` request
+only ever comes from `Bash`, which is not in the posture. That is the intended
+end state and it is worth saying out loud, because it means the interaction
+above is not the common case — it is the case that must not be got wrong.
+
+It fires in three situations, and they are the reason the design exists rather
+than an edge:
+
+1. **A spoken decision that has already been taken.** Under the posture the
+   announcement is of a denial, not of a pending request: the user asked for
+   something the turn cannot do, and has to hear that it did not happen and
+   why. The refusal phrase is not needed — the refusal already happened — but
+   every other property holds, including that the user is told in words rather
+   than left with silence.
+2. **Voice on a turn that is not under the posture.** Rule 2 is a property of
+   the *channel*, not of the posture: a user who starts speaking during an
+   ordinary chat session, or a deployment that does not adopt the posture, gets
+   a live pending card and a listener who cannot see it. That is where the
+   announcement and the refusal phrase do their work, and it is why the rule is
+   written as "within any turn".
+3. **Before the posture is enforceable.** Until #110 and #124 land, a tool
+   outside the posture parks a card rather than being denied. The announcement
+   is what the user hears in the meantime, and the refusal phrase is the only
+   way they can resolve it.
+
+A design that only worked in case 1 would be a design for a state the product
+is not in yet.
 
 ## How a spoken decision is audited
 
