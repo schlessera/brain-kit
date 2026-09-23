@@ -238,7 +238,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     config: config.subscription,
     log: observability.logger("agent"),
     db,
-    runtime: () => activity.runtime.snapshot(),
+    lastTurnFailure: () => activity.runtime.subscriptionAuthFailure(),
     modelSource: () => registry.getModelSource(),
   });
   // The classification pass (D42): always constructed so persisted blocks

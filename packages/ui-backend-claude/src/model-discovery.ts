@@ -95,6 +95,8 @@ export interface DiscoverResult {
   aliasChecks: AliasChecks;
   /** The credential the roster was fetched with; null when there was none. */
   credential: DiscoveryCredential | null;
+  /** The Models API accepted the credential and answered with a roster. */
+  authenticated: boolean;
 }
 
 /**
@@ -163,10 +165,13 @@ export async function discoverAnthropicModels(
   const fetchImpl = options.fetchImpl ?? fetch;
   const aliasChecks: AliasChecks = { ...(options.aliasChecks ?? {}) };
   const auth = authHeaders();
-  if (!auth) return { models: [], aliasChecks, credential: null };
+  if (!auth) return { models: [], aliasChecks, credential: null, authenticated: false };
   const { headers, credential } = auth;
 
   const rows: AnthropicModel[] = [];
+  // Only a 200 that carries a roster shows the credential works; a 429 or a
+  // malformed body answers nothing about it.
+  let authenticated = false;
   let url = `${MODELS_URL}?limit=100`;
   for (let page = 0; page < MAX_PAGES; page++) {
     const { status, body } = await getJson(url, headers, fetchImpl);
@@ -174,7 +179,8 @@ export async function discoverAnthropicModels(
     // roster: the same token authenticates every chat turn (#211).
     if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status, credential);
     const parsed = (body ?? {}) as ModelsListResponse;
-    if (!Array.isArray(parsed.data)) break;
+    if (status !== 200 || !Array.isArray(parsed.data)) break;
+    authenticated = true;
     rows.push(...parsed.data);
     if (!parsed.has_more || !parsed.last_id) break;
     url = `${MODELS_URL}?limit=100&after_id=${encodeURIComponent(parsed.last_id)}`;
@@ -215,7 +221,7 @@ export async function discoverAnthropicModels(
     });
   }
 
-  return { models, aliasChecks, credential };
+  return { models, aliasChecks, credential, authenticated };
 }
 
 /**
@@ -351,7 +357,7 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
       aliasChecks = result.aliasChecks;
       refreshedAt = now();
       lastError = undefined;
-      if (result.credential === "oauth") subscriptionProvenAt = refreshedAt;
+      if (result.authenticated && result.credential === "oauth") subscriptionProvenAt = refreshedAt;
       writeCache(cachePath, {
         version: CACHE_VERSION,
         fetchedAt: refreshedAt,

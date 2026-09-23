@@ -105,6 +105,9 @@ export function createTurnRecorder(
   let principalRevocationRecorded = false;
   /** An auth failure was reported: whatever the result frame claims, the run failed. */
   let authFailed = false;
+  // What the run's profile requires, once the runtime has reported it: an auth
+  // failure on a profile with its own credential is not the subscription's (#254).
+  let observedPolicy: BillingMode | undefined;
 
   const guard = (fn: () => void) => {
     try {
@@ -308,6 +311,7 @@ export function createTurnRecorder(
               });
             }
             runtime?.observe(event, runId);
+            observedPolicy = event.policy;
             onWrite?.();
             break;
           }
@@ -319,7 +323,7 @@ export function createTurnRecorder(
               errorClass: event.errorClass,
               ...(event.message ? { message: event.message } : {}),
             });
-            runtime?.authFailure(event, runId);
+            runtime?.authFailure(event, runId, observedPolicy);
             onWrite?.();
             break;
           }

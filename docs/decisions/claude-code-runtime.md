@@ -422,7 +422,7 @@ into them.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`name: "ANTHROPIC_API_KEY"`, `packages/ui-backend-claude/src/config/env.ts:84-88`,
   `function authHeaders`, `packages/ui-backend-claude/src/model-discovery.ts:86-104`). A 401 there
-  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:143-144`).
+  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:145-146`).
 
 ### The precedence, measured
 

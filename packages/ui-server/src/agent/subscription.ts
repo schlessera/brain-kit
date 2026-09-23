@@ -18,7 +18,7 @@ import {
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 
-import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
+import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { SubscriptionConfig } from "../config/env.js";
 
 export const MINTED_AT_ENV = "BRAIN_UI_CLAUDE_TOKEN_MINTED_AT";
@@ -31,23 +31,39 @@ export const EXPIRY_WARNING_MS = 30 * DAY_MS;
 /** At most one expiry warning per this interval while the server runs. */
 const WARNING_INTERVAL_MS = DAY_MS;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+/** A calendar date, or a date and time with an explicit zone. */
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
 
 /**
  * The mint date as the operator wrote it, or null when unset. Anything that
- * is not an ISO 8601 date refuses boot: a date silently ignored would switch
- * the expiry warning off.
+ * is not a real ISO 8601 date refuses boot — a day that does not exist, a
+ * time with no zone, a date in the future — because a date silently ignored
+ * or misread would move the expiry warning or switch it off.
  */
-export function parseMintedAt(raw: string | null): Date | null {
+export function parseMintedAt(raw: string | null, now: Date = new Date()): Date | null {
   if (raw === null) return null;
   const value = raw.trim();
-  const date = new Date(value);
-  if (!ISO_DATE.test(value) || Number.isNaN(date.getTime())) {
+  const refuse = (why: string): never => {
     throw new Error(
-      `${MINTED_AT_ENV} must be an ISO 8601 date (for example 2026-09-23), got ${JSON.stringify(raw)}. ` +
-        "It is the date the Claude subscription token was minted; the expiry warning counts from it."
+      `${MINTED_AT_ENV} must be the ISO 8601 date the Claude subscription token was minted ` +
+        `(for example 2026-09-23); got ${JSON.stringify(raw)}: ${why}. The expiry warning counts from it.`
     );
+  };
+  const match = ISO_DATE.exec(value);
+  if (!match) return refuse("not a date, or a time without a zone");
+  const [, year, month, day] = match;
+  const calendar = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    calendar.getUTCFullYear() !== Number(year) ||
+    calendar.getUTCMonth() !== Number(month) - 1 ||
+    calendar.getUTCDate() !== Number(day)
+  ) {
+    return refuse("that day does not exist");
   }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return refuse("not a valid time");
+  // A day of slack for time zones; anything later is a typo.
+  if (date.getTime() > now.getTime() + DAY_MS) return refuse("it is in the future");
   return date;
 }
 
@@ -78,10 +94,13 @@ export interface SubscriptionMonitorOptions {
   log: Logger;
   /** The app's database, where turns are recorded. */
   db: Database;
-  runtime: () => RuntimeStatusSnapshot;
+  /** The last auth failure of a turn that ran on the subscription. */
+  lastTurnFailure: () => ReturnType<RuntimeStatus["subscriptionAuthFailure"]>;
   /** The Claude backend's model discovery, when it runs. */
   modelSource: () => Promise<{ state(): BackendModelSourceState } | null>;
   now?: () => Date;
+  /** Runs `check` every `ms`; returns the cancel. Defaults to an unref'd interval. */
+  every?: (check: () => void, ms: number) => () => void;
 }
 
 export interface SubscriptionMonitor {
@@ -113,7 +132,7 @@ export function lastSubscriptionTurnAt(db: Database): number | null {
 export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): SubscriptionMonitor {
   const { config, log } = options;
   const now = options.now ?? (() => new Date());
-  const mintedAt = parseMintedAt(config.mintedAt);
+  const mintedAt = parseMintedAt(config.mintedAt, now());
   const expiresAt = mintedAt ? new Date(mintedAt.getTime() + TOKEN_LIFETIME_MS) : null;
   let lastWarnedAt: number | null = null;
 
@@ -147,9 +166,15 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
   }
   checkExpiry();
 
-  const timer = setInterval(checkExpiry, 60 * 60 * 1000);
-  // A closed test app must not be kept alive by it.
-  if (typeof timer === "object" && "unref" in timer) timer.unref();
+  const every =
+    options.every ??
+    ((check: () => void, ms: number) => {
+      const timer = setInterval(check, ms);
+      // A closed test app must not be kept alive by it.
+      if (typeof timer === "object" && "unref" in timer) timer.unref();
+      return () => clearInterval(timer);
+    });
+  const cancel = every(checkExpiry, 60 * 60 * 1000);
 
   return {
     tick: checkExpiry,
@@ -167,10 +192,13 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
             ? { at: turnAt!, by: "turn" as const }
             : { at: discoveredAt!, by: "model_discovery" as const };
 
-      const turnFailure = options.runtime().lastAuthFailure;
+      const turnFailure = options.lastTurnFailure();
       const refused = discovery?.subscriptionRefused;
       const failures: NonNullable<SubscriptionStatus["lastAuthFailure"]>[] = [];
-      if (turnFailure) failures.push({ ...turnFailure, source: "turn" });
+      if (turnFailure) {
+        const { policy: _policy, ...failure } = turnFailure;
+        failures.push({ ...failure, source: "turn" });
+      }
       if (refused) {
         failures.push({
           errorClass: "authentication_failed",
@@ -192,7 +220,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
       };
     },
     close() {
-      clearInterval(timer);
+      cancel();
     },
   };
 }

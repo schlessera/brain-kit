@@ -19,7 +19,12 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createSubscriptionMonitor, MINTED_AT_ENV, type SubscriptionStatus } from "../src/agent/subscription";
+import {
+  createSubscriptionMonitor,
+  MINTED_AT_ENV,
+  parseMintedAt,
+  type SubscriptionStatus,
+} from "../src/agent/subscription";
 import { createApp, type BrainUiApp } from "../src/app";
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
@@ -66,17 +71,26 @@ function monitorWith(config: { tokenSet: boolean; mintedAt: string | null }) {
   const observability = createRecordingObservability();
   let clock = NOW.getTime();
   const db = createUiDb(":memory:");
+  const scheduled: Array<{ check: () => void; ms: number; cancelled: boolean }> = [];
   const monitor = createSubscriptionMonitor({
     config,
     log: observability.logger("agent"),
     db,
-    runtime: () => ({ boot: [] }),
+    lastTurnFailure: () => undefined,
     modelSource: async () => null,
     now: () => new Date(clock),
+    every: (check, ms) => {
+      const entry = { check, ms, cancelled: false };
+      scheduled.push(entry);
+      return () => {
+        entry.cancelled = true;
+      };
+    },
   });
   return {
     monitor,
     observability,
+    scheduled,
     advance: (ms: number) => {
       clock += ms;
     },
@@ -101,13 +115,25 @@ describe("the expiry warning", () => {
     m.close();
   });
 
-  test("starts exactly 30 days before expiry: nothing at 31, a warning at 30", () => {
-    const early = monitorWith({ tokenSet: true, mintedAt: daysBefore(365 - 31) });
+  test("starts exactly 30 days before expiry, to the millisecond", () => {
+    const at = (msBeforeWindow: number) =>
+      new Date(NOW.getTime() - (365 - 30) * DAY + msBeforeWindow).toISOString();
+    const early = monitorWith({ tokenSet: true, mintedAt: at(1) });
     expect(early.observability.logs.find({ severity: "WARN" })).toEqual([]);
     early.close();
-    const due = monitorWith({ tokenSet: true, mintedAt: daysBefore(365 - 30) });
+    const due = monitorWith({ tokenSet: true, mintedAt: at(0) });
     expect(warnings(due.observability, "in 30 days")).toHaveLength(1);
     due.close();
+  });
+
+  test("the running check is the scheduled one, hourly, and closing cancels it", () => {
+    const m = monitorWith({ tokenSet: true, mintedAt: daysBefore(340) });
+    expect(m.scheduled.map((entry) => entry.ms)).toEqual([60 * 60 * 1000]);
+    m.advance(DAY);
+    m.scheduled[0]!.check();
+    expect(warnings(m.observability, "expires on")).toHaveLength(2);
+    m.close();
+    expect(m.scheduled[0]!.cancelled).toBe(true);
   });
 
   test("warns once at boot for a token already past its expiry", () => {
@@ -303,6 +329,78 @@ describe("/api/status's subscription", () => {
     });
   }
 
+  test("a date that does not exist, a zoneless time, or a future date is refused, not misread", () => {
+    for (const value of ["2026-02-30", "2025-02-29", "2026-09-23T10:00", "2999-01-01"]) {
+      expect(() => parseMintedAt(value, NOW)).toThrow(MINTED_AT_ENV);
+    }
+    expect(parseMintedAt("2024-02-29", NOW)?.toISOString()).toBe("2024-02-29T00:00:00.000Z");
+    expect(parseMintedAt(" 2026-09-23 ", NOW)?.toISOString()).toBe("2026-09-23T00:00:00.000Z");
+    expect(parseMintedAt("2026-09-23T10:00+02:00", NOW)?.toISOString()).toBe("2026-09-23T08:00:00.000Z");
+  });
+
+  test("a failure on a profile with its own credential is not the subscription's", async () => {
+    const at = host();
+    const { app, observability } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+      bridge.activity?.({ kind: "runtime_observed", billing: "api", policy: "api" });
+      failingRun("authentication_failed")(bridge);
+    });
+    try {
+      await turn(app);
+      const body = (await (await app.fetch(new Request("http://localhost/api/status"))).json()) as {
+        subscription: SubscriptionStatus;
+        runtime: { lastAuthFailure?: { action?: string; policy?: string } };
+      };
+      expect(body.subscription.lastAuthFailure).toBeNull();
+      expect(body.runtime.lastAuthFailure).toMatchObject({ errorClass: "authentication_failed", policy: "api" });
+      expect(body.runtime.lastAuthFailure?.action).toBeUndefined();
+      expect(warnings(observability, SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin)).toEqual([]);
+      expect(warnings(observability, "Check that profile's credential")).toHaveLength(1);
+    } finally {
+      app.close();
+    }
+  });
+
+  test("a runtime message that quotes the token does not carry it onto the status", async () => {
+    const at = host();
+    const { app, observability } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+      bridge.activity?.({
+        kind: "auth_failure",
+        errorClass: "authentication_failed",
+        message: `401 for Bearer ${FAKE_TOKEN} (token ${FAKE_TOKEN})`,
+      } as BackendActivityEvent);
+      bridge.emit({ type: "result", sessionId: "sess-1", outcome: "error", costUsd: 0, durationMs: 1, numTurns: 1, isError: true });
+    });
+    try {
+      await turn(app);
+      const { raw, subscription } = await status(app);
+      expect(subscription.lastAuthFailure?.message).toContain("[redacted]");
+      expect(raw).not.toContain(FAKE_TOKEN);
+      expect(raw).not.toContain(FAKE_TOKEN.slice(0, 30));
+      for (const entry of observability.logs.find({})) expect(JSON.stringify(entry)).not.toContain(FAKE_TOKEN);
+    } finally {
+      app.close();
+    }
+  });
+
+  test("the last proof is the last successful root turn: a later failed one does not move it", async () => {
+    const at = host();
+    let fail = false;
+    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+      bridge.activity?.({ kind: "runtime_observed", billing: "subscription", policy: "subscription" });
+      bridge.emit({ type: "result", sessionId: "sess-1", outcome: fail ? "error" : "success", costUsd: 0, durationMs: 1, numTurns: 1, isError: fail });
+    });
+    try {
+      await turn(app);
+      const proven = (await status(app)).subscription.lastProvenAt;
+      await Bun.sleep(5);
+      fail = true;
+      await turn(app);
+      expect((await status(app)).subscription.lastProvenAt).toBe(proven);
+    } finally {
+      app.close();
+    }
+  });
+
   test("an unparseable mint date refuses boot, naming the variable", () => {
     const at = host();
     expect(() => boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: "last spring" })).toThrow(
@@ -328,7 +426,7 @@ describe("model discovery on the subscription token", () => {
       config: { tokenSet: true, mintedAt: daysBefore(10) },
       log: observability.logger("agent"),
       db,
-      runtime: () => ({ boot: [] }),
+      lastTurnFailure: () => undefined,
       modelSource: async () => source,
     });
     return {
@@ -357,6 +455,20 @@ describe("model discovery on the subscription token", () => {
     expect(s.lastProvenAt).not.toBeNull();
     d.close();
   });
+
+  for (const [name, respond] of [
+    ["a 429", () => new Response("{}", { status: 429 })],
+    ["a 404", () => new Response("{}", { status: 404 })],
+    ["a 200 with no roster", () => Response.json({ unexpected: true })],
+  ] as const) {
+    test(`${name} proves nothing`, async () => {
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = FAKE_TOKEN;
+      const d = discovery(respond);
+      await d.source.refresh().catch(() => {});
+      expect((await d.monitor.status()).lastProvenAt).toBeNull();
+      d.close();
+    });
+  }
 
   test("a 401 says relogin, on the status and in one WARN", async () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = FAKE_TOKEN;
