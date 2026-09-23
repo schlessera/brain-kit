@@ -271,10 +271,12 @@ describe("a row whose fingerprint changes moves dedup group", () => {
   });
 
   test("a duplicate orphaned by a deleted canonical stays hidden when its group is regrouped", () => {
-    // `deleteJob` and `jobs gc --purge` clear `duplicate_of` on the rows that
-    // pointed at a deleted job but keep them marked: they were duplicates of
-    // something the user dismissed. A row that later joins their fingerprint
-    // must not bring them back into the review queue.
+    // `deleteJob` (the triage "delete" key) and `jobs gc --purge` clear
+    // `duplicate_of` on the rows that pointed at a deleted job but keep them
+    // marked: they were duplicates of a posting the user deleted, or one gc
+    // purged, which it does to a canonical only once it is dismissed. A row
+    // that later joins their fingerprint must not bring them back into the
+    // review queue.
     withDb((db) => {
       ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b"), acme("dice", "d", "Unknown")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
