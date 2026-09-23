@@ -180,7 +180,14 @@ never replace them.
 | `files`    | `string[]` | `CLAUDE.md`, `README.md`, `AGENTS.md`                                                              |
 | `segments` | `string[]` | *(none in core; modules may add — e.g. speaking excludes `alt-decks`, `versions`, `deck`)*        |
 
-- `dirs` — a top-level directory (or any path under it) is excluded.
+- `dirs` — a directory, as a path relative to the brain root, is excluded along
+  with everything under it. An entry is matched against each file's relative
+  path as a whole leading path: `drafts` excludes `drafts/a.md` and
+  `drafts/deep/b.md`, but not `drafts-old/a.md`. A leading `./` and a trailing
+  `/` are stripped when the config loads, so `drafts`, `drafts/` and `./drafts`
+  all mean the same directory. Before 0.37.0 only the first spelling worked; the
+  other two excluded nothing. An entry that is empty once stripped (`./`, `/`) is
+  ignored.
 - `files` — an exact relative path.
 - `segments` — any path containing this directory segment at any depth.
 

@@ -127,11 +127,16 @@ function tableCounts(db: Database): Record<string, number> {
  *
  * Excluded directories are pruned BEFORE descending rather than filtered
  * afterwards. Testing `dir + "/"` gives `isExcludedPath` the same answer it
- * would give for every file inside — both its `dirs` and its `segments` rules
- * match on that trailing slash — so pruning cannot change the total. It does
- * two things a post-filter cannot: `node_modules` is never walked, and a
- * `workspaces/` the user cannot read cannot raise EACCES from inside a
- * directory nobody asked about.
+ * would give for every file inside, because its `dirs` and `segments` rules
+ * both match on that trailing slash — and that holds only because
+ * `buildTaxonomy` normalises every `exclude.dirs` entry to `drafts`, never
+ * `drafts/` or `./drafts`. Before it did, `dirs: ["drafts/"]` pruned here
+ * (`"drafts/" === dir`) while every file inside passed the per-file test, and
+ * this figure left out files the index held (#139). A `files` entry is an
+ * exact file path and is not normalised; one written with a trailing slash
+ * would split the two the same way. Pruning does two things a post-filter
+ * cannot: `node_modules` is never walked, and a `workspaces/` the user cannot
+ * read cannot raise EACCES from inside a directory nobody asked about.
  *
  * Null, not a smaller number, when a directory that *was* wanted could not be
  * read: a corpus size short by an unknown amount is worse than no figure.
