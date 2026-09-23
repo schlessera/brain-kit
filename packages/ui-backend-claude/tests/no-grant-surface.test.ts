@@ -12,8 +12,8 @@
  * The `ask` stays. It is the one answer that beats the three permission
  * opinions the runtime holds before `canUseTool` (a safe-command classifier, a
  * built-in tool's own check, a project-settings PreToolUse hook returning
- * allow), all measured against Claude Code 2.1.280 /
- * @anthropic-ai/claude-agent-sdk 0.3.278. What changes is the decision the
+ * allow), all measured against the runtime `MEASURED_RUNTIME` names
+ * (scripts/measure-claude-runtime.ts). What changes is the decision the
  * `ask` forces, not the `ask`.
  *
  * Both request kinds are asserted separately, because they travel different

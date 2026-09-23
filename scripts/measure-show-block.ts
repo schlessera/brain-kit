@@ -33,6 +33,14 @@
  *   bun scripts/measure-show-block.ts --reps 3 --out runs.json --md report.md
  *   bun scripts/measure-show-block.ts --always-load   # tools in the prompt
  *   bun scripts/measure-show-block.ts --tokens        # the schema arithmetic
+ *   bun scripts/measure-show-block.ts --both-arms     # loaded AND deferred, one run
+ *
+ * `--both-arms` re-checks D44's CLI half on whatever runtime is installed
+ * (#209): every prompt runs with the bridge server loaded and deferred, the
+ * report compares their first-frame latency and `ToolSearch` use, and every
+ * turn records the Claude Code version its `init` reported. Before any turn it
+ * asserts the D44 claim about the startup wait set: the config
+ * `createSdkMcpServer` returns carries no server-level `alwaysLoad`.
  *
  * `--always-load` and `--tokens` were added for #148, which asked whether the
  * bridge server should be created with `alwaysLoad: true`. It should, and D44
@@ -57,11 +65,11 @@
  * That pair of numbers is what the keep-or-retire decision rests on.
  */
 
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
-import { createSdkMcpServer, query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import {
   BRIDGE_TOOL_CONTRACTS,
   BRIDGE_TOOL_POSTURE,
@@ -109,6 +117,11 @@ function stageBrain(): string {
   );
   return dir;
 }
+
+// The SDK the BACKEND loads, imported from the entry whose version the report
+// names, so a hoisted second copy cannot be measured under the other's name.
+const SDK_ENTRY = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
+const { createSdkMcpServer, query } = (await import(SDK_ENTRY)) as typeof import("@anthropic-ai/claude-agent-sdk");
 
 const BRAIN_PATH = stageBrain();
 
@@ -280,6 +293,10 @@ interface TurnResult {
   ttftMs?: number;
   /** The answer as the reader would have seen it, for the transcript. */
   answer: string;
+  /** Whether the bridge server was created with `alwaysLoad`. */
+  alwaysLoad: boolean;
+  /** The Claude Code version the turn's `init` reported. */
+  claudeCode?: string;
   error?: string;
 }
 
@@ -303,7 +320,7 @@ interface TurnResult {
  */
 const ALWAYS_LOAD = process.argv.includes("--always-load");
 
-function optionsFor(arm: ArmName, abortController: AbortController): Options {
+function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: boolean): Options {
   return {
     cwd: BRAIN_PATH,
     // Production aborts a turn at this budget rather than letting it run on
@@ -366,16 +383,37 @@ function optionsFor(arm: ArmName, abortController: AbortController): Options {
         name: "brain-ui",
         version: "0.1.0",
         tools: [createShowBlockTool()],
-        ...(ALWAYS_LOAD ? { alwaysLoad: true } : {}),
+        ...(alwaysLoad ? { alwaysLoad: true } : {}),
       }),
     },
   };
 }
 
+/**
+ * D44's claim about the startup wait set: the CLI waits at startup only for
+ * servers whose CONFIG sets `alwaysLoad`, and `createSdkMcpServer` stamps the
+ * flag on each tool instead of the config. If a later SDK puts it on the
+ * config, the in-process server joins the wait set and the latency argument
+ * D44 rests on no longer holds.
+ */
+function assertNoServerLevelAlwaysLoad(): void {
+  // The populated server the arms actually pass, not an empty one.
+  const config = createSdkMcpServer({
+    name: "brain-ui",
+    version: "0.1.0",
+    tools: [createShowBlockTool()],
+    alwaysLoad: true,
+  });
+  if ("alwaysLoad" in config) {
+    throw new Error("createSdkMcpServer now puts alwaysLoad on the server config: D44's startup-latency reading no longer holds");
+  }
+}
+
 async function runTurn(
   prompt: (typeof PROMPTS)[number],
   arm: ArmName,
-  rep: number
+  rep: number,
+  alwaysLoad: boolean = ALWAYS_LOAD
 ): Promise<TurnResult> {
   const started = Date.now();
   const abortController = new AbortController();
@@ -398,11 +436,13 @@ async function runTurn(
   let modelTurns = 0;
   let firstFrameMs = 0;
   let ttftMs: number | undefined;
+  let claudeCode: string | undefined;
   try {
     for await (const message of query({
       prompt: prompt.text,
-      options: optionsFor(arm, abortController),
+      options: optionsFor(arm, abortController, alwaysLoad),
     })) {
+      if (message.type === "system" && message.subtype === "init") claudeCode = message.claude_code_version;
       // The first frame the model produced, whatever its kind: what "the
       // answer started" means to a reader watching the surface.
       if (firstFrameMs === 0 && message.type === "assistant") {
@@ -469,6 +509,8 @@ async function runTurn(
     firstFrameMs,
     ...(ttftMs === undefined ? {} : { ttftMs }),
     answer: textParts.join("\n\n"),
+    alwaysLoad,
+    ...(claudeCode ? { claudeCode } : {}),
     ...(error ? { error } : {}),
   };
 }
@@ -758,6 +800,30 @@ function costRows(runs: readonly TurnResult[]): string[] {
   return rows;
 }
 
+/** Loaded against deferred, when a `--both-arms` run produced both. */
+function loadModeRows(runs: readonly TurnResult[]): string[] {
+  if (new Set(runs.map((run) => run.alwaysLoad)).size < 2) return [];
+  return [
+    "",
+    "## Loaded against deferred (D44)",
+    "",
+    "| bridge server | turns | ran `ToolSearch` | called `show_block` | first frame |",
+    "| --- | --- | --- | --- | --- |",
+    ...[true, false].map((alwaysLoad) => {
+      const mine = completed(runs).filter((run) => run.alwaysLoad === alwaysLoad);
+      const searched = mine.filter((run) => run.otherTools.includes("ToolSearch"));
+      const called = mine.filter((run) => run.calls > 0);
+      return `| ${alwaysLoad ? "loaded" : "deferred"} | ${mine.length} | ${searched.length} | ${called.length} | ${mean(mine, (run) => run.firstFrameMs)} ms |`;
+    }),
+    "",
+  ];
+}
+
+/** The SDK copy the backend loads, and so the one this harness measured. */
+function installedSdkVersion(): string {
+  return (JSON.parse(readFileSync(join(dirname(SDK_ENTRY), "package.json"), "utf8")) as { version: string }).version;
+}
+
 function report(
   runs: readonly TurnResult[],
   cost: { lines: number; chars: number; tokens: number },
@@ -767,7 +833,7 @@ function report(
   return [
     "# `show_block` rate with the classification pass on",
     "",
-    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
+    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
     errors.length
       ? `**${errors.length} turn(s) did not complete** and are excluded from every rate below; they are listed at the end. A rate is only over turns that produced an answer.`
       : `Every turn completed, so no rate below is drawn over a partial sample.`,
@@ -778,7 +844,11 @@ function report(
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
-    `MCP tools ${ALWAYS_LOAD ? "were in the prompt (\`--always-load\`), which is what ships since D44" : "sat behind tool search (\`--always-load\` not passed), which is what shipped BEFORE D44"}.`,
+    `Runtime: \`@anthropic-ai/claude-agent-sdk\` ${installedSdkVersion()}, Claude Code ${[...new Set(runs.map((run) => run.claudeCode ?? "unknown"))].join(", ")} as each turn's \`init\` reported it.`,
+    new Set(runs.map((run) => run.alwaysLoad)).size > 1
+      ? "MCP tools ran BOTH ways (`--both-arms`); the load-mode table below compares them."
+      : `MCP tools ${runs[0]?.alwaysLoad ? "were in the prompt (\`--always-load\`), which is what ships since D44" : "sat behind tool search (\`--always-load\` not passed), which is what shipped BEFORE D44"}.`,
+    ...loadModeRows(runs),
     "",
     "## `ToolSearch` against calls",
     "",
@@ -868,10 +938,15 @@ async function main(): Promise<void> {
   const md = arg("md", "");
   const prompts = only ? PROMPTS.filter((p) => only.split(",").includes(p.id)) : PROMPTS;
 
+  const bothArms = process.argv.includes("--both-arms");
+  if (bothArms) assertNoServerLevelAlwaysLoad();
+  const loadModes = bothArms ? [true, false] : [ALWAYS_LOAD];
   const tasks: (() => Promise<TurnResult>)[] = [];
   for (let rep = 1; rep <= reps; rep += 1) {
     for (const arm of ARMS) {
-      for (const prompt of prompts) tasks.push(() => runTurn(prompt, arm, rep));
+      for (const prompt of prompts) {
+        for (const alwaysLoad of loadModes) tasks.push(() => runTurn(prompt, arm, rep, alwaysLoad));
+      }
     }
   }
 

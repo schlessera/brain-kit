@@ -330,8 +330,8 @@ so it holds itself to these rules:
   about another.
 - **Composition, not only parts.** The enforcement hook's `ask` must leave
   another hook's `updatedInput` intact (`An explicit "ask" beats all three`,
-  `permission-hooks.ts:98-100`; `(e) a hook's`,
-  `allowlist-enforcement.test.ts:16-19`). That is its own case: a rewrite, an
+  `permission-hooks.ts:99-101`; `(e) a hook's`,
+  `allowlist-enforcement.test.ts:17-20`). That is its own case: a rewrite, an
   `ask` and a `canUseTool` decision in one call, asserting the input the
   callback saw and the input that executed.
 
@@ -621,3 +621,36 @@ rows, #211 records the billing source, #213 proves the bundled binary sends
 the OAuth token and not an API key, and brain-hosting-template#1 fixes the
 environment contract and checks a built image's first turn reports
 subscription.
+
+## 2026-09-23 — The re-check runs without credentials (#209)
+
+**Correction to "Re-checking a measured behaviour when the version moves".**
+That section planned a probe "run by hand with credentials" and ruled it out of
+CI under the keyless rule. The probe as built needs neither. Every behaviour
+it measures is the CLI's own permission precedence — which hook, rule or
+callback admits a tool call the model asked for — and none of it depends on
+what a real model would choose to ask. So `scripts/measure-claude-runtime.ts`
+runs the real CLI the lockfile installs against a scripted Messages API on
+loopback, which plays one planned tool call per turn, with bogus
+credentials. Nothing leaves the machine.
+
+What that changes and what it does not:
+
+- **The sites table stands, with one row resolved.** Each live site cites
+  `MEASURED_RUNTIME` (`@schlessera/brain-backend-claude`). Every row has a case
+  in the probe, including the composition case and the credential-precedence
+  rows from the section above. D44's CLI half is now a keyless case
+  (`d44-always-load-reaches-the-model`). Its latency and rate halves still
+  need a live model, through `scripts/measure-show-block.ts --both-arms`,
+  which now records the runtime per turn. The table's description of that
+  harness is the state before #209.
+- **The measured pair moved.** The probe passed on Claude Code 2.1.278 /
+  `@anthropic-ai/claude-agent-sdk` 0.3.278, the pair the lockfile ships. The
+  earlier measurements named 2.1.280 / 0.3.278, a pair the SDK never ships
+  together.
+- **What a scripted model cannot show.** Model choice, latency and call rates.
+  It also cannot show any behaviour the CLI gates on a first-party base URL.
+  Tool search is one — the probe turns it on explicitly for its cases — and the
+  auto-mode classifier's headers are another. None of the measured cases uses
+  auto mode.
+- **CI is now possible, not done.** Running the probe in CI is #284.

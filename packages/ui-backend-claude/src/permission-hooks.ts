@@ -72,10 +72,11 @@ export function createPermissionWiring(options: {
   // enough: AT LEAST three things outside this file admit a tool before
   // canUseTool is reached, so "it is off the allowlist, the callback will
   // catch it" is false. Three is what has been measured, not a closed set —
-  // an ordinal here would go stale the next time someone probes. Each was
-  // measured against Claude Code 2.1.280 / SDK 0.3.278 with a real query()
-  // and an EMPTY allowedTools; what is NOT a bypass is recorded too, because
-  // guessing at this once already put a wrong mechanism here.
+  // an ordinal here would go stale the next time someone probes. Each is
+  // measured against the runtime MEASURED_RUNTIME names (measured-runtime.ts),
+  // with an EMPTY allowedTools, by scripts/measure-claude-runtime.ts; what is
+  // NOT a bypass is recorded too, because guessing at this once already put a
+  // wrong mechanism here.
   //
   // 1. The runtime's safe-command classifier, on the command's SHAPE. `echo
   //    hi` ran and the callback was never consulted; `touch <path>`, same
@@ -322,9 +323,9 @@ export function createPermissionWiring(options: {
     }
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A
-      // PreToolUse hook's rewrite takes effect without one — measured against
-      // Claude Code 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278, for
-      // #124 and again for #145 — so the edit gains no `allow`, and a tool the
+      // PreToolUse hook's rewrite takes effect without one — measured for #124
+      // and #145, and re-measured against MEASURED_RUNTIME by
+      // scripts/measure-claude-runtime.ts — so the edit gains no `allow`, and a tool the
       // turn's allowlist left out still goes on to canUseTool, which is then
       // consulted with the edited input. Do not add a decision here: an
       // `allow` skips canUseTool and would re-admit such a tool.

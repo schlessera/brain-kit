@@ -76,7 +76,7 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`).
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`).
   The range starts on the line that contains the anchor. **A PR that moves
   lines under a citation owns that citation**, in source comments and in other
   records as well as the one it is editing. Find them with

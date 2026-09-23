@@ -133,7 +133,8 @@ interface ToolCallOutcome {
 
 /**
  * One tool call through the runtime's precedence as measured for #124, #145
- * and #154. Every matching PreToolUse hook runs in parallel on the ORIGINAL
+ * and #154, and re-measured against the runtime `MEASURED_RUNTIME` names by
+ * scripts/measure-claude-runtime.ts. Every matching PreToolUse hook runs in parallel on the ORIGINAL
  * input, and their decisions combine: any `deny` blocks; otherwise any `ask`
  * forces the callback; otherwise an `allow` executes without it. After the
  * hooks come `disallowedTools`, `allowedTools` and the runtime's own

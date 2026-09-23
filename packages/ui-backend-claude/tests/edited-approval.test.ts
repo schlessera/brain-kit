@@ -9,8 +9,8 @@
  * confirmation the card did not show refuses the call.
  *
  * On the PreToolUse path an edit that passes is applied by returning
- * `updatedInput` with NO `permissionDecision`. Measured against Claude Code
- * 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278 with a real `query()`: the
+ * `updatedInput` with NO `permissionDecision`. Measured against the runtime
+ * `MEASURED_RUNTIME` names (scripts/measure-claude-runtime.ts): the
  * rewrite applies without a decision, so no path gains an `allow`. The same
  * probe found that matching PreToolUse hooks run in PARALLEL, each sees the
  * ORIGINAL input, and the `updatedInput` of whichever finishes LAST is the

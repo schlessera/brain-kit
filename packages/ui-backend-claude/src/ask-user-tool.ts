@@ -119,6 +119,9 @@ export function createBrainUiMcpServer(handlers: {
     // `config.alwaysLoad` — `createSdkMcpServer` instead stamps the flag on
     // each tool's `_meta` and returns a plain `{ type: "sdk", ... }`, so this
     // server never enters that wait set. Measured first-frame latency agrees.
+    // The rates and latency are D44's live measurement, not repeated since;
+    // the deferral and the wait-set claim are re-measured against the runtime
+    // MEASURED_RUNTIME names by scripts/measure-claude-runtime.ts.
     alwaysLoad: true,
   });
 }

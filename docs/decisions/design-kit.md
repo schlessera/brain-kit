@@ -3005,6 +3005,15 @@ the harness's default arms now measure the shipped configuration only when
 `--always-load` is passed, because what ships changed — the flag's name is left
 alone so D43's invocations keep reproducing D43's tables.
 
+**Re-checking it on a later runtime (#209).** The measurement above names only
+the SDK. Its CLI half — the stamp reaches the model undeferred, and the server
+config carries no `alwaysLoad` so the in-process server never joins the
+startup wait set — is now the `d44-always-load-reaches-the-model` case of
+`scripts/measure-claude-runtime.ts`, keyless, against the runtime
+`MEASURED_RUNTIME` names. The latency and rate halves still need a live
+model: `bun scripts/measure-show-block.ts --both-arms` runs both load modes in
+one invocation and records the Claude Code version of every turn.
+
 ## 2026-09-22 — D45: the pass routes to `contact`; `trend` stays the tool's, because its payload is numbers
 
 **Question.** D42's decision 6 names six catalogue routes. Two of them were

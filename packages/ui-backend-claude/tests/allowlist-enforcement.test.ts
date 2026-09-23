@@ -8,8 +8,9 @@
  * the rewrite, and the call falls through to the ordinary permission path.
  *
  * The runtime precedence modelled by `runToolCall` below is not invented: it
- * was measured against Claude Code 2.1.280 / @anthropic-ai/claude-agent-sdk
- * 0.3.278 with a real `query()` (see the PR for #124), which showed that
+ * was measured for #124 with a real `query()`, and is re-measured against the
+ * runtime `MEASURED_RUNTIME` names by scripts/measure-claude-runtime.ts, which
+ * shows that
  * (a) a hook's `allow` skips `canUseTool`, (b) a hook's `updatedInput` applies
  * with no decision attached, (c) `canUseTool` then receives the REWRITTEN
  * input, (d) the runtime approves some calls on its own before the callback —

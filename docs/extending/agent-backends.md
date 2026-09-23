@@ -169,9 +169,12 @@ A backend that honours it must:
   (`ToolSearch`, twice); and a `PreToolUse` hook in the project settings it
   loads can return `permissionDecision: "allow"` outright — from a file in the
   brain repo, which the turn can write. The Claude backend answers `ask` from a
-  PreToolUse hook for every off-list tool, which overrides all three. Whatever
-  the equivalent is in your runtime, find it before claiming the field is
-  honoured — and probe with more than one tool and one command shape.
+  PreToolUse hook for every off-list tool, which overrides all three. These
+  are measured against the runtime `MEASURED_RUNTIME` names
+  (`@schlessera/brain-backend-claude`), and `scripts/measure-claude-runtime.ts`
+  re-measures them, keyless, against a scripted model. Whatever the equivalent
+  is in your runtime, find it before claiming the field is honoured — and probe
+  with more than one tool and one command shape.
 - not let its own input-rewrite hooks grant a tool the allowlist leaves out.
   The Claude backend's hooks return a `PreToolUse` `permissionDecision:
   "allow"` because that historically looked necessary for `updatedInput` to
