@@ -59,7 +59,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:102-117`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it
@@ -97,6 +97,7 @@ where each drifted anchor now is. What it does **not** check:
   docs. They follow the same convention, and the grep above is the check.
 - **Citations inside fenced code blocks**, which are examples and command
   output, not pointers.
+- **A line named in words** ("line 12 of `auth.ts`"). Write it as a citation.
 - **Citations it cannot resolve.** Another repository (`[brain-ui] path:line`),
   a dependency's installed source, a quotation, and code the record describes
   as it was before the change it decided. Each of these is listed in

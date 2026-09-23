@@ -10,11 +10,14 @@
 // `scripts/check-citations.ts`, which also runs on its own as a report.
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
-  CITATION_EXCEPTIONS,
   checkRecords,
   describe as describeReport,
+  exceptionMismatches,
   parseCitations,
+  ROOT,
   type Tree,
 } from "../scripts/check-citations.ts";
 
@@ -46,17 +49,22 @@ describe("the decision records", () => {
     expect(failing).toEqual([]);
   });
 
-  test("every listed exception still matches a citation that needs it", () => {
-    // An exception outlives its reason silently otherwise: the citation is
-    // reworded or anchored, and the entry goes on excusing nothing — or the
-    // next citation that happens to be written the same way.
-    const needed = new Set(
-      reports
-        .filter((report) => report.verdict.kind !== "anchored" && report.exception)
-        .map((report) => `${report.citation.doc}|${report.citation.text}`),
-    );
-    const stale = Object.keys(CITATION_EXCEPTIONS).filter((key) => !needed.has(key));
-    expect(stale).toEqual([]);
+  test("every listed exception covers exactly the citations it declares", () => {
+    // Stale (the citation was anchored or reworded) or borrowed (a second
+    // identical citation inherits a reason written for the first) both fail.
+    expect(exceptionMismatches(reports)).toEqual([]);
+  });
+
+  test("the convention's own example is a citation that holds", () => {
+    // The example was written right and went stale within a day, when #230
+    // inserted a line above `enforcementHook`. It is checked like any other.
+    for (const file of ["AGENTS.md", "docs/decisions/README.md", "scripts/check-citations.ts"]) {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      const example = text.match(/\(`enforcementHook`, `[^`]+`\)/)?.[0];
+      expect({ file, found: Boolean(example) }).toEqual({ file, found: true });
+      const [report] = checkRecords([{ doc: file, body: example! }], undefined, {});
+      expect({ file, verdict: report.verdict.kind }).toEqual({ file, verdict: "anchored" });
+    }
   });
 
   test("the check reads the records at all", () => {
@@ -105,7 +113,12 @@ describe("an anchored citation", () => {
   });
 
   test("a span wrapped onto the next line is still one span", () => {
-    const [report] = check("(`enforcementHook`,\n`src/hooks.ts:2-4`)");
+    // The newline is INSIDE the citation span, as markdown allows.
+    const [report] = check("(`export function`, `src/hooks.ts:2,\n6`)");
+    expect(report.citation.ranges).toEqual([
+      { start: 2, end: 2 },
+      { start: 6, end: 6 },
+    ]);
     expect(report.verdict.kind).toBe("anchored");
   });
 
@@ -156,9 +169,36 @@ describe("what the check cannot verify is reported, not skipped", () => {
     expect(external.verdict.kind).toBe("unresolved");
   });
 
-  test("a markdown link to a line", () => {
+  test("a markdown or HTML link to a line", () => {
     const [report] = check("See [the hook](../../src/hooks.ts#L2).");
     expect(report.verdict.kind).toBe("unanchored");
+    const [html] = check('See <a href="../../src/hooks.ts#L2">the hook</a>.');
+    expect(html.verdict.kind).toBe("unanchored");
+  });
+
+  test("a line-and-column or #L citation in a span", () => {
+    for (const span of ["`src/hooks.ts:2:3`", "`src/hooks.ts#L2`", "`src/hooks.ts#L2-L4`"]) {
+      const reports = check(`(\`enforcementHook\`, ${span})`);
+      expect({ span, kinds: reports.map((r) => r.verdict.kind) }).toEqual({
+        span,
+        kinds: ["unresolved"],
+      });
+    }
+  });
+
+  test("an exception covers only the occurrences it declares", () => {
+    const body = "See `src/missing.ts:2`. Again `src/missing.ts:2`.";
+    const reports = checkRecords([{ doc: "docs/decisions/x.md", body }], tree({}), {
+      "docs/decisions/x.md|src/missing.ts:2": "removed upstream",
+    });
+    expect(
+      exceptionMismatches(reports, { "docs/decisions/x.md|src/missing.ts:2": "removed upstream" }),
+    ).toEqual([{ key: "docs/decisions/x.md|src/missing.ts:2", expected: 1, actual: 2 }]);
+    expect(
+      exceptionMismatches(reports, {
+        "docs/decisions/x.md|src/missing.ts:2": { reason: "removed upstream", occurrences: 2 },
+      }),
+    ).toEqual([]);
   });
 
   test("a ratio or a port is not a citation", () => {

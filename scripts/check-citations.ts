@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:102-117`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -41,13 +41,14 @@ const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*
  * skipped. `localhost:6006/mcp` and `width:100%` are not followed by a
  * boundary and do not match.
  */
-const LOOSE_CITATION = /(?:^|[\s(\[])[\w@./-]*[A-Za-z][\w@./-]*:\d+(?:-\d+)?(?=$|[\s,;.)\]])/;
+const LOOSE_CITATION =
+  /(?:^|[\s(\[])[\w@./-]*[A-Za-z][\w@./-]*(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?)(?=$|[\s,;.)\]])/;
 
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(`(?<![\\w\`/.-])(${FILE}):\\d+`, "g");
 
 /** A markdown link to a line, which cannot carry an anchor either. */
-const LINE_LINK = /\]\(([^)\s]+)#L\d+/g;
+const LINE_LINK = /(?:\]\(|href=["'])([^)\s"']+)#L\d+/g;
 
 export interface Citation {
   /** The record, repo-relative. */
@@ -268,10 +269,17 @@ export function checkCitation(
  *
  * Keyed `<record>|<citation as written>`. An entry here is a claim about one
  * citation; if the citation changes, the entry stops matching and the check
- * says so. Two identical citations in one record share an entry, so they
- * share its reason.
+ * says so. An entry covers exactly as many identical citations as it
+ * declares, so a new one cannot borrow an old one's reason.
  */
-export const CITATION_EXCEPTIONS: Record<string, string> = {
+/**
+ * An exception's reason, or its reason and how many citations it covers.
+ * A bare reason covers exactly one: a second identical citation in the same
+ * record is a new pointer, and it must not inherit the first one's excuse.
+ */
+export type CitationException = string | { reason: string; occurrences: number };
+
+export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // Another repository. The `[brain-ui]` prefix says so; this check reads only
   // this tree.
   ...Object.fromEntries(
@@ -366,10 +374,14 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
     "records the call as it was before D44; it now passes alwaysLoad",
   "docs/decisions/hardening.md|backend.ts:1039":
     "describes getBackendForSession substituting the default, which the fix replaced with a throw",
-  "docs/decisions/session-principals.md|middleware/auth.ts:253":
-    "the epoch-bearing cookie mint, replaced by principal cookies",
-  "docs/decisions/session-principals.md|auth.ts:265-296":
-    "epoch cookie verification, replaced by resolveCookiePrincipal",
+  "docs/decisions/session-principals.md|middleware/auth.ts:253": {
+    reason: "the epoch-bearing cookie mint, replaced by principal cookies",
+    occurrences: 2,
+  },
+  "docs/decisions/session-principals.md|auth.ts:265-296": {
+    reason: "epoch cookie verification, replaced by resolveCookiePrincipal",
+    occurrences: 2,
+  },
   "docs/decisions/session-principals.md|auth.ts:321": "bumpSessionsEpoch, which was removed",
   "docs/decisions/session-principals.md|auth.ts:302-318":
     "the global sessionsEpoch settings row, which was removed",
@@ -429,7 +441,7 @@ export function checkRecords(
     body: readFileSync(join(ROOT, doc), "utf8"),
   })),
   tree: Tree = repoTree(),
-  exceptions: Record<string, string> = CITATION_EXCEPTIONS,
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
 ): Report[] {
   const reports: Report[] = [];
   for (const { doc, body } of records) {
@@ -443,11 +455,34 @@ export function checkRecords(
     const cited = [...named, ...citations.flatMap((c) => (c.path && !c.bare ? [c.path] : []))];
     for (const citation of citations) {
       const verdict = checkCitation(citation, cited, tree);
-      const exception = exceptions[`${doc}|${citation.text}`];
+      const entry = exceptions[`${doc}|${citation.text}`];
+      const exception = typeof entry === "string" ? entry : entry?.reason;
       reports.push({ citation, verdict, exception });
     }
   }
   return reports;
+}
+
+/**
+ * Exceptions whose count does not match the citations that need them: `0`
+ * means the entry is stale, more than declared means a second identical
+ * citation is borrowing an excuse written for the first.
+ */
+export function exceptionMismatches(
+  reports: Report[],
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
+): { key: string; expected: number; actual: number }[] {
+  const actual = new Map<string, number>();
+  for (const report of reports) {
+    if (report.verdict.kind === "anchored" || !report.exception) continue;
+    const key = `${report.citation.doc}|${report.citation.text}`;
+    actual.set(key, (actual.get(key) ?? 0) + 1);
+  }
+  return Object.entries(exceptions).flatMap(([key, entry]) => {
+    const expected = typeof entry === "string" ? 1 : entry.occurrences;
+    const found = actual.get(key) ?? 0;
+    return found === expected ? [] : [{ key, expected, actual: found }];
+  });
 }
 
 export function describe(report: Report): string {
