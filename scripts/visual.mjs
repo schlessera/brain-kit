@@ -40,7 +40,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
- * `container:` image in `.github/workflows/ci.yml`, and D10. */
+ * `container:` image in `.github/workflows/ci.yml`, the Depot registry copy in
+ * `.depot/workflows/ci.yml` (docs/process/ci.md), and D10. */
 const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");

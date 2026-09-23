@@ -3,6 +3,8 @@
 #
 # Changes made:
 # - Changed GitHub runs-on labels to their Depot equivalents
+# - ui-kit-browser pulls the Playwright image from Depot's registry (by hand,
+#   not by the migration tool; see docs/process/ci.md)
 
 name: CI
 
@@ -409,7 +411,16 @@ jobs:
       matrix:
         shard: [1, 2]
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      # The same image as .github/workflows/ci.yml, copied into Depot's
+      # registry so the job does not download it from MCR every time. The
+      # digest is MCR's own linux/amd64 manifest, so these are the same bytes
+      # the baselines were generated in. DEPOT_REGISTRY is a Depot CI variable
+      # holding the org's registry host. Refreshing the copy when the pin
+      # moves: docs/process/ci.md.
+      image: ${{ vars.DEPOT_REGISTRY }}/ci/playwright:v1.63.0-noble@sha256:bc6ab0d6d44ff4826e4cb8c1e6d801e185bfc42bb0753f8e2a30efc70db054c7
+      credentials:
+        username: x-token
+        password: ${{ secrets.DEPOT_TOKEN }}
       # Chromium's default 64MB /dev/shm makes it die on a large page in ways
       # that read as a flaky test.
       options: --ipc=host
@@ -426,7 +437,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - name: Bun's package store, keyed on the lockfile
+        # Without it every shard downloads all 881 packages. No restore-keys:
+        # a lockfile change misses once and saves a fresh store, rather than
+        # growing one that keeps every package ever installed. See
+        # docs/process/ci.md.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/bun-install-cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
       - name: Stories on dark and on paper (D32), and the visual baselines
         run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
       - name: The actual and diff images, when a baseline moved

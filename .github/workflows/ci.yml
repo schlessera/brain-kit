@@ -420,7 +420,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - name: Bun's package store, keyed on the lockfile
+        # Without it every shard downloads all 881 packages. No restore-keys:
+        # a lockfile change misses once and saves a fresh store, rather than
+        # growing one that keeps every package ever installed. See
+        # docs/process/ci.md.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/bun-install-cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
       - name: Stories on dark and on paper (D32), and the visual baselines
         run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
       - name: The actual and diff images, when a baseline moved
