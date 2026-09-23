@@ -219,7 +219,9 @@ export async function runScrape(opts: {
         name: adapter.name,
         jobs: result.jobs,
         isDescribed: (job) => described.get(job.source, job.source_id) !== null,
-        fetchOptions: adapter.detailFetchOptions,
+        // The run's proxy, where one was asked for, reaches the detail pages
+        // the same way it reaches the listing.
+        fetchOptions: { ...(opts.proxy ? { proxy: opts.proxy } : {}), ...adapter.detailFetchOptions },
       }))
     );
     fulfilled.forEach((value, index) => enrichments.set(value, stats[index]));
@@ -370,6 +372,20 @@ export function ingestJobs(
     "INSERT INTO jobs_fts(rowid, title, company, description_text, tags) VALUES (?, ?, ?, ?, ?)"
   );
   const deleteFts = db.prepare("DELETE FROM jobs_fts WHERE rowid = ?");
+  // A stored row that gains a description it did not have (#36: its detail
+  // page was capped or failed on an earlier run) was scored on its title and
+  // tags alone, and scoring only ever visits unscored rows. Clear the score so
+  // this run's scoring pass sees the description, and hand an AUTOMATIC
+  // queue/dismiss decision back to `autoClassify`. A decision a person made
+  // carries `reviewed_at`, and is left alone.
+  const rescoreDescribed = db.prepare(
+    `UPDATE jobs SET scored_at = NULL,
+       review_status = CASE
+         WHEN reviewed_at IS NULL AND review_status IN ('queued', 'dismissed') THEN 'pending'
+         ELSE review_status
+       END
+     WHERE id = ?`
+  );
   // A row whose fingerprint moved has left one dedup group and may have joined
   // another. It is no longer a duplicate of anything; nothing that matched its
   // OLD fingerprint is a duplicate of it; and the group it joins must be
@@ -481,6 +497,9 @@ export function ingestJobs(
         // touched by the conflict clause, so the existing value applies).
         if (contentChanged) {
           insertFts.run(existing.id, job.title, company, effectiveDesc, existing.tags);
+        }
+        if (!existing.description_text?.trim() && effectiveDesc?.trim()) {
+          rescoreDescribed.run(existing.id);
         }
         if (existing.fingerprint !== fingerprint) {
           releaseRow.run(existing.id);

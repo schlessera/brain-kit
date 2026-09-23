@@ -27,7 +27,9 @@ import type { BrowserJobRecord } from "../src/adapters/browser-base";
 import { openDatabase } from "../src/db";
 import { DEFAULT_DETAIL_DELAY_MS, createEnricher } from "../src/enrich";
 import { jobsFromJsonLd } from "../src/jsonld";
+import { setReviewStatus } from "../src/review";
 import { ingestJobs } from "../src/scrape";
+import { autoClassify, loadScoringConfig, scoreNewJobs } from "../src/score";
 import type { RawJob, Source } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -129,6 +131,28 @@ describe("each board's stored rows carry the description its detail page has", (
     expect(records).toHaveLength(1);
     expect(records[0].description).toStartWith("Architect and operate scalable backend systems");
   });
+
+  test("builtin: a card link with a query string or trailing slash still finds its description", () => {
+    const window = new Window({ url: "https://builtin.com/jobs/remote" });
+    window.document.body.innerHTML =
+      read("boards", "builtin", "rendered-card.html").replace(
+        'href="/job/staff-software-engineer-assets/11309150"',
+        'href="/job/staff-software-engineer-assets/11309150/?utm_source=listing"'
+      ) + read("boards", "builtin", "listing-jsonld.html");
+    const globals = globalThis as unknown as { document: unknown };
+    const saved = globals.document;
+    globals.document = window.document;
+    let records: BrowserJobRecord[];
+    try {
+      records = (new BuiltInAdapter() as unknown as { extract(): BrowserJobRecord[] }).extract();
+    } finally {
+      globals.document = saved;
+      window.close();
+    }
+
+    expect(records[0].href).toContain("?utm_source=listing");
+    expect(records[0].description).toStartWith("Architect and operate scalable backend systems");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -160,6 +184,33 @@ describe("rows that need no detail page are not fetched", () => {
 
     expect(http.requests.map((r) => r.url)).toEqual(["https://dice.example/2"]);
     expect(stats).toMatchObject({ enriched: 1, failed: 0, truncated: 0 });
+  });
+
+  test("a row whose only link is off the board is not followed", async () => {
+    // RemoteOK's `url` is the employer's apply link; with no `source_url` there
+    // is no page on the board to take a description from.
+    const http = stubHttp(() => detailPage("From an ATS."));
+    const rows = [job("remoteok", "https://ats.example/apply/1", { source_url: undefined })];
+
+    const stats = await createEnricher(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
+
+    expect(http.requests).toEqual([]);
+    expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
+  });
+
+  test("two rows for one posting cost one request and count once", async () => {
+    const http = stubHttp(() => detailPage("Fetched once."));
+    const rows = [job("jobgether", "https://jobgether.example/offer/1"), job("jobgether", "https://jobgether.example/offer/1")];
+
+    const stats = await createEnricher(http, { maxDetailPages: 1 }).enrich({
+      source: "jobgether",
+      name: "Jobgether",
+      jobs: [...rows, job("jobgether", "https://jobgether.example/offer/2")],
+    });
+
+    expect(http.requests.map((r) => r.url)).toEqual(["https://jobgether.example/offer/1"]);
+    expect(stats).toMatchObject({ enriched: 1, truncated: 1 });
+    expect(rows.map((row) => row.description)).toEqual(["Fetched once.", "Fetched once."]);
   });
 
   test("the board's own page is followed, not the apply link", async () => {
@@ -349,6 +400,76 @@ describe("enrichment failures are counted, and lose nothing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 4b. A row described on a later run is scored again
+// ---------------------------------------------------------------------------
+
+describe("a stored row that gains a description is scored again", () => {
+  const config = loadScoringConfig(import.meta.dir, "fixtures/criteria.md");
+  const row = (extra: Partial<RawJob> = {}) =>
+    job("dice", "https://dice.example/job/1", { title: "Platform Engineer", location: "Remote", ...extra });
+  const described = { description: "Build distributed systems with consensus." };
+  const state = (db: ReturnType<typeof openDatabase>) =>
+    db.query("SELECT relevance_score, review_status, scored_at, reviewed_at FROM jobs").get() as {
+      relevance_score: number;
+      review_status: string;
+      scored_at: string | null;
+    };
+
+  test("its score reflects the description, and an automatic dismissal is reconsidered", () => {
+    // Measured by review: a row whose detail page was capped on its first run
+    // was scored on its title alone, auto-dismissed, and never looked at again
+    // once a later run described it.
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [row()]);
+      scoreNewJobs(db, config);
+      autoClassify(db, config);
+      const before = state(db);
+      expect(before.review_status).toBe("dismissed");
+
+      ingestJobs(db, [row(described)]);
+      expect(state(db)).toMatchObject({ scored_at: null, review_status: "pending" });
+
+      scoreNewJobs(db, config);
+      autoClassify(db, config);
+      const after = state(db);
+      expect(after.relevance_score).toBeGreaterThan(before.relevance_score);
+      expect(after.review_status).not.toBe("dismissed");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a decision a person made is left alone", () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [row()]);
+      scoreNewJobs(db, config);
+      const id = (db.query("SELECT id FROM jobs").get() as { id: number }).id;
+      setReviewStatus(db, id, "dismissed");
+
+      ingestJobs(db, [row(described)]);
+
+      expect(state(db).review_status).toBe("dismissed");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a row that already had a description is not rescored by a re-scrape", () => {
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, [row(described)]);
+      scoreNewJobs(db, config);
+      ingestJobs(db, [row(described)]);
+      expect(state(db).scored_at).not.toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. Pacing: the shared client's rate limiter schedules the detail fetches
 // ---------------------------------------------------------------------------
 
@@ -358,51 +479,73 @@ describe("per-host pacing holds with enrichment on", () => {
     globalThis.fetch = realFetch;
   });
 
-  function fakeClock(): RateLimiterClock & { waits: number[] } {
-    let now = 1_000_000;
-    const waits: number[] = [];
-    return {
-      waits,
-      now: () => now,
-      sleep: async (ms: number) => {
-        waits.push(ms);
-        now += ms;
-      },
-    };
-  }
-
+  /**
+   * A run whose rate-limiter sleeps only end when the test says so, so what
+   * is asserted is that a request could NOT go out before its slot — not
+   * merely that the limiter was asked to sleep.
+   */
   async function pacedRun(fetchOptions?: FetchOptions) {
     const fetched: string[] = [];
     globalThis.fetch = (async (input: unknown) => {
       fetched.push(String(input));
       return new Response(detailPage("Fetched."));
     }) as unknown as typeof fetch;
-    const clock = fakeClock();
+    let now = 1_000_000;
+    const sleeping: Array<{ ms: number; wake: () => void }> = [];
+    const clock: RateLimiterClock = {
+      now: () => now,
+      sleep: (ms) =>
+        new Promise<void>((resolve) =>
+          sleeping.push({
+            ms,
+            wake: () => {
+              now += ms;
+              resolve();
+            },
+          })
+        ),
+    };
     const http = new ScrapeClient({
       rateLimiter: new RateLimiter({ clock }),
       robots: new RobotsCache({ fetcher: async () => ({ status: 404, body: "" }) }),
     });
     const rows = [1, 2, 3].map((i) => job("dice", `https://www.dice.example/job-detail/${i}`));
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+    };
 
-    const stats = await createEnricher(http, { concurrency: 3 }).enrich({
+    const run = createEnricher(http, { concurrency: 3 }).enrich({
       source: "dice",
       name: "Dice",
       jobs: rows,
       fetchOptions,
     });
-    return { stats, fetched, waits: clock.waits };
+    const steps: Array<{ fetched: number; sleeping: number[] }> = [];
+    await settle();
+    steps.push({ fetched: fetched.length, sleeping: sleeping.map((s) => s.ms) });
+    while (sleeping.length > 0) {
+      sleeping.shift()!.wake();
+      await settle();
+      steps.push({ fetched: fetched.length, sleeping: sleeping.map((s) => s.ms) });
+    }
+    return { stats: await run, steps };
   }
 
-  test("three concurrent detail fetches to one host are spaced by the limiter", async () => {
-    const { stats, fetched, waits } = await pacedRun();
+  test("three concurrent detail fetches to one host each wait for the limiter's slot", async () => {
+    // Three slots of concurrency, one host: the first request goes, and the
+    // other two are held by the rate limiter until their sleep ends.
+    const { stats, steps } = await pacedRun();
     expect(stats.enriched).toBe(3);
-    expect(fetched).toHaveLength(3);
-    expect(waits).toEqual([DEFAULT_DETAIL_DELAY_MS, DEFAULT_DETAIL_DELAY_MS]);
+    expect(steps).toEqual([
+      { fetched: 1, sleeping: [DEFAULT_DETAIL_DELAY_MS] },
+      { fetched: 2, sleeping: [DEFAULT_DETAIL_DELAY_MS] },
+      { fetched: 3, sleeping: [] },
+    ]);
   });
 
   test("a board's own detail delay replaces the default", async () => {
-    const { waits } = await pacedRun({ delayMs: 3000 });
-    expect(waits).toEqual([3000, 3000]);
+    const { steps } = await pacedRun({ delayMs: 3000 });
+    expect(steps.map((step) => step.sleeping)).toEqual([[3000], [3000], []]);
   });
 });
 
@@ -429,6 +572,7 @@ describe("runScrape reports enrichment per board", () => {
         report: { sources: Array<Record<string, unknown> & { errors: string[] }> };
         stored: Array<{ source_id: string; description_text: string | null }>;
         run: { status: string; cursor: string | null };
+        seen: Array<{ url: string; proxy: string | null }>;
       };
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -450,6 +594,14 @@ describe("runScrape reports enrichment per board", () => {
     expect(stored.map((r) => r.description_text)).toEqual(["Fetched for job 1.", null]);
     // A finding about the rows does not hold back the listing's cursor.
     expect(logged).toMatchObject({ status: "completed", cursor: "2025-02-01T00:00:00.000Z" });
+  });
+
+  test("a run through a proxy reaches its detail pages through the same proxy", async () => {
+    const { report, seen } = await run("proxy");
+    expect(report.sources[0]).toMatchObject({ jobs_enriched: 2 });
+    const detail = seen.filter((request) => request.url.startsWith("https://remoteok.example/"));
+    expect(detail).toHaveLength(2);
+    for (const request of detail) expect(request.proxy).toBe("http://proxy.example:3128");
   });
 
   test("a failed detail page is counted, and the board and its rows survive", async () => {

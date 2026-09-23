@@ -38,6 +38,9 @@ export class BuiltInAdapter extends BrowserAdapter {
     const jobs: BrowserJobRecord[] = [];
     const seen = new Set<string>();
 
+    // Keyed without query, fragment or trailing slash, so a card linking
+    // `…/11309150/?utm_source=…` still finds `…/11309150`.
+    const key = (url: string): string => url.replace(/[?#].*$/, "").replace(/\/+$/, "");
     const descriptions = new Map<string, string>();
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       let data: unknown;
@@ -62,7 +65,7 @@ export class BuiltInAdapter extends BrowserAdapter {
           const item = (entry as { item?: unknown }).item ?? entry;
           const { url, description } = item as { url?: unknown; description?: unknown };
           if (typeof url === "string" && typeof description === "string" && description.trim()) {
-            descriptions.set(url, description.trim());
+            descriptions.set(key(url), description.trim());
           }
         }
       }
@@ -101,7 +104,7 @@ export class BuiltInAdapter extends BrowserAdapter {
       jobs.push({
         title,
         company,
-        description: descriptions.get(absolute),
+        description: descriptions.get(key(absolute)),
         href: absolute,
         location: "Remote",
         remote_type: "fully_remote",

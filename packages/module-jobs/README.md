@@ -180,19 +180,23 @@ that have no description yet, so a feed's description is never replaced and a
 row described by an earlier run is not fetched again. `builtin` reads its
 descriptions off its own listing's structured data and needs no detail page.
 
-Every detail request goes through the same client as the listings, so
-robots.txt and per-host pacing apply to it (at least 2 s between requests to one
-host, more where a board asks). The `enrichment` config bounds it:
+Only the board's own page for a job (`source_url`) is followed, never an apply
+link on another site. Every detail request goes through the same client and
+`--proxy` as the listings, so robots.txt and per-host pacing apply to it: 2 s
+between detail requests to one host, more where a board asks. A row whose
+description arrives on a later run is scored again, and an automatic
+queue or dismiss decision on it is reconsidered. A decision you made is kept.
+The `enrichment` config bounds it:
 
 - `concurrency` (default 4): detail requests in flight at once, across every
   board in the run.
-- `maxDetailPages` (default 100): detail pages one run fetches at most. `0`
-  turns enrichment off.
+- `maxDetailPages` (default 100): detail pages one run fetches at most, dealt
+  out across boards in turn. `0` turns enrichment off.
 
 Nothing is dropped silently. Each board's row in the scrape report counts
 `jobs_enriched`, `enrichment_failed` (a page that failed, or carried no
-description) and `enrichment_truncated` (rows the cap left out), and its
-`errors` say which. A row whose detail page fails is still stored, without a
+description) and `enrichment_truncated` (rows the cap left out). Failures and
+truncation also get a line in the board's `errors`. A row whose detail page fails is still stored, without a
 description.
 
 ## Boards & sources

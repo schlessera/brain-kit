@@ -19,7 +19,9 @@ const detail = (id: string) =>
     description: `Fetched for job ${id}.`,
   })}</script>`;
 
-ScrapeClient.prototype.get = async (url: string) => {
+const seen: Array<{ url: string; proxy: string | null }> = [];
+ScrapeClient.prototype.get = async (url: string, opts: { proxy?: string } = {}) => {
+  seen.push({ url, proxy: opts.proxy ?? null });
   if (url.startsWith("https://remoteok.com/")) return new Response(JSON.stringify(listing));
   const id = url.split("/").pop()!;
   if (mode === "fail" && id === "2") return new Response("unavailable", { status: 500 });
@@ -31,9 +33,10 @@ const report = await runScrape({
   sources: ["remoteok"],
   incremental: true,
   enrichment: mode === "truncate" ? { maxDetailPages: 1 } : {},
+  proxy: mode === "proxy" ? "http://proxy.example:3128" : undefined,
 });
 const stored = openDatabase(dbPath!);
 const rows = stored.query("SELECT source_id, description_text FROM jobs ORDER BY source_id").all();
 const run = stored.query("SELECT status, cursor FROM scrape_runs ORDER BY id DESC LIMIT 1").get();
 stored.close();
-console.log(JSON.stringify({ report, stored: rows, run }));
+console.log(JSON.stringify({ report, stored: rows, run, seen }));

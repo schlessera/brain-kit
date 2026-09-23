@@ -155,8 +155,9 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
         "jobs_updated": 0,
         // Detail-page enrichment (#36), added in 0.37.0 alongside `status`.
         // Counts of ROWS, never a claim about whether the board was read, so
-        // none of them moves `status`; each non-zero one also has a line in
-        // `errors`.
+        // none of them moves `status`. A non-zero `enrichment_failed` or
+        // `enrichment_truncated` also has a line in `errors`;
+        // `jobs_enriched` does not, since it is not a finding.
         //   jobs_enriched         rows with no description that got one from
         //                         their own detail page this run
         //   enrichment_failed     detail pages fetched that failed or carried

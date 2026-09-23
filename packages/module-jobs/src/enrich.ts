@@ -9,8 +9,12 @@
  *   RemoteOK, Remotive, Working Nomads and We Work Remotely feeds) is kept, and
  *   so is one an earlier run stored: the upsert keeps it over a null, so
  *   fetching the page again would spend a request and the cap on nothing.
- * - **The board's own page.** `source_url` before `url`, since `url` is the
- *   apply link on boards that have one, and that is somebody else's site.
+ * - **The board's own page, and only that.** `source_url`, which every
+ *   adapter sets to the posting on its board. Never `url`: on boards that
+ *   have one it is the apply link, somebody else's site, and a row whose
+ *   only link is that is left alone rather than followed off the board.
+ * - **Once per posting.** Two rows with the same `(source, source_id)` are
+ *   one stored row, so they cost one request and count once.
  * - **Through the run's one `ScrapeClient`,** so robots.txt and the per-host
  *   rate limiter decide every detail request exactly as they decide listing
  *   requests. Enrichment adds a floor between requests to one host
@@ -92,7 +96,8 @@ export interface Enricher {
 /** What one board wants fetched, and what it was granted. */
 interface BoardPlan {
   board: BoardEnrichment;
-  wanted: Array<{ job: RawJob; url: string }>;
+  /** One entry per posting; `jobs` holds every row that shares its identity. */
+  wanted: Array<{ jobs: RawJob[]; url: string }>;
   granted: number;
 }
 
@@ -103,12 +108,10 @@ function brief(err: unknown): string {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
-/** The page a row's description lives on, if it has an absolute one. */
+/** The board's own page for a row, if it has an absolute one. */
 function detailUrl(job: RawJob): string | undefined {
-  for (const candidate of [job.source_url, job.url]) {
-    if (candidate && /^https?:\/\//i.test(candidate)) return candidate;
-  }
-  return undefined;
+  const candidate = job.source_url;
+  return candidate && /^https?:\/\//i.test(candidate) ? candidate : undefined;
 }
 
 /**
@@ -125,13 +128,21 @@ export function createEnricher(
   let remaining = maxDetailPages;
 
   function plan(board: BoardEnrichment): BoardPlan {
-    const wanted: Array<{ job: RawJob; url: string }> = [];
+    const wanted: BoardPlan["wanted"] = [];
+    const byIdentity = new Map<string, BoardPlan["wanted"][number]>();
     for (const job of board.jobs) {
       if (job.description?.trim()) continue;
       const url = detailUrl(job);
       if (!url) continue;
+      const same = byIdentity.get(job.source_id);
+      if (same) {
+        same.jobs.push(job);
+        continue;
+      }
       if (board.isDescribed?.(job)) continue;
-      wanted.push({ job, url });
+      const entry = { jobs: [job], url };
+      byIdentity.set(job.source_id, entry);
+      wanted.push(entry);
     }
     return { board, wanted, granted: 0 };
   }
@@ -163,7 +174,7 @@ export function createEnricher(
 
     const failures: string[] = [];
     await Promise.all(
-      granted.map(async ({ job, url }) => {
+      granted.map(async ({ jobs, url }) => {
         const release = await slots.acquire();
         try {
           const page = await http.getPage(url, {
@@ -178,7 +189,7 @@ export function createEnricher(
             failures.push(`${url}: no JobPosting description on the page`);
             return;
           }
-          job.description = description;
+          for (const job of jobs) job.description = description;
           stats.enriched++;
         } catch (err) {
           stats.failed++;
