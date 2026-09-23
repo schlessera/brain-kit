@@ -67,6 +67,10 @@ describe("selectSources", () => {
     const all = selectSources({ positional: [], configured: [], all: true }) as { sources: string[] };
     const defaults = selectSources({ positional: [], configured: [] }) as { sources: string[] };
 
+    // Positive as well as negative: a selection that returned nothing would
+    // pass every `not.toContain` below.
+    expect(all.sources).toEqual([...ALL_SOURCES]);
+    expect(defaults.sources).toEqual([...SOURCES]);
     expect(Object.keys(RETIRED_SOURCES)).toContain("remoteineurope");
     for (const retired of Object.keys(RETIRED_SOURCES)) {
       expect(all.sources).not.toContain(retired);
@@ -114,7 +118,26 @@ describe("jobs scrape <retired board>", () => {
       taxonomy: { dirForType: () => undefined },
     } as unknown as CommandContext<JobsConfig>;
 
-    const code = await command.run(["scrape", "remoteineurope"], ctx);
+    // Both transports `ScrapeClient` has: `fetch`, and curl through
+    // `Bun.spawn` for a proxy. A caller that swallows their error would get
+    // past them unseen, so only the call counts can tell, and those are read
+    // BEFORE `mockRestore`, which clears them. The browser path has no seam
+    // here; it only runs inside `runScrape`, which the `jobs.db` check below
+    // rules out.
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((() =>
+      Promise.reject(new Error("a refused scrape must not reach the network"))) as unknown as typeof fetch);
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation((() => {
+      throw new Error("a refused scrape must not start a subprocess");
+    }) as unknown as typeof Bun.spawn);
+    let code: number | void;
+    try {
+      code = await command.run(["scrape", "remoteineurope"], ctx);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      spawnSpy.mockRestore();
+    }
 
     expect(code).toBe(1);
     expect(stderr.join("\n")).toContain("remoteineurope was retired");
