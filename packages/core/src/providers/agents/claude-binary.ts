@@ -6,13 +6,15 @@
  * "The decision"). The runner resolves the same way, so `brain sync` does not
  * depend on a host install of `claude`:
  *
- * 1. `CLAUDE_CODE_PATH`, when set — the host's deliberate override.
+ * 1. `CLAUDE_CODE_PATH`, when set — the host's deliberate override. A
+ *    JavaScript path runs through `bun` (or `node`), as the SDK runs it.
  * 2. The SDK's built-in binary, found the way the SDK finds it: its platform
  *    package, resolved from the SDK's own module. On Linux the glibc package
  *    comes first and the musl one second, reversed when the runtime reports
  *    no glibc; the first that exists wins.
  * 3. `claude` on `PATH`, when the SDK is not installed alongside this package.
  */
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 
 import { resolveEnv } from "../../config/env.js";
@@ -26,54 +28,76 @@ export interface ClaudeBinaryPlatform {
   preferMusl: boolean;
 }
 
-function currentPlatform(): ClaudeBinaryPlatform {
-  const report = process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined;
-  return {
-    platform: process.platform,
-    arch: process.arch,
-    preferMusl: process.platform === "linux" && report?.header?.glibcVersionRuntime === undefined,
-  };
+/**
+ * The SDK's own libc probe: only on Linux, and only a report that exists and
+ * names no glibc means musl. No report at all keeps glibc first.
+ */
+export function prefersMusl(
+  platform: NodeJS.Platform,
+  getReport: (() => unknown) | undefined = process.report?.getReport?.bind(process.report)
+): boolean {
+  if (platform !== "linux") return false;
+  const report = typeof getReport === "function" ? (getReport() as { header?: { glibcVersionRuntime?: string } } | null) : null;
+  return report != null && report.header?.glibcVersionRuntime === undefined;
 }
 
 /** The platform packages the SDK would look in, in its order. */
 export function bundledClaudeCandidates(target: ClaudeBinaryPlatform): string[] {
   const exe = target.platform === "win32" ? ".exe" : "";
-  const base = `${SDK}-${target.platform}-${target.arch}`;
   const packages =
-    target.platform === "linux"
-      ? target.preferMusl
-        ? [`${base}-musl`, base]
-        : [base, `${base}-musl`]
-      : [base];
+    target.platform === "android"
+      ? [`${SDK}-linux-${target.arch}-android`]
+      : target.platform === "linux"
+        ? target.preferMusl
+          ? [`${SDK}-linux-${target.arch}-musl`, `${SDK}-linux-${target.arch}`]
+          : [`${SDK}-linux-${target.arch}`, `${SDK}-linux-${target.arch}-musl`]
+        : [`${SDK}-${target.platform}-${target.arch}`];
   return packages.map((name) => `${name}/claude${exe}`);
 }
 
 /**
  * The SDK's built-in binary as seen from `from` (a module path), or null when
- * the SDK or its platform package is not installed there.
+ * the SDK or its platform package is not installed there. Never throws: an
+ * optional dependency that cannot be found is the PATH fallback, not an error.
  */
 export function bundledClaudeBinary(
   from: string = import.meta.url,
-  target: ClaudeBinaryPlatform = currentPlatform()
+  target?: ClaudeBinaryPlatform
 ): string | null {
-  let sdkEntry: string;
   try {
-    sdkEntry = createRequire(from).resolve(SDK);
-  } catch {
-    return null;
-  }
-  const fromSdk = createRequire(sdkEntry);
-  for (const candidate of bundledClaudeCandidates(target)) {
-    try {
-      return fromSdk.resolve(candidate);
-    } catch {
-      // not installed; try the next
+    const sdkEntry = createRequire(from).resolve(SDK);
+    const fromSdk = createRequire(sdkEntry);
+    const platform = target ?? {
+      platform: process.platform,
+      arch: process.arch,
+      preferMusl: prefersMusl(process.platform),
+    };
+    for (const candidate of bundledClaudeCandidates(platform)) {
+      try {
+        const path = fromSdk.resolve(candidate);
+        if (existsSync(path)) return path;
+      } catch {
+        // not installed; try the next
+      }
     }
+  } catch {
+    // no SDK here, or no way to tell the platform
   }
   return null;
 }
 
-/** The command the Claude runner spawns. */
-export function claudeExecutable(env?: NodeJS.ProcessEnv): string {
-  return resolveEnv(env).claudeCodePath ?? bundledClaudeBinary() ?? "claude";
+/** The extensions the SDK runs through an interpreter rather than directly. */
+const SCRIPT_EXTENSIONS = [".js", ".mjs", ".tsx", ".ts", ".jsx"];
+
+/**
+ * The argv prefix the Claude runner spawns: the binary, or for a JavaScript
+ * `CLAUDE_CODE_PATH` the interpreter the SDK would use (`bun` under Bun,
+ * `node` otherwise) followed by the script, as chat runs it.
+ */
+export function claudeCommand(env?: NodeJS.ProcessEnv, from?: string): string[] {
+  const configured = resolveEnv(env).claudeCodePath;
+  if (configured && SCRIPT_EXTENSIONS.some((ext) => configured.endsWith(ext))) {
+    return [process.versions.bun !== undefined ? "bun" : "node", configured];
+  }
+  return [configured ?? bundledClaudeBinary(from) ?? "claude"];
 }

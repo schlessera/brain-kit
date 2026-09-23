@@ -124,6 +124,9 @@ describe("the binary a turn runs", () => {
     const brainPath = arrangeHost({ BRAIN_UI_EXEC_WRAPPER: wrapper });
     await productionTurn(brainPath);
     expect(commands()).toEqual([bundledClaudeBinary()]);
+    // The backend's only input to the option: nothing is configured, so
+    // claude-code-path.test.ts's "absent" case is the one that applies.
+    expect(resolveServerConfig(process.env).agent.claudeCodePath).toBeNull();
   });
 
   test("with CLAUDE_CODE_PATH set, the SDK is given that path unchanged", async () => {

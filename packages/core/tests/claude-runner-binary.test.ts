@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { bundledClaudeBinary, bundledClaudeCandidates, claudeExecutable } from "../src/providers/agents/claude-binary";
+import { bundledClaudeCandidates, claudeCommand, prefersMusl } from "../src/providers/agents/claude-binary";
 import { claudeRunner } from "../src/providers/agents/cli-runners";
 
 const OAUTH = `sk-ant-oat01-${"o".repeat(95)}AA`;
@@ -95,7 +95,9 @@ describe("the Claude runner's binary", () => {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     });
 
-    expect(realpathSync(claudeExecutable())).toBe(realpathSync(await chatBinary()));
+    const [command, ...rest] = claudeCommand();
+    expect(rest).toEqual([]);
+    expect(realpathSync(command!)).toBe(realpathSync(await chatBinary()));
     await claudeRunner()
       .run("Reply with the single word ok.", { cwd: tempDir("runner-repo-") })
       .catch(() => {});
@@ -104,11 +106,24 @@ describe("the Claude runner's binary", () => {
   });
 
   test("CLAUDE_CODE_PATH, when set, is the binary, as it is for chat", () => {
-    expect(claudeExecutable({ CLAUDE_CODE_PATH: "/opt/claude/bin/claude" })).toBe("/opt/claude/bin/claude");
+    expect(claudeCommand({ CLAUDE_CODE_PATH: "/opt/claude/bin/claude" })).toEqual(["/opt/claude/bin/claude"]);
   });
 
-  test("without the SDK installed where the runner looks, it falls back to claude on PATH", () => {
-    expect(bundledClaudeBinary(join(tempDir("no-sdk-"), "index.js"))).toBeNull();
+  test("a JavaScript CLAUDE_CODE_PATH runs through the interpreter the SDK would use", () => {
+    expect(claudeCommand({ CLAUDE_CODE_PATH: "/opt/claude/cli.js" })).toEqual(["bun", "/opt/claude/cli.js"]);
+  });
+
+  test("without the SDK installed where the runner looks, it runs claude from PATH", () => {
+    expect(claudeCommand({}, join(tempDir("no-sdk-"), "index.js"))).toEqual(["claude"]);
+  });
+
+  test("tells musl from glibc the way the SDK does", () => {
+    expect(prefersMusl("linux", () => ({ header: { glibcVersionRuntime: "2.39" } }))).toBe(false);
+    expect(prefersMusl("linux", () => ({ header: {} }))).toBe(true);
+    // No report at all keeps glibc first.
+    expect(prefersMusl("linux", undefined)).toBe(false);
+    expect(prefersMusl("linux", () => null)).toBe(false);
+    expect(prefersMusl("darwin", () => ({ header: {} }))).toBe(false);
   });
 
   test("looks for the platform packages in the SDK's order", () => {
@@ -120,6 +135,9 @@ describe("the Claude runner's binary", () => {
     expect(bundledClaudeCandidates({ platform: "linux", arch: "arm64", preferMusl: true })).toEqual([
       `${sdk}-linux-arm64-musl/claude`,
       `${sdk}-linux-arm64/claude`,
+    ]);
+    expect(bundledClaudeCandidates({ platform: "android", arch: "arm64", preferMusl: false })).toEqual([
+      `${sdk}-linux-arm64-android/claude`,
     ]);
     expect(bundledClaudeCandidates({ platform: "win32", arch: "x64", preferMusl: false })).toEqual([
       `${sdk}-win32-x64/claude.exe`,

@@ -15,7 +15,7 @@
  */
 
 import { inheritedEnv } from "../../config/env.js";
-import { claudeExecutable } from "./claude-binary.js";
+import { claudeCommand } from "./claude-binary.js";
 import type { AgentRunner } from "../../lib/seams.js";
 import {
   CLEARED_API_CREDENTIALS,
@@ -34,7 +34,7 @@ const DEFAULT_TIMEOUT_MS = 300_000;
 const INITIALIZE_REQUEST_ID = "brain-initialize";
 const SETTINGS_REQUEST_ID = "brain-settings";
 
-/** Everything after the command, which `claudeExecutable()` decides per run. */
+/** Everything after the command, which `claudeCommand()` decides per run. */
 const CLAUDE_BASE_ARGS = [
   "--print",
   "--allowed-tools",
@@ -87,7 +87,7 @@ async function claudeSession(
 ): Promise<string> {
   const proc = Bun.spawn(
     [
-      claudeExecutable(),
+      ...claudeCommand(),
       ...CLAUDE_BASE_ARGS,
       "--verbose",
       "--input-format",
