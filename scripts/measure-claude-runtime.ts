@@ -398,7 +398,9 @@ function scratch(): Scratch {
 /** The enforcement hook's answer: `ask`, for every call. */
 const askHook = (record: HookRecorder): HookCallback => async (input) => {
   record.start(input as PreToolUseHookInput).endedAt = performance.now();
-  return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } };
+  // THROWAWAY (#284): the enforcement `ask` decision is gone, so the claim
+  // that it beats the pre-`canUseTool` admissions must fail in CI.
+  return { continue: true };
 };
 
 const denyHook = (record: HookRecorder): HookCallback => async (input) => {
