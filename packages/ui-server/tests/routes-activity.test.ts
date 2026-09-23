@@ -527,3 +527,69 @@ describe("sessions cost merge", () => {
     db.close();
   });
 });
+
+describe("activity rollups: the days window (#127)", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  /** One finished cron run per age, named for it so the window reads off `jobs`. */
+  const AGES: Record<string, number> = {
+    "1h": 60 * 60 * 1000,
+    "1.5d": 1.5 * DAY,
+    "2.5d": 2.5 * DAY,
+    "6.5d": 6.5 * DAY,
+    "7.5d": 7.5 * DAY,
+    "89.5d": 89.5 * DAY,
+    "90.5d": 90.5 * DAY,
+  };
+
+  function aged() {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { writer: "test" });
+    for (const [name, age] of Object.entries(AGES)) {
+      const startedAt = Date.now() - age;
+      store.startSpan({
+        spanId: `${name}:root`,
+        runId: name,
+        name: "cron",
+        kind: "cron",
+        origin: "cron",
+        jobName: name,
+        startedAt,
+      });
+      store.endSpan(`${name}:root`, { outcome: "success", endedAt: startedAt + 1000 });
+      store.rollupRun(name);
+    }
+    return { db, app: createActivityRoutes({ db, store }) };
+  }
+
+  async function window(app: ReturnType<typeof createActivityRoutes>, query: string) {
+    const res = await request(app, `/activity/rollups${query}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    return (body.jobs as { jobName: string }[]).map((j) => j.jobName).sort();
+  }
+
+  test("a negative days covers a window ending now and starting in the past", async () => {
+    const { db, app } = aged();
+    // Floored to one day — not a window that starts five days from now.
+    expect(await window(app, "?days=-5")).toEqual(["1h"]);
+    db.close();
+  });
+
+  test("zero, empty, absent and junk all fall to the default of 7; 400 caps at 90", async () => {
+    const { db, app } = aged();
+    const seven = ["1.5d", "1h", "2.5d", "6.5d"];
+    for (const q of ["?days=0", "?days=", "", "?days=junk"]) {
+      expect(await window(app, q)).toEqual(seven);
+    }
+    expect(await window(app, "?days=400")).toEqual(
+      ["1.5d", "1h", "2.5d", "6.5d", "7.5d", "89.5d"]
+    );
+    db.close();
+  });
+
+  test("a fractional days is a whole number of days", async () => {
+    const { db, app } = aged();
+    expect(await window(app, "?days=2.7")).toEqual(["1.5d", "1h"]);
+    db.close();
+  });
+});
