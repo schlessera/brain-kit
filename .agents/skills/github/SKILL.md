@@ -250,8 +250,9 @@ below exists because the tracker drifted without it.
   comment carries a marker naming the blockers, so a run that fails part way
   comments only once when it is retried. Run it once at a time, never in
   parallel. The dry run lists those issues, plus every `blocked` issue it
-  cannot verify. That is either a problem with the line (none, one that is not
-  plain, or one that names another reference after its list), so fix the line.
+  cannot verify. That is either a problem with the text, so fix the text. There is no
+  declaration, some other line says "blocked by", or a declaration names
+  another reference after its list.
   Or it is a blocker whose state `gh` could not read, so check `gh auth status`.
   Or it is a pull request that closed without merging, which never counts as
   closed. Without

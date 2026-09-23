@@ -306,13 +306,8 @@ export function blockersIn(body: string, repo: string): string[] {
 const BLOCKER_REF =
   /^(?:([\w.-]+\/[\w.-]+)?#(\d+)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)(?:[#?]\S*?)?)(?=$|[\s,.;:)!?])/;
 
-/**
- * Any line that looks like it declares a blocker, wherever it sits: indented,
- * quoted, in a list item, after a tab. Only a plain one is read; the rest
- * make the issue unverifiable instead of being skipped, because a skipped
- * declaration is a blocker the verdict never sees.
- */
-const DECLARATION_LIKE = /^[\s>*+\-\d.)[\]xX]*(?:\*\*)?blocked by\b/i;
+/** "blocked by" under any markdown formatting: `__Blocked by__`, `*blocked* by`. */
+const MENTIONS_BLOCKED_BY = /blocked[\s_*`~-]*by(?![a-z])/i;
 
 /**
  * The blockers an issue body names, and the declarations it could not read.
@@ -325,41 +320,33 @@ const DECLARATION_LIKE = /^[\s>*+\-\d.)[\]xX]*(?:\*\*)?blocked by\b/i;
  */
 export function parseBlockers(body: string, repo: string): { refs: string[]; unreadable: string[] } {
   const refs: string[] = [];
-  const unreadable: string[] = [];
+  const lines = body.split(/\r?\n/);
+  /** Indices of the lines read in full as plain declarations. */
+  const read = new Set<number>();
   // The open fence, if any. A fence closes only on the same character, at
-  // least as long, with nothing after it — a ``` line inside a ~~~~ example is
-  // part of the example, and toggling on it would read the example's blockers
-  // and skip the real ones.
+  // least as long, with nothing after it. Lines inside a fence are examples
+  // and are never read as declarations.
   let fence: { char: string; length: number } | undefined;
-  // HTML comments go first, before fences are tracked: a fence marker inside
-  // a comment must not open a fence that swallows the real declarations after
-  // it. A declaration hidden in a comment is not one the script may act on.
-  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, (hidden) => {
-    if (/blocked by/i.test(hidden)) unreadable.push(hidden.replace(/\s+/g, " ").trim());
-    return hidden.replace(/[^\n]/g, " ");
-  });
-  for (const line of visible.split(/\r?\n/)) {
+  // HTML comments are blanked the same way: what a reader cannot see is not
+  // a declaration the script may act on. Newlines survive, so indices match.
+  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, (hidden) => hidden.replace(/[^\r\n]/g, " "));
+  visible.split(/\r?\n/).forEach((line, index) => {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       const run = marker?.[1];
       if (run && run[0] === fence.char && run.length >= fence.length && !marker![2].trim()) {
         fence = undefined;
       }
-      continue;
+      return;
     }
     if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
       fence = { char: marker[1][0], length: marker[1].length };
-      continue;
+      return;
     }
-    if (!DECLARATION_LIKE.test(line)) continue;
     // A plain declaration: at the start of the line, optionally a top-level
-    // bullet and bold. Anything else that looks like one — indented, quoted,
-    // nested, a task item — is unreadable, not ignored.
+    // bullet and bold.
     const match = line.match(/^(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
-    if (!match) {
-      unreadable.push(line.trim());
-      continue;
-    }
+    if (!match) return;
     let rest = match[1];
     const found: string[] = [];
     for (;;) {
@@ -371,12 +358,19 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
       if (!separator || !BLOCKER_REF.test(rest.slice(separator[0].length))) break;
       rest = rest.slice(separator[0].length);
     }
-    if (found.length === 0 || /#\d|github\.com\/[^\s]+\/(?:issues|pull)\/\d/.test(rest)) {
-      unreadable.push(line.trim());
-      continue;
-    }
+    if (found.length === 0 || /#\d|github\.com\/\S+\/(?:issues|pull)\/\d/i.test(rest)) return;
     refs.push(...found);
-  }
+    read.add(index);
+  });
+  // The safety net, and the rule that makes the rest safe: every line of the
+  // RAW body that mentions "blocked by", however it is formatted or wherever
+  // it sits — a quote, a heading, a fence, a comment, prose — is either a
+  // declaration read in full above or unreadable. A declaration the parser
+  // did not recognise can therefore never be skipped while the ones it did
+  // recognise clear the label.
+  const unreadable = lines.flatMap((line, index) =>
+    MENTIONS_BLOCKED_BY.test(line) && !read.has(index) ? [line.trim()] : [],
+  );
   return { refs, unreadable };
 }
 

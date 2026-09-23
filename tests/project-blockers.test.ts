@@ -106,6 +106,22 @@ describe("a declaration read in part is not read at all", () => {
     }
   });
 
+  test("no formatting of a second declaration lets the first clear the label alone", () => {
+    // Each body declares #1 plainly and #2 in some other way. Whatever the
+    // parser makes of the second line, it must not be silently dropped.
+    const closedOne = states({ [`${REPO}#1`]: "closed" });
+    for (const second of [
+      "__Blocked by__ #2",
+      "_Blocked by_ #2",
+      "## Blocked by #2",
+      "Blocked by #3 and https://GITHUB.COM/o/r/issues/2",
+      "```html\n<!-- example opener\n```\n\n<!-- unrelated note -->\n\nBlocked by #2",
+    ]) {
+      const verdict = blockedVerdict(issue(9, ["blocked"], `Blocked by #1\n\n${second}`), closedOne);
+      expect({ second, kind: verdict.kind }).toEqual({ second, kind: "unverifiable" });
+    }
+  });
+
   test("a fence inside an HTML comment does not hide the declarations after it", () => {
     const body = ["Blocked by #1", "<!--", "```", "-->", "Blocked by #2"].join("\n");
     expect(blockersIn(body, REPO)).toEqual([`${REPO}#1`, `${REPO}#2`]);

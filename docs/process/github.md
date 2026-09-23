@@ -151,9 +151,10 @@ script reports it, and with `--apply` posts a one-line comment naming the
 closed blocker and removes the label. In the same run it then re-derives
 Status, unless the Status is `In progress` or `Done`, and the issue lands in
 Ready if nothing else holds it back. An issue labelled `blocked` keeps its label and is
-reported as unverifiable when it has no such line, when a line looks like a
-declaration but is not a plain one, when a line names another reference after
-its list, or when a blocker's state cannot be read. The script clears a label
+reported as unverifiable in four cases. It has no such line. Some other line
+in the body says "blocked by" in any form: prose, a quote, a heading, an
+example in a code block, an HTML comment. A declaration names another
+reference after its list. Or a blocker's state cannot be read. The script clears a label
 only on declarations it read in full. Closing a blocker unblocks nothing by itself — the line has to be there,
 and the script has to run.
 
