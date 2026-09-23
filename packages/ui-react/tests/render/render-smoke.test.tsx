@@ -4163,9 +4163,16 @@ describe("printed keys follow the pointer (#86)", () => {
       expect(page.getByText("j / k move · d dismiss · ⏎ open")).toBeTruthy();
       expect(page.getByText("j / k move · d dismiss")).toBeTruthy();
       expect(page.getAllByRole("button", { name: "Dismiss · d" })).toHaveLength(2);
+
+      // And the pointer never overrides the switch: with single-key shortcuts
+      // off, a fine pointer prints nothing either.
+      act(() => useUIStore.getState().setSingleKeyShortcuts(false));
+      expect(page.container.textContent).not.toContain("j / k move");
+      expect(page.queryAllByRole("button", { name: "Dismiss · d" })).toHaveLength(0);
       page.unmount();
     } finally {
       window.matchMedia = real;
+      useUIStore.getState().setSingleKeyShortcuts(true);
     }
   });
 
