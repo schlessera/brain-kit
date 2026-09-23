@@ -533,10 +533,15 @@ subscription authenticates.
 
    The same rule covers the core CLI's Claude runners. Legitimate non-inference
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
-   completions, keep working by naming their key separately: the completion
-   provider already takes an `apiKeyEnv`
-   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`). Tracked in
-   #253.
+   completions, have to keep working under a separately named key. The
+   provider can already read one
+   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`),
+   but nothing public reaches that option: the `completions` config schema
+   admits only `provider` and `fallback`
+   (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry
+   builds the provider with no options
+   (`"anthropic-haiku": () => anthropicCompletions()`, `packages/core/src/lib/registry.ts:40`).
+   A supported route to name that key is part of the work. Tracked in #253.
 2. **The billing mode in effect is observed per turn, and checked against the
    profile's policy.** The run records `init.apiKeySource` and the
    `accountInfo()` fields (`tokenSource`, `subscriptionType`, `apiProvider`).
