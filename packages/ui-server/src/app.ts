@@ -5,6 +5,7 @@ import { serveStatic } from "hono/bun";
 import { join } from "path";
 import { resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
+import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createActivityRoutes } from "./routes/activity.js";
@@ -180,6 +181,9 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // backend construction and model discovery remain lazy.
   // Skipped when the embedder injects its own registry.
   if (!options.registry) assertBackendResolvable(config.agent);
+  // An unparseable token mint date refuses here, before anything is opened
+  // (#254): ignoring it would silently switch the expiry warning off.
+  parseMintedAt(config.subscription.mintedAt);
   // The runtime every active backend would spawn, probed now (#211): a
   // missing or unstartable binary refuses the boot here instead of failing
   // the first turn — and before anything is opened, so a refused boot leaves
@@ -228,6 +232,15 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       getBillingOverrides: () => getBillingOverrides(db, dbLog),
       log: observability.logger("agent"),
     });
+  // The subscription token (#254): boot warnings now, the expiry check daily,
+  // and what /api/status says about it.
+  const subscription = createSubscriptionMonitor({
+    config: config.subscription,
+    log: observability.logger("agent"),
+    db,
+    lastTurnFailure: () => activity.runtime.subscriptionAuthFailure(),
+    modelSource: () => registry.getModelSource(),
+  });
   // The classification pass (D42): always constructed so persisted blocks
   // replay, calling out only when a key is configured.
   const classifier = createTurnClassifier({
@@ -411,6 +424,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       // SDK exports elsewhere), in which case the field is simply absent.
       getMetrics: () => observability.metrics?.snapshot(),
       getRuntime: () => activity.runtime.snapshot(),
+      getSubscription: () => subscription.status(),
     })
   );
   app.route(
@@ -521,6 +535,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: () => {
       host.close();
+      subscription.close();
       activity.close();
       db.close();
     },

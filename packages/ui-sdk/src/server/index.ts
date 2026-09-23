@@ -11,8 +11,16 @@ export type {
   PermissionRequest,
   AskUserResult,
   LocationFix,
+  SubscriptionAuthAction,
 } from "./backend.js";
-export { BackendBusyError, BackendRequestError, assertTurnPosture } from "./backend.js";
+export {
+  BackendBusyError,
+  BackendRequestError,
+  SUBSCRIPTION_AUTH_INSTRUCTIONS,
+  SUBSCRIPTION_RELOGIN_PROCEDURE,
+  assertTurnPosture,
+  subscriptionAuthAction,
+} from "./backend.js";
 
 export type {
   BackendLogFn,

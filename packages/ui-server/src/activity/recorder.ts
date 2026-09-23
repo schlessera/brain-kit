@@ -34,13 +34,13 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
-import type { RuntimeStatus } from "./runtime-status.js";
+import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
   store: ActivityStore;
   /** Where the runtime a turn reported, and its auth failures, are kept for /api/status. */
-  runtime?: Pick<RuntimeStatus, "observe" | "authFailure">;
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven">>;
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;
@@ -105,6 +105,11 @@ export function createTurnRecorder(
   let principalRevocationRecorded = false;
   /** An auth failure was reported: whatever the result frame claims, the run failed. */
   let authFailed = false;
+  // What the run's profile requires, once the runtime has reported it: an auth
+  // failure on a profile with its own credential is not the subscription's (#254).
+  let observedPolicy: BillingMode | undefined;
+  // What the run actually billed, as the runtime observed it.
+  let observedBilling: string | undefined;
 
   const guard = (fn: () => void) => {
     try {
@@ -308,6 +313,8 @@ export function createTurnRecorder(
               });
             }
             runtime?.observe(event, runId);
+            observedPolicy = event.policy;
+            observedBilling = event.billing;
             onWrite?.();
             break;
           }
@@ -317,9 +324,9 @@ export function createTurnRecorder(
             store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": event.errorClass } });
             store.appendEvent(rootSpanId, "auth_failure", {
               errorClass: event.errorClass,
-              ...(event.message ? { message: event.message } : {}),
+              ...(event.message ? { message: redactCredentials(event.message) } : {}),
             });
-            runtime?.authFailure(event, runId);
+            runtime?.authFailure(event, runId, observedPolicy);
             onWrite?.();
             break;
           }
@@ -433,6 +440,11 @@ export function createTurnRecorder(
         // Anything still open died with the turn.
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
         store.rollupRun(runId);
+        // Kept now, not only when the status is next read (#254).
+        if (outcome === "success" && observedBilling === "subscription") {
+          const endedAt = store.getSpan(rootSpanId)?.endedAt;
+          if (typeof endedAt === "number") runtime?.subscriptionProven?.(endedAt);
+        }
         onWrite?.();
       });
     },

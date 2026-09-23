@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/server";
 import {
   canonicalModelId,
   createModelSource,
@@ -310,13 +311,16 @@ describe("a refused credential (#211)", () => {
       log: (level, message, attrs) => logs.push({ level, message, attrs }),
     });
     await expect(source.refresh()).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
+    // One WARN, carrying the re-login instruction (#254).
     expect(logs).toEqual([
       {
         level: "warn",
-        message: "model discovery: authentication failed",
-        attrs: { "http.status": 401, "failure.class": "authentication_failed" },
+        message: `model discovery: ${SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin}`,
+        attrs: { "http.status": 401, "failure.class": "authentication_failed", "auth.action": "relogin" },
       },
     ]);
     expect(source.state().error).toContain("authentication failed");
+    expect(source.state().subscriptionRefused?.status).toBe(401);
+    expect(source.state().subscriptionProvenAt).toBeUndefined();
   });
 });

@@ -816,6 +816,8 @@ export "./server" (./src/server/index.ts)
   STATS_BLOCK_SCHEMA
   STEPS_BLOCK_SCHEMA
   SUBPROCESS_ENV
+  SUBSCRIPTION_AUTH_INSTRUCTIONS
+  SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -854,6 +856,7 @@ export "./server" (./src/server/index.ts)
   type SpeechSession
   type StartTurnRequest
   type SubprocessEnvAudience
+  type SubscriptionAuthAction
   type SurfaceTools
   type SystemStatus
   TABLE_BLOCK_SCHEMA
@@ -945,6 +948,7 @@ export "./server" (./src/server/index.ts)
   signedArea
   simplify
   stitch
+  subscriptionAuthAction
   sumModelUsage
   thresholdOf
   toleranceMetres

@@ -375,19 +375,31 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "CLAUDE_CODE_OAUTH_TOKEN",
     description:
-      "Consulted for PRESENCE only, to classify billing: with it set and no " +
-      "ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in " +
-      "default and discovered models) count as subscription-billed. The token " +
-      "itself is consumed by the Claude backend / Agent SDK, not this package.",
+      "Subscription token from `claude setup-token`: authenticates every Claude " +
+      "profile without its own credential, and model discovery. The Claude " +
+      "backend consumes it; this package reads only whether it is set, for " +
+      "/api/status. Minted off the host and rotated by redeploy (docs/hosting, " +
+      '"Claude subscription login").',
     default: null,
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_CLAUDE_TOKEN_MINTED_AT",
+    description:
+      "The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), " +
+      "set next to the token in the same redeploy. The server counts the " +
+      "token's one-year lifetime from it and warns 30 days before expiry. " +
+      "An unparseable date refuses boot. Server-only.",
+    default: "no expiry warning (one WARN at boot says so)",
     required: false,
   },
   {
     name: "ANTHROPIC_API_KEY",
     description:
-      "Consulted for PRESENCE only, to classify billing: when set it wins " +
-      "over CLAUDE_CODE_OAUTH_TOKEN (mirroring the Agent SDK's credential " +
-      "precedence), so ambient-credential profiles count as api-billed.",
+      "Never used by a Claude profile without its own credential: those run " +
+      "on the subscription, with this cleared before Claude Code starts. The " +
+      "Claude backend uses it for model discovery only when no " +
+      "CLAUDE_CODE_OAUTH_TOKEN is set.",
     default: null,
     required: false,
   },
@@ -593,6 +605,15 @@ export interface ServerConfig {
   coastline: CoastlineConfig;
   /** Model-pricing service (BRAIN_UI_PRICING_*); inline like wsRate. */
   pricing: { enabled: boolean; ttlMs: number };
+  /** The Claude subscription token, as far as the server needs to know it (#254). */
+  subscription: SubscriptionConfig;
+}
+
+export interface SubscriptionConfig {
+  /** CLAUDE_CODE_OAUTH_TOKEN is set. The token itself never enters the config. */
+  tokenSet: boolean;
+  /** BRAIN_UI_CLAUDE_TOKEN_MINTED_AT as written; validated at boot. */
+  mintedAt: string | null;
 }
 
 // --- resolver ----------------------------------------------------------------
@@ -807,6 +828,10 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     pricing: {
       enabled: pricingEnabled,
       ttlMs: pricingTtlMs,
+    },
+    subscription: {
+      tokenSet: Boolean(env.CLAUDE_CODE_OAUTH_TOKEN?.trim()),
+      mintedAt: env.BRAIN_UI_CLAUDE_TOKEN_MINTED_AT?.trim() || null,
     },
   };
 }
