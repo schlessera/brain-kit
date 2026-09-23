@@ -429,8 +429,13 @@ install of 2.1.280, with the same results on both. Each run was a `query()`
 with an empty `HOME` and `CLAUDE_CONFIG_DIR`, bogus credentials of the right
 shape, and `ANTHROPIC_BASE_URL` pointed at a loopback HTTP server that logs
 request headers and answers 401. No request left the machine, so nothing was
-billed. A second set of runs without the loopback server hit the real API with
-the same bogus credentials and got 401s.
+billed. A second set of runs without the loopback server sent the same bogus
+credentials to the real API. They got 401s and recorded the same
+`apiKeySource`/`tokenSource` values, but a 401 cannot show which credential
+was sent. The header column comes from the loopback runs only. Nothing in the
+binary was found that picks the credential differently for a non-default base
+URL. That is a static reading, not a wire observation against the real
+endpoint.
 
 | Credentials in the CLI's environment | `init.apiKeySource` | `accountInfo().tokenSource` | What `/v1/messages` carried |
 | --- | --- | --- | --- |
@@ -441,12 +446,16 @@ the same bogus credentials and got 401s.
 
 **The API key silently wins.** With both present the OAuth token is not sent at
 all, and nothing warns: `accountInfo()` still reports the OAuth token as the
-token source. Only `apiKeySource` shows it. So a host that sets
-`ANTHROPIC_API_KEY` for anything else moves every default-profile chat turn to
-API billing. Two such uses exist on the same host: the core CLI's
-`anthropic-haiku` completions (`packages/core/src/cli/brain.ts:72`) and model
-discovery. The cost record then says `api`, which is accurate bookkeeping of
-the thing the requirement forbids.
+token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
+reaches the CLI for any reason moves every default-profile chat turn to API
+billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
+completion provider reads it (`packages/core/src/cli/brain.ts:72`), and so does
+model discovery. The cost record then says `api`, which is accurate
+bookkeeping of the thing the requirement forbids. Chat is not the only path.
+The core CLI's Claude runners, which `brain sync` uses under cron, spawn
+`claude` with the inherited environment
+(`packages/core/src/providers/agents/cli-runners.ts:37-43,66-72`), and that
+environment admits the API key (`subprocess-env.ts:59`).
 
 The SDK's bundled binary honours `CLAUDE_CODE_OAUTH_TOKEN` exactly as the host
 install does, in every row above. The runtime decision does not change how the
@@ -459,8 +468,10 @@ subscription authenticates.
   default. The binary's OAuth module has `var vV=31536000`, and the login flow
   passes `expiresIn: N==="setup-token" ? W ?? vV : void 0`. The CLI says
   "valid for 1 year".
-- **Expired or revoked.** Measured with a bogus token, which the API rejects the
-  same way: two `api_retry` messages with status 401 and `authentication_failed`,
+- **An invalid token.** Measured with a bogus token. An expired or revoked real
+  token was not available to test, so treat that case as unmeasured; it is
+  expected to take the same path, but that is an inference. What the bogus token
+  produced: two `api_retry` messages with status 401 and `authentication_failed`,
   then an `assistant` message with `error: "authentication_failed"` and the text
   "Failed to authenticate. API Error: 401 OAuth access token is invalid.", then
   a `result` with **`subtype: "success"`** and `is_error: true`. The adapter
@@ -471,8 +482,8 @@ subscription authenticates.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
   validity.
-- **Logging in needs a TTY.** Run with stdin from `/dev/null`, `setup-token`
-  printed nothing until it was killed at 20 s. Under a pseudo-terminal it
+- **Logging in needed a TTY in the one run without one.** On 2.1.278 with stdin
+  from `/dev/null`, `setup-token` printed nothing until it was killed at 20 s. Under a pseudo-terminal it
   prints an authorize URL and a "Paste code here if prompted" prompt. The
   redirect is a manual code page, so the browser can be on a different machine
   from the host.
@@ -489,17 +500,32 @@ subscription authenticates.
 
 ### What binds
 
-1. **A turn that can use the subscription does.** For a profile that declares
-   no credential, when `CLAUDE_CODE_OAUTH_TOKEN` is set, the CLI's environment
-   carries no `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`. API billing happens
-   only through a profile that declares it. Tracked in #253.
-2. **The billing mode in effect is observed per turn, not only classified.**
-   `init.apiKeySource` and `accountInfo().tokenSource` are recorded on the run.
-   `apiKeySource: "none"` with an OAuth token source is subscription; anything
-   else is not. `apiKeySource` alone is not enough, because it also reads
-   `none` when nothing is logged in. When the observed mode differs from
-   `classifyBilling`'s, the run is flagged and a warning is logged. Tracked in
-   #211.
+1. **An ambient credential never bills an API key.** A Claude profile that
+   declares no credential always runs with `ANTHROPIC_API_KEY` and
+   `ANTHROPIC_AUTH_TOKEN` cleared, **whether or not a subscription credential is
+   present**. With no usable subscription login the turn fails as an auth
+   failure; it does not fall back to an API key. API billing happens only
+   through a profile that declares `apiKeyEnv` or `authTokenEnv`. A host that
+   today bills an ambient API key on purpose has to declare that profile. The
+   same rule covers the core CLI's Claude runners. Tracked in #253.
+2. **The billing mode in effect is observed per turn, and checked against the
+   profile's policy.** The run records `init.apiKeySource` and the
+   `accountInfo()` fields (`tokenSource`, `subscriptionType`, `apiProvider`).
+   These show which credential the CLI selected. They do not prove the server
+   billed it that way, or that it authenticated. The derivation:
+   - `apiKeySource: "none"` with `tokenSource: "CLAUDE_CODE_OAUTH_TOKEN"` (or
+     its file-descriptor variant) is a subscription token.
+   - `apiKeySource: "none"` with `subscriptionType` present is a stored
+     subscription login. The binary omits `tokenSource` for that case, which was
+     read from its account-info function, not measured end to end.
+   - `ANTHROPIC_API_KEY` or `apiKeyHelper` is API.
+   - Anything else is **unknown**.
+
+   `apiKeySource` alone is not enough, because it also reads `none` when nothing
+   is logged in. The check that matters compares the observation with what the
+   profile requires — subscription for a credential-free profile — not with
+   `classifyBilling`, since both can regress together. A mismatch flags the run
+   and logs a warning. Tracked in #211.
 3. **An auth failure is its own outcome.** `authentication_failed` (and the
    other account classes the SDK names — `oauth_org_not_allowed`,
    `account_on_hold`, `billing_error`; `sdk.d.ts:3484`) ends a turn as a
