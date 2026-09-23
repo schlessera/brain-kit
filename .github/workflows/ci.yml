@@ -343,6 +343,46 @@ jobs:
           '
           "$REPO_DIR/node_modules/.bin/tsc" -p tsconfig.json --pretty false
 
+  claude-runtime-probe:
+    # The Claude backend's permission design rests on behaviours of the CLI it
+    # drives (docs/decisions/claude-code-runtime.md, "Re-checking a measured
+    # behaviour when the version moves"). `measured-runtime.test.ts` fails when
+    # the SDK version moves; this fails when a behaviour moves under an
+    # unchanged one, e.g. a lockfile resolution that swaps the platform binary
+    # (#284). It runs the real CLI the lockfile installs against a scripted
+    # loopback Messages API with bogus credentials, so it needs no secret.
+    #
+    # It runs in a network namespace that holds nothing but loopback, so no
+    # request can leave the runner: every case passing there is the proof
+    # that the probe needs no network. Ubuntu's AppArmor blocks unprivileged
+    # user namespaces by default; the sysctl lifts that for this job only,
+    # where the knob exists.
+    runs-on: ubuntu-latest
+    # A CLI that stalls inside the namespace must not hold the runner for
+    # hours; the probe takes about a minute.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Allow an unprivileged network namespace
+        # Only where AppArmor restricts them (GitHub's Ubuntu images); Depot's
+        # runners do not have the knob at all.
+        run: |
+          knob=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$knob" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      - name: Probe the Claude runtime, with no network but loopback
+        # A failed or inconclusive case exits non-zero and fails the job.
+        timeout-minutes: 10
+        run: >-
+          unshare --user --map-root-user --net
+          sh -c 'ip link set lo up && bun scripts/measure-claude-runtime.ts --out probe.json'
+      - name: The probe's report
+        if: always()
+        run: cat probe.json 2>/dev/null || echo "The probe wrote no report."
+
   changeset:
     # A user-visible change without a changeset publishes with no version entry
     # and no changelog line. CONTRIBUTING.md has said so since the repo opened;
