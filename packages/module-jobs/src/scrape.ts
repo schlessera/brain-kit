@@ -314,11 +314,18 @@ export function ingestJobs(
     "INSERT INTO jobs_fts(rowid, title, company, description_text, tags) VALUES (?, ?, ?, ?, ?)"
   );
   const deleteFts = db.prepare("DELETE FROM jobs_fts WHERE rowid = ?");
-  // A row whose fingerprint moved has left its dedup group: it is no longer a
-  // duplicate of anything, and nothing that matched its OLD fingerprint is a
-  // duplicate of it. `runDedup`, which runs after every ingest, regroups both.
+  // A row whose fingerprint moved has left one dedup group and may have joined
+  // another. It is no longer a duplicate of anything; nothing that matched its
+  // OLD fingerprint is a duplicate of it; and the group it joins must be
+  // settled again, because a row older than that group's canonical takes its
+  // place — leaving the group's marks would chain its duplicates to a
+  // canonical that is now a duplicate itself. `runDedup`, which runs after
+  // every ingest, regroups all three.
   const releaseRow = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE id = ?");
   const releaseDependants = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE duplicate_of = ?");
+  const releaseGroup = db.prepare(
+    "UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE fingerprint = ? AND is_duplicate = 1"
+  );
 
   const transaction = db.transaction(() => {
     for (const job of jobs) {
@@ -419,6 +426,7 @@ export function ingestJobs(
         if (existing.fingerprint !== fingerprint) {
           releaseRow.run(existing.id);
           releaseDependants.run(existing.id);
+          releaseGroup.run(fingerprint);
         }
       } else {
         stats.new++;

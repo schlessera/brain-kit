@@ -212,6 +212,34 @@ describe("a row whose fingerprint changes moves dedup group", () => {
     });
   });
 
+  test("an OLDER row joining an established group becomes its canonical, with no chain left behind", () => {
+    // The refreshed row predates the group it joins, so it wins the group.
+    // Every existing duplicate must end up pointing at it — not at the old
+    // canonical, which is now a duplicate itself.
+    withDb((db) => {
+      ingestJobs(db, [acme("dice", "d", "Unknown"), acme("remoteok", "a"), acme("weworkremotely", "b")]);
+      age(db, "dice", "d", "2025-12-01T00:00:00.000Z");
+      age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
+      age(db, "weworkremotely", "b", "2026-01-02T00:00:00.000Z");
+      runDedup(db);
+      expect(row(db, "weworkremotely", "b").duplicate_of).toBe(row(db, "remoteok", "a").id);
+
+      ingestJobs(db, [acme("dice", "d")]);
+      runDedup(db);
+
+      const d = row(db, "dice", "d");
+      expect(d).toMatchObject({ is_duplicate: 0, duplicate_of: null });
+      expect(row(db, "remoteok", "a")).toMatchObject({ is_duplicate: 1, duplicate_of: d.id });
+      expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: d.id });
+      const chained = db
+        .query(
+          "SELECT j.id FROM jobs j JOIN jobs target ON target.id = j.duplicate_of WHERE target.is_duplicate = 1"
+        )
+        .all();
+      expect(chained).toEqual([]);
+    });
+  });
+
   test("an unchanged re-scrape leaves dedup marks alone", () => {
     withDb((db) => {
       ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b")]);
