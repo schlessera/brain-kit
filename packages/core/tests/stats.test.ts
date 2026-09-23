@@ -458,24 +458,27 @@ describe("vectors are read through the shared loadVecSupport", () => {
     vandal.close();
 
     const db = openDatabase(dbPath, { readonly: true });
-    load(db);
-    // Staged as claimed: the extension is loaded and the count really throws.
-    expect(() => db.prepare("SELECT COUNT(*) AS c FROM vec_chunks").get()).toThrow(/vec_chunks_rowids/);
+    try {
+      load(db);
+      // Staged as claimed: the extension is loaded and the count really throws.
+      expect(() => db.prepare("SELECT COUNT(*) AS c FROM vec_chunks").get()).toThrow(/vec_chunks_rowids/);
 
-    const { stats, warnings } = await collectCapturingWarnings(db, {
-      root,
-      dbPath,
-      taxonomy: taxonomyWith(),
-      config: null,
-      now: NOW,
-      embeddingsConfigured: true,
-    });
+      const { stats, warnings } = await collectCapturingWarnings(db, {
+        root,
+        dbPath,
+        taxonomy: taxonomyWith(),
+        config: null,
+        now: NOW,
+        embeddingsConfigured: true,
+      });
 
-    expect(stats.embeddings).toBeNull();
-    expect(stats.health.embeddingCoverage).toBeNull();
-    // The extension loaded, so nothing may claim it did not.
-    expect(warnings).toEqual([]);
-    db.close();
+      expect(stats.embeddings).toBeNull();
+      expect(stats.health.embeddingCoverage).toBeNull();
+      // The extension loaded, so nothing may claim it did not.
+      expect(warnings).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 
   test("a brain with no vec_chunks is answered without loading the extension, and warns nothing", async () => {
