@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -39,10 +39,16 @@ const NOT_A_FIXTURE = new Set(["capture.json", "README.md"]);
  */
 const NOT_A_CAPTURE = new Set(["criteria.md"]);
 
-/** The fixture files directly in `dir` — the bytes its record must describe. */
+/**
+ * The fixture files directly in `dir` — the bytes its record must describe.
+ *
+ * Everything that is not a directory counts, symlinks included: a symlinked
+ * capture is still bytes a test reads, and dropping it here would let it in
+ * without a record.
+ */
 function fixtureFilesIn(dir: string, root = FIXTURES): string[] {
   return readdirSync(join(root, dir), { withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter((entry) => !entry.isDirectory())
     .map((entry) => entry.name)
     .filter((name) => !NOT_A_FIXTURE.has(name) && !NOT_A_CAPTURE.has(join(dir, name)));
 }
@@ -216,6 +222,16 @@ describe("which directories the guard covers", () => {
     });
     try {
       expect(fixtureFilesIn(".", root)).toEqual(["stray.html"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a symlinked capture still needs a record", () => {
+    const root = tree({ "boards/x/page.html": "<html></html>" });
+    try {
+      symlinkSync(join(root, "boards/x/page.html"), join(root, "boards/x/linked.html"));
+      expect(fixtureFilesIn(join("boards", "x"), root).sort()).toEqual(["linked.html", "page.html"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

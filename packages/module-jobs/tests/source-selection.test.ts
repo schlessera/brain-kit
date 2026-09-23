@@ -67,6 +67,10 @@ describe("selectSources", () => {
     const all = selectSources({ positional: [], configured: [], all: true }) as { sources: string[] };
     const defaults = selectSources({ positional: [], configured: [] }) as { sources: string[] };
 
+    // Positive as well as negative: a selection that returned nothing would
+    // pass every `not.toContain` below.
+    expect(all.sources).toEqual([...ALL_SOURCES]);
+    expect(defaults.sources).toEqual([...SOURCES]);
     expect(Object.keys(RETIRED_SOURCES)).toContain("remoteineurope");
     for (const retired of Object.keys(RETIRED_SOURCES)) {
       expect(all.sources).not.toContain(retired);
@@ -114,8 +118,17 @@ describe("jobs scrape <retired board>", () => {
       taxonomy: { dirForType: () => undefined },
     } as unknown as CommandContext<JobsConfig>;
 
-    const code = await command.run(["scrape", "remoteineurope"], ctx);
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((() => {
+      throw new Error("a refused scrape must not reach the network");
+    }) as unknown as typeof fetch);
+    let code: number | void;
+    try {
+      code = await command.run(["scrape", "remoteineurope"], ctx);
+    } finally {
+      fetchSpy.mockRestore();
+    }
 
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(code).toBe(1);
     expect(stderr.join("\n")).toContain("remoteineurope was retired");
     // A scrape opens (and so creates) the jobs database before any board is
