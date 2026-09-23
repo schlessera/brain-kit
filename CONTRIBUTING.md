@@ -71,10 +71,25 @@ needs an API key or the network.
    no protocol plugins.
 3. **Contributing a provider** (the intended extension path, ≤3 steps):
    implement the typed interface (`defineConfig` accepts your value directly),
-   prove it against the interface's contract test, and optionally publish as
+   test it keylessly against that interface, and optionally publish as
    `brain-<kind>-<vendor>` under your own npm scope (matching the in-tree
    `brain-backend-claude` / `brain-render-puppeteer` / `brain-module-jobs`
-   precedent). Promotion to a built-in has its own bar, written in
+   precedent).
+
+   Only agent backends have a reusable contract suite:
+   `runBackendContract` from `@schlessera/brain-ui-sdk/testing`, which both
+   first-party backends run
+   ([agent-backends.md](docs/extending/agent-backends.md#naming-and-stability)).
+   No other seam ships one, so for the rest, drive your real provider code
+   with scripted inputs, no API key and no network. An HTTP provider gets a
+   stubbed `fetch` or vendor SDK transport, as
+   `packages/core/tests/gemini-query.test.ts` does. An agent runner gets a
+   fake executable on `PATH` that prints a scripted reply. A skill emitter
+   writes into a temporary repository, as
+   `packages/core/tests/skills-claude-emitter.test.ts` does. Cover every
+   method and every `capabilities` flag you declare.
+
+   Promotion to a built-in has its own bar, written in
    [`docs/extending/README.md`](docs/extending/README.md#promoting-a-community-provider-to-a-built-in).
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.
