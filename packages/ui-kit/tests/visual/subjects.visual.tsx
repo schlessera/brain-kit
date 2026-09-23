@@ -137,8 +137,11 @@ interface ComposedStory {
  *
  * `allowedMismatchedPixelRatio` is the count: at 0.1% of a phone screen it is
  * about 240 pixels, a softened glyph edge and nowhere near a moved element or a
- * missing fill. Every defect this file exists for — a collapsed box, a seam
- * between two bars, a crushed row, a tint gone — is orders of magnitude larger.
+ * missing fill. The defects this file was built after — a collapsed box, a run
+ * drawn as two bars, a crushed row, a tint gone — each move thousands. It is
+ * not a bound on everything: a one-pixel seam ten pixels tall is about ten
+ * mismatches and passes, so a defect that small needs an assertion, not a
+ * baseline.
  */
 const TOLERANCE = { comparatorOptions: { threshold: 0.01, allowedMismatchedPixelRatio: 0.001 } } as const;
 
