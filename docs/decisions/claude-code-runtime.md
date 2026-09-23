@@ -97,6 +97,7 @@ after `bun install`:
 | `ls -l ~/.local/share/claude/versions` (the standalone install's own store) | four files, `2.1.270`, `2.1.271`, `2.1.278`, `2.1.280`, modified 2026-09-12, 09-15, 09-21 and 09-22; the `claude` on `PATH` links to `2.1.280` |
 | a `query()` under Bun with no `pathToClaudeCodeExecutable`, an empty `HOME` and no credentials, stopped at the first `system`/`init` message | `claude_code_version: "2.1.278"` |
 | the same `query()` with `pathToClaudeCodeExecutable` set to the standalone binary | `claude_code_version: "2.1.280"` |
+| a `query()` with no `pathToClaudeCodeExecutable` whose `spawnClaudeCodeProcess` records what it is handed and throws a sentinel error | the sentinel reaches the caller; `command` is the absolute path of `node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`, `args` begin `--output-format stream-json --verbose` |
 | `time claude --version` | 0.009 s |
 
 The versions directory shows a host-installed binary that took four versions
@@ -138,7 +139,8 @@ unnecessary.
   pin lives in the host's build file, where no test in this repo can see it or
   compare it with the SDK it has to agree with.
 - **Reproducible and reversible.** The lockfile hash pins the bytes; npm versions
-  are immutable, so rolling back is reverting the lockfile and rebuilding.
+  are immutable (npm refuses to republish a name and version once used), so
+  rolling back is reverting the lockfile and rebuilding.
 - **No new updater.** Nothing runs at boot or on a timer, and nothing needs
   network access at runtime.
 
@@ -150,7 +152,7 @@ unnecessary.
 | **Rebuild on release, installing `latest`** | The version is whatever was newest at build time. Two builds of one commit can differ; a rollback cannot rebuild the old binary. | Not reproducible. |
 | **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime (`container-privilege.md:70`), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
 | **Sidecar or scheduled updater** | The binary changes under a running server, possibly between two turns of one conversation, with no deploy event to attach a re-check to. | Same immutability conflict, and the worst observability of the set. |
-| **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download, and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | Without `--no-install` it makes the registry a runtime dependency. With it, over a preinstalled Claude Code package, it is the pinned host install above plus a resolution step on every turn — still a second pin, and no longer the SDK's binary. |
+| **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download (`bunx --help`: "automatically installing into a global shared cache if not installed"), and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | Without `--no-install` it makes the registry a runtime dependency. With it, over a preinstalled Claude Code package, it is the pinned host install above plus a resolution step on every turn — still a second pin, and no longer the SDK's binary. |
 | **Do nothing** | Today's state: whatever binary the host installs, pinned or not, and nothing in this repo knows which. | The problem this record exists to fix. |
 
 ### What this costs
@@ -267,9 +269,9 @@ name instead of repeating the numbers. Two mechanisms hang off it:
 - **A keyless guard test** fails when the SDK the backend actually imports is
   not the one the constant names. It locates that SDK by resolving the
   backend's own import, then reads `package.json` and `manifest.json` from the
-  directory beside the resolved entry. It cannot import them: the SDK's
-  `exports` map names neither file
-  (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`), and a path
+  directory beside the resolved entry. Neither file is exported as a package
+  subpath (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`), so
+  importing them works under one runtime and not another; a path
   hard-coded to the root `node_modules` could read a different copy from the one
   the backend loads. CI installs with `--frozen-lockfile`
   (`.github/workflows/ci.yml:52`), so bumping the SDK in this repo fails CI until
@@ -325,8 +327,10 @@ them:
 ### The sites
 
 The issue named four. There are seven places whose truth depends on the
-runtime pair on `fe5a225` — six naming it, one restating it without a number —
-plus historical anchors that are deliberately left alone.
+runtime on `fe5a225` — five naming the pair, one (D44) naming only the SDK, one
+restating the behaviour with no version — plus historical anchors that are
+deliberately left alone. D44's CLI version was not recorded, so it is unknown
+until re-measured.
 
 | Site | What it asserts | Re-checked by |
 | --- | --- | --- |
