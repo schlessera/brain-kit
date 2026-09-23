@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -232,7 +232,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 7);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 8) {
     // v8 — derived wiki-link graph. Every table here is rebuilt wholesale by
     // lib/graph/precompute.ts on each index run (the `links` precedent): it is
     // cache, never authoritative state, and is never hand-written.
@@ -272,6 +272,16 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     )`);
 
     db.run("CREATE INDEX IF NOT EXISTS idx_graph_metrics_community ON graph_metrics(community)");
+
+    setSchemaVersion(db, 8);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v9 — "what links to this document" is a lookup, not a scan. The links
+    // primary key leads with source_id, so without this every backlink query
+    // (brain_links direction "incoming") read the whole table. Built from the
+    // rows already there: an upgraded brain needs no reindex.
+    db.run("CREATE INDEX IF NOT EXISTS idx_links_target_id ON links(target_id)");
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

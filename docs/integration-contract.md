@@ -349,8 +349,10 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **8**),
-  `embedding_model`, `embedding_dimensions`, `vec_schema`.
+- Check `index_metadata` first: `schema_version` (currently **9**),
+  `embedding_model`, `embedding_dimensions`, `vec_schema`. Schema 9 adds only
+  an index on `links(target_id)`; no table or column changed from 8, so a
+  reader that accepts 8 reads 9 unchanged.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,

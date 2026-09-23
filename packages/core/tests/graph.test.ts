@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { openDatabase } from "../src/lib/db";
+import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { runGraphPrecompute } from "../src/lib/graph/precompute";
@@ -95,14 +95,14 @@ function idFor(db: Database, path: string): number {
 }
 
 describe("schema v8 migration", () => {
-  test("a fresh database lands on v8 with every graph table present", () => {
+  test("a fresh database lands on the current schema with every graph table present", () => {
     const root = makeCorpus({});
     const db = openDatabase(join(root, "brain.db"));
 
     const version = db
       .prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'")
       .get() as { value: string };
-    expect(version.value).toBe("8");
+    expect(version.value).toBe(String(SCHEMA_VERSION));
 
     const tables = (
       db
@@ -151,7 +151,7 @@ describe("schema v8 migration", () => {
     const version = migrated
       .prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'")
       .get() as { value: string };
-    expect(version.value).toBe("8");
+    expect(version.value).toBe(String(SCHEMA_VERSION));
     expect(
       (migrated.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n
     ).toBe(1);
