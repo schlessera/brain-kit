@@ -1813,6 +1813,50 @@ and the printed keys are ordinary label text. The kit does not bind `a`, `d`,
 `s`, `j` or `k` itself: which card is "focused" for the purpose of a letter
 key is the list's knowledge, not the card's.
 
+### D36 addendum — printed keys follow the pointer, so a keyboard-only tablet goes without them (maintainer, 2026-09-22)
+
+"Every shortcut is printed where it applies" met a tablet in landscape: past
+`laptop:` it read the rail's `⌘1`–`⌘5` and a footer of letters it had no key
+to press. #86 and #100 answered that by printing those keys — the rail's
+`⌘1`–`⌘5`, the approval cards' `a` / `d`, the search and add panels' hint
+lines, and the Actions pane's `j` / `k` / `d` — only while
+`(any-pointer: fine)` matches (`useFinePointer()`,
+`packages/ui-react/src/hooks/use-fine-pointer.ts:13-15`). The palette's `⌘K`
+on the rail was left out of that and still prints everywhere. The
+**bindings** do not follow the pointer: every key stays registered in every
+state, and the Settings switch still decides whether single letters bind at
+all.
+
+That query is a proxy for "a key can be pressed", and one configuration falls
+through it: **a tablet with a keyboard but no trackpad** (a keyboard folio
+without a trackpad, or any Bluetooth keyboard paired to a touch-only tablet).
+It reads coarse, so none of those keys print, while every binding still fires. A
+keyboard that carries a trackpad reads fine and is unaffected.
+
+The platform offers nothing better. Media Queries Level 4 defines `pointer`,
+`hover`, `any-pointer` and `any-hover`, and says they "only relate to the
+characteristics, or the complete absence, of pointing devices, and can not be
+used to detect the presence of non-pointing device input mechanisms such as
+keyboards". **There is no keyboard-presence media query.**
+
+**Ruling: do nothing (#106).** That tablet keeps working bindings and goes
+without the pointer-gated hints. The alternatives were weighed and rejected:
+
+- **Reveal the keys on the first keydown** re-breaks #86: a soft keyboard
+  fires `keydown` with real `key` values, so a touch-only tablet typing a
+  search query would summon the `⌘1`–`⌘5` row #86 removed.
+- **Reveal on a keydown a soft keyboard does not send** (a `meta` / `ctrl` /
+  `alt` chord, `Tab`, `Escape`, `F1`–`F12`) asks the reader to press a key
+  before learning which keys exist — `⌘1` is one of the things the hint was
+  meant to teach — and costs a mid-session reflow plus a module-level flag in
+  a single-process test file.
+- **A "show keyboard shortcuts: auto / always / never" preference** is a
+  settings surface for a rare case, and a second switch beside
+  single-key shortcuts that governs something different.
+
+What would reopen this is a signal that says a hardware keyboard is present,
+not a better guess from the pointer.
+
 
 ## 2026-09-19 — D37: five destinations everywhere, and the desktop is drawn
 
