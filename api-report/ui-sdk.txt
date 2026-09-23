@@ -20,6 +20,7 @@ export "." (./src/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type ApprovalChannel
   type AskUserAnnotation
   type AskUserOption
   type AskUserQuestion
@@ -166,6 +167,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type ApprovalChannel
   type AskUserAnnotation
   type AskUserInput
   type AskUserOption
@@ -404,6 +406,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type ApprovalChannel
   type AskUserAnnotation
   type AskUserOption
   type AskUserQuestion
@@ -604,6 +607,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanOutcome
   type ActivityView
   type AgentBackend
+  type ApprovalChannel
   type AskUserAnnotation
   type AskUserInput
   type AskUserOption

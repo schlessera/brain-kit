@@ -198,6 +198,16 @@ export const MAX_TOTAL_IMAGE_BYTES = 8_000_000;
 /** Longest-edge target for client-side downscaling (vision-model optimum). */
 export const DOWNSCALE_MAX_EDGE = 1568;
 
+/**
+ * How an approval decision reached the host (additive): "card" — a person on
+ * an approval card (a click or its keys); "voice" — a phrase a microphone
+ * heard. Absent means a client that does not say, which is every decision
+ * made before the field existed. The host refuses a voice-attributed grant
+ * (docs/decisions/voice-permission.md: voice may deny, never grant) and
+ * records the channel on the `approval_decision` activity event.
+ */
+export type ApprovalChannel = "card" | "voice";
+
 export interface ClientToolApproval {
   type: "tool_approval";
   toolUseId: string;
@@ -208,6 +218,8 @@ export interface ClientToolApproval {
    * kind "command" requests, which stay per-use).
    */
   always?: boolean;
+  /** The channel the grant was made on. "voice" is refused by the host. */
+  channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
 }
@@ -216,6 +228,8 @@ export interface ClientToolDenial {
   type: "tool_denial";
   toolUseId: string;
   message: string;
+  /** The channel the denial was made on; any channel may deny. */
+  channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
 }

@@ -6,6 +6,7 @@ import type {
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
@@ -155,7 +156,7 @@ export function makeBridge(
         // own error tool_result can mislabel it — write-once protects it.
         const recorded = (
           decision: PermissionDecision,
-          response?: { principalId: string; always?: boolean }
+          response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
         ) => {
           recorder?.onApprovalDecision(
             req.toolUseId,
@@ -165,7 +166,8 @@ export function makeBridge(
                 ? "always_allow"
                 : "allow",
             req.kind ?? "tool",
-            response?.principalId
+            response?.principalId,
+            response?.channel
           );
           resolve(decision);
         };

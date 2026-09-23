@@ -28,6 +28,7 @@ import {
   SPAN_OP_EXECUTE_TOOL,
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
+  type ApprovalChannel,
   type BillingMode,
   type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -55,12 +56,16 @@ export interface TurnRecorder {
   recordCancellation(principalId: string, kind?: "turn" | "ask_user"): void;
   /** Record who answered an ask-user interaction. */
   recordAskUserResponse(principalId: string): void;
-  /** The user's approval decision arrived for a gated tool call. */
+  /**
+   * The user's approval decision arrived for a gated tool call. `channel` is
+   * how it arrived, when the client said; absent is stored as absent.
+   */
   onApprovalDecision(
     toolUseId: string,
     decision: "allow" | "always_allow" | "deny",
     requestKind: "tool" | "command",
-    principalId?: string
+    principalId?: string,
+    channel?: ApprovalChannel
   ): void;
   /**
    * Close the turn: merge the buffered result enrichment into the root's
@@ -331,16 +336,19 @@ export function createTurnRecorder(
       });
     },
 
-    onApprovalDecision(toolUseId, decision, requestKind, principalId) {
+    onApprovalDecision(toolUseId, decision, requestKind, principalId, channel) {
       guard(() => {
         if (principalId) {
           // One tool can raise several approval requests. The span-level actor
           // remains the latest responder for compact views, while this
           // append-only event preserves every decision and actor in order.
+          // The channel rides beside them only when the client named one, so
+          // a decision without it is stored exactly as it always was.
           store.appendEvent(toolUseId, "approval_decision", {
             principalId,
             decision,
             requestKind,
+            ...(channel ? { channel } : {}),
           });
           store.patchSpan(toolUseId, { principalId });
         }
