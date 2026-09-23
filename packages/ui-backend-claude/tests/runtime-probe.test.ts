@@ -164,6 +164,19 @@ describe("probeClaudeRuntime", () => {
 });
 
 describe("isMeasuredRuntime", () => {
+  test("a binary that ignores SIGTERM past the deadline refuses at the deadline", () => {
+    const dir = tempDir("probe-stuck-");
+    const path = join(dir, "claude");
+    // Answers at once, then will not exit and ignores the polite signal.
+    writeFileSync(path, `#!/bin/sh\ntrap "" TERM\necho "2.0.0 (Claude Code)"\nsleep 8\n`);
+    chmodSync(path, 0o755);
+    const started = Date.now();
+    expect(() => probeClaudeRuntime({ claudeCodePath: path, brainPath: dir, env: env(), exec: {} })).toThrow(
+      /did not answer --version within 5 s/
+    );
+    expect(Date.now() - started).toBeLessThan(7_000);
+  });
+
   test("is the measured pair only when BOTH halves are", () => {
     expect(isMeasuredRuntime(MEASURED_RUNTIME.claudeCode, MEASURED_RUNTIME.agentSdk)).toBe(true);
     // The same CLI under a different SDK is a different pair.

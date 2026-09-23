@@ -118,6 +118,8 @@ export interface ClaudeRuntimeProbeOptions {
   exec: ExecWrapperConfig;
 }
 
+const PROBE_TIMEOUT_MS = 5_000;
+
 /**
  * Probe the binary a turn would spawn. Throws `ClaudeRuntimeUnavailableError`
  * when it is missing or will not report a version; returns what it found.
@@ -142,7 +144,9 @@ export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendR
       env: spawn.env,
       stdout: "pipe",
       stderr: "pipe",
-      timeout: 5_000,
+      timeout: PROBE_TIMEOUT_MS,
+      // A process that ignores SIGTERM would hold boot past the deadline.
+      killSignal: "SIGKILL",
       ...execWrapperSpawnOptions(options.exec.wrapper),
     });
     // As for the brain CLI probe: a timed-out wrapper leaves its child behind,
@@ -151,6 +155,11 @@ export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendR
   } catch (error) {
     throw new ClaudeRuntimeUnavailableError(
       `Claude Code at ${spawn.command} cannot be started: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (result.exitedDueToTimeout) {
+    throw new ClaudeRuntimeUnavailableError(
+      `Claude Code at ${spawn.command} did not answer --version within ${PROBE_TIMEOUT_MS / 1000} s`
     );
   }
   const stdout = new TextDecoder().decode(result.stdout).trim();
