@@ -55,7 +55,7 @@ functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:29`), the
 five bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:58-73`)
+`packages/ui-backend-claude/src/sdk-options.ts:72-87`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:49`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -225,7 +225,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`let content = parsed.content`, `packages/core/src/mcp-server.ts:574-578`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `:533-538`), applied independently (`params.summary !== undefined`, `:556-572`), so **a single call can overwrite all six** — and `tags` is a comma-separated string that replaces the whole tag list rather than merging into it (`tags: z.string()`, `:536`; `params.tags !== undefined`, `:559-561`), while `deadline` and `next_review` take `""` as *delete the field* (`params.deadline !== undefined`, `:563-572`). `updated` is bumped unconditionally (`parsed.data.updated`, `:582`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:58-73`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:72-87`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 **Excluded, each for its own reason:**
 
@@ -477,8 +477,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:23`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:46-47`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:58`, and what it
-becomes, `allowedTools: allowed`, `:115`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:72`, and what it
+becomes, `allowedTools: allowed`, `:122`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 chose a different mechanism first, and it chose it for this

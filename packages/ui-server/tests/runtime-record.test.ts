@@ -98,6 +98,61 @@ describe("the run record", () => {
     });
   });
 
+  for (const errorClass of ["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "billing_error"]) {
+    test(`a turn failing with ${errorClass} is recorded as that class and as a failed run`, async () => {
+      const runId = `run-${errorClass}`;
+      const { store, runtime } = await recordTurn(
+        runId,
+        scripted({ claude_code_version: "2.1.999", apiKeySource: "none" }, { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN" }, [
+          {
+            type: "assistant",
+            parent_tool_use_id: null,
+            error: errorClass,
+            message: { content: [{ type: "text", text: "Refused." }] },
+          },
+        ])
+      );
+      expect(store.getSpan(`${runId}:turn`)!.attrs["brain.failure_class"]).toBe(errorClass);
+      expect(store.getSpan(`${runId}:turn`)!.outcome).toBe("error");
+      expect(runtime.snapshot().lastAuthFailure).toMatchObject({ errorClass, runId });
+    });
+  }
+
+  test("a subagent's auth failure does not fail a parent turn that completed", async () => {
+    const { store, runtime } = await recordTurn(
+      "run-child",
+      scripted({ claude_code_version: "2.1.999", apiKeySource: "none" }, { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN" }, [
+        {
+          type: "assistant",
+          parent_tool_use_id: "toolu_task",
+          error: "authentication_failed",
+          message: { content: [{ type: "text", text: "Failed to authenticate." }] },
+        },
+      ])
+    );
+    const root = store.getSpan("run-child:turn")!;
+    expect(root.outcome).toBe("success");
+    expect(root.attrs["brain.failure_class"]).toBeUndefined();
+    expect(runtime.snapshot().lastAuthFailure).toBeUndefined();
+  });
+
+  test("a stored subscription login is recorded with every credential field the CLI reported", async () => {
+    const { store } = await recordTurn(
+      "run-stored",
+      scripted({ claude_code_version: "2.1.999", apiKeySource: "none" }, {
+        subscriptionType: "Claude Max",
+        apiProvider: "firstParty",
+      })
+    );
+    const root = store.getSpan("run-stored:turn")!;
+    expect(root.attrs["brain.credential"]).toEqual({
+      apiKeySource: "none",
+      subscriptionType: "Claude Max",
+      apiProvider: "firstParty",
+    });
+    expect(root.attrs["brain.billing_observed"]).toBe("subscription");
+  });
+
   test("an API credential under a credential-free profile is flagged on the run", async () => {
     const { store } = await recordTurn(
       "run-c",

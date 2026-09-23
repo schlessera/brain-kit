@@ -88,8 +88,10 @@ export class StreamAdapter {
       case "assistant": {
         // An account the runtime could not use: its own failure class, so the
         // host can tell an operator to log in again (#211). The frame the
-        // client sees for it is #191's.
-        if (msg.error && AUTH_ERROR_CLASSES.has(msg.error)) {
+        // client sees for it is #191's. Only the top-level turn's: a subagent
+        // that failed is the parent's to handle, and a parent that completes
+        // anyway did not fail.
+        if (!parentToolUseId && msg.error && AUTH_ERROR_CLASSES.has(msg.error)) {
           const text = msg.message.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("")

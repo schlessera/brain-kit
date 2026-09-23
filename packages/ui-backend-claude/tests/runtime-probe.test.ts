@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { MEASURED_RUNTIME } from "../src/measured-runtime";
+import { backendModule } from "../src/module";
 import { ClaudeRuntimeUnavailableError, isMeasuredRuntime, probeClaudeRuntime } from "../src/runtime-probe";
 
 const scratch: string[] = [];
@@ -120,6 +121,26 @@ describe("probeClaudeRuntime", () => {
       `argv=${fake.path} --version cwd=${dir} mark=turn-env entrypoint=sdk-ts`,
     ]);
     expect(invocations(fake.log)).toEqual(["--version"]);
+  });
+
+  test("the module probes with the environment the default profile's turn gets, model aliases included", () => {
+    const dir = tempDir("probe-profile-env-");
+    const log = join(dir, "env.log");
+    const path = join(dir, "claude");
+    writeFileSync(
+      path,
+      `#!/bin/sh\necho "opus=$ANTHROPIC_DEFAULT_OPUS_MODEL subagent=$CLAUDE_CODE_SUBAGENT_MODEL key=\${ANTHROPIC_API_KEY-unset}" >> ${JSON.stringify(log)}\necho "2.0.0 (Claude Code)"\n`
+    );
+    chmodSync(path, 0o755);
+    backendModule.probeRuntime!({
+      brainPath: dir,
+      config: { claudeCodePath: path, defaultModel: "claude-probe-model" },
+      profiles: [],
+      confirmBashPatterns: null,
+      settings: {},
+    });
+
+    expect(invocations(log)).toEqual(["opus=claude-probe-model subagent=claude-probe-model key="]);
   });
 
   test("a binary that does not exist refuses, naming the path", () => {

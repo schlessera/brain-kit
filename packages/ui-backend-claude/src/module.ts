@@ -9,10 +9,10 @@ import type {
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "./backend.js";
-import { envSnapshot, readEnvVar, resolveExecConfig } from "./config/env.js";
+import { readEnvVar, resolveExecConfig } from "./config/env.js";
 import { createModelSource } from "./model-discovery.js";
 import { probeClaudeRuntime } from "./runtime-probe.js";
-import { CLEARED_API_CREDENTIALS } from "./subscription.js";
+import { turnEnv } from "./sdk-options.js";
 import {
   defineProfiles,
   type InferenceProfile,
@@ -25,18 +25,19 @@ function failure(error: BackendProfileError): BackendProfileParseResult {
   return { ok: false, errors: [error] };
 }
 
+const BUILTIN_PROFILE: InferenceProfileInput = {
+  id: "claude",
+  label: "Claude",
+  vendor: "anthropic",
+  modelAliases: true,
+  source: "builtin",
+};
+
 function parseProfiles(
   raw: string | null,
   occupiedProfiles: readonly { id: string; source: string }[]
 ): BackendProfileParseResult {
-  const builtin: InferenceProfileInput = {
-    id: "claude",
-    label: "Claude",
-    vendor: "anthropic",
-    modelAliases: true,
-    source: "builtin",
-  };
-  if (!raw) return { ok: true, profiles: [builtin] };
+  if (!raw) return { ok: true, profiles: [BUILTIN_PROFILE] };
 
   let inputs: unknown;
   try {
@@ -56,7 +57,7 @@ function parseProfiles(
     });
   }
 
-  const seen = new Set([builtin.id, ...occupiedProfiles.map((profile) => profile.id)]);
+  const seen = new Set([BUILTIN_PROFILE.id, ...occupiedProfiles.map((profile) => profile.id)]);
   for (const input of inputs as InferenceProfileInput[]) {
     if (!input || typeof input.id !== "string" || input.id.length === 0) {
       return failure({
@@ -77,7 +78,7 @@ function parseProfiles(
   return {
     ok: true,
     profiles: [
-      builtin,
+      BUILTIN_PROFILE,
       ...(inputs as InferenceProfileInput[]).map((input) => ({
         source: "declared" as const,
         ...input,
@@ -123,6 +124,17 @@ function routeForBaseUrl(baseUrl: string | undefined): PricingRoute | undefined 
     : undefined;
 }
 
+/** The built-in profile runs on the configured default model, when one is set. */
+function builtinWithDefaultModel(
+  input: InferenceProfileInput,
+  context: BackendModuleContext
+): InferenceProfileInput {
+  const defaultModel = configString(context, "defaultModel");
+  return input.id === "claude" && input.source === "builtin" && defaultModel
+    ? { ...input, model: defaultModel }
+    : input;
+}
+
 export const backendModule: BackendModule = defineBackendModule({
   id: "claude",
   profileSchema: {
@@ -142,8 +154,9 @@ export const backendModule: BackendModule = defineBackendModule({
     return probeClaudeRuntime({
       ...(claudeCodePath ? { claudeCodePath } : {}),
       brainPath: context.brainPath,
-      // The environment a default-profile turn's CLI gets (sdk-options.ts).
-      env: { ...envSnapshot(), ...CLEARED_API_CREDENTIALS },
+      // The environment a turn on the default profile gets: the built-in one,
+      // resolved as resolveFromEnv resolves it.
+      env: turnEnv(defineProfiles([builtinWithDefaultModel(BUILTIN_PROFILE, context)])[0]!),
       exec: resolveExecConfig(),
     });
   },
@@ -159,7 +172,6 @@ export const backendModule: BackendModule = defineBackendModule({
   },
   resolveFromEnv(context) {
     try {
-      const defaultModel = configString(context, "defaultModel");
       const inputs = context.profiles as InferenceProfileInput[];
       const declaredApiProfileIds = new Set<string>();
       // Declared endpoint per profile id, for pricing-route classification.
@@ -170,10 +182,7 @@ export const backendModule: BackendModule = defineBackendModule({
         if (input.baseUrl) profileBaseUrls.set(input.id, input.baseUrl);
       };
       const normalized = inputs.map((input) => {
-        const resolved =
-          input.id === "claude" && input.source === "builtin"
-            ? { ...input, ...(defaultModel ? { model: defaultModel } : {}) }
-            : input;
+        const resolved = builtinWithDefaultModel(input, context);
         if (resolved.authTokenEnv || resolved.apiKeyEnv) {
           declaredApiProfileIds.add(resolved.id);
         }
