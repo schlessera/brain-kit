@@ -29,13 +29,15 @@ export interface ToolPermissionDecisionInput {
 }
 
 /**
- * `re.test` from the start of the string. A caller may pass a RegExp with the
- * `g` or `y` flag, whose `test` resumes from `lastIndex`, so the same command
- * would match on one call and not the next.
+ * Whether `re` matches anywhere in `text`, statelessly. A caller may pass a
+ * RegExp with the `g` or `y` flag, whose `test` resumes from `lastIndex` —
+ * the same command would match on one call and not the next — and may have
+ * frozen it. So the test runs on a private copy without those flags, leaving
+ * the caller's object untouched.
  */
 function matches(re: RegExp, text: string): boolean {
-  re.lastIndex = 0;
-  return re.test(text);
+  if (!re.global && !re.sticky) return re.test(text);
+  return new RegExp(re.source, re.flags.replace(/[gy]/g, "")).test(text);
 }
 
 /** @experimental */

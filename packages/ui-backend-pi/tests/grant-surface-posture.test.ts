@@ -110,37 +110,59 @@ describe("pi: noGrantSurface without enforceAllowedTools", () => {
     expectSucceeded(turn.frames);
   });
 
-  test("a resume is refused the same way, cold or resident, and the session stays usable", async () => {
+  function resumable() {
     const brain = makeEmptyBrain();
+    let opened = 0;
+    const backend = createPiBackend({
+      brainPath: brain.root,
+      sessionFactory: {
+        newSession: async () => fakeSession(`s${++opened}`),
+        openSession: async (id: string) => (++opened, fakeSession(id)),
+      } as never,
+    });
+    const frames: ServerMessage[] = [];
+    const bridge: BackendBridge = {
+      emit: (m) => frames.push(m),
+      requestPermission: async () => ({ behavior: "deny", message: "No." }),
+    };
+    const turn = (
+      sessionId: string,
+      posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">
+    ) =>
+      backend.startTurn({ prompt: "hi", sessionId, signal: new AbortController().signal, bridge, ...posture });
+    return { brain, frames, turn, opened: () => opened };
+  }
+
+  test("a cold resume is refused before anything is opened for it", async () => {
+    const r = resumable();
     try {
-      let opened = 0;
-      const backend = createPiBackend({
-        brainPath: brain.root,
-        sessionFactory: {
-          newSession: async () => fakeSession(`s${++opened}`),
-          openSession: async (id: string) => (++opened, fakeSession(id)),
-        } as never,
-      });
-      const frames: ServerMessage[] = [];
-      const bridge: BackendBridge = {
-        emit: (m) => frames.push(m),
-        requestPermission: async () => ({ behavior: "deny", message: "No." }),
-      };
-      const turn = (sessionId: string, posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">) =>
-        backend.startTurn({ prompt: "hi", sessionId, signal: new AbortController().signal, bridge, ...posture });
-
-      // Cold: the session is not resident, and nothing may be opened for it.
-      await expect(turn("cold", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
-      expect(opened).toBe(0);
-
-      // Resident: open it with a valid turn, then refuse, then run again.
-      await turn("warm", {});
-      await expect(turn("warm", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
-      frames.length = 0;
-      await expect(turn("warm", { noGrantSurface: true, enforceAllowedTools: true })).resolves.toBeUndefined();
-      expectSucceeded(frames);
+      await expect(r.turn("cold", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+      expect(r.opened()).toBe(0);
+      expect(r.frames).toHaveLength(0);
     } finally {
-      brain.cleanup();
+      r.brain.cleanup();
+    }
+  });
+
+  test("a resident session is refused, keeps its slot free, and is not reopened", async () => {
+    const r = resumable();
+    try {
+      await r.turn("warm", {});
+      expectSucceeded(r.frames);
+      expect(r.opened()).toBe(1);
+
+      r.frames.length = 0;
+      await expect(r.turn("warm", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+      expect(r.frames).toHaveLength(0);
+
+      await expect(
+        r.turn("warm", { noGrantSurface: true, enforceAllowedTools: true })
+      ).resolves.toBeUndefined();
+      expectSucceeded(r.frames);
+      // The same resident session served both valid turns.
+      expect(r.opened()).toBe(1);
+    } finally {
+      r.brain.cleanup();
     }
   });
 });
