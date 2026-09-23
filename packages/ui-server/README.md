@@ -225,7 +225,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_WS_MAX_CONNECTIONS` | Maximum number of WebSocket connections accepted by one server process. | 32 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Consulted for PRESENCE only, to classify billing: with it set and no ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in default and discovered models) count as subscription-billed. The token itself is consumed by the Claude backend / Agent SDK, not this package. | — |
-| `CLAUDE_CODE_PATH` | Path to the Claude Code native binary handed to the Agent SDK. | /usr/local/bin/claude |
+| `CLAUDE_CODE_PATH` | Path to a Claude Code binary to run instead of the Agent SDK's built-in one. Unset runs the built-in binary, the version the lockfile pins. | — |
 | `COASTLINE_CACHE_DIR` | Directory holding fetched map geometry. Cached forever; coastlines do not move. | $BRAIN_PATH/.brain-ui/geo |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). The server factory defaults to ./brain-ui.db; brain-ui-cron defaults to the container path /data/db/brain-ui.db. | ./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron) |

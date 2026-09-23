@@ -24,11 +24,12 @@ nothing would notice.
 Every line below was read on `origin/main` at `fe5a225` or shown by the command
 next to it.
 
-- **Located.** `CLAUDE_CODE_PATH` is declared with default
-  `/usr/local/bin/claude` (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:346-349`) and resolved with
-  `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"` (`claudeCodePath`,
-  `packages/ui-server/src/config/env.ts:778`). The whole `agent` block is copied into the backend's module
+- **Located.** `CLAUDE_CODE_PATH` was declared with default
+  `/usr/local/bin/claude` and resolved with
+  `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
+  default (`name: "CLAUDE_CODE_PATH"`,
+  `packages/ui-server/src/config/env.ts:346-351`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:780`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:428`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
@@ -414,7 +415,7 @@ into them.
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
   only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
-  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:697-701`, applied at
+  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:699-703`, applied at
   `const ambientBilling`, `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
   `Billing mode decision`, `cost-tracking.md:93`). Nothing reads what the CLI actually used.
 - **Model discovery prefers the API key** and describes that as "mirroring the
