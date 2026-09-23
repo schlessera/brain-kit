@@ -765,10 +765,12 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       expect(coverage.ratio).not.toBe(coverage.threshold);
       expect(coverage.ratio.length).toBe(coverage.threshold.length);
       expect(coverage.ratio < coverage.threshold).toBe(true);
-      if (floor === 1e-30) {
-        // 1e-30 is 1e-28 percent: the first digit that is not zero is the 28th.
-        expect(coverage.threshold).toBe(`0.${"0".repeat(27)}1`);
-      }
+      // Digit for digit: 1e-30 is 1e-28 percent, first non-zero at place 28;
+      // 1e-110 at place 108; Number.MIN_VALUE (4.94e-324) at place 322.
+      const zerosBefore = { [1e-30]: 27, [1e-110]: 107, [Number.MIN_VALUE]: 321 }[floor]!;
+      const firstDigit = floor === Number.MIN_VALUE ? "4" : "1";
+      expect(coverage.threshold).toBe(`0.${"0".repeat(zerosBefore)}${firstDigit}`);
+      expect(coverage.ratio).toBe(`0.${"0".repeat(zerosBefore + 1)}`);
     }
   });
 

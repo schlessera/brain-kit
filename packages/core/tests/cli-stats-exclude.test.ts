@@ -74,6 +74,13 @@ describe("an existing brain that adds a trailing-slash exclude", () => {
       expect((await runCli(existing, ["index", "--json"])).code).toBe(0);
       const before = JSON.parse((await runCli(existing, ["stats", "--json"])).stdout) as { documents: number };
       expect(before.documents).toBe(CORPUS_DOCUMENTS + 1);
+      const found = async () =>
+        (
+          JSON.parse((await runCli(existing, ["search", "exclude existed", "--json"])).stdout) as {
+            results: { path: string }[];
+          }
+        ).results.map((r) => r.path);
+      expect(await found()).toContain("skipme/a.md");
 
       const configPath = join(existing, "brain.config.ts");
       const anchor = "  taxonomy: {";
@@ -84,6 +91,8 @@ describe("an existing brain that adds a trailing-slash exclude", () => {
       expect((await runCli(existing, ["index", "--json"])).code).toBe(0);
       const after = JSON.parse((await runCli(existing, ["stats", "--json"])).stdout) as { documents: number };
       expect(after.documents).toBe(CORPUS_DOCUMENTS);
+      // And the one that left is the excluded note, not some other document.
+      expect(await found()).not.toContain("skipme/a.md");
     } finally {
       cleanup(existing);
     }
