@@ -488,6 +488,25 @@ describe("cron runs jobs through the exec wrapper", () => {
     expect(moduleJobNames(digestNamedModules())).toEqual(["digest-daily", "notes-digest"]);
   });
 
+  test("the emitter refuses, and the runner trusts, the one same set", async () => {
+    // The refusal cannot fire through the real names, so give the set a name
+    // an emitted module job does carry. The emitter must drop that job, and
+    // the runner must treat the name as trusted — proving both read this set,
+    // not a copy of it.
+    const trusted = TRUSTED_JOB_NAMES as Set<string>;
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    trusted.add("notes-digest");
+    try {
+      expect(moduleJobNames(digestNamedModules())).toEqual(["digest-daily"]);
+      expect(await commandSeenBySpawn(["/bin/echo", "hi"], "notes-digest")).toEqual([
+        "/bin/echo",
+        "hi",
+      ]);
+    } finally {
+      trusted.delete("notes-digest");
+    }
+  });
+
   test("no trusted job name can be a namespaced module job", () => {
     // Module jobs are always `<module>-<entry>`, so a trusted name with a `-`
     // is the one way the namespacing alone would stop protecting it.
