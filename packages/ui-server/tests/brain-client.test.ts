@@ -75,6 +75,10 @@ describe("brain CLI invocation", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("embeddings", null);
+
+    // And a count that was taken passes through as the number it is.
+    installBrainCli(root, `console.log(JSON.stringify({ documents: 3, chunks: 3, embeddings: 7 }));\n`);
+    expect(((await brain.stats()) as unknown as Record<string, unknown>).embeddings).toBe(7);
   });
 
   test("places flags before -- and a --prefixed search query after it", async () => {

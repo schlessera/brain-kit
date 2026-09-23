@@ -589,6 +589,8 @@ describe("an embeddings count that could not be taken reads as unknown", () => {
     expect(unknown).toContain("No documents indexed.");
     expect(unknown).toMatch(/^ {2}Embeddings: n\/a — vector table could not be read on this host$/m);
     expect(none).not.toMatch(/Embeddings:/);
+    // --all changes nothing about it.
+    expect(formatStats(statsWith({ ...empty, embeddings: null }), { all: true, stale: STALE })).toBe(unknown);
   });
 
   test("a counted brain does show the row", () => {
@@ -739,30 +741,35 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       expect(got.ratio > got.threshold).toBe(true);
     }
 
-    // No coverage at all under a floor of 1e-30: (0 * 100).toFixed(20) and
-    // (1e-28).toFixed(20) are both zeros.
-    const out = formatStats(
-      statsWith({
-        embeddings: 0,
-        chunks: 5000,
-        health: {
-          ...statsWith().health,
-          embeddingCoverage: 0,
-          thresholds: { ...DEFAULT_STATS_THRESHOLDS, coverageFloor: 1e-30 },
-        },
-      }),
-      { all: false, stale: STALE }
-    );
-    const coverage = parts(line(out, "Embedding coverage"));
-    expect(coverage.verdict).toBe("below");
-    expect(coverage.ratio).not.toBe(coverage.threshold);
-    expect(coverage.ratio.length).toBe(coverage.threshold.length);
-    expect(coverage.ratio < coverage.threshold).toBe(true);
+    // No coverage at all under a tiny floor: (0 * 100).toFixed(20) and
+    // (1e-28).toFixed(20) are both zeros, and past 1e-100 so is any toFixed.
+    // Number.MIN_VALUE is the extreme: a subnormal, still a valid floor.
+    for (const floor of [1e-30, 1e-110, Number.MIN_VALUE]) {
+      const out = formatStats(
+        statsWith({
+          embeddings: 0,
+          chunks: 5000,
+          health: {
+            ...statsWith().health,
+            embeddingCoverage: 0,
+            thresholds: { ...DEFAULT_STATS_THRESHOLDS, coverageFloor: floor },
+          },
+        }),
+        { all: false, stale: STALE }
+      );
+      const coverage = parts(line(out, "Embedding coverage"));
+      expect(coverage.verdict).toBe("below");
+      expect(coverage.ratio).not.toBe(coverage.threshold);
+      expect(coverage.ratio.length).toBe(coverage.threshold.length);
+      expect(coverage.ratio < coverage.threshold).toBe(true);
+    }
   });
 
   test("the line parser refuses a signed or exponent figure instead of reading its tail", () => {
     expect(() => parts("  Embedding coverage: 1e+21% of 1 chunk, meets the 100.0% floor")).toThrow();
     expect(() => parts("  Broken links:       1 of 2 (-2.0%), within the 5.0% ceiling")).toThrow();
+    expect(() => parts("  Broken links:       1 of 2 (2.0%), within the -5.0% ceiling")).toThrow();
+    expect(() => parts("  Embedding coverage: 50.0% of 1 chunk, meets the 1e-5% floor")).toThrow();
     expect(parts("  Broken links:       1 of 2 (5.04%), over the 5.00% ceiling")).toEqual({
       ratio: "5.04",
       verdict: "over",
