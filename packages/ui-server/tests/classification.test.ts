@@ -12,7 +12,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { CONFIDENCE, planClassification } from "@schlessera/brain-ui-sdk/server";
+import { CONFIDENCE, planClassification, questionsFor } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client";
 import {
   CONFIDENCE_RETENTION_MS,
@@ -75,31 +75,47 @@ describe("the timed client", () => {
     // A request the pass really builds, so the body carries real questions:
     // a hand-built one with `questions: {}` asserted nothing about them (#192).
     const plan = planClassification([COMPARISON]);
+    // Asked of the catalogue afresh, so nothing the strip or the client does
+    // to the plan's objects in place can move the expectation with it.
+    const asked = questionsFor(plan!.candidates[0]!.candidate);
     const result = await client.classify(plan!.request);
     expect(result.outcome).toBe("answered");
     expect(result.answers).toEqual(GOOD_ANSWERS as never);
     expect(seen!.url).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(seen!.init.method).toBe("POST");
     expect((seen!.init.headers as Record<string, string>).authorization).toBe("Bearer k");
+    expect((seen!.init.headers as Record<string, string>)["content-type"]).toBe("application/json");
 
     const body = JSON.parse(seen!.init.body as string);
     expect(Object.keys(body).sort()).toEqual(["model", "questions", "state"]);
     expect(body.model).toBe("jev-latest");
-    expect(Object.keys(body.state)).toEqual(["p0c0"]);
-    expect(body.state.p0c0).toMatchObject({ headers: ["", "Ithaca", "Pylos"] });
+    expect(body.state).toEqual({
+      p0c0: {
+        kind: "table",
+        headers: ["", "Ithaca", "Pylos"],
+        rows: [
+          ["Days at sea", "0", "4"],
+          ["Host", "Penelope", "Nestor"],
+        ],
+      },
+    });
     // Non-empty, and exactly the table's questions, so the map cannot become
     // empty again without this failing.
     expect(Object.keys(body.questions)).toEqual(["p0c0.shape", "p0c0.recommended", "p0c0.criteria_first"]);
     // Each question goes out as the catalogue wrote it, minus the line its
     // answer has to clear: where the surface acts on a probability is not the
-    // classifier's business (D42 §1). Built here from the plan's own
-    // questions, so the strip is checked against an expectation that does not
-    // share its code.
-    for (const [id, question] of Object.entries(plan!.questions)) {
+    // classifier's business (D42 §1). Built here from the catalogue's own
+    // questions, so the strip is checked against an expectation that shares
+    // neither its code nor its objects.
+    for (const [id, question] of Object.entries(asked)) {
       const { type, instructions } = question;
       const criteria = "criteria" in question ? question.criteria : undefined;
       expect(body.questions[id]).toEqual({ type, instructions, ...(criteria ? { criteria } : {}) });
     }
-    expect(seen!.init.body as string).not.toContain("threshold");
+    // Nowhere in the body, as a key: the word itself may appear in text.
+    const keys: string[] = [];
+    JSON.parse(seen!.init.body as string, (key, value) => (keys.push(key), value));
+    expect(keys).not.toContain("threshold");
   });
 
   test("a classifier that never answers resolves as a timeout inside the budget", async () => {
