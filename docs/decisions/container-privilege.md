@@ -572,7 +572,7 @@ exec.js:14               shell: false,
 Therefore pi **does load** repo-local `.pi/extensions` under project trust, and
 an extension can bypass the tool wrapper. The existing comment that the
 `tool_call` gate makes extensions safe (`tool_call permission gate`,
-`packages/ui-backend-pi/src/backend-options.ts:97-102`) does not cover extension initialization or `exec()`.
+`packages/ui-backend-pi/src/backend-options.ts:98-103`) does not cover extension initialization or `exec()`.
 
 The two viable options are:
 
