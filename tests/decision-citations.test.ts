@@ -115,7 +115,7 @@ describe("an anchored citation", () => {
   test("a span wrapped onto the next line is still one span", () => {
     // The newline is INSIDE the citation span, as markdown allows.
     const [report] = check("(`export function`, `src/hooks.ts:2,\n6`)");
-    expect(report.citation.ranges).toEqual([
+    expect(report?.citation.ranges).toEqual([
       { start: 2, end: 2 },
       { start: 6, end: 6 },
     ]);
@@ -173,7 +173,7 @@ describe("what the check cannot verify is reported, not skipped", () => {
     const [report] = check("See [the hook](../../src/hooks.ts#L2).");
     expect(report.verdict.kind).toBe("unanchored");
     const [html] = check('See <a href="../../src/hooks.ts#L2">the hook</a>.');
-    expect(html.verdict.kind).toBe("unanchored");
+    expect(html?.verdict.kind).toBe("unanchored");
   });
 
   test("a line-and-column or #L citation in a span", () => {
@@ -199,6 +199,50 @@ describe("what the check cannot verify is reported, not skipped", () => {
         "docs/decisions/x.md|src/missing.ts:2": { reason: "removed upstream", occurrences: 2 },
       }),
     ).toEqual([]);
+    // Too few is a mismatch too: a stale entry, or one that over-declares.
+    expect(
+      exceptionMismatches(reports, {
+        "docs/decisions/x.md|src/missing.ts:2": { reason: "removed upstream", occurrences: 3 },
+        "docs/decisions/x.md|src/gone.ts:1": "removed upstream",
+      }),
+    ).toEqual([
+      { key: "docs/decisions/x.md|src/missing.ts:2", expected: 3, actual: 2 },
+      { key: "docs/decisions/x.md|src/gone.ts:1", expected: 1, actual: 0 },
+    ]);
+  });
+
+  test("a line fragment in any link spelling, and a bare path with a line", () => {
+    for (const body of [
+      'See <a href = "src/hooks.ts#L2">it</a>.',
+      "See <A HREF=src/hooks.ts#L2>it</A>.",
+      "[hook]: src/hooks.ts#L2",
+      "See <https://example.invalid/hooks.ts#L2>.",
+      "It is at src/hooks.ts#L2 today.",
+      "It is at bin/brain:12 today.",
+    ]) {
+      const reports = check(body);
+      expect({ body, kinds: reports.map((r) => r.verdict.kind) }).toEqual({
+        body,
+        kinds: ["unanchored"],
+      });
+    }
+  });
+
+  test("a citation wrapped right after its colon is still read", () => {
+    const [report] = check("(`enforcementHook`, `src/hooks.ts:\n2-4`)");
+    expect(report?.verdict.kind).toBe("anchored");
+  });
+
+  test("a bare line number continuing a citation is reported", () => {
+    const reports = check("(`enforcementHook`, `src/hooks.ts:2`/`4`)");
+    expect(reports.map((r) => [r.citation.text, r.verdict.kind])).toEqual([
+      ["src/hooks.ts:2", "anchored"],
+      ["4", "unresolved"],
+    ]);
+  });
+
+  test("CSS and ratios in code spans are not citations", () => {
+    expect(check("`gap: 18` and `flex:1 1 auto` and `min-height:0`")).toEqual([]);
   });
 
   test("a ratio or a port is not a citation", () => {

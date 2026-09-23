@@ -42,13 +42,20 @@ const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*
  * boundary and do not match.
  */
 const LOOSE_CITATION =
-  /(?:^|[\s(\[])[\w@./-]*[A-Za-z][\w@./-]*(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?)(?=$|[\s,;.)\]])/;
+  /(?:^|[\s(\[])(?:[\w@-]*[./][\w@./-]*[A-Za-z][\w@./-]*|[\w@-]*[A-Za-z][\w@-]*[./][\w@./-]*|[A-Z][\w-]*)(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?)(?=$|[\s,;.)\]])/;
 
 /** A citation anywhere in prose, outside a code span. */
-const BARE_CITATION = new RegExp(`(?<![\\w\`/.-])(${FILE}):\\d+`, "g");
+const BARE_CITATION = new RegExp(
+  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]):\\d+`,
+  "g",
+);
 
-/** A markdown link to a line, which cannot carry an anchor either. */
-const LINE_LINK = /(?:\]\(|href=["'])([^)\s"']+)#L\d+/g;
+/**
+ * A `#L12` line fragment anywhere in prose — an inline or reference link, an
+ * HTML `href` in any spelling, an autolink, a bare path — which cannot carry
+ * an anchor either.
+ */
+const LINE_LINK = /([^\s"'<>()[\]`]+)#L\d+/gi;
 
 export interface Citation {
   /** The record, repo-relative. */
@@ -106,8 +113,30 @@ export function parseCitations(doc: string, body: string): Citation[] {
   let lastPath: string | undefined;
   for (let i = 0; i < spans.length; i++) {
     const span = spans[i];
-    const content = span[1].replace(/\s+/g, " ").trim();
+    // A wrap right after the colon (`hooks.ts:` then `12`) is still one citation.
+    const content = span[1].replace(/:[ \t]*\n\s*(?=\d)/g, ":").replace(/\s+/g, " ").trim();
     const match = content.match(CITATION);
+    // A bare number right after a citation, joined by `/` or a comma
+    // (`chat-store.ts:364`/`228`), is a second line of that file written in a
+    // shape the check cannot anchor: reported, not skipped.
+    const before = spans[i - 1];
+    const continuesCitation =
+      /^\d+(?:-\d+)?$/.test(content) &&
+      before !== undefined &&
+      CITATION.test(before[1].replace(/\s+/g, " ").trim()) &&
+      /^\s*[/,]\s*$/.test(text.slice(before.index! + before[0].length, span.index));
+    if (!match && continuesCitation) {
+      citations.push({
+        doc,
+        line: lineAt(span.index!),
+        text: content,
+        path: undefined,
+        ranges: [],
+        anchor: undefined,
+        unreadable: true,
+      });
+      continue;
+    }
     if (!match) {
       // Something that cites a line but is not a shape this check reads —
       // `[brain-ui] scripts/entrypoint.sh:59-85`, a path with a space — is
@@ -240,7 +269,7 @@ export function checkCitation(
 ): Verdict {
   if (citation.bare) return { kind: "unanchored", reason: "written outside a code span" };
   if (citation.unreadable) {
-    return { kind: "unresolved", reason: "not a `path:line` this check can read (another repository?)" };
+    return { kind: "unresolved", reason: "not a `path:line` this check can read: another repository, or a bare line number" };
   }
   if (!citation.path) return { kind: "unresolved", reason: "a bare line number with no file before it" };
   const resolved = resolveCitedPath(citation.path, citedInDoc, tree);
@@ -366,6 +395,12 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "chat-store.ts is now a shim; the cited localStorage read moved behind an injected env.storage()",
   "docs/decisions/design-kit.md|provider-store.ts:44":
     "provider-store.ts is now a shim; the cited read moved behind an injected env.storage()",
+  "docs/decisions/design-kit.md|228":
+    "the guard line paired with chat-store.ts:364; chat-store.ts is now a shim",
+  "docs/decisions/design-kit.md|8":
+    "the guard line paired with provider-store.ts:44; provider-store.ts is now a shim",
+  "docs/decisions/design-kit.md|26":
+    "the guard line paired with file-store.ts:135; file-store.ts is now a shim",
   "docs/decisions/design-kit.md|file-store.ts:135":
     "file-store.ts is now a shim; the cited read moved behind an injected env.storage()",
   "docs/decisions/design-kit.md|components/chat/renderers/index.ts:10":
@@ -511,4 +546,7 @@ if (import.meta.main) {
     if (report.verdict.kind !== "anchored" && !report.exception) console.log(describe(report));
   }
   console.log(`\n${reports.length} citation(s):`, counts);
+  for (const { key, expected, actual } of exceptionMismatches(reports)) {
+    console.log(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
+  }
 }
