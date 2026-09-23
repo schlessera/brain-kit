@@ -94,8 +94,9 @@ function pct(ratio: number | null): string {
 /**
  * `ratio` as a percentage with `decimals` places, read off `ratio.toFixed`
  * with the point moved two places rather than off `ratio * 100`. Only for the
- * case `ratio * 100` cannot serve: the multiplication can round two distinct
- * ratios onto the same double, and then no number of places tells them apart.
+ * pairs `ratio * 100` cannot separate: the multiplication can round two
+ * distinct ratios onto the same double, and then no number of places of it
+ * tells them apart.
  * It is not the everyday formatter because it rounds the true binary value,
  * so an exact half like 3/80 reads 3.7% here and 3.8% through `pct`.
  */
@@ -105,8 +106,14 @@ function exactPercent(ratio: number, decimals: number): string {
   return `${whole}.${digits.slice(-decimals)}`;
 }
 
-/** Enough places to separate any two distinct ratios a brain can produce. */
+/** How far the everyday `pct` formula is widened before giving up on it. */
 const MAX_PCT_DECIMALS = 20;
+
+/**
+ * How far `exactPercent` goes: `toFixed` allows 100 places, and two places go
+ * to the percent shift. Any two distinct doubles above 1e-98 differ by then.
+ */
+const MAX_EXACT_DECIMALS = 98;
 
 /**
  * A measured ratio and the threshold that judged it, printed at one decimal —
@@ -117,23 +124,35 @@ const MAX_PCT_DECIMALS = 20;
  * decimal is never shown rounded past the ratio it judged. A ratio equal to
  * its threshold, or nowhere near it, prints exactly as `pct` would.
  *
+ * The `pct` formula is widened first, so every ordinary line keeps its old
+ * rounding. When twenty places of it still collide — `ratio * 100` rounded the
+ * two onto one double, or they differ further out than that — the digits are
+ * read off the ratios themselves, as far as `toFixed` goes. Only a subnormal
+ * pair, which no count of links or chunks produces, stays equal.
+ *
  * Display only. The verdict is decided on the unrounded values by the caller;
  * comparing at display precision instead would report a corpus over its
  * ceiling as within it, which is a threshold loosened by a formatting choice.
  */
 function judgedPair(ratio: number, threshold: number): { ratio: string; threshold: string } {
-  const collapsed = ratio !== threshold && ratio * 100 === threshold * 100;
-  const format = (r: number, decimals: number) =>
-    collapsed ? exactPercent(r, decimals) : (r * 100).toFixed(decimals);
-  let decimals = 1;
-  while (
-    ratio !== threshold &&
-    decimals < MAX_PCT_DECIMALS &&
-    format(ratio, decimals) === format(threshold, decimals)
-  ) {
-    decimals += 1;
+  const shown = (format: (r: number, decimals: number) => string, decimals: number) => ({
+    ratio: `${format(ratio, decimals)}%`,
+    threshold: `${format(threshold, decimals)}%`,
+  });
+  const everyday = (r: number, decimals: number) => (r * 100).toFixed(decimals);
+  if (ratio === threshold) return shown(everyday, 1);
+
+  for (let decimals = 1; decimals <= MAX_PCT_DECIMALS; decimals++) {
+    if (everyday(ratio, decimals) !== everyday(threshold, decimals)) return shown(everyday, decimals);
   }
-  return { ratio: `${format(ratio, decimals)}%`, threshold: `${format(threshold, decimals)}%` };
+  for (let decimals = 1; decimals <= MAX_EXACT_DECIMALS; decimals++) {
+    if (exactPercent(ratio, decimals) !== exactPercent(threshold, decimals)) {
+      return shown(exactPercent, decimals);
+    }
+  }
+  // A subnormal pair: nothing prints them apart, so a hundred zeros would
+  // only be longer. Say it at the everyday precision.
+  return shown(everyday, 1);
 }
 
 /**
@@ -245,6 +264,9 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
   ];
 }
 
+/** The inventory row for a vector table this host could not count. */
+const UNKNOWN_EMBEDDINGS = "  Embeddings: n/a — vector table could not be read on this host";
+
 function inventorySection(stats: BrainStats, all: boolean): string[] {
   const { size } = stats;
   const lines = [
@@ -261,7 +283,7 @@ function inventorySection(stats: BrainStats, all: boolean): string[] {
   // Suppressed at 0 (nothing embedded is not worth a row), but never when the
   // count is unknown: a brain whose vectors could not be read must not render
   // like one holding none.
-  if (stats.embeddings === null) lines.push("  Embeddings: n/a — vector table could not be read on this host");
+  if (stats.embeddings === null) lines.push(UNKNOWN_EMBEDDINGS);
   else if (stats.embeddings > 0) lines.push(`  Embeddings: ${stats.embeddings}`);
   lines.push(
     `  Corpus: ${size.corpus ? `${plural(size.corpus.files, "file")}, ${bytes(size.corpus.bytes)}` : "n/a"}`,
@@ -276,8 +298,11 @@ export function formatStats(stats: BrainStats, opts: StatsRenderOptions): string
   // Nothing indexed: every ratio is already null and every breakdown empty, so
   // the sections would print a page of `n/a` that tells the user nothing they
   // can act on. One line that names the next step does.
+  // An unreadable vector table is still worth its line: it is the one figure
+  // here that is unknown rather than empty.
   if (stats.documents === 0) {
-    return "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`.";
+    const empty = "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`.";
+    return stats.embeddings === null ? `${empty}\n${UNKNOWN_EMBEDDINGS}` : empty;
   }
 
   return [

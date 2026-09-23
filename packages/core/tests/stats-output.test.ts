@@ -579,6 +579,18 @@ describe("an embeddings count that could not be taken reads as unknown", () => {
     expect(uncounted).not.toBe(noneOut);
   });
 
+  test("a brain with no documents still says its vector count is unknown", () => {
+    // The empty state returns before the inventory, where the n/a row lives.
+    // A leftover vector table this host cannot read must not vanish with it.
+    const empty = { documents: 0, byType: {}, byStatus: {}, byRelevance: {}, chunks: 0 };
+    const unknown = formatStats(statsWith({ ...empty, embeddings: null }), { all: false, stale: STALE });
+    const none = formatStats(statsWith({ ...empty, embeddings: 0 }), { all: false, stale: STALE });
+
+    expect(unknown).toContain("No documents indexed.");
+    expect(unknown).toMatch(/^ {2}Embeddings: n\/a — vector table could not be read on this host$/m);
+    expect(none).not.toMatch(/Embeddings:/);
+  });
+
   test("a counted brain does show the row", () => {
     const out = formatStats(statsWith({ embeddings: 12 }), { all: false, stale: STALE });
     expect(out).toMatch(/^ {2}Embeddings: 12$/m);
@@ -596,7 +608,11 @@ describe("a ratio next to its threshold never reads as the same number", () => {
 
   /** The ratio and the threshold as printed on a health line, and its verdict word. */
   function parts(text: string): { ratio: string; verdict: string; threshold: string } {
-    const m = text.match(/(\d+(?:\.\d+)?)%\)?(?: of [^,]+)?, (\w+) the (\d+(?:\.\d+)?)% (?:ceiling|floor)$/);
+    // Whole tokens only: a sign or an exponent must fail the match, not be
+    // cut off so the digits after it pass for the number.
+    const m = text.match(
+      /(?:\(|: )(\d+\.\d+)%\)?(?: of [^,]+)?, (\w+) the (\d+\.\d+)% (?:ceiling|floor)$/
+    );
     if (!m) throw new Error(`not a judged health line: ${text}`);
     return { ratio: m[1], verdict: m[2], threshold: m[3] };
   }
@@ -639,7 +655,7 @@ describe("a ratio next to its threshold never reads as the same number", () => {
 
   test("as many digits as it takes, for ratios arbitrarily close", () => {
     // 1 broken link in 19,999 over a 1/20,000 ceiling: the two first differ
-    // at the fourth decimal of the percentage.
+    // at the seventh decimal of the percentage.
     const ceiling = 1 / 20_000;
     const rate = 1 / 19_999;
     const out = formatStats(
@@ -687,6 +703,71 @@ describe("a ratio next to its threshold never reads as the same number", () => {
     // Compared as decimal strings of equal length: Number() would collapse them again.
     expect(broken.ratio.length).toBe(broken.threshold.length);
     expect(broken.ratio > broken.threshold).toBe(true);
+  });
+
+  test("pairs twenty places cannot separate still read as different numbers", () => {
+    // Found in review: the widening stopped at twenty places whether or not
+    // the two had come apart.
+    const next = (x: number, by: 1n | -1n) => {
+      const bits = new Float64Array([x]);
+      new BigInt64Array(bits.buffer)[0] += by;
+      return bits[0];
+    };
+    const rate = 1 / 2_097_165;
+    const cases = [
+      // One link in 2,097,165 over a ceiling one double below it: `* 100`
+      // collapses the pair, and 22 places of the ratios cannot tell them apart.
+      { label: "Broken links", rate, ceiling: next(rate, -1n), verdict: "over" },
+    ];
+    for (const { label, rate: r, ceiling, verdict } of cases) {
+      const out = formatStats(
+        statsWith({
+          brokenLinks: 1,
+          links: 2_097_165,
+          health: {
+            ...statsWith().health,
+            brokenLinkRate: r,
+            thresholds: { ...DEFAULT_STATS_THRESHOLDS, brokenLinkCeiling: ceiling },
+          },
+        }),
+        { all: false, stale: STALE }
+      );
+      const got = parts(line(out, label));
+      expect(got.verdict).toBe(verdict);
+      expect(got.ratio).not.toBe(got.threshold);
+      expect(got.ratio.length).toBe(got.threshold.length);
+      expect(got.ratio > got.threshold).toBe(true);
+    }
+
+    // No coverage at all under a floor of 1e-30: (0 * 100).toFixed(20) and
+    // (1e-28).toFixed(20) are both zeros.
+    const out = formatStats(
+      statsWith({
+        embeddings: 0,
+        chunks: 5000,
+        health: {
+          ...statsWith().health,
+          embeddingCoverage: 0,
+          thresholds: { ...DEFAULT_STATS_THRESHOLDS, coverageFloor: 1e-30 },
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    const coverage = parts(line(out, "Embedding coverage"));
+    expect(coverage.verdict).toBe("below");
+    expect(coverage.ratio).not.toBe(coverage.threshold);
+    expect(coverage.ratio.length).toBe(coverage.threshold.length);
+    expect(coverage.ratio < coverage.threshold).toBe(true);
+  });
+
+  test("the line parser refuses a signed or exponent figure instead of reading its tail", () => {
+    expect(() => parts("  Embedding coverage: 1e+21% of 1 chunk, meets the 100.0% floor")).toThrow();
+    expect(() => parts("  Broken links:       1 of 2 (-2.0%), within the 5.0% ceiling")).toThrow();
+    expect(parts("  Broken links:       1 of 2 (5.04%), over the 5.00% ceiling")).toEqual({
+      ratio: "5.04",
+      verdict: "over",
+      threshold: "5.00",
+    });
   });
 
   test("a threshold configured finer than one decimal is not shown rounded past the ratio", () => {
