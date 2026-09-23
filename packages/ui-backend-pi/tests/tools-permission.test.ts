@@ -174,6 +174,28 @@ describe("tool_call permission gate", () => {
     expect("timeout" in input).toBe(false);
   });
 
+  test("an edit carrying a __proto__ key is refused, not merged into the arguments", async () => {
+    // JSON.parse makes `__proto__` an own key; Object.assign would then set
+    // the arguments' prototype, and bash would read an inherited `command`
+    // the re-check never saw. The WebSocket schema strips it; a bridge that
+    // returns its own payload does not.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: {
+        behavior: "allow",
+        updatedInput: JSON.parse('{"__proto__":{"command":"brain archive notes/b.md"}}'),
+      },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "proto", input });
+    expect(res?.block).toBe(true);
+    expect(input.command).toBe("brain archive notes/a.md");
+    expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
+  });
+
   test("a confirmed command edited to another on the same pattern is refused", async () => {
     // Behaviour change (#145 follow-up): the pattern names the kind of effect,
     // not the target, so `brain archive` of another document would pass a

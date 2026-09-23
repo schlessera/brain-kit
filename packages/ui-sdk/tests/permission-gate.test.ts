@@ -372,6 +372,12 @@ describe("checkEditedApproval", () => {
     );
   });
 
+  test("an edited input with a __proto__ key is refused whatever it contains", () => {
+    const edited = JSON.parse('{"__proto__":{"command":"rm -rf notes"}}');
+    expect(check("bash", { command: "rm -rf notes" }, edited)).toContain("bash");
+    expect(check("read_file", { path: "a.md" }, edited)).toContain("read_file");
+  });
+
   test("a confirmation hiding behind a tool grant is still seen", () => {
     // The tool-level decision is a property of the name, which an edit cannot
     // change; what an edit CAN change is whether the call is destructive.

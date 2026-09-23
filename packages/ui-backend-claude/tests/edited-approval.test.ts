@@ -285,6 +285,22 @@ describe("canUseTool: the edit is re-checked there too", () => {
     expect(turn.heldKeys).toEqual([]);
   });
 
+  test("a confirmed command retargeted on the same pattern is denied here too", async () => {
+    const turn = await duringTurn({
+      decision: { behavior: "allow", updatedInput: { command: "brain archive notes/b.md" } },
+      allowedTools: ["Read"],
+      probe: (options) =>
+        options.canUseTool!("Bash", { command: "brain archive notes/a.md" }, {
+          signal: new AbortController().signal,
+          toolUseID: "grant-retarget",
+        } as never),
+    });
+
+    expect(turn.value).toMatchObject({ behavior: "deny" });
+    expect((turn.value as { updatedInput?: unknown }).updatedInput).toBeUndefined();
+    expect(turn.heldKeys).toEqual([]);
+  });
+
   test("an edit that passes is applied, with the lock on the edited input's key", async () => {
     const turn = await duringTurn({
       decision: { behavior: "allow", updatedInput: { command: "git add -A" } },

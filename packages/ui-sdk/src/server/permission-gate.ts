@@ -134,6 +134,16 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
  * @experimental
  */
 export function checkEditedApproval(options: EditedApprovalCheckInput): string | null {
+  // An own `__proto__` key (what JSON.parse makes of one) is refused outright:
+  // merged with Object.assign it replaces the arguments' prototype, and the
+  // tool then reads inherited values this check never saw.
+  const edited = options.editedInput;
+  if (edited && typeof edited === "object" && Object.hasOwn(edited, "__proto__")) {
+    return (
+      `The approval for ${options.toolName} came back with an input that cannot be applied safely, so it did not run. ` +
+      "Re-issue the call as you want it."
+    );
+  }
   const needed = decideToolPermission({
     toolName: options.toolName,
     shellToolName: options.shellToolName,
