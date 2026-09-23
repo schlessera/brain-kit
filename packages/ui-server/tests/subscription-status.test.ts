@@ -458,6 +458,33 @@ describe("/api/status's subscription", () => {
     }
   });
 
+  test("a profile credential of another shape is redacted too", async () => {
+    const otherKey = `sk-or-v1-${"0".repeat(64)}`;
+    const opaque = "q".repeat(40);
+    const at = host();
+    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+      bridge.activity?.({ kind: "runtime_observed", billing: "api", policy: "api" });
+      bridge.activity?.({
+        kind: "auth_failure",
+        errorClass: "authentication_failed",
+        message: `Invalid API key: ${otherKey}; x-api-key: abc123; token ${opaque}`,
+      } as BackendActivityEvent);
+      bridge.emit({ type: "result", sessionId: "sess-1", outcome: "error", costUsd: 0, durationMs: 1, numTurns: 1, isError: true });
+    });
+    try {
+      await turn(app);
+      const { raw } = await status(app);
+      expect(raw).toContain("Invalid API key");
+      // Nor in the run's own record, which the activity views serve.
+      const events = JSON.stringify(app.db.query("SELECT * FROM activity_events").all());
+      for (const text of [raw, events]) {
+        for (const secret of [otherKey, "abc123", opaque]) expect(text).not.toContain(secret);
+      }
+    } finally {
+      app.close();
+    }
+  });
+
   test("the last proof is the last successful root turn: a later failed one does not move it", async () => {
     const at = host();
     let fail = false;

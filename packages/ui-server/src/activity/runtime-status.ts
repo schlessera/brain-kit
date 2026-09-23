@@ -59,9 +59,11 @@ export interface RuntimeStatus {
   snapshot(): RuntimeStatusSnapshot;
 }
 
-// Tokens and keys look like this; a runtime message that quotes one must not
-// carry it onto /api/status or into the log.
-const CREDENTIAL = /\bsk-ant-[A-Za-z0-9_-]+|\bBearer\s+\S+/gi;
+// Tokens and keys look like this — any `sk-` key (Anthropic, OpenRouter,
+// OpenAI), a bearer or key header, or any long opaque run of token
+// characters; a runtime message that quotes one must not carry it onto
+// /api/status or into the log. Over-redacting a request id costs nothing.
+const CREDENTIAL = /\bsk-[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\bx-api-key:\s*\S+|[A-Za-z0-9_-]{32,}/gi;
 
 /** `text` with anything shaped like a credential replaced. */
 export function redactCredentials(text: string): string {

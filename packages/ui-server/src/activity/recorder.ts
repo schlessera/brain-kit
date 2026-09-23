@@ -34,7 +34,7 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
-import type { RuntimeStatus } from "./runtime-status.js";
+import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
@@ -324,7 +324,7 @@ export function createTurnRecorder(
             store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": event.errorClass } });
             store.appendEvent(rootSpanId, "auth_failure", {
               errorClass: event.errorClass,
-              ...(event.message ? { message: event.message } : {}),
+              ...(event.message ? { message: redactCredentials(event.message) } : {}),
             });
             runtime?.authFailure(event, runId, observedPolicy);
             onWrite?.();
