@@ -180,6 +180,13 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // backend construction and model discovery remain lazy.
   // Skipped when the embedder injects its own registry.
   if (!options.registry) assertBackendResolvable(config.agent);
+  // The runtime every active backend would spawn, probed now (#211): a
+  // missing or unstartable binary refuses the boot here instead of failing
+  // the first turn — and before anything is opened, so a refused boot leaves
+  // nothing behind. Skipped with an injected registry, like the check above.
+  const runtimeProbes = options.registry
+    ? []
+    : probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -208,14 +215,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     log: observability.logger("activity"),
     pricing,
   });
-  // The runtime every active backend would spawn, probed now (#211): a
-  // missing or unstartable binary refuses the boot here instead of failing
-  // the first turn. Skipped with an injected registry, like the check above.
-  activity.runtime.setBoot(
-    options.registry
-      ? []
-      : probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"))
-  );
+  activity.runtime.setBoot(runtimeProbes);
   const registry =
     options.registry ??
     createBackendRegistry({

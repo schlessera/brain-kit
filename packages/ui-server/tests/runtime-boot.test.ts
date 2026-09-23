@@ -6,13 +6,14 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MEASURED_RUNTIME } from "@schlessera/brain-backend-claude";
 import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 
 import { probeBackendRuntimes } from "../src/agent/backend";
+import { createApp } from "../src/app";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { createTestApp } from "./helpers/test-app";
@@ -36,6 +37,25 @@ describe("boot", () => {
   test("refuses when the binary a turn would spawn does not exist", () => {
     const missing = join(tmpdir(), `no-such-claude-${process.pid}`);
     expect(() => createTestApp({ env: { CLAUDE_CODE_PATH: missing } })).toThrow(missing);
+  });
+
+  test("a refused boot opens nothing: no database is created", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-refused-"));
+    scratch.push(dir);
+    const brainPath = join(dir, "brain");
+    mkdirSync(brainPath);
+    const dbPath = join(dir, "ui.db");
+    const config = resolveServerConfig({
+      AUTH_MODE: "none",
+      HOST: "127.0.0.1",
+      NODE_ENV: "test",
+      BRAIN_PATH: brainPath,
+      DB_PATH: dbPath,
+      BRAIN_UI_PRICING_DISCOVERY: "0",
+      CLAUDE_CODE_PATH: join(dir, "no-such-claude"),
+    });
+    expect(() => createApp({ config })).toThrow("no-such-claude");
+    expect(existsSync(dbPath)).toBe(false);
   });
 
   test("refuses when that binary exits non-zero on --version", () => {
