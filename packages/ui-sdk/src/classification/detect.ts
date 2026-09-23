@@ -147,6 +147,9 @@ function bareAddress(link: Link): string | null {
   if (link.title || link.children.some((child) => hasRichInline(child))) return null;
   const text = mdastToString(link);
   if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
+  // A backtick is legal in an address, but a key-value run's value has its
+  // backticks stripped as code-span markup, which would change the address.
+  if (text.includes("`")) return null;
   return MAILTO.test(link.url) ? text.replace(MAILTO, "") : text;
 }
 
@@ -158,7 +161,7 @@ function bareAddress(link: Link): string | null {
  * address — GFM links the address and leaves the scheme outside it — goes
  * with it, so the address reads the same however it was written.
  */
-function flattenBareAddresses(node: Node, out: Flattened[]): void {
+function flattenBareAddresses(node: Node, source: string, out: Flattened[]): void {
   const children = node.children;
   if (!Array.isArray(children)) return;
   for (let i = 0; i < children.length; i++) {
@@ -167,18 +170,23 @@ function flattenBareAddresses(node: Node, out: Flattened[]): void {
     const end = child.position?.end.offset;
     const text = child.type === "link" ? bareAddress(child as Link) : null;
     if (text === null || typeof start !== "number" || typeof end !== "number") {
-      flattenBareAddresses(child, out);
+      flattenBareAddresses(child, source, out);
       continue;
     }
     let from = start;
     const before = children[i - 1];
-    if (MAILTO.test((child as Link).url) && before?.type === "text" && before.position?.end.offset === start) {
-      const prose = (before as Text).value;
-      const scheme = /mailto:$/i.exec(prose);
-      if (scheme) {
-        (before as Text).value = prose.slice(0, scheme.index);
-        from = start - scheme[0].length;
-      }
+    // Read the scheme from the source, not the decoded prose: `mailto&#58;`
+    // decodes to the same seven characters from eleven.
+    const scheme = "mailto:".length;
+    if (
+      MAILTO.test((child as Link).url) &&
+      before?.type === "text" &&
+      before.position?.end.offset === start &&
+      MAILTO.test(source.slice(start - scheme, start)) &&
+      /mailto:$/i.test((before as Text).value)
+    ) {
+      (before as Text).value = (before as Text).value.slice(0, -scheme);
+      from = start - scheme;
     }
     children[i] = { type: "text", value: text, position: { start: { offset: from }, end: { offset: end } } } as Text;
     out.push({ start: from, end, text });
@@ -378,8 +386,8 @@ export function detectCandidates(text: string): Candidate[] {
   if (!text.trim()) return [];
   const root = parseMarkdown(text);
   const flattened: Flattened[] = [];
-  flattenBareAddresses(root, flattened);
-  flattened.sort((a, b) => a.start - b.start);
+  // Document order, which `flatSource` relies on: the walk is depth-first.
+  flattenBareAddresses(root, text, flattened);
   const out: Candidate[] = [];
   const children = root.children;
   const consumed = new Set<number>();

@@ -179,6 +179,10 @@ describe("detectCandidates", () => {
     expect(valueOf("**Herald:** [eurybates@ithaca.example](mailto:eurybates@ithaca.example)")).toBe(
       "eurybates@ithaca.example"
     );
+    // The scheme is matched in the source: an escaped or entity-encoded one is
+    // left as the author wrote it rather than cut at the decoded length.
+    expect(valueOf("**Herald:** mailto&#58;eurybates@ithaca.example")).toBe("mailto&#58;eurybates@ithaca.example");
+    expect(valueOf("**Herald:** mailto\\:eurybates@ithaca.example")).toBe("mailto\\:eurybates@ithaca.example");
     expect(valueOf("**Site:** https://ithaca.example/palace")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** <https://ithaca.example/palace>")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** see https://ithaca.example/palace first")).toBe("see https://ithaca.example/palace first");
@@ -196,6 +200,9 @@ describe("detectCandidates", () => {
     // A title would be dropped, and so would an image inside the link.
     expect(run('**Site:** [https://ithaca.example](https://ithaca.example "The palace")')).toEqual([]);
     expect(run("**Site:** [![https://ithaca.example](https://ithaca.example/a.png)](https://ithaca.example)")).toEqual([]);
+    // A backtick is legal in an address, but the run strips backticks as
+    // code-span markup, so flattening would change the address.
+    expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);
     // GFM links `www.` to `http://www.`: the text is not the destination, so
     // by the rule it is not a bare address (#167's ruling is text = target).
     expect(run("**Site:** www.ithaca.example")).toEqual([]);
