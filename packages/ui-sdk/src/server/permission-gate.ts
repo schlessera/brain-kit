@@ -284,10 +284,19 @@ export function requestToolPermission(
  * and refuses an edit that is not a plain object or will not serialize.
  */
 function snapshotEdit(request: PermissionRequest, decision: PermissionDecision): PermissionDecision {
-  if (decision.behavior !== "allow" || decision.updatedInput === undefined) return decision;
+  // Every field is read once and the decision rebuilt, never passed on: an
+  // accessor on the decision itself could otherwise answer the check with
+  // one edit and the application with another.
+  const behavior = decision.behavior;
+  if (behavior !== "allow") {
+    const message = (decision as { message?: unknown }).message;
+    return { behavior: "deny", message: typeof message === "string" ? message : "Denied." };
+  }
+  const updatedInput = (decision as { updatedInput?: unknown }).updatedInput;
+  if (updatedInput === undefined) return { behavior: "allow" };
   let snapshot: unknown;
   try {
-    snapshot = JSON.parse(JSON.stringify(decision.updatedInput));
+    snapshot = JSON.parse(JSON.stringify(updatedInput));
   } catch {
     snapshot = undefined;
   }
@@ -297,5 +306,5 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
       message: `The approval for ${request.toolName} came back with an input that cannot be applied, so it did not run. Re-issue the call as you want it.`,
     };
   }
-  return { ...decision, updatedInput: snapshot as Record<string, unknown> };
+  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown> };
 }

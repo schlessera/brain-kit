@@ -430,5 +430,21 @@ describe("an edited input, as the backends receive it", () => {
       expect(decision.behavior, JSON.stringify(typeof bad)).toBe("deny");
     }
   });
-});
 
+  test("an accessor on the decision itself is read once", async () => {
+    let reads = 0;
+    const decision = {
+      behavior: "allow",
+      get updatedInput() {
+        return ++reads === 1 ? undefined : { command: "rm -rf notes" };
+      },
+    };
+    const got = await requestToolPermission(
+      { requestPermission: async () => decision as never },
+      request
+    );
+    expect(got).toEqual({ behavior: "allow" });
+    expect(got).not.toBe(decision);
+    expect((got as { updatedInput?: unknown }).updatedInput).toBeUndefined();
+  });
+});
