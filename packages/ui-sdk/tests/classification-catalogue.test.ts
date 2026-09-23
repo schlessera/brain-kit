@@ -164,7 +164,7 @@ describe("the catalogue", () => {
   test("above the bound, a comparison stays markdown and a data table is drawn with no column recommended", () => {
     const [wide] = detectCandidates(wideTable(5));
     // A recommendation the classifier was never asked for is not honoured
-    // either: the transform refuses the comparison on the width alone.
+    // either: a comparison this wide is refused whatever the answers say.
     expect(
       transformCandidate(wide!, {
         "c0.shape": choice("comparison", 0.9),
