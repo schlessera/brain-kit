@@ -35,7 +35,7 @@ beforeEach(() => {
       makeFakeBackend({
         id: "claude",
         profiles: [
-          { id: "claude-opus-5", label: "Claude Opus 5", vendor: "anthropic" },
+          { id: "claude-opus-5-5", label: "Claude Opus 5.5", vendor: "anthropic" },
           { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", vendor: "anthropic" },
         ],
       }),
@@ -79,7 +79,7 @@ describe("model catalog routes", () => {
 
     expect(response.status).toBe(200);
     expect(body.models.map((m: { id: string }) => m.id)).toEqual([
-      "claude-opus-5",
+      "claude-opus-5-5",
       "claude-haiku-4-5",
     ]);
     expect(body.models.every((m: { hidden: boolean }) => !m.hidden)).toBe(true);
@@ -109,7 +109,7 @@ describe("model catalog routes", () => {
       await providerRoutes.request("/providers")
     ).json();
     expect(providers.providers.map((p: { id: string }) => p.id)).toEqual([
-      "claude-opus-5",
+      "claude-opus-5-5",
     ]);
   });
 
@@ -140,13 +140,13 @@ describe("model catalog routes", () => {
 
     expect(getHiddenModelIds()).toEqual([]);
     expect((await registry.listAllProviders()).map((p: { id: string }) => p.id)).toEqual([
-      "claude-opus-5",
+      "claude-opus-5-5",
       "claude-haiku-4-5",
     ]);
   });
 
   test("PUT /models/hidden rejects a malformed body", async () => {
-    for (const body of ['{"hidden":"claude-opus-5"}', '{"hidden":[1,2]}', "{}"]) {
+    for (const body of ['{"hidden":"claude-opus-5-5"}', '{"hidden":[1,2]}', "{}"]) {
       const response = await modelRoutes.request("/models/hidden", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -201,9 +201,9 @@ describe("model catalog routes", () => {
 
 describe("billing overrides", () => {
   test("the accessors round-trip and drop garbage values", () => {
-    setBillingOverrides(db, { "claude-opus-5": "subscription", "claude-haiku-4-5": "api" });
+    setBillingOverrides(db, { "claude-opus-5-5": "subscription", "claude-haiku-4-5": "api" });
     expect(getBillingOverrides()).toEqual({
-      "claude-opus-5": "subscription",
+      "claude-opus-5-5": "subscription",
       "claude-haiku-4-5": "api",
     });
 
@@ -232,12 +232,12 @@ describe("billing overrides", () => {
     const response = await modelRoutes.request("/models/billing", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ billing: { "claude-opus-5": "subscription" } }),
+      body: JSON.stringify({ billing: { "claude-opus-5-5": "subscription" } }),
     });
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5");
+    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5-5");
     expect(opus.billingMode).toBe("subscription");
     expect(opus.billingOverride).toBe("subscription");
     // The un-overridden row stays auto — the static registry has no
@@ -245,14 +245,14 @@ describe("billing overrides", () => {
     const haiku = body.models.find((m: { id: string }) => m.id === "claude-haiku-4-5");
     expect(haiku.billingMode).toBeUndefined();
     expect(haiku.billingOverride).toBeUndefined();
-    expect(getBillingOverrides()).toEqual({ "claude-opus-5": "subscription" });
+    expect(getBillingOverrides()).toEqual({ "claude-opus-5-5": "subscription" });
   });
 
   test("clearing the record returns every profile to auto", async () => {
     await modelRoutes.request("/models/billing", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ billing: { "claude-opus-5": "api" } }),
+      body: JSON.stringify({ billing: { "claude-opus-5-5": "api" } }),
     });
     const response = await modelRoutes.request("/models/billing", {
       method: "PUT",
@@ -262,7 +262,7 @@ describe("billing overrides", () => {
     const body = await response.json();
 
     expect(getBillingOverrides()).toEqual({});
-    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5");
+    const opus = body.models.find((m: { id: string }) => m.id === "claude-opus-5-5");
     expect(opus.billingMode).toBeUndefined();
     expect(opus.billingOverride).toBeUndefined();
   });
@@ -271,7 +271,7 @@ describe("billing overrides", () => {
     for (const body of [
       '{"billing":"api"}',
       '{"billing":["api"]}',
-      '{"billing":{"claude-opus-5":"free"}}',
+      '{"billing":{"claude-opus-5-5":"free"}}',
       "{}",
     ]) {
       const response = await modelRoutes.request("/models/billing", {

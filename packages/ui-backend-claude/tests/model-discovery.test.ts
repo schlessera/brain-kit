@@ -58,14 +58,14 @@ describe("canonicalModelId", () => {
   });
 
   test("leaves an undated id alone", () => {
-    expect(canonicalModelId("claude-opus-5")).toBe("claude-opus-5");
+    expect(canonicalModelId("claude-opus-5-5")).toBe("claude-opus-5-5");
   });
 });
 
 describe("discoverAnthropicModels", () => {
   test("returns nothing when the process holds no credential", async () => {
     const result = await discoverAnthropicModels({
-      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5" }] }),
+      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5-5" }] }),
     });
     expect(result.models).toEqual([]);
   });
@@ -155,14 +155,14 @@ describe("discoverAnthropicModels", () => {
     const { models } = await discoverAnthropicModels({
       fetchImpl: stubFetch({
         models: [
-          { id: "claude-opus-5", display_name: "Claude Opus 5" },
-          { id: "claude-opus-5-20260601", display_name: "Claude Opus 5 (dated)" },
+          { id: "claude-opus-5-5", display_name: "Claude Opus 5.5" },
+          { id: "claude-opus-5-5-20260921", display_name: "Claude Opus 5.5 (dated)" },
         ],
-        validAliases: ["claude-opus-5"],
+        validAliases: ["claude-opus-5-5"],
       }),
     });
-    expect(models.map((m) => m.id)).toEqual(["claude-opus-5"]);
-    expect(models[0]!.label).toBe("Claude Opus 5");
+    expect(models.map((m) => m.id)).toEqual(["claude-opus-5-5"]);
+    expect(models[0]!.label).toBe("Claude Opus 5.5");
   });
 });
 
@@ -178,15 +178,15 @@ describe("createModelSource", () => {
     process.env.ANTHROPIC_API_KEY = "k";
     const source = createModelSource({
       brainPath,
-      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5", display_name: "Claude Opus 5" }] }),
+      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5-5", display_name: "Claude Opus 5.5" }] }),
     });
 
     await source.refresh();
 
-    expect(source.list().map((m) => m.id)).toEqual(["claude-opus-5"]);
+    expect(source.list().map((m) => m.id)).toEqual(["claude-opus-5-5"]);
     expect(source.state().stale).toBe(false);
     const cached = JSON.parse(readFileSync(modelCachePath(brainPath), "utf-8"));
-    expect(cached.models[0].id).toBe("claude-opus-5");
+    expect(cached.models[0].id).toBe("claude-opus-5-5");
   });
 
   test("a fresh cache on disk is served without any network call", () => {
@@ -218,7 +218,7 @@ describe("createModelSource", () => {
     let fail = false;
     const fetchImpl = (async (input: string | URL | Request) => {
       if (fail) throw new Error("network down");
-      return stubFetch({ models: [{ id: "claude-opus-5" }] })(input);
+      return stubFetch({ models: [{ id: "claude-opus-5-5" }] })(input);
     }) as typeof fetch;
 
     const source = createModelSource({ brainPath, fetchImpl });
@@ -226,7 +226,7 @@ describe("createModelSource", () => {
     fail = true;
     await expect(source.refresh()).rejects.toThrow("network down");
 
-    expect(source.list().map((m) => m.id)).toEqual(["claude-opus-5"]);
+    expect(source.list().map((m) => m.id)).toEqual(["claude-opus-5-5"]);
     expect(source.state().error).toContain("network down");
   });
 
@@ -235,7 +235,7 @@ describe("createModelSource", () => {
     const calls: string[] = [];
     const source = createModelSource({
       brainPath,
-      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5" }], calls }),
+      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5-5" }], calls }),
     });
 
     await Promise.all([source.refresh(), source.refresh(), source.refresh()]);
@@ -250,7 +250,7 @@ describe("createModelSource", () => {
       brainPath,
       ttlMs: 1_000,
       now: () => now,
-      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5" }] }),
+      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5-5" }] }),
     });
 
     // Cold: nothing to serve, so the caller waits and gets a populated list.
