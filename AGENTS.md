@@ -99,11 +99,15 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 ### Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes
-shipped in a PR whose suite was green:
+shipped with a green suite. The numbers are the PRs that found them, except
+#192, which is an issue:
 
-- **An assertion every value satisfies.** Asserting that `Object.keys(tool)`
-  does *not* contain `deferLoading` passes for any object without it, including
-  the wrong one (#158).
+- **An assertion that is not about the behaviour.** The test for whether pi
+  tools load eagerly asserted that `Object.keys(tool)` does *not* contain
+  `deferLoading`. That stays true for a deferred tool, an empty object or
+  anything else without the key, so it could not tell eager from deferred.
+  The fix asserts what does differ: the schema and the executor are already
+  attached (#158).
 - **A guard on the wrong object.** The test asserted the factory
   (`createBrainUiMcpServer`), not the `mcpServers` entry that the call site it
   was meant to protect actually builds (#158). A predicate-only test is the
@@ -116,7 +120,7 @@ shipped in a PR whose suite was green:
   because its harness wired no store (#154).
 - **The field under test is empty by construction.** A `toEqual` over a whole
   classifier request body passed with the threshold strip removed, because the
-  test had built the request's `questions` map as `{}` (#192). An assertion over
+  test had built the request's `questions` map as `{}` (issue #192). An assertion over
   a whole structure is only as strong as its emptiest field. When a test builds
   the input and asserts the output, also assert that the part it covers is
   non-empty.
