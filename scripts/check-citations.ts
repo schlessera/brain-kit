@@ -75,6 +75,8 @@ export interface Citation {
   bare?: boolean;
   /** A span that cites a line in a shape this check cannot read. */
   unreadable?: boolean;
+  /** For an extensionless `name:12`: the name, which must be a file to count. */
+  fileName?: string;
 }
 
 export type Verdict =
@@ -156,7 +158,14 @@ export function parseCitations(doc: string, body: string): Citation[] {
       // Something that cites a line but is not a shape this check reads —
       // `[brain-ui] scripts/entrypoint.sh:59-85`, a path with a space — is
       // reported, not skipped.
-      if (LOOSE_CITATION.test(content)) {
+      // A lowercase extensionless name (`post-commit:12`) cannot be told
+      // from CSS (`flex-shrink:0`) by shape, so it is kept as a candidate and
+      // reported only if a file in the tree has that name.
+      const bareName = content.match(/^([\w@-]+)\s*:\s*\d+(?:\s*[-,\u2013]\s*\d+)*$/)?.[1];
+      // A URL's host and port are not a file and a line.
+      const withoutHosts = content.replace(/[a-z][\w+.-]*:\/\/[^/\s#?]*/gi, "//host");
+      const loose = LOOSE_CITATION.test(withoutHosts);
+      if (loose || bareName) {
         citations.push({
           doc,
           line: lineAt(span.index!),
@@ -165,6 +174,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
           ranges: [],
           anchor: undefined,
           unreadable: true,
+          ...(loose ? {} : { fileName: bareName }),
         });
       }
       continue;
@@ -504,6 +514,12 @@ export function checkRecords(
     ].map((m) => m[1]);
     const cited = [...named, ...citations.flatMap((c) => (c.path && !c.bare ? [c.path] : []))];
     for (const citation of citations) {
+      if (
+        citation.fileName &&
+        !tree.files.some((file) => file === citation.fileName || file.endsWith(`/${citation.fileName}`))
+      ) {
+        continue;
+      }
       const verdict = checkCitation(citation, cited, tree);
       const entry = exceptions[`${doc}|${citation.text}`];
       const exception = typeof entry === "string" ? entry : entry?.reason;

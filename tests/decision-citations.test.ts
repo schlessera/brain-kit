@@ -302,6 +302,18 @@ describe("what the check cannot verify is reported, not skipped", () => {
     }
   });
 
+  test("an extensionless file name counts when the file exists, and CSS does not", () => {
+    const files = { "src/hooks.ts": SOURCE, "hooks/post-commit": "#!/bin/sh\n" };
+    expect(check("See `post-commit:12`.", files).map((r) => r.verdict.kind)).toEqual(["unresolved"]);
+    expect(check("See `flex-shrink:0` and `gap:10`.", files)).toEqual([]);
+  });
+
+  test("a URL with a port is not a citation", () => {
+    expect(check("Serve on `http://localhost:6006/mcp` or `https://example.invalid:8443/x`.")).toEqual(
+      [],
+    );
+  });
+
   test("CSS and ratios in code spans are not citations", () => {
     expect(check("`gap: 18` and `flex:1 1 auto` and `min-height:0`")).toEqual([]);
   });
