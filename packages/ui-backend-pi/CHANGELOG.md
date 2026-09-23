@@ -1,5 +1,224 @@
 # @schlessera/brain-backend-pi
 
+## 0.37.0
+
+### Minor Changes
+
+- 907e8bc: Archiving a document through `brain_update` now raises an approval card.
+
+  Archiving is confirmed because it is a visibility change: an archived document
+  drops out of search, briefings and context assembly, so a silent archive shows
+  up later as holes in output nobody can account for. Two paths to it stopped for
+  approval — `brain_archive` is off the default allowlist, `brain archive` matches
+  a confirm pattern — and a third did not. `brain_update` takes the same `status`
+  field and is auto-allowed, so `status: "archived"` made a document invisible to
+  every later search with no card, no confirmation and no record.
+
+  `decideToolPermission` now raises a per-use confirmation for a document update
+  that sets `status: "archived"`, and both backends pass it their spelling of the
+  tool (`updateToolName`). It is deliberately a per-use confirmation, never a
+  grantable tool approval: a remembered "always allow" would reopen the hole for
+  good.
+
+  Nothing else changes. An update with no `status`, or with `"active"` or
+  `"draft"`, runs unprompted exactly as before — this is not a card on every
+  document edit. `brain_update`'s MCP input schema, output shape and name are
+  untouched.
+
+- 6ae12e7: A destructive-command approval card now says what the command will do.
+
+  - Added: each default confirm pattern carries an `effect` phrase ("delete a directory and everything inside it"). A `command` approval's reason is that phrase, and both approval cards show it.
+  - Changed: `DEFAULT_CONFIRM_BASH_PATTERNS` entries are `{ pattern, effect }`. `confirmBashPatterns` and `compileConfirmPatterns` accept that form or a bare regex source; a bare source keeps the old generic sentence.
+  - Changed: `BRAIN_UI_CONFIRM_BASH` accepts the object form too. A non-empty list with no entry of a usable shape now means the defaults rather than "no confirmation". A list whose patterns are all invalid regexes still compiles to none (#251).
+
+- 4ed02fb: An approval that comes back with an edited input is re-checked before it runs, on both backends.
+
+  - Added: `checkEditedApproval` in `@schlessera/brain-ui-sdk/server`.
+  - Changed (pi): an edit that needs a confirmation the card did not show (another confirm pattern, another archived document) is refused instead of applied.
+  - Changed (Claude): an edited confirmation that passes the re-check is applied instead of refused, as `updatedInput` with no `permissionDecision`. `canUseTool` re-checks edits too, and the rtk rewrite leaves a confirmed command alone.
+
+- 7b6b2b0: An approval that edits a confirmed shell command into a different command that still needs confirmation is now refused.
+
+  - Changed: `checkEditedApproval` identifies a shell confirmation by the command text as well as the pattern. `brain archive a.md` can no longer be approved as `brain archive b.md`, and a narrower command (`rm -rf notes` → `rm -rf notes/old`) must be re-issued and confirmed as it is. An edit that needs no confirmation of its own is still applied.
+  - Changed: an edited input carrying an own `__proto__` key is refused on both backends, instead of being merged into the tool arguments.
+  - Changed: `requestToolPermission` hands back an approval's edited input as one plain JSON snapshot, so what is checked is what runs; an edit that is not a plain object or will not serialize is denied.
+
+- ecc93b9: A turn can declare `enforceAllowedTools`, and a tool its allowlist leaves out
+  is then no longer re-admitted without a decision.
+
+  Several things used to re-admit it, which is the point rather than the number.
+  The Claude backend's input-rewrite hooks answered `permissionDecision: "allow"`
+  so their `updatedInput` would apply, which makes the runtime skip `canUseTool`
+  entirely — an rtk-rewritten shell command ran in a turn whose allowlist had no
+  `Bash` in it, with no card and no record. The ws host answered from its
+  remembered "always allow" grants before any card existed, so a grant given
+  under a wide posture was honoured under a narrow one. And the runtime admits
+  some calls on its own before the callback is reached at all — by the shape of a
+  shell command, by the tool being a built-in, or because a hook declared in the
+  project settings said so.
+
+  Under the declaration the rewrites still rewrite — `updatedInput` applies
+  without a decision attached, so the rewrite was never what the grant was for —
+  a PreToolUse hook answers "ask" for every off-list tool, which overrides the
+  runtime's own auto-approval, and the host neither answers from nor adds to its
+  grant store for a tool outside the turn's allowlist. Backends mark such
+  requests `outsideEnforcedAllowlist` so the host does not have to guess, and it
+  records both halves of the refusal — a grant it declines to apply, and an
+  "always allow" it declines to keep. A turn
+  that declares nothing is unchanged, and existing grants keep working on the
+  postures that can honour them.
+
+- 54eea05: `BRAIN_UI_EXEC_WRAPPER`: an absolute path to an executable that agent and brain
+  CLI subprocesses are launched through, as `<wrapper> <program> <args…>`. It lets
+  a host run those children as another user without the packages knowing how. The
+  wrapper is an argv[0], never a command line — no shell parses it, so a value
+  full of metacharacters is a filename rather than a command. A wrapped child
+  leads its own process group and an abort signals the group, because a uid drop
+  otherwise makes `kill(2)` fail with EPERM and leaves an aborted turn running.
+
+  Every brain CLI launch is covered too, not only the agent's tool spawns — and
+  scheduled cron jobs with them: the CLI imports the repository's
+  `brain.config.ts`, so a search executes repository code exactly as a tool call
+  does. When a wrapper is configured the program is resolved to an absolute path,
+  because a wrapper execs its target directly and because `PATH` must not get to
+  choose which `bash` runs.
+
+  `BRAIN_UI_EXEC_KILLER` is the companion seam. `kill(2)` matches uids and group
+  membership grants no exception, so once a wrapper has dropped privileges the
+  server can signal nothing at all; a host that drops uid supplies an authorised
+  helper, invoked as `<killer> <pgid> <TERM|KILL|INT>`. With neither configured,
+  and with a wrapper that has not changed uid, the group signal is used directly.
+  A cancellation that fails entirely is reported rather than swallowed.
+
+  Unset — which is every existing deployment — every spawn is exactly what it was.
+
+- 97837c1: A turn that declares `noGrantSurface` without `enforceAllowedTools` is now refused.
+
+  - Added: `assertTurnPosture(req)` in `@schlessera/brain-ui-sdk/server`.
+  - Changed: both backends' `startTurn` reject that request with a `BackendRequestError` before anything is emitted. A turn declaring both, `enforceAllowedTools` alone, or neither is unchanged.
+
+- 1de4d6c: A turn can declare `noGrantSurface`, and a permission request it cannot put to
+  anyone is then denied instead of parked. `enforceAllowedTools` removed the ways
+  a tool got admitted without a decision; what it left was the decision itself —
+  an off-posture tool raises an approval card, and in a turn nobody is looking at
+  (a spoken one, an unattended one) that is a card nobody can answer, held until
+  the turn budget expires.
+
+  Under the declaration both backends refuse the request where it is raised, with
+  a message that names the tool and is written to be read aloud, and report it on
+  the activity side channel so the record shows a denied span rather than a call
+  that errored. Both request kinds are covered, including the confirm-pattern
+  `command` request a destructive shell command raises for an allowlisted `Bash`
+  — on the Claude backend that one never reaches `canUseTool` at all. The mask
+  editor, which opens a window and then blocks on a region someone has to paint,
+  is withheld from such a turn rather than offered and blocked on.
+
+  The `ask` the Claude backend's enforcement hook answers is unchanged: it is
+  what beats the runtime's own shortcuts, and this changes the decision it
+  forces, not the ask. A turn that declares nothing is unchanged, and so is one
+  that declares only `enforceAllowedTools`.
+
+- 3031422: The pi SDK (`@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`) moves
+  from 0.84.4 to 0.87.1, so `openai-codex` profiles for `gpt-6-sol` and
+  `gpt-6-luna` (and `gpt-6-astra`) now resolve instead of failing with
+  `Unknown model`. `gpt-5.6-sol`, `gpt-5.6-luna` and `gpt-5.6-terra` still
+  resolve. pi 0.86.0 dropped `gpt-5.4` and `gpt-5.4-mini` from its OpenAI Codex
+  catalog, so a profile still naming either now fails with `Unknown model`.
+- 4d409c0: A run's effective cost is now priced by the route its inference actually took,
+  not by model id alone. The two pricing catalogs carry some of the same ids at
+  different rates — OpenRouter resells models their vendors also sell directly —
+  so a run that went straight to the vendor was being priced at OpenRouter's
+  resale rate whenever both catalogs listed its model. On
+  `deepseek/deepseek-chat`, live today, that overstates output cost by 2.1x.
+
+  Backends now classify a profile's route (`classifyRoute`, beside
+  `classifyBilling`); it is resolved once at run start, rides the root span like
+  the billing mode, and selects the catalog inside the rollup. Nothing became
+  async: `resolve()` is still synchronous and still never touches the network.
+
+  Coverage does not narrow. A run whose route is unknown — everything recorded
+  before this change, or a profile behind a proxy no backend recognises — prices
+  exactly as it did before rather than going unpriced. A rate borrowed from the
+  catalog a run did not go through still prices the run, flagged as an estimate.
+  Unknown cost remains unknown and never renders as `$0`.
+
+### Patch Changes
+
+- 2d553e2: Reading a brain can no longer destroy its vector index. `initVecSupport` was
+  both "make vectors readable on this connection" and "migrate the vector
+  schema", and the migration drops every stored vector — so `brain mcp`, whose
+  tools all advertise `readOnlyHint: true`, emptied `vec_chunks` on startup
+  against any brain last indexed before the cosine migration. Recovering meant a
+  paid `brain index --embeddings --force`.
+
+  It is now two functions. `loadVecSupport(db)` is the read path: it loads the
+  sqlite-vec extension and reports whether `vec_chunks` is there, writing nothing
+  and taking no width, so a read cannot migrate whatever kind of connection it
+  holds. `migrateVecSchema(db, dimensions)` is the write path, named for what it
+  does, and `brain index`, `brain sync`, `brain maintain`, `brain doctor --fix`,
+  the archiver and the indexer's re-embedding pass still call it.
+
+  Two smaller fixes come with the split. Callers that are not about to re-embed
+  now pass `storedVectorWidth(db, configured)` — the width the index was built
+  at, from `index_metadata.embedding_dimensions` — instead of the configured
+  provider's, so a provider swap no longer re-declares the table at a width the
+  stored vectors are not in. And `sqlite-vec not available` is now printed only
+  when the extension really failed to load; a read-only connection that could not
+  write used to report it, sending readers off to reinstall a working dependency.
+
+  The migrations themselves are now atomic. Each runs in a transaction, so a
+  half-applied one — a table dropped and not rebuilt, or rebuilt and not
+  refilled — can no longer leave the vector index gone, and a failure is
+  reported rather than swallowed: `migrateVecSchema` used to return true having
+  emptied the store. `storedVectorWidth` reads the width off `vec_chunks`' own
+  declaration before believing `index_metadata`, and accepts one only as plain
+  decimal within sqlite-vec's 1..8192 range.
+
+  `initVecSupport` is gone from `@schlessera/brain`'s exports. Out-of-tree callers
+  that only read vectors want `loadVecSupport`, branching on the exported
+  `VecSupport`/`VecUnavailableReason` when they need the cause; callers that are
+  about to embed want `migrateVecSchema`.
+
+- Updated dependencies [7fe9bc0]
+- Updated dependencies [907e8bc]
+- Updated dependencies [dd8ae8a]
+- Updated dependencies [0970d31]
+- Updated dependencies [e77ab6f]
+- Updated dependencies [b3529ac]
+- Updated dependencies [5f7dbb5]
+- Updated dependencies [e802456]
+- Updated dependencies [6ae12e7]
+- Updated dependencies [d9d4061]
+- Updated dependencies [4ed02fb]
+- Updated dependencies [7b6b2b0]
+- Updated dependencies [ecc93b9]
+- Updated dependencies [acad158]
+- Updated dependencies [d33492e]
+- Updated dependencies [54eea05]
+- Updated dependencies [97837c1]
+- Updated dependencies [1de4d6c]
+- Updated dependencies [ac94af4]
+- Updated dependencies [95ef35d]
+- Updated dependencies [fa09aaa]
+- Updated dependencies [731282f]
+- Updated dependencies [2d553e2]
+- Updated dependencies [08d4ed2]
+- Updated dependencies [4d409c0]
+- Updated dependencies [146d5a9]
+- Updated dependencies [92a599d]
+- Updated dependencies [fb1d784]
+- Updated dependencies [4fc7f0b]
+- Updated dependencies [4157941]
+- Updated dependencies [0d28bae]
+- Updated dependencies [f4edb02]
+- Updated dependencies [09d9f4e]
+- Updated dependencies [af2affb]
+- Updated dependencies [f489482]
+- Updated dependencies [f7b46d3]
+- Updated dependencies [1bf00b8]
+  - @schlessera/brain-ui-sdk@0.37.0
+  - @schlessera/brain@0.37.0
+
 ## 0.36.0
 
 ### Minor Changes

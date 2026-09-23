@@ -1,5 +1,36 @@
 # @schlessera/brain-ui-kit
 
+## 0.37.0
+
+### Minor Changes
+
+- fa09aaa: Land fills for a mainland view: an open coastline is closed against the viewport on the land side.
+
+  `prepareLand` used to keep only the rings that closed on their own, so an island came back filled and a mainland shore came back as a bare stroke that does not say which side is water. It now closes an open shore against the requested bbox using OSM's land-on-the-left winding: a counterclockwise walk from where the shore leaves the box to where the next shore comes in. That gets a peninsula and a bay right without deciding between them, and two shores bounding the same land — an island wider than the view, an isthmus — come out as the one ring they bound rather than as two overlapping claims.
+
+  Two things come with it. `stitch` now joins ways from both ends rather than only forward, which is what makes a shore that Overpass returned out of order one chain instead of two half-chains that close against nothing. And `prepareLand` takes an optional `onLand` witness — the road network from the same response — and drops the closure rather than drawing it when the fill turns out not to contain the roads.
+
+  New from `@schlessera/brain-ui-sdk/server`: `closeAgainstViewport`, `signedArea`, `stitch`, and the `LandOptions` type. `CoastlineResult`'s shape is unchanged; its `land` key now carries mainland rings where it was empty before. The strait fixture in `@schlessera/brain-ui-kit` is regenerated with its three land rings.
+
+### Patch Changes
+
+- 206a2a9: The composer's field grows with the text it displays, wrapped lines included,
+  up to its five-row cap, and shrinks back when the draft does. It used to grow
+  only on explicit newlines, so a paragraph typed into a phone-width field
+  scrolled inside one visible line. Sizing is `field-sizing: content` on a
+  controlled value with text in it — no ref, no measuring, no layout effect, so a
+  keystroke still costs one render — with the newline count kept on `rows` as the
+  floor a browser without `field-sizing` falls back to. `maxRows` now also caps
+  soft-wrapped growth, at that many whole lines or the design's 96px ceiling,
+  whichever is smaller — the same heights the previous constant cap produced.
+- da1c504: Doc comments now cite `docs/decisions/` instead of the removed `.plan/` tree. No
+  runtime change.
+- 3015302: `QuoteCard`: a quote or note with no break opportunity in it — a URL, most
+  often — now wraps inside the card instead of laying out at its full width and
+  scrolling the whole transcript sideways on a phone. The quote and note slots
+  take the kit's existing `overflow-wrap: anywhere`; the source row was already
+  ellipsised. No prop changes and the `quote` block payload is unchanged.
+
 ## 0.36.0
 
 ### Minor Changes

@@ -1,5 +1,81 @@
 # @schlessera/brain-scrape
 
+## 0.37.0
+
+### Minor Changes
+
+- ba4ef6b: A job board that parses nothing says so, instead of reporting zero found and
+  zero errors.
+
+  `jobs scrape` now reports a **state** per board rather than only a count, in the
+  run summary and in the `--json` envelope's `sources[]` rows: `ok`, `empty`
+  (the board's own envelope, carrying no postings), `unparseable` (a page arrived,
+  did not say it was empty, and yielded nothing) or `not_run` (nothing readable
+  arrived at all). `empty` is the only zero-row state allowed to carry no errors, and an
+  adapter may only claim it from a positive signal — an API answering with its
+  envelope and an empty record list, a feed with a channel and no item markup
+  at all — so a
+  board with no way to prove its own empty state reports a served page it read
+  nothing off as drift.
+
+  Fed a page that is not its board's, every one of the eleven adapters now
+  reports; four of them returned in silence before. `remoteineurope`, whose
+  domain 301s to another job site and answers 200 there, is the one this was
+  named after: it reports an error per page, and names the site that served the
+  redirect. Every selected board keeps a row in the report, including one whose
+  adapter never returned, and `scrape_runs.status` follows — `unparseable` and
+  `not_run` are logged as `failed`, so a board that could not be read stops
+  advancing its cursor.
+
+  `@schlessera/brain-scrape` gains `ScrapeClient.getPage`, which returns a text
+  body alongside the URL it was actually served from. `getText` delegates to it
+  and is unchanged.
+
+- d242f3a: `RateLimiter` ignores a delay that is not a finite positive number. A `NaN` or
+  `Infinity` delay used to hold every later delayed caller for that host forever;
+  now it counts as no delay, and the default still applies. A finite delay longer
+  than one timer can wait (2^31 - 1 ms) is clamped to that length, where it used
+  to spin on the timer's 1 ms overflow. `ScrapeClient` drops an unusable
+  per-call `delayMs` before combining it with the site's `Crawl-delay`, so the
+  site's floor survives. A `Crawl-delay` longer than this client can wait,
+  including `Infinity`, now refuses the request with `RobotsDisallowedError`,
+  which gains an optional `reason`. With `allowDisallowed` it contributes no delay,
+  and the caller's own delay still applies. `SCRAPE_RESPECT_ROBOTS` is described
+  as what it is: a switch for clients built from `resolveEnv()`, not the whole
+  process.
+- c75da0d: JSON-LD extraction moves into the scraping base, and the `JobPosting` mapping
+  into one place in `module-jobs`.
+
+  `extractJsonLd(html)` matches an `application/ld+json` script whatever other
+  attributes it carries, in whatever order, quoted or not — measured against real
+  boards, the bare-tag pattern this replaces saw none of them — and reports a
+  malformed tag as one error instead of throwing or swallowing it.
+  `jsonLdNodes`, `jsonLdByType` and `itemListEntries` flatten the four shapes a
+  page serves nodes in: bare, an array, a `@graph`, or nested inside another
+  node.
+
+  On top of it, `module-jobs` gains one shared mapper: both documented
+  `baseSalary` shapes reach the same internal figure, hourly and monthly rates
+  are annualized through the factor `salary.ts` already uses, employment type is
+  read in the spellings boards actually write, and a publication date that is not
+  ISO-8601 — Jobgether serves a JavaScript `Date.toString()` — is converted or
+  dropped rather than stored as an ISO string it is not. An `ItemList` that names
+  jobs without describing them comes back as references, never as rows with an
+  invented company.
+
+  The remotely.de adapter loses its private copy of all of this and reads through
+  the shared path instead. Wiring the remaining boards onto it is per-board work.
+
+### Patch Changes
+
+- f6d3e4f: `RateLimiter` grants concurrent callers to one host that have a delay one at a
+  time, in arrival order (a zero-delay call still goes straight through), so they
+  are spaced by the delay instead of reading the same
+  last-request time and firing together. Each caller's delay is measured from
+  when the previous request was actually granted and re-checked after every
+  sleep, so a timer that fires late never lets the next caller in early. A
+  `Crawl-delay` override still spaces its own call by the larger value.
+
 ## 0.36.0
 
 ## 0.35.0

@@ -1,5 +1,96 @@
 # @schlessera/brain-ui-react
 
+## 0.37.0
+
+### Minor Changes
+
+- 7fe9bc0: An approval decision records the channel it was made on. `tool_approval` and
+  `tool_denial` gain an optional `channel` (`card` | `voice`), stored on the
+  `approval_decision` activity event; the host refuses a voice-attributed grant
+  and leaves the request pending; the web client's approval cards send `card`;
+  and a resolved approval in Actions reads as the decision and its channel
+  ("Denied by voice").
+- 6ae12e7: A destructive-command approval card now says what the command will do.
+
+  - Added: each default confirm pattern carries an `effect` phrase ("delete a directory and everything inside it"). A `command` approval's reason is that phrase, and both approval cards show it.
+  - Changed: `DEFAULT_CONFIRM_BASH_PATTERNS` entries are `{ pattern, effect }`. `confirmBashPatterns` and `compileConfirmPatterns` accept that form or a bare regex source; a bare source keeps the old generic sentence.
+  - Changed: `BRAIN_UI_CONFIRM_BASH` accepts the object form too. A non-empty list with no entry of a usable shape now means the defaults rather than "no confirmation". A list whose patterns are all invalid regexes still compiles to none (#251).
+
+- f489482: An approval card no longer offers "Always allow" for a grant the host will not
+  keep. `tool_approval_request` gains an optional `rememberable: false`, sent for
+  a request outside the turn's enforced allowlist (or by a host with no grant
+  store) and again when the card is re-delivered on reconnect; both approval surfaces hide the button for it, and
+  the Actions receipt no longer prints "Always allowed" for a decision that was
+  not remembered.
+
+### Patch Changes
+
+- 0cb97e3: The Actions pane's printed keys — the "j / k move · d dismiss" footers and the
+  "Dismiss · d" hint on each inbox card — now appear only while the device has a
+  fine pointer, like the rest of the printed shortcuts. The keys still work in
+  both states.
+- ab3e1ff: No behaviour change. The `useFinePointer()` doc comment now says a tablet with
+  a keyboard but no trackpad prints none of the pointer-gated shortcut hints by decision, and points at
+  the D36 addendum in `docs/decisions/design-kit.md` that records why.
+- da1c504: Doc comments now cite `docs/decisions/` instead of the removed `.plan/` tree. No
+  runtime change.
+- 9ffdd23: The printed keyboard shortcuts — the rail's `⌘1`–`⌘5`, the `a` / `d` caps on
+  approval buttons, and the "↑ ↓ to pick, ↵ to open" and "Ctrl/Cmd + ↵ to save"
+  hints — now appear only while the device has a fine pointer, so a tablet in
+  landscape no longer reads five shortcuts it cannot fire. Pairing a fine pointer brings them back live. A keyboard alone does not
+  necessarily change the pointer signal. The bindings themselves are unchanged: every
+  key still works in both states, and the single-key shortcuts switch in
+  Settings stays independent of the pointer.
+- 552ad8f: A stray click on the backdrop no longer cancels `brain sync`. `SlidePanel`
+  takes a `closedBy` prop in `<dialog closedby>`'s vocabulary — `any` (the
+  default, light dismiss), `closerequest` (Escape only) or `none` — and the
+  header's X closes the drawer under every value. The sync panel is `none`
+  while the job runs and `closerequest` once it has finished, so the log stays
+  until it is dismissed deliberately; Settings is `none` while a credential is
+  being minted or is still unacknowledged, and its close control now works
+  there instead of silently doing nothing. The drawer's X also has an
+  accessible name (`Close <title>`).
+- 002c0cc: The sync and briefing panels no longer spin forever on a stream that ends
+  without a `done` frame. `POST /api/brain/whatsup` now ends on a failed `done`
+  frame carrying the error when anything throws before its last send, such as a
+  spawn that cannot start (`POST /api/brain/sync` already did). On the client,
+  `StreamingPanel` and `WhatsupPanel` treat a stream that closes without `done`
+  as failed: they keep the output that arrived, say the connection closed before
+  the job reported a result, and offer Close instead of Cancel.
+- b953693: A stray click on the backdrop no longer cancels the briefing `/whatsup` is
+  loading, nor discards the one it has just produced. The briefing drawer now
+  carries the same `closedBy` prop as the sync panel — `none` while the briefing
+  loads, so neither the backdrop nor a reflexive Escape can abort a model call
+  mid-flight, and `closerequest` once it has arrived, failed or been cancelled,
+  so Escape dismisses it but a click beside the drawer does not. The header's X
+  closes it in every state, and the footer's Cancel still aborts the request.
+- Updated dependencies [7fe9bc0]
+- Updated dependencies [907e8bc]
+- Updated dependencies [e77ab6f]
+- Updated dependencies [206a2a9]
+- Updated dependencies [6ae12e7]
+- Updated dependencies [d9d4061]
+- Updated dependencies [4ed02fb]
+- Updated dependencies [7b6b2b0]
+- Updated dependencies [ecc93b9]
+- Updated dependencies [da1c504]
+- Updated dependencies [d33492e]
+- Updated dependencies [54eea05]
+- Updated dependencies [97837c1]
+- Updated dependencies [1de4d6c]
+- Updated dependencies [fa09aaa]
+- Updated dependencies [3015302]
+- Updated dependencies [08d4ed2]
+- Updated dependencies [4d409c0]
+- Updated dependencies [146d5a9]
+- Updated dependencies [92a599d]
+- Updated dependencies [09d9f4e]
+- Updated dependencies [f489482]
+- Updated dependencies [f7b46d3]
+- Updated dependencies [1bf00b8]
+  - @schlessera/brain-ui-sdk@0.37.0
+  - @schlessera/brain-ui-kit@0.37.0
+
 ## 0.36.0
 
 ### Minor Changes

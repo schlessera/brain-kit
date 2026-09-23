@@ -1,5 +1,255 @@
 # @schlessera/brain-ui-server
 
+## 0.37.0
+
+### Minor Changes
+
+- 7fe9bc0: An approval decision records the channel it was made on. `tool_approval` and
+  `tool_denial` gain an optional `channel` (`card` | `voice`), stored on the
+  `approval_decision` activity event; the host refuses a voice-attributed grant
+  and leaves the request pending; the web client's approval cards send `card`;
+  and a resolved approval in Actions reads as the decision and its channel
+  ("Denied by voice").
+- 5f7dbb5: `CLAUDE_CODE_PATH` no longer defaults to `/usr/local/bin/claude`. Unset, a chat turn runs the Agent SDK's built-in Claude Code binary, so the lockfile decides the version. A host that relied on the old default without setting the variable now runs the SDK's binary. That version may differ from the one the host had installed; set `CLAUDE_CODE_PATH` to keep the old binary.
+
+  The core Claude runner behind `brain sync` resolves its binary the way chat does: `CLAUDE_CODE_PATH` first, then the Agent SDK's built-in binary when the SDK is installed next to `@schlessera/brain` (a new optional peer dependency), then `claude` on `PATH`. It no longer needs a separate `claude` install. The server still keeps `CLAUDE_CODE_PATH` to itself. A brain repo that runs `brain sync` on a host without `claude` needs the SDK installed alongside `@schlessera/brain`.
+
+- 6ae12e7: A destructive-command approval card now says what the command will do.
+
+  - Added: each default confirm pattern carries an `effect` phrase ("delete a directory and everything inside it"). A `command` approval's reason is that phrase, and both approval cards show it.
+  - Changed: `DEFAULT_CONFIRM_BASH_PATTERNS` entries are `{ pattern, effect }`. `confirmBashPatterns` and `compileConfirmPatterns` accept that form or a bare regex source; a bare source keeps the old generic sentence.
+  - Changed: `BRAIN_UI_CONFIRM_BASH` accepts the object form too. A non-empty list with no entry of a usable shape now means the defaults rather than "no confirmation". A list whose patterns are all invalid regexes still compiles to none (#251).
+
+- 5099196: The built-in Claude profile now defaults to `claude-opus-5-5` (Claude Opus 5.5)
+  when `BRAIN_UI_CLAUDE_DEFAULT_MODEL` is unset; it was `claude-sonnet-4-6`.
+  Setting the variable still overrides it. The default is now written once, so
+  the documented default and the one a deployment actually gets cannot drift
+  apart again. Opus 5.5 is priced at $4 / $20 per million input / output tokens
+  in the current litellm catalog; offline, before the catalog has been fetched,
+  its runs count as unpriced rather than as $0.
+- ecc93b9: A turn can declare `enforceAllowedTools`, and a tool its allowlist leaves out
+  is then no longer re-admitted without a decision.
+
+  Several things used to re-admit it, which is the point rather than the number.
+  The Claude backend's input-rewrite hooks answered `permissionDecision: "allow"`
+  so their `updatedInput` would apply, which makes the runtime skip `canUseTool`
+  entirely — an rtk-rewritten shell command ran in a turn whose allowlist had no
+  `Bash` in it, with no card and no record. The ws host answered from its
+  remembered "always allow" grants before any card existed, so a grant given
+  under a wide posture was honoured under a narrow one. And the runtime admits
+  some calls on its own before the callback is reached at all — by the shape of a
+  shell command, by the tool being a built-in, or because a hook declared in the
+  project settings said so.
+
+  Under the declaration the rewrites still rewrite — `updatedInput` applies
+  without a decision attached, so the rewrite was never what the grant was for —
+  a PreToolUse hook answers "ask" for every off-list tool, which overrides the
+  runtime's own auto-approval, and the host neither answers from nor adds to its
+  grant store for a tool outside the turn's allowlist. Backends mark such
+  requests `outsideEnforcedAllowlist` so the host does not have to guess, and it
+  records both halves of the refusal — a grant it declines to apply, and an
+  "always allow" it declines to keep. A turn
+  that declares nothing is unchanged, and existing grants keep working on the
+  postures that can honour them.
+
+- d33492e: The server now knows which Claude Code ran.
+
+  - **At boot**, `createApp()` probes the binary a turn would spawn: the one the Agent SDK selects, run through the exec wrapper with a turn's environment. It refuses to start when that binary is missing or will not answer `--version`, instead of failing the first turn. It warns, naming both pairs, when the runtime is not the Claude Code / Agent SDK pair the backend was measured against (`MEASURED_RUNTIME`).
+  - **Per turn**, each run's root span records the Claude Code version that ran and the SDK version. It also records the credential the CLI selected and the billing mode that credential implies. That mode is checked against the profile's policy: a profile without its own credential requires the subscription, and a run that contradicts it is flagged, with a WARN log.
+  - **Auth failures** (`authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error`, and a turn the subscription check refused) are recorded as their own failure class.
+  - **Model discovery** now reports a refused credential as an auth failure instead of returning an empty roster.
+  - **`/api/status`** (behind the auth guard) gains `runtime`: what boot found, what the last turn ran on, and the last auth failure.
+
+  `BackendActivityEvent` gains `runtime_observed` and `auth_failure`. `BackendModule` gains the optional `probeRuntime`.
+
+  **Host impact:** a host whose `CLAUDE_CODE_PATH` (default `/usr/local/bin/claude`) names no working binary now fails at boot rather than on the first turn.
+
+- 54eea05: `BRAIN_UI_EXEC_WRAPPER`: an absolute path to an executable that agent and brain
+  CLI subprocesses are launched through, as `<wrapper> <program> <args…>`. It lets
+  a host run those children as another user without the packages knowing how. The
+  wrapper is an argv[0], never a command line — no shell parses it, so a value
+  full of metacharacters is a filename rather than a command. A wrapped child
+  leads its own process group and an abort signals the group, because a uid drop
+  otherwise makes `kill(2)` fail with EPERM and leaves an aborted turn running.
+
+  Every brain CLI launch is covered too, not only the agent's tool spawns — and
+  scheduled cron jobs with them: the CLI imports the repository's
+  `brain.config.ts`, so a search executes repository code exactly as a tool call
+  does. When a wrapper is configured the program is resolved to an absolute path,
+  because a wrapper execs its target directly and because `PATH` must not get to
+  choose which `bash` runs.
+
+  `BRAIN_UI_EXEC_KILLER` is the companion seam. `kill(2)` matches uids and group
+  membership grants no exception, so once a wrapper has dropped privileges the
+  server can signal nothing at all; a host that drops uid supplies an authorised
+  helper, invoked as `<killer> <pgid> <TERM|KILL|INT>`. With neither configured,
+  and with a wrapper that has not changed uid, the group signal is used directly.
+  A cancellation that fails entirely is reported rather than swallowed.
+
+  Unset — which is every existing deployment — every spawn is exactly what it was.
+
+- 1de4d6c: A turn can declare `noGrantSurface`, and a permission request it cannot put to
+  anyone is then denied instead of parked. `enforceAllowedTools` removed the ways
+  a tool got admitted without a decision; what it left was the decision itself —
+  an off-posture tool raises an approval card, and in a turn nobody is looking at
+  (a spoken one, an unattended one) that is a card nobody can answer, held until
+  the turn budget expires.
+
+  Under the declaration both backends refuse the request where it is raised, with
+  a message that names the tool and is written to be read aloud, and report it on
+  the activity side channel so the record shows a denied span rather than a call
+  that errored. Both request kinds are covered, including the confirm-pattern
+  `command` request a destructive shell command raises for an allowlisted `Bash`
+  — on the Claude backend that one never reaches `canUseTool` at all. The mask
+  editor, which opens a window and then blocks on a region someone has to paint,
+  is withheld from such a turn rather than offered and blocked on.
+
+  The `ask` the Claude backend's enforcement hook answers is unchanged: it is
+  what beats the runtime's own shortcuts, and this changes the decision it
+  forces, not the ask. A turn that declares nothing is unchanged, and so is one
+  that declares only `enforceAllowedTools`.
+
+- 4d409c0: A run's effective cost is now priced by the route its inference actually took,
+  not by model id alone. The two pricing catalogs carry some of the same ids at
+  different rates — OpenRouter resells models their vendors also sell directly —
+  so a run that went straight to the vendor was being priced at OpenRouter's
+  resale rate whenever both catalogs listed its model. On
+  `deepseek/deepseek-chat`, live today, that overstates output cost by 2.1x.
+
+  Backends now classify a profile's route (`classifyRoute`, beside
+  `classifyBilling`); it is resolved once at run start, rides the root span like
+  the billing mode, and selects the catalog inside the rollup. Nothing became
+  async: `resolve()` is still synchronous and still never touches the network.
+
+  Coverage does not narrow. A run whose route is unknown — everything recorded
+  before this change, or a profile behind a proxy no backend recognises — prices
+  exactly as it did before rather than going unpriced. A rate borrowed from the
+  catalog a run did not go through still prices the run, flagged as an estimate.
+  Unknown cost remains unknown and never renders as `$0`.
+
+- 146d5a9: `GET /api/activity/stats?days=N` — the runtime half of a stats page. It
+  reports what the server's own database holds: lifetime session, turn and cost
+  figures from the session catalog; a windowed run, token and cost summary from
+  the activity rollups, labelled with the days it actually covers, where detail
+  pruning starts and how many runs in the window are already rollup-only; the
+  averages a caller would otherwise recompute; and the database's size.
+
+  Each cost sum stays a sum of known values carrying **its own** excluded count,
+  because the two columns are independently nullable: `costUsd` excludes
+  `unpricedListCostRuns`, `effectiveCostUsd` excludes `unpricedRuns`, and a
+  subscription-billed run with no backend-reported cost lands in the first and
+  not the second. An average is `null` rather than `0` whenever its own sum is
+  incomplete or its denominator is zero, and no clock-derived denominator is
+  invented from a timestamp that lies in the future. `GET /api/brain/stats` is
+  unchanged and stays the corpus channel. The shape is `ActivityRuntimeStats` in
+  `@schlessera/brain-ui-sdk/protocol`.
+
+- 09d9f4e: The Claude subscription token is minted off the host and rotated by redeploy. The procedure is in `docs/hosting/README.md`, "Claude subscription login". The server's side of it:
+
+  - `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` records the date the token was minted. It is server-only and set next to the token. From 30 days before the one-year expiry, the server logs a WARN at boot and at most once a day. A token without the date gets one WARN at boot saying the server cannot warn. A date the server cannot read refuses the boot.
+  - `/api/status` gains a `subscription` object: `tokenSet` (never the token itself), `mintedAt`, `expiresAt`, and `lastProvenAt` / `provenBy`. The last proof is either the latest successful turn on the subscription, read from the activity store, or a successful model-discovery call with the token. The object also carries `lastAuthFailure` with an `action`.
+  - Every auth failure on the subscription logs one WARN with the instruction for it. `relogin` covers a rejected token or a 401 from model discovery. `check_account` covers `oauth_org_not_allowed`, `account_on_hold` and `billing_error`, which a new token will not fix. `check_config` covers `subscription_required`, a turn the backend refused before sending it. `runtime.lastAuthFailure` carries the same `action`. A failure on a profile with its own credential gets no action, and its WARN points at that profile. Credential-shaped text in a runtime message is redacted.
+  - `@schlessera/brain-ui-sdk` exports `subscriptionAuthAction`, `SUBSCRIPTION_AUTH_INSTRUCTIONS` and `SUBSCRIPTION_RELOGIN_PROCEDURE`. `BackendModelSourceState` gains `subscriptionProvenAt` and `subscriptionRefused`.
+  - The server README's `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` rows now say what those variables do.
+
+- f489482: An approval card no longer offers "Always allow" for a grant the host will not
+  keep. `tool_approval_request` gains an optional `rememberable: false`, sent for
+  a request outside the turn's enforced allowlist (or by a host with no grant
+  store) and again when the card is re-delivered on reconnect; both approval surfaces hide the button for it, and
+  the Actions receipt no longer prints "Always allowed" for a decision that was
+  not remembered.
+- 3e2010c: `ServerConfig.agent` no longer carries `ambientBilling`. Nothing read it after #253, when turns started clearing the API key. Cron rollups still classify billing exactly as before; #293 decides what replaces that rule.
+- 1bf00b8: The classification pass now records what the classifier was confident about,
+  per question, so the swap thresholds can be moved on a distribution instead of
+  on a guess.
+
+  An answered pass writes one row per answered question to a new
+  `classification_confidence` table (migration 016, additive): the candidate it
+  was asked about, its kind, the question, the answer, its confidence, the line
+  that confidence had to clear, and whether the candidate ended up drawn as a
+  block or left as markdown. One pass's rows share a `pass_id`, so
+  `(pass_id, candidate_id)` names one candidate and a question can be read
+  conditioned on another answer about the same candidate — which some of them must be, since the catalogue asks
+  `criteria_first` of every table including the ones the shape answer calls
+  `data`.
+  The write happens after the classifier call has resolved, so it takes none of
+  the call's 2 s budget, and a write that fails is a log line rather than a block
+  the reader does not get. Rows age out after 30 days.
+
+  `confidenceDistribution` (exported from `@schlessera/brain-ui-server`) reads it
+  back bucketed per candidate kind and question. `observeClassification`,
+  `thresholdOf`, `ClassificationQuestions` and `AskedQuestion` are new in
+  `@schlessera/brain-ui-sdk/server`.
+
+  Every catalogue question now declares the line its answer has to clear, next to
+  the question itself, and the transforms compare against the line of the
+  question that was actually asked. A recorded confidence and the line it was
+  gated by therefore cannot drift apart — including for a question whose id is
+  generated per row, which a lookup keyed by question name could not cover at
+  all. `ClassificationRequest.questions` is the same set with the lines stripped:
+  where the surface acts on a probability is not something the classifier is
+  asked.
+
+  No threshold changed, and nothing leaves the machine.
+
+### Patch Changes
+
+- 9d79a7a: A refused "always allow" now leaves a record. The host already logged a
+  remembered grant it declined to apply to a turn whose enforced allowlist left
+  the tool out; the other direction — the user pressing "Always allow" on such a
+  card and the host declining to keep it — was silent, which is the half somebody
+  actually notices, because they pressed the button. It is logged with the tool
+  and the reason, including for a per-use `command` confirmation, where an
+  `always` arriving on the wire also says a client sent an option its own UI does
+  not offer. The decisions themselves are unchanged: the call the user approved
+  still runs, and nothing new is remembered.
+- 39c1c02: The generated crontab refuses a module cron job whose name the cron runner
+  trusts to run outside the exec wrapper (today only `digest`, the server's own
+  job). Module jobs are already named `<module>-<entry>`, so none could carry
+  that name; this keeps it true if the naming ever changes, using the same set
+  the runner checks.
+- 18eba2a: `GET /api/activity/rollups` now floors its `days` parameter at one whole day,
+  as `/api/activity/stats` already did. A negative `days` used to push the window
+  start into the future and answer an empty rollup; it now covers the last day.
+  Fractions truncate to whole days. The default (7) and ceiling (90) are
+  unchanged.
+- 002c0cc: The sync and briefing panels no longer spin forever on a stream that ends
+  without a `done` frame. `POST /api/brain/whatsup` now ends on a failed `done`
+  frame carrying the error when anything throws before its last send, such as a
+  spawn that cannot start (`POST /api/brain/sync` already did). On the client,
+  `StreamingPanel` and `WhatsupPanel` treat a stream that closes without `done`
+  as failed: they keep the output that arrived, say the connection closed before
+  the job reported a result, and offer Close instead of Cancel.
+- 6fd0b66: The triage eval gate (`eval:triage`) is now an exit code, so a wrapper can
+  enforce it: 0 when every selected configuration passes, 1 when one fails the
+  gate, 3 when one was selected and never judged (`NO DATA`, a rejected effort,
+  a crashed job), 2 when the runner refuses to start. Before, every run exited 0
+  and the verdict lived only in the printed table. `EVAL_BENCHMARKS=<path>`
+  redirects the results file for a scratch run.
+- Updated dependencies [7fe9bc0]
+- Updated dependencies [907e8bc]
+- Updated dependencies [e77ab6f]
+- Updated dependencies [6ae12e7]
+- Updated dependencies [d9d4061]
+- Updated dependencies [4ed02fb]
+- Updated dependencies [7b6b2b0]
+- Updated dependencies [ecc93b9]
+- Updated dependencies [d33492e]
+- Updated dependencies [54eea05]
+- Updated dependencies [97837c1]
+- Updated dependencies [1de4d6c]
+- Updated dependencies [fa09aaa]
+- Updated dependencies [08d4ed2]
+- Updated dependencies [4d409c0]
+- Updated dependencies [146d5a9]
+- Updated dependencies [92a599d]
+- Updated dependencies [09d9f4e]
+- Updated dependencies [f489482]
+- Updated dependencies [f7b46d3]
+- Updated dependencies [1bf00b8]
+  - @schlessera/brain-ui-sdk@0.37.0
+  - @schlessera/brain-render-template@0.37.0
+
 ## 0.36.0
 
 ### Minor Changes

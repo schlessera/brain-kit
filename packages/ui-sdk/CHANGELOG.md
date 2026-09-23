@@ -1,5 +1,270 @@
 # @schlessera/brain-ui-sdk
 
+## 0.37.0
+
+### Minor Changes
+
+- 7fe9bc0: An approval decision records the channel it was made on. `tool_approval` and
+  `tool_denial` gain an optional `channel` (`card` | `voice`), stored on the
+  `approval_decision` activity event; the host refuses a voice-attributed grant
+  and leaves the request pending; the web client's approval cards send `card`;
+  and a resolved approval in Actions reads as the decision and its channel
+  ("Denied by voice").
+- 907e8bc: Archiving a document through `brain_update` now raises an approval card.
+
+  Archiving is confirmed because it is a visibility change: an archived document
+  drops out of search, briefings and context assembly, so a silent archive shows
+  up later as holes in output nobody can account for. Two paths to it stopped for
+  approval — `brain_archive` is off the default allowlist, `brain archive` matches
+  a confirm pattern — and a third did not. `brain_update` takes the same `status`
+  field and is auto-allowed, so `status: "archived"` made a document invisible to
+  every later search with no card, no confirmation and no record.
+
+  `decideToolPermission` now raises a per-use confirmation for a document update
+  that sets `status: "archived"`, and both backends pass it their spelling of the
+  tool (`updateToolName`). It is deliberately a per-use confirmation, never a
+  grantable tool approval: a remembered "always allow" would reopen the hole for
+  good.
+
+  Nothing else changes. An update with no `status`, or with `"active"` or
+  `"draft"`, runs unprompted exactly as before — this is not a card on every
+  document edit. `brain_update`'s MCP input schema, output shape and name are
+  untouched.
+
+- e77ab6f: A bare email address or URL no longer keeps an answer's table, list, quote or
+  key-value run out of the classification pass. GFM turns a bare address into a
+  link, and any link used to reject the whole candidate; now a link whose text is
+  its own destination flattens to that text, and a `mailto:` address reads as the
+  bare address. A run of facts about a person that carries an email can become a
+  contact card. A labelled link (`[the docs](https://…)`) still leaves its
+  candidate as markdown, because flattening it would lose where it points.
+- 6ae12e7: A destructive-command approval card now says what the command will do.
+
+  - Added: each default confirm pattern carries an `effect` phrase ("delete a directory and everything inside it"). A `command` approval's reason is that phrase, and both approval cards show it.
+  - Changed: `DEFAULT_CONFIRM_BASH_PATTERNS` entries are `{ pattern, effect }`. `confirmBashPatterns` and `compileConfirmPatterns` accept that form or a bare regex source; a bare source keeps the old generic sentence.
+  - Changed: `BRAIN_UI_CONFIRM_BASH` accepts the object form too. A non-empty list with no entry of a usable shape now means the defaults rather than "no confirmation". A list whose patterns are all invalid regexes still compiles to none (#251).
+
+- d9d4061: The classification pass draws a contact card. A run of key-and-value lines
+  about one person, company or project — the shape a model types when it answers
+  "who is this?" — could previously become a receipt at best; the route D42
+  specified for it was never built. The classifier now picks which line holds the
+  name, the rest become the card's facts, and a run it cannot name is left as
+  markdown rather than given a label the text does not carry.
+
+  Values in a key-value run also carry a tone now, on receipt rows, stat tiles
+  and a contact's facts alike: a failed outcome reads red, a pending one amber,
+  an absent one dim. The tone needs the higher confidence bar every other tone
+  needs, and is asked only of a run of eight lines or fewer.
+
+  No new block kind and no protocol change — both arrive through the existing
+  `message_blocks` frame as variants `show_block` already carried.
+
+  `trend` deliberately gets no route: with `bars`, it is one of the two block
+  kinds whose payload is numbers rather than the answer's own text, and deriving
+  those from prose is not a judgment the classifier is asked to make. D45 records
+  the reasoning.
+
+- 4ed02fb: An approval that comes back with an edited input is re-checked before it runs, on both backends.
+
+  - Added: `checkEditedApproval` in `@schlessera/brain-ui-sdk/server`.
+  - Changed (pi): an edit that needs a confirmation the card did not show (another confirm pattern, another archived document) is refused instead of applied.
+  - Changed (Claude): an edited confirmation that passes the re-check is applied instead of refused, as `updatedInput` with no `permissionDecision`. `canUseTool` re-checks edits too, and the rtk rewrite leaves a confirmed command alone.
+
+- 7b6b2b0: An approval that edits a confirmed shell command into a different command that still needs confirmation is now refused.
+
+  - Changed: `checkEditedApproval` identifies a shell confirmation by the command text as well as the pattern. `brain archive a.md` can no longer be approved as `brain archive b.md`, and a narrower command (`rm -rf notes` → `rm -rf notes/old`) must be re-issued and confirmed as it is. An edit that needs no confirmation of its own is still applied.
+  - Changed: an edited input carrying an own `__proto__` key is refused on both backends, instead of being merged into the tool arguments.
+  - Changed: `requestToolPermission` hands back an approval's edited input as one plain JSON snapshot, so what is checked is what runs; an edit that is not a plain object or will not serialize is denied.
+
+- ecc93b9: A turn can declare `enforceAllowedTools`, and a tool its allowlist leaves out
+  is then no longer re-admitted without a decision.
+
+  Several things used to re-admit it, which is the point rather than the number.
+  The Claude backend's input-rewrite hooks answered `permissionDecision: "allow"`
+  so their `updatedInput` would apply, which makes the runtime skip `canUseTool`
+  entirely — an rtk-rewritten shell command ran in a turn whose allowlist had no
+  `Bash` in it, with no card and no record. The ws host answered from its
+  remembered "always allow" grants before any card existed, so a grant given
+  under a wide posture was honoured under a narrow one. And the runtime admits
+  some calls on its own before the callback is reached at all — by the shape of a
+  shell command, by the tool being a built-in, or because a hook declared in the
+  project settings said so.
+
+  Under the declaration the rewrites still rewrite — `updatedInput` applies
+  without a decision attached, so the rewrite was never what the grant was for —
+  a PreToolUse hook answers "ask" for every off-list tool, which overrides the
+  runtime's own auto-approval, and the host neither answers from nor adds to its
+  grant store for a tool outside the turn's allowlist. Backends mark such
+  requests `outsideEnforcedAllowlist` so the host does not have to guess, and it
+  records both halves of the refusal — a grant it declines to apply, and an
+  "always allow" it declines to keep. A turn
+  that declares nothing is unchanged, and existing grants keep working on the
+  postures that can honour them.
+
+- d33492e: The server now knows which Claude Code ran.
+
+  - **At boot**, `createApp()` probes the binary a turn would spawn: the one the Agent SDK selects, run through the exec wrapper with a turn's environment. It refuses to start when that binary is missing or will not answer `--version`, instead of failing the first turn. It warns, naming both pairs, when the runtime is not the Claude Code / Agent SDK pair the backend was measured against (`MEASURED_RUNTIME`).
+  - **Per turn**, each run's root span records the Claude Code version that ran and the SDK version. It also records the credential the CLI selected and the billing mode that credential implies. That mode is checked against the profile's policy: a profile without its own credential requires the subscription, and a run that contradicts it is flagged, with a WARN log.
+  - **Auth failures** (`authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error`, and a turn the subscription check refused) are recorded as their own failure class.
+  - **Model discovery** now reports a refused credential as an auth failure instead of returning an empty roster.
+  - **`/api/status`** (behind the auth guard) gains `runtime`: what boot found, what the last turn ran on, and the last auth failure.
+
+  `BackendActivityEvent` gains `runtime_observed` and `auth_failure`. `BackendModule` gains the optional `probeRuntime`.
+
+  **Host impact:** a host whose `CLAUDE_CODE_PATH` (default `/usr/local/bin/claude`) names no working binary now fails at boot rather than on the first turn.
+
+- 54eea05: `BRAIN_UI_EXEC_WRAPPER`: an absolute path to an executable that agent and brain
+  CLI subprocesses are launched through, as `<wrapper> <program> <args…>`. It lets
+  a host run those children as another user without the packages knowing how. The
+  wrapper is an argv[0], never a command line — no shell parses it, so a value
+  full of metacharacters is a filename rather than a command. A wrapped child
+  leads its own process group and an abort signals the group, because a uid drop
+  otherwise makes `kill(2)` fail with EPERM and leaves an aborted turn running.
+
+  Every brain CLI launch is covered too, not only the agent's tool spawns — and
+  scheduled cron jobs with them: the CLI imports the repository's
+  `brain.config.ts`, so a search executes repository code exactly as a tool call
+  does. When a wrapper is configured the program is resolved to an absolute path,
+  because a wrapper execs its target directly and because `PATH` must not get to
+  choose which `bash` runs.
+
+  `BRAIN_UI_EXEC_KILLER` is the companion seam. `kill(2)` matches uids and group
+  membership grants no exception, so once a wrapper has dropped privileges the
+  server can signal nothing at all; a host that drops uid supplies an authorised
+  helper, invoked as `<killer> <pgid> <TERM|KILL|INT>`. With neither configured,
+  and with a wrapper that has not changed uid, the group signal is used directly.
+  A cancellation that fails entirely is reported rather than swallowed.
+
+  Unset — which is every existing deployment — every spawn is exactly what it was.
+
+- 97837c1: A turn that declares `noGrantSurface` without `enforceAllowedTools` is now refused.
+
+  - Added: `assertTurnPosture(req)` in `@schlessera/brain-ui-sdk/server`.
+  - Changed: both backends' `startTurn` reject that request with a `BackendRequestError` before anything is emitted. A turn declaring both, `enforceAllowedTools` alone, or neither is unchanged.
+
+- 1de4d6c: A turn can declare `noGrantSurface`, and a permission request it cannot put to
+  anyone is then denied instead of parked. `enforceAllowedTools` removed the ways
+  a tool got admitted without a decision; what it left was the decision itself —
+  an off-posture tool raises an approval card, and in a turn nobody is looking at
+  (a spoken one, an unattended one) that is a card nobody can answer, held until
+  the turn budget expires.
+
+  Under the declaration both backends refuse the request where it is raised, with
+  a message that names the tool and is written to be read aloud, and report it on
+  the activity side channel so the record shows a denied span rather than a call
+  that errored. Both request kinds are covered, including the confirm-pattern
+  `command` request a destructive shell command raises for an allowlisted `Bash`
+  — on the Claude backend that one never reaches `canUseTool` at all. The mask
+  editor, which opens a window and then blocks on a region someone has to paint,
+  is withheld from such a turn rather than offered and blocked on.
+
+  The `ask` the Claude backend's enforcement hook answers is unchanged: it is
+  what beats the runtime's own shortcuts, and this changes the decision it
+  forces, not the ask. A turn that declares nothing is unchanged, and so is one
+  that declares only `enforceAllowedTools`.
+
+- fa09aaa: Land fills for a mainland view: an open coastline is closed against the viewport on the land side.
+
+  `prepareLand` used to keep only the rings that closed on their own, so an island came back filled and a mainland shore came back as a bare stroke that does not say which side is water. It now closes an open shore against the requested bbox using OSM's land-on-the-left winding: a counterclockwise walk from where the shore leaves the box to where the next shore comes in. That gets a peninsula and a bay right without deciding between them, and two shores bounding the same land — an island wider than the view, an isthmus — come out as the one ring they bound rather than as two overlapping claims.
+
+  Two things come with it. `stitch` now joins ways from both ends rather than only forward, which is what makes a shore that Overpass returned out of order one chain instead of two half-chains that close against nothing. And `prepareLand` takes an optional `onLand` witness — the road network from the same response — and drops the closure rather than drawing it when the fill turns out not to contain the roads.
+
+  New from `@schlessera/brain-ui-sdk/server`: `closeAgainstViewport`, `signedArea`, `stitch`, and the `LandOptions` type. `CoastlineResult`'s shape is unchanged; its `land` key now carries mainland rings where it was empty before. The strait fixture in `@schlessera/brain-ui-kit` is regenerated with its three land rings.
+
+- 08d4ed2: A reference-style link, image or footnote (`[the docs][ref]`, `![alt][ref]`,
+  `[^note]`) now keeps its candidate out of the classification pass, as an inline
+  link already did. Before, it flattened to its text and lost where it pointed.
+  A `mailto:` at the end of another word (`notmailto:x@…`) is no longer taken for
+  the scheme and cut from the address.
+- 4d409c0: A run's effective cost is now priced by the route its inference actually took,
+  not by model id alone. The two pricing catalogs carry some of the same ids at
+  different rates — OpenRouter resells models their vendors also sell directly —
+  so a run that went straight to the vendor was being priced at OpenRouter's
+  resale rate whenever both catalogs listed its model. On
+  `deepseek/deepseek-chat`, live today, that overstates output cost by 2.1x.
+
+  Backends now classify a profile's route (`classifyRoute`, beside
+  `classifyBilling`); it is resolved once at run start, rides the root span like
+  the billing mode, and selects the catalog inside the rollup. Nothing became
+  async: `resolve()` is still synchronous and still never touches the network.
+
+  Coverage does not narrow. A run whose route is unknown — everything recorded
+  before this change, or a profile behind a proxy no backend recognises — prices
+  exactly as it did before rather than going unpriced. A rate borrowed from the
+  catalog a run did not go through still prices the run, flagged as an estimate.
+  Unknown cost remains unknown and never renders as `$0`.
+
+- 146d5a9: `GET /api/activity/stats?days=N` — the runtime half of a stats page. It
+  reports what the server's own database holds: lifetime session, turn and cost
+  figures from the session catalog; a windowed run, token and cost summary from
+  the activity rollups, labelled with the days it actually covers, where detail
+  pruning starts and how many runs in the window are already rollup-only; the
+  averages a caller would otherwise recompute; and the database's size.
+
+  Each cost sum stays a sum of known values carrying **its own** excluded count,
+  because the two columns are independently nullable: `costUsd` excludes
+  `unpricedListCostRuns`, `effectiveCostUsd` excludes `unpricedRuns`, and a
+  subscription-billed run with no backend-reported cost lands in the first and
+  not the second. An average is `null` rather than `0` whenever its own sum is
+  incomplete or its denominator is zero, and no clock-derived denominator is
+  invented from a timestamp that lies in the future. `GET /api/brain/stats` is
+  unchanged and stays the corpus channel. The shape is `ActivityRuntimeStats` in
+  `@schlessera/brain-ui-sdk/protocol`.
+
+- 92a599d: - Fixed: a caller-supplied confirm `RegExp` with the `g` or `y` flag now matches the same command on every call, where it used to match on every other one.
+- 09d9f4e: The Claude subscription token is minted off the host and rotated by redeploy. The procedure is in `docs/hosting/README.md`, "Claude subscription login". The server's side of it:
+
+  - `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` records the date the token was minted. It is server-only and set next to the token. From 30 days before the one-year expiry, the server logs a WARN at boot and at most once a day. A token without the date gets one WARN at boot saying the server cannot warn. A date the server cannot read refuses the boot.
+  - `/api/status` gains a `subscription` object: `tokenSet` (never the token itself), `mintedAt`, `expiresAt`, and `lastProvenAt` / `provenBy`. The last proof is either the latest successful turn on the subscription, read from the activity store, or a successful model-discovery call with the token. The object also carries `lastAuthFailure` with an `action`.
+  - Every auth failure on the subscription logs one WARN with the instruction for it. `relogin` covers a rejected token or a 401 from model discovery. `check_account` covers `oauth_org_not_allowed`, `account_on_hold` and `billing_error`, which a new token will not fix. `check_config` covers `subscription_required`, a turn the backend refused before sending it. `runtime.lastAuthFailure` carries the same `action`. A failure on a profile with its own credential gets no action, and its WARN points at that profile. Credential-shaped text in a runtime message is redacted.
+  - `@schlessera/brain-ui-sdk` exports `subscriptionAuthAction`, `SUBSCRIPTION_AUTH_INSTRUCTIONS` and `SUBSCRIPTION_RELOGIN_PROCEDURE`. `BackendModelSourceState` gains `subscriptionProvenAt` and `subscriptionRefused`.
+  - The server README's `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` rows now say what those variables do.
+
+- f489482: An approval card no longer offers "Always allow" for a grant the host will not
+  keep. `tool_approval_request` gains an optional `rememberable: false`, sent for
+  a request outside the turn's enforced allowlist (or by a host with no grant
+  store) and again when the card is re-delivered on reconnect; both approval surfaces hide the button for it, and
+  the Actions receipt no longer prints "Always allowed" for a decision that was
+  not remembered.
+- f7b46d3: A table wider than four option columns is no longer asked which column the text
+  recommends. That question offered one option per column, the classifier takes at
+  most 255, and one oversized question failed the classification pass for every
+  candidate in the answer. A comparison is drawn with at most four options, so the
+  answer had no use for a wider table anyway. Its shape is still asked, so a table
+  of up to six columns can still become a data table.
+- 1bf00b8: The classification pass now records what the classifier was confident about,
+  per question, so the swap thresholds can be moved on a distribution instead of
+  on a guess.
+
+  An answered pass writes one row per answered question to a new
+  `classification_confidence` table (migration 016, additive): the candidate it
+  was asked about, its kind, the question, the answer, its confidence, the line
+  that confidence had to clear, and whether the candidate ended up drawn as a
+  block or left as markdown. One pass's rows share a `pass_id`, so
+  `(pass_id, candidate_id)` names one candidate and a question can be read
+  conditioned on another answer about the same candidate — which some of them must be, since the catalogue asks
+  `criteria_first` of every table including the ones the shape answer calls
+  `data`.
+  The write happens after the classifier call has resolved, so it takes none of
+  the call's 2 s budget, and a write that fails is a log line rather than a block
+  the reader does not get. Rows age out after 30 days.
+
+  `confidenceDistribution` (exported from `@schlessera/brain-ui-server`) reads it
+  back bucketed per candidate kind and question. `observeClassification`,
+  `thresholdOf`, `ClassificationQuestions` and `AskedQuestion` are new in
+  `@schlessera/brain-ui-sdk/server`.
+
+  Every catalogue question now declares the line its answer has to clear, next to
+  the question itself, and the transforms compare against the line of the
+  question that was actually asked. A recorded confidence and the line it was
+  gated by therefore cannot drift apart — including for a question whose id is
+  generated per row, which a lookup keyed by question name could not cover at
+  all. `ClassificationRequest.questions` is the same set with the lines stripped:
+  where the surface acts on a probability is not something the classifier is
+  asked.
+
+  No threshold changed, and nothing leaves the machine.
+
 ## 0.36.0
 
 ### Minor Changes

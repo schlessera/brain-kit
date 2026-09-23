@@ -1,5 +1,194 @@
 # @schlessera/brain
 
+## 0.37.0
+
+### Minor Changes
+
+- dd8ae8a: The asset scan now applies `exclude.*` entries to an image or PDF's path as it is on disk. Before, it lowercased the path first, so on a case-sensitive filesystem `dirs: ["drafts"]` also removed the assets under `Drafts/` (while keeping its notes), and `dirs: ["Drafts"]` kept them.
+
+  **Effect on an existing brain:** assets under a directory whose case differs from an exclude entry return on the next embedding run (`brain index --embeddings`). Assets under a directory that an upper-case entry names exactly leave the index on the next `brain index`. Notes are unaffected. `brain stats`'s document counts follow the index, so they change as those assets come or go; its `size.corpus` walk already matched the path as it is and does not move. `okf export` scans the disk itself, so it applies the corrected rule at once, before any embedding run.
+
+- 0970d31: `brain.db` moves to `schema_version` 9, which adds an index on
+  `links(target_id)`. Asking what links to a document — `brain_graph` with
+  `direction: "incoming"` or `"both"` — used to read the whole `links` table once
+  per visited node; it is now an index lookup. An existing brain gains the index
+  the next time it is opened writable — the MCP server starting, `brain index`,
+  `brain sync` or any other command that writes — with no reindex. No table or column changed, so readers that accept schema 8 read 9
+  unchanged.
+- 5f7dbb5: `CLAUDE_CODE_PATH` no longer defaults to `/usr/local/bin/claude`. Unset, a chat turn runs the Agent SDK's built-in Claude Code binary, so the lockfile decides the version. A host that relied on the old default without setting the variable now runs the SDK's binary. That version may differ from the one the host had installed; set `CLAUDE_CODE_PATH` to keep the old binary.
+
+  The core Claude runner behind `brain sync` resolves its binary the way chat does: `CLAUDE_CODE_PATH` first, then the Agent SDK's built-in binary when the SDK is installed next to `@schlessera/brain` (a new optional peer dependency), then `claude` on `PATH`. It no longer needs a separate `claude` install. The server still keeps `CLAUDE_CODE_PATH` to itself. A brain repo that runs `brain sync` on a host without `claude` needs the SDK installed alongside `@schlessera/brain`.
+
+- acad158: `exclude.dirs` entries are normalised when the config loads. A leading `./` and trailing `/` are stripped, so `drafts/`, `./drafts` and `drafts` all exclude the same directory.
+
+  **Effect on an existing brain:** a bare `drafts` always worked. `drafts/` and `./drafts` excluded nothing from the index. If your config uses one of them, the files under that directory leave the index on your next `brain index`, and stop appearing in search, context and briefings. `brain stats`'s `size.corpus` changes with them: it already left out a `drafts/` entry's files, but it counted a `./drafts` entry's files, and it now leaves both out, in agreement with the index. An entry that is empty once stripped (`./`, `/`) is ignored.
+
+- ac94af4: - Changed: `sync post-sync` commits and pushes the sidecar caches its reindex rewrites, so a sync no longer ends with a dirty tree. The commit carries only those caches: anything already staged stays staged and uncommitted.
+  - Added: `cacheCommit` and `treeDirty` fields on `sync post-sync`; `sync` reports `"dirty"` when anything is left uncommitted.
+  - Added: `DERIVED` class in `sync assess` for the sidecar caches, so the skill stops committing a stale copy the later reindex supersedes.
+  - Changed: `sync pull` sets local changes to the sidecar caches aside while it merges, then unions this clone's entries back into the merged copy, reported as `mergedCaches`. A rewritten cache no longer fails the pull when another clone pushed its own. A conflicted cache is resolved the same way instead of being handed to conflict resolution, and when git refuses the merge outright the caches are put back untouched.
+- 95ef35d: `brain init --check` now reports `config.initialized` alongside `config.exists`.
+  The template ships a `brain.config.ts` with every field commented out, so
+  `exists` was true on a brain that had never been set up, and `/brain-init`
+  took its amend-mode branch for every new user instead of running the interview.
+  `initialized` is true only once the config declares something — a profile, a
+  taxonomy, a module, an embedding provider — and the brain-init skill branches on
+  it. Additive: the existing fields are unchanged.
+- 731282f: `brain stats` reports health and size, not just row counts.
+
+  `--json` grows two nested blocks and loses nothing: every field a consumer
+  already reads keeps its name, and its type, except `embeddings`, which becomes
+  `number | null` in the same release (see its breaking-change note).
+
+  `health` answers "what needs attention": the broken-link **rate** over the
+  link count, embedding coverage as vectors over chunks, and the stale, orphan
+  and untagged document counts. Stale and orphan are not new definitions — they
+  are the ones `brain audit` already reports, read from the same per-type
+  `staleDays` and `orphanExempt`, so the two commands cannot drift. `health`
+  also echoes the warn levels in force, so a consumer never duplicates the
+  defaults.
+
+  `size` answers "what does this brain weigh": corpus bytes and file count on
+  disk with the configured excludes applied, `brain.db` bytes with its per-table
+  row counts, and free space on the volume. The index size is a rebuild-cost
+  figure; `brain.db` stays disposable.
+
+  A figure that cannot be measured is reported as `null`, never as `0` — an
+  unknown embedding coverage must not read as a failing one, and a platform
+  without a usable free-space call does not fail the command.
+
+  New optional `stats` config block for the warn levels: `coverageFloor`
+  (default `0.9`) and `brokenLinkCeiling` (default `0.05`), both ratios in
+  `0..1`.
+
+- 2d553e2: Reading a brain can no longer destroy its vector index. `initVecSupport` was
+  both "make vectors readable on this connection" and "migrate the vector
+  schema", and the migration drops every stored vector — so `brain mcp`, whose
+  tools all advertise `readOnlyHint: true`, emptied `vec_chunks` on startup
+  against any brain last indexed before the cosine migration. Recovering meant a
+  paid `brain index --embeddings --force`.
+
+  It is now two functions. `loadVecSupport(db)` is the read path: it loads the
+  sqlite-vec extension and reports whether `vec_chunks` is there, writing nothing
+  and taking no width, so a read cannot migrate whatever kind of connection it
+  holds. `migrateVecSchema(db, dimensions)` is the write path, named for what it
+  does, and `brain index`, `brain sync`, `brain maintain`, `brain doctor --fix`,
+  the archiver and the indexer's re-embedding pass still call it.
+
+  Two smaller fixes come with the split. Callers that are not about to re-embed
+  now pass `storedVectorWidth(db, configured)` — the width the index was built
+  at, from `index_metadata.embedding_dimensions` — instead of the configured
+  provider's, so a provider swap no longer re-declares the table at a width the
+  stored vectors are not in. And `sqlite-vec not available` is now printed only
+  when the extension really failed to load; a read-only connection that could not
+  write used to report it, sending readers off to reinstall a working dependency.
+
+  The migrations themselves are now atomic. Each runs in a transaction, so a
+  half-applied one — a table dropped and not rebuilt, or rebuilt and not
+  refilled — can no longer leave the vector index gone, and a failure is
+  reported rather than swallowed: `migrateVecSchema` used to return true having
+  emptied the store. `storedVectorWidth` reads the width off `vec_chunks`' own
+  declaration before believing `index_metadata`, and accepts one only as plain
+  decimal within sqlite-vec's 1..8192 range.
+
+  `initVecSupport` is gone from `@schlessera/brain`'s exports. Out-of-tree callers
+  that only read vectors want `loadVecSupport`, branching on the exported
+  `VecSupport`/`VecUnavailableReason` when they need the cause; callers that are
+  about to embed want `migrateVecSchema`.
+
+- fb1d784: **Breaking (`brain stats --json`):** `embeddings` is now `number | null`.
+
+  - `null` when the brain has a `vec_chunks` table that could not be counted, because sqlite-vec did not load on this host. It used to read `0`, which looked the same as a brain holding no vectors.
+  - A brain with no `vec_chunks` still reports `0`.
+  - Consumers doing arithmetic on the field must handle `null`.
+  - `brain stats --human` prints `Embeddings: n/a` in that case.
+  - The `--help` caveat about the field reading `0` is gone. So is the matching note in `docs/cli.md` and `docs/integration-contract.md`.
+
+  Ruled for 0.37.0 on #169.
+
+- 4fc7f0b: `brain stats` reads as an answer rather than a dump. The human output now
+  leads with a **Health** section — broken-link rate, embedding coverage, stale,
+  orphans, untagged — each line naming the level that judged it, above an
+  **Inventory** section holding the counts and what the brain weighs on disk.
+
+  Every breakdown is ranked by count and capped at the top five, followed by a
+  `+N more (M documents)` remainder, so a corpus with forty types no longer
+  prints forty lines three times over. `brain stats --all` expands every
+  breakdown.
+
+  `--all` is a human-output flag only: `--json` is unchanged and always carries
+  the full, uncapped breakdowns, so `brain stats --json` and
+  `brain stats --all --json` produce the same object.
+
+  A `null` figure still reads as `n/a` and never carries a verdict. Embedding
+  coverage in particular says "not measured" rather than "nothing embedded":
+  `collectStats` returns `null` both for a brain that does not embed and for one
+  whose vectors could not be counted, and the renderer cannot tell those apart.
+
+  One figure to know about when reading either output: `embeddings` changed
+  value in this release, and its type (see the breaking-change note for #169). `brain stats` used to
+  count `vec_chunks` on a connection that had never loaded sqlite-vec, so the
+  query failed and the count was reported as `0` on every brain, embedded or
+  not. It now loads the extension first, so on any host where sqlite-vec loads
+  the figure is the real number of stored vectors — a brain that always showed
+  `0` embeddings was showing a measurement failure, not an empty index.
+
+  Where sqlite-vec cannot load at all, `embeddings` is `null` for a brain that
+  has a vector table, not `0`: the count is unknown, and it reads as unknown.
+
+  Also in the human output: byte counts scale to KB/MB/GB instead of always
+  printing MB (a 22 KB corpus used to read as `0.0 MB`), and a brain with no
+  documents prints one line naming the next step instead of a page of empty
+  headings.
+
+- 4157941: `brain stats` human output: a health ratio that rounds to the same one-decimal figure as its threshold is now printed with more decimal places. Before, 6 broken links in 119 read `5.0%, over the 5.0% ceiling`. It now reads `5.04%, over the 5.00% ceiling`, with the ratio and threshold widened together. Every other line prints exactly as before, verdicts still compare the unrounded values, and `--json` is unchanged.
+- 0d28bae: `brain stats` now reads vectors through the shared `loadVecSupport` read path
+  instead of its own copy of it. A brain with no `vec_chunks` is still answered
+  without loading sqlite-vec and prints nothing on stderr. A brain that holds a
+  `vec_chunks` table on a host where sqlite-vec will not load now prints
+  `sqlite-vec not available: <cause>` on stderr, where it used to say nothing;
+  stdout, `--json` included, is unchanged.
+- f4edb02: Two `brain stats` human-output fixes:
+  - A brain with no documents but an unreadable vector table now prints the `Embeddings: n/a` line under the empty-state message. Before, it read exactly like a brain with no vectors.
+  - A health ratio that twenty decimal places could not tell apart from its threshold now prints with enough places to show which side it is on.
+- af2affb: A Claude turn on a profile without its own credential now runs on the
+  subscription or not at all. Claude Code prefers an `ANTHROPIC_API_KEY` over
+  `CLAUDE_CODE_OAUTH_TOKEN`, silently, when both are in its environment; it also
+  takes a key from an `apiKeyHelper` or a stored Console login. So such a turn now
+  runs with `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` cleared and any
+  `apiKeyHelper` switched off. The CLI's account is checked before the prompt is
+  sent, and a turn with no subscription login ends with a `CLAUDE_AUTH` error
+  instead of billing a key. The core CLI's `claude` agent runner (what `brain
+sync` uses) follows the same rule. Model discovery prefers the subscription
+  token too.
+
+  What a host may need to change:
+
+  - **Billing an API key for chat on purpose?** Declare a profile that names it,
+    e.g. `BRAIN_UI_CLAUDE_PROFILES='[{"id":"claude-api","label":"Claude (API)","apiKeyEnv":"ANTHROPIC_API_KEY"}]'`.
+    Credential-free profiles no longer use the ambient key, and are now always
+    classified as subscription-billed.
+  - **`brain sync` under cron ran on an API key?** It now needs a subscription
+    login (`CLAUDE_CODE_OAUTH_TOKEN`).
+  - **`anthropic-haiku` completions inside chat turns?** Name the key separately:
+    `completions: { provider: "anthropic-haiku", apiKeyEnv: "BRAIN_ANTHROPIC_COMPLETIONS_KEY" }`,
+    and admit that name to the agent with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`.
+    `completions.apiKeyEnv` and `completions.fallbackApiKeyEnv` are new.
+
+### Patch Changes
+
+- b3529ac: The `/brain-host` skill no longer frames the minimum `@schlessera/brain` version
+  as a one-release upgrade note. The server refuses to boot below
+  `MIN_BRAIN_CLI_VERSION`, which is a standing floor, and the skill now says so —
+  the old wording read as old news three releases after the release it named.
+- e802456: The pre-commit hook no longer rejects a commit in a brain that has no tests.
+  `bun test` treats "no test files" as an error, and the hook runs it whenever
+  the staged change touches `brain.config.*` — so `/brain-init`'s single commit,
+  the one the interview promises as its revert point, was refused on every
+  brand-new brain. The hook now tells "nothing to run" apart from "tests failed"
+  and says which it saw.
+  - @schlessera/brain-render-template@0.37.0
+
 ## 0.36.0
 
 ### Patch Changes

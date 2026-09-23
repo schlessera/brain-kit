@@ -1,5 +1,166 @@
 # @schlessera/brain-module-jobs
 
+## 0.37.0
+
+### Minor Changes
+
+- ba4ef6b: A job board that parses nothing says so, instead of reporting zero found and
+  zero errors.
+
+  `jobs scrape` now reports a **state** per board rather than only a count, in the
+  run summary and in the `--json` envelope's `sources[]` rows: `ok`, `empty`
+  (the board's own envelope, carrying no postings), `unparseable` (a page arrived,
+  did not say it was empty, and yielded nothing) or `not_run` (nothing readable
+  arrived at all). `empty` is the only zero-row state allowed to carry no errors, and an
+  adapter may only claim it from a positive signal — an API answering with its
+  envelope and an empty record list, a feed with a channel and no item markup
+  at all — so a
+  board with no way to prove its own empty state reports a served page it read
+  nothing off as drift.
+
+  Fed a page that is not its board's, every one of the eleven adapters now
+  reports; four of them returned in silence before. `remoteineurope`, whose
+  domain 301s to another job site and answers 200 there, is the one this was
+  named after: it reports an error per page, and names the site that served the
+  redirect. Every selected board keeps a row in the report, including one whose
+  adapter never returned, and `scrape_runs.status` follows — `unparseable` and
+  `not_run` are logged as `failed`, so a board that could not be read stops
+  advancing its cursor.
+
+  `@schlessera/brain-scrape` gains `ScrapeClient.getPage`, which returns a text
+  body alongside the URL it was actually served from. `getText` delegates to it
+  and is unchanged.
+
+- 7581178: `remotive` is no longer enabled by default. Its `robots.txt` disallows `/api/*`,
+  the only path the adapter fetches, so every run ended in five refused requests.
+  The adapter stays, and `jobs scrape remotive` or a `boards` entry still selects
+  it, but it can only succeed with the site's permission.
+- bcb16c7: `jobs scrape` follows a job with no description to its own page on the board
+  (`source_url`, only on the hosts the adapter names, never the apply link) and takes the description from that page's
+  `JobPosting` structured data. This covers `nodesk`, `simplyhired`, `dice`,
+  `remotelyde` and `jobgether`. `builtin` now reads its descriptions from its own
+  listing's structured data. A row that already has a description, from the feed
+  or an earlier run, is not fetched, and two rows for one posting cost one
+  request (none, if either already has a description). The description is stored
+  as the page served it and stripped once. Detail requests go through the run's shared client and the run's
+  `--proxy`, so robots.txt and per-host pacing apply, with a 2 s floor between
+  detail requests to one host (retries and redirects are not paced separately;
+  see #259). The new `enrichment` config (`concurrency`, default 4;
+  `maxDetailPages`, default 100, `0` = off) bounds them, and the cap is shared
+  round-robin across boards. Each board's row in the `--json` report gains
+  `jobs_enriched`, `enrichment_failed` and `enrichment_truncated`, and a non-zero
+  failed or truncated count also has a line in `errors`. A failed detail page never
+  costs the row. A stored row that gains a description is scored again, and an
+  automatic queue or dismiss decision on it is reconsidered. A decision a person
+  made is kept.
+- ea9f125: Re-scraping a stored job now refreshes its `source_url` and `company`, so an
+  adapter repair reaches rows stored before it. A changed company or title
+  recomputes `company_normalized`, `title_normalized` and `fingerprint`, and
+  rebuilds the job's full-text row. An incoming `Unknown` company never replaces
+  a real one. When a row's fingerprint changes, it leaves its dedup group: it
+  stops being marked as a duplicate, the rows marked as duplicates of it are
+  released, and the dedup pass after the scrape regroups them.
+- 97d19d9: Removed the `remoteineurope` board, which was retired because its domain now
+  redirects every page to We Work Remotely (already scraped as `weworkremotely`).
+  It is gone from `ALL_SOURCES` and the default `SOURCES`. `jobs scrape
+remoteineurope` now exits 1 and says the board was retired. Before, it fetched
+  the redirected pages and reported that it could parse nothing from them. A `boards` config that names it gets the same reason
+  as a warning, and the other boards still run. The new `RETIRED_SOURCES` export
+  lists retired names with their reasons.
+- c75da0d: JSON-LD extraction moves into the scraping base, and the `JobPosting` mapping
+  into one place in `module-jobs`.
+
+  `extractJsonLd(html)` matches an `application/ld+json` script whatever other
+  attributes it carries, in whatever order, quoted or not — measured against real
+  boards, the bare-tag pattern this replaces saw none of them — and reports a
+  malformed tag as one error instead of throwing or swallowing it.
+  `jsonLdNodes`, `jsonLdByType` and `itemListEntries` flatten the four shapes a
+  page serves nodes in: bare, an array, a `@graph`, or nested inside another
+  node.
+
+  On top of it, `module-jobs` gains one shared mapper: both documented
+  `baseSalary` shapes reach the same internal figure, hourly and monthly rates
+  are annualized through the factor `salary.ts` already uses, employment type is
+  read in the spellings boards actually write, and a publication date that is not
+  ISO-8601 — Jobgether serves a JavaScript `Date.toString()` — is converted or
+  dropped rather than stored as an ISO string it is not. An `ItemList` that names
+  jobs without describing them comes back as references, never as rows with an
+  invented company.
+
+  The remotely.de adapter loses its private copy of all of this and reads through
+  the shared path instead. Wiring the remaining boards onto it is per-board work.
+
+### Patch Changes
+
+- ef5fba5: No behaviour change. The jobgether adapter's comments no longer say it is
+  capped at ten rows or that the endpoint can only page by query string. The
+  page size is the server's, and a POST body can page too, which is the route the
+  scraping-politeness decision rules out.
+- a8fbf67: No behaviour change. A one-line comment in the jobgether adapter, where it
+  makes its single request, now points at `docs/decisions/scraping-politeness.md`,
+  the record of why the board is capped at one page.
+- 75e6e19: `jobs scrape jobgether` and `jobs scrape remotelyde` store job postings again.
+
+  Both boards reported rows that were not jobs. `jobgether` fetched five
+  `/remote-jobs/<location>/<category>` pages that answer HTTP 410; it now reads
+  the JSON endpoint the site's `robots.txt` points a crawler at, in one request
+  with no query string, and every row carries a title, a company and an ISO
+  posting date. `remotelyde` fell back to scanning `href="/remote-jobs/<slug>"`,
+  which is the site's own category navigation, so every stored row was a
+  navigation link with the company `Unknown`; it now parses the `/job/<slug>`
+  cards, from `www` and `/remote-jobs/seite/<n>` rather than from the apex and a
+  `?page=` query that both redirect. A card whose company or title cannot be read
+  is dropped with an error naming the field, instead of being stored as
+  `Unknown`.
+
+- 7c79a42: `brain jobs scrape dice` stores an openable link. Dice is the only board whose
+  result card carries a relative `href`, and the adapter handed it on unchanged,
+  so every stored row's `url` and `source_url` was `/job-detail/<guid>` — a link
+  nothing in the review queue, an opportunity doc or the CLI could follow. The
+  card link is now resolved against `https://www.dice.com`, the way every other
+  adapter already prefixes its origin.
+
+  The company comes off the card's `/company-profile/` link instead of being
+  guessed at by scanning the card's text lines, which had left one row in ten
+  stored as the literal `Unknown`.
+
+  `source_id` is unchanged — still the relative path — so the next scrape updates
+  the rows already stored rather than inserting a second copy of each. The ingest
+  upsert refreshes `url` but not `source_url` or `company`, so a row stored before
+  this release keeps the older values in those two fields; new rows are correct in
+  all three.
+
+- ead8379: When a re-scraped job joins an existing dedup group, a duplicate whose canonical
+  was deleted (by `jobs gc --purge` or a delete) stays hidden. Before, regrouping
+  released it back into the review queue.
+- e21686c: Manifest only: `happy-dom` joins this package's devDependencies, so the three
+  browser boards' page extractors can be run against their committed fixtures in
+  a test without launching Chrome. Nothing a consumer installs or calls changes —
+  `dependencies`, `peerDependencies`, `exports` and `engines` are untouched — but
+  the manifest ships, so this is recorded rather than waved through.
+- Updated dependencies [dd8ae8a]
+- Updated dependencies [0970d31]
+- Updated dependencies [ba4ef6b]
+- Updated dependencies [b3529ac]
+- Updated dependencies [5f7dbb5]
+- Updated dependencies [e802456]
+- Updated dependencies [acad158]
+- Updated dependencies [ac94af4]
+- Updated dependencies [95ef35d]
+- Updated dependencies [731282f]
+- Updated dependencies [d242f3a]
+- Updated dependencies [f6d3e4f]
+- Updated dependencies [2d553e2]
+- Updated dependencies [fb1d784]
+- Updated dependencies [4fc7f0b]
+- Updated dependencies [4157941]
+- Updated dependencies [0d28bae]
+- Updated dependencies [f4edb02]
+- Updated dependencies [af2affb]
+- Updated dependencies [c75da0d]
+  - @schlessera/brain@0.37.0
+  - @schlessera/brain-scrape@0.37.0
+
 ## 0.36.0
 
 ### Patch Changes
