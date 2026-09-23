@@ -540,15 +540,6 @@ export interface AgentConfig {
   piProfilesJson: string | null;
   modelDiscovery: boolean;
   modelTtlMs: number;
-  /**
-   * Billing classification for profiles running on AMBIENT credentials (the
-   * built-in default and discovered models): "subscription" iff the
-   * environment holds a CLAUDE_CODE_OAUTH_TOKEN and no ANTHROPIC_API_KEY —
-   * the same precedence the Agent SDK applies — else "api". Declared profiles
-   * carrying their own credential env vars are classified "api" by the
-   * registry regardless of this value.
-   */
-  ambientBilling: BillingMode;
 }
 
 /**
@@ -713,9 +704,10 @@ const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "
  * Ambient billing classification from an environment (presence-only reads).
  * The API key wins over the OAuth token — the Agent SDK's own precedence —
  * and no usable credential at all classifies "api" (nothing
- * subscription-billed can run without the token). Exported for the activity
- * store's standalone default, so the cron wrapper classifies from the same
- * predicate the server config does.
+ * subscription-billed can run without the token). Its one reader is the
+ * activity store's rollup, for a non-session run whose root recorded no
+ * billing mode. The rule predates #253 and is stale for Claude runs; what
+ * replaces it is decided in #293.
  */
 export function resolveAmbientBillingMode(env: EnvRecord = process.env): BillingMode {
   return !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
@@ -804,7 +796,6 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
-      ambientBilling: resolveAmbientBillingMode(env),
     },
     classification: { apiKey: env.TYPESAFE_API_KEY?.trim() || null },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
