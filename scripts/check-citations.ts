@@ -106,7 +106,15 @@ export function parseCitations(doc: string, body: string): Citation[] {
       // `[brain-ui] scripts/entrypoint.sh:59-85`, a path with a space — is
       // reported, not skipped.
       if (LOOSE_CITATION.test(content)) {
-        citations.push({ doc, line: lineAt(span.index!), text: content, path: undefined, ranges: [], anchor: undefined, unreadable: true });
+        citations.push({
+          doc,
+          line: lineAt(span.index!),
+          text: content,
+          path: undefined,
+          ranges: [],
+          anchor: undefined,
+          unreadable: true,
+        });
       }
       continue;
     }
@@ -396,7 +404,9 @@ export function checkRecords(
     // Full paths the record names anywhere, citation or not, disambiguate the
     // shortened ones: a record that says `packages/ui-server/src/middleware/auth.ts`
     // once can say `auth.ts:321` after it.
-    const named = [...body.matchAll(/`((?:[\w@.-]+\/)+[\w@.-]+\.\w+)(?::[\d,\s-]+)?`/g)].map((m) => m[1]);
+    const named = [
+      ...body.matchAll(/`((?:[\w@.-]+\/)+[\w@.-]+\.\w+)(?::[\d,\s-]+)?`/g),
+    ].map((m) => m[1]);
     const cited = [...named, ...citations.flatMap((c) => (c.path && !c.bare ? [c.path] : []))];
     for (const citation of citations) {
       const verdict = checkCitation(citation, cited, tree);
