@@ -97,10 +97,18 @@ export function createClaudeTurnRunner(options: {
       const billing = observedBilling(selected, apiKeySource);
       const policy = profile.billing === "api" ? "api" : "subscription";
       const agentSdk = installedAgentSdkVersion();
+      // Any disagreement: a declared API profile that ran on something else
+      // lost its own credential, and the CLI picked another one.
       const policyViolation =
-        policy === "subscription" && billing !== "subscription"
-          ? `a profile without its own credential ran on ${billing === "api" ? "an API credential" : "a credential that is not a recognised subscription"}`
-          : undefined;
+        billing === policy
+          ? undefined
+          : `${policy === "api" ? "a profile declared as API-billed" : "a profile without its own credential"} ran on ${
+              billing === "api"
+                ? "an API credential"
+                : billing === "subscription"
+                  ? "a subscription"
+                  : "a credential that is not a recognised subscription"
+            }`;
       if (policyViolation) {
         options.log("warn", "billing policy violated", {
           "profile.id": profile.id,

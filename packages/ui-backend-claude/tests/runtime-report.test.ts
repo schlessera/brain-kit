@@ -109,6 +109,32 @@ describe("the per-turn runtime report", () => {
     }
   });
 
+  for (const [observed, account, apiKeySource, reason] of [
+    ["subscription", { subscriptionType: "Claude Max", apiProvider: "firstParty" }, "none", "ran on a subscription"],
+    ["unknown", { apiProvider: "firstParty" }, "none", "not a recognised subscription"],
+  ] as const) {
+    test(`a declared API profile that ran on ${observed} is flagged too`, async () => {
+      process.env.SOME_TOKEN = "bearer";
+      try {
+        const { activity, logs } = await turn(
+          queryWith({ claude_code_version: "9.9.9", apiKeySource }, account),
+          "bearer"
+        );
+        const report = activity.find((e) => e.kind === "runtime_observed") as Extract<
+          BackendActivityEvent,
+          { kind: "runtime_observed" }
+        >;
+        expect(report.billing).toBe(observed);
+        expect(report.policy).toBe("api");
+        expect(report.policyViolation).toContain("declared as API-billed");
+        expect(report.policyViolation).toContain(reason);
+        expect(logs.filter((l) => l.level === "warn" && l.message === "billing policy violated")).toHaveLength(1);
+      } finally {
+        delete process.env.SOME_TOKEN;
+      }
+    });
+  }
+
   test("an account the runtime could not use is reported as its own failure class", async () => {
     const { activity } = await turn(
       queryWith({ claude_code_version: "9.9.9", apiKeySource: "none" }, OAUTH_ACCOUNT, [
