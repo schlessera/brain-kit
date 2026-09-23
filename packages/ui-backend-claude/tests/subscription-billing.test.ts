@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
+import type { BackendActivityEvent, BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
 import { defineProfiles } from "../src/profiles";
@@ -140,12 +140,14 @@ function observedQuery(observed: SDKMessage[]): typeof query {
 async function runTurn(
   { brainPath }: { brainPath: string },
   profileId?: string
-): Promise<{ frames: ServerMessage[]; observed: SDKMessage[] }> {
+): Promise<{ frames: ServerMessage[]; observed: SDKMessage[]; activity: BackendActivityEvent[] }> {
   const frames: ServerMessage[] = [];
   const observed: SDKMessage[] = [];
+  const activity: BackendActivityEvent[] = [];
   const bridge: BackendBridge = {
     emit: (message) => frames.push(message),
     requestPermission: async () => ({ behavior: "deny", message: "test" }),
+    activity: (event) => activity.push(event),
   };
   const backend = createClaudeBackend({
     brainPath,
@@ -164,7 +166,13 @@ async function runTurn(
     bridge,
     ...(profileId ? { profileId } : {}),
   });
-  return { frames, observed };
+  return { frames, observed, activity };
+}
+
+function runtimeReport(activity: BackendActivityEvent[]) {
+  return activity.find((event) => event.kind === "runtime_observed") as
+    | Extract<BackendActivityEvent, { kind: "runtime_observed" }>
+    | undefined;
 }
 
 function initApiKeySource(observed: SDKMessage[]): string | undefined {
@@ -196,10 +204,17 @@ const LIVE = 90_000;
 describe("a profile without its own credential bills the subscription", () => {
   test("OAuth, an API key and a bearer token all present: only the OAuth bearer is sent", async () => {
     const fixture = arrange({ oauth: OAUTH });
-    const { observed } = await runTurn(fixture);
+    const { observed, activity } = await runTurn(fixture);
 
     expectOnlySubscription();
     expect(initApiKeySource(observed)).toBe("none");
+    // The run records it (#211): the real CLI's own report, subscription, no violation.
+    expect(runtimeReport(activity)).toMatchObject({
+      billing: "subscription",
+      policy: "subscription",
+      credential: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN" },
+    });
+    expect(runtimeReport(activity)?.policyViolation).toBeUndefined();
   }, LIVE);
 
   test("a second credential-free profile is held to the same rule", async () => {
@@ -212,7 +227,10 @@ describe("a profile without its own credential bills the subscription", () => {
 
   test("no subscription token: nothing is sent and the turn is an auth failure", async () => {
     const fixture = arrange({});
-    const { frames } = await runTurn(fixture);
+    const { frames, activity } = await runTurn(fixture);
+    // Refused before init, the run still records what it would have billed (#211).
+    expect(runtimeReport(activity)?.billing).not.toBe("subscription");
+    expect(runtimeReport(activity)?.policyViolation).toBeDefined();
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);

@@ -194,11 +194,12 @@ export function observedBilling(
     return API_KEY_SOURCES.has(keySource) ? "api" : "unknown";
   }
   if (account?.tokenSource !== undefined && OAUTH_TOKEN_SOURCES.has(account.tokenSource)) return "subscription";
+  // A declared bearer profile: billed through the route it declares, whatever
+  // stored login also exists.
+  if (account?.tokenSource === "ANTHROPIC_AUTH_TOKEN") return "api";
   if (account?.subscriptionType !== undefined && SUBSCRIPTION_TIERS.has(account.subscriptionType)) {
     return "subscription";
   }
-  // A declared bearer profile: billed through the route it declares.
-  if (account?.tokenSource === "ANTHROPIC_AUTH_TOKEN") return "api";
   return "unknown";
 }
 

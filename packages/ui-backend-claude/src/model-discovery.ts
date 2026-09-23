@@ -204,22 +204,23 @@ export async function discoverAnthropicModels(
   return { models, aliasChecks };
 }
 
-/** Does `GET /v1/models/{alias}` resolve? Network failures count as "no". */
+/**
+ * Does `GET /v1/models/{alias}` resolve? Network failures count as "no"; a
+ * refused credential is an auth failure, not an answer about the alias.
+ */
 async function aliasResolves(
   alias: string,
   headers: Record<string, string>,
   fetchImpl: typeof fetch
 ): Promise<boolean> {
+  let status: number;
   try {
-    const { status } = await getJson(
-      `${MODELS_URL}/${encodeURIComponent(alias)}`,
-      headers,
-      fetchImpl
-    );
-    return status === 200;
+    ({ status } = await getJson(`${MODELS_URL}/${encodeURIComponent(alias)}`, headers, fetchImpl));
   } catch {
     return false;
   }
+  if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status);
+  return status === 200;
 }
 
 // --- Cache -----------------------------------------------------------------

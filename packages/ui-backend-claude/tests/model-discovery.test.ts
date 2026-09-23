@@ -292,6 +292,15 @@ describe("a refused credential (#211)", () => {
     await expect(discoverAnthropicModels({ fetchImpl: refused })).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
   });
 
+  test("is an auth failure when only an alias lookup is refused, not a missing alias", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-revoked";
+    const fetchImpl = (async (input: string | URL | Request) =>
+      String(input).includes("?limit=")
+        ? Response.json({ data: [{ id: "claude-haiku-4-5-20251001" }], has_more: false })
+        : new Response("unauthorized", { status: 401 })) as unknown as typeof fetch;
+    await expect(discoverAnthropicModels({ fetchImpl })).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
+  });
+
   test("is logged as one by the model source, which keeps serving what it had", async () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-revoked";
     const logs: Array<{ level: string; message: string; attrs?: Record<string, unknown> }> = [];

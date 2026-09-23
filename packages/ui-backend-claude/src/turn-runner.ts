@@ -244,9 +244,14 @@ export function createClaudeTurnRunner(options: {
             }
             if (abortController.signal.aborted) return withhold();
             const verdict = subscriptionVerdict(account);
-            if (!verdict.ok) return refuse(verdict.reason);
-            const conflict = settingsRefusal(settings);
-            return conflict ? refuse(conflict) : true;
+            const conflict = verdict.ok ? settingsRefusal(settings) : null;
+            if (!verdict.ok || conflict) {
+              // The CLI never reaches init, so this is the only report the
+              // refused turn gets: what the handshake said it would bill.
+              reportRuntime(undefined, account?.apiKeySource, account);
+              return refuse(verdict.ok ? conflict! : verdict.reason);
+            }
+            return true;
           })
         : sdkTurn.prompt;
       const result = queryFn({ prompt, options: sdkTurn.options });
@@ -264,9 +269,6 @@ export function createClaudeTurnRunner(options: {
         // A withheld turn has already decided its outcome; nothing the stream
         // does after that may replace it.
         if (withheld) break;
-        if (msg.type === "system" && msg.subtype === "init") {
-          reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
-        }
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
         if (!announced && msg.session_id) {
@@ -287,6 +289,10 @@ export function createClaudeTurnRunner(options: {
             providerId: profile.id,
             backendId: BACKEND_ID,
           });
+        }
+        // After session_info, so the run is opened with its session.
+        if (msg.type === "system" && msg.subtype === "init") {
+          reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
         }
         for (const serverMsg of adapter.adapt(msg)) {
           // Exactly one terminal frame per turn, whatever the stream does:

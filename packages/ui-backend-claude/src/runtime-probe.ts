@@ -35,8 +35,17 @@ export class ClaudeRuntimeUnavailableError extends Error {
   }
 }
 
+/** What the SDK would hand to a spawn. */
+interface SelectedSpawn {
+  command: string;
+  args: string[];
+  /** The environment the SDK itself would give the CLI, not the one it was given. */
+  env: Record<string, string | undefined>;
+  cwd: string | undefined;
+}
+
 class Captured extends Error {
-  constructor(readonly spawn: { command: string; args: string[] }) {
+  constructor(readonly spawn: SelectedSpawn) {
     super("captured");
   }
 }
@@ -59,17 +68,21 @@ export function isMeasuredRuntime(claudeCode: string | undefined, agentSdk: stri
 }
 
 /** What the SDK would spawn for a turn with these options. */
-export function selectedSpawn(options: Pick<Options, "pathToClaudeCodeExecutable" | "env" | "cwd">): {
-  command: string;
-  args: string[];
-} {
+export function selectedSpawn(
+  options: Pick<Options, "pathToClaudeCodeExecutable" | "env" | "cwd">
+): SelectedSpawn {
   try {
     query({
       prompt: "",
       options: {
         ...options,
         spawnClaudeCodeProcess: (spawn) => {
-          throw new Captured({ command: spawn.command, args: [...spawn.args] });
+          throw new Captured({
+            command: spawn.command,
+            args: [...spawn.args],
+            env: { ...spawn.env },
+            cwd: spawn.cwd,
+          });
         },
       },
     });
@@ -84,10 +97,15 @@ export function selectedSpawn(options: Pick<Options, "pathToClaudeCodeExecutable
   );
 }
 
-/** The spawn's argv with its session flags replaced by `--version`. */
-export function versionArgv(spawn: { command: string; args: string[] }): string[] {
-  const firstFlag = spawn.args.findIndex((arg) => arg.startsWith("-"));
-  const prefix = firstFlag === -1 ? spawn.args : spawn.args.slice(0, firstFlag);
+/**
+ * The spawn's argv with its session arguments replaced by `--version`. For a
+ * JavaScript `CLAUDE_CODE_PATH` the SDK runs an interpreter with the script
+ * among its arguments; everything up to and including the script is kept.
+ * Found by the path, not by the first dash — a script path may start with one.
+ */
+export function versionArgv(spawn: { command: string; args: string[] }, claudeCodePath?: string): string[] {
+  const script = claudeCodePath !== undefined && spawn.command !== claudeCodePath ? spawn.args.indexOf(claudeCodePath) : -1;
+  const prefix = script === -1 ? [] : spawn.args.slice(0, script + 1);
   return [spawn.command, ...prefix, "--version"];
 }
 
@@ -110,19 +128,18 @@ export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendR
     env: options.env,
     cwd: options.brainPath,
   });
-  const argv = versionArgv(spawn);
+  const argv = versionArgv(spawn, options.claudeCodePath);
+  const cwd = spawn.cwd ?? options.brainPath;
   // A missing working directory fails the spawn with the same ENOENT a
   // missing binary does; say which it is.
-  if (!existsSync(options.brainPath)) {
-    throw new ClaudeRuntimeUnavailableError(
-      `Claude Code cannot be probed: the brain path ${options.brainPath} does not exist`
-    );
+  if (!existsSync(cwd)) {
+    throw new ClaudeRuntimeUnavailableError(`Claude Code cannot be probed: the brain path ${cwd} does not exist`);
   }
   let result: ReturnType<typeof Bun.spawnSync>;
   try {
     result = Bun.spawnSync(wrapCommand(argv, options.exec.wrapper), {
-      cwd: options.brainPath,
-      env: options.env,
+      cwd,
+      env: spawn.env,
       stdout: "pipe",
       stderr: "pipe",
       timeout: 5_000,
@@ -143,10 +160,12 @@ export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendR
       `Claude Code at ${spawn.command} exited ${result.exitCode} on --version: ${stderr || stdout || "(no output)"}`
     );
   }
-  const version = stdout.match(/\d+\.\d+\.\d+\S*/)?.[0];
+  // Claude Code names itself; an interpreter answering for a script it could
+  // not load prints a version too, and must not pass for Claude's.
+  const version = stdout.match(/(\d+\.\d+\.\d+\S*) \(Claude Code\)/)?.[1];
   if (!version) {
     throw new ClaudeRuntimeUnavailableError(
-      `Claude Code at ${spawn.command} did not report a version: ${stdout || "(no output)"}`
+      `${spawn.command} did not report a Claude Code version: ${stdout || "(no output)"}`
     );
   }
   const agentSdk = installedAgentSdkVersion();

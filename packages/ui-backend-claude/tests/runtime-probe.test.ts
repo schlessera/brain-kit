@@ -77,6 +77,16 @@ describe("probeClaudeRuntime", () => {
     expect(report.measured?.matches).toBe(false);
   });
 
+  test("an interpreter answering for a script it could not run is not taken for Claude Code", () => {
+    // A script path the interpreter reads as its own flag: the interpreter
+    // prints ITS version. That must refuse, not pass as Claude's.
+    const dir = tempDir("probe-dash-");
+    writeFileSync(join(dir, "-cli.js"), `console.log("7.7.7 (Claude Code)");\n`);
+    expect(() => probeClaudeRuntime({ claudeCodePath: "-cli.js", brainPath: dir, env: env(), exec: {} })).toThrow(
+      ClaudeRuntimeUnavailableError
+    );
+  });
+
   test("with CLAUDE_CODE_PATH unset it probes what the SDK selects, not a `claude` on PATH", () => {
     const dir = tempDir("probe-unset-");
     const decoy = fakeBinary(dir, "claude", "0.0.1 (Claude Code)");
@@ -99,12 +109,16 @@ describe("probeClaudeRuntime", () => {
     const wrapper = join(dir, "wrapper");
     writeFileSync(
       wrapper,
-      `#!/bin/sh\necho "argv=$* cwd=$(pwd) mark=$PROBE_MARK" >> ${JSON.stringify(wrapperLog)}\nexec "$@"\n`
+      // CLAUDE_CODE_ENTRYPOINT is set by the SDK, not by us: seeing it proves
+      // the probe runs with the environment the SDK would give a turn.
+      `#!/bin/sh\necho "argv=$* cwd=$(pwd) mark=$PROBE_MARK entrypoint=$CLAUDE_CODE_ENTRYPOINT" >> ${JSON.stringify(wrapperLog)}\nexec "$@"\n`
     );
     chmodSync(wrapper, 0o755);
     probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: { wrapper } });
 
-    expect(invocations(wrapperLog)).toEqual([`argv=${fake.path} --version cwd=${dir} mark=turn-env`]);
+    expect(invocations(wrapperLog)).toEqual([
+      `argv=${fake.path} --version cwd=${dir} mark=turn-env entrypoint=sdk-ts`,
+    ]);
     expect(invocations(fake.log)).toEqual(["--version"]);
   });
 

@@ -103,6 +103,8 @@ export function createTurnRecorder(
   let resultUsage: SpanUsage | undefined;
   let resultAttrs: Record<string, unknown> | undefined;
   let principalRevocationRecorded = false;
+  /** An auth failure was reported: whatever the result frame claims, the run failed. */
+  let authFailed = false;
 
   const guard = (fn: () => void) => {
     try {
@@ -310,6 +312,7 @@ export function createTurnRecorder(
             break;
           }
           case "auth_failure": {
+            authFailed = true;
             ensureRoot();
             store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": event.errorClass } });
             store.appendEvent(rootSpanId, "auth_failure", {
@@ -414,10 +417,14 @@ export function createTurnRecorder(
         // Merged precedence: the buffered result enrichment refines the
         // host's own disposition; the host wins only where the backend said
         // nothing. Cancellation/timeout are host-owned facts and always win.
+        // An auth failure is a failed run even where the runtime's own result
+        // frame reports success (the SDK does, with is_error set; #191).
         const outcome: SpanOutcome =
           disposition === "cancelled" || disposition === "timeout"
             ? disposition
-            : (resultOutcome ?? disposition);
+            : authFailed
+              ? "error"
+              : (resultOutcome ?? disposition);
         store.endSpan(rootSpanId, {
           outcome,
           usage: resultUsage,

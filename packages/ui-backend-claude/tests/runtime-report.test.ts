@@ -126,6 +126,31 @@ describe("the per-turn runtime report", () => {
   });
 });
 
+describe("a turn the subscription gate refuses (#253)", () => {
+  test("still reports what the handshake said it would bill", async () => {
+    // A double that pulls the prompt, as the SDK does, so the gate runs.
+    const queryFn = ((params: { prompt: AsyncIterable<unknown> }) => ({
+      initializationResult: async () => ({ account: { ...OAUTH_ACCOUNT, apiKeySource: "ANTHROPIC_API_KEY" } }),
+      getSettings: async () => ({ effective: {}, sources: [] }),
+      // oxlint-disable-next-line require-yield -- consumes the prompt only; the gate releases nothing
+      async *[Symbol.asyncIterator]() {
+        for await (const _ of params.prompt) {
+          // nothing is released
+        }
+      },
+    })) as unknown as typeof query;
+    const { activity } = await turn(queryFn);
+    const report = activity.find((e) => e.kind === "runtime_observed") as Extract<
+      BackendActivityEvent,
+      { kind: "runtime_observed" }
+    >;
+    expect(report.billing).toBe("api");
+    expect(report.policyViolation).toContain("API credential");
+    expect(report.runtime).toBeUndefined();
+    expect(activity.some((e) => e.kind === "auth_failure" && e.errorClass === "subscription_required")).toBe(true);
+  });
+});
+
 describe("observedBilling", () => {
   const rows: Array<[string, AccountInfo | undefined, string | undefined, "subscription" | "api" | "unknown"]> = [
     ["an env OAuth token", OAUTH_ACCOUNT, "none", "subscription"],
@@ -138,6 +163,12 @@ describe("observedBilling", () => {
     ["an apiKeyHelper", OAUTH_ACCOUNT, "apiKeyHelper", "api"],
     ["a declared bearer, apiKeySource none", { tokenSource: "ANTHROPIC_AUTH_TOKEN" }, "none", "api"],
     ["a declared bearer, apiKeySource omitted", { tokenSource: "ANTHROPIC_AUTH_TOKEN" }, undefined, "api"],
+    [
+      "a declared bearer beside a stored subscription login",
+      { tokenSource: "ANTHROPIC_AUTH_TOKEN", subscriptionType: "Claude Max", apiProvider: "firstParty" },
+      "none",
+      "api",
+    ],
     ["a third-party provider", { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "bedrock" }, undefined, "api"],
     ["no account at all", undefined, undefined, "unknown"],
   ];

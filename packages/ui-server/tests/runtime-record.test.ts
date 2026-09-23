@@ -10,7 +10,7 @@ import { createClaudeBackend, MEASURED_RUNTIME } from "@schlessera/brain-backend
 
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
-import { createActivityStore } from "../src/activity/store";
+import { createActivityStore, rowToRunRollup } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 
 function scripted(init: Record<string, unknown>, account: AccountInfo, more: unknown[] = []): typeof query {
@@ -42,12 +42,14 @@ async function recordTurn(runId: string, queryFn: typeof query) {
     },
   });
   recorder.finish("success");
-  return { store, runtime };
+  const rollup = (id: string) =>
+    rowToRunRollup(db.query("SELECT * FROM activity_run_rollups WHERE run_id = ?").get(id) as never);
+  return { store, runtime, rollup };
 }
 
 describe("the run record", () => {
   test("carries the Claude Code version the turn's init reported and the SDK version the backend loaded", async () => {
-    const { store, runtime } = await recordTurn(
+    const { store, runtime, rollup } = await recordTurn(
       "run-a",
       scripted(
         { claude_code_version: "2.1.999", apiKeySource: "none" },
@@ -55,6 +57,9 @@ describe("the run record", () => {
       )
     );
     const root = store.getSpan("run-a:turn")!;
+    // Opened with its session: the report arrives after session_info.
+    expect(root.sessionId).toBe("sess-1");
+    expect(rollup("run-a").sessionId).toBe("sess-1");
     expect(root.attrs["brain.runtime.version"]).toBe("2.1.999");
     expect(root.attrs["brain.sdk.version"]).toBe(MEASURED_RUNTIME.agentSdk);
     expect(root.attrs["brain.billing_observed"]).toBe("subscription");
@@ -83,6 +88,8 @@ describe("the run record", () => {
       ])
     );
     expect(store.getSpan("run-b:turn")!.attrs["brain.failure_class"]).toBe("authentication_failed");
+    // The SDK's result says success with is_error set; the run is a failure.
+    expect(store.getSpan("run-b:turn")!.outcome).toBe("error");
     expect(runtime.snapshot().lastAuthFailure).toEqual({
       errorClass: "authentication_failed",
       message: "Failed to authenticate.",
