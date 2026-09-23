@@ -40,24 +40,29 @@ export class RateLimiter {
   }
 
   /**
-   * Wait until this host may be hit again, then claim the slot.
+   * Claim this host's next slot, then wait until it arrives.
    *
    * `delayMs` overrides the default for this call — that is how a robots.txt
    * `Crawl-delay` raises the floor for one host without reconfiguring the
    * limiter.
+   *
+   * The slot is reserved BEFORE the wait, so concurrent callers queue behind
+   * each other instead of all reading the same `lastStart` and waking
+   * together. A caller's delay is measured from the slot reserved before it,
+   * which may still be in the future.
    */
   async acquire(host: string, delayMs?: number): Promise<void> {
     const delay = Math.max(delayMs ?? 0, this.defaultDelayMs);
+    const now = this.clock.now();
+    const last = this.lastStart.get(host);
     if (delay <= 0) {
-      this.lastStart.set(host, this.clock.now());
+      // Never pull a slot someone else has reserved back to "now".
+      this.lastStart.set(host, last === undefined ? now : Math.max(last, now));
       return;
     }
-    const last = this.lastStart.get(host);
-    if (last !== undefined) {
-      const elapsed = this.clock.now() - last;
-      if (elapsed < delay) await this.clock.sleep(delay - elapsed);
-    }
-    this.lastStart.set(host, this.clock.now());
+    const start = last === undefined ? now : Math.max(now, last + delay);
+    this.lastStart.set(host, start);
+    if (start > now) await this.clock.sleep(start - now);
   }
 
   /** Forget all recorded timings. */
