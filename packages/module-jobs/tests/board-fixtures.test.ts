@@ -672,15 +672,14 @@ describe("dice's rendered card", () => {
       expect(stats).toEqual({ new: 0, updated: 1 });
       const rows = db.query("SELECT url, source_url, company FROM jobs WHERE source = 'dice'").all();
       expect(rows).toHaveLength(1);
-      // CHARACTERIZATION, not an endorsement: `ON CONFLICT ... DO UPDATE SET`
-      // in src/scrape.ts refreshes `url` and nothing else that this repair
-      // touches, so a row stored before it keeps its relative `source_url` and
-      // its "Unknown" company. Filed as #159; both are cosmetic next to `url`,
-      // which is what every consumer follows (`job.url || job.source_url`).
+      // Until #159 this pinned the opposite: the conflict clause refreshed
+      // `url` and nothing else this repair touches, so a row stored before it
+      // kept its relative `source_url` and its "Unknown" company forever. The
+      // repair now reaches every field it fixed.
       expect(rows[0]).toEqual({
         url: CARD_URL,
-        source_url: CARD_PATH,
-        company: "Unknown",
+        source_url: CARD_URL,
+        company: "FishEye Software",
       });
     } finally {
       db.close();
