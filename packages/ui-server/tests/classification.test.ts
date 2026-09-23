@@ -12,7 +12,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { CONFIDENCE } from "@schlessera/brain-ui-sdk/server";
+import { CONFIDENCE, planClassification } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client";
 import {
   CONFIDENCE_RETENTION_MS,
@@ -72,12 +72,34 @@ describe("the timed client", () => {
         return jsonResponse({ model: "jev-1.13.0", answers: GOOD_ANSWERS });
       },
     });
-    const result = await client.classify({ model: "jev-latest", state: { p0c0: {} }, questions: {} });
+    // A request the pass really builds, so the body carries real questions:
+    // a hand-built one with `questions: {}` asserted nothing about them (#192).
+    const plan = planClassification([COMPARISON]);
+    const result = await client.classify(plan!.request);
     expect(result.outcome).toBe("answered");
     expect(result.answers).toEqual(GOOD_ANSWERS as never);
     expect(seen!.url).toBe("https://api.typesafe.ai/v1/systemone");
     expect((seen!.init.headers as Record<string, string>).authorization).toBe("Bearer k");
-    expect(JSON.parse(seen!.init.body as string)).toEqual({ model: "jev-latest", state: { p0c0: {} }, questions: {} });
+
+    const body = JSON.parse(seen!.init.body as string);
+    expect(Object.keys(body).sort()).toEqual(["model", "questions", "state"]);
+    expect(body.model).toBe("jev-latest");
+    expect(Object.keys(body.state)).toEqual(["p0c0"]);
+    expect(body.state.p0c0).toMatchObject({ headers: ["", "Ithaca", "Pylos"] });
+    // Non-empty, and exactly the table's questions, so the map cannot become
+    // empty again without this failing.
+    expect(Object.keys(body.questions)).toEqual(["p0c0.shape", "p0c0.recommended", "p0c0.criteria_first"]);
+    // Each question goes out as the catalogue wrote it, minus the line its
+    // answer has to clear: where the surface acts on a probability is not the
+    // classifier's business (D42 §1). Built here from the plan's own
+    // questions, so the strip is checked against an expectation that does not
+    // share its code.
+    for (const [id, question] of Object.entries(plan!.questions)) {
+      const { type, instructions } = question;
+      const criteria = "criteria" in question ? question.criteria : undefined;
+      expect(body.questions[id]).toEqual({ type, instructions, ...(criteria ? { criteria } : {}) });
+    }
+    expect(seen!.init.body as string).not.toContain("threshold");
   });
 
   test("a classifier that never answers resolves as a timeout inside the budget", async () => {
