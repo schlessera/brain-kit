@@ -407,6 +407,46 @@ describe("the pairing the field's documentation asks for", () => {
     expect(frames).toHaveLength(0);
   });
 
+  test("a refused resume leaves the session free for its next turn", async () => {
+    // The refusal must come before the per-session slot is claimed: a slot
+    // left behind would reject every later turn on the session as busy.
+    let queries = 0;
+    const backend = createClaudeBackend({
+      brainPath: "/brain",
+      queryFn: (() => {
+        queries++;
+        return (async function* () {
+          yield { type: "system", subtype: "init", session_id: "resumed" };
+          yield {
+            type: "result",
+            subtype: "success",
+            session_id: "resumed",
+            total_cost_usd: 0,
+            duration_ms: 1,
+            num_turns: 1,
+          };
+        })();
+      }) as unknown as typeof query,
+      allowedTools: WITH_SHELL,
+      log: () => {},
+    });
+    const turn = (posture: { noGrantSurface?: boolean; enforceAllowedTools?: boolean }) =>
+      backend.startTurn({
+        prompt: "again",
+        sessionId: "resumed",
+        signal: new AbortController().signal,
+        bridge: {
+          emit: () => {},
+          requestPermission: async () => ({ behavior: "deny", message: "No." }),
+        },
+        ...posture,
+      });
+
+    await expect(turn({ noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+    await expect(turn({ noGrantSurface: true, enforceAllowedTools: true })).resolves.toBeUndefined();
+    expect(queries).toBe(1);
+  });
+
   test("an explicit enforceAllowedTools: false is refused the same way", async () => {
     const attempt = startTurn({
       allowedTools: WITHOUT_SHELL,
