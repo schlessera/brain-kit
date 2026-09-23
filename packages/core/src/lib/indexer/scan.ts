@@ -49,7 +49,11 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   const assets: Asset[] = [];
 
   for (const path of glob.scanSync({ cwd: root })) {
-    if (taxonomy.isExcludedPath(path.toLowerCase())) continue;
+    // The path as it is on disk, the way the markdown scan, the stats corpus
+    // walk and the MCP listing test it: exclude entries are literal. Only the
+    // extension below is case-folded. Lowercasing here made `dirs: ["drafts"]`
+    // take the assets out of `Drafts/` while keeping its notes (#234).
+    if (taxonomy.isExcludedPath(path)) continue;
 
     // Skip Zone.Identifier files (Windows WSL metadata)
     if (path.includes(":Zone.Identifier")) continue;
