@@ -92,8 +92,20 @@ needs an API key or the network.
    `packages/core/tests/gemini-query.test.ts` does. An agent runner gets a
    fake executable on `PATH` that prints a scripted reply. A skill emitter
    writes into a temporary repository, as
-   `packages/core/tests/skills-claude-emitter.test.ts` does. Cover every
-   method and every `capabilities` flag you declare.
+   `packages/core/tests/skills-claude-emitter.test.ts` does. A speech
+   provider's `createSession` is called with fixed keyterms, against a stubbed
+   token endpoint if it mints one, asserting the `url`, `token` and `expiresAt`
+   it returns.
+   There is no in-tree test to copy yet. An ASR client
+   runs against a fake `WebSocket` and `MediaRecorder`, as
+   `packages/ui-react/tests/asr-deepgram.test.ts` does. A tool renderer is
+   resolved and rendered from fixed `ToolCallView` fixtures; the resolution
+   half is what `packages/ui-react/tests/tool-renderers.test.ts` covers. A site
+   adapter reads saved pages through a stub HTTP client. A browser-backed one
+   gets a stub browser session that runs its extractor over the saved page in
+   a DOM, as `packages/module-jobs/tests/board-fixtures.test.ts` does. Cover
+   every method, and every `capabilities` flag the interface has and you
+   declare.
 
    Promotion to a built-in has its own bar, written in
    [`docs/extending/README.md`](docs/extending/README.md#promoting-a-community-provider-to-a-built-in).
