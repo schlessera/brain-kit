@@ -46,8 +46,9 @@ and each would have passed against a broken implementation.
 
 The critical refinement to the earlier plan is that an owned `brain`
 executable is not enough. The CLI imports `brain.config.ts` directly
-(`packages/core/src/lib/config.ts:307-325`) and imports both repo-local and
-repo-resolved modules (`packages/core/src/lib/module-loader.ts:130-162`). Those
+(`loadUserConfig`, `packages/core/src/lib/config.ts:349-364`) and imports both
+repo-local and repo-resolved modules
+(`importManifest`, `packages/core/src/lib/module-loader.ts:130-162`). Those
 are agent-writable executable inputs. Consequently, the server, cron and root
 entrypoint invoke the owned CLI **through the uid helper**, so the CLI itself
 runs as `agent`. Root must likewise perform clone, pull and `bun install`
@@ -73,8 +74,8 @@ persistent binds (`[brain-ui] docs/examples/docker-compose.coolify.yml:40-45`).
 | `/opt/claude/bin/claude` | `root:root` | `0755` | no | Real Claude CLI file, not a symlink into a home directory. Replaces the current `/root/.local/bin` install and symlink (`[brain-ui] Dockerfile:246-258`). |
 | `/opt/rtk/bin/rtk` | `root:root` | `0755` | no | Trusted rewrite executable. Today's copy is `/usr/local/bin/rtk` (`[brain-ui] Dockerfile:217-231`); 0.35.0 moves all three non-distro tools under `/opt`. |
 | `/opt/brain-toolchain` | `root:root` | dirs `0755`, files `0644` | no | Standalone, lockfile-pinned install containing `@schlessera/brain`; never resolved from `/data/brain`. |
-| `/opt/brain-toolchain/node_modules/.bin/brain` | `root:root` | `0755` | no | The only core CLI entrypoint used by server, cron or entrypoint. The current server chooses the repo bin at `packages/ui-server/src/brain/client.ts:72-75`. |
-| `/opt/brain-toolchain/hooks` | `root:root` | dir `0755`, hooks `0755` | no | Hooks copied from the same installed core package. The current setup instead copies them into agent-writable `.githooks` and sets a relative path (`packages/core/src/cli/hooks-util.ts:49-66`). |
+| `/opt/brain-toolchain/node_modules/.bin/brain` | `root:root` | `0755` | no | The only core CLI entrypoint used by server, cron or entrypoint. The current server chooses the repo bin at `brainCliCommand`, `packages/ui-server/src/brain/client.ts:78-81`. |
+| `/opt/brain-toolchain/hooks` | `root:root` | dir `0755`, hooks `0755` | no | Hooks copied from the same installed core package. The current setup instead copies them into agent-writable `.githooks` and sets a relative path (`join(root, ".githooks")`, `packages/core/src/cli/hooks-util.ts:49-66`). |
 | `/opt/brain-ui` | `root:root` | dirs `0755`, files `0644`, bins `0755` | no | App source, dependencies, entrypoints and `brain-ui-cron`. The image already copies the app here (`[brain-ui] Dockerfile:269-287`); it must remain non-writable at runtime. |
 | `/opt/brain-ui/bin/brain-agent-exec` | `root:brain` | `4750` | no | The helper in section 2. Only root or members of `brain` can enter it; it accepts callers root or uid `brain`, drops permanently to `agent`, then `exec`s. |
 | `/opt/brain-ui/pi-extensions` | `root:root` | dirs `0755`, files `0644` | no | Exact image-installed pi extension set. Project and mutable global extension discovery are disabled. |
@@ -96,8 +97,8 @@ persistent binds (`[brain-ui] docs/examples/docker-compose.coolify.yml:40-45`).
 | `/etc/cron.d/brain-ui` | `root:root` | `0644` | no; regenerated | Validated crontab. Lines run as `brain`, replacing current `CRONTAB_USER=root` (`[brain-ui] scripts/entrypoint.sh:194-210`). |
 | `/etc/environment` | `root:root` | `0600` | no; regenerated | Cron's secret-bearing allowlist. Root cron reads it before dropping to the job user; neither runtime user may read it. Current generation is `[brain-ui] scripts/entrypoint.sh:212-232`. |
 | `/run/supervisord.pid`, cron/syslog runtime files | `root:root` | service defaults | no | Supervisor, cron and syslog remain root control processes; only the app child changes uid. |
-| `/tmp/brain-activity-sink-*` | `brain:brain` initially, child append access explicitly granted | `0660` | no | Cron recorder creates and later ingests the span sink (`packages/ui-server/src/cron/run-job.ts:190-212`). Creation must be race-safe (`open(O_CREAT|O_EXCL|O_NOFOLLOW)`) before its path reaches an `agent` child. |
-| `/usr/bin/google-chrome-stable` and `/opt/google/chrome/chrome-sandbox` | `root:root` | `0755` and `4755` | no | Chrome runs as `brain`; the distro's setuid sandbox helper must retain its bit. The renderer adds no sandbox-disabling args by default (`packages/ui-render-puppeteer/src/renderer.ts:130-165`). |
+| `/tmp/brain-activity-sink-*` | `brain:brain` initially, child append access explicitly granted | `0660` | no | Cron recorder creates and later ingests the span sink (`const sinkPath`, `packages/ui-server/src/cron/run-job.ts:218-224`). Creation must be race-safe (`open(O_CREAT|O_EXCL|O_NOFOLLOW)`) before its path reaches an `agent` child. |
+| `/usr/bin/google-chrome-stable` and `/opt/google/chrome/chrome-sandbox` | `root:root` | `0755` and `4755` | no | Chrome runs as `brain`; the distro's setuid sandbox helper must retain its bit. The renderer adds no sandbox-disabling args by default (`createRenderer`, `packages/ui-render-puppeteer/src/renderer.ts:130-165`). |
 
 The app tree and toolchain are executable, never mutable, by either runtime
 uid. The server program becomes `user=brain` with explicit
@@ -384,7 +385,8 @@ larger sudo package/policy surface. A predicate or unit mock is not enough.
 
 ## 3. `SUBPROCESS_ENV` audience assignment
 
-The source of truth is `packages/ui-sdk/src/server/subprocess-env.ts:35-117`.
+The source of truth is
+`SUBPROCESS_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:36-135`.
 The current 0.32 filter is only a denylist: variables absent from the map still
 pass through (`subprocess-env.ts:119-135`). U21 must land its per-audience
 allowlist before the uid boundary is relied on.
@@ -399,7 +401,7 @@ command it launches is stripped again before the helper drops to `agent`.
 | --- | --- | --- |
 | `PATH` | cron, agent, brainCli | Keep, but synthesize the fixed owned-only path from section 2. Never copy an ambient path. |
 | `BRAIN_PATH` | cron, agent, brainCli | Keep; non-secret and required as cwd/root. |
-| `NODE_ENV` | cron, agent, brainCli | Keep in the descriptor; retain the existing explicit cron exclusion until 0.33.1 decides its `.env.production` behavior (`packages/ui-server/src/cron/emit.ts:151-159`). |
+| `NODE_ENV` | cron, agent, brainCli | Keep in the descriptor; retain the existing explicit cron exclusion until 0.33.1 decides its `.env.production` behavior (`CRON_ENV_EXCLUSIONS`, `packages/ui-server/src/cron/emit.ts:171`). |
 | `TZ` | cron, agent, brainCli | Keep. |
 | `HOME` | agent, brainCli | Keep; helper overwrites it with `/home/agent`. |
 | `PI_CODING_AGENT_DIR` | agent | **Change to none/server-only.** With pi retained in-process it points inside `/data/db/pi`; the restricted shell neither needs nor may traverse that state. This is currently exposed to agent children and should not be. |
@@ -492,12 +494,14 @@ agent's own capabilities.
 
 Today the server resolves `<brainPath>/node_modules/.bin/brain` on every call
 and falls back to repo `scripts/brain-cli.ts`
-(`packages/ui-server/src/brain/client.ts:60-75`), then spawns that selection
-(`brain/client.ts:163-170`). The root entrypoint runs `bun install` in the repo
+(`brainCliCommand`, `packages/ui-server/src/brain/client.ts:78-82`), then
+spawns that selection (`Bun.spawn(wrapCommand`, `brain/client.ts:199-212`).
+The root entrypoint runs `bun install` in the repo
 (`[brain-ui] scripts/entrypoint.sh:59-85`), installs a dispatcher which again
 executes repo code (`[brain-ui] scripts/brain-dispatch.sh:17-38`), and asks
 `brain-ui-cron` to run `brain module list` during crontab generation
-(`packages/ui-server/src/bin/brain-ui-cron.ts:75-100,126-136`). A shared repo
+(`readModuleList`,
+`packages/ui-server/src/bin/brain-ui-cron.ts:97-130,155-158`). A shared repo
 therefore lets `agent` replace what root or `brain` executes next.
 
 0.35.0 closes every named route as follows:
@@ -537,7 +541,8 @@ drifted:
 
 - `settings-manager.js:169` says `options.projectTrusted ?? true`; the default
   is trusted. The current backend calls `SettingsManager.create(brainPath,
-  agentDir)` without options (`packages/ui-backend-pi/src/backend.ts:444-462`).
+  agentDir)` without options (`SettingsManager.create`,
+  `packages/ui-backend-pi/src/session-resources.ts:74-95`).
 - `package-manager.js:1988-1993` conditionally auto-discovers project
   extensions and skills under `.pi` when trusted. In particular line 1990
   calls `collectAutoExtensionEntries(projectDirs.extensions)`.
@@ -566,8 +571,8 @@ exec.js:14               shell: false,
 
 Therefore pi **does load** repo-local `.pi/extensions` under project trust, and
 an extension can bypass the tool wrapper. The existing comment that the
-`tool_call` gate makes extensions safe (`packages/ui-backend-pi/src/backend.ts:159-165`)
-does not cover extension initialization or `exec()`.
+`tool_call` gate makes extensions safe (`tool_call permission gate`,
+`packages/ui-backend-pi/src/backend-options.ts:97-102`) does not cover extension initialization or `exec()`.
 
 The two viable options are:
 
@@ -614,13 +619,14 @@ no amount of executable ownership can reach.
 Extension trust is not the only way agent-writable code reaches the `brain`
 process, and closing it is not sufficient. pi's curated brain tools go through
 `createBrainAccess`, whose `ensureContext()` calls core's `initContext`
-**inside the server process** (`packages/ui-backend-pi/src/brain-access.ts:127`).
+**inside the server process** (`initContext({ root: brainPath })`,
+`packages/ui-backend-pi/src/brain-access.ts:146`).
 `initContext` loads the user config and the modules
-(`packages/core/src/lib/context.ts:36-38`), and `loadUserConfig` does a direct
-`await import(tsPath)` of the repo's `brain.config.ts`
-(`packages/core/src/lib/config.ts:315-317`). `brain.config.ts` is executable
-code in an agent-writable tree, so a single pi brain tool call runs it as
-`brain` — with project trust off, with no extension loaded, and with every
+(`resolveRoot(opts.root)`, `packages/core/src/lib/context.ts:36-38`), and
+`loadUserConfig` does a direct `await import(tsPath)` of the repo's
+`brain.config.ts` (`existsSync(tsPath)`, `packages/core/src/lib/config.ts:357-359`).
+`brain.config.ts` is executable code in an agent-writable tree, so a single pi
+brain tool call runs it as `brain` — with project trust off, with no extension loaded, and with every
 CLI-side mitigation in section 4 fully in place, because none of them apply to
 an in-process import.
 
@@ -632,7 +638,7 @@ helper prefix covers.
 Two further execution sites the inventory above missed, both spawns rather than
 imports, and both therefore fixable by the helper prefix:
 
-- `packages/ui-server/src/routes/brain.ts:116` spawns a **repo-local**
+- `Bun.spawn`, `packages/ui-server/src/routes/brain.ts:126` spawns a **repo-local**
   `private/whatsup.ts` or `scripts/whatsup.ts` directly, not through
   `brainCliCommand`. Changing `brainCliCommand` does not protect this route; it
   needs the helper prefix of its own, and its own proof.

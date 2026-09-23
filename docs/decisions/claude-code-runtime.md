@@ -14,9 +14,10 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`AGENTS.md:82-83`), so no test re-measures them, and
-nothing in the tree knew which binary a deployment actually runs. If the binary
-moved and a measured behaviour stopped holding, nothing would notice.
+and offline by rule (`keyless, deterministic`, `AGENTS.md:91-92`), so no test
+re-measures them, and nothing in the tree knew which binary a deployment
+actually runs. If the binary moved and a measured behaviour stopped holding,
+nothing would notice.
 
 ## How the binary is located, invoked and updated today
 
@@ -24,31 +25,39 @@ Every line below was read on `origin/main` at `fe5a225` or shown by the command
 next to it.
 
 - **Located.** `CLAUDE_CODE_PATH` is declared with default
-  `/usr/local/bin/claude` (`packages/ui-server/src/config/env.ts:336-339`) and
-  resolved with `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`
-  (`env.ts:753`). The whole `agent` block is copied into the backend's module
-  config (`packages/ui-server/src/agent/backend.ts:369`), read back as a string
-  (`packages/ui-backend-claude/src/module.ts:216-219`) and handed to the SDK
-  (`packages/ui-backend-claude/src/sdk-options.ts:121-122`). Because of the
-  `||` default the value is never empty, so **the server always overrides the
-  SDK's own binary**. The variable is withheld from every subprocess
-  (`packages/ui-sdk/src/server/subprocess-env.ts:122`).
+  `/usr/local/bin/claude` (`name: "CLAUDE_CODE_PATH"`,
+  `packages/ui-server/src/config/env.ts:343-346`) and resolved with
+  `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"` (`claudeCodePath`,
+  `env.ts:760`). The whole `agent` block is copied into the backend's module
+  config (`config: { ...agent }`,
+  `packages/ui-server/src/agent/backend.ts:369`), read back as a string
+  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:216-219`)
+  and handed to the SDK (`backend.claudeCodePath`,
+  `packages/ui-backend-claude/src/sdk-options.ts:121-122`). Because of the `||`
+  default the value is never empty, so **the server always overrides the SDK's
+  own binary**. The variable is withheld from every subprocess
+  (`CLAUDE_CODE_PATH: NONE`,
+  `packages/ui-sdk/src/server/subprocess-env.ts:122`).
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
-  (`packages/ui-backend-claude/src/spawn-wrapper.ts:1-18`); without one the SDK
+  (`Route the Claude Code subprocess`,
+  `packages/ui-backend-claude/src/spawn-wrapper.ts:2-18`); without one the SDK
   spawns it directly.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
-  (`packages/ui-server/src/brain/client.ts:115-180`, called at
-  `packages/ui-server/src/app.ts:186`). `brain doctor` runs `claude mcp list`
-  from `PATH` (`packages/core/src/cli/commands/doctor.ts:274-276`) — the user's
-  own Claude Code on their own machine, to check the MCP registration, not the
-  server's binary.
+  (`Probe the brain repo's own CLI pin`,
+  `packages/ui-server/src/brain/client.ts:115-180`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:186`).
+  `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
+  `packages/core/src/cli/commands/doctor.ts:274-276`) — the user's own Claude
+  Code on their own machine, to check the MCP registration, not the server's
+  binary.
 - **Two moving parts.** The SDK is a runtime dependency of
   `@schlessera/brain-backend-claude` at `^0.3.241`
-  (`packages/ui-backend-claude/package.json:43`), resolved to 0.3.278 by this
-  repo's lockfile (`bun.lock:346`). The binary at `CLAUDE_CODE_PATH` is whatever
-  the host put there.
+  (`"@anthropic-ai/claude-agent-sdk"`,
+  `packages/ui-backend-claude/package.json:43`), resolved to 0.3.278 by this
+  repo's lockfile (`@anthropic-ai/claude-agent-sdk@0.3.278`, `bun.lock:346`).
+  The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
 ### What the SDK already ships
 
@@ -58,12 +67,13 @@ than recalled:
 - `pathToClaudeCodeExecutable` is documented as "Uses the built-in executable
   if not specified"
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
-- The built-in executable is a real Claude Code release, shipped as
-  per-platform optional dependencies pinned to the SDK's exact version
-  (`bun.lock:346`, eight `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278`
-  entries), each with an integrity hash in the lockfile (`bun.lock:356`). The
-  SDK carries a manifest naming the release and a checksum per platform
-  (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
+- The built-in executable is a real Claude Code release, shipped as per-platform
+  optional dependencies pinned to the SDK's exact version
+  (`optionalDependencies`, `bun.lock:346`, eight
+  `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
+  hash in the lockfile (`@anthropic-ai/claude-agent-sdk-linux-x64@0.3.278`,
+  `bun.lock:356`). The SDK carries a manifest naming the release and a checksum
+  per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
   `linux-x64/claude` and of a standalone native install of 2.1.278 both give
@@ -79,7 +89,8 @@ than recalled:
 - Every turn reports the version that ran. The SDK's `system`/`init` message
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
-  (`packages/ui-backend-claude/src/stream-adapter.ts:202-207`).
+  (`msg.subtype === "init"`,
+  `packages/ui-backend-claude/src/stream-adapter.ts:202-207`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -122,12 +133,12 @@ from a new lockfile.**
    installed SDK is not the one it names (the section after).
 
 This does not contradict [container-privilege.md](container-privilege.md). Its
-row for the CLI (`container-privilege.md:73`) asks for a real, root-owned,
-non-writable file, not a symlink into a home directory. The built-in binary
-lives under the application's own install, which that record already requires
-to be root-owned and non-writable at runtime (`container-privilege.md:78`). The
-invariant holds; only the path changes, and the separate install step becomes
-unnecessary.
+row for the CLI (`/opt/claude/bin/claude`, `container-privilege.md:74`) asks for
+a real, root-owned, non-writable file, not a symlink into a home directory. The
+built-in binary lives under the application's own install, which that record
+already requires to be root-owned and non-writable at runtime (`/opt/brain-ui`,
+`container-privilege.md:79`). The invariant holds; only the path changes, and
+the separate install step becomes unnecessary.
 
 ### Why this one
 
@@ -151,7 +162,7 @@ unnecessary.
 | --- | --- | --- |
 | **Keep a host-installed binary, pinned** (`claude install <version>` in the image build, bumped by hand) | The pin and the SDK lockfile drift apart in either direction, and nothing checks that they agree. | The runner-up, and what the `CLAUDE_CODE_PATH` override still allows. Lost because it adds a second pin to coordinate, in a file this repo's tests cannot read. |
 | **Rebuild on release, installing `latest`** | The version is whatever was newest at build time. Two builds of one commit can differ; a rollback cannot rebuild the old binary. | Not reproducible. |
-| **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime (`container-privilege.md:70`), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
+| **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime (`Immutable executable prefix`, `container-privilege.md:71`), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
 | **Sidecar or scheduled updater** | The binary changes under a running server, possibly between two turns of one conversation, with no deploy event to attach a re-check to. | Same immutability conflict, and the worst observability of the set. |
 | **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download (`bunx --help`: "automatically installing into a global shared cache if not installed"), and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | Without `--no-install` it makes the registry a runtime dependency. With it, over a preinstalled Claude Code package, it is the pinned host install above plus a resolution step on every turn — still a second pin, and no longer the SDK's binary. |
 | **Do nothing** | Today's state: whatever binary the host installs, pinned or not, and nothing in this repo knows which. | The problem this record exists to fix. |
@@ -178,7 +189,8 @@ unnecessary.
   "exists but failed to launch". Both strings are in
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
-  refuses to boot (`packages/ui-server/src/app.ts:176-181`).
+  refuses to boot (`A missing (or unrecognized) agent backend`,
+  `packages/ui-server/src/app.ts:176-181`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -208,7 +220,8 @@ than refuses on a mismatch.**
   at the measured version, and then the CLI number alone looks right while the
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
-  `brain` CLI probe (`packages/ui-server/src/brain/client.ts:115`). The SDK's
+  `brain` CLI probe (`Probe the brain repo's own CLI pin`,
+  `packages/ui-server/src/brain/client.ts:115`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -228,19 +241,21 @@ than refuses on a mismatch.**
   binary launches, not that a session works; the first turn's `init` is the
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
-  reports the source commit (`packages/ui-server/src/routes/health.ts:43-58`),
-  and the run record. Not `/api/health`: it is public and deliberately carries
-  no version (`health.ts:8-10`). Not `brain doctor`: it runs on the user's
-  machine against a different binary.
+  reports the source commit (`Operational status`,
+  `packages/ui-server/src/routes/health.ts:43-58`), and the run record. Not
+  `/api/health`: it is public and deliberately carries no version
+  (`Public liveness probe`, `health.ts:8-10`). Not `brain doctor`: it runs on
+  the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is
 a permission boundary:
 
 - **A refusal would not buy what it appears to.** The measured version is not
   known-safe either: the list of mechanisms that skip `canUseTool` is what has
-  been measured, not a closed set (`permission-hooks.ts:72-74`). A version gate
-  would separate "probed" from "not probed", not "safe" from "unsafe", and it
-  would say the second thing to whoever reads it.
+  been measured, not a closed set (`AT LEAST three`,
+  `permission-hooks.ts:72-75`). A version gate would separate "probed" from "not
+  probed", not "safe" from "unsafe", and it would say the second thing to
+  whoever reads it.
 - **It would block the path a CLI fix takes.** The built-in binary moves only
   when somebody changes a lockfile, which is deliberate. One reason to do that,
   or to set `CLAUDE_CODE_PATH`, ahead of a brain-kit release is a CLI security
@@ -272,18 +287,18 @@ The measured pair moves into one exported constant in
 name instead of repeating the numbers. Two mechanisms hang off it:
 
 - **A keyless guard test** fails when the SDK the backend actually imports is
-  not the one the constant names. It locates that SDK by resolving the
-  backend's own import, then reads `package.json` and `manifest.json` from the
-  directory beside the resolved entry, by filesystem path. Neither is an
-  exported package subpath
-  (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`): Bun lets
-  `package.json` be imported anyway and Node does not, and `manifest.json`
-  fails in both. A path
-  hard-coded to the root `node_modules` could read a different copy from the one
-  the backend loads. CI installs with `--frozen-lockfile`
-  (`.github/workflows/ci.yml:52`), so bumping the SDK in this repo fails CI until
+  not the one the constant names. It locates that SDK by resolving the backend's
+  own import, then reads `package.json` and `manifest.json` from the directory
+  beside the resolved entry, by filesystem path. Neither is an exported package
+  subpath (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`): Bun
+  lets `package.json` be imported anyway and Node does not, and `manifest.json`
+  fails in both. A path hard-coded to the root `node_modules` could read a
+  different copy from the one the backend loads. CI installs with
+  `--frozen-lockfile` (`bun install --frozen-lockfile`,
+  `.github/workflows/ci.yml:52`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
-  (`AGENTS.md:82-83`). It is the only automatic check this has.
+  (`keyless, deterministic`, `AGENTS.md:91-92`). It is the only automatic check
+  this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
   version, the date and each result as JSON. It is not in CI, by the keyless
@@ -314,7 +329,8 @@ so it holds itself to these rules:
   and `touch <path>` in the same harness; one probe command proves nothing
   about another.
 - **Composition, not only parts.** The enforcement hook's `ask` must leave
-  another hook's `updatedInput` intact (`permission-hooks.ts:97-99`,
+  another hook's `updatedInput` intact (`An explicit "ask" beats all three`,
+  `permission-hooks.ts:98-100`; `(e) a hook's`,
   `allowlist-enforcement.test.ts:16-19`). That is its own case: a rewrite, an
   `ask` and a `canUseTool` decision in one call, asserting the input the
   callback saw and the input that executed.
@@ -341,25 +357,27 @@ until re-measured.
 
 | Site | What it asserts | Re-checked by |
 | --- | --- | --- |
-| `packages/ui-backend-claude/src/permission-hooks.ts:70-101` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
-| `packages/ui-backend-claude/src/input-rewrite-hooks.ts:7-14` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
-| `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
-| `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
-| `docs/decisions/voice-permission.md:584-594` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `docs/extending/agent-backends.md:164-179` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `docs/decisions/design-kit.md:2576-2600` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:74` and `tests/bridge-tools.test.ts:707,725`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `DO NOT WEAKEN THIS INTO A FALLTHROUGH`, `packages/ui-backend-claude/src/permission-hooks.ts:71-102` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
+| `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:7-14` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
+| `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
+| `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
+| `That third vector is stated here`, `docs/decisions/voice-permission.md:609-619` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:164-179` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2585-2608` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:74` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:707,725`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 Historical anchors, **not** re-checked because they describe what was true when
-a record was written, not what the code relies on now:
-`docs/decisions/container-privilege.md:12-14` (investigated against SDK 0.3.265),
-`container-privilege.md:984` (a question about CLI 2.1.236),
+a record was written, not what the code relies on now: `Investigated against:`,
+`docs/decisions/container-privilege.md:12-14` (investigated against SDK
+0.3.265), `Claude CLI 2.1.236`, `container-privilege.md:990` (a question about
+CLI 2.1.236), `Claude Agent SDK 0.3.241 typings`,
 `docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings), and
-`.agents/notes/skills-catalog-audit.md:86` (an inventory listing CLI 2.1.233).
+`2.1.233`, `.agents/notes/skills-catalog-audit.md:86` (an inventory listing CLI
+2.1.233).
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
-the absence of a *fourth* mechanism — `permission-hooks.ts:72-74` already says
-three is what has been measured, not a closed set — and no probe can close
-that.
+the absence of a *fourth* mechanism — `AT LEAST three`,
+`permission-hooks.ts:72-75` already says three is what has been measured, not a
+closed set — and no probe can close that.
 
 ## Where the work goes
 

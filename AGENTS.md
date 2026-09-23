@@ -75,6 +75,15 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 - Modules own content domains (types, skills, one CLI namespace) and are
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
+- Cite code from docs and source comments as an anchor followed by its range:
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:102-117`).
+  The range starts on the line that contains the anchor. **A PR that moves
+  lines under a citation owns that citation**, in source comments and in other
+  records as well as the one it is editing. Find them with
+  `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
+  enforces this for `docs/decisions/`, and
+  [docs/decisions/README.md](docs/decisions/README.md#citing-code) has the
+  rules.
 
 ## Testing expectations
 

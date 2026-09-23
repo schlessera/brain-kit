@@ -50,3 +50,60 @@ Keep them append-only. Supersede an entry; do not rewrite one.
 
 These files are inside the leakage gate, like the whole tree. Repo-relative
 paths, and attribute a ruling to "the maintainer" rather than by name.
+
+## Citing code
+
+A `path:line` citation goes stale silently. When a PR inserts lines above cited
+code, the pointer comes to name the neighbouring code, and a reader who follows
+it is told something confidently wrong. So name what you point at, and let the
+range follow it:
+
+```md
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:102-117`)
+```
+
+- **The anchor** is the code span immediately before the citation, joined to it
+  by a comma. It is text from the **first line** of the cited range: a
+  declaration's name, a `case "tool_denial"`, a distinctive comment phrase. The
+  range starts on that line. Pick text that appears few times in the file,
+  because it is what the next reader searches for when the number is wrong.
+- **A list** of ranges in one citation needs every element to start on its
+  anchor. When the elements share no text, split the list into separate
+  anchored citations. A citation that is only a colon and a line number
+  continues the file cited before it.
+- **A shortened path** (`permission-hooks.ts`) is fine when exactly one file in
+  the tree ends with it, or when the record names that file in full somewhere.
+  Otherwise write the full path.
+- **Verify a range by its anchor, not by arithmetic.** Arithmetic is what
+  produced the drift.
+
+**A PR that moves lines under a citation owns that citation.** That includes
+citations in source comments and in other records, not only the record the PR
+is editing, and it applies even when everything the PR changed is correct.
+Before merging a change to a file, look for what cites it:
+
+```sh
+git grep -n 'permission-hooks.ts:' -- docs packages
+```
+
+`tests/decision-citations.test.ts` fails when a citation in this directory no
+longer starts on its anchor, names no anchor, or names a file it cannot find.
+`bun scripts/check-citations.ts` prints the same report on its own, including
+where each drifted anchor now is. What it does **not** check:
+
+- **The end of a range.** A range that grows or shrinks around its first line
+  still passes.
+- **Citations outside `docs/decisions/`**, including source comments and other
+  docs. They follow the same convention, and the grep above is the check.
+- **Citations inside fenced code blocks**, which are examples and command
+  output, not pointers.
+- **Citations it cannot resolve.** Another repository (`[brain-ui] path:line`),
+  a dependency's installed source, a quotation, and code the record describes
+  as it was before the change it decided. Each of these is listed in
+  `CITATION_EXCEPTIONS` in `scripts/check-citations.ts` with its reason. An
+  unlisted one fails the test, and so does an entry that no longer matches a
+  citation.
+
+When a later change removes or reverses the code a record describes, do not
+re-point the citation at code the record never described. List it as an
+exception, saying what happened to the code.

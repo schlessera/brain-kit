@@ -362,7 +362,8 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 `use-chat-commands.ts` (7), `activity-store.ts` (5).
 
 **Attach the whole store API, not just getState/setState.** Tests already call
-`.getInitialState()` in three places (`render-smoke.test.tsx:117,118`,
+`.getInitialState()` in three places (`getInitialState()`,
+`render-smoke.test.tsx:172,173`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -371,13 +372,15 @@ hand-picked two-method shim would not.
 `get_current_location`. `query_activity` returns prose with nonce-delimited JSON
 inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
-`details`** (`event-adapter.ts:34,46`), and Claude uses MCP `content` arrays via
-a different path (`stream-adapter.ts:132`). So "JSON payload in the output
+`details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
+`:46`), and Claude uses MCP `content` arrays via a different path
+(`const output =`, `stream-adapter.ts:132`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
-The no-bump conclusion still holds — `protocol.ts:41` states additions do not
-bump the rev, only semantics changes do — and `ToolCallView.output?: string`
-already lets a renderer parse locally. Turning `output` itself into an object
-would be a different, breaking change.
+The no-bump conclusion still holds — `Additions never bump it`,
+`protocol.ts:43` states additions do not bump the rev, only semantics changes
+do — and `ToolCallView.output?: string` already lets a renderer parse
+locally. Turning `output` itself into an object would be a different, breaking
+change.
 
 **Claim 5 is genuinely broken as written.** Zustand's `UseBoundStore` carries two
 overloads, `(): State` and `<U>(selector) => U`. The proposal's wrapper declares
@@ -399,7 +402,8 @@ fresh-process import of `src/index.ts` with `window`/`localStorage` absent and
 **The renderer bug is real and was reproduced**: register → resolve (non-null) →
 reset → register → resolve (**null**). `registered` in
 `components/chat/renderers/index.ts:10` is never cleared by
-`resetToolRenderers()` (`ui-sdk/src/client/renderers.ts:127`). The existing
+`resetToolRenderers()` (`resetToolRenderers`,
+`ui-sdk/src/client/renderers.ts:178`). The existing
 `registration-on-mount.test.tsx` sidesteps it by running in separate Bun child
 processes — an isolation workaround, not a test of recovery. Fix this in S1.
 
@@ -2268,7 +2272,8 @@ Four rules decide what counts, and each of them changed a number:
 - **Subagent frames are not the answer.** `parent_tool_use_id` is non-null on
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
-  turn at `turnTimeoutMs` (`packages/ui-server/src/ws/run-session.ts:184`), so
+  turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
+  `packages/ui-server/src/ws/run-session.ts:185`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -2416,13 +2421,15 @@ table for arithmetic and provenance before being repeated, which is a weaker
 claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
-in its own tool list (the `showBlock` definition and the unconditional push
-into `tools`, `packages/ui-backend-pi/src/bridge-tools.ts:180-196`);
+in its own tool list (the `showBlock` definition, `const showBlock`,
+`packages/ui-backend-pi/src/bridge-tools.ts:180-191`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:193-196`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
-to have one: `packages/ui-backend-pi/src/session-resources.ts:157` passes the
+to have one: `block: "show_block"`,
+`packages/ui-backend-pi/src/session-resources.ts:157` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
@@ -2806,8 +2813,8 @@ are not two readings of one phenomenon and should not be merged into one.
 That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
-"schedule: what is coming, grouped by day"
-(`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, where it sits in the same
+"schedule: what is coming, grouped by day" (`schedule: what is coming`,
+`packages/ui-sdk/src/tool-contracts/blocks.ts:358`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -2830,13 +2837,14 @@ difference is gone, and a residue of roughly thirteen points is not.
 
 Two things stop that residue being read as a like-for-like gap, and both cut
 against reading pi as a second replication of the brief result. pi is on a
-different harness driving the model directly, and — this is the one that
-matters — **pi has no no-brief arm and no supported way to have one.**
-`packages/ui-backend-pi/src/session-resources.ts:157` passes the block brief
-into `buildSystemPromptAppend` unconditionally, not behind a capability check
-like `askUser`, `location`, `activity` and `mask` on the lines above it. So
-every pi number was measured with the brief present. The 77%/77% and 76%/77%
-cells are one backend measured twice, not two backends agreeing.
+different harness driving the model directly, and — this is the one that matters
+— **pi has no no-brief arm and no supported way to have one.**
+`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:157`
+passes the block brief into `buildSystemPromptAppend` unconditionally, not
+behind a capability check like `askUser`, `location`, `activity` and `mask` on
+the lines above it. So every pi number was measured with the brief present. The
+77%/77% and 76%/77% cells are one backend measured twice, not two backends
+agreeing.
 
 **A consequence for the brief that only exists because of this decision.**
 Deferred, `show_block`'s *description* was not in the prompt either — it
@@ -3125,19 +3133,18 @@ unset, so the turns went to Anthropic's own endpoint with pi's default agent
 directory. The harness records that set of presences with every run and
 `--report` prints it.
 
-**pi has no deferral, so this is the always-loaded regime.**
-`packages/ui-backend-pi/src/bridge-tools.ts:171` registers `show_block` as
-one of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever
-defers a name that arrived through a tool-result's `addedToolNames` and has
-not been called since — a statically registered tool can never be deferred.
-Across all 64 turns the complete roster the model reached for was `bash`,
-`show_block`, `brain_read`, `grep`, `brain_search`, `read_file`,
-`brain_list`, `brain_graph`: no search-then-load round trip, ever. The brief
-is in the prompt on every turn unconditionally
-(`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a
-capability check like the four bridge tools beside it). So pi is the
-structural twin of D43's `--always-load` arm and has never run any other
-configuration.
+**pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
+`packages/ui-backend-pi/src/bridge-tools.ts:180` registers `show_block` as one
+of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
+name that arrived through a tool-result's `addedToolNames` and has not been
+called since — a statically registered tool can never be deferred. Across all 64
+turns the complete roster the model reached for was `bash`, `show_block`,
+`brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
+no search-then-load round trip, ever. The brief is in the prompt on every turn
+unconditionally (`block: "show_block"`,
+`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a capability
+check like the four bridge tools beside it). So pi is the structural twin of
+D43's `--always-load` arm and has never run any other configuration.
 
 **The rate.** Each cell is turns that drew at least one accepted block.
 
@@ -3221,17 +3228,17 @@ where it was caught. What survives is the part that needs no attribution:
 **a wrong kind was drawn reliably, and a call-rate metric would have scored
 all four of those turns as successes.**
 
-That clause is worth naming precisely, because it bears on whether the
-brief's enumeration earns its tokens now that the tools are always loaded
-(#157). The brief says "a `timeline` for what happened when; a `schedule`
-for what is coming". The tool's own description already says, at
+That clause is worth naming precisely, because it bears on whether the brief's
+enumeration earns its tokens now that the tools are always loaded (#157). The
+brief says "a `timeline` for what happened when; a `schedule` for what is
+coming". The tool's own description already says, at `schedule: what is coming`,
 `packages/ui-sdk/src/tool-contracts/blocks.ts:358`, "timeline: what happened
-when, oldest first … schedule: what is coming, grouped by day". The model
-drew the wrong one of the two 4 times out of 4 **with both surfaces in the
-prompt saying nearly the same words**. So for this pair the brief duplicates
-the description rather than adding to it, and saying it twice does not fix
-the miss — the same lesson D42 recorded when the brief was rewritten twice
-and still measured zero. More text is not the lever.
+when, oldest first … schedule: what is coming, grouped by day". The model drew
+the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
+saying nearly the same words**. So for this pair the brief duplicates the
+description rather than adding to it, and saying it twice does not fix the miss
+— the same lesson D42 recorded when the brief was rewritten twice and still
+measured zero. More text is not the lever.
 
 One thing only a per-kind count shows: the `trend` prompt drew 14 blocks
 across 8 turns — the prescribed `trend` every time, plus an unprescribed

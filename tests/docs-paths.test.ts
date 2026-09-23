@@ -71,6 +71,12 @@ const DOC_FILES = [
  *
  * Their links are a different matter: a broken link between two records is a
  * plain defect, so the link test below covers every document.
+ *
+ * A decision record's `path:line` citations are checked by a different rule
+ * in `tests/decision-citations.test.ts`: each names an anchor that its range
+ * must start on, or is a listed exception. That test tracks the current tree
+ * on purpose, because re-pointing a citation changes how the record points,
+ * not what it says.
  */
 const CITATION_EXEMPT_DIRS = new Set(["plans", "brainstorms", "decisions"]);
 
