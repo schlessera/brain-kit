@@ -73,6 +73,58 @@ function isClosedAgainstViewport(ring: [number, number][], box: [number, number,
   return on.length >= 2;
 }
 
+/**
+ * How close to an edge "which side of it is this point on" stops having an
+ * answer: the four decimal places every coordinate is rounded to, about 10 m.
+ */
+const EDGE = 1e-4;
+
+/** Is this point within `EDGE` of any edge of these rings, in degrees? */
+function onAnEdge(rings: [number, number][][], [x, y]: [number, number]): boolean {
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length - 1; i += 1) {
+      const [ax, ay] = ring[i]!;
+      const [bx, by] = ring[i + 1]!;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      if (Math.hypot(x - ax - t * dx, y - ay - t * dy) < EDGE) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Which side of the fill the road network came out on, as the witness gate
+ * reports it.
+ *
+ * Strictly inside, not merely within — of the box AND of the fill. A road is
+ * clipped to the same box the closure is drawn against, so its end vertices sit
+ * exactly ON the fill's own edge, and "which side of this edge is that point
+ * on" has no answer there: the strait has three of them on its eastern
+ * boundary, and counting them as sea made a fill that contains every road read
+ * as 99.4%. The shore is the same edge by another name. A road that ends at a
+ * harbour, or runs along a quay, shares its vertex with the coastline or sits
+ * within a rounding step of it, and that is Ithaca's one, Troy's one and
+ * Vathy's five (#133, maintainer ruling). A vertex further out than `EDGE` is
+ * in the sea, and still counts against the fill.
+ */
+function witnessReading(
+  roads: [number, number][][],
+  land: [number, number][][],
+  box: [number, number, number, number],
+): string {
+  const witnesses = roads
+    .flat()
+    .filter(
+      ([lon, lat]) => lon > box[0] + EDGE && lon < box[2] - EDGE && lat > box[1] + EDGE && lat < box[3] - EDGE,
+    )
+    .filter((point) => !onAnEdge(land, point));
+  if (witnesses.length < 20) return "too few witnesses";
+  const onLand = witnesses.filter((point) => fills(land, point)).length;
+  return `${((onLand / witnesses.length) * 100).toFixed(1)}% of ${witnesses.length} road vertices are on land`;
+}
+
 describe("the geometry is geometry", () => {
   test("every location loaded", () => {
     // A guard on the guard: an empty set would pass every loop below.
@@ -196,29 +248,37 @@ describe("the geometry is geometry", () => {
       const fixture = geo[id];
       const box = envelope(id);
       if (!(fixture.land ?? []).some((ring) => isClosedAgainstViewport(ring, box))) continue;
-      // Strictly inside, not merely within. A road is clipped to the same box
-      // the closure is drawn against, so its end vertices sit exactly ON the
-      // fill's own edge — and "which side of this edge is that point on" has no
-      // answer there. The strait has three of them on its eastern boundary, and
-      // counting them as sea made a fill that contains every road read as 99.4%.
-      const edge = 1e-4;
-      const witnesses = [...fixture.roads, ...(fixture.streets ?? [])]
-        .flat()
-        .filter(
-          ([lon, lat]) =>
-            lon > box[0] + edge && lon < box[2] - edge && lat > box[1] + edge && lat < box[3] - edge,
-        );
-      const onLand = witnesses.filter((point) => fills(fixture.land, point)).length;
-      measured.push(
-        witnesses.length < 20
-          ? `${id}: too few witnesses`
-          : `${id}: ${((onLand / witnesses.length) * 100).toFixed(1)}% of ${witnesses.length} road vertices are on land`,
-      );
+      measured.push(`${id}: ${witnessReading([...fixture.roads, ...(fixture.streets ?? [])], fixture.land, box)}`);
     }
     // The measurement is in the expectation rather than behind a threshold: a
     // fixture that stops carrying a closure, one whose closure inverted, and
     // one that merely drifted are three different failures and this says which.
-    expect(measured).toEqual(["messina: 100.0% of 510 road vertices are on land"]);
+    //
+    // Gozo and Corfu fetch no roads, so "too few witnesses" is the honest
+    // answer for them rather than an omission.
+    expect(measured).toEqual([
+      "ithaca: 100.0% of 110 road vertices are on land",
+      "gozo: too few witnesses",
+      "corfu: too few witnesses",
+      "messina: 100.0% of 508 road vertices are on land",
+      "troy: 100.0% of 310 road vertices are on land",
+      "vathy: 100.0% of 481 road vertices are on land",
+    ]);
+  });
+
+  test("the shore exclusion is a rounding step wide, and a road in the sea past it still counts", () => {
+    // The guard on the rule above. A square island in a larger box, a road
+    // network well inside it, and one vertex just off its eastern shore: a
+    // loosened `EDGE` would swallow that vertex, and with it the ability to see
+    // a fill that stops short of the roads.
+    const land: [number, number][][] = [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]];
+    const box: [number, number, number, number] = [-1, -1, 2, 2];
+    const inland: [number, number][] = Array.from({ length: 25 }, (_, i) => [0.1 + i * 0.03, 0.5]);
+    expect(witnessReading([inland], land, box)).toBe("100.0% of 25 road vertices are on land");
+    // ON the shore, a fifth of a rounding step out: no answer, not counted.
+    expect(witnessReading([[...inland, [1.00002, 0.5]]], land, box)).toBe("100.0% of 25 road vertices are on land");
+    // Two rounding steps out — about 20 m of sea — is a road off the fill.
+    expect(witnessReading([[...inland, [1.0002, 0.5]]], land, box)).toBe("96.2% of 26 road vertices are on land");
   });
 
   test("the whole set stays in the same league as a single raster tile", () => {
@@ -240,7 +300,8 @@ describe("the geometry is geometry", () => {
     // (three and ten times their committed size) and was not kept. The
     // envelope was the lever, not the road filter: with 1.5 x 1.0 (sixth
     // pass, S10) all six regenerate to 24.8 KB together, Messina with its
-    // full road tier at 2.8 KB.
+    // full road tier at 2.8 KB. Closing every mainland shore against that
+    // envelope (#133) took the six from 24.3 to 26.0 KB, 1.1 KB of it Corfu's.
     const bytes = geoIds.reduce(
       (total, id) => total + gzipSync(new TextEncoder().encode(JSON.stringify(geo[id]))).length,
       0,
