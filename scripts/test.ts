@@ -16,50 +16,47 @@
  * in tests/release-manifest.test.ts still sees it on the root script.
  */
 
+import { constants } from "node:os";
+
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
 
 /**
- * `bun test` flags that take a value, which may follow as the next argument
- * (`-t pattern`, `--timeout 30000`). That next argument is the flag's, not a
- * path. The `bun test --help` flags spelled `=<val>`, plus the runtime flags
- * `bun test` also accepts.
+ * Flags whose value may follow as the NEXT argument (`-t pattern`,
+ * `--timeout 30000`), so that argument is the flag's, not a path. Taken from
+ * the `<STR>`/`<PATH>`-valued params in Bun 1.3.14's `src/cli/Arguments.zig`
+ * that `bun test` accepts (runtime, transpiler and test params). A value
+ * flag Bun adds later and this list lacks would have its value read as a
+ * path, which drops the default roots; tests/test-script.test.ts pins the
+ * shapes that matter.
  */
 const VALUE_FLAGS: ReadonlySet<string> = new Set([
-  "--timeout",
-  "--rerun-each",
-  "--retry",
-  "--seed",
-  "--coverage-reporter",
-  "--coverage-dir",
-  "-t",
-  "--test-name-pattern",
-  "--reporter",
-  "--reporter-outfile",
-  "--max-concurrency",
-  "--path-ignore-patterns",
-  "--parallel-delay",
-  "--shard",
-  "-r",
-  "--preload",
-  "--env-file",
-  "--cwd",
-  "-c",
-  "--config",
-  "--conditions",
-  "-d",
-  "--define",
-  "-l",
-  "--loader",
-  "--tsconfig-override",
+  "--timeout", "--rerun-each", "--retry", "--seed", "--shard",
+  "--coverage-reporter", "--coverage-dir", "--reporter", "--reporter-outfile",
+  "--max-concurrency", "--parallel-delay", "--path-ignore-patterns",
+  "-t", "--test-name-pattern", "--grep",
+  "-r", "--preload", "--require", "--import",
+  "--env-file", "--cwd", "--conditions", "--console-depth",
+  "-d", "--define", "--drop", "--feature", "-l", "--loader",
+  "--main-fields", "--extension-order", "--tsconfig-override",
+  "--jsx-factory", "--jsx-fragment", "--jsx-import-source", "--jsx-runtime",
+  "-e", "--eval", "-p", "--print",
+  "--cpu-prof-dir", "--cpu-prof-interval", "--cpu-prof-name",
+  "--heap-prof-dir", "--heap-prof-name",
+  "--dns-result-order", "--fetch-preconnect", "--max-http-header-size",
+  "--unhandled-rejections", "--user-agent", "--title", "--port",
 ]);
 
+/** Short flags in {@link VALUE_FLAGS}: the last letter of a cluster (`-it x`) can take the next argument. */
+const SHORT_VALUE_LETTERS = new Set(
+  [...VALUE_FLAGS].filter((flag) => /^-[a-z]$/i.test(flag)).map((flag) => flag[1]!)
+);
+
 /**
- * Flags whose value is optional. A following argument is theirs only when it
- * is a number; `--changed` takes a git ref, which cannot be told apart from a
- * path, so it must be spelled `--changed=<ref>`.
+ * Optional-valued flags (`--bail`, `--parallel`, `--changed`, `--config`, ...)
+ * are deliberately absent: Bun's parser gives them a value only through `=`,
+ * so a separate argument after one is a positional path to Bun too.
  */
-const OPTIONAL_NUMBER_FLAGS: ReadonlySet<string> = new Set(["--bail", "--parallel"]);
 
 /** The `bun test` argv for the arguments `bun run test` received. */
 export function testArgv(args: readonly string[]): string[] {
@@ -70,10 +67,15 @@ export function testArgv(args: readonly string[]): string[] {
       hasPath ||= i + 1 < args.length;
       break;
     }
-    if (arg.startsWith("-")) {
+    // A bare `-` is a positional to Bun, like any other path.
+    if (arg.startsWith("-") && arg !== "-") {
       if (arg.includes("=")) continue;
-      if (VALUE_FLAGS.has(arg)) i++;
-      else if (OPTIONAL_NUMBER_FLAGS.has(arg) && /^\d+$/.test(args[i + 1] ?? "")) i++;
+      if (arg.startsWith("--")) {
+        if (VALUE_FLAGS.has(arg)) i++;
+      } else if (SHORT_VALUE_LETTERS.has(arg[arg.length - 1]!)) {
+        // `-t`, or a cluster such as `-ut` whose last letter takes the value.
+        i++;
+      }
       continue;
     }
     hasPath = true;
@@ -85,5 +87,12 @@ if (import.meta.main) {
   const proc = Bun.spawn([process.execPath, "test", ...testArgv(process.argv.slice(2))], {
     stdio: ["inherit", "inherit", "inherit"],
   });
-  process.exit(await proc.exited);
+  // A cancellation aimed at this process's PID (a CI runner stopping the
+  // step, `kill <pid>`) must stop the tests too, not orphan them. Ctrl-C in a
+  // terminal already reaches both through the foreground process group.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(signal, () => proc.kill(signal));
+  }
+  const code = await proc.exited;
+  process.exit(proc.signalCode ? 128 + (constants.signals[proc.signalCode] ?? 0) : code);
 }
