@@ -1,6 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  BackendActivityEvent,
+  ServerMessage,
+  StartTurnRequest,
+} from "@schlessera/brain-ui-sdk/server";
 import {
   assertTurnPosture,
   BackendBusyError,
@@ -11,7 +15,10 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { createClaudeSdkTurn } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
+import { installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
+  credentialFields,
+  observedBilling,
   settingsRefusal,
   subscriptionRefusalMessage,
   subscriptionVerdict,
@@ -69,6 +76,57 @@ export function createClaudeTurnRunner(options: {
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
     const adapter = new StreamAdapter(req.bridge.activity);
+    const reportActivity = (event: BackendActivityEvent): void => {
+      try {
+        req.bridge.activity?.(event);
+      } catch {
+        // Observability must not break the observed turn.
+      }
+    };
+    /**
+     * What ran, the credential it selected, and whether that honours the
+     * profile (#211). Checked against the profile's POLICY — a profile without
+     * its own credential requires the subscription — not against
+     * `classifyBilling`, since the two could regress together.
+     */
+    const reportRuntime = (
+      claudeCodeVersion: string | undefined,
+      apiKeySource: string | undefined,
+      selected: AccountInfo | undefined
+    ): void => {
+      const billing = observedBilling(selected, apiKeySource);
+      const policy = profile.billing === "api" ? "api" : "subscription";
+      const agentSdk = installedAgentSdkVersion();
+      // Any disagreement: a declared API profile that ran on something else
+      // lost its own credential, and the CLI picked another one.
+      const policyViolation =
+        billing === policy
+          ? undefined
+          : `${policy === "api" ? "a profile declared as API-billed" : "a profile without its own credential"} ran on ${
+              billing === "api"
+                ? "an API credential"
+                : billing === "subscription"
+                  ? "a subscription"
+                  : "a credential that is not a recognised subscription"
+            }`;
+      if (policyViolation) {
+        options.log("warn", "billing policy violated", {
+          "profile.id": profile.id,
+          "billing.observed": billing,
+          reason: policyViolation,
+        });
+      }
+      reportActivity({
+        kind: "runtime_observed",
+        ...(claudeCodeVersion ? { runtime: { name: "claude-code", version: claudeCodeVersion } } : {}),
+        sdk: { name: "@anthropic-ai/claude-agent-sdk", version: agentSdk },
+        credential: credentialFields(selected, apiKeySource),
+        billing,
+        policy,
+        ...(policyViolation ? { policyViolation } : {}),
+        measured: isMeasuredRuntime(claudeCodeVersion, agentSdk),
+      });
+    };
     // Scope every frame to its session once the identity is known. For a
     // resume that is up front (the requested id); for a new session it is null
     // until the SDK reports it, so the only pre-identity frames (status/
@@ -164,6 +222,7 @@ export function createClaudeTurnRunner(options: {
             };
             const refuse = (reason: string): false => {
               refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(reason) };
+              reportActivity({ kind: "auth_failure", errorClass: "subscription_required", message: reason });
               options.log("warn", "subscription check refused the turn", {
                 "profile.id": profile.id,
                 reason,
@@ -193,13 +252,25 @@ export function createClaudeTurnRunner(options: {
             }
             if (abortController.signal.aborted) return withhold();
             const verdict = subscriptionVerdict(account);
-            if (!verdict.ok) return refuse(verdict.reason);
-            const conflict = settingsRefusal(settings);
-            return conflict ? refuse(conflict) : true;
+            const conflict = verdict.ok ? settingsRefusal(settings) : null;
+            if (!verdict.ok || conflict) {
+              // The CLI never reaches init, so this is the only report the
+              // refused turn gets: what the handshake said it would bill.
+              reportRuntime(undefined, account?.apiKeySource, account);
+              return refuse(verdict.ok ? conflict! : verdict.reason);
+            }
+            return true;
           })
         : sdkTurn.prompt;
       const result = queryFn({ prompt, options: sdkTurn.options });
       resolveQuery(result);
+      // The account the CLI selected, for the per-turn report below. The SDK
+      // answers every call from the one handshake, so this and the gate agree.
+      const account = (
+        typeof result.initializationResult === "function"
+          ? result.initializationResult().then((init) => init.account, () => undefined)
+          : Promise.resolve(undefined)
+      ) as Promise<AccountInfo | undefined>;
 
       let announced = false;
       for await (const msg of result) {
@@ -226,6 +297,10 @@ export function createClaudeTurnRunner(options: {
             providerId: profile.id,
             backendId: BACKEND_ID,
           });
+        }
+        // After session_info, so the run is opened with its session.
+        if (msg.type === "system" && msg.subtype === "init") {
+          reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
         }
         for (const serverMsg of adapter.adapt(msg)) {
           // Exactly one terminal frame per turn, whatever the stream does:

@@ -7,6 +7,7 @@ import { mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { bundledClaudeBinary } from "./claude-binary";
 import {
   createApp,
   type BrainUiApp,
@@ -27,6 +28,7 @@ const BASE_ENV = [
   "BRAIN_PATH",
   "BRAIN_UI_PRICING_DISCOVERY",
   "PI_CODING_AGENT_DIR",
+  "CLAUDE_CODE_PATH",
 ] as const;
 
 let nextId = 0;
@@ -114,6 +116,8 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   delete process.env.ALLOWED_ORIGINS;
   delete process.env.TRUST_PROXY;
   delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
+  // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
+  process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

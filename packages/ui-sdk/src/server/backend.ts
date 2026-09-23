@@ -37,6 +37,7 @@
 import type {
   AskUserAnnotation,
   AskUserQuestion,
+  BillingMode,
   ChatImageAttachment,
   ChatSession,
   ClientEnvironment,
@@ -202,6 +203,40 @@ export type BackendActivityEvent =
       requestKind: "tool" | "command";
       /** Why, in the words the model was given. */
       reason: string;
+    }
+  | {
+      /**
+       * What the backend's runtime said about itself as the turn started: the
+       * versions that actually ran, the credential it selected, and the billing
+       * mode that credential implies. Observed, not classified — the host
+       * records it next to the profile's classification, and a profile whose
+       * policy the observation contradicts is flagged.
+       */
+      kind: "runtime_observed";
+      runtime?: { name: string; version: string };
+      sdk?: { name: string; version: string };
+      /** The credential fields the runtime reported, in its own terms. */
+      credential?: Record<string, string>;
+      /** Derived from `credential`; "unknown" when it cannot be told. */
+      billing: BillingMode | "unknown";
+      /** What the turn's profile requires. */
+      policy?: BillingMode;
+      /** Set when `billing` contradicts `policy`: why, in one sentence. */
+      policyViolation?: string;
+      /** Whether this is the runtime the backend's behaviour was measured against. */
+      measured?: boolean;
+    }
+  | {
+      /**
+       * The turn failed because the runtime could not authenticate — a
+       * rejected or expired credential, an account on hold, a subscription
+       * check that refused the turn. Recorded as its own failure class, apart
+       * from other errors, so an operator is told to log in again.
+       */
+      kind: "auth_failure";
+      /** The runtime's own class for it, e.g. `authentication_failed`. */
+      errorClass: string;
+      message?: string;
     };
 
 export interface StartTurnRequest {

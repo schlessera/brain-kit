@@ -7,6 +7,7 @@ import {
   createModelSource,
   discoverAnthropicModels,
   modelCachePath,
+  ModelDiscoveryAuthError,
 } from "../src/model-discovery";
 
 const ENV_KEYS = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
@@ -280,5 +281,42 @@ describe("createModelSource", () => {
     expect(source.list()).toEqual([]);
     expect(source.state().enabled).toBe(false);
     expect(source.state().stale).toBe(false);
+  });
+});
+
+describe("a refused credential (#211)", () => {
+  const refused = (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof fetch;
+
+  test("is an auth failure, not an empty roster", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-revoked";
+    await expect(discoverAnthropicModels({ fetchImpl: refused })).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
+  });
+
+  test("is an auth failure when only an alias lookup is refused, not a missing alias", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-revoked";
+    const fetchImpl = (async (input: string | URL | Request) =>
+      String(input).includes("?limit=")
+        ? Response.json({ data: [{ id: "claude-haiku-4-5-20251001" }], has_more: false })
+        : new Response("unauthorized", { status: 401 })) as unknown as typeof fetch;
+    await expect(discoverAnthropicModels({ fetchImpl })).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
+  });
+
+  test("is logged as one by the model source, which keeps serving what it had", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-revoked";
+    const logs: Array<{ level: string; message: string; attrs?: Record<string, unknown> }> = [];
+    const source = createModelSource({
+      brainPath,
+      fetchImpl: refused,
+      log: (level, message, attrs) => logs.push({ level, message, attrs }),
+    });
+    await expect(source.refresh()).rejects.toBeInstanceOf(ModelDiscoveryAuthError);
+    expect(logs).toEqual([
+      {
+        level: "warn",
+        message: "model discovery: authentication failed",
+        attrs: { "http.status": 401, "failure.class": "authentication_failed" },
+      },
+    ]);
+    expect(source.state().error).toContain("authentication failed");
   });
 });

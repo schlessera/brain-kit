@@ -164,3 +164,54 @@ export function subscriptionRefusalMessage(reason: string): string {
     "or declare a profile with its own apiKeyEnv to bill an API key on purpose."
   );
 }
+
+/** The SDK's assistant-error classes that mean the account could not be used. */
+export const AUTH_ERROR_CLASSES: ReadonlySet<string> = new Set([
+  "authentication_failed",
+  "oauth_org_not_allowed",
+  "account_on_hold",
+  "billing_error",
+]);
+
+/** API-key sources, as `apiKeySource` names them. */
+const API_KEY_SOURCES = new Set(["ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key"]);
+
+/**
+ * The billing mode the credential the CLI selected implies (#211).
+ *
+ * Observed, not classified: this reads what the runtime reported, and it is
+ * compared with the profile's policy, not with `classifyBilling` — both of
+ * those can regress together. `apiKeySource` alone is not enough, because it
+ * also reads `none` when nothing is logged in.
+ */
+export function observedBilling(
+  account: AccountInfo | undefined,
+  apiKeySource?: string
+): "subscription" | "api" | "unknown" {
+  const keySource = apiKeySource ?? account?.apiKeySource;
+  if (account?.apiProvider !== undefined && account.apiProvider !== "firstParty") return "api";
+  if (keySource !== undefined && keySource !== "none") {
+    return API_KEY_SOURCES.has(keySource) ? "api" : "unknown";
+  }
+  if (account?.tokenSource !== undefined && OAUTH_TOKEN_SOURCES.has(account.tokenSource)) return "subscription";
+  // A declared bearer profile: billed through the route it declares, whatever
+  // stored login also exists.
+  if (account?.tokenSource === "ANTHROPIC_AUTH_TOKEN") return "api";
+  if (account?.subscriptionType !== undefined && SUBSCRIPTION_TIERS.has(account.subscriptionType)) {
+    return "subscription";
+  }
+  return "unknown";
+}
+
+/** The account fields worth keeping on a run, in the runtime's own names. */
+export function credentialFields(account: AccountInfo | undefined, apiKeySource?: string): Record<string, string> {
+  const fields: Record<string, string | undefined> = {
+    apiKeySource: apiKeySource ?? account?.apiKeySource,
+    tokenSource: account?.tokenSource,
+    subscriptionType: account?.subscriptionType,
+    apiProvider: account?.apiProvider,
+  };
+  return Object.fromEntries(
+    Object.entries(fields).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
+}

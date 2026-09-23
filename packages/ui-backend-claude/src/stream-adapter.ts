@@ -3,6 +3,7 @@ import type {
   BackendActivityEvent,
   ServerMessage,
 } from "@schlessera/brain-ui-sdk/server";
+import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult } from "./usage.js";
 
 /**
@@ -85,6 +86,18 @@ export class StreamAdapter {
       }
 
       case "assistant": {
+        // An account the runtime could not use: its own failure class, so the
+        // host can tell an operator to log in again (#211). The frame the
+        // client sees for it is #191's. Only the top-level turn's: a subagent
+        // that failed is the parent's to handle, and a parent that completes
+        // anyway did not fail.
+        if (!parentToolUseId && msg.error && AUTH_ERROR_CLASSES.has(msg.error)) {
+          const text = msg.message.content
+            .map((block) => (block.type === "text" ? block.text : ""))
+            .join("")
+            .trim();
+          this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
+        }
         for (const block of msg.message.content) {
           if (block.type === "tool_use") {
             if (parentToolUseId) {

@@ -32,6 +32,20 @@ export interface ClaudeSdkTurn {
   subscriptionOnly: boolean;
 }
 
+/**
+ * One environment for everything a turn on `profile` spawns: the profile's
+ * declared credential names are part of the agent audience (config/env.ts),
+ * and the rtk hook shells out before the SDK does, so both must see the same
+ * filtered set rather than the server's own. The boot probe uses it too.
+ */
+export function turnEnv(profile: InferenceProfile): Record<string, string | undefined> {
+  const env = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
+  // After the profile's own env, so nothing a profile builds can put an API
+  // credential back under a turn that is not declared as API-billed.
+  if (profile.billing !== "api") Object.assign(env, CLEARED_API_CREDENTIALS);
+  return env;
+}
+
 export function createClaudeSdkTurn(options: {
   backend: ClaudeBackendOptions;
   req: StartTurnRequest;
@@ -84,15 +98,8 @@ export function createClaudeSdkTurn(options: {
     },
     req.turnBudgetMs
   );
-  // One environment for everything this turn spawns: the profile's declared
-  // credential names are part of the agent audience (config/env.ts), and the
-  // rtk hook shells out before the SDK does, so both must see the same filtered
-  // set rather than the server's own.
-  const childEnv = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
-  // After the profile's own env, so nothing a profile builds can put an API
-  // credential back under a turn that is not declared as API-billed.
+  const childEnv = turnEnv(profile);
   const subscriptionOnly = profile.billing !== "api";
-  if (subscriptionOnly) Object.assign(childEnv, CLEARED_API_CREDENTIALS);
   const sdkOptions: Options = {
     cwd: backend.brainPath,
     includePartialMessages: true,

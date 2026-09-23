@@ -10,6 +10,7 @@ import { FrameRateLimiter } from "./rate-limit.js";
 import type { ActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
+import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
 
 /** The activity record and its live stream, when the host records activity. */
@@ -20,6 +21,8 @@ export interface ActivityRuntime {
   pushSender?: Pick<PushSender, "unbindPrincipal">;
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
+  /** Where each turn's runtime report and auth failures are kept for /api/status. */
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure">;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

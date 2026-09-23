@@ -28,6 +28,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveEnv } from "./config/env.js";
+import type { BackendLogFn } from "./options.js";
 import type { InferenceProfileInput } from "./profiles.js";
 
 // Long-standing export of this module; the definition now lives in the SDK
@@ -64,6 +65,14 @@ interface ModelCacheFile {
   fetchedAt: number;
   models: InferenceProfileInput[];
   aliasChecks: AliasChecks;
+}
+
+/** The Models API refused the credential discovery sent. */
+export class ModelDiscoveryAuthError extends Error {
+  constructor(readonly status: number) {
+    super(`Anthropic Models API refused the credential (HTTP ${status}): authentication failed`);
+    this.name = "ModelDiscoveryAuthError";
+  }
 }
 
 export interface DiscoverOptions {
@@ -146,7 +155,10 @@ export async function discoverAnthropicModels(
   const rows: AnthropicModel[] = [];
   let url = `${MODELS_URL}?limit=100`;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const { body } = await getJson(url, headers, fetchImpl);
+    const { status, body } = await getJson(url, headers, fetchImpl);
+    // A refused credential is an auth failure to report, not an empty
+    // roster: the same token authenticates every chat turn (#211).
+    if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status);
     const parsed = (body ?? {}) as ModelsListResponse;
     if (!Array.isArray(parsed.data)) break;
     rows.push(...parsed.data);
@@ -192,22 +204,23 @@ export async function discoverAnthropicModels(
   return { models, aliasChecks };
 }
 
-/** Does `GET /v1/models/{alias}` resolve? Network failures count as "no". */
+/**
+ * Does `GET /v1/models/{alias}` resolve? Network failures count as "no"; a
+ * refused credential is an auth failure, not an answer about the alias.
+ */
 async function aliasResolves(
   alias: string,
   headers: Record<string, string>,
   fetchImpl: typeof fetch
 ): Promise<boolean> {
+  let status: number;
   try {
-    const { status } = await getJson(
-      `${MODELS_URL}/${encodeURIComponent(alias)}`,
-      headers,
-      fetchImpl
-    );
-    return status === 200;
+    ({ status } = await getJson(`${MODELS_URL}/${encodeURIComponent(alias)}`, headers, fetchImpl));
   } catch {
     return false;
   }
+  if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status);
+  return status === 200;
 }
 
 // --- Cache -----------------------------------------------------------------
@@ -257,6 +270,8 @@ export interface ModelSourceOptions {
   fetchImpl?: typeof fetch;
   /** @internal Test seam — inject the clock. */
   now?: () => number;
+  /** Where a refused credential is reported. */
+  log?: BackendLogFn;
 }
 
 export interface ModelSourceState {
@@ -322,6 +337,12 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
     } catch (err) {
       // Keep serving whatever we already had; surface the reason.
       lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof ModelDiscoveryAuthError) {
+        options.log?.("warn", "model discovery: authentication failed", {
+          "http.status": err.status,
+          "failure.class": "authentication_failed",
+        });
+      }
       throw err;
     }
   }

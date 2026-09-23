@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdirSync } from "node:fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
@@ -9,6 +10,7 @@ import {
   createRecordingObservability,
 } from "../src/observability/index";
 import { resolveServerConfig } from "../src/config/env";
+import { bundledClaudeBinary } from "./helpers/claude-binary";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createUiDb } from "../src/db/client";
@@ -33,6 +35,7 @@ const ENV = [
   "TRUST_PROXY",
   "DB_PATH",
   "BRAIN_PATH",
+  "CLAUDE_CODE_PATH",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 const TEST_DB = join(tmpdir(), `app-wiring-test-${process.pid}.db`);
@@ -49,6 +52,9 @@ beforeAll(async () => {
   process.env.DB_PATH = TEST_DB;
   // The version probe must never inspect a developer's real brain repo.
   process.env.BRAIN_PATH = join(tmpdir(), `app-wiring-brain-${process.pid}`);
+  mkdirSync(process.env.BRAIN_PATH, { recursive: true });
+  // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
+  process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
 });
 
 afterAll(() => {

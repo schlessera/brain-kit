@@ -53,6 +53,7 @@ import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
+  probeBackendRuntimes,
   createBackendRegistry,
   type BackendRegistry,
 } from "./agent/backend.js";
@@ -179,6 +180,13 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // backend construction and model discovery remain lazy.
   // Skipped when the embedder injects its own registry.
   if (!options.registry) assertBackendResolvable(config.agent);
+  // The runtime every active backend would spawn, probed now (#211): a
+  // missing or unstartable binary refuses the boot here instead of failing
+  // the first turn — and before anything is opened, so a refused boot leaves
+  // nothing behind. Skipped with an injected registry, like the check above.
+  const runtimeProbes = options.registry
+    ? []
+    : probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -207,6 +215,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     log: observability.logger("activity"),
     pricing,
   });
+  activity.runtime.setBoot(runtimeProbes);
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -257,6 +266,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       stream: activity.stream,
       pushSender: activity.pushSender,
       query: activity.query,
+      runtime: activity.runtime,
     },
   });
   const wsUpgrade = createWsUpgrade(host);
@@ -400,6 +410,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       // Undefined when the injected consumer cannot be read back (a real OTel
       // SDK exports elsewhere), in which case the field is simply absent.
       getMetrics: () => observability.metrics?.snapshot(),
+      getRuntime: () => activity.runtime.snapshot(),
     })
   );
   app.route(

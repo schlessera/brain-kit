@@ -30,10 +30,10 @@ next to it.
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"` (`claudeCodePath`,
   `packages/ui-server/src/config/env.ts:778`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:369`), read back as a string
-  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:216-219`)
+  `packages/ui-server/src/agent/backend.ts:428`), read back as a string
+  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:131-132`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:138-139`). Because of the `||`
   default the value is never empty, so **the server always overrides the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -47,7 +47,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the brain repo's own CLI pin`,
   `packages/ui-server/src/brain/client.ts:115-180`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:186`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:194`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:274-276`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -90,7 +90,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:202-207`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:215-220`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -190,7 +190,7 @@ the separate install step becomes unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:176-181`).
+  `packages/ui-server/src/app.ts:177-182`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -242,9 +242,9 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:43-58`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:46-61`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:8-10`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:9-11`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is
@@ -407,9 +407,9 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:131-133`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`const childEnv`, `packages/ui-backend-claude/src/sdk-options.ts:91`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:41-47`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:174-182`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:153`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:160`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:108-114`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
@@ -420,7 +420,7 @@ into them.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`name: "ANTHROPIC_API_KEY"`, `packages/ui-backend-claude/src/config/env.ts:84-88`,
   `function authHeaders`, `packages/ui-backend-claude/src/model-discovery.ts:86-104`). A 401 there
-  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:121-122`).
+  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:130-131`).
 
 ### The precedence, measured
 
@@ -476,7 +476,7 @@ subscription authenticates.
   "Failed to authenticate. API Error: 401 OAuth access token is invalid.", then
   a `result` with **`subtype: "success"`** and `is_error: true`. The adapter
   branches on `subtype` alone
-  (`if (msg.subtype === "success")`, `packages/ui-backend-claude/src/stream-adapter.ts:171-181`), so today an auth
+  (`if (msg.subtype === "success")`, `packages/ui-backend-claude/src/stream-adapter.ts:184-194`), so today an auth
   failure reaches the client as a successful turn with no text. That is #191's
   failure, and an auth failure is one of its cases.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
@@ -540,7 +540,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:106`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:113`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's

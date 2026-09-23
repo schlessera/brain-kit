@@ -374,7 +374,7 @@ inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
 `details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
 `:46`), and Claude uses MCP `content` arrays via a different path
-(`const output =`, `stream-adapter.ts:132`). So "JSON payload in the output
+(`const output =`, `stream-adapter.ts:145`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
 `protocol.ts:43` states additions do not bump the rev, only semantics changes
@@ -2317,7 +2317,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:185`), so
+  `packages/ui-server/src/ws/run-session.ts:186`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both

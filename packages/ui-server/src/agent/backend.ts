@@ -13,6 +13,7 @@ import type {
   ResolvedBackendModule,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendProfileConfigError } from "@schlessera/brain-ui-sdk/server";
+import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 import { createRequire } from "module";
 
 import type { AgentConfig } from "../config/env.js";
@@ -309,6 +310,64 @@ export function assertBackendResolvable(
     }
   }
   parseBackendDescriptors(agent, entries, descriptors);
+}
+
+/** What a backend's boot-time runtime probe found, keyed to its backend. */
+export interface BackendRuntimeProbe {
+  backendId: string;
+  report: BackendRuntimeReport;
+}
+
+/**
+ * Probe the runtime every active first-party backend would spawn, at boot
+ * (#211). A backend whose runtime is missing or will not start throws, which
+ * refuses the boot — the same reason a missing backend package does
+ * (`assertBackendResolvable`). A runtime that is not the one the backend was
+ * measured against is a warning naming both, not a refusal
+ * (docs/decisions/claude-code-runtime.md).
+ */
+export function probeBackendRuntimes(
+  agent: AgentConfig,
+  brainPath: string,
+  log?: Logger,
+  load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier)
+): BackendRuntimeProbe[] {
+  const probes: BackendRuntimeProbe[] = [];
+  for (const entry of activeFirstPartyBackends(agent)) {
+    const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
+    if (!descriptor.probeRuntime) continue;
+    const report = descriptor.probeRuntime({
+      brainPath,
+      config: { ...agent },
+      profiles: [],
+      confirmBashPatterns: agent.confirmBashPatterns,
+      settings: {},
+    });
+    const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
+    log?.emit({
+      severityText: "INFO",
+      body: `${entry.id} runtime: ${report.runtime.name} ${report.runtime.version}`,
+      attributes: {
+        "backend.id": entry.id,
+        "runtime.version": report.runtime.version,
+        "runtime.command": report.runtime.command,
+        "runtime.host_provided": report.runtime.hostProvided,
+        ...(report.sdk ? { "sdk.version": report.sdk.version } : {}),
+      },
+    });
+    if (report.measured && !report.measured.matches) {
+      log?.emit({
+        severityText: "WARN",
+        body:
+          `${entry.id} runtime ${pair(report.runtime.version, report.sdk?.version)} is not the one its ` +
+          `behaviour was measured against (${pair(report.measured.runtime, report.measured.sdk)}); ` +
+          "continuing — re-run scripts/measure-claude-runtime.ts",
+        attributes: { "backend.id": entry.id, "runtime.host_provided": report.runtime.hostProvided },
+      });
+    }
+    probes.push({ backendId: entry.id, report });
+  }
+  return probes;
 }
 
 function settingsFor(

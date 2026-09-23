@@ -29,6 +29,7 @@ export type {
   ResolvedBackendModule,
   BackendModuleResolution,
   BackendModule,
+  BackendRuntimeReport,
 } from "./backend-module.js";
 export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
 

@@ -34,10 +34,13 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
+import type { RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
   store: ActivityStore;
+  /** Where the runtime a turn reported, and its auth failures, are kept for /api/status. */
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure">;
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;
@@ -89,7 +92,7 @@ export function createTurnRecorder(
     principalId?: string;
   }
 ): TurnRecorder {
-  const { store, onWrite, log } = deps;
+  const { store, onWrite, log, runtime } = deps;
   const runId = turn.turnId;
   const rootSpanId = `${runId}:turn`;
   let sessionId = turn.sessionId ?? undefined;
@@ -100,6 +103,8 @@ export function createTurnRecorder(
   let resultUsage: SpanUsage | undefined;
   let resultAttrs: Record<string, unknown> | undefined;
   let principalRevocationRecorded = false;
+  /** An auth failure was reported: whatever the result frame claims, the run failed. */
+  let authFailed = false;
 
   const guard = (fn: () => void) => {
     try {
@@ -278,6 +283,46 @@ export function createTurnRecorder(
             onWrite?.();
             break;
           }
+          case "runtime_observed": {
+            // Observed next to the classification on the root: what ran, the
+            // credential it selected, and whether that honours the profile.
+            ensureRoot();
+            store.patchSpan(rootSpanId, {
+              attrs: {
+                ...(event.runtime
+                  ? { "brain.runtime.name": event.runtime.name, "brain.runtime.version": event.runtime.version }
+                  : {}),
+                ...(event.sdk ? { "brain.sdk.name": event.sdk.name, "brain.sdk.version": event.sdk.version } : {}),
+                ...(event.measured !== undefined ? { "brain.runtime.measured": event.measured } : {}),
+                ...(event.credential ? { "brain.credential": event.credential } : {}),
+                "brain.billing_observed": event.billing,
+                ...(event.policy ? { "brain.billing_policy": event.policy } : {}),
+                ...(event.policyViolation ? { "brain.billing_policy_violation": event.policyViolation } : {}),
+              },
+            });
+            if (event.policyViolation) {
+              store.appendEvent(rootSpanId, "billing_policy_violation", {
+                policy: event.policy,
+                observed: event.billing,
+                reason: event.policyViolation,
+              });
+            }
+            runtime?.observe(event, runId);
+            onWrite?.();
+            break;
+          }
+          case "auth_failure": {
+            authFailed = true;
+            ensureRoot();
+            store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": event.errorClass } });
+            store.appendEvent(rootSpanId, "auth_failure", {
+              errorClass: event.errorClass,
+              ...(event.message ? { message: event.message } : {}),
+            });
+            runtime?.authFailure(event, runId);
+            onWrite?.();
+            break;
+          }
           case "permission_denied": {
             // The same landing a user's denial gets in requestPermission: the
             // outcome is written now, so the backend's later error tool_result
@@ -372,10 +417,14 @@ export function createTurnRecorder(
         // Merged precedence: the buffered result enrichment refines the
         // host's own disposition; the host wins only where the backend said
         // nothing. Cancellation/timeout are host-owned facts and always win.
+        // An auth failure is a failed run even where the runtime's own result
+        // frame reports success (the SDK does, with is_error set; #191).
         const outcome: SpanOutcome =
           disposition === "cancelled" || disposition === "timeout"
             ? disposition
-            : (resultOutcome ?? disposition);
+            : authFailed
+              ? "error"
+              : (resultOutcome ?? disposition);
         store.endSpan(rootSpanId, {
           outcome,
           usage: resultUsage,

@@ -3,10 +3,11 @@ import { describe, expect, test } from "bun:test";
 import { backendModule } from "../src/module";
 
 describe("Claude backend module descriptor", () => {
-  test("exports only the five descriptor members", () => {
+  test("exports only the six descriptor members", () => {
     expect(Object.keys(backendModule).sort()).toEqual([
       "id",
       "modelSource",
+      "probeRuntime",
       "profileSchema",
       "resolveFromEnv",
       "settingsHooks",

@@ -132,7 +132,7 @@ type Equal<A, B> =
 type _descriptorMembers = Assert<
   Equal<
     keyof BackendModule,
-    "id" | "resolveFromEnv" | "profileSchema" | "settingsHooks" | "modelSource"
+    "id" | "resolveFromEnv" | "profileSchema" | "settingsHooks" | "modelSource" | "probeRuntime"
   >
 >;
 type _claudeDescriptorCompat = Assert<

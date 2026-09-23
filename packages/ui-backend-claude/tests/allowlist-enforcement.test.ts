@@ -139,8 +139,8 @@ async function startTurn(setup: {
   let captured: Options | undefined;
   const queryFn = ((params: { options?: Options }) => {
     captured = params.options!;
-    return (async function* () {
-      yield { type: "system", subtype: "init", session_id: "s1" };
+    const stream = (async function* () {
+      yield { type: "system", subtype: "init", session_id: "s1", apiKeySource: "none" };
       yield {
         type: "result",
         subtype: "success",
@@ -150,6 +150,13 @@ async function startTurn(setup: {
         num_turns: 1,
       };
     })();
+    // A subscription account, as a real CLI reports one, so the per-turn
+    // billing check (#211) has nothing to warn about here.
+    return Object.assign(stream, {
+      initializationResult: async () => ({
+        account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" },
+      }),
+    });
   }) as unknown as typeof query;
   const backend = createClaudeBackend({
     brainPath: "/brain",

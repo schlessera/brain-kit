@@ -248,7 +248,10 @@ async function duringVoiceTurn(
         });
         return { behavior: "allow" };
       },
-      activity: (event) => activity.push(event),
+      // The per-turn runtime report (#211) is not what these tests are about.
+    activity: (event) => {
+      if (event.kind !== "runtime_observed") activity.push(event);
+    },
       requestMask: async () => new Uint8Array(),
     },
   });

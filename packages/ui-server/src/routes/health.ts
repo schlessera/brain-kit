@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
+import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
 import type { MetricSnapshot } from "../observability/index.js";
 
 const startTime = Date.now();
@@ -38,6 +39,8 @@ export interface StatusDeps {
   isTurnActive(): boolean;
   /** Recorded counters; undefined when the consumer cannot be read back. */
   getMetrics?(): MetricSnapshot | undefined;
+  /** What the server knows about the agent runtime (#211). */
+  getRuntime?(): RuntimeStatusSnapshot;
 }
 
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
@@ -54,6 +57,10 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       // Counters the server recorded this process lifetime — dropped frames,
       // handler failures. Behind the auth guard with everything else here.
       metrics: deps.getMetrics?.() ?? [],
+      // The runtime version, whether it is the measured one, the billing mode
+      // the last turn actually ran on, and the last auth failure. Here and not
+      // on /health: the version is operational detail, and /health is public.
+      ...(deps.getRuntime ? { runtime: deps.getRuntime() } : {}),
     });
   });
 }

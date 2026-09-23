@@ -145,7 +145,10 @@ async function startTurn(setup: {
       });
       return setup.decision ?? { behavior: "deny", message: "Not approved." };
     },
-    activity: (event) => activity.push(event),
+    // The per-turn runtime report (#211) is not what these tests are about.
+    activity: (event) => {
+      if (event.kind !== "runtime_observed") activity.push(event);
+    },
     ...(setup.withMaskHandler
       ? { requestMask: async () => new Uint8Array() }
       : {}),
