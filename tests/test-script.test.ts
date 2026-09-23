@@ -99,6 +99,50 @@ describe("root test script, run for real", () => {
   });
 });
 
+test("a signal sent to the wrapper stops the tests it started", async () => {
+  // CI cancels a step by signalling its process; without a relay the child
+  // `bun test` outlived the wrapper and kept running.
+  const dir = mkdtempSync(join(tmpdir(), "root-test-signal-"));
+  try {
+    mkdirSync(join(dir, "tests"));
+    const marker = join(dir, "child.pid");
+    writeFileSync(
+      join(dir, "tests/slow.test.ts"),
+      `import { test } from "bun:test";\n` +
+        `test("slow", async () => {\n` +
+        `  await Bun.write(${JSON.stringify(marker)}, String(process.pid));\n` +
+        `  await Bun.sleep(20_000);\n` +
+        `}, 30_000);\n`
+    );
+    const wrapper = Bun.spawn([process.execPath, join(ROOT, "scripts/test.ts"), "tests"], {
+      cwd: dir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(20);
+    const child = Number(readFileSync(marker, "utf8"));
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(alive(child)).toBe(true);
+    wrapper.kill("SIGTERM");
+    expect(await wrapper.exited).not.toBe(0);
+    const gone = Date.now() + 5_000;
+    while (alive(child) && Date.now() < gone) await Bun.sleep(20);
+    const orphaned = alive(child);
+    if (orphaned) process.kill(child, "SIGKILL");
+    expect(orphaned).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 describe("testArgv", () => {
   const withDefaults = (args: string[]) => [...DEFAULT_ROOTS, ...args];
 
@@ -117,6 +161,9 @@ describe("testArgv", () => {
       ["--console-depth", "5"],
       ["--preload", "./setup.ts"],
       ["-ut", "name"],
+      ["--install", "fallback"],
+      ["--origin", "http://localhost"],
+      ["--cron-title", "nightly"],
       ["--shard=1/2"],
       ["-t=name"],
       ["--bail"],
@@ -130,7 +177,18 @@ describe("testArgv", () => {
     // Bun reads the argument after `--bail`/`--config` as a positional path.
     expect(testArgv(["--bail", "packages/scrape"])).toEqual(["--bail", "packages/scrape"]);
     expect(testArgv(["--config", "packages/scrape"])).toEqual(["--config", "packages/scrape"]);
+    expect(testArgv(["--parallel", "packages/scrape"])).toEqual(["--parallel", "packages/scrape"]);
+    expect(testArgv(["--changed", "packages/scrape"])).toEqual(["--changed", "packages/scrape"]);
     expect(testArgv(["--bail=2"])).toEqual(withDefaults(["--bail=2"]));
+  });
+
+  test("a short cluster's first value letter takes the rest of the token, as in Bun", () => {
+    // `-tt` is `-t` with the pattern "t", so the next argument is a path.
+    expect(testArgv(["-tt", "packages/scrape"])).toEqual(["-tt", "packages/scrape"]);
+    expect(testArgv(["-utt", "packages/scrape"])).toEqual(["-utt", "packages/scrape"]);
+    expect(testArgv(["-tname", "packages/scrape"])).toEqual(["-tname", "packages/scrape"]);
+    // `-u` is --update-snapshots under bun test and takes no value.
+    expect(testArgv(["-u", "packages/scrape"])).toEqual(["-u", "packages/scrape"]);
   });
 
   test("paths after -- and a bare - are paths", () => {
