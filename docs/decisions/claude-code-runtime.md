@@ -664,4 +664,8 @@ What that changes and what it does not:
   Tool search is one — the probe turns it on explicitly for its cases — and the
   auto-mode classifier's headers are another. None of the measured cases uses
   auto mode.
-- **CI is now possible, not done.** Running the probe in CI is #284.
+- **CI runs it (#284).** The `claude-runtime-probe` job in
+  `.github/workflows/ci.yml` runs the probe on every PR and on `main`, inside
+  a network namespace that holds nothing but loopback, so a request that tried
+  to leave the runner would fail its case. A failed or inconclusive case fails
+  the job, and the job prints the JSON report.
