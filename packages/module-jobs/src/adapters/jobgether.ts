@@ -11,8 +11,9 @@ import type { RawJob, ScrapeOptions } from "../types.js";
  * `/api/v1/jobs`, with the title, company, URL, location, contract type and
  * salary the HTML was being scraped for and an ISO `postedAt`.
  *
- * One request, no pagination. The endpoint pages through `?page=`/`?limit=`
- * and nothing else, and robots.txt disallows `/*?*` for every path but the
+ * One request, no pagination. A GET pages through `?page=`/`?limit=` and
+ * nothing else (a POST body can page too, which is the route
+ * docs/decisions/scraping-politeness.md rules out), and robots.txt disallows `/*?*` for every path but the
  * deprecated `/astroapi/ai/jobs.json` alias, which the site's own docs retire
  * on 2026-09-28. So a run takes the first page of the unqualified path and
  * stops; widening it means asking the site for permission, not adding a loop.
@@ -90,7 +91,7 @@ export class JobgetherAdapter extends BaseAdapter {
     try {
       if (opts.verbose) console.log(`[jobgether] Fetching: ${API_URL}...`);
 
-      // One page, ten rows: robots.txt wins over POST paging (docs/decisions/scraping-politeness.md).
+      // One page per run: robots.txt wins over POST paging (docs/decisions/scraping-politeness.md).
       const data = await this.http.getJson<JobgetherResponse>(API_URL, {
         delayMs: CRAWL_DELAY_MS,
         proxy: opts.proxy,

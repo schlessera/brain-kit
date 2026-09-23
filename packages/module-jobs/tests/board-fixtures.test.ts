@@ -405,7 +405,7 @@ describe("jobgether against the JSON endpoint its robots.txt allows", () => {
     );
 
     // robots.txt disallows /*?* on this path, and ?page=/?limit= is the only
-    // way the endpoint pages. One request, and it carries no query string.
+    // way a GET pages. One request, and it carries no query string.
     expect(result.requests).toEqual(["https://jobgether.com/api/v1/jobs"]);
     expect(result.requests[0]).not.toInclude("?");
   });
