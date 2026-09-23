@@ -40,13 +40,11 @@ means, honouring orphanExempt.
 Inventory, printed second: documents (by type/status/relevance), tags, links,
 chunks, corpus bytes and files on disk (configured excludes apply), brain.db
 bytes and row counts, free space on the volume. An \`Embeddings\` row appears
-only when vectors were counted.
+when vectors were counted, and reads \`n/a\` when the brain has a vector table
+this host could not read (sqlite-vec did not load).
 
-A health figure that cannot be measured is reported as \`n/a\`, never as 0, and
-carries no verdict. The inventory's \`embeddings\` count is the exception: it
-reads 0 both for a brain holding no vectors and for one whose vectors could
-not be counted (sqlite-vec absent on this host). \`Embedding coverage: n/a\` is
-the signal that the count is unknown rather than zero — read it, not the row.
+A figure that cannot be measured is reported as \`n/a\` (\`null\` in --json),
+never as 0, and carries no verdict.
 
 --json: unaffected by --all — it always carries the full, uncapped breakdowns.`;
 
@@ -211,7 +209,11 @@ function inventorySection(stats: BrainStats, all: boolean): string[] {
     `  Links: ${stats.links} (${stats.brokenLinks} broken)`,
     `  Chunks: ${stats.chunks}`,
   ];
-  if (stats.embeddings > 0) lines.push(`  Embeddings: ${stats.embeddings}`);
+  // Suppressed at 0 (nothing embedded is not worth a row), but never when the
+  // count is unknown: a brain whose vectors could not be read must not render
+  // like one holding none.
+  if (stats.embeddings === null) lines.push("  Embeddings: n/a — vector table could not be read on this host");
+  else if (stats.embeddings > 0) lines.push(`  Embeddings: ${stats.embeddings}`);
   lines.push(
     `  Corpus: ${size.corpus ? `${plural(size.corpus.files, "file")}, ${bytes(size.corpus.bytes)}` : "n/a"}`,
     `  Index: ${bytes(size.db.bytes)}`,
