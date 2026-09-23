@@ -5160,42 +5160,50 @@ describe("approval cards follow rememberability (#147)", () => {
    * Driven from the wire: the frame the host sends, through the socket
    * handler and the store, to the Actions page and the receipt it prints.
    */
-  async function actionsFrom(frame: Record<string, unknown>, before: Record<string, unknown>[] = [], times = 1) {
+  async function actionsFrom(frame: Record<string, unknown>, before: Record<string, unknown>[] = []) {
     installActivityFetch();
     globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
     const root = createBrainUiRoot({ storage: null });
     const release = root.connection.connect();
-    const socket = PageSocket.instances.at(-1)!;
-    act(() => {
-      socket.open();
-      socket.deliver({ type: "text_delta", text: "working" });
-      root.connection.flushChatDeltas();
-      for (const f of before) socket.deliver(f);
-      // `times > 1` is the re-delivery a reconnect produces: the same card
-      // again, replacing the tool the first one created.
-      for (let i = 0; i < times; i++) {
-        socket.deliver({
-          type: "tool_approval_request",
-          toolUseId: "t1",
-          toolName: "mcp_proxy_tool",
-          input: {},
-          kind: "tool",
-          ...frame,
-        });
-      }
-    });
-    const page = render(<BrainUiProvider root={root}><ActivityPage /></BrainUiProvider>);
-    await act(flushPromises);
-    const approvals = () =>
-      socket.sent
-        .map((f) => JSON.parse(f) as Record<string, unknown>)
-        .filter((f) => f.type === "tool_approval" || f.type === "tool_denial");
+    let page: ReturnType<typeof render> | undefined;
     const done = () => {
-      page.unmount();
+      page?.unmount();
       release();
       root.dispose();
     };
-    return { page, approvals, done };
+    try {
+      const socket = PageSocket.instances.at(-1)!;
+      // Delivering it again is the re-delivery a reconnect produces.
+      const card = () =>
+        act(() =>
+          socket.deliver({
+            type: "tool_approval_request",
+            toolUseId: "t1",
+            toolName: "mcp_proxy_tool",
+            input: {},
+            kind: "tool",
+            ...frame,
+          })
+        );
+      act(() => {
+        socket.open();
+        socket.deliver({ type: "text_delta", text: "working" });
+        root.connection.flushChatDeltas();
+        for (const f of before) socket.deliver(f);
+      });
+      card();
+      page = render(<BrainUiProvider root={root}><ActivityPage /></BrainUiProvider>);
+      await act(flushPromises);
+      const approvals = () =>
+        socket.sent
+          .map((f) => JSON.parse(f) as Record<string, unknown>)
+          .filter((f) => f.type === "tool_approval" || f.type === "tool_denial");
+      const tools = () => activeChat(root.stores.chat.getState()).messages.flatMap((m) => m.toolCalls);
+      return { page, approvals, done, card, tools };
+    } catch (error) {
+      done();
+      throw error;
+    }
   }
 
   test("an unkept card's receipt never says Always allowed, and no always goes on the wire", async () => {
@@ -5223,10 +5231,19 @@ describe("approval cards follow rememberability (#147)", () => {
       { type: "tool_use_start", toolUseId: "t1", toolName: "mcp_proxy_tool" },
       { type: "tool_use_complete", toolUseId: "t1", toolName: "mcp_proxy_tool", input: {} },
     ];
-    const { page, done } = await actionsFrom({ rememberable: false }, streamed, 2);
+    const { page, done, card, tools } = await actionsFrom({ rememberable: false }, streamed);
     try {
-      expect(page.getAllByRole("button", { name: /^Allow/ })).toHaveLength(1);
-      expect(page.queryByRole("button", { name: /Always allow/ }) === null).toBe(true);
+      // One stored tool each time: the card replaced the streamed call rather
+      // than appending a second one beside it (which the pending-only Actions
+      // list would hide), and the re-delivery replaced it again.
+      for (const round of [1, 2]) {
+        if (round === 2) card();
+        expect(tools().map((t) => [t.id, t.status, t.approvalRememberable])).toEqual([
+          ["t1", "pending_approval", false],
+        ]);
+        expect(page.getAllByRole("button", { name: /^Allow/ })).toHaveLength(1);
+        expect(page.queryByRole("button", { name: /Always allow/ }) === null).toBe(true);
+      }
     } finally {
       done();
     }
