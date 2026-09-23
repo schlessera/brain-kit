@@ -39,11 +39,13 @@
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
+        "@anthropic-ai/claude-agent-sdk": "^0.3.241",
         "@google/genai": "^2.10.0",
         "@schlessera/brain-render-puppeteer": "*",
         "@types/bun": ">=1.3.0",
       },
       "optionalPeers": [
+        "@anthropic-ai/claude-agent-sdk",
         "@google/genai",
         "@schlessera/brain-render-puppeteer",
         "@types/bun",

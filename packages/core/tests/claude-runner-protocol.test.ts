@@ -17,14 +17,17 @@ import { ClaudeSubscriptionError } from "../src/providers/agents/claude-subscrip
 
 const scratch: string[] = [];
 const savedPath = process.env.PATH;
+const savedClaudeCodePath = process.env.CLAUDE_CODE_PATH;
 
 afterEach(() => {
   process.env.PATH = savedPath;
+  if (savedClaudeCodePath === undefined) delete process.env.CLAUDE_CODE_PATH;
+  else process.env.CLAUDE_CODE_PATH = savedClaudeCodePath;
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 /**
- * Put a fake `claude` on PATH that logs every stdin line to `log`, answers the
+ * Put a fake `claude` in CLAUDE_CODE_PATH that logs every stdin line to `log`, answers the
  * handshake with `account`, and answers a user message with `result`.
  */
 function fakeClaude(
@@ -67,6 +70,8 @@ for await (const chunk of process.stdin) {
 `
   );
   chmodSync(script, 0o755);
+  // The runner takes CLAUDE_CODE_PATH first, as chat does (#213).
+  process.env.CLAUDE_CODE_PATH = script;
   process.env.PATH = `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`;
   return { log, cwd: dir };
 }

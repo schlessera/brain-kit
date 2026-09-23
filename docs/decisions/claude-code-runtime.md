@@ -35,10 +35,11 @@ next to it.
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:138-139`). Because of the `||`
-  default the value is never empty, so **the server always overrides the SDK's
-  own binary**. The variable is withheld from every subprocess
-  (`CLAUDE_CODE_PATH: NONE`,
-  `packages/ui-sdk/src/server/subprocess-env.ts:122`).
+  default the value was never empty, so **the server always overrode the SDK's
+  own binary**, and the variable was withheld from every subprocess. Since
+  #213 it reaches every audience (`CLAUDE_CODE_PATH: ALL`,
+  `packages/ui-sdk/src/server/subprocess-env.ts:50`), so `brain sync`'s
+  runner runs the binary chat runs.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
   (`Route the Claude Code subprocess`,
@@ -57,7 +58,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:43`), resolved to 0.3.278 by this
-  repo's lockfile (`@anthropic-ai/claude-agent-sdk@0.3.278`, `bun.lock:346`).
+  repo's lockfile (`@anthropic-ai/claude-agent-sdk@0.3.278`, `bun.lock:348`).
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
 ### What the SDK already ships
@@ -70,10 +71,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:346`, eight
+  (`optionalDependencies`, `bun.lock:348`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`@anthropic-ai/claude-agent-sdk-linux-x64@0.3.278`,
-  `bun.lock:356`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:358`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -401,9 +402,9 @@ into them.
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:92-96` and admitted
-  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:58`).
+  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:61`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`). The `container-privilege.md` table keeps both
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`). The `container-privilege.md` table keeps both
   (`CLAUDE_CODE_OAUTH_TOKEN`, `container-privilege.md:411-412`).
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:131-133`).
@@ -456,7 +457,7 @@ bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
-environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`).
+environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`).
 
 The SDK's bundled binary honours `CLAUDE_CODE_OAUTH_TOKEN` exactly as the host
 install does, in every row above. The runtime decision does not change how the

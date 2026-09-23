@@ -45,6 +45,9 @@ export const SUBPROCESS_ENV = Object.freeze({
   HOME: AGENT_AND_BRAIN_CLI,
   XDG_BIN_HOME: ALL,
   CLAUDE_CONFIG_DIR: AGENT_AND_BRAIN_CLI,
+  // The Claude Code binary chat runs; `brain sync`'s runner below the brain
+  // CLI, in cron or in a turn, runs the same one (#213).
+  CLAUDE_CODE_PATH: ALL,
   PI_CODING_AGENT_DIR: AGENT,
   XDG_CONFIG_HOME: AGENT,
   DB_PATH: CRON,
@@ -119,7 +122,6 @@ export const SUBPROCESS_ENV = Object.freeze({
   WEBAUTHN_ORIGINS: NONE,
   BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: NONE,
   AGENT_BACKEND: NONE,
-  CLAUDE_CODE_PATH: NONE,
   BRAIN_UI_CLAUDE_DEFAULT_MODEL: NONE,
   BRAIN_UI_CLAUDE_PROFILES: NONE,
   BRAIN_UI_PI_PROFILES: NONE,
