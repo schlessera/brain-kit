@@ -27,6 +27,20 @@ export const configSchema = z
      * for a version bump.
      */
     rates: z.record(z.string(), z.number().positive()).optional(),
+    /**
+     * Following listings to each job's own page for its description (#36).
+     * `concurrency` bounds the detail requests in flight across the whole
+     * run; `maxDetailPages` caps how many one run fetches, and 0 turns
+     * enrichment off. Per-host pacing and robots.txt still apply to every
+     * one of them.
+     */
+    enrichment: z
+      .object({
+        concurrency: z.number().int().min(1).default(4),
+        maxDetailPages: z.number().int().min(0).default(100),
+      })
+      .strict()
+      .default({ concurrency: 4, maxDetailPages: 100 }),
   })
   .strict();
 

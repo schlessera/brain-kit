@@ -40,6 +40,8 @@ export interface BrowserJobRecord {
   salary?: string;
   empType?: string;
   remote_type?: RawJob["remote_type"];
+  /** Plain text, when the page itself carries one (#36). */
+  description?: string;
 }
 
 export abstract class BrowserAdapter extends BaseAdapter {
@@ -118,6 +120,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
       source_id: id,
       title: record.title || "",
       company: record.company || "Unknown",
+      description: record.description || undefined,
       url: record.href,
       source_url: record.href,
       location: record.location || "Remote",

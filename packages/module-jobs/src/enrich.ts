@@ -1,0 +1,171 @@
+/**
+ * Detail-page enrichment (#36): a row its listing did not describe is followed
+ * to the job's own page, and the description is taken from the `JobPosting`
+ * structured data there.
+ *
+ * What it will and will not fetch is the whole design:
+ *
+ * - **Only rows with no description.** A description the listing carried (the
+ *   RemoteOK, Remotive, Working Nomads and We Work Remotely feeds) is kept, and
+ *   so is one an earlier run stored: the upsert keeps it over a null, so
+ *   fetching the page again would spend a request and the cap on nothing.
+ * - **The board's own page.** `source_url` before `url`, since `url` is the
+ *   apply link on boards that have one, and that is somebody else's site.
+ * - **Through the run's one `ScrapeClient`,** so robots.txt and the per-host
+ *   rate limiter decide every detail request exactly as they decide listing
+ *   requests. Enrichment adds a floor between requests to one host
+ *   (`DEFAULT_DETAIL_DELAY_MS`, or the board's own `detailFetchOptions`); it
+ *   never schedules a request itself.
+ * - **Bounded twice.** `concurrency` caps the detail requests in flight across
+ *   every board at once, and `maxDetailPages` caps how many one run fetches.
+ *   Rows past the cap are counted and reported, never skipped in silence.
+ *
+ * A detail page that fails, or carries no description, costs the row nothing:
+ * it is stored as the listing gave it, and the failure is counted. Only the
+ * description is taken. The detail page's other fields are not trusted over
+ * the listing's: jobgether's `datePosted`, for one, is a JavaScript
+ * `Date.toString()` where its listing's is ISO (#36).
+ *
+ * The reported numbers are findings about the rows, not about whether the
+ * board could be read, so they never move a board's `status` (#37).
+ */
+import { Semaphore, type FetchOptions, type ScrapeClient } from "@schlessera/brain-scrape";
+
+import { jobsFromJsonLd } from "./jsonld.js";
+import type { RawJob, Source } from "./types.js";
+
+export interface EnrichmentConfig {
+  /** Detail requests in flight at once, across every board in the run. */
+  concurrency: number;
+  /** Detail pages one run fetches at most. 0 turns enrichment off. */
+  maxDetailPages: number;
+}
+
+export const DEFAULT_ENRICHMENT: EnrichmentConfig = { concurrency: 4, maxDetailPages: 100 };
+
+/**
+ * The least time between two detail requests to one host, when the board asks
+ * for nothing more. Listing runs fetch a handful of pages; enrichment fetches
+ * one per row, which is exactly the burst a site's operator notices, so it is
+ * spaced even where robots.txt names no `Crawl-delay`.
+ */
+export const DEFAULT_DETAIL_DELAY_MS = 2000;
+
+/** How many individual failures one board's summary line quotes. */
+const QUOTED_FAILURES = 3;
+
+export interface EnrichmentStats {
+  /** Rows that got a description from their detail page. */
+  enriched: number;
+  /** Detail pages fetched that failed, or that carried no description. */
+  failed: number;
+  /** Rows that wanted a detail page and were left out by the run's cap. */
+  truncated: number;
+  /** One line per finding, for the board's `errors`. */
+  errors: string[];
+}
+
+export interface BoardEnrichment {
+  source: Source;
+  /** The board's display name, which prefixes its report lines. */
+  name: string;
+  /** The board's rows. Enriched rows are updated in place. */
+  jobs: RawJob[];
+  /** True for a row already stored with a description. */
+  isDescribed?: (job: RawJob) => boolean;
+  /** The board's own fetch options for its detail pages. */
+  fetchOptions?: FetchOptions;
+}
+
+export interface Enricher {
+  enrich(board: BoardEnrichment): Promise<EnrichmentStats>;
+}
+
+/** The page a row's description lives on, if it has an absolute one. */
+function detailUrl(job: RawJob): string | undefined {
+  for (const candidate of [job.source_url, job.url]) {
+    if (candidate && /^https?:\/\//i.test(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * One enricher per run: the semaphore and the cap are shared by every board
+ * the run enriches, however many run at once.
+ */
+export function createEnricher(
+  http: Pick<ScrapeClient, "getPage">,
+  config: Partial<EnrichmentConfig> = {}
+): Enricher {
+  const concurrency = Math.max(1, Math.floor(config.concurrency ?? DEFAULT_ENRICHMENT.concurrency));
+  const maxDetailPages = Math.max(0, Math.floor(config.maxDetailPages ?? DEFAULT_ENRICHMENT.maxDetailPages));
+  const slots = new Semaphore(concurrency);
+  let remaining = maxDetailPages;
+
+  return {
+    async enrich(board: BoardEnrichment): Promise<EnrichmentStats> {
+      const stats: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
+      // Off is a setting, not a truncation, so it reports nothing.
+      if (maxDetailPages === 0) return stats;
+
+      const wanted: Array<{ job: RawJob; url: string }> = [];
+      for (const job of board.jobs) {
+        if (job.description?.trim()) continue;
+        const url = detailUrl(job);
+        if (!url) continue;
+        if (board.isDescribed?.(job)) continue;
+        wanted.push({ job, url });
+      }
+
+      // The budget is claimed up front and synchronously, so two boards
+      // enriched at once cannot both spend the same last page.
+      const granted = wanted.slice(0, remaining);
+      remaining -= granted.length;
+      stats.truncated = wanted.length - granted.length;
+
+      const failures: string[] = [];
+      await Promise.all(
+        granted.map(async ({ job, url }) => {
+          const release = await slots.acquire();
+          try {
+            const page = await http.getPage(url, {
+              delayMs: DEFAULT_DETAIL_DELAY_MS,
+              ...board.fetchOptions,
+            });
+            const description = jobsFromJsonLd(page.body, { source: board.source, pageUrl: page.url }).jobs.find(
+              (posting) => posting.description?.trim()
+            )?.description;
+            if (!description) {
+              stats.failed++;
+              failures.push(`${url}: no JobPosting description on the page`);
+              return;
+            }
+            job.description = description;
+            stats.enriched++;
+          } catch (err) {
+            stats.failed++;
+            failures.push(`${url}: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            release();
+          }
+        })
+      );
+
+      if (stats.failed > 0) {
+        const quoted = failures.slice(0, QUOTED_FAILURES).join("; ");
+        const more = failures.length > QUOTED_FAILURES ? `; and ${failures.length - QUOTED_FAILURES} more` : "";
+        stats.errors.push(
+          `${board.name}: ${stats.failed} of ${granted.length} detail pages gave no description ` +
+            `(stored without one): ${quoted}${more}`
+        );
+      }
+      if (stats.truncated > 0) {
+        stats.errors.push(
+          `${board.name}: ${stats.truncated} jobs left without a description — ` +
+            `the run's cap of ${maxDetailPages} detail pages was reached`
+        );
+      }
+      return stats;
+    },
+  };
+}

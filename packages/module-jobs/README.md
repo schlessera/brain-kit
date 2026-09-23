@@ -19,6 +19,7 @@ export default defineConfig({
       boards: ["remoteok", "weworkremotely", "workingnomads"],
       // queries: ["staff engineer", "platform engineer"],  // for query-driven boards
       // dbPath: "jobs.db",                                   // default: <root>/jobs.db
+      // enrichment: { concurrency: 4, maxDetailPages: 100 }, // detail pages; 0 = off
     },
   },
 });
@@ -168,6 +169,31 @@ The same judgement is recorded in the jobs database: `ok` and `empty` are logged
 as `completed`, `unparseable` and `not_run` as `failed`, so a board that could
 not be read stops advancing its cursor. The exact `--json` shape is in
 [the integration contract](../../docs/integration-contract.md).
+
+## Descriptions and detail pages
+
+Scoring reads a job's description, and five boards publish none on their
+listings: `nodesk`, `simplyhired`, `dice`, `remotelyde` and `jobgether`. For
+their rows, a scrape follows the job to its own page on the board and takes the
+description from the `JobPosting` structured data there. It fetches only rows
+that have no description yet, so a feed's description is never replaced and a
+row described by an earlier run is not fetched again. `builtin` reads its
+descriptions off its own listing's structured data and needs no detail page.
+
+Every detail request goes through the same client as the listings, so
+robots.txt and per-host pacing apply to it (at least 2 s between requests to one
+host, more where a board asks). The `enrichment` config bounds it:
+
+- `concurrency` (default 4): detail requests in flight at once, across every
+  board in the run.
+- `maxDetailPages` (default 100): detail pages one run fetches at most. `0`
+  turns enrichment off.
+
+Nothing is dropped silently. Each board's row in the scrape report counts
+`jobs_enriched`, `enrichment_failed` (a page that failed, or carried no
+description) and `enrichment_truncated` (rows the cap left out), and its
+`errors` say which. A row whose detail page fails is still stored, without a
+description.
 
 ## Boards & sources
 

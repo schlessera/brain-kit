@@ -12,7 +12,13 @@
  * before `scrape()`, so an adapter never constructs a client and two adapters
  * never end up with two rate limiters for the same host.
  */
-import { hostOf, parseRssItems, stripHtml, type ScrapeContext } from "@schlessera/brain-scrape";
+import {
+  hostOf,
+  parseRssItems,
+  stripHtml,
+  type FetchOptions,
+  type ScrapeContext,
+} from "@schlessera/brain-scrape";
 
 import type { RawJob, ScrapeResult, ScraperAdapter, Source, SourceStatus } from "../types.js";
 
@@ -174,6 +180,8 @@ export abstract class BaseAdapter implements ScraperAdapter {
   abstract readonly tier: 1 | 2 | 3;
   needsBrowser = false;
   needsProxy = false;
+  /** See `ScraperAdapter.detailFetchOptions`. */
+  readonly detailFetchOptions?: FetchOptions;
 
   /** Set by `bind()`; reading it before then is a runner bug, not a site bug. */
   protected ctx!: ScrapeContext;

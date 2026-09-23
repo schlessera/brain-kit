@@ -12,6 +12,8 @@ export class SimplyHiredAdapter extends BaseAdapter {
   readonly source = "simplyhired" as const;
   readonly name = "SimplyHired";
   readonly tier = 2 as const;
+  /** Its job pages get the same spacing as its search pages (#36). */
+  override readonly detailFetchOptions = { delayMs: 3000 };
 
   private readonly queries: string[];
 
