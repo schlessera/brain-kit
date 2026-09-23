@@ -7,18 +7,16 @@
  * environment the CLI sends only the API key, and nothing warns; it also takes
  * a key from an `apiKeyHelper` or an `env` block in settings, from
  * `ANTHROPIC_CUSTOM_HEADERS`, or from a stored Console login. So a run clears
- * the credential variables, overrides every settings file with flag settings
- * that switch the helper off and clear the same variables, refuses when
- * managed settings (which outrank flag settings) configure a credential, and
- * checks the account the CLI selected before the prompt is written.
+ * the credential variables, overrides the project and user settings files with
+ * flag settings that switch the helper off and clear the same variables, and
+ * before the prompt is written checks both the account the CLI selected and
+ * the settings it merged — including the policy tiers that outrank flag
+ * settings.
  *
  * The chat backend holds the same rule
  * (`packages/ui-backend-claude/src/subscription.ts`); the two packages share no
  * dependency to put it in, so a change to one is a change to both.
  */
-
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 
 /**
  * Set over the run's environment: an empty value is how the CLI reads "none".
@@ -30,6 +28,10 @@ export const CLEARED_API_CREDENTIALS: Readonly<Record<string, string>> = Object.
   ANTHROPIC_AUTH_TOKEN: "",
   ANTHROPIC_CUSTOM_HEADERS: "",
   CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "",
+  // A host credential file is loaded back into the environment, custom
+  // headers included, after the variables above were cleared.
+  CLAUDE_CODE_HOST_CREDS_FILE: "",
+  CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "",
 });
 
 /**
@@ -44,51 +46,42 @@ export const NEUTRALISED_SETTINGS: Readonly<{
   env: CLEARED_API_CREDENTIALS,
 });
 
-/** Where Claude Code reads managed (policy) settings on this platform. */
-export function defaultManagedSettingsDir(): string {
-  if (process.platform === "darwin") return "/Library/Application Support/ClaudeCode";
-  if (process.platform === "win32") return "C:\\Program Files\\ClaudeCode";
-  return "/etc/claude-code";
+/** The part of the CLI's `get_settings` answer the check reads. */
+export interface CliSettingsReport {
+  effective?: SettingsLike;
+  /** Raw settings per source, low to high precedence. */
+  sources?: Array<{ source?: string; settings?: SettingsLike }>;
+}
+
+interface SettingsLike {
+  apiKeyHelper?: unknown;
+  env?: Record<string, unknown>;
 }
 
 /**
- * Why the managed settings in `dir` would put an API credential under a run,
- * or null. Reads `managed-settings.json` and the `managed-settings.d/*.json`
- * drop-ins the way the CLI does; a missing file is no conflict, an unparseable
- * one is.
+ * Why the settings the CLI itself reports would put an API credential under a
+ * run, or null. Asked of the CLI rather than read from files, because only the
+ * CLI knows every tier it merged — managed files, MDM, an organisation's remote
+ * settings cached in the config directory — and those outrank the flag
+ * settings a run passes. Any source that configures an `apiKeyHelper` refuses
+ * the run, even one the flag settings switched off.
  */
-export function managedSettingsConflict(dir: string): string | null {
-  const files = [join(dir, "managed-settings.json")];
-  try {
-    for (const name of readdirSync(join(dir, "managed-settings.d")).sort()) {
-      if (name.endsWith(".json") && !name.startsWith(".")) {
-        files.push(join(dir, "managed-settings.d", name));
-      }
+export function settingsRefusal(report: CliSettingsReport | undefined): string | null {
+  if (!report) return "the CLI did not report its settings";
+  const layers: Array<[string, SettingsLike | undefined]> = [
+    ["effective settings", report.effective],
+    ...(report.sources ?? []).map((entry): [string, SettingsLike | undefined] => [
+      entry.source ?? "a settings source",
+      entry.settings,
+    ]),
+  ];
+  for (const [name, settings] of layers) {
+    if (typeof settings?.apiKeyHelper === "string" && settings.apiKeyHelper.trim() !== "") {
+      return `${name} configure an apiKeyHelper`;
     }
-  } catch {
-    // No drop-in directory.
-  }
-  for (const file of files) {
-    let text: string;
-    try {
-      text = readFileSync(file, "utf8");
-    } catch {
-      continue;
-    }
-    let settings: { apiKeyHelper?: unknown; env?: Record<string, unknown> };
-    try {
-      settings = JSON.parse(text) ?? {};
-    } catch {
-      return `managed settings ${file} cannot be read as JSON`;
-    }
-    if (typeof settings.apiKeyHelper === "string" && settings.apiKeyHelper.trim() !== "") {
-      return `managed settings ${file} configure an apiKeyHelper`;
-    }
-    for (const name of Object.keys(CLEARED_API_CREDENTIALS)) {
-      const value = settings.env?.[name];
-      if (typeof value === "string" && value.trim() !== "") {
-        return `managed settings ${file} set ${name}`;
-      }
+    for (const key of Object.keys(CLEARED_API_CREDENTIALS)) {
+      const value = settings?.env?.[key];
+      if (typeof value === "string" && value.trim() !== "") return `${name} set ${key}`;
     }
   }
   return null;

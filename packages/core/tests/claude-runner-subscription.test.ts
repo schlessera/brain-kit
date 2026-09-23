@@ -97,16 +97,11 @@ interface Setup {
   projectSettings?: Record<string, unknown>;
   storedKey?: boolean;
   customHeaders?: string;
-  managedSettings?: Record<string, unknown>;
 }
 
-/** A fresh HOME, config dir, repo and managed dir, with the given credentials in process.env. */
-function arrange(setup: Setup): { repo: string; managedDir: string } {
+/** A fresh HOME, config dir and repo, with the given credentials in process.env. */
+function arrange(setup: Setup): { repo: string } {
   const home = tempDir("runner-home-");
-  const managedDir = tempDir("runner-managed-");
-  if (setup.managedSettings) {
-    writeFileSync(join(managedDir, "managed-settings.json"), JSON.stringify(setup.managedSettings));
-  }
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });
   const repo = tempDir("runner-repo-");
@@ -129,16 +124,15 @@ function arrange(setup: Setup): { repo: string; managedDir: string } {
   if (setup.oauth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   else process.env.CLAUDE_CODE_OAUTH_TOKEN = setup.oauth;
   if (setup.customHeaders !== undefined) process.env.ANTHROPIC_CUSTOM_HEADERS = setup.customHeaders;
-  return { repo, managedDir };
+  return { repo };
 }
 
 type Fixture = ReturnType<typeof arrange>;
 
 const MODES = {
-  run: ({ repo, managedDir }: Fixture) =>
-    claudeRunner({ managedSettingsDir: managedDir }).run("Reply with the single word ok.", { cwd: repo }),
-  runStreaming: ({ repo, managedDir }: Fixture) =>
-    claudeRunner({ managedSettingsDir: managedDir }).runStreaming!("Reply with the single word ok.", {
+  run: ({ repo }: Fixture) => claudeRunner().run("Reply with the single word ok.", { cwd: repo }),
+  runStreaming: ({ repo }: Fixture) =>
+    claudeRunner().runStreaming!("Reply with the single word ok.", {
       cwd: repo,
       onEvent: () => {},
     }),
@@ -179,16 +173,16 @@ for (const [mode, invoke] of Object.entries(MODES)) {
       expect(existsSync(marker)).toBe(false);
     }, LIVE);
 
-    test("a DELAYED apiKeyHelper beside an OAuth token never runs and never supplies the key", async () => {
-      const marker = join(tempDir("runner-marker-"), "helper-ran");
+    test("a DELAYED apiKeyHelper beside an OAuth token refuses the run: it never runs, nothing is sent", async () => {
       // Marker first: its absence means the helper never started.
+      const marker = join(tempDir("runner-marker-"), "helper-ran");
       const fixture = arrange({
         oauth: OAUTH,
         projectSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
       });
-      await expect(invoke(fixture)).rejects.toThrow("claude CLI failed");
+      await expect(invoke(fixture)).rejects.toBeInstanceOf(ClaudeSubscriptionError);
 
-      expectOnlySubscription();
+      expect(seen).toEqual([]);
       expect(existsSync(marker)).toBe(false);
     }, LIVE);
 
@@ -199,25 +193,10 @@ for (const [mode, invoke] of Object.entries(MODES)) {
       expectOnlySubscription();
     }, LIVE);
 
-    test("a project settings env block cannot put the API key back", async () => {
-      const fixture = arrange({
-        oauth: OAUTH,
-        projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY, ANTHROPIC_CUSTOM_HEADERS: `x-api-key: ${HEADER_KEY}` } },
-      });
-      await expect(invoke(fixture)).rejects.toThrow("claude CLI failed");
-
-      expectOnlySubscription();
-    }, LIVE);
-
-    test("managed settings that configure a helper refuse the run before anything spawns", async () => {
-      const marker = join(tempDir("runner-marker-"), "helper-ran");
-      const fixture = arrange({
-        oauth: OAUTH,
-        managedSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
-      });
+    test("a project settings env block that sets a key refuses the run", async () => {
+      const fixture = arrange({ oauth: OAUTH, projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY } } });
       await expect(invoke(fixture)).rejects.toBeInstanceOf(ClaudeSubscriptionError);
       expect(seen).toEqual([]);
-      expect(existsSync(marker)).toBe(false);
     }, LIVE);
 
     test("a stored Console key is refused before the prompt is written, even beside an OAuth token", async () => {

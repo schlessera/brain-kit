@@ -87,18 +87,11 @@ interface Setup {
   storedKey?: boolean;
   /** Extra headers the CLI merges after its own auth headers. */
   customHeaders?: string;
-  /** Managed (policy) settings, which outrank anything a turn passes. */
-  managedSettings?: Record<string, unknown>;
 }
 
 /** A fresh HOME, config dir and brain repo, and the process env a host would have. */
-function arrange(setup: Setup): { brainPath: string; home: string; managedDir: string } {
+function arrange(setup: Setup): { brainPath: string; home: string } {
   const home = tempDir("sub-home-");
-  // Never the host's own managed directory: the test decides what is in it.
-  const managedDir = tempDir("sub-managed-");
-  if (setup.managedSettings) {
-    writeFileSync(join(managedDir, "managed-settings.json"), JSON.stringify(setup.managedSettings));
-  }
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });
   const brainPath = tempDir("sub-brain-");
@@ -124,7 +117,7 @@ function arrange(setup: Setup): { brainPath: string; home: string; managedDir: s
   if (setup.customHeaders !== undefined) process.env.ANTHROPIC_CUSTOM_HEADERS = setup.customHeaders;
   if (setup.oauth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   else process.env.CLAUDE_CODE_OAUTH_TOKEN = setup.oauth;
-  return { brainPath, home, managedDir };
+  return { brainPath, home };
 }
 
 /** The real query, with every SDK message it produced kept for inspection. */
@@ -133,6 +126,7 @@ function observedQuery(observed: SDKMessage[]): typeof query {
     const real = query(params);
     return {
       initializationResult: () => real.initializationResult(),
+      getSettings: () => (real as unknown as { getSettings(): Promise<unknown> }).getSettings(),
       async *[Symbol.asyncIterator]() {
         for await (const message of real) {
           observed.push(message);
@@ -144,7 +138,7 @@ function observedQuery(observed: SDKMessage[]): typeof query {
 }
 
 async function runTurn(
-  { brainPath, managedDir }: { brainPath: string; managedDir: string },
+  { brainPath }: { brainPath: string },
   profileId?: string
 ): Promise<{ frames: ServerMessage[]; observed: SDKMessage[] }> {
   const frames: ServerMessage[] = [];
@@ -155,7 +149,6 @@ async function runTurn(
   };
   const backend = createClaudeBackend({
     brainPath,
-    managedSettingsDir: managedDir,
     queryFn: observedQuery(observed),
     profiles: defineProfiles([
       { id: "claude", label: "Claude", source: "builtin" },
@@ -233,7 +226,7 @@ describe("a profile without its own credential bills the subscription", () => {
     expectAuthFailure(frames);
   }, LIVE);
 
-  test("a project apiKeyHelper is switched off: it never runs, and with no subscription nothing is sent", async () => {
+  test("a project apiKeyHelper refuses the turn: it never runs, and nothing is sent", async () => {
     const marker = join(tempDir("sub-marker-"), "helper-ran");
     const fixture = arrange({
       projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
@@ -246,19 +239,20 @@ describe("a profile without its own credential bills the subscription", () => {
     expect(existsSync(marker)).toBe(false);
   }, LIVE);
 
-  test("a DELAYED apiKeyHelper beside an OAuth token never runs and never supplies the key", async () => {
+  test("a DELAYED apiKeyHelper beside an OAuth token refuses the turn: it never runs, nothing is sent", async () => {
     // A helper that has not produced its key yet is invisible to the account
-    // check, so the only safe helper is one that never runs.
-    // The marker comes first, so its absence means the helper never started —
-    // not that it was killed during the sleep.
+    // check, so a configured helper refuses the turn outright. The marker comes
+    // first, so its absence means the helper never started — not that it was
+    // killed during the sleep.
     const marker = join(tempDir("sub-marker-"), "helper-ran");
     const fixture = arrange({
       oauth: OAUTH,
       projectSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
     });
-    await runTurn(fixture);
+    const { frames } = await runTurn(fixture);
 
-    expectOnlySubscription();
+    expect(seen).toEqual([]);
+    expectAuthFailure(frames);
     expect(existsSync(marker)).toBe(false);
   }, LIVE);
 
@@ -279,28 +273,13 @@ describe("a profile without its own credential bills the subscription", () => {
     expectOnlySubscription();
   }, LIVE);
 
-  test("a project settings env block cannot put the API key back", async () => {
+  test("a project settings env block that sets a key refuses the turn", async () => {
     // The brain repo is the turn's cwd and writable by the agent.
-    const fixture = arrange({
-      oauth: OAUTH,
-      projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY, ANTHROPIC_CUSTOM_HEADERS: `x-api-key: ${HEADER_KEY}` } },
-    });
-    await runTurn(fixture);
-
-    expectOnlySubscription();
-  }, LIVE);
-
-  test("managed settings that configure a helper refuse the turn: they outrank anything it passes", async () => {
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const fixture = arrange({
-      oauth: OAUTH,
-      managedSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
-    });
+    const fixture = arrange({ oauth: OAUTH, projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY } } });
     const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);
-    expect(existsSync(marker)).toBe(false);
   }, LIVE);
 });
 

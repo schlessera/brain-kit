@@ -19,17 +19,19 @@ import type { AgentRunner } from "../../lib/seams.js";
 import {
   CLEARED_API_CREDENTIALS,
   ClaudeSubscriptionError,
-  defaultManagedSettingsDir,
-  managedSettingsConflict,
   NEUTRALISED_SETTINGS,
+  settingsRefusal,
   subscriptionRefusal,
+  type ClaudeAccount,
+  type CliSettingsReport,
 } from "./claude-subscription.js";
 
 // Safety net: a hung agent CLI session must not block the caller forever.
 const DEFAULT_TIMEOUT_MS = 300_000;
 
-/** The id of the one control request a Claude run sends: the handshake. */
+/** The ids of the two control requests a Claude run sends before its prompt. */
 const INITIALIZE_REQUEST_ID = "brain-initialize";
+const SETTINGS_REQUEST_ID = "brain-settings";
 
 const CLAUDE_BASE_ARGS = [
   "claude",
@@ -80,17 +82,8 @@ type RunnerEvent = { kind: "tool" | "text"; label: string };
  */
 async function claudeSession(
   prompt: string,
-  opts: {
-    cwd: string;
-    timeoutMs: number;
-    managedSettingsDir: string;
-    onEvent?: (e: RunnerEvent) => void;
-  }
+  opts: { cwd: string; timeoutMs: number; onEvent?: (e: RunnerEvent) => void }
 ): Promise<string> {
-  // Managed settings outrank the flag settings below, so a credential they
-  // configure cannot be switched off — only refused, before anything spawns.
-  const conflict = managedSettingsConflict(opts.managedSettingsDir);
-  if (conflict) throw new ClaudeSubscriptionError(conflict);
   const proc = Bun.spawn(
     [
       ...CLAUDE_BASE_ARGS,
@@ -117,13 +110,18 @@ async function claudeSession(
   };
   const stderr = new Response(proc.stderr).text();
   send({ type: "control_request", request_id: INITIALIZE_REQUEST_ID, request: { subtype: "initialize" } });
+  send({ type: "control_request", request_id: SETTINGS_REQUEST_ID, request: { subtype: "get_settings" } });
 
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let resultText = "";
+  let sawResult = false;
   let refusal: string | null = null;
   let promptSent = false;
+  // Both answers are needed before the prompt may be written.
+  let account: { reply: unknown } | undefined;
+  let settings: { reply: unknown } | undefined;
 
   read: for (;;) {
     const { done, value } = await reader.read();
@@ -142,19 +140,28 @@ async function claudeSession(
         continue; // Skip unparseable lines.
       }
 
-      if (
-        !promptSent &&
-        event.type === "control_response" &&
-        event.response?.request_id === INITIALIZE_REQUEST_ID
-      ) {
-        refusal =
-          event.response.subtype === "success"
-            ? subscriptionRefusal(event.response.response?.account)
-            : `the CLI refused its handshake: ${event.response.error ?? "unknown error"}`;
+      if (!promptSent && event.type === "control_response") {
+        const id = event.response?.request_id;
+        if (id !== INITIALIZE_REQUEST_ID && id !== SETTINGS_REQUEST_ID) continue;
+        if (event.response.subtype !== "success") {
+          refusal = `the CLI refused its ${id === INITIALIZE_REQUEST_ID ? "handshake" : "settings request"}: ${
+            event.response.error ?? "unknown error"
+          }`;
+        } else if (id === INITIALIZE_REQUEST_ID) {
+          account = { reply: event.response.response?.account };
+        } else {
+          settings = { reply: event.response.response };
+        }
+        if (!refusal && account && settings) {
+          refusal =
+            subscriptionRefusal(account.reply as ClaudeAccount | undefined) ??
+            settingsRefusal(settings.reply as CliSettingsReport | undefined);
+        }
         if (refusal) {
           proc.kill();
           break read;
         }
+        if (!account || !settings) continue;
         promptSent = true;
         send({
           type: "user",
@@ -179,6 +186,7 @@ async function claudeSession(
       }
 
       if (event.type === "result") {
+        sawResult = true;
         if (typeof event.result === "string") resultText = event.result;
         // One prompt, one result: closing stdin lets the CLI exit.
         proc.stdin.end();
@@ -194,33 +202,22 @@ async function claudeSession(
   if (exitCode !== 0) {
     throw new Error(`claude CLI failed (exit ${exitCode}): ${resultText || (await stderr).trim() || "(no output)"}`);
   }
+  if (!sawResult) {
+    throw new Error(`claude CLI ended without a result: ${(await stderr).trim() || "(no stderr)"}`);
+  }
   return resultText.trim();
 }
 
-/**
- * claude — `claude --print` over stream-json, held to the subscription.
- * `managedSettingsDir` is where Claude Code reads managed settings (default:
- * the platform's managed directory).
- */
-export function claudeRunner(options: { managedSettingsDir?: string } = {}): AgentRunner {
-  const managedSettingsDir = options.managedSettingsDir ?? defaultManagedSettingsDir();
+/** claude — `claude --print` over stream-json, held to the subscription. */
+export function claudeRunner(): AgentRunner {
   return {
     id: "claude",
     capabilities: { streaming: true, skills: true },
     run(prompt, opts) {
-      return claudeSession(prompt, {
-        cwd: opts.cwd,
-        timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        managedSettingsDir,
-      });
+      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS });
     },
     runStreaming(prompt, opts) {
-      return claudeSession(prompt, {
-        cwd: opts.cwd,
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-        managedSettingsDir,
-        onEvent: opts.onEvent,
-      });
+      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: DEFAULT_TIMEOUT_MS, onEvent: opts.onEvent });
     },
   };
 }

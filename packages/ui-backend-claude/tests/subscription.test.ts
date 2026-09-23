@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { subscriptionVerdict } from "../src/subscription";
+import { settingsRefusal, subscriptionVerdict } from "../src/subscription";
 
 describe("subscriptionVerdict", () => {
   test("an env OAuth token with no API key is a subscription", () => {
@@ -62,5 +62,37 @@ describe("subscriptionVerdict", () => {
     expect(subscriptionVerdict({ tokenSource: "none", apiProvider: "firstParty" }).ok).toBe(false);
     expect(subscriptionVerdict({}).ok).toBe(false);
     expect(subscriptionVerdict(undefined).ok).toBe(false);
+  });
+});
+
+describe("settingsRefusal", () => {
+  test("the switched-off helper and cleared variables the backend itself passes are no conflict", () => {
+    expect(
+      settingsRefusal({
+        effective: { apiKeyHelper: "", env: { ANTHROPIC_API_KEY: "", FOO: "bar" } },
+        sources: [{ source: "flagSettings", settings: { apiKeyHelper: "", env: { ANTHROPIC_API_KEY: "" } } }],
+      })
+    ).toBeNull();
+  });
+
+  test("a helper in any source refuses, even one the flag settings switched off", () => {
+    expect(
+      settingsRefusal({
+        effective: { apiKeyHelper: "" },
+        sources: [{ source: "projectSettings", settings: { apiKeyHelper: "sleep 2; echo k" } }],
+      })
+    ).toContain("projectSettings");
+  });
+
+  test("a credential variable set in any source's env refuses", () => {
+    for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS"]) {
+      expect(
+        settingsRefusal({ sources: [{ source: "policySettings", settings: { env: { [key]: "x" } } }] })
+      ).toContain(key);
+    }
+  });
+
+  test("no report is refused, not trusted", () => {
+    expect(settingsRefusal(undefined)).not.toBeNull();
   });
 });

@@ -7,15 +7,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { AccountInfo, query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
-
-const managedDir = mkdtempSync(join(tmpdir(), "gate-managed-"));
 
 interface Double {
   queryFn: typeof query;
@@ -27,10 +22,15 @@ interface Double {
  * A query that pulls every prompt message the gate releases, then yields
  * `after` — whether or not anything was released.
  */
-function double(init: () => Promise<{ account: AccountInfo }>, after: unknown[]): Double {
+function double(
+  init: () => Promise<{ account: AccountInfo }>,
+  after: unknown[],
+  settings: (() => Promise<unknown>) | null = async () => ({ effective: {}, sources: [] })
+): Double {
   const released: SDKUserMessage[] = [];
   const queryFn = ((params: { prompt: string | AsyncIterable<SDKUserMessage> }) => ({
     initializationResult: init,
+    ...(settings ? { getSettings: settings } : {}),
     async *[Symbol.asyncIterator]() {
       if (typeof params.prompt !== "string") {
         for await (const message of params.prompt) released.push(message);
@@ -49,7 +49,6 @@ async function turn(d: Double, signal = new AbortController().signal): Promise<S
   };
   const backend = createClaudeBackend({
     brainPath: "/brain",
-    managedSettingsDir: managedDir,
     queryFn: d.queryFn,
     log: () => {},
   });
@@ -94,7 +93,7 @@ describe("the subscription gate", () => {
     expect(frames.some((f) => f.type === "result" && f.outcome === "success")).toBe(false);
   });
 
-  test("a cancellation during the handshake is a cancelled turn, not a failed one", async () => {
+  test("a cancellation during the handshake is a cancelled turn, even if the stream then reports success", async () => {
     const host = new AbortController();
     const d = double(
       () =>
@@ -102,13 +101,41 @@ describe("the subscription gate", () => {
           host.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
           setTimeout(() => host.abort(), 5);
         }),
-      []
+      [{ type: "system", subtype: "init", session_id: "s1" }, success]
     );
     const frames = await turn(d, host.signal);
 
     expect(d.released).toEqual([]);
     expect(frames.some((f) => f.type === "error" && (f.code === "CLAUDE_ERROR" || f.code === "CLAUDE_AUTH"))).toBe(false);
+    expect(frames.some((f) => f.type === "result" && f.outcome === "success")).toBe(false);
     expect(frames.at(-1)).toMatchObject({ type: "error", code: "CANCELLED" });
+  });
+
+  test("settings the CLI reports with a helper refuse a subscription account", async () => {
+    const d = double(
+      async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
+      [],
+      async () => ({
+        effective: { apiKeyHelper: "" },
+        sources: [{ source: "policySettings", settings: { apiKeyHelper: "sleep 1; echo key" } }],
+      })
+    );
+    const frames = await turn(d);
+
+    expect(d.released).toEqual([]);
+    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_AUTH" });
+  });
+
+  test("a CLI that cannot report its settings is refused, not trusted", async () => {
+    const d = double(
+      async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
+      [],
+      null
+    );
+    const frames = await turn(d);
+
+    expect(d.released).toEqual([]);
+    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_AUTH" });
   });
 
   test("a handshake that fails on its own is a CLAUDE_ERROR, and nothing is released", async () => {

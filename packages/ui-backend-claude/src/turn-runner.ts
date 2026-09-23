@@ -12,10 +12,10 @@ import { getProfile, type InferenceProfile } from "./profiles.js";
 import { createClaudeSdkTurn } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import {
-  defaultManagedSettingsDir,
-  managedSettingsConflict,
+  settingsRefusal,
   subscriptionRefusalMessage,
   subscriptionVerdict,
+  type CliSettingsReport,
 } from "./subscription.js";
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
@@ -93,6 +93,11 @@ export function createClaudeTurnRunner(options: {
      */
     let refused: { code: string; message: string } | null = null;
     /**
+     * The gate decided not to release the prompt, for whatever reason. Once
+     * set, nothing the stream says afterwards can turn the turn into a success.
+     */
+    let withheld = false;
+    /**
      * Unified terminal frame for cancelled/failed turns. With a session
      * identity that is a `result`; WITHOUT one (an abort or failure before
      * the SDK reported a session) the contract's terminal is a bare `error`,
@@ -152,37 +157,45 @@ export function createClaudeTurnRunner(options: {
       });
       const prompt = sdkTurn.subscriptionOnly
         ? gatedPrompt(sdkTurn.prompt, async () => {
+            const withhold = (): false => {
+              withheld = true;
+              abortController.abort();
+              return false;
+            };
             const refuse = (reason: string): false => {
               refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(reason) };
               options.log("warn", "subscription check refused the turn", {
                 "profile.id": profile.id,
                 reason,
               });
-              abortController.abort();
-              return false;
+              return withhold();
             };
-            const conflict = managedSettingsConflict(
-              options.backend.managedSettingsDir ?? defaultManagedSettingsDir()
-            );
-            if (conflict) return refuse(conflict);
+            const cli = await queryHandle;
             let account;
+            let settings: CliSettingsReport | undefined;
             try {
-              account = (await (await queryHandle).initializationResult()).account;
+              account = (await cli.initializationResult()).account;
+              // Not on the public Query type; the SDK sends the CLI's own
+              // `get_settings` control request. Absent means unreadable,
+              // which refuses below.
+              const getSettings = (cli as { getSettings?: () => Promise<CliSettingsReport> }).getSettings;
+              settings = getSettings ? await getSettings.call(cli) : undefined;
             } catch (error) {
               // A handshake the host cancelled is a cancelled turn, not a failed one.
-              if (abortController.signal.aborted) return false;
+              if (abortController.signal.aborted) return withhold();
               refused = {
                 code: "CLAUDE_ERROR",
                 message: `Claude Code did not complete its handshake: ${
                   error instanceof Error ? error.message : String(error)
                 }`,
               };
-              abortController.abort();
-              return false;
+              return withhold();
             }
-            if (abortController.signal.aborted) return false;
+            if (abortController.signal.aborted) return withhold();
             const verdict = subscriptionVerdict(account);
-            return verdict.ok ? true : refuse(verdict.reason);
+            if (!verdict.ok) return refuse(verdict.reason);
+            const conflict = settingsRefusal(settings);
+            return conflict ? refuse(conflict) : true;
           })
         : sdkTurn.prompt;
       const result = queryFn({ prompt, options: sdkTurn.options });
@@ -190,9 +203,9 @@ export function createClaudeTurnRunner(options: {
 
       let announced = false;
       for await (const msg of result) {
-        // A refused turn has already decided its outcome; nothing the stream
+        // A withheld turn has already decided its outcome; nothing the stream
         // does after that may replace it.
-        if (refused) break;
+        if (withheld) break;
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
         if (!announced && msg.session_id) {

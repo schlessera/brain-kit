@@ -28,13 +28,6 @@ export interface ClaudeBackendOptions {
    */
   claudeCodePath?: string;
   /**
-   * Where Claude Code reads managed (policy) settings. A managed file that
-   * configures an API credential refuses every subscription turn, because
-   * managed settings outrank anything a turn can pass (subscription.ts).
-   * Default: the platform's managed directory.
-   */
-  managedSettingsDir?: string;
-  /**
    * Inference profiles this backend can run. Defaults to
    * {@link DEFAULT_PROFILES}.
    *
