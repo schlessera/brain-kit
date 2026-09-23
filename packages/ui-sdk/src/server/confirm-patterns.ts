@@ -1,4 +1,32 @@
 /**
+ * One confirm pattern and the effect it has, in words.
+ *
+ * @experimental
+ */
+export interface ConfirmPattern {
+  /** Regex source, matched case-insensitively against the whole command. */
+  pattern: string;
+  /**
+   * What running a matching command does, in words: a sentence fragment that
+   * completes "I want to …". It becomes the `reason` of the approval the
+   * pattern raises, so the card says what will happen rather than that a rule
+   * tripped, and it is what an announcement can say when the command itself
+   * is too long to read out (docs/decisions/voice-permission.md).
+   */
+  effect: string;
+}
+
+/**
+ * A confirm pattern as a deployment may give it: the object form, or a bare
+ * regex source, which is the older shape and still works — it simply has no
+ * effect to name, and its approval falls back to a generic sentence.
+ */
+export type ConfirmPatternSource = string | ConfirmPattern;
+
+/** A compiled confirm pattern: a RegExp, carrying its effect when it has one. */
+export type CompiledConfirmPattern = RegExp & { readonly effect?: string };
+
+/**
  * The shared confirm-before-run policy for agent Bash commands.
  *
  * Both backends auto-allow their Bash tool (an approval card per command is
@@ -18,32 +46,64 @@
  * Matched case-insensitively against the whole command string, so a pattern
  * fires wherever it appears in a pipeline.
  */
-export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly string[] = [
+export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly ConfirmPattern[] = [
   // Archiving is a VISIBILITY change, and that is the reason to confirm it —
   // not that it is hard to undo (it is a move inside a git repo). An archived
   // document drops out of search, briefings and context assembly, so a silent
   // archive shows up later as holes in output you cannot account for: results
   // that should have been there simply are not, with nothing pointing at why.
-  String.raw`\bbrain\s+archive\b`,
+  {
+    pattern: String.raw`\bbrain\s+archive\b`,
+    effect: "archive a document, which takes it out of search and briefings",
+  },
   // Recursive delete, in any of its spellings.
-  String.raw`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]`,
+  {
+    pattern: String.raw`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]`,
+    effect: "delete a directory and everything inside it",
+  },
   // History rewrites and discards — recoverable only if you notice in time.
-  String.raw`\bgit\s+push\b.*--force`,
-  String.raw`\bgit\s+reset\b.*--hard`,
-  String.raw`\bgit\s+clean\b.*-[a-zA-Z]*f`,
+  {
+    pattern: String.raw`\bgit\s+push\b.*--force`,
+    effect: "force-push, overwriting history on the remote",
+  },
+  {
+    pattern: String.raw`\bgit\s+reset\b.*--hard`,
+    effect: "discard every uncommitted change in the working tree",
+  },
+  {
+    pattern: String.raw`\bgit\s+clean\b.*-[a-zA-Z]*f`,
+    effect: "delete untracked files from the working tree",
+  },
   // Truncation via redirect into a tracked path is easy to do by accident.
-  String.raw`\bgit\s+checkout\b.*\s--\s`,
+  {
+    pattern: String.raw`\bgit\s+checkout\b.*\s--\s`,
+    effect: "discard changes to specific files",
+  },
 ];
 
-/** Compile pattern sources, skipping (and reporting) any that will not parse. */
+/**
+ * Compile pattern sources, skipping (and reporting) any that will not parse.
+ * Both forms are accepted; an entry whose pattern is not a string is reported
+ * too, because `new RegExp(undefined)` would match every command.
+ */
 export function compileConfirmPatterns(
-  sources: readonly string[],
+  sources: readonly ConfirmPatternSource[],
   onInvalid: (source: string, message: string) => void
-): RegExp[] {
-  const compiled: RegExp[] = [];
-  for (const source of sources) {
+): CompiledConfirmPattern[] {
+  const compiled: CompiledConfirmPattern[] = [];
+  for (const entry of sources) {
+    const source = typeof entry === "string" ? entry : entry?.pattern;
+    if (typeof source !== "string") {
+      onInvalid(String(source), "a confirm pattern must be a regex source string");
+      continue;
+    }
+    const effect =
+      typeof entry === "object" && typeof entry.effect === "string" && entry.effect.trim()
+        ? entry.effect
+        : undefined;
     try {
-      compiled.push(new RegExp(source, "i"));
+      const re = new RegExp(source, "i");
+      compiled.push(effect === undefined ? re : Object.assign(re, { effect }));
     } catch (e) {
       // A bad pattern must not take the backend down: the safe direction to
       // fail is "this one never matches", reported loudly.

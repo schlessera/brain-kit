@@ -46,6 +46,24 @@ describe("chat store edge cases", () => {
     expect(msg.toolCalls[0].status).toBe("pending_approval");
   });
 
+  test("requestToolApproval keeps the request's description with a command approval", () => {
+    // What a confirmed command will do, in words (#112): the card draws it.
+    const s = useChatStore.getState();
+    s.startAssistantMessage(null);
+    s.requestToolApproval(
+      null,
+      "t-rm",
+      "Bash",
+      { command: "rm -rf notes" },
+      "delete a directory and everything inside it",
+      "command"
+    );
+
+    const call = draftMessages()[0].toolCalls[0];
+    expect(call.approvalKind).toBe("command");
+    expect(call.approvalDescription).toBe("delete a directory and everything inside it");
+  });
+
   test("completeToolCall matches by toolUseId", () => {
     const s = useChatStore.getState();
     s.startAssistantMessage(null);

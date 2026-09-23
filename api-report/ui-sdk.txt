@@ -697,6 +697,9 @@ export "./server" (./src/server/index.ts)
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
+  type CompiledConfirmPattern
+  type ConfirmPattern
+  type ConfirmPatternSource
   type Coord
   type CreateToolPermissionRequestInput
   type CronJobStatus

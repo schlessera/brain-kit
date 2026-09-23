@@ -35,7 +35,7 @@ does.
 | `profiles` | — | Selectable `{id,label,vendor?,model}` profiles; first is the default for new sessions. |
 | `sessionDir` | `<brainPath>/.brain-kit-ui/sessions` | Where pi stores session JSONL trees. |
 | `loadExtensions` | `true` | pi extensions (installed pi packages, repo-local extensions) load by default — the `tool_call` gate covers their tools, so e.g. `pi-mcp-adapter` (MCP servers from `.mcp.json`) and `pi-web-access` (web search/fetch) extend the surface safely. Set `false` to pin the surface to the curated tools. Skills + `AGENTS.md`/`CLAUDE.md` context always load — and BOTH cwd context files load when both exist, matching what the Claude backend reads. |
-| `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regexes; a matching `bash` command raises a confirmation card even though bash is auto-allowed. `[]` disables confirmation. |
+| `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
 | `writeLock` | fresh in-process lock | Serializes mutating tool executions across all sessions of this backend (shared working tree). Inject one to share a lock with another in-process writer. |
 
@@ -93,7 +93,9 @@ policy mirrors the Claude backend:
   `web_search`/`fetch_content`).
 - **Destructive `bash` shapes confirm first** (shared
   `DEFAULT_CONFIRM_BASH_PATTERNS`: recursive delete, `git push --force`,
-  `git reset --hard`, `brain archive`, …).
+  `git reset --hard`, `brain archive`, …). Each pattern carries its effect
+  in words ("delete a directory and everything inside it"), and that is what
+  the card says.
 - **`brain_update` with `status: "archived"` confirms first** (shared
   `archivesDocument`) — the same visibility change `brain_archive` is off the
   allowlist for, through a tool that is on it. Any other update runs

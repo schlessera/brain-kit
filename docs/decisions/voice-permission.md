@@ -28,11 +28,11 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:221-253`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:228-260`).
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
-`packages/ui-react/src/components/chat/tool-call-timeline.tsx:320-362`), the
+`packages/ui-react/src/components/chat/tool-call-timeline.tsx:325-367`), the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
@@ -57,7 +57,7 @@ five bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
 `packages/ui-backend-claude/src/sdk-options.ts:52-67`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
-(`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:21`).
+(`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:49`).
 Tools that exist only in the recording harness and have no counterpart in this
 product were excluded from
 the denominator rather than counted as approvals a real session could not raise.
@@ -232,7 +232,7 @@ posture, it is a wish.
 | `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:80-81`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
-| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:22-27`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
+| `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:50-58`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
 
 **The archive boundary leaked, and is now closed.** `brain_archive` is off the
 auto-allow list because archiving is a visibility change. But `brain_update`
@@ -242,7 +242,7 @@ excludes archived documents by default (`include_archived`, `mcp-server.ts:180`)
 — so the visibility change `brain_archive`'s card exists to gate was reachable
 through a tool that is auto-allowed in *every* surface,
 chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closed the `brain archive` CLI
-spelling (`\bbrain\s+archive\b`, `confirm-patterns.ts:27`) and not this one.
+spelling (`\bbrain\s+archive\b`, `confirm-patterns.ts:56`) and not this one.
 
 This was pre-existing product behaviour rather than something the voice posture
 introduced. It was filed as #122 and closed by #144, which took exactly the
@@ -259,7 +259,7 @@ is now a statement of enforcement as well as intent, but only for the tools
 whose purpose is document management. `Write` and `Edit` can still put
 `status: archived` into frontmatter directly and nothing fires. That is
 deliberate — they are a different trust class, and this mechanism is a seatbelt
-rather than containment (`WHAT THIS IS NOT`, `confirm-patterns.ts:11-16`)
+rather than containment (`WHAT THIS IS NOT`, `confirm-patterns.ts:39-44`)
 — and it matters here
 because **neither is auto-allowed in a voice turn anyway**, so the voice
 posture is strictly tighter than chat on this point.
@@ -277,7 +277,7 @@ postures are expected to differ.
 
 **The announcement is form B, and it never reads the payload.** It is derived
 from the confirm pattern that matched, which is a closed set of six
-(`DEFAULT_CONFIRM_BASH_PATTERNS`, `confirm-patterns.ts:21-36`),
+(`DEFAULT_CONFIRM_BASH_PATTERNS`, `confirm-patterns.ts:49-82`),
 so each pattern carries the effect it has in words:
 
 | pattern | spoken as |
@@ -288,6 +288,10 @@ so each pattern carries the effect it has in words:
 | `git reset --hard` | "discard every uncommitted change in the working tree" |
 | `git clean -f` | "delete untracked files from the working tree" |
 | `git checkout --` | "discard changes to specific files" |
+
+The phrases live beside the patterns (`DEFAULT_CONFIRM_BASH_PATTERNS`, each
+entry `{ pattern, effect }`, since #112), and a `command` approval's `reason` is
+the matched pattern's effect, so the same words are already on the card.
 
 **Two cases the six phrases do not cover, and the announcement must not assume
 they are exhaustive.** A kind-`tool` request has no pattern at all — the

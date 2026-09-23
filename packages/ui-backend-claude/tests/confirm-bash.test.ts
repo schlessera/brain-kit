@@ -13,10 +13,12 @@
  * day, and then it protects nothing.
  */
 import { describe, expect, test } from "bun:test";
+import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 
 import { createClaudeBackend, DEFAULT_CONFIRM_BASH_PATTERNS } from "../src/backend.js";
+import { MUTATING_TOOL_MATCHER } from "../src/tool-policy.js";
 
-const patterns = DEFAULT_CONFIRM_BASH_PATTERNS.map((p) => new RegExp(p, "i"));
+const patterns = DEFAULT_CONFIRM_BASH_PATTERNS.map((p) => new RegExp(p.pattern, "i"));
 const confirms = (command: string) => patterns.some((re) => re.test(command));
 
 describe("commands that must raise a card", () => {
@@ -88,8 +90,8 @@ describe("configurability", () => {
     expect(DEFAULT_CONFIRM_BASH_PATTERNS.length).toBeGreaterThan(0);
     // Every shipped source must compile — one that does not would be silently
     // skipped at runtime, i.e. a pattern that never fires.
-    for (const source of DEFAULT_CONFIRM_BASH_PATTERNS) {
-      expect(() => new RegExp(source, "i")).not.toThrow();
+    for (const { pattern } of DEFAULT_CONFIRM_BASH_PATTERNS) {
+      expect(() => new RegExp(pattern, "i")).not.toThrow();
     }
   });
 
@@ -117,5 +119,78 @@ describe("unparseable patterns", () => {
     expect(calls[0].message).toContain("confirmBashPatterns");
     expect(calls[0].attrs?.source).toBe("(unclosed");
     expect(calls[0].attrs?.error).toBeString();
+  });
+});
+
+describe("what the card says (#112)", () => {
+  /** The description of the confirmation one command raises, under `patterns`. */
+  async function descriptionFor(
+    command: string,
+    confirmBashPatterns?: Parameters<typeof createClaudeBackend>[0]["confirmBashPatterns"]
+  ): Promise<string | undefined> {
+    let description: string | undefined;
+    const queryFn = ((params: { options?: Options }) =>
+      (async function* () {
+        yield { type: "system", subtype: "init", session_id: "card" };
+        const group = params.options!.hooks!.PreToolUse!.find(
+          (entry) => entry.matcher === MUTATING_TOOL_MATCHER
+        )!;
+        await group.hooks[0]!(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "Bash",
+            tool_input: { command },
+            tool_use_id: "card-1",
+          } as never,
+          "card-1",
+          { signal: new AbortController().signal }
+        );
+        yield {
+          type: "result",
+          subtype: "success",
+          session_id: "card",
+          total_cost_usd: 0,
+          duration_ms: 1,
+          num_turns: 1,
+        };
+      })()) as unknown as typeof query;
+    const backend = createClaudeBackend({
+      brainPath: "/tmp",
+      queryFn,
+      log: () => {},
+      ...(confirmBashPatterns ? { confirmBashPatterns } : {}),
+    });
+    await backend.startTurn({
+      prompt: "card",
+      signal: new AbortController().signal,
+      bridge: {
+        emit: () => {},
+        requestPermission: async (request) => {
+          description = request.description;
+          return { behavior: "deny", message: "No." };
+        },
+      },
+    });
+    return description;
+  }
+
+  test("a shipped pattern's card names its effect", async () => {
+    expect(await descriptionFor("git push --force origin main")).toBe(
+      "force-push, overwriting history on the remote"
+    );
+  });
+
+  test("a deployment's bare-string pattern still confirms, with the old sentence", async () => {
+    expect(await descriptionFor("deploy prod", [String.raw`\bdeploy\s+prod\b`])).toBe(
+      "This command matches a pattern configured to require confirmation."
+    );
+  });
+
+  test("a deployment's pattern in the new form names its own effect", async () => {
+    expect(
+      await descriptionFor("deploy prod", [
+        { pattern: String.raw`\bdeploy\s+prod\b`, effect: "ship this build to production" },
+      ])
+    ).toBe("ship this build to production");
   });
 });

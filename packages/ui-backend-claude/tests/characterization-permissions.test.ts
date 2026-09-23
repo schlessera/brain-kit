@@ -181,8 +181,9 @@ describe("createClaudeBackend permission characterization", () => {
         toolUseId: "bash-confirm",
         toolName: "Bash",
         input: { command: "git reset --hard HEAD~1" },
-        description:
-          "This command matches a pattern configured to require confirmation.",
+        // The matched pattern's effect, in words (#112), not a generic
+        // "a pattern matched".
+        description: "discard every uncommitted change in the working tree",
         kind: "command",
       },
     ]);

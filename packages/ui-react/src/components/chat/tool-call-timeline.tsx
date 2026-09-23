@@ -14,7 +14,7 @@ import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
 import { offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
+import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
 import { useShallow } from "zustand/react/shallow";
@@ -311,6 +311,11 @@ function ToolCallEntry({
             >
               {/* Tool input */}
               {Input && <Input tool={toolCall} />}
+
+              {/* What a confirmed command will do, in words (#112) */}
+              {isPending && effectOf(toolCall) && (
+                <p className="text-[11px] text-muted-foreground">{effectOf(toolCall)}</p>
+              )}
 
               {/* Risk hints — advisory only, never blocks approval */}
               {isPending && (

@@ -1,5 +1,6 @@
 import type { BillingMode, PricingRoute, ProviderInfo } from "../protocol.js";
 import type { AgentBackend } from "./backend.js";
+import type { ConfirmPatternSource } from "./confirm-patterns.js";
 
 /** @experimental Minimal logging boundary shared by backend modules and hosts. */
 export type BackendLogFn = (
@@ -89,7 +90,7 @@ export interface BackendModuleContext {
   /** Resolved host configuration. Backend modules own the keys they consume. */
   config: Readonly<Record<string, unknown>>;
   profiles: readonly BackendProfileDeclaration[];
-  confirmBashPatterns: readonly string[] | null;
+  confirmBashPatterns: readonly ConfirmPatternSource[] | null;
   settings: Partial<BackendSettingsReaders>;
   log?: BackendLogFn;
   modelSource?: BackendModelSource | null;

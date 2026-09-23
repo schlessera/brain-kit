@@ -7,6 +7,7 @@ import {
   ARCHIVING_UPDATE_REASON,
   archivesDocument,
   bashCommand,
+  type CompiledConfirmPattern,
 } from "./confirm-patterns.js";
 
 /** @experimental */
@@ -23,7 +24,8 @@ export interface ToolPermissionDecisionInput {
   updateToolName?: string;
   input: unknown;
   allowedTools: ReadonlySet<string>;
-  confirmPatterns: readonly RegExp[];
+  /** Plain RegExps work; one compiled with an effect names it (#112). */
+  confirmPatterns: readonly CompiledConfirmPattern[];
 }
 
 /** @experimental */
@@ -58,10 +60,15 @@ export function decideToolPermission(
   }
   if (toolName === shellToolName && confirmPatterns.length > 0) {
     const command = bashCommand(input);
-    if (command && confirmPatterns.some((re) => re.test(command))) {
+    const matched = command ? confirmPatterns.find((re) => re.test(command)) : undefined;
+    if (matched) {
+      // The first matching pattern's effect, so the card says what will
+      // happen. A deployment's bare-string pattern has none, and says only
+      // that a rule matched.
       return {
         kind: "command",
-        reason: "This command matches a pattern configured to require confirmation.",
+        reason:
+          matched.effect ?? "This command matches a pattern configured to require confirmation.",
       };
     }
   }

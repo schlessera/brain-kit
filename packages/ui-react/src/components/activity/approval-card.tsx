@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { offersAlwaysAllow, type ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
-import { getToolLabel, getToolSummary } from "../chat/tool-views.js";
+import { effectOf, getToolLabel, getToolSummary } from "../chat/tool-views.js";
 import { KeyCap } from "../layout/key-cap.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 
@@ -88,6 +88,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
         title={summary ? `${label} · ${summary}` : label}
         rightMeta="blocks a run"
         rightMetaTone="red"
+        {...(effectOf(p.tool) ? { body: effectOf(p.tool) } : {})}
         footMeta={p.origin}
         footDot="amber"
         footPulse
