@@ -455,8 +455,9 @@ raises more than one approval. The payload additionally carries `channel`
 (`card` | `voice`, additive in 0.37.0) when the `tool_approval` / `tool_denial`
 frame named the channel the decision was made on; absent means the client did
 not say, and such a decision is stored exactly as before. A `tool_approval`
-attributed to `voice` is refused — the request stays pending and nothing is
-recorded — because the voice channel may deny and never grant
+attributed to `voice` is refused — the request stays pending, nothing is
+recorded, and the `tool_approval_request` is sent again to the connection that
+replied, so its next answer is correlated — because the voice channel may deny and never grant
 ([decisions/voice-permission.md](decisions/voice-permission.md)), so a
 voice-attributed grant in the record is by construction a bug.
 An answered `ask_user` interaction appends an `ask_user_response` event carrying

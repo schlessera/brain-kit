@@ -117,12 +117,17 @@ export function eventTypeLabel(eventType: string): string {
   return eventType.replace(/_/g, " ");
 }
 
-const DECISION_TEXT: Record<string, string> = {
-  allow: "Allowed",
-  always_allow: "Always allowed",
-  deny: "Denied",
-};
-const CHANNEL_TEXT: Record<string, string> = { card: "on the card", voice: "by voice" };
+// Maps, not object literals: a stored payload is untrusted, and indexing a
+// literal with "toString" or "__proto__" finds Object.prototype, not a miss.
+const DECISION_TEXT = new Map([
+  ["allow", "Allowed"],
+  ["always_allow", "Always allowed"],
+  ["deny", "Denied"],
+]);
+const CHANNEL_TEXT = new Map([
+  ["card", "on the card"],
+  ["voice", "by voice"],
+]);
 
 /**
  * An `approval_decision` event as a sentence: what was decided and, when the
@@ -136,9 +141,9 @@ export function readApprovalDecision(
 ): { text: string; facts: string | null } | null {
   if (!payload || typeof payload !== "object") return null;
   const p = payload as Record<string, unknown>;
-  const decision = typeof p.decision === "string" ? DECISION_TEXT[p.decision] : undefined;
+  const decision = typeof p.decision === "string" ? DECISION_TEXT.get(p.decision) : undefined;
   if (!decision) return null;
-  const channel = typeof p.channel === "string" ? CHANNEL_TEXT[p.channel] : undefined;
+  const channel = typeof p.channel === "string" ? CHANNEL_TEXT.get(p.channel) : undefined;
   if (p.channel !== undefined && !channel) return null;
   const facts = [
     typeof p.principalId === "string" ? `principal ${p.principalId}` : null,

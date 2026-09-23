@@ -44,6 +44,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import { RunDetail } from "../../src/components/activity/activity-run-detail.js";
+import { SpanEventBlock } from "../../src/components/activity/span-bits.js";
 import { DigestCard } from "../../src/components/activity/digest-card.js";
 import { ToolPermissionsSection } from "../../src/components/settings/tool-permissions.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
@@ -5299,6 +5300,16 @@ describe("approval decisions in the run detail (#113)", () => {
       view?.unmount();
       release();
       root.dispose();
+    }
+  });
+
+  test("a decision it cannot read falls back to the raw record, never a sentence", () => {
+    for (const payload of [{ decision: "__proto__" }, { decision: "allow", channel: "toString" }, { decision: "allow", channel: "telepathy" }]) {
+      const view = render(<SpanEventBlock event={{ spanId: "t1", eventIndex: 0, ts: 1, eventType: "approval_decision", payload }} />);
+      expect(view.queryByTestId("approval-decision") === null).toBe(true);
+      expect(view.container.textContent).toContain("approval decision");
+      expect(view.container.textContent).toContain(JSON.stringify(payload, null, 2));
+      view.unmount();
     }
   });
 

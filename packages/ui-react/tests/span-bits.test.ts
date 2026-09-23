@@ -224,6 +224,10 @@ describe("readApprovalDecision (#113)", () => {
       text: "Denied by voice",
       facts: "principal p",
     });
+    expect(readApprovalDecision({ decision: "always_allow", channel: "card" })).toEqual({
+      text: "Always allowed on the card",
+      facts: null,
+    });
     expect(readApprovalDecision({ decision: "allow", channel: "card", requestKind: "command" })).toEqual({
       text: "Allowed on the card",
       facts: "command confirmation",
@@ -241,5 +245,10 @@ describe("readApprovalDecision (#113)", () => {
     expect(readApprovalDecision({ decision: "maybe" })).toBeNull();
     // An unknown channel is not silently dropped into "Allowed".
     expect(readApprovalDecision({ decision: "allow", channel: "telepathy" })).toBeNull();
+    // Prototype names are unknown values, not lookups that find a function.
+    for (const key of ["toString", "__proto__", "constructor", "hasOwnProperty"]) {
+      expect(readApprovalDecision({ decision: key })).toBeNull();
+      expect(readApprovalDecision({ decision: "allow", channel: key })).toBeNull();
+    }
   });
 });
