@@ -153,6 +153,20 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
         "jobs_found": 0,
         "jobs_new": 0,
         "jobs_updated": 0,
+        // Detail-page enrichment (#36), added in 0.37.0 alongside `status`.
+        // Counts of ROWS, never a claim about whether the board was read, so
+        // none of them moves `status`. A non-zero `enrichment_failed` or
+        // `enrichment_truncated` also has a line in `errors`;
+        // `jobs_enriched` does not, since it is not a finding.
+        //   jobs_enriched         rows with no description that got one from
+        //                         their own detail page this run
+        //   enrichment_failed     detail pages fetched that failed or carried
+        //                         no description; those rows are still stored
+        //   enrichment_truncated  rows left undescribed because the run's cap
+        //                         on detail pages was reached
+        "jobs_enriched": 0,
+        "enrichment_failed": 0,
+        "enrichment_truncated": 0,
         "errors": ["Remote in Europe https://remoteineurope.com/: parsed 0 jobs from a page that does not say it is empty — selector drift, a challenge page, or markup that is not this board's"],
         "duration_ms": 4213
       }
@@ -164,6 +178,12 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
   }
 }
 ```
+
+The three enrichment counts are additive in the same way `status` was: nothing
+earlier was renamed or retyped. A row the listing already described, or one an
+earlier run stored with a description, is not fetched and appears in none of
+them. A `--dry-run` fetches no detail pages, so they are all 0 there. A row
+whose adapter never returned carries 0 in all three.
 
 Every selected board gets a row, including one whose adapter never returned: it
 appears with `status: "not_run"` rather than dropping out of `sources`, because

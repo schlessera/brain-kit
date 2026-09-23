@@ -15,6 +15,8 @@ export class DiceAdapter extends BrowserAdapter {
   readonly source = "dice" as const;
   readonly name = "Dice";
   readonly tier = 2 as const;
+  /** Its job pages, which detail-page enrichment may follow (#36). */
+  override readonly detailHosts = ["dice.com"];
   protected readonly readySelector = 'a[aria-label*="View Details for"]';
 
   constructor(private readonly configuredQueries?: string[]) {

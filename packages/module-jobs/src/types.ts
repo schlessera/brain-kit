@@ -1,4 +1,4 @@
-import type { ScrapeContext } from "@schlessera/brain-scrape";
+import type { FetchOptions, ScrapeContext } from "@schlessera/brain-scrape";
 
 // All known source identifiers (adapters exist for all)
 export const ALL_SOURCES = [
@@ -148,6 +148,18 @@ export interface ScraperAdapter {
   readonly needsProxy: boolean;
   /** Receive the run's shared scrape context. Called before `scrape()`. */
   bind(ctx: ScrapeContext): this;
+  /**
+   * Fetch options for this board's detail pages (#36), when its host asks for
+   * more than the enrichment default — a `Crawl-delay` the site states but
+   * robots.txt does not carry, say.
+   */
+  readonly detailFetchOptions?: FetchOptions;
+  /**
+   * The hosts this board's own job pages live on (#36). Enrichment follows a
+   * row's `source_url` only on these; a board that names none is not
+   * enriched.
+   */
+  readonly detailHosts?: readonly string[];
   scrape(
     opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }
   ): Promise<ScrapeResult>;

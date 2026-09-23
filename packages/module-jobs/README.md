@@ -19,6 +19,7 @@ export default defineConfig({
       boards: ["remoteok", "weworkremotely", "workingnomads"],
       // queries: ["staff engineer", "platform engineer"],  // for query-driven boards
       // dbPath: "jobs.db",                                   // default: <root>/jobs.db
+      // enrichment: { concurrency: 4, maxDetailPages: 100 }, // detail pages; 0 = off
     },
   },
 });
@@ -168,6 +169,37 @@ The same judgement is recorded in the jobs database: `ok` and `empty` are logged
 as `completed`, `unparseable` and `not_run` as `failed`, so a board that could
 not be read stops advancing its cursor. The exact `--json` shape is in
 [the integration contract](../../docs/integration-contract.md).
+
+## Descriptions and detail pages
+
+Scoring reads a job's description, and five boards publish none on their
+listings: `nodesk`, `simplyhired`, `dice`, `remotelyde` and `jobgether`. For
+their rows, a scrape follows the job to its own page on the board and takes the
+description from the `JobPosting` structured data there. It fetches only rows
+that have no description yet, so a feed's description is never replaced and a
+row described by an earlier run is not fetched again. `builtin` reads its
+descriptions off its own listing's structured data and needs no detail page.
+
+Only the board's own page for a job is followed: its `source_url`, and only on
+the hosts the adapter names for its job pages, never an apply link on another
+site. Every detail request goes through the same client and `--proxy` as the
+listings, so robots.txt and per-host pacing apply to it: 2 s between detail
+requests to one host, more where a board asks. Retries and redirects are not
+paced or checked separately yet (#259). A row whose
+description arrives on a later run is scored again, and an automatic
+queue or dismiss decision on it is reconsidered. A decision you made is kept.
+The `enrichment` config bounds it:
+
+- `concurrency` (default 4): detail requests in flight at once, across every
+  board in the run.
+- `maxDetailPages` (default 100): detail pages one run fetches at most, dealt
+  out across boards in turn. `0` turns enrichment off.
+
+Nothing is dropped silently. Each board's row in the scrape report counts
+`jobs_enriched`, `enrichment_failed` (a page that failed, or carried no
+description) and `enrichment_truncated` (rows the cap left out). Failures and
+truncation also get a line in the board's `errors`. A row whose detail page fails is still stored, without a
+description.
 
 ## Boards & sources
 

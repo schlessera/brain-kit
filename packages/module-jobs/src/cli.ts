@@ -210,6 +210,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     verbose,
     dryRun,
     rates: jctx.config.rates,
+    enrichment: jctx.config.enrichment,
   });
 
   if (jctx.json) {
@@ -225,8 +226,15 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
     const state = s.status === "ok" ? "" : ` [${s.status}]`;
     const errors =
       s.errors.length > 0 ? ` (${s.errors.length} error${s.errors.length === 1 ? "" : "s"})` : "";
+    // Enrichment is only mentioned when it did something, or failed to.
+    const detail = [
+      s.jobs_enriched > 0 ? `${s.jobs_enriched} described from detail pages` : "",
+      s.enrichment_failed > 0 ? `${s.enrichment_failed} detail pages failed` : "",
+      s.enrichment_truncated > 0 ? `${s.enrichment_truncated} left undescribed by the cap` : "",
+    ].filter(Boolean);
+    const enrichment = detail.length > 0 ? `; ${detail.join(", ")}` : "";
     console.log(
-      `  ${s.source}: ${s.jobs_found} found, ${s.jobs_new} new, ${s.jobs_updated} updated (${s.duration_ms}ms)${state}${errors}`
+      `  ${s.source}: ${s.jobs_found} found, ${s.jobs_new} new, ${s.jobs_updated} updated${enrichment} (${s.duration_ms}ms)${state}${errors}`
     );
   }
   if (report.dedup.duplicates_found > 0) console.log(`\nDedup: ${report.dedup.duplicates_found} duplicates found`);

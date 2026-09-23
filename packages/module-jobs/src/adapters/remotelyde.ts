@@ -43,6 +43,8 @@ export class RemotelyDeAdapter extends BaseAdapter {
   readonly source = "remotelyde" as const;
   readonly name = "Remotely.de";
   readonly tier = 2 as const;
+  /** Its job pages, which detail-page enrichment may follow (#36). */
+  override readonly detailHosts = ["remotely.de"];
 
   async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
     const pages = this.ledger();

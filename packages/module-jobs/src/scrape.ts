@@ -15,6 +15,7 @@ import { resolveEnv } from "./config/env.js";
 import type { RawJob, ScrapeResult, Source, SourceStatus } from "./types.js";
 import { SOURCES } from "./types.js";
 import { eurRates } from "./salary.js";
+import { createEnricher, type EnrichmentConfig, type EnrichmentStats } from "./enrich.js";
 
 // Adapter registry
 import { RemoteOKAdapter } from "./adapters/remoteok.js";
@@ -63,6 +64,20 @@ export interface ScrapeReport {
     jobs_found: number;
     jobs_new: number;
     jobs_updated: number;
+    /**
+     * Rows that arrived with no description and got one from their own
+     * detail page this run (#36). A row the listing already described, or
+     * one stored with a description by an earlier run, is not fetched and is
+     * not counted.
+     */
+    jobs_enriched: number;
+    /** Detail pages fetched that failed, or that carried no description. */
+    enrichment_failed: number;
+    /**
+     * Rows left without a description because the run's cap on detail pages
+     * was reached before their turn. Never silent: `errors` says so too.
+     */
+    enrichment_truncated: number;
     errors: string[];
     duration_ms: number;
   }>;
@@ -86,6 +101,8 @@ export async function runScrape(opts: {
   dryRun?: boolean;
   /** Currency → EUR overrides from module config; see salary.ts. */
   rates?: Record<string, number>;
+  /** Detail-page enrichment bounds; see enrich.ts. */
+  enrichment?: Partial<EnrichmentConfig>;
 }): Promise<ScrapeReport> {
   const db = openDatabase(opts.dbPath);
   const sources = opts.sources ?? [...SOURCES];
@@ -131,6 +148,14 @@ export async function runScrape(opts: {
     });
   }
 
+  // One enricher for the whole run, so the concurrency limit and the cap on
+  // detail pages hold across every board rather than per board.
+  const enricher = createEnricher(http, opts.enrichment);
+  const described = db.prepare(
+    "SELECT 1 FROM jobs WHERE source = ? AND source_id = ? AND description_text IS NOT NULL AND description_text != ''"
+  );
+  const noEnrichment: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
+
   const ctx: ScrapeContext = {
     http,
     browser,
@@ -158,7 +183,7 @@ export async function runScrape(opts: {
           verbose: opts.verbose,
           dryRun: opts.dryRun,
         });
-        return { source, result, duration_ms: Date.now() - start, lastCursor };
+        return { source, adapter, result, duration_ms: Date.now() - start, lastCursor };
       } catch (err) {
         // The adapter threw before it could report anything, so nothing
         // readable arrived: `not_run`, with the throw as the reason.
@@ -171,6 +196,7 @@ export async function runScrape(opts: {
             cursor: undefined,
             status: "not_run",
           } as ScrapeResult,
+          adapter,
           duration_ms: Date.now() - start,
           lastCursor,
         };
@@ -180,7 +206,29 @@ export async function runScrape(opts: {
 
   await browser?.close();
 
-  // 2. Ingest results
+  // 2. Enrich every board's undescribed rows at once, after every listing is
+  // in: the cap is dealt out across boards rather than spent by whichever
+  // finished first. A dry run writes nothing, so it fetches no detail pages
+  // for rows it would not store.
+  const fulfilled = results.flatMap((settled) => (settled.status === "fulfilled" ? [settled.value] : []));
+  const enrichments = new Map<(typeof fulfilled)[number], EnrichmentStats>();
+  if (!opts.dryRun) {
+    const stats = await enricher.enrichAll(
+      fulfilled.map(({ source, adapter, result }) => ({
+        source,
+        name: adapter.name,
+        jobs: result.jobs,
+        isDescribed: (job) => described.get(job.source, job.source_id) !== null,
+        // The run's proxy, where one was asked for, reaches the detail pages
+        // the same way it reaches the listing.
+        fetchOptions: { ...(opts.proxy ? { proxy: opts.proxy } : {}), ...adapter.detailFetchOptions },
+        detailHosts: adapter.detailHosts,
+      }))
+    );
+    fulfilled.forEach((value, index) => enrichments.set(value, stats[index]));
+  }
+
+  // 3. Ingest results
   for (const [index, settled] of results.entries()) {
     if (settled.status === "rejected") {
       // A board whose entry is missing from `sources` reads as one that was
@@ -194,6 +242,9 @@ export async function runScrape(opts: {
         jobs_found: 0,
         jobs_new: 0,
         jobs_updated: 0,
+        jobs_enriched: 0,
+        enrichment_failed: 0,
+        enrichment_truncated: 0,
         errors: [`Adapter failed: ${settled.reason}`],
         duration_ms: 0,
       });
@@ -201,6 +252,11 @@ export async function runScrape(opts: {
     }
 
     const { source, result, duration_ms, lastCursor } = settled.value;
+    const enrichment = enrichments.get(settled.value) ?? noEnrichment;
+    // Enrichment findings are about the rows, not about whether the listing
+    // could be read: they are reported alongside the board's errors but do
+    // not hold back its cursor or its status (see `PageLedger.note`).
+    const errors = [...result.errors, ...enrichment.errors];
     const ingestStats = opts.dryRun
       ? { new: result.jobs.length, updated: 0 }
       : ingestJobs(db, result.jobs, opts.verbose, opts.rates);
@@ -222,7 +278,7 @@ export async function runScrape(opts: {
         jobs_found: result.jobs.length,
         jobs_new: ingestStats.new,
         jobs_updated: ingestStats.updated,
-        error: result.errors.length > 0 ? result.errors.join("; ") : undefined,
+        error: errors.length > 0 ? errors.join("; ") : undefined,
         cursor: cursorToPersist,
       });
     }
@@ -233,19 +289,22 @@ export async function runScrape(opts: {
       jobs_found: result.jobs.length,
       jobs_new: ingestStats.new,
       jobs_updated: ingestStats.updated,
-      errors: result.errors,
+      jobs_enriched: enrichment.enriched,
+      enrichment_failed: enrichment.failed,
+      enrichment_truncated: enrichment.truncated,
+      errors,
       duration_ms,
     });
 
     report.total_new += ingestStats.new;
-    report.total_errors.push(...result.errors);
+    report.total_errors.push(...errors);
   }
 
   if (!opts.dryRun) {
-    // 3. Dedup pass
+    // 4. Dedup pass
     report.dedup = runDedup(db, opts.verbose);
 
-    // 4. Score new jobs + auto-classify (only when criteria are available)
+    // 5. Score new jobs + auto-classify (only when criteria are available)
     if (opts.scoringConfig) {
       report.scored = scoreNewJobs(db, opts.scoringConfig, opts.verbose);
       autoClassify(db, opts.scoringConfig);
@@ -314,6 +373,20 @@ export function ingestJobs(
     "INSERT INTO jobs_fts(rowid, title, company, description_text, tags) VALUES (?, ?, ?, ?, ?)"
   );
   const deleteFts = db.prepare("DELETE FROM jobs_fts WHERE rowid = ?");
+  // A stored row that gains a description it did not have (#36: its detail
+  // page was capped or failed on an earlier run) was scored on its title and
+  // tags alone, and scoring only ever visits unscored rows. Clear the score so
+  // this run's scoring pass sees the description, and hand an AUTOMATIC
+  // queue/dismiss decision back to `autoClassify`. A decision a person made
+  // carries `reviewed_at`, and is left alone.
+  const rescoreDescribed = db.prepare(
+    `UPDATE jobs SET scored_at = NULL,
+       review_status = CASE
+         WHEN reviewed_at IS NULL AND review_status IN ('queued', 'dismissed') THEN 'pending'
+         ELSE review_status
+       END
+     WHERE id = ?`
+  );
   // A row whose fingerprint moved has left one dedup group and may have joined
   // another. It is no longer a duplicate of anything; nothing that matched its
   // OLD fingerprint is a duplicate of it; and the group it joins must be
@@ -425,6 +498,9 @@ export function ingestJobs(
         // touched by the conflict clause, so the existing value applies).
         if (contentChanged) {
           insertFts.run(existing.id, job.title, company, effectiveDesc, existing.tags);
+        }
+        if (!existing.description_text?.trim() && effectiveDesc?.trim()) {
+          rescoreDescribed.run(existing.id);
         }
         if (existing.fingerprint !== fingerprint) {
           releaseRow.run(existing.id);

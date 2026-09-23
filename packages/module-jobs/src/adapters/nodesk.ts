@@ -13,6 +13,8 @@ export class NodeskAdapter extends BrowserAdapter {
   readonly source = "nodesk" as const;
   readonly name = "NoDesk";
   readonly tier = 2 as const;
+  /** Its job pages, which detail-page enrichment may follow (#36). */
+  override readonly detailHosts = ["nodesk.co"];
   protected readonly readySelector = 'a[href^="/remote-jobs/"]';
 
   protected urls(): string[] {

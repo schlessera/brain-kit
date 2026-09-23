@@ -121,7 +121,7 @@ how often each one bites.
   `src/types.ts` records that it needs the site's permission. Fixture:
   `remotive/robots.txt`.
 - **`builtin`** — the browser path works (August's "parser matched nothing" is
-  closed), but the company is never extracted. `src/adapters/builtin.ts:44`
+  closed), but the company is never extracted. `src/adapters/builtin.ts:86`
   calls `link.closest('[class*="job"], [class*="card"], …')` and the anchor's
   own class is `card-alias-after-overlay`, so `closest()` returns the anchor
   itself and the card text it scans is just the title. The company has a stable

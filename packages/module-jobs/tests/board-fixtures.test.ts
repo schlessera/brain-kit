@@ -39,7 +39,8 @@ import { RemotiveAdapter } from "../src/adapters/remotive";
 import type { BaseAdapter } from "../src/adapters/base";
 import { openDatabase } from "../src/db";
 import { runDedup } from "../src/dedup";
-import { ingestJobs } from "../src/scrape";
+import { createEnricher } from "../src/enrich";
+import { getAdapter, ingestJobs } from "../src/scrape";
 import { ALL_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
@@ -537,7 +538,7 @@ describe("builtin's rendered card", () => {
     const $ = parseHtml(fixture("builtin", "rendered-card.html"));
     const link = $('a[href*="/job/"]').first();
     expect(link.length).toBe(1);
-    // src/adapters/builtin.ts:44 asks for closest('[class*="job"], [class*="card"], …'),
+    // src/adapters/builtin.ts:86 asks for closest('[class*="job"], [class*="card"], …'),
     // and Element.closest() starts at the element itself.
     expect(link.attr("class")).toContain("card");
     // Meanwhile the company is sitting behind a stable selector, contrary to
@@ -717,5 +718,108 @@ describe("dice's rendered card", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("each board's own rows, followed to their detail page, are stored with a description (#36)", () => {
+  const detail = (name: string) => readFileSync(join(import.meta.dir, "fixtures", "jsonld", name), "utf-8");
+
+  /**
+   * Enrich the rows an adapter produced, answering only the board's own host
+   * with its captured detail page, and store them. What comes back is what
+   * the jobs table holds.
+   */
+  async function enrichAndStore(rows: RawJob[], source: RawJob["source"], detailHtml: string | null, host: string) {
+    const detailHosts = getAdapter(source).detailHosts ?? [];
+    const requests: string[] = [];
+    const http = {
+      async getPage(url: string): Promise<FetchedPage> {
+        requests.push(url);
+        if (detailHtml === null) throw new Error(`${source} must not fetch a detail page`);
+        if (new URL(url).hostname !== host) throw new Error(`followed off the board: ${url}`);
+        return { body: detailHtml, url };
+      },
+    };
+    const stats = await createEnricher(http).enrich({ source, name: source, jobs: rows, detailHosts });
+    // Each row's own posting page on the board: not the board's home page,
+    // not an apply link, and not one page for all of them.
+    if (detailHtml !== null) {
+      expect([...requests].sort()).toEqual([...new Set(rows.map((row) => row.source_url!))].sort());
+      for (const url of requests) expect(new URL(url).pathname.length).toBeGreaterThan(5);
+    }
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, rows);
+      const stored = db.query("SELECT description_text FROM jobs").all() as Array<{ description_text: string | null }>;
+      return { stats, requests, stored };
+    } finally {
+      db.close();
+    }
+  }
+
+  const expectAllDescribed = (stored: Array<{ description_text: string | null }>) => {
+    expect(stored.length).toBeGreaterThan(0);
+    for (const row of stored) expect(row.description_text?.length ?? 0).toBeGreaterThan(50);
+  };
+
+  test("simplyhired", async () => {
+    const { jobs } = await scrapeAgainst(new SimplyHiredAdapter(["backend engineer"]), fixture("simplyhired", "listing-card.html"));
+    const { stats, requests, stored } = await enrichAndStore(jobs, "simplyhired", detail("simplyhired-detail.html"), "www.simplyhired.com");
+    expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
+    expect(requests).toHaveLength(jobs.length);
+    expectAllDescribed(stored);
+  });
+
+  test("remotelyde, row cards (no teaser)", async () => {
+    const { jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing-row-cards.html"));
+    expect(jobs.every((row) => !row.description)).toBe(true);
+    const { stats, stored } = await enrichAndStore(jobs, "remotelyde", detail("remotelyde-detail.html"), "www.remotely.de");
+    expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
+    expectAllDescribed(stored);
+  });
+
+  test("remotelyde, featured card: its teaser is the listing's description and is kept", async () => {
+    // The featured layout carries a five-line teaser. That is a description
+    // the listing gave, so the row is not fetched: enrichment fills what is
+    // missing and never replaces what a listing said.
+    const { jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing.html"));
+    const { stats, requests, stored } = await enrichAndStore(jobs, "remotelyde", null, "www.remotely.de");
+    expect(requests).toEqual([]);
+    expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
+    expect(stored[0].description_text).toContain("Audio Transcriber");
+  });
+
+  test("jobgether", async () => {
+    const { jobs } = await scrapeAgainst(new JobgetherAdapter(), fixture("jobgether", "api-v1-jobs.json"));
+    const { stats, stored } = await enrichAndStore(jobs, "jobgether", detail("jobgether-offer.html"), "jobgether.com");
+    expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
+    expectAllDescribed(stored);
+  });
+
+  test("dice", async () => {
+    const { ctx } = browserContextServing(fixture("dice", "rendered-card.html"));
+    const { jobs } = await new DiceAdapter().bind(ctx).scrape({ incremental: false, queries: ["software engineer"] });
+    const { stats, stored } = await enrichAndStore(jobs, "dice", detail("dice-detail.html"), "www.dice.com");
+    expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
+    expectAllDescribed(stored);
+  });
+
+  test("nodesk", async () => {
+    const { ctx } = browserContextServing(fixture("nodesk", "rendered-card.html"));
+    const { jobs } = await new NodeskAdapter().bind(ctx).scrape({ incremental: false });
+    const { stats, stored } = await enrichAndStore(jobs, "nodesk", detail("nodesk-detail.html"), "nodesk.co");
+    expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
+    expectAllDescribed(stored);
+  });
+
+  test("builtin, from its own listing and with no detail request", async () => {
+    const { ctx } = browserContextServing(
+      fixture("builtin", "rendered-card.html") + fixture("builtin", "listing-jsonld.html")
+    );
+    const { jobs } = await new BuiltInAdapter().bind(ctx).scrape({ incremental: false });
+    const { stats, requests, stored } = await enrichAndStore(jobs, "builtin", null, "builtin.com");
+    expect(requests).toEqual([]);
+    expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
+    expectAllDescribed(stored);
   });
 });
