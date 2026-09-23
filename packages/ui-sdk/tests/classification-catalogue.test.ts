@@ -161,6 +161,19 @@ describe("the catalogue", () => {
     expect(Object.keys(questionsFor(wide!))).toEqual(["c0.shape", "c0.criteria_first"]);
   });
 
+  test("at the bound, a comparison is drawn and its recommended column marked", () => {
+    const [widest] = detectCandidates(wideTable(4));
+    const result = transformCandidate(widest!, {
+      "c0.shape": choice("comparison", 0.9),
+      "c0.recommended": choice("Ship 4", 0.9),
+      "c0.criteria_first": noul(1),
+    });
+    expect(result?.block).toMatchObject({
+      kind: "comparison",
+      columns: [{ label: "Ship 1" }, { label: "Ship 2" }, { label: "Ship 3" }, { label: "Ship 4", recommended: true }],
+    });
+  });
+
   test("above the bound, a comparison stays markdown and a data table is drawn with no column recommended", () => {
     const [wide] = detectCandidates(wideTable(5));
     // A recommendation the classifier was never asked for is not honoured
