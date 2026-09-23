@@ -256,7 +256,11 @@ export function createActivityRoutes(deps: {
 
     .get("/activity/rollups", (c) => {
       try {
-        const days = Math.min(Number(c.req.query("days") ?? 7) || 7, 90);
+        // Whole days, clamped as on /activity/stats — junk and zero fall to
+        // the default, and the floor keeps a negative from pointing the
+        // window at the future.
+        const raw = Math.trunc(Number(c.req.query("days")));
+        const days = Math.min(Math.max(raw || 7, 1), 90);
         const since = Date.now() - days * 24 * 60 * 60 * 1000;
         // The day boundary is the USER'S day, not UTC's — cron runs in UTC
         // but nobody reviews spend in it. Configurable server-side.
