@@ -256,6 +256,27 @@ describe("the per-run cap is reported when it truncates", () => {
     expect(second).toMatchObject({ enriched: 1, truncated: 1 });
   });
 
+  test("across a run's boards the cap is dealt out in turn, not spent by the first board", async () => {
+    // Measured live: with the cap handed out first come, first served, the
+    // boards whose listings finished first took all of it and dice and
+    // remotely.de got nothing, two runs in a row.
+    const http = stubHttp(() => detailPage("Fetched."));
+    const rows = (source: Source, n: number) =>
+      Array.from({ length: n }, (_, i) => job(source, `https://${source}.example/${i}`));
+
+    const stats = await createEnricher(http, { maxDetailPages: 4 }).enrichAll([
+      { source: "remotelyde", name: "Remotely.de", jobs: rows("remotelyde", 5) },
+      { source: "dice", name: "Dice", jobs: rows("dice", 1) },
+      { source: "nodesk", name: "NoDesk", jobs: rows("nodesk", 3) },
+    ]);
+
+    expect(stats.map(({ enriched, truncated }) => ({ enriched, truncated }))).toEqual([
+      { enriched: 2, truncated: 3 },
+      { enriched: 1, truncated: 0 },
+      { enriched: 1, truncated: 2 },
+    ]);
+  });
+
   test("a cap of 0 turns enrichment off, quietly", async () => {
     // Off is a setting, not a truncation: a run configured not to enrich does
     // not report every row as left behind.
@@ -276,6 +297,23 @@ describe("the per-run cap is reported when it truncates", () => {
 // ---------------------------------------------------------------------------
 
 describe("enrichment failures are counted, and lose nothing", () => {
+  test("a failure is quoted by its cause, not by the error page it carried", async () => {
+    // `ScrapeClient.getPage` puts the whole response body in its error; a
+    // board's 404 page is not something a run report should carry.
+    const http = stubHttp(
+      () => new Error(`HTTP 404 from https://nodesk.example/x: <!doctype html><html>${"x".repeat(5000)}</html>`)
+    );
+    const stats = await createEnricher(http).enrich({
+      source: "nodesk",
+      name: "NoDesk",
+      jobs: [job("nodesk", "https://nodesk.example/x")],
+    });
+
+    expect(stats.errors[0]).toContain("HTTP 404 from https://nodesk.example/x");
+    expect(stats.errors[0]).not.toContain("<!doctype");
+    expect(stats.errors[0].length).toBeLessThan(400);
+  });
+
   test("a detail page that fails or carries no description is a counted failure, not a lost row", async () => {
     const http = stubHttp((url) => {
       if (url.endsWith("/down")) return new Error("HTTP 503");
@@ -296,6 +334,8 @@ describe("enrichment failures are counted, and lose nothing", () => {
     expect(stats.errors[0]).toContain("2 of 3 detail pages");
     expect(stats.errors[0]).toContain("HTTP 503");
     expect(rows.map((row) => row.description ?? null)).toEqual([null, null, "The real description."]);
+    // The quoted cause is the error's first line, not the page it came with.
+    expect(stats.errors[0]).toContain("no JobPosting description");
 
     // And every row is still stored.
     const db = openDatabase(":memory:");

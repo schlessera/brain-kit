@@ -183,18 +183,7 @@ export async function runScrape(opts: {
           verbose: opts.verbose,
           dryRun: opts.dryRun,
         });
-        // A dry run writes nothing, so it fetches no detail pages for rows it
-        // would not store.
-        const enrichment = opts.dryRun
-          ? noEnrichment
-          : await enricher.enrich({
-              source,
-              name: adapter.name,
-              jobs: result.jobs,
-              isDescribed: (job) => described.get(job.source, job.source_id) !== null,
-              fetchOptions: adapter.detailFetchOptions,
-            });
-        return { source, result, enrichment, duration_ms: Date.now() - start, lastCursor };
+        return { source, adapter, result, duration_ms: Date.now() - start, lastCursor };
       } catch (err) {
         // The adapter threw before it could report anything, so nothing
         // readable arrived: `not_run`, with the throw as the reason.
@@ -207,7 +196,7 @@ export async function runScrape(opts: {
             cursor: undefined,
             status: "not_run",
           } as ScrapeResult,
-          enrichment: noEnrichment,
+          adapter,
           duration_ms: Date.now() - start,
           lastCursor,
         };
@@ -217,7 +206,26 @@ export async function runScrape(opts: {
 
   await browser?.close();
 
-  // 2. Ingest results
+  // 2. Enrich every board's undescribed rows at once, after every listing is
+  // in: the cap is dealt out across boards rather than spent by whichever
+  // finished first. A dry run writes nothing, so it fetches no detail pages
+  // for rows it would not store.
+  const fulfilled = results.flatMap((settled) => (settled.status === "fulfilled" ? [settled.value] : []));
+  const enrichments = new Map<(typeof fulfilled)[number], EnrichmentStats>();
+  if (!opts.dryRun) {
+    const stats = await enricher.enrichAll(
+      fulfilled.map(({ source, adapter, result }) => ({
+        source,
+        name: adapter.name,
+        jobs: result.jobs,
+        isDescribed: (job) => described.get(job.source, job.source_id) !== null,
+        fetchOptions: adapter.detailFetchOptions,
+      }))
+    );
+    fulfilled.forEach((value, index) => enrichments.set(value, stats[index]));
+  }
+
+  // 3. Ingest results
   for (const [index, settled] of results.entries()) {
     if (settled.status === "rejected") {
       // A board whose entry is missing from `sources` reads as one that was
@@ -240,7 +248,8 @@ export async function runScrape(opts: {
       continue;
     }
 
-    const { source, result, enrichment, duration_ms, lastCursor } = settled.value;
+    const { source, result, duration_ms, lastCursor } = settled.value;
+    const enrichment = enrichments.get(settled.value) ?? noEnrichment;
     // Enrichment findings are about the rows, not about whether the listing
     // could be read: they are reported alongside the board's errors but do
     // not hold back its cursor or its status (see `PageLedger.note`).
@@ -289,10 +298,10 @@ export async function runScrape(opts: {
   }
 
   if (!opts.dryRun) {
-    // 3. Dedup pass
+    // 4. Dedup pass
     report.dedup = runDedup(db, opts.verbose);
 
-    // 4. Score new jobs + auto-classify (only when criteria are available)
+    // 5. Score new jobs + auto-classify (only when criteria are available)
     if (opts.scoringConfig) {
       report.scored = scoreNewJobs(db, opts.scoringConfig, opts.verbose);
       autoClassify(db, opts.scoringConfig);

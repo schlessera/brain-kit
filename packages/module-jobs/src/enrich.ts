@@ -78,7 +78,29 @@ export interface BoardEnrichment {
 }
 
 export interface Enricher {
+  /** One board. The cap it can spend is whatever the run has left. */
   enrich(board: BoardEnrichment): Promise<EnrichmentStats>;
+  /**
+   * Every board of a run at once, with the cap dealt out round-robin — one
+   * row per board per round — so no board's detail pages are starved by the
+   * boards whose listings happened to finish first. Stats come back in the
+   * order the boards were given.
+   */
+  enrichAll(boards: BoardEnrichment[]): Promise<EnrichmentStats[]>;
+}
+
+/** What one board wants fetched, and what it was granted. */
+interface BoardPlan {
+  board: BoardEnrichment;
+  wanted: Array<{ job: RawJob; url: string }>;
+  granted: number;
+}
+
+/** The part of an error worth quoting: its first line, not a whole HTML body. */
+function brief(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const line = message.split("\n")[0].split(": <")[0];
+  return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
 /** The page a row's description lives on, if it has an absolute one. */
@@ -102,70 +124,100 @@ export function createEnricher(
   const slots = new Semaphore(concurrency);
   let remaining = maxDetailPages;
 
-  return {
-    async enrich(board: BoardEnrichment): Promise<EnrichmentStats> {
-      const stats: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
-      // Off is a setting, not a truncation, so it reports nothing.
-      if (maxDetailPages === 0) return stats;
+  function plan(board: BoardEnrichment): BoardPlan {
+    const wanted: Array<{ job: RawJob; url: string }> = [];
+    for (const job of board.jobs) {
+      if (job.description?.trim()) continue;
+      const url = detailUrl(job);
+      if (!url) continue;
+      if (board.isDescribed?.(job)) continue;
+      wanted.push({ job, url });
+    }
+    return { board, wanted, granted: 0 };
+  }
 
-      const wanted: Array<{ job: RawJob; url: string }> = [];
-      for (const job of board.jobs) {
-        if (job.description?.trim()) continue;
-        const url = detailUrl(job);
-        if (!url) continue;
-        if (board.isDescribed?.(job)) continue;
-        wanted.push({ job, url });
+  /**
+   * Deal the remaining cap out one row per board per round. Claimed up front
+   * and synchronously, so two calls in flight cannot both spend the same
+   * last page.
+   */
+  function allocate(plans: BoardPlan[]): void {
+    let dealt = true;
+    while (remaining > 0 && dealt) {
+      dealt = false;
+      for (const entry of plans) {
+        if (remaining === 0) break;
+        if (entry.granted < entry.wanted.length) {
+          entry.granted++;
+          remaining--;
+          dealt = true;
+        }
       }
+    }
+  }
 
-      // The budget is claimed up front and synchronously, so two boards
-      // enriched at once cannot both spend the same last page.
-      const granted = wanted.slice(0, remaining);
-      remaining -= granted.length;
-      stats.truncated = wanted.length - granted.length;
+  async function fetchPlan({ board, wanted, granted: count }: BoardPlan): Promise<EnrichmentStats> {
+    const stats: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
+    const granted = wanted.slice(0, count);
+    stats.truncated = wanted.length - granted.length;
 
-      const failures: string[] = [];
-      await Promise.all(
-        granted.map(async ({ job, url }) => {
-          const release = await slots.acquire();
-          try {
-            const page = await http.getPage(url, {
-              delayMs: DEFAULT_DETAIL_DELAY_MS,
-              ...board.fetchOptions,
-            });
-            const description = jobsFromJsonLd(page.body, { source: board.source, pageUrl: page.url }).jobs.find(
-              (posting) => posting.description?.trim()
-            )?.description;
-            if (!description) {
-              stats.failed++;
-              failures.push(`${url}: no JobPosting description on the page`);
-              return;
-            }
-            job.description = description;
-            stats.enriched++;
-          } catch (err) {
+    const failures: string[] = [];
+    await Promise.all(
+      granted.map(async ({ job, url }) => {
+        const release = await slots.acquire();
+        try {
+          const page = await http.getPage(url, {
+            delayMs: DEFAULT_DETAIL_DELAY_MS,
+            ...board.fetchOptions,
+          });
+          const description = jobsFromJsonLd(page.body, { source: board.source, pageUrl: page.url }).jobs.find(
+            (posting) => posting.description?.trim()
+          )?.description;
+          if (!description) {
             stats.failed++;
-            failures.push(`${url}: ${err instanceof Error ? err.message : String(err)}`);
-          } finally {
-            release();
+            failures.push(`${url}: no JobPosting description on the page`);
+            return;
           }
-        })
-      );
+          job.description = description;
+          stats.enriched++;
+        } catch (err) {
+          stats.failed++;
+          failures.push(`${url}: ${brief(err)}`);
+        } finally {
+          release();
+        }
+      })
+    );
 
-      if (stats.failed > 0) {
-        const quoted = failures.slice(0, QUOTED_FAILURES).join("; ");
-        const more = failures.length > QUOTED_FAILURES ? `; and ${failures.length - QUOTED_FAILURES} more` : "";
-        stats.errors.push(
-          `${board.name}: ${stats.failed} of ${granted.length} detail pages gave no description ` +
-            `(stored without one): ${quoted}${more}`
-        );
-      }
-      if (stats.truncated > 0) {
-        stats.errors.push(
-          `${board.name}: ${stats.truncated} jobs left without a description — ` +
-            `the run's cap of ${maxDetailPages} detail pages was reached`
-        );
-      }
-      return stats;
-    },
+    if (stats.failed > 0) {
+      const quoted = failures.slice(0, QUOTED_FAILURES).join("; ");
+      const more = failures.length > QUOTED_FAILURES ? `; and ${failures.length - QUOTED_FAILURES} more` : "";
+      stats.errors.push(
+        `${board.name}: ${stats.failed} of ${granted.length} detail pages gave no description ` +
+          `(stored without one): ${quoted}${more}`
+      );
+    }
+    if (stats.truncated > 0) {
+      stats.errors.push(
+        `${board.name}: ${stats.truncated} jobs left without a description — ` +
+          `the run's cap of ${maxDetailPages} detail pages was reached`
+      );
+    }
+    return stats;
+  }
+
+  const off = (): EnrichmentStats => ({ enriched: 0, failed: 0, truncated: 0, errors: [] });
+
+  async function enrichAll(boards: BoardEnrichment[]): Promise<EnrichmentStats[]> {
+    // Off is a setting, not a truncation, so it reports nothing.
+    if (maxDetailPages === 0) return boards.map(off);
+    const plans = boards.map(plan);
+    allocate(plans);
+    return Promise.all(plans.map(fetchPlan));
+  }
+
+  return {
+    enrich: async (board) => (await enrichAll([board]))[0],
+    enrichAll,
   };
 }
