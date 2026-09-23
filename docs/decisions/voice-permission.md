@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:228-260`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:242-274`).
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,

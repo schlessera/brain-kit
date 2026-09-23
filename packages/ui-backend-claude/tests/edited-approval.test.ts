@@ -180,17 +180,15 @@ describe("PreToolUse: an edit that passes the re-check", () => {
   });
 
   test("the lock is taken on the key of the edited input, not the original", async () => {
-    // `rm -rf scratch` takes no lock; the edit keeps the confirmed pattern but
-    // adds a staging write, which has to hold the git lock while it runs.
+    // `rm -rf scratch` takes no lock; the edit needs no confirmation of its
+    // own but is a staging write, which has to hold the git lock while it runs.
     const { output, heldKeys } = await confirm(
       "Bash",
       { command: "rm -rf scratch" },
-      { behavior: "allow", updatedInput: { command: "rm -rf scratch && git add -A" } }
+      { behavior: "allow", updatedInput: { command: "git add -A" } }
     );
 
-    expect(output.hookSpecificOutput?.updatedInput).toEqual({
-      command: "rm -rf scratch && git add -A",
-    });
+    expect(output.hookSpecificOutput?.updatedInput).toEqual({ command: "git add -A" });
     expect(heldKeys).toEqual(["repo-git"]);
   });
 });
@@ -207,6 +205,19 @@ describe("PreToolUse: an edit that fails the re-check", () => {
     expect(output.hookSpecificOutput?.permissionDecisionReason).toContain("did not run");
     expect(output.hookSpecificOutput?.updatedInput).toBeUndefined();
     expect(heldKeys).toEqual([]);
+  });
+
+  test("a confirmed command edited to another on the same pattern is denied", async () => {
+    // `brain archive` of a different document matches the same pattern; the
+    // card confirmed the command it showed, not the pattern.
+    const { output } = await confirm(
+      "Bash",
+      { command: "brain archive notes/a.md" },
+      { behavior: "allow", updatedInput: { command: "brain archive notes/b.md" } }
+    );
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.updatedInput).toBeUndefined();
   });
 
   test("an edit into a command matching a pattern the card did not show is denied", async () => {
@@ -271,6 +282,22 @@ describe("canUseTool: the edit is re-checked there too", () => {
     expect(turn.requests).toHaveLength(1);
     expect(turn.value).toMatchObject({ behavior: "deny" });
     expect((turn.value as { message: string }).message).toContain("Bash");
+    expect(turn.heldKeys).toEqual([]);
+  });
+
+  test("a confirmed command retargeted on the same pattern is denied here too", async () => {
+    const turn = await duringTurn({
+      decision: { behavior: "allow", updatedInput: { command: "brain archive notes/b.md" } },
+      allowedTools: ["Read"],
+      probe: (options) =>
+        options.canUseTool!("Bash", { command: "brain archive notes/a.md" }, {
+          signal: new AbortController().signal,
+          toolUseID: "grant-retarget",
+        } as never),
+    });
+
+    expect(turn.value).toMatchObject({ behavior: "deny" });
+    expect((turn.value as { updatedInput?: unknown }).updatedInput).toBeUndefined();
     expect(turn.heldKeys).toEqual([]);
   });
 

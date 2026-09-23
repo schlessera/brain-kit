@@ -158,9 +158,10 @@ describe("tool_call permission gate", () => {
   });
 
   test("approval with updatedInput patches the input in place", async () => {
+    // An edit that needs no confirmation of its own is applied whole.
     const turn = createTurnContext();
     const mock = makeMockBridge({
-      decision: { behavior: "allow", updatedInput: { command: "rm -r safe-subdir" } },
+      decision: { behavior: "allow", updatedInput: { command: "ls notes" } },
     });
     turn.bridge = mock.bridge;
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
@@ -169,8 +170,85 @@ describe("tool_call permission gate", () => {
     const res = await handler({ toolName: "bash", toolCallId: "t3", input });
     expect(res).toBeUndefined();
     // updatedInput replaces the whole input: patched key applied, absent key dropped.
-    expect(input.command).toBe("rm -r safe-subdir");
+    expect(input.command).toBe("ls notes");
     expect("timeout" in input).toBe(false);
+  });
+
+  test("an edit carrying a __proto__ key is refused, not merged into the arguments", async () => {
+    // JSON.parse makes `__proto__` an own key; Object.assign would then set
+    // the arguments' prototype, and bash would read an inherited `command`
+    // the re-check never saw. The WebSocket schema strips it; a bridge that
+    // returns its own payload does not.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: {
+        behavior: "allow",
+        updatedInput: JSON.parse('{"__proto__":{"command":"brain archive notes/b.md"}}'),
+      },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "proto", input });
+    expect(res?.block).toBe(true);
+    expect(input.command).toBe("brain archive notes/a.md");
+    expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
+  });
+
+  test("an edit whose command is a getter is checked and applied as one value", async () => {
+    // A bridge in the same process can hand back any object. The first read
+    // says `ls`, every later one says archive: what was checked must be what
+    // runs, so the edit is taken as one plain snapshot before either.
+    let reads = 0;
+    const updatedInput = {
+      get command() {
+        return ++reads === 1 ? "ls notes" : "brain archive notes/b.md";
+      },
+    };
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision: { behavior: "allow", updatedInput } });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "getter", input });
+    expect(res).toBeUndefined();
+    expect(input.command).toBe("ls notes");
+    expect(Object.getOwnPropertyDescriptor(input, "command")?.get).toBeUndefined();
+  });
+
+  test("an edit whose command is only inherited replaces nothing it did not show", async () => {
+    // `Object.create({ command })` has no own command: the checked value and
+    // the applied value must agree, so the destructive original must not
+    // survive an approval that looked like a safe replacement.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: Object.create({ command: "ls notes" }) },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    await handler({ toolName: "bash", toolCallId: "inherited", input });
+    expect(input.command).not.toBe("brain archive notes/a.md");
+  });
+
+  test("a confirmed command edited to another on the same pattern is refused", async () => {
+    // Behaviour change (#145 follow-up): the pattern names the kind of effect,
+    // not the target, so `brain archive` of another document would pass a
+    // pattern-only check. The card confirmed the command it showed.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: { command: "brain archive notes/b.md" } },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "retarget", input });
+    expect(res?.block).toBe(true);
+    expect(input).toEqual({ command: "brain archive notes/a.md" });
   });
 
   test("an edit that moves a confirmed archive to another document is refused, not applied", async () => {
@@ -248,13 +326,13 @@ describe("tool_call permission gate", () => {
   test("the applied edit is what the executing tool takes its lock key from", async () => {
     // pi applies an edit by patching the arguments in place, and the tool then
     // executes with them — so the lock key is derived from the edited command,
-    // not the one on the card. The edit stays within the confirmed pattern
-    // (recursive delete) but adds a staging write, which needs the git lock.
+    // not the one on the card. The edit needs no confirmation of its own
+    // but is a staging write, which needs the git lock.
     const turn = createTurnContext();
     const mock = makeMockBridge({
       decision: {
         behavior: "allow",
-        updatedInput: { command: "rm -rf scratch && git add -A" },
+        updatedInput: { command: "git add -A" },
       },
     });
     turn.bridge = mock.bridge;

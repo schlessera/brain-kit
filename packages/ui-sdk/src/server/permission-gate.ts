@@ -89,8 +89,11 @@ export interface EditedApprovalCheckInput
 
 /**
  * The per-use confirmations one call needs, each named by what it confirms:
- * the confirm pattern a command matches, or the document an update archives.
- * Two inputs that produce the same name need the same confirmation.
+ * the command a confirm pattern matched, or the document an update archives.
+ * Two inputs that produce the same name need the same confirmation. A
+ * command's name carries its full text, not just the pattern: the pattern
+ * names a kind of effect, and `brain archive a.md` and `brain archive b.md`
+ * match the same one.
  */
 function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): string[] {
   const names: string[] = [];
@@ -98,7 +101,7 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
     const command = bashCommand(input);
     if (command) {
       for (const re of options.confirmPatterns) {
-        if (re.test(command)) names.push(`pattern:${re.source}`);
+        if (re.test(command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
       }
     }
   }
@@ -124,12 +127,23 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
  * as allowed is what exposes a per-use confirmation hiding behind a tool
  * card. An edit that needs no confirmation passes. One that does passes only
  * if every confirmation it needs was needed by the input the card showed: the
- * same confirm pattern, the same archived document. Anything else is refused
- * whole, never applied in part.
+ * same command, the same archived document. Anything else — including a
+ * narrower command on the same pattern — is refused whole, never applied in
+ * part, and can be re-issued to be confirmed as it is.
  *
  * @experimental
  */
 export function checkEditedApproval(options: EditedApprovalCheckInput): string | null {
+  // An own `__proto__` key (what JSON.parse makes of one) is refused outright:
+  // merged with Object.assign it replaces the arguments' prototype, and the
+  // tool then reads inherited values this check never saw.
+  const edited = options.editedInput;
+  if (edited && typeof edited === "object" && Object.hasOwn(edited, "__proto__")) {
+    return (
+      `The approval for ${options.toolName} came back with an input that cannot be applied safely, so it did not run. ` +
+      "Re-issue the call as you want it."
+    );
+  }
   const needed = decideToolPermission({
     toolName: options.toolName,
     shellToolName: options.shellToolName,
@@ -256,5 +270,41 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
-  return bridge.requestPermission(request);
+  return bridge.requestPermission(request).then((decision) => snapshotEdit(request, decision));
+}
+
+/**
+ * Replace an approval's edited input with one plain JSON snapshot, taken once.
+ *
+ * A bridge in the same process can hand back any object: a getter that
+ * answers differently on each read, a `toJSON` that serializes to something
+ * else, a value that is only inherited. Checking one reading of it and
+ * applying another would let an edit through that nobody checked. The
+ * WebSocket host already delivers parsed JSON; this makes every bridge do so,
+ * and refuses an edit that is not a plain object or will not serialize.
+ */
+function snapshotEdit(request: PermissionRequest, decision: PermissionDecision): PermissionDecision {
+  // Every field is read once and the decision rebuilt, never passed on: an
+  // accessor on the decision itself could otherwise answer the check with
+  // one edit and the application with another.
+  const behavior = decision.behavior;
+  if (behavior !== "allow") {
+    const message = (decision as { message?: unknown }).message;
+    return { behavior: "deny", message: typeof message === "string" ? message : "Denied." };
+  }
+  const updatedInput = (decision as { updatedInput?: unknown }).updatedInput;
+  if (updatedInput === undefined) return { behavior: "allow" };
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(JSON.stringify(updatedInput));
+  } catch {
+    snapshot = undefined;
+  }
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return {
+      behavior: "deny",
+      message: `The approval for ${request.toolName} came back with an input that cannot be applied, so it did not run. Re-issue the call as you want it.`,
+    };
+  }
+  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown> };
 }

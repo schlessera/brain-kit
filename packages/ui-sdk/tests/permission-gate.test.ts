@@ -311,8 +311,12 @@ describe("checkEditedApproval", () => {
     expect(check("read_file", { path: "a.md" }, { path: "b.md" })).toBeNull();
   });
 
-  test("an edit within the confirmed pattern or document passes", () => {
-    expect(check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes/old" })).toBeNull();
+  test("an edit that keeps the confirmed command or document passes", () => {
+    // Only what the confirmation is not about may change: here the command
+    // text is identical and a field beside it moves.
+    expect(
+      check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes", timeout: 5 })
+    ).toBeNull();
     expect(
       check(
         "brain_update",
@@ -348,9 +352,99 @@ describe("checkEditedApproval", () => {
     ).toContain("brain_update");
   });
 
+  test("a destructive command edited to another destructive command is refused, even on the same pattern", () => {
+    // The card confirmed THIS command. The pattern names a class of effect,
+    // not the target: `brain archive a.md` and `brain archive b.md` match the
+    // same pattern and archive different documents (#145 follow-up).
+    const archive = [/\bbrain\s+archive\b/i];
+    const retarget = checkEditedApproval({
+      toolName: "bash",
+      shellToolName: "bash",
+      confirmPatterns: archive,
+      originalInput: { command: "brain archive notes/a.md" },
+      editedInput: { command: "brain archive notes/b.md" },
+    });
+    expect(retarget).toContain("bash");
+    expect(retarget).toContain("did not run");
+    // Narrowing is refused too: the card did not show the narrower command.
+    expect(check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes/old" })).toContain(
+      "bash"
+    );
+  });
+
+  test("an edited input with a __proto__ key is refused whatever it contains", () => {
+    const edited = JSON.parse('{"__proto__":{"command":"rm -rf notes"}}');
+    expect(check("bash", { command: "rm -rf notes" }, edited)).toContain("bash");
+    expect(check("read_file", { path: "a.md" }, edited)).toContain("read_file");
+  });
+
   test("a confirmation hiding behind a tool grant is still seen", () => {
     // The tool-level decision is a property of the name, which an edit cannot
     // change; what an edit CAN change is whether the call is destructive.
     expect(check("bash", { command: "ls" }, { command: "rm -rf notes" })).toContain("bash");
+  });
+});
+
+describe("an edited input, as the backends receive it", () => {
+  const request = {
+    toolUseId: "t1",
+    toolName: "bash",
+    input: { command: "ls" },
+    description: undefined,
+    kind: "command" as const,
+  };
+  const via = (updatedInput: unknown) =>
+    requestToolPermission(
+      { requestPermission: async () => ({ behavior: "allow", updatedInput }) as never },
+      request
+    );
+
+  test("is a plain snapshot: accessors are read once and serialization hooks are applied once", async () => {
+    let reads = 0;
+    const decision = await via({
+      get command() {
+        return ++reads === 1 ? "ls" : "rm -rf notes";
+      },
+    });
+    expect(decision).toEqual({ behavior: "allow", updatedInput: { command: "ls" } });
+    const snapshot = (decision as { updatedInput: Record<string, unknown> }).updatedInput;
+    expect(snapshot.command).toBe("ls");
+    expect(snapshot.command).toBe("ls");
+
+    const hooked = await via({ command: "ls", toJSON: () => ({ command: "rm -rf notes" }) });
+    // Whatever the hook says is what is checked AND what runs: one value.
+    expect(hooked).toEqual({ behavior: "allow", updatedInput: { command: "rm -rf notes" } });
+  });
+
+  test("drops what is not an own enumerable property", async () => {
+    expect(await via(Object.create({ command: "ls" }))).toEqual({
+      behavior: "allow",
+      updatedInput: {},
+    });
+  });
+
+  test("an input that is not a plain object, or will not serialize, is denied", async () => {
+    for (const bad of [["ls"], "ls", 7, { self: null as unknown }]) {
+      if (typeof bad === "object" && bad && "self" in bad) (bad as { self: unknown }).self = bad;
+      const decision = await via(bad);
+      expect(decision.behavior, JSON.stringify(typeof bad)).toBe("deny");
+    }
+  });
+
+  test("an accessor on the decision itself is read once", async () => {
+    let reads = 0;
+    const decision = {
+      behavior: "allow",
+      get updatedInput() {
+        return ++reads === 1 ? undefined : { command: "rm -rf notes" };
+      },
+    };
+    const got = await requestToolPermission(
+      { requestPermission: async () => decision as never },
+      request
+    );
+    expect(got).toEqual({ behavior: "allow" });
+    expect(got).not.toBe(decision);
+    expect((got as { updatedInput?: unknown }).updatedInput).toBeUndefined();
   });
 });

@@ -108,7 +108,7 @@ An approval that carries an edited input (`updatedInput`) is re-checked
 before it is applied, the same way on both backends (#145). The shared
 `checkEditedApproval` runs the confirm policy again on the edited input: an
 edit that needs no confirmation, or only the confirmations the card already
-showed (the same confirm pattern, the same archived document), is applied; one
+showed (the same command, the same archived document), is applied; one
 that needs a confirmation the card did not show is refused whole, and the model
 is told why. The write lock is taken on the edited input's key. pi applies a passing edit by patching the tool
 arguments in place, as its runtime intends.
