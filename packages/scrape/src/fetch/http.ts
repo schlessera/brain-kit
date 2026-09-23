@@ -184,8 +184,15 @@ export class ScrapeClient {
       // means not fetching, not ignoring the line (see
       // docs/decisions/scraping-politeness.md).
       if (!opts.allowDisallowed && crawlDelayMs !== undefined && !(crawlDelayMs <= MAX_DELAY_MS)) {
-        throw new RobotsDisallowedError(url, userAgent, `its Crawl-delay is longer than a crawler can wait`);
+        throw new RobotsDisallowedError(
+          url,
+          userAgent,
+          `its Crawl-delay is longer than this client can wait, 2^31 - 1 ms`
+        );
       }
+      // Overridden, an unfollowable Crawl-delay contributes nothing, so it
+      // cannot take the caller's own delay down with it through Math.max.
+      if (crawlDelayMs !== undefined && !Number.isFinite(crawlDelayMs)) crawlDelayMs = undefined;
     }
 
     // Each delay is checked on its own before they are combined, so an

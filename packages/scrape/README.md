@@ -87,7 +87,7 @@ no flag between them.
 | `SCRAPE_CHROME_NO_SANDBOX` | Set to 1 to launch Chrome with --no-sandbox. Required only when the process runs as root (a container). Weaker: a renderer exploit then lands on the host user. | unset (sandbox stays on) |
 | `SCRAPE_CHROME_PATH` | Chrome/Chromium executable to launch for browser-rendered sites. Unset falls back to the usual distro paths. | — |
 | `SCRAPE_CHROME_URL` | DevTools endpoint of an ALREADY RUNNING Chrome to drive instead of launching one (e.g. http://127.0.0.1:9222). Unset means this package launches and owns its own browser. | — |
-| `SCRAPE_RESPECT_ROBOTS` | Set to 0/off/false to stop enforcing robots.txt process-wide. The per-site opt-out is preferred; this exists for a run against a host you operate. | on |
+| `SCRAPE_RESPECT_ROBOTS` | Set to 0/off/false to stop enforcing robots.txt in every client built from resolveEnv() (a ScrapeClient constructed directly follows its own respectRobots option). The per-site opt-out is preferred; this exists for a run against a host you operate. | on |
 | `SCRAPE_USER_AGENT` | User-Agent sent with every request, and the token matched against robots.txt groups. Override per site via fetch options rather than globally where possible. | brain-scrape (+https://github.com/schlessera/brain-kit) |
 
 Generated from `packages/scrape/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
