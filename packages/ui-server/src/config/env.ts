@@ -25,6 +25,7 @@ import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   validateExecWrapper,
+  type ConfirmPatternSource,
   type ExecWrapperConfig,
   type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
@@ -166,8 +167,10 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_CONFIRM_BASH",
     description:
-      "JSON array of regex sources; a Bash command matching any of them raises " +
-      "a confirmation card before it runs. Unset uses the shipped defaults " +
+      "JSON array of regex sources, or {\"pattern\", \"effect\"} objects whose " +
+      "effect (what the command does, in words) is shown on the card; a Bash " +
+      "command matching any of them raises a confirmation card before it runs. " +
+      "Unset uses the shipped defaults " +
       "(brain archive, rm -r, git push --force, git reset --hard, git clean -f, " +
       "git checkout -- ). An empty array [] disables the confirmation. Not a " +
       "security boundary — an agent with Bash can reach the same effect another " +
@@ -510,7 +513,7 @@ export interface AgentConfig {
    * Bash-confirmation regex sources; null means "use the backend's defaults".
    * An empty array is a deliberate opt-out and is passed through as such.
    */
-  confirmBashPatterns: string[] | null;
+  confirmBashPatterns: ConfirmPatternSource[] | null;
   claudeCodePath: string;
   defaultModel: string;
   /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed at boot and again by the registry. */
@@ -647,13 +650,28 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
  * throwing — a typo here must not stop the server booting, and the safe
  * direction to fail is "more confirmation", not less.
  */
-function parseConfirmBash(raw: string | undefined): string[] | null {
+function parseConfirmBash(raw: string | undefined): ConfirmPatternSource[] | null {
   const text = raw?.trim();
   if (!text) return null;
   try {
     const parsed = JSON.parse(text);
     if (!Array.isArray(parsed)) return null;
-    return parsed.filter((p): p is string => typeof p === "string");
+    // Bare sources, or `{ pattern, effect }` — the effect is what the approval
+    // card says (#112). Anything else is dropped; a list that had entries and
+    // kept none falls back to the defaults, because only a literal `[]` means
+    // "no confirmation".
+    const kept = parsed.flatMap((entry): ConfirmPatternSource[] => {
+      if (typeof entry === "string") return [entry];
+      if (entry && typeof entry === "object" && typeof entry.pattern === "string") {
+        return [
+          typeof entry.effect === "string"
+            ? { pattern: entry.pattern, effect: entry.effect }
+            : entry.pattern,
+        ];
+      }
+      return [];
+    });
+    return parsed.length > 0 && kept.length === 0 ? null : kept;
   } catch {
     return null;
   }

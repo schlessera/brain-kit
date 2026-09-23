@@ -6,7 +6,7 @@
 import { unregisterApprovalEffectDom as unregisterDom } from "./approval-effect-dom.js";
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { ApprovalCard } from "../../src/components/activity/approval-card.js";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
@@ -65,10 +65,21 @@ describe("the effect of a confirmed command, on the card", () => {
     expect(transcript.container.textContent).not.toContain("not auto-allowed");
   });
 
-  test("once decided, the transcript no longer shows it", () => {
-    const view = render(
-      <ToolCallTimeline toolCalls={[pending({ status: "approved" })]} onApproval={() => {}} />
+  test("once decided, the transcript no longer shows it, even with the details open", () => {
+    // Pending first, so the line is on screen; then decided, and the details
+    // reopened by hand — the entry collapses on a decision, and a collapsed
+    // entry would hide the line whether or not the pending guard held.
+    const view = render(<ToolCallTimeline live toolCalls={[pending()]} onApproval={() => {}} />);
+    expect(view.container.textContent ?? "").toContain(EFFECT);
+
+    view.rerender(
+      <ToolCallTimeline live toolCalls={[pending({ status: "approved" })]} onApproval={() => {}} />
     );
+    const header = view.container.querySelector("button");
+    if (!header) throw new Error("no entry header to reopen the details with");
+    fireEvent.click(header);
+    // The details are open: the tool's input is drawn again.
+    expect(view.container.textContent ?? "").toContain("rm -rf notes/old");
     expect(view.container.textContent ?? "").not.toContain(EFFECT);
   });
 });

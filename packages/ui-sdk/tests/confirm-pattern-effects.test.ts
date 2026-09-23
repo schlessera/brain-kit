@@ -30,7 +30,7 @@ function defaultPattern(source: string): { pattern: string; effect: string } {
 
 /** The reason a command approval raised against the shipped defaults gives. */
 function reasonFor(command: string): string | undefined {
-  return decideToolPermission({
+  const approval = decideToolPermission({
     toolName: "bash",
     shellToolName: "bash",
     input: { command },
@@ -38,7 +38,10 @@ function reasonFor(command: string): string | undefined {
     confirmPatterns: compileConfirmPatterns(DEFAULT_CONFIRM_BASH_PATTERNS, () => {
       throw new Error("a default pattern failed to compile");
     }),
-  })?.reason;
+  });
+  // A per-use confirmation, never a grantable tool approval.
+  expect(approval?.kind).toBe("command");
+  return approval?.reason;
 }
 
 describe("the six default patterns, each with its effect", () => {
