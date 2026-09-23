@@ -28,6 +28,18 @@ export interface ToolPermissionDecisionInput {
   confirmPatterns: readonly CompiledConfirmPattern[];
 }
 
+/**
+ * Whether `re` matches anywhere in `text`, statelessly. A caller may pass a
+ * RegExp with the `g` or `y` flag, whose `test` resumes from `lastIndex` —
+ * the same command would match on one call and not the next — and may have
+ * frozen it. So the test runs on a private copy without those flags, leaving
+ * the caller's object untouched.
+ */
+function matches(re: RegExp, text: string): boolean {
+  if (!re.global && !re.sticky) return re.test(text);
+  return new RegExp(re.source, re.flags.replace(/[gy]/g, "")).test(text);
+}
+
 /** @experimental */
 export interface ToolPermissionApproval {
   kind: "tool" | "command";
@@ -60,7 +72,7 @@ export function decideToolPermission(
   }
   if (toolName === shellToolName && confirmPatterns.length > 0) {
     const command = bashCommand(input);
-    const matched = command ? confirmPatterns.find((re) => re.test(command)) : undefined;
+    const matched = command ? confirmPatterns.find((re) => matches(re, command)) : undefined;
     if (matched) {
       // The first matching pattern's effect, so the card says what will
       // happen. A deployment's bare-string pattern has none, and says only
@@ -101,7 +113,7 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
     const command = bashCommand(input);
     if (command) {
       for (const re of options.confirmPatterns) {
-        if (re.test(command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
+        if (matches(re, command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
       }
     }
   }

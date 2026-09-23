@@ -448,3 +448,53 @@ describe("an edited input, as the backends receive it", () => {
     expect((got as { updatedInput?: unknown }).updatedInput).toBeUndefined();
   });
 });
+
+describe("a caller-supplied stateful RegExp", () => {
+  test("a g or y pattern matches on every call, not every other one", () => {
+    for (const flags of ["g", "y", "gi"]) {
+      const confirmPatterns = [new RegExp("rm", flags)];
+      const decide = () =>
+        decideToolPermission({
+          toolName: "bash",
+          shellToolName: "bash",
+          input: { command: "rm" },
+          allowedTools: new Set(["bash"]),
+          confirmPatterns,
+        });
+      expect(decide(), flags).not.toBeNull();
+      expect(decide(), flags).not.toBeNull();
+    }
+  });
+
+  test("a frozen or stateful pattern is matched without touching the caller's object", () => {
+    const frozen = Object.freeze(/rm/g);
+    const approval = decideToolPermission({
+      toolName: "bash",
+      shellToolName: "bash",
+      input: { command: "rm" },
+      allowedTools: new Set(["bash"]),
+      confirmPatterns: [frozen],
+    });
+    expect(approval?.kind).toBe("command");
+    expect(frozen.lastIndex).toBe(0);
+  });
+
+  test("the edited-approval re-check is stateless too", () => {
+    const confirmPatterns = [/rm/g];
+    const check = (originalInput: unknown, editedInput: unknown) =>
+      checkEditedApproval({
+        toolName: "bash",
+        shellToolName: "bash",
+        confirmPatterns,
+        originalInput,
+        editedInput,
+      });
+    // The card showed a command that matched; an edit into a different
+    // matching command is refused on every call, not every other one.
+    for (let i = 0; i < 3; i++) {
+      expect(check({ command: "echo rm a" }, { command: "rm b" }), `call ${i}`).toContain("bash");
+      expect(check({ command: "rm a" }, { command: "rm a", timeout: 1 }), `call ${i}`).toBeNull();
+    }
+  });
+});
+
