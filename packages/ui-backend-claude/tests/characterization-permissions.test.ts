@@ -140,12 +140,13 @@ describe("createClaudeBackend permission characterization", () => {
   });
 
   test("an allowlisted Bash confirm-pattern call asks as a command", async () => {
-    // BEHAVIOUR CHANGE (archiving gate, #122): this case used to return a bare
-    // `{ continue: true }` and then execute the ORIGINAL command, silently
-    // discarding the host's edit. The hook cannot apply an edit — the SDK
-    // honours `updatedInput` only with `permissionDecision: "allow"`, which
-    // would re-admit a tool a deployment removed from `allowedTools` — so an
-    // edited approval is now refused instead of running the un-edited call.
+    // BEHAVIOUR CHANGE, twice. Before #122 this returned a bare
+    // `{ continue: true }` and ran the ORIGINAL command, silently discarding
+    // the host's edit; #122 refused the edit instead, believing the SDK
+    // honours `updatedInput` only with `permissionDecision: "allow"`. It does
+    // not (measured for #124 and #145), so since #145 an edit that passes the
+    // re-check against the shared policy is applied — `updatedInput`, no
+    // decision. `git status --short` needs no confirmation, so it passes.
     let hookOutput: unknown;
     const commandInput = { command: "git reset --hard HEAD~1" };
     const harness = backendFor(
@@ -190,9 +191,7 @@ describe("createClaudeBackend permission characterization", () => {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason:
-          "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+        updatedInput: { command: "git status --short" },
       },
     });
   });

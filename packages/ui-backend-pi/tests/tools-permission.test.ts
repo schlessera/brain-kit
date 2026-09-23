@@ -173,6 +173,119 @@ describe("tool_call permission gate", () => {
     expect("timeout" in input).toBe(false);
   });
 
+  test("an edit that moves a confirmed archive to another document is refused, not applied", async () => {
+    // The card showed notes/a.md being archived. An approval that comes back
+    // pointing at notes/b.md is a confirmation nobody gave (#145).
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: {
+        behavior: "allow",
+        updatedInput: { path: "notes/b.md", status: "archived" },
+      },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input = { path: "notes/a.md", status: "archived" };
+    const res = await handler({ toolName: "brain_update", toolCallId: "edit-doc", input });
+
+    expect(res?.block).toBe(true);
+    expect(res?.reason).toContain("brain_update");
+    expect(res?.reason).toContain("did not run");
+    // Nothing was patched: the call is refused as a whole.
+    expect(input).toEqual({ path: "notes/a.md", status: "archived" });
+  });
+
+  test("an edit that stays on the confirmed document is applied", async () => {
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: {
+        behavior: "allow",
+        updatedInput: { path: "notes/a.md", status: "archived", summary: "Superseded." },
+      },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { path: "notes/a.md", status: "archived" };
+    const res = await handler({ toolName: "brain_update", toolCallId: "edit-same-doc", input });
+
+    expect(res).toBeUndefined();
+    expect(input).toEqual({ path: "notes/a.md", status: "archived", summary: "Superseded." });
+  });
+
+  test("an edit into a command matching a pattern the card did not show is refused", async () => {
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: { command: "git push --force origin main" } },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input = { command: "rm -rf notes" };
+    const res = await handler({ toolName: "bash", toolCallId: "edit-pattern", input });
+
+    expect(res?.block).toBe(true);
+    expect(res?.reason).toContain("bash");
+    expect(input).toEqual({ command: "rm -rf notes" });
+  });
+
+  test("an edit that needs no confirmation at all is applied", async () => {
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: { path: "notes/a.md", status: "active" } },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { path: "notes/a.md", status: "archived" };
+    const res = await handler({ toolName: "brain_update", toolCallId: "edit-unarchive", input });
+
+    expect(res).toBeUndefined();
+    expect(input).toEqual({ path: "notes/a.md", status: "active" });
+  });
+
+  test("the applied edit is what the executing tool takes its lock key from", async () => {
+    // pi applies an edit by patching the arguments in place, and the tool then
+    // executes with them — so the lock key is derived from the edited command,
+    // not the one on the card. The edit stays within the confirmed pattern
+    // (recursive delete) but adds a staging write, which needs the git lock.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: {
+        behavior: "allow",
+        updatedInput: { command: "rm -rf scratch && git add -A" },
+      },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    const input: Record<string, unknown> = { command: "rm -rf scratch" };
+    expect(await handler({ toolName: "bash", toolCallId: "edit-lock", input })).toBeUndefined();
+
+    const brain = makeEmptyBrain();
+    try {
+      const keys: (string | null)[] = [];
+      const tools = toolMap(
+        createBrainTools({
+          brain: createBrainAccess(brain.root),
+          turn,
+          // Records the key and does not run the body: the command is never
+          // executed, only classified.
+          lock: {
+            withKey: (key: string | null) => {
+              keys.push(key);
+              return Promise.resolve({ content: [], details: {} });
+            },
+          },
+        } as never)
+      );
+      await tools.bash!.execute("edit-lock", input as never, undefined, undefined, CTX);
+      expect(keys).toEqual(["repo-git"]);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("gated call with no live turn is blocked, not silently run", async () => {
     const turn = createTurnContext(); // bridge stays null
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });

@@ -704,6 +704,7 @@ export "./server" (./src/server/index.ts)
   DOWNSCALE_MAX_EDGE
   EXEC_KILLER_ENV
   EXEC_WRAPPER_ENV
+  type EditedApprovalCheckInput
   type ExecWrapperConfig
   type ExecutionBrief
   FILE_SIZE_CAP_BYTES
@@ -882,6 +883,7 @@ export "./server" (./src/server/index.ts)
   bridgeContractForToolName
   buildSystemPromptAppend
   canonicalModelId
+  checkEditedApproval
   claudeMaskFilename
   claudeReportedMaskPath
   clipLine

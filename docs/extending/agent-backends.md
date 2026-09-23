@@ -258,7 +258,11 @@ export interface BackendBridge {
 
 - `requestPermission` is the tool gate: the host renders an approval card,
   and resolves with `{ behavior: "allow", updatedInput? }` or
-  `{ behavior: "deny", message }`. The host owns the per-turn timeout. A
+  `{ behavior: "deny", message }`. A backend must not apply an
+  `updatedInput` unchecked: the card confirmed the input it showed, so both
+  shipped backends re-check the edit with `checkEditedApproval` first and
+  refuse one that needs a confirmation the card did not show. The host owns
+  the per-turn timeout. A
   request carrying `outsideEnforcedAllowlist` is one the host must decide on
   its own merits — see the enforced-allowlist section above.
 - The optional members signal HOST capability — gate your ask-user /

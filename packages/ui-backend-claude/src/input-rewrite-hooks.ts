@@ -27,6 +27,15 @@ export interface RewriteHookOptions {
    * tool leaves a record instead of silently doing nothing.
    */
   onGrantWithheld?: (toolName: string) => void;
+  /**
+   * A call this names is not rewritten at all. The Bash hook uses it for a
+   * command that raises a per-use confirmation: matching PreToolUse hooks run
+   * in parallel, each sees the ORIGINAL input, and the `updatedInput` of
+   * whichever finishes last is what executes (measured against Claude Code
+   * 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278, #145). A rewrite of the
+   * original could therefore land over an approved edit of it.
+   */
+  leaveAlone?: (input: unknown) => boolean;
 }
 
 export function createAgentHook(options: RewriteHookOptions = {}): HookCallback {
@@ -88,7 +97,7 @@ export function createRtkHook(
       return { continue: true };
     }
     const command = bashCommand(hookInput.tool_input);
-    if (!command) return { continue: true };
+    if (!command || options.leaveAlone?.(hookInput.tool_input)) return { continue: true };
     const rewritten = await rtkRewriteCommand(command, childEnv);
     if (rewritten === command) return { continue: true };
     if (!mayGrant) options.onGrantWithheld?.("Bash");
