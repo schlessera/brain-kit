@@ -443,13 +443,13 @@ describe("the accuracy ring", () => {
 
 describe("the strait's land, in the pixels the component draws", () => {
   /**
-   * The check a coordinate test cannot make and a screenshot cannot make
-   * either. The fill is `map-land` at 6% alpha, which is under the visual
-   * comparator's per-pixel threshold — a baseline diff would not notice land
-   * and sea swapping places. So this asks the question in the component's own
-   * pixel space: it projects each probe by handing it to `paths`, which runs
-   * the same `px`/`py` the land `d` is built with, and then asks which side of
-   * the drawn polygon the probe came out on.
+   * The check a coordinate test cannot make, and one a screenshot makes only
+   * after the fact: the visual suite's baseline sees the fill (`map-land` at
+   * 6% alpha clears its threshold since #140), but a baseline regenerated with
+   * land and sea swapped would pass forever. So this asks the question in the
+   * component's own pixel space: it projects each probe by handing it to
+   * `paths`, which runs the same `px`/`py` the land `d` is built with, and then
+   * asks which side of the drawn polygon the probe came out on.
    */
   const probe = (points: [number, number][]) => {
     const html = renderToStaticMarkup(

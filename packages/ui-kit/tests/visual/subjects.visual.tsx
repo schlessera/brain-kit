@@ -109,13 +109,35 @@ interface ComposedStory {
 }
 
 /**
- * `allowedMismatchedPixelRatio` absorbs sub-pixel antialiasing inside one fixed
- * image, and nothing else: at 0.1% of a phone screen it is about 330 pixels,
- * which is a softened glyph edge and is nowhere near a moved element. Every
- * defect this file exists for — a collapsed box, a seam between two bars, a
- * crushed row — is orders of magnitude larger.
+ * Two numbers, and they answer different questions.
+ *
+ * `threshold` is how far apart two colours must be before a pixel counts at
+ * all. pixelmatch calls a pixel unchanged while its YIQ distance is under
+ * `35215 × threshold²`, so the default of 0.1 is a bar of 352 — and the kit's
+ * quiet layer lives under that: every `rgba()` token composited over its own
+ * theme's surface lands between 4.3 (`button-effect-bg-on-solid`, paper) and
+ * the bar, 208 token/theme pairs in all, `map-land`'s 6% at 85 among them. At
+ * 0.1 a component could lose its tint, its hover veil or its land fill and stay
+ * green; `ApprovalCard` without `surface-tint-amber` did (issue #140).
+ *
+ * 0.01 is a bar of 3.5, chosen from a measurement rather than picked. The noise
+ * floor, inside `mcr.microsoft.com/playwright:v1.63.0-noble`: five full runs
+ * from empty baselines, compared pairwise (270 image pairs). 26 of the 27
+ * subjects came out byte-identical every time; the one that did not,
+ * `paints-graph-view-shrink-to-fit`, differed by at most 0.51 in YIQ — one
+ * level of one channel — on at most 64 pixels over all ten pairs. So the bar
+ * sits seven times above the noise and below the quietest token the kit ships.
+ *
+ * `includeAA: false` (the default, kept) is not enough on its own: of those 64
+ * pixels, 20 were not classed as antialiasing. The ratio below is what absorbs
+ * them.
+ *
+ * `allowedMismatchedPixelRatio` is the count: at 0.1% of a phone screen it is
+ * about 240 pixels, a softened glyph edge and nowhere near a moved element or a
+ * missing fill. Every defect this file exists for — a collapsed box, a seam
+ * between two bars, a crushed row, a tint gone — is orders of magnitude larger.
  */
-const TOLERANCE = { comparatorOptions: { allowedMismatchedPixelRatio: 0.001 } } as const;
+const TOLERANCE = { comparatorOptions: { threshold: 0.01, allowedMismatchedPixelRatio: 0.001 } } as const;
 
 async function looksRight(story: unknown, name: string, globals?: Record<string, unknown>) {
   await (story as ComposedStory).run(globals ? { globals } : undefined);
@@ -233,40 +255,15 @@ test("paints: lane chart", async () => {
   await looksRight(laneChart.Default, "paints-lane-chart");
 });
 
+/**
+ * This subject sees the land fill. `map-land` is 6% alpha, a YIQ distance of 85
+ * on the dark ground: at the old default threshold it was invisible, so #48
+ * added a second, SVG-only reading of this story at a stricter threshold. At
+ * the suite's threshold above, removing the fill fails this subject on its own,
+ * so there is one rule and no exception.
+ */
 test("paints: map view", async () => {
   await looksRight(mapView.Default, "paints-map-view");
-});
-
-/**
- * The same map, read at a threshold that can actually see its land fill.
- *
- * `map-land` is 6% alpha, which on the dark ground is a step of 13 in each
- * channel — about 85 in the YIQ distance pixelmatch measures, against the 352
- * that the default `threshold` of 0.1 calls "the same colour". So the subject
- * above is BLIND to this component's fill: adding land to the strait changed
- * 10.65% of its pixels and did not move its baseline by one reported mismatch,
- * and removing the fill again would not either. A baseline that cannot see the
- * thing it is pointed at is worse than none, because it reads as cover.
- *
- * 0.02 puts the bar at a YIQ distance of 14 — under the fill by a factor of
- * six, and still well over the 1-2 of a softened glyph edge, which is what the
- * ratio below is for.
- */
-const SEES_A_SUBTLE_FILL = {
-  comparatorOptions: { threshold: 0.02, allowedMismatchedPixelRatio: 0.001 },
-} as const;
-
-test("paints: map view land, where a 6% fill is not below the noise floor", async () => {
-  await (mapView.Default as unknown as ComposedStory).run();
-  // The drawing rather than the page: a second full-body shot of the same story
-  // would be the same 50 KB twice, and the fill is entirely inside the SVG.
-  const map = document.querySelector("svg");
-  // The card carries icons as well, and `querySelector` takes the first SVG in
-  // the document — so this asserts which one it got. A reordering that put a
-  // 16px glyph first would otherwise leave a baseline of a glyph, passing
-  // forever against a map it is no longer looking at.
-  expect(map?.querySelector('[fill-rule="evenodd"]')).toBeTruthy();
-  await expect(map!).toMatchScreenshot("paints-map-view-land", SEES_A_SUBTLE_FILL);
 });
 
 test("paints: agent orbit", async () => {
