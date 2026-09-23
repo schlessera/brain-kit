@@ -403,9 +403,9 @@ into them.
   to every subprocess audience (`packages/ui-sdk/src/server/subprocess-env.ts:58`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
   (`subprocess-env.ts:59`). The `container-privilege.md` table keeps both
-  (`container-privilege.md:409-410`).
+  (`container-privilege.md:411-412`).
 - **The default profile passes both through.** The built-in `claude` profile
-  declares no credential (`packages/ui-backend-claude/src/profiles.ts:119-121`).
+  declares no credential (`packages/ui-backend-claude/src/profiles.ts:120-122`).
   A turn's environment is the filtered agent environment plus the profile's
   additions (`packages/ui-backend-claude/src/sdk-options.ts:85`,
   `packages/ui-backend-claude/src/config/env.ts:173-181`), handed to the SDK
@@ -414,13 +414,13 @@ into them.
   the key on purpose (`profiles.ts:104-106`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
   only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
-  (`packages/ui-server/src/config/env.ts:679-683`, applied at
+  (`packages/ui-server/src/config/env.ts:697-701`, applied at
   `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
   `cost-tracking.md:93`). Nothing reads what the CLI actually used.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`packages/ui-backend-claude/src/config/env.ts:84-88`,
   `packages/ui-backend-claude/src/model-discovery.ts:91-104`). A 401 there
-  becomes an empty roster, silently (`model-discovery.ts:119-121`).
+  becomes an empty roster, silently (`model-discovery.ts:120-121`).
 
 ### The precedence, measured
 
@@ -501,13 +501,27 @@ subscription authenticates.
 ### What binds
 
 1. **An ambient credential never bills an API key.** A Claude profile that
-   declares no credential always runs with `ANTHROPIC_API_KEY` and
-   `ANTHROPIC_AUTH_TOKEN` cleared, **whether or not a subscription credential is
-   present**. With no usable subscription login the turn fails as an auth
+   declares no credential must never send an API-authenticated inference
+   request. With no usable subscription login the turn fails as an auth
    failure; it does not fall back to an API key. API billing happens only
    through a profile that declares `apiKeyEnv` or `authTokenEnv`. A host that
-   today bills an ambient API key on purpose has to declare that profile. The
-   same rule covers the core CLI's Claude runners. Tracked in #253.
+   today bills an ambient API key on purpose has to declare that profile.
+
+   Clearing `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from the CLI's
+   environment is necessary, whether or not a subscription credential is
+   present. It is not sufficient: the CLI also takes an API key from an
+   `apiKeyHelper` in settings — the backend loads the brain repo's project
+   settings (`sdk-options.ts:96`) — and from a stored Console login, reported
+   as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
+   credential the CLI selected **before the prompt is sent**, and end the turn
+   if it is not a subscription.
+
+   The same rule covers the core CLI's Claude runners. Legitimate non-inference
+   users of an Anthropic key, such as the core CLI's `anthropic-haiku`
+   completions, keep working by naming their key separately: the completion
+   provider already takes an `apiKeyEnv`
+   (`packages/core/src/providers/completions/anthropic.ts:59`). Tracked in
+   #253.
 2. **The billing mode in effect is observed per turn, and checked against the
    profile's policy.** The run records `init.apiKeySource` and the
    `accountInfo()` fields (`tokenSource`, `subscriptionType`, `apiProvider`).
@@ -515,10 +529,13 @@ subscription authenticates.
    billed it that way, or that it authenticated. The derivation:
    - `apiKeySource: "none"` with `tokenSource: "CLAUDE_CODE_OAUTH_TOKEN"` (or
      its file-descriptor variant) is a subscription token.
-   - `apiKeySource: "none"` with `subscriptionType` present is a stored
-     subscription login. The binary omits `tokenSource` for that case, which was
-     read from its account-info function, not measured end to end.
-   - `ANTHROPIC_API_KEY` or `apiKeyHelper` is API.
+   - `apiKeySource: "none"` with a `subscriptionType` of `Claude Pro`,
+     `Claude Max`, `Claude Team` or `Claude Enterprise` is a stored subscription
+     login. The binary omits `tokenSource` for that case, and its subscription
+     label falls back to `Claude API` when the tier is unknown. Both were read
+     from its account-info functions, not measured end to end, so any other
+     label counts as unknown.
+   - `ANTHROPIC_API_KEY`, `apiKeyHelper` or `/login managed key` is API.
    - Anything else is **unknown**.
 
    `apiKeySource` alone is not enough, because it also reads `none` when nothing
