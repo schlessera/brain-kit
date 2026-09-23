@@ -150,6 +150,7 @@ function scriptedModel(): {
     return { mainRequests: 0, callSent: false, auth: [], offered: [], deferred: [] };
   }
   const server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     async fetch(req) {
       const path = new URL(req.url).pathname;
@@ -189,6 +190,10 @@ function scriptedModel(): {
 // ---------------------------------------------------------------------------
 // One probe turn
 // ---------------------------------------------------------------------------
+
+/** Distinctive denial texts, so a refused call is told apart from a failed one. */
+const CALLBACK_DENIAL = "probe-callback-denied";
+const HOOK_DENIAL = "probe-hook-denied";
 
 const OAUTH = `sk-ant-oat01-${"o".repeat(95)}AA`;
 const API_KEY = `sk-ant-api03-${"k".repeat(95)}AA`;
@@ -240,6 +245,13 @@ interface TurnObservation {
   error?: string;
 }
 
+/** The one tool the probe's MCP server registers. */
+function probeLookupTool() {
+  return tool("probe_lookup", "Looks something up for the probe.", { q: z.string() }, async () => ({
+    content: [{ type: "text" as const, text: "found" }],
+  }));
+}
+
 async function runTurn(
   model: ReturnType<typeof scriptedModel>,
   cwd: string,
@@ -271,7 +283,7 @@ async function runTurn(
     if (toolUseID === CALL_ID && toolName === setup.call.name) callbackCalls.push({ tool: toolName, input });
     return setup.callback === "allow"
       ? { behavior: "allow", updatedInput: input }
-      : { behavior: "deny", message: "denied by the probe" };
+      : { behavior: "deny", message: CALLBACK_DENIAL };
   };
   const options: Options = {
     cwd,
@@ -301,7 +313,7 @@ async function runTurn(
           mcpServers: {
             probe: createSdkMcpServer({
               name: "probe",
-              tools: [tool("probe_lookup", "Looks something up for the probe.", { q: z.string() }, async () => ({ content: [{ type: "text", text: "found" }] }))],
+              tools: [probeLookupTool()],
               ...(setup.loadedMcp ? { alwaysLoad: true } : {}),
             }),
           },
@@ -393,7 +405,7 @@ const denyHook = (record: HookRecorder): HookCallback => async (input) => {
   record.start(input as PreToolUseHookInput).endedAt = performance.now();
   return {
     continue: true,
-    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "probe" },
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: HOOK_DENIAL },
   };
 };
 
@@ -419,6 +431,12 @@ function settingsAllowHook(marker: string): Record<string, unknown> {
 }
 
 const ran = (o: TurnObservation) => o.toolResults.some((r) => !r.isError);
+/**
+ * The planned call was REFUSED, by the named denial — not merely absent or
+ * failed. An execution error is not a denial and must not pass as one.
+ */
+const refused = (o: TurnObservation, denial: string) =>
+  o.toolResults.length > 0 && o.toolResults.every((r) => r.isError && r.text.includes(denial));
 /** Only the planned call's consultations are recorded, so any is the one. */
 const consulted = (o: TurnObservation, name: string) => o.callbackCalls.some((c) => c.tool === name);
 
@@ -509,7 +527,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         [ran(o.bypass!), "echo hi did not run with an empty allowlist"],
         [!consulted(o.bypass!, "Bash"), "canUseTool was consulted for echo hi"],
         [consulted(o.underAsk!, "Bash"), "the ask did not force canUseTool"],
-        [!ran(o.underAsk!), "echo hi ran under ask with a denying callback"],
+        [refused(o.underAsk!, CALLBACK_DENIAL), "echo hi was not refused by the callback under ask"],
       ]
     )
   );
@@ -526,7 +544,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
       },
       (o, sc) => [
         [consulted(o.denied!, "Bash"), "canUseTool was not consulted for touch"],
-        [!existsSync(sc.denied!.path("marker")), "touch ran with a denying callback"],
+        [!existsSync(sc.denied!.path("marker")) && refused(o.denied!, CALLBACK_DENIAL), "touch was not refused by the callback"],
         [consulted(o.allowed!, "Bash"), "canUseTool was not consulted in the allowing arm"],
         [existsSync(sc.allowed!.path("marker")), "touch did not run with an allowing callback"],
       ]
@@ -548,7 +566,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         [ran(o.bypass!), "ToolSearch did not run with an empty allowlist"],
         [!consulted(o.bypass!, "ToolSearch"), "canUseTool was consulted for ToolSearch"],
         [consulted(o.underAsk!, "ToolSearch"), "the ask did not force canUseTool for ToolSearch"],
-        [!ran(o.underAsk!), "ToolSearch ran under ask with a denying callback"],
+        [refused(o.underAsk!, CALLBACK_DENIAL), "ToolSearch was not refused by the callback under ask"],
       ]
     )
   );
@@ -576,7 +594,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         [existsSync(sc.bypass!.path("marker")), "the settings allow did not admit touch"],
         [!consulted(o.bypass!, "Bash"), "canUseTool was consulted despite the settings allow"],
         [consulted(o.underAsk!, "Bash"), "the in-process ask did not beat the settings allow"],
-        [!existsSync(sc.underAsk!.path("marker")), "touch ran under ask with a denying callback"],
+        [!existsSync(sc.underAsk!.path("marker")) && refused(o.underAsk!, CALLBACK_DENIAL), "touch was not refused by the callback under ask"],
       ],
       (_o, sc) =>
         existsSync(sc.bypass!.path("settings-hook-ran")) && existsSync(sc.underAsk!.path("settings-hook-ran"))
@@ -609,7 +627,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         },
         (o, sc) => [
           [consulted(o.denied!, "Bash"), "canUseTool was not consulted"],
-          [!existsSync(sc.denied!.path("marker")), "touch ran with a denying callback"],
+          [!existsSync(sc.denied!.path("marker")) && refused(o.denied!, CALLBACK_DENIAL), "touch was not refused by the callback"],
           [consulted(o.allowed!, "Bash"), "canUseTool was not consulted in the allowing arm"],
           [existsSync(sc.allowed!.path("marker")), "touch did not run with an allowing callback"],
         ]
@@ -717,11 +735,39 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
           projectSettings: settingsAllowHook(sc.path("settings-hook-ran")),
         }),
       },
-      (_o, sc) => [
-        [!existsSync(sc.denied!.path("marker")), "the tool ran despite the in-process deny"],
+      (o, sc) => [
+        [!existsSync(sc.denied!.path("marker")) && refused(o.denied!, HOOK_DENIAL), "the tool was not refused by the in-process deny"],
         [existsSync(sc.control!.path("marker")), "the settings allow alone did not run the tool"],
+        [!consulted(o.control!, "Bash"), "the control reached canUseTool, so the settings allow did not admit it"],
       ],
-      (_o, sc) => (existsSync(sc.denied!.path("settings-hook-ran")) ? null : "the project-settings hook never ran")
+      (_o, sc) =>
+        existsSync(sc.denied!.path("settings-hook-ran")) && existsSync(sc.control!.path("settings-hook-ran"))
+          ? null
+          : "the project-settings hook never ran"
+    )
+  );
+
+  results.push(
+    await measure(
+      model,
+      "pretooluse-fires-when-allowlisted",
+      "An in-process PreToolUse hook fires for a tool on `allowedTools`, which the SDK runs without canUseTool — so a lock taken in that hook engages where the callback never would.",
+      ["packages/ui-backend-claude/README.md (write lock)"],
+      {
+        allowlisted: (sc) => ({
+          call: bash(`touch ${sc.path("marker")}`),
+          callback: "deny",
+          allowedTools: ["Bash"],
+          hooks: { observe: (record) => async (input) => {
+            record.start(input as PreToolUseHookInput).endedAt = performance.now();
+            return { continue: true };
+          } },
+        }),
+      },
+      (o, sc) => [
+        [existsSync(sc.allowlisted!.path("marker")), "the allowlisted call did not run"],
+        [!consulted(o.allowlisted!, "Bash"), "canUseTool was consulted for an allowlisted tool"],
+      ]
     )
   );
 
@@ -737,7 +783,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         deferred: () => ({ call: toolSearch, callback: "allow", deferredMcp: true }),
       },
       (o) => {
-        const config = createSdkMcpServer({ name: "probe", tools: [], alwaysLoad: true });
+        const config = createSdkMcpServer({ name: "probe", tools: [probeLookupTool()], alwaysLoad: true });
         return [
           [!("alwaysLoad" in config), "createSdkMcpServer put alwaysLoad on the server config"],
           [o.loaded!.offered.includes(lookup) && !o.loaded!.deferred.includes(lookup), "the stamped tool did not reach the model undeferred"],
@@ -780,9 +826,10 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
         ? null
         : "expected the OAuth bearer only"],
     ["API key only", { ANTHROPIC_API_KEY: API_KEY }, (r) =>
-      r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) && r.auth.every((a) => a.xApiKey === API_KEY)
+      r.tokenSource === "none" && r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) &&
+      r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)
         ? null
-        : "expected x-api-key"],
+        : "expected x-api-key only"],
     ["both (raw CLI)", { CLAUDE_CODE_OAUTH_TOKEN: OAUTH, ANTHROPIC_API_KEY: API_KEY }, (r) =>
       r.tokenSource === "CLAUDE_CODE_OAUTH_TOKEN" && r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) &&
       r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)

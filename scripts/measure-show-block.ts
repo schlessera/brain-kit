@@ -69,7 +69,7 @@ import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import { createSdkMcpServer, query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import {
   BRIDGE_TOOL_CONTRACTS,
   BRIDGE_TOOL_POSTURE,
@@ -117,6 +117,11 @@ function stageBrain(): string {
   );
   return dir;
 }
+
+// The SDK the BACKEND loads, imported from the entry whose version the report
+// names, so a hoisted second copy cannot be measured under the other's name.
+const SDK_ENTRY = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
+const { createSdkMcpServer, query } = (await import(SDK_ENTRY)) as typeof import("@anthropic-ai/claude-agent-sdk");
 
 const BRAIN_PATH = stageBrain();
 
@@ -392,7 +397,13 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
  * D44 rests on no longer holds.
  */
 function assertNoServerLevelAlwaysLoad(): void {
-  const config = createSdkMcpServer({ name: "brain-ui", version: "0.1.0", tools: [], alwaysLoad: true });
+  // The populated server the arms actually pass, not an empty one.
+  const config = createSdkMcpServer({
+    name: "brain-ui",
+    version: "0.1.0",
+    tools: [createShowBlockTool()],
+    alwaysLoad: true,
+  });
   if ("alwaysLoad" in config) {
     throw new Error("createSdkMcpServer now puts alwaysLoad on the server config: D44's startup-latency reading no longer holds");
   }
@@ -810,8 +821,7 @@ function loadModeRows(runs: readonly TurnResult[]): string[] {
 
 /** The SDK copy the backend loads, and so the one this harness measured. */
 function installedSdkVersion(): string {
-  const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
-  return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
+  return (JSON.parse(readFileSync(join(dirname(SDK_ENTRY), "package.json"), "utf8")) as { version: string }).version;
 }
 
 function report(
