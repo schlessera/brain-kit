@@ -140,9 +140,9 @@ interface ComposedStory {
  * missing fill. The defects this file was built after — a collapsed box, a run
  * drawn as two bars, a crushed row, a tint gone — are the size of an element
  * (a tint removed from `ApprovalCard` moved 28,141). It is not a bound on
- * everything: a one-pixel seam cut into `LaneChart`'s bar counted 2 (8 with
- * antialiasing) and passes, so a defect that small needs an assertion, not a
- * baseline.
+ * everything: a one-pixel seam cut into `LaneChart`'s bar counts under ten
+ * mismatches, with or without antialiasing, and passes. A defect that small
+ * needs an assertion, not a baseline.
  */
 const TOLERANCE = { comparatorOptions: { threshold: 0.01, allowedMismatchedPixelRatio: 0.001 } } as const;
 
