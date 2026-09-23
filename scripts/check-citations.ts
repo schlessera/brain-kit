@@ -323,6 +323,9 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
       "node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228",
       "sdk.mjs:127",
       "node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29",
+      "sdk.d.ts:5585",
+      "sdk.d.ts:3484",
+      "sdk.d.ts:23",
     ].map((cited) => [
       `docs/decisions/claude-code-runtime.md|${cited}`,
       "the Claude Agent SDK's installed package, not in this tree",
