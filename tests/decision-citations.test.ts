@@ -241,6 +241,31 @@ describe("what the check cannot verify is reported, not skipped", () => {
     ]);
   });
 
+  test("every line number chained onto a citation is reported, however written", () => {
+    for (const [body, rest] of [
+      ["(`enforcementHook`, `src/hooks.ts:2`/`4`/`6`)", ["4", "6"]],
+      ["(`enforcementHook`, `src/hooks.ts:2`/`4,6`)", ["4,6"]],
+      ["(`enforcementHook`, `src/hooks.ts:\n2`)/`4`", ["4"]],
+      ["(`enforcementHook`, `src/hooks.ts:\n2`/`4`)", ["4"]],
+      ["(`enforcementHook`, `src/hooks.ts:2`) and `:4:2`", [":4:2"]],
+      ["`[brain-ui] Dockerfile:12`/`14`", ["[brain-ui] Dockerfile:12", "14"]],
+    ] as [string, string[]][]) {
+      const reported = check(body)
+        .filter((r) => r.verdict.kind !== "anchored")
+        .map((r) => r.citation.text);
+      expect({ body, reported }).toEqual({ body, reported: rest });
+    }
+  });
+
+  test("a root file with no extension or directory, in prose", () => {
+    for (const body of ["See LICENSE:12.", "See .gitignore:12."]) {
+      expect({ body, kinds: check(body).map((r) => r.verdict.kind) }).toEqual({
+        body,
+        kinds: ["unanchored"],
+      });
+    }
+  });
+
   test("CSS and ratios in code spans are not citations", () => {
     expect(check("`gap: 18` and `flex:1 1 auto` and `min-height:0`")).toEqual([]);
   });

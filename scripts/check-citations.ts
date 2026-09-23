@@ -46,7 +46,7 @@ const LOOSE_CITATION =
 
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(
-  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]):\\d+`,
+  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+):\\d+`,
   "g",
 );
 
@@ -110,22 +110,33 @@ export function parseCitations(doc: string, body: string): Citation[] {
   // A span may wrap onto the next line, as markdown allows, but not across a
   // blank one.
   const spans = [...text.matchAll(/`((?:[^`\n]|\n(?![ \t]*\n))+)`/g)];
+  // Every span's text normalised once, the same way for the span and for its
+  // neighbours. A wrap right after the colon (`hooks.ts:` then `12`) is still
+  // one citation.
+  const contents = spans.map((span) =>
+    span[1].replace(/:[ \t]*\n\s*(?=\d)/g, ":").replace(/\s+/g, " ").trim(),
+  );
+  /** Whether a span is a citation, or a line number continuing one. */
+  const citationish: boolean[] = [];
   let lastPath: string | undefined;
   for (let i = 0; i < spans.length; i++) {
     const span = spans[i];
-    // A wrap right after the colon (`hooks.ts:` then `12`) is still one citation.
-    const content = span[1].replace(/:[ \t]*\n\s*(?=\d)/g, ":").replace(/\s+/g, " ").trim();
+    const content = contents[i];
     const match = content.match(CITATION);
-    // A bare number right after a citation, joined by `/` or a comma
-    // (`chat-store.ts:364`/`228`), is a second line of that file written in a
-    // shape the check cannot anchor: reported, not skipped.
+    // A line number right after a citation, joined by `/` or a comma
+    // (`chat-store.ts:364`/`228`, and any chain of them), is another line of
+    // that file in a shape the check cannot anchor. So is a `:12:3` with a
+    // column. Both are reported, not skipped.
     const before = spans[i - 1];
     const continuesCitation =
-      /^\d+(?:-\d+)?$/.test(content) &&
+      /^:?\d+(?:\s*[-,:]\s*\d+)*$/.test(content) &&
       before !== undefined &&
-      CITATION.test(before[1].replace(/\s+/g, " ").trim()) &&
-      /^\s*[/,]\s*$/.test(text.slice(before.index! + before[0].length, span.index));
-    if (!match && continuesCitation) {
+      citationish[i - 1] &&
+      /^\s*\)?\s*\/\s*$|^\s*,\s*$/.test(text.slice(before.index! + before[0].length, span.index));
+    const lineWithColumn = !match && /^:\d+(?::\d+)+$/.test(content);
+    citationish[i] =
+      Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);
+    if (!match && (continuesCitation || lineWithColumn)) {
       citations.push({
         doc,
         line: lineAt(span.index!),
@@ -164,7 +175,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
     const previous = spans[i - 1];
     if (previous) {
       const between = text.slice(previous.index! + previous[0].length, span.index);
-      const candidate = previous[1].replace(/\s+/g, " ").trim();
+      const candidate = contents[i - 1];
       if (/^,\s*$/.test(between) && !CITATION.test(candidate)) anchor = candidate;
     }
     citations.push({
