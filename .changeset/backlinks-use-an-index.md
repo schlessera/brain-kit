@@ -3,7 +3,7 @@
 ---
 
 `brain.db` moves to `schema_version` 9, which adds an index on
-`links(target_id)`. Asking what links to a document — `brain_links` with
+`links(target_id)`. Asking what links to a document — `brain_graph` with
 `direction: "incoming"` or `"both"` — used to read the whole `links` table once
 per visited node; it is now an index lookup. An existing brain gains the index
 the next time it is opened writable — the MCP server starting, `brain index`,

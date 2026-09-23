@@ -279,7 +279,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
   if (currentVersion < SCHEMA_VERSION) {
     // v9 — "what links to this document" is a lookup, not a scan. The links
     // primary key leads with source_id, so without this every backlink query
-    // (brain_links direction "incoming") read the whole table. Built from the
+    // (brain_graph direction "incoming") read the whole table. Built from the
     // rows already there: an upgraded brain needs no reindex.
     db.run("CREATE INDEX IF NOT EXISTS idx_links_target_id ON links(target_id)");
 

@@ -3,7 +3,7 @@
  *
  * The links primary key is (source_id, target), so "what does this document
  * point at" was always a lookup and "what points at this document" was a scan
- * of the whole table, once per visited node per hop of a brain_links
+ * of the whole table, once per visited node per hop of a brain_graph
  * `direction: "incoming"` walk. These tests pin the plan SQLite picks for that
  * query, and that a brain indexed before the index existed gains it on its next
  * writable open without a reindex.
@@ -18,7 +18,7 @@ import { join } from "path";
 import { openDatabase, SCHEMA_VERSION } from "../src/lib/db.js";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness.js";
 
-/** The `incoming` branch of brain_links in src/mcp-server.ts, verbatim. */
+/** The `incoming` branch of brain_graph in src/mcp-server.ts, verbatim. */
 const INCOMING_QUERY = `SELECT d2.path AS source, d.path AS target
                    FROM links l
                    JOIN documents d ON d.id = l.target_id
@@ -78,13 +78,13 @@ function downgradeToPreIndex(dbPath: string): void {
 }
 
 describe("links.target_id index", () => {
-  test("the query under test is still the one brain_links runs", () => {
+  test("the query under test is still the one brain_graph runs", () => {
     // A stale copy would keep the plan test green while the real query moved.
     const source = readFileSync(join(import.meta.dir, "../src/mcp-server.ts"), "utf8");
     expect(source.includes(INCOMING_QUERY)).toBe(true);
   });
 
-  test("the brain_links incoming query searches links by target_id instead of scanning it", () => {
+  test("the brain_graph incoming query searches links by target_id instead of scanning it", () => {
     const db = openDatabase(tempDbPath());
     try {
       seed(db, 200);
