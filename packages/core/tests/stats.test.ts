@@ -81,7 +81,9 @@ describe("collectStats over fixtures/corpus", () => {
   afterAll(() => db?.close());
 
   // The rename guard: every field `brain stats --json` carried before this
-  // change, with the type it carried. A removal or a rename fails here.
+  // change, with the type it carried — `embeddings` is `number | null` since
+  // #169, and a number here because this corpus has no vector table to fail
+  // on. A removal or a rename fails here.
   test("keeps every pre-existing field, with its name and type", async () => {
     const stats = await collectStats(db, { root, dbPath, taxonomy, config, now: NOW });
 
@@ -322,7 +324,7 @@ describe("embedding coverage is absent, not zero, when it cannot be known", () =
 
     expect(stats.chunks).toBe(2);
     expect(stats.health.embeddingCoverage).toBeNull();
-    // The legacy field keeps its number type.
+    // No table is nothing to count: a known 0, not the unknown null (#169).
     expect(stats.embeddings).toBe(0);
     db.close();
   });
@@ -367,7 +369,11 @@ describe("embedding coverage is absent, not zero, when it cannot be known", () =
 
 /** A connection that cannot load extensions — sqlite-vec failing the way a broken install does. */
 class NoExtensionDatabase extends Database {
+  /** How many times something tried to load an extension on this connection. */
+  loadAttempts = 0;
+
   override loadExtension(): void {
+    this.loadAttempts += 1;
     throw new Error("extension loading refused by the test");
   }
 }
@@ -424,6 +430,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
     expect(warnings).toEqual([
       "sqlite-vec not available: extension loading refused by the test",
     ]);
+    expect(db.loadAttempts).toBe(1);
     db.close();
   });
 
@@ -435,7 +442,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
     insertChunk(writer, id, 0);
     writer.close();
 
-    // Loading would throw here, so a quiet answer proves it was never tried.
+    // Loading would throw here; the attempt counter says whether it was tried.
     const db = new NoExtensionDatabase(dbPath, { readonly: true });
     const { stats, warnings } = await collectCapturingWarnings(db, {
       root,
@@ -447,6 +454,8 @@ describe("vectors are read through the shared loadVecSupport", () => {
     });
 
     expect(warnings).toEqual([]);
+    // Quiet is not enough: a load tried and swallowed would be quiet too.
+    expect(db.loadAttempts).toBe(0);
     // No table is nothing to count: a known 0, not the unknown null.
     expect(stats.embeddings).toBe(0);
     expect(stats.health.embeddingCoverage).toBeNull();
