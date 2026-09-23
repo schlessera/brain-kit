@@ -151,7 +151,9 @@ export function createClaudeSdkTurn(options: {
     }),
   };
   sdkOptions.env = childEnv;
-  if (subscriptionOnly) sdkOptions.settings = { ...NEUTRALISED_SETTINGS };
+  if (subscriptionOnly) {
+    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env } };
+  }
 
   return {
     options: sdkOptions,

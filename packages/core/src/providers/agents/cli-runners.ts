@@ -19,6 +19,8 @@ import type { AgentRunner } from "../../lib/seams.js";
 import {
   CLEARED_API_CREDENTIALS,
   ClaudeSubscriptionError,
+  defaultManagedSettingsDir,
+  managedSettingsConflict,
   NEUTRALISED_SETTINGS,
   subscriptionRefusal,
 } from "./claude-subscription.js";
@@ -78,8 +80,17 @@ type RunnerEvent = { kind: "tool" | "text"; label: string };
  */
 async function claudeSession(
   prompt: string,
-  opts: { cwd: string; timeoutMs: number; onEvent?: (e: RunnerEvent) => void }
+  opts: {
+    cwd: string;
+    timeoutMs: number;
+    managedSettingsDir: string;
+    onEvent?: (e: RunnerEvent) => void;
+  }
 ): Promise<string> {
+  // Managed settings outrank the flag settings below, so a credential they
+  // configure cannot be switched off — only refused, before anything spawns.
+  const conflict = managedSettingsConflict(opts.managedSettingsDir);
+  if (conflict) throw new ClaudeSubscriptionError(conflict);
   const proc = Bun.spawn(
     [
       ...CLAUDE_BASE_ARGS,
@@ -186,16 +197,30 @@ async function claudeSession(
   return resultText.trim();
 }
 
-/** claude — `claude --print` over stream-json, held to the subscription. */
-export function claudeRunner(): AgentRunner {
+/**
+ * claude — `claude --print` over stream-json, held to the subscription.
+ * `managedSettingsDir` is where Claude Code reads managed settings (default:
+ * the platform's managed directory).
+ */
+export function claudeRunner(options: { managedSettingsDir?: string } = {}): AgentRunner {
+  const managedSettingsDir = options.managedSettingsDir ?? defaultManagedSettingsDir();
   return {
     id: "claude",
     capabilities: { streaming: true, skills: true },
     run(prompt, opts) {
-      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS });
+      return claudeSession(prompt, {
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        managedSettingsDir,
+      });
     },
     runStreaming(prompt, opts) {
-      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: DEFAULT_TIMEOUT_MS, onEvent: opts.onEvent });
+      return claudeSession(prompt, {
+        cwd: opts.cwd,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+        managedSettingsDir,
+        onEvent: opts.onEvent,
+      });
     },
   };
 }

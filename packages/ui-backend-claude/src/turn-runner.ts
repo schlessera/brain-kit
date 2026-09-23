@@ -11,7 +11,12 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { createClaudeSdkTurn } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
-import { subscriptionRefusalMessage, subscriptionVerdict } from "./subscription.js";
+import {
+  defaultManagedSettingsDir,
+  managedSettingsConflict,
+  subscriptionRefusalMessage,
+  subscriptionVerdict,
+} from "./subscription.js";
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { DEFAULT_ALLOWED_TOOLS } from "./tool-policy.js";
@@ -147,10 +152,25 @@ export function createClaudeTurnRunner(options: {
       });
       const prompt = sdkTurn.subscriptionOnly
         ? gatedPrompt(sdkTurn.prompt, async () => {
+            const refuse = (reason: string): false => {
+              refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(reason) };
+              options.log("warn", "subscription check refused the turn", {
+                "profile.id": profile.id,
+                reason,
+              });
+              abortController.abort();
+              return false;
+            };
+            const conflict = managedSettingsConflict(
+              options.backend.managedSettingsDir ?? defaultManagedSettingsDir()
+            );
+            if (conflict) return refuse(conflict);
             let account;
             try {
               account = (await (await queryHandle).initializationResult()).account;
             } catch (error) {
+              // A handshake the host cancelled is a cancelled turn, not a failed one.
+              if (abortController.signal.aborted) return false;
               refused = {
                 code: "CLAUDE_ERROR",
                 message: `Claude Code did not complete its handshake: ${
@@ -160,15 +180,9 @@ export function createClaudeTurnRunner(options: {
               abortController.abort();
               return false;
             }
+            if (abortController.signal.aborted) return false;
             const verdict = subscriptionVerdict(account);
-            if (verdict.ok) return true;
-            refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(verdict.reason) };
-            options.log("warn", "subscription check refused the turn", {
-              "profile.id": profile.id,
-              reason: verdict.reason,
-            });
-            abortController.abort();
-            return false;
+            return verdict.ok ? true : refuse(verdict.reason);
           })
         : sdkTurn.prompt;
       const result = queryFn({ prompt, options: sdkTurn.options });
@@ -176,6 +190,9 @@ export function createClaudeTurnRunner(options: {
 
       let announced = false;
       for await (const msg of result) {
+        // A refused turn has already decided its outcome; nothing the stream
+        // does after that may replace it.
+        if (refused) break;
         // Emit session_info as soon as the session identity is known, before
         // any content frames (contract requirement).
         if (!announced && msg.session_id) {

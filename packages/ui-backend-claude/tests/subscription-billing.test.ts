@@ -29,6 +29,8 @@ const AUTH_TOKEN = `sk-ant-bearer-${"b".repeat(60)}`;
 const HELPER_KEY = `sk-ant-api03-${"h".repeat(95)}AA`;
 const STORED_KEY = `sk-ant-api03-${"s".repeat(95)}AA`;
 const DECLARED_KEY = `sk-ant-api03-${"d".repeat(95)}AA`;
+const DECLARED_TOKEN = `sk-ant-declared-${"t".repeat(60)}`;
+const HEADER_KEY = `sk-ant-api03-${"x".repeat(95)}AA`;
 
 interface Seen {
   xApiKey: string | null;
@@ -83,11 +85,20 @@ interface Setup {
   projectSettings?: Record<string, unknown>;
   /** A stored Console key in the CLI's global config. */
   storedKey?: boolean;
+  /** Extra headers the CLI merges after its own auth headers. */
+  customHeaders?: string;
+  /** Managed (policy) settings, which outrank anything a turn passes. */
+  managedSettings?: Record<string, unknown>;
 }
 
 /** A fresh HOME, config dir and brain repo, and the process env a host would have. */
-function arrange(setup: Setup): { brainPath: string; home: string } {
+function arrange(setup: Setup): { brainPath: string; home: string; managedDir: string } {
   const home = tempDir("sub-home-");
+  // Never the host's own managed directory: the test decides what is in it.
+  const managedDir = tempDir("sub-managed-");
+  if (setup.managedSettings) {
+    writeFileSync(join(managedDir, "managed-settings.json"), JSON.stringify(setup.managedSettings));
+  }
   const configDir = join(home, ".claude");
   mkdirSync(configDir, { recursive: true });
   const brainPath = tempDir("sub-brain-");
@@ -105,13 +116,15 @@ function arrange(setup: Setup): { brainPath: string; home: string } {
     ANTHROPIC_API_KEY: API_KEY,
     ANTHROPIC_AUTH_TOKEN: AUTH_TOKEN,
     DECLARED_KEY_ENV: DECLARED_KEY,
-    DECLARED_TOKEN_ENV: AUTH_TOKEN,
+    DECLARED_TOKEN_ENV: DECLARED_TOKEN,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    BRAIN_UI_SUBPROCESS_ENV_EXTRA:
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_CUSTOM_HEADERS",
   });
+  if (setup.customHeaders !== undefined) process.env.ANTHROPIC_CUSTOM_HEADERS = setup.customHeaders;
   if (setup.oauth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   else process.env.CLAUDE_CODE_OAUTH_TOKEN = setup.oauth;
-  return { brainPath, home };
+  return { brainPath, home, managedDir };
 }
 
 /** The real query, with every SDK message it produced kept for inspection. */
@@ -131,7 +144,7 @@ function observedQuery(observed: SDKMessage[]): typeof query {
 }
 
 async function runTurn(
-  brainPath: string,
+  { brainPath, managedDir }: { brainPath: string; managedDir: string },
   profileId?: string
 ): Promise<{ frames: ServerMessage[]; observed: SDKMessage[] }> {
   const frames: ServerMessage[] = [];
@@ -142,6 +155,7 @@ async function runTurn(
   };
   const backend = createClaudeBackend({
     brainPath,
+    managedSettingsDir: managedDir,
     queryFn: observedQuery(observed),
     profiles: defineProfiles([
       { id: "claude", label: "Claude", source: "builtin" },
@@ -167,108 +181,170 @@ function initApiKeySource(observed: SDKMessage[]): string | undefined {
   return init?.apiKeySource;
 }
 
-function authFailure(frames: ServerMessage[]): ServerMessage | undefined {
-  return frames.find((frame) => frame.type === "error" && frame.code === "CLAUDE_AUTH");
+/** The turn ended as exactly one auth failure, and that failure is its last frame. */
+function expectAuthFailure(frames: ServerMessage[]): void {
+  const failures = frames.filter((frame) => frame.type === "error" && frame.code === "CLAUDE_AUTH");
+  expect(failures).toHaveLength(1);
+  expect(frames.at(-1)).toBe(failures[0]!);
+  expect(frames.some((frame) => frame.type === "result")).toBe(false);
+}
+
+/** Every request carried the OAuth bearer and nothing else — and there was one. */
+function expectOnlySubscription(): void {
+  expect(seen.length).toBeGreaterThan(0);
+  for (const request of seen) {
+    expect(request.authorization).toBe(`Bearer ${OAUTH}`);
+    expect(request.xApiKey).toBeNull();
+  }
 }
 
 const LIVE = 90_000;
 
 describe("a profile without its own credential bills the subscription", () => {
   test("OAuth, an API key and a bearer token all present: only the OAuth bearer is sent", async () => {
-    const { brainPath } = arrange({ oauth: OAUTH });
-    const { observed } = await runTurn(brainPath);
+    const fixture = arrange({ oauth: OAUTH });
+    const { observed } = await runTurn(fixture);
 
-    expect(seen.length).toBeGreaterThan(0);
-    for (const request of seen) {
-      expect(request.authorization).toBe(`Bearer ${OAUTH}`);
-      expect(request.xApiKey).toBeNull();
-    }
+    expectOnlySubscription();
     expect(initApiKeySource(observed)).toBe("none");
   }, LIVE);
 
   test("a second credential-free profile is held to the same rule", async () => {
-    const { brainPath } = arrange({ oauth: OAUTH });
-    const { observed } = await runTurn(brainPath, "other");
+    const fixture = arrange({ oauth: OAUTH });
+    const { observed } = await runTurn(fixture, "other");
 
-    expect(seen.length).toBeGreaterThan(0);
-    for (const request of seen) {
-      expect(request.authorization).toBe(`Bearer ${OAUTH}`);
-      expect(request.xApiKey).toBeNull();
-    }
+    expectOnlySubscription();
     expect(initApiKeySource(observed)).toBe("none");
   }, LIVE);
 
   test("no subscription token: nothing is sent and the turn is an auth failure", async () => {
-    const { brainPath } = arrange({});
-    const { frames } = await runTurn(brainPath);
+    const fixture = arrange({});
+    const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
-    expect(authFailure(frames)).toBeDefined();
-    expect(frames.at(-1)?.type).toBe("error");
+    expectAuthFailure(frames);
   }, LIVE);
 
   test("an EMPTY subscription token is no token: nothing is sent", async () => {
-    const { brainPath } = arrange({ oauth: "" });
-    const { frames } = await runTurn(brainPath);
+    const fixture = arrange({ oauth: "" });
+    const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
-    expect(authFailure(frames)).toBeDefined();
+    expectAuthFailure(frames);
   }, LIVE);
 
   test("a project apiKeyHelper is switched off: it never runs, and with no subscription nothing is sent", async () => {
     const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const { brainPath } = arrange({
+    const fixture = arrange({
       projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
     });
-    const { frames } = await runTurn(brainPath);
+    // (The helper fixture is proven live by the control test below.)
+    const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
-    expect(authFailure(frames)).toBeDefined();
+    expectAuthFailure(frames);
     expect(existsSync(marker)).toBe(false);
   }, LIVE);
 
   test("a DELAYED apiKeyHelper beside an OAuth token never runs and never supplies the key", async () => {
     // A helper that has not produced its key yet is invisible to the account
     // check, so the only safe helper is one that never runs.
+    // The marker comes first, so its absence means the helper never started —
+    // not that it was killed during the sleep.
     const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const { brainPath } = arrange({
+    const fixture = arrange({
       oauth: OAUTH,
-      projectSettings: { apiKeyHelper: `sleep 2; touch ${marker}; echo ${HELPER_KEY}` },
+      projectSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
     });
-    await runTurn(brainPath);
+    await runTurn(fixture);
 
-    for (const request of seen) {
-      expect(request.xApiKey).toBeNull();
-      expect(request.authorization).toBe(`Bearer ${OAUTH}`);
-    }
+    expectOnlySubscription();
     expect(existsSync(marker)).toBe(false);
   }, LIVE);
 
   test("a stored Console key is refused before the prompt is sent, even beside an OAuth token", async () => {
-    const { brainPath } = arrange({ oauth: OAUTH, storedKey: true });
-    const { frames } = await runTurn(brainPath);
+    const fixture = arrange({ oauth: OAUTH, storedKey: true });
+    const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
-    expect(authFailure(frames)).toBeDefined();
+    expectAuthFailure(frames);
+  }, LIVE);
+
+  test("ANTHROPIC_CUSTOM_HEADERS cannot carry a key in beside the subscription", async () => {
+    // The CLI merges these after its own auth headers, so an x-api-key line
+    // here would be what the request carried.
+    const fixture = arrange({ oauth: OAUTH, customHeaders: `x-api-key: ${HEADER_KEY}` });
+    await runTurn(fixture);
+
+    expectOnlySubscription();
+  }, LIVE);
+
+  test("a project settings env block cannot put the API key back", async () => {
+    // The brain repo is the turn's cwd and writable by the agent.
+    const fixture = arrange({
+      oauth: OAUTH,
+      projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY, ANTHROPIC_CUSTOM_HEADERS: `x-api-key: ${HEADER_KEY}` } },
+    });
+    await runTurn(fixture);
+
+    expectOnlySubscription();
+  }, LIVE);
+
+  test("managed settings that configure a helper refuse the turn: they outrank anything it passes", async () => {
+    const marker = join(tempDir("sub-marker-"), "helper-ran");
+    const fixture = arrange({
+      oauth: OAUTH,
+      managedSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
+    });
+    const { frames } = await runTurn(fixture);
+
+    expect(seen).toEqual([]);
+    expectAuthFailure(frames);
+    expect(existsSync(marker)).toBe(false);
+  }, LIVE);
+});
+
+describe("the fixtures would catch what they are for", () => {
+  test("control: without the backend, the project helper runs and its key is sent", async () => {
+    // Proves the helper fixture is live, so the "never runs" assertions above
+    // are about the backend and not about a helper that could not have run.
+    const marker = join(tempDir("sub-marker-"), "helper-ran");
+    const { brainPath } = arrange({
+      oauth: OAUTH,
+      projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
+    });
+    const run = query({
+      prompt: "Reply with the single word ok.",
+      options: {
+        cwd: brainPath,
+        settingSources: ["project"],
+        maxTurns: 1,
+        env: { ...process.env, ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "" },
+      },
+    });
+    for await (const message of run) if (message.type === "result") break;
+
+    expect(existsSync(marker)).toBe(true);
+    expect(seen.some((request) => request.xApiKey === HELPER_KEY)).toBe(true);
   }, LIVE);
 });
 
 describe("a profile that declares its own credential is billed as declared", () => {
   test("apiKeyEnv sends that key as x-api-key", async () => {
-    const { brainPath } = arrange({ oauth: OAUTH });
-    await runTurn(brainPath, "declared-key");
+    const fixture = arrange({ oauth: OAUTH });
+    await runTurn(fixture, "declared-key");
 
     expect(seen.length).toBeGreaterThan(0);
     for (const request of seen) expect(request.xApiKey).toBe(DECLARED_KEY);
   }, LIVE);
 
   test("authTokenEnv sends that token as the bearer", async () => {
-    const { brainPath } = arrange({ oauth: OAUTH });
-    await runTurn(brainPath, "declared-token");
+    const fixture = arrange({ oauth: OAUTH });
+    await runTurn(fixture, "declared-token");
 
     expect(seen.length).toBeGreaterThan(0);
     for (const request of seen) {
-      expect(request.authorization).toBe(`Bearer ${AUTH_TOKEN}`);
+      expect(request.authorization).toBe(`Bearer ${DECLARED_TOKEN}`);
       expect(request.xApiKey).toBeNull();
     }
   }, LIVE);
