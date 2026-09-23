@@ -72,6 +72,77 @@ export function decideToolPermission(
 }
 
 /** @experimental */
+export interface EditedApprovalCheckInput
+  extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
+  /** The input the card showed. */
+  originalInput: unknown;
+  /** The input the approval came back with (`PermissionDecision.updatedInput`). */
+  editedInput: unknown;
+}
+
+/**
+ * The per-use confirmations one call needs, each named by what it confirms:
+ * the confirm pattern a command matches, or the document an update archives.
+ * Two inputs that produce the same name need the same confirmation.
+ */
+function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): string[] {
+  const names: string[] = [];
+  if (options.toolName === options.shellToolName) {
+    const command = bashCommand(input);
+    if (command) {
+      for (const re of options.confirmPatterns) {
+        if (re.test(command)) names.push(`pattern:${re.source}`);
+      }
+    }
+  }
+  if (
+    options.updateToolName !== undefined &&
+    options.toolName === options.updateToolName &&
+    archivesDocument(input)
+  ) {
+    names.push(`archive:${JSON.stringify((input as { path?: unknown }).path)}`);
+  }
+  return names;
+}
+
+/**
+ * Re-check an approval that came back with an edited input, before the edit
+ * is applied. Returns null when it may be applied, or the message to refuse
+ * the call with.
+ *
+ * The card confirmed one input; an edit must not turn the approval into a
+ * confirmation nobody gave. So {@link decideToolPermission} is run again on
+ * the edited input, with the tool treated as allowed — a tool grant is a
+ * property of the tool's name, which an edit cannot change, and treating it
+ * as allowed is what exposes a per-use confirmation hiding behind a tool
+ * card. An edit that needs no confirmation passes. One that does passes only
+ * if every confirmation it needs was needed by the input the card showed: the
+ * same confirm pattern, the same archived document. Anything else is refused
+ * whole, never applied in part.
+ *
+ * @experimental
+ */
+export function checkEditedApproval(options: EditedApprovalCheckInput): string | null {
+  const needed = decideToolPermission({
+    toolName: options.toolName,
+    shellToolName: options.shellToolName,
+    ...(options.updateToolName !== undefined ? { updateToolName: options.updateToolName } : {}),
+    input: options.editedInput,
+    allowedTools: new Set([options.toolName]),
+    confirmPatterns: options.confirmPatterns,
+  });
+  if (!needed) return null;
+  const shown = new Set(confirmationsFor(options, options.originalInput));
+  if (confirmationsFor(options, options.editedInput).every((name) => shown.has(name))) {
+    return null;
+  }
+  return (
+    `The approval for ${options.toolName} changed its input into a call that needs a confirmation the card did not show, so it did not run. ` +
+    `${needed.reason} Re-issue the call as you want it, so it can be confirmed as it is.`
+  );
+}
+
+/** @experimental */
 export interface CreateToolPermissionRequestInput {
   toolUseId: string;
   toolName: string;

@@ -104,9 +104,11 @@ export type {
   ToolPermissionDecisionInput,
   ToolPermissionApproval,
   CreateToolPermissionRequestInput,
+  EditedApprovalCheckInput,
   RequestToolPermissionOptions,
 } from "./permission-gate.js";
 export {
+  checkEditedApproval,
   decideToolPermission,
   createToolPermissionRequest,
   requestToolPermission,

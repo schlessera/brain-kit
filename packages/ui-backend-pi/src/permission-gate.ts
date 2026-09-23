@@ -26,12 +26,16 @@
  *
  * A denial returns `{ block: true, reason }`, which pi feeds back to the
  * model as an error tool result — the turn survives. An approval with
- * `updatedInput` mutates `event.input` in place (pi's documented mechanism
- * for patching tool arguments), so the edited input is what executes.
+ * `updatedInput` is re-checked against the shared policy first
+ * (`checkEditedApproval`) and refused if it needs a confirmation the card did
+ * not show; otherwise it mutates `event.input` in place (pi's documented
+ * mechanism for patching tool arguments), so the edited input is what
+ * executes.
  */
 
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
+  checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
@@ -107,17 +111,24 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           };
         }
         if (decision.updatedInput && event.input && typeof event.input === "object") {
+          // The card showed the original input. An edit that needs a
+          // confirmation it did not show — another confirm pattern, another
+          // archived document — is refused whole rather than applied, so an
+          // approval cannot redirect the call it confirmed.
+          const refusal = checkEditedApproval({
+            toolName: event.toolName,
+            shellToolName: "bash",
+            updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
+            confirmPatterns,
+            originalInput: event.input,
+            editedInput: decision.updatedInput,
+          });
+          if (refusal) return { block: true, reason: refusal };
           // In-place mutation is pi's runtime contract for patching tool
           // arguments. Claude must instead return a structural updatedInput;
           // this runtime-specific difference deliberately stays in the binding.
-          //
-          // The edit is applied as given and NOT re-run through
-          // decideToolPermission, so an approval can redirect a confirmed call
-          // — an archiving update approved against document A can execute
-          // against document B, with the card having shown A. The Claude
-          // backend cannot apply an edit at all from its hook and refuses one
-          // instead, so the two backends genuinely differ here rather than
-          // mirroring. #145 holds the question for both.
+          // The tool then executes with the patched arguments, so its lock key
+          // is taken from the edited input.
           const target = event.input as Record<string, unknown>;
           for (const key of Object.keys(target)) {
             if (!(key in decision.updatedInput)) delete target[key];

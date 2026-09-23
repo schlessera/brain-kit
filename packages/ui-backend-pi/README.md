@@ -102,16 +102,19 @@ policy mirrors the Claude backend:
   `pi-mcp-adapter`, exactly like a non-allowlisted MCP tool on the Claude
   backend.
 
-One place the posture does **not** mirror: an approval carrying `updatedInput`.
-pi applies the edit in place, as its runtime intends, without re-checking the
-edited input against the policy — so an approval can redirect a confirmed call.
-The Claude backend cannot apply an edit from its PreToolUse hook and refuses
-the approval instead. #145 holds that question for both.
+An approval that carries an edited input (`updatedInput`) is re-checked
+before it is applied, the same way on both backends (#145). The shared
+`checkEditedApproval` runs the confirm policy again on the edited input: an
+edit that needs no confirmation, or only the confirmations the card already
+showed (the same confirm pattern, the same archived document), is applied; one
+that needs a confirmation the card did not show is refused whole, and the model
+is told why. The write lock is taken on the edited input's key. pi applies a passing edit by patching the tool
+arguments in place, as its runtime intends.
 
 A denial blocks the call with the host's message; pi feeds the block back to
 the model as an `isError` tool result, so a denial never crashes the turn. An
-approval may carry `updatedInput`, which patches the tool arguments in place
-before execution. `bash` commands are additionally routed through
+approval may carry `updatedInput`, which, once re-checked as above, patches
+the tool arguments in place before execution. `bash` commands are additionally routed through
 [rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
 token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
 the gate, so confirm patterns always see the command as the model wrote it.

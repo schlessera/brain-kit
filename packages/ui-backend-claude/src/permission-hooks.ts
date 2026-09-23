@@ -1,6 +1,7 @@
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
+  checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
@@ -130,6 +131,28 @@ export function createPermissionWiring(options: {
   commandAllowed.add("Bash");
   commandAllowed.add(BRAIN_UPDATE_TOOL);
 
+  /** Re-run the shared policy on an approval's edited input (#145). */
+  const recheckEdit = (
+    toolName: string,
+    originalInput: unknown,
+    editedInput: unknown
+  ): string | null => {
+    const refusal = checkEditedApproval({
+      toolName,
+      shellToolName: "Bash",
+      updateToolName: BRAIN_UPDATE_TOOL,
+      confirmPatterns,
+      originalInput,
+      editedInput,
+    });
+    if (refusal) {
+      log("warn", "approval edited into a call its card did not confirm; refused", {
+        "tool.name": toolName,
+      });
+    }
+    return refusal;
+  };
+
   const canUseTool: NonNullable<Options["canUseTool"]> = async (
     toolName,
     input,
@@ -164,6 +187,14 @@ export function createPermissionWiring(options: {
       outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
     const decision = await requestToolPermission(req.bridge, request, permissionOptions);
+    // An edit is re-checked before it is applied: the card was a grant for
+    // the input it showed, and an edit into a call that needs a per-use
+    // confirmation — one the PreToolUse hook raised for nothing, because it
+    // saw the original — must not ride in on that grant.
+    if (decision.behavior === "allow" && decision.updatedInput !== undefined) {
+      const refusal = recheckEdit(toolName, input, decision.updatedInput);
+      if (refusal) return { behavior: "deny", message: refusal };
+    }
     // A mutating tool runs inside this subprocess the moment we return
     // "allow", so take its lock BEFORE allowing and hold it until the tool's
     // result frame is observed (see the stream loop) or the turn ends. Denials
@@ -227,6 +258,8 @@ export function createPermissionWiring(options: {
       allowedTools: commandAllowed,
       confirmPatterns,
     });
+    /** The input an approved edit replaced the call's with, if any. */
+    let edited: Record<string, unknown> | undefined;
     if (approval?.kind === "command") {
       // A per-use confirmation, not a tool grant — the host must never
       // remember it as "always allow Bash" or "always allow brain_update".
@@ -249,35 +282,33 @@ export function createPermissionWiring(options: {
         };
       }
       if (decision.updatedInput !== undefined) {
-        // The host approved an EDITED call, and this hook cannot apply the
-        // edit: the SDK honours `updatedInput` only alongside
-        // `permissionDecision: "allow"`, and emitting that here would also
-        // re-admit a tool a deployment deliberately removed from
-        // `allowedTools` — the re-admission hazard the rewrite hooks already
-        // carry (see input-rewrite-hooks.ts). Proceeding would instead run
-        // the ORIGINAL input, i.e. archive a document the host just said to
-        // leave alone. Refuse, which is both the safe direction and a visible
-        // one; canUseTool remains the path that applies an edit.
-        // Recorded for the same reason a withheld re-admission is: a gate
-        // that stops applying must be visible, not silently absent.
-        log("warn", "confirmation approved with an edit this hook cannot apply; refused", {
-          "tool.name": hookInput.tool_name,
-        });
-        return {
-          continue: true,
-          hookSpecificOutput: {
-            hookEventName: "PreToolUse",
-            permissionDecision: "deny",
-            permissionDecisionReason:
-              "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
-          },
-        };
+        // The host approved an EDITED call. The edit is put back through the
+        // shared policy first: one that needs a confirmation this card did not
+        // show is refused whole, so an approval cannot redirect the call it
+        // confirmed.
+        const refusal = recheckEdit(
+          hookInput.tool_name,
+          hookInput.tool_input,
+          decision.updatedInput
+        );
+        if (refusal) {
+          return {
+            continue: true,
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: refusal,
+            },
+          };
+        }
+        edited = decision.updatedInput;
       }
     }
 
+    // The input that will execute decides the key, as in canUseTool.
     const acquired = await turnLock.acquireForTool(
       hookInput.tool_use_id,
-      lockKeyForTool(hookInput.tool_name, hookInput.tool_input, brainPath)
+      lockKeyForTool(hookInput.tool_name, edited ?? hookInput.tool_input, brainPath)
     );
     if (!acquired.ok) {
       return {
@@ -287,6 +318,19 @@ export function createPermissionWiring(options: {
           permissionDecision: "deny",
           permissionDecisionReason: acquired.reason,
         },
+      };
+    }
+    if (edited !== undefined) {
+      // Applied by returning `updatedInput` with NO permissionDecision. A
+      // PreToolUse hook's rewrite takes effect without one — measured against
+      // Claude Code 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278, for
+      // #124 and again for #145 — so the edit gains no `allow`, and a tool the
+      // turn's allowlist left out still goes on to canUseTool, which is then
+      // consulted with the edited input. Do not add a decision here: an
+      // `allow` skips canUseTool and would re-admit such a tool.
+      return {
+        continue: true,
+        hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: edited },
       };
     }
     return { continue: true };
@@ -299,6 +343,16 @@ export function createPermissionWiring(options: {
   const rtkHook = createRtkHook(childEnv, {
     mayGrant: !outsideEnforcedAllowlist("Bash"),
     onGrantWithheld: withheld,
+    // A confirmed command belongs to mutatingHook, which may apply an edit
+    // of it; rtk proxying is opportunistic and gives way.
+    leaveAlone: (input) =>
+      decideToolPermission({
+        toolName: "Bash",
+        shellToolName: "Bash",
+        input,
+        allowedTools: commandAllowed,
+        confirmPatterns,
+      })?.kind === "command",
   });
 
   return {

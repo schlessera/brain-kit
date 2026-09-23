@@ -209,11 +209,12 @@ describe("a deployment that narrowed its allowlist", () => {
   });
 });
 
-describe("an approval the hook cannot honour", () => {
-  test("an edited approval is refused, not run with the original input", async () => {
-    // The host said "archive it, but with status active". This hook cannot
-    // apply that edit, and running the original would archive a document the
-    // host just said to leave alone — so it refuses rather than proceeding.
+describe("an edited approval", () => {
+  test("is applied when the edit needs no confirmation of its own", async () => {
+    // The host said "archive it, but with status active". Re-checked (#145),
+    // that edit archives nothing, so it is applied — as `updatedInput` with no
+    // `permissionDecision`, which the runtime honours without a grant.
+    // Behaviour change: #144 refused every edited approval on this path.
     const { output, permissionCalls } = await preToolUse(
       BRAIN_UPDATE_TOOL,
       { path: "notes/thing.md", status: "archived" },
@@ -225,10 +226,21 @@ describe("an approval the hook cannot honour", () => {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason:
-          "This confirmation was approved with an edited input, which cannot be applied here. Re-issue the call with the input you want.",
+        updatedInput: { path: "notes/thing.md", status: "active" },
       },
+    });
+  });
+
+  test("is refused when it archives a document the card did not show", async () => {
+    const { output } = await preToolUse(
+      BRAIN_UPDATE_TOOL,
+      { path: "notes/thing.md", status: "archived" },
+      { behavior: "allow", updatedInput: { path: "notes/other.md", status: "archived" } }
+    );
+
+    expect(output).toMatchObject({
+      continue: true,
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
     });
   });
 });

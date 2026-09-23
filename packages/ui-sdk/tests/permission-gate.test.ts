@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { archivesDocument } from "../src/server/confirm-patterns";
 import {
+  checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
@@ -287,5 +288,69 @@ describe("archivesDocument", () => {
     ]) {
       expect(archivesDocument(input), JSON.stringify(input) ?? "undefined").toBe(false);
     }
+  });
+});
+
+describe("checkEditedApproval", () => {
+  const patterns = [/\brm\s+-rf\b/i, /\bgit\s+push\b.*--force/i];
+  const check = (toolName: string, originalInput: unknown, editedInput: unknown) =>
+    checkEditedApproval({
+      toolName,
+      shellToolName: "bash",
+      updateToolName: "brain_update",
+      confirmPatterns: patterns,
+      originalInput,
+      editedInput,
+    });
+
+  test("an edit that needs no confirmation passes", () => {
+    expect(check("bash", { command: "rm -rf notes" }, { command: "ls notes" })).toBeNull();
+    expect(
+      check("brain_update", { path: "a.md", status: "archived" }, { path: "a.md", status: "active" })
+    ).toBeNull();
+    expect(check("read_file", { path: "a.md" }, { path: "b.md" })).toBeNull();
+  });
+
+  test("an edit within the confirmed pattern or document passes", () => {
+    expect(check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes/old" })).toBeNull();
+    expect(
+      check(
+        "brain_update",
+        { path: "a.md", status: "archived" },
+        { path: "a.md", status: "archived", summary: "Gone." }
+      )
+    ).toBeNull();
+  });
+
+  test("an edit that needs a confirmation the card did not show is refused, naming the tool", () => {
+    const pattern = check("bash", { command: "rm -rf notes" }, { command: "git push --force" });
+    expect(pattern).toContain("bash");
+    expect(pattern).toContain("did not run");
+
+    const added = check(
+      "bash",
+      { command: "rm -rf notes" },
+      { command: "rm -rf notes && git push --force" }
+    );
+    expect(added).toContain("bash");
+
+    const document = check(
+      "brain_update",
+      { path: "a.md", status: "archived" },
+      { path: "b.md", status: "archived" }
+    );
+    expect(document).toContain("brain_update");
+    expect(document).toContain(ARCHIVE_REASON);
+
+    // Nothing was confirmed at all: the card was for an input that needed none.
+    expect(
+      check("brain_update", { path: "a.md", summary: "x" }, { path: "a.md", status: "archived" })
+    ).toContain("brain_update");
+  });
+
+  test("a confirmation hiding behind a tool grant is still seen", () => {
+    // The tool-level decision is a property of the name, which an edit cannot
+    // change; what an edit CAN change is whether the call is destructive.
+    expect(check("bash", { command: "ls" }, { command: "rm -rf notes" })).toContain("bash");
   });
 });

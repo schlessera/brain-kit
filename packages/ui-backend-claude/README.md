@@ -72,11 +72,19 @@ move it also does: an archived document drops out of search, briefings and
 context assembly, so a silent archive shows up later as holes in output nobody
 can account for. It stays behind an approval card.
 
-An approval that carries an edited input is refused rather than applied: the
-SDK honours `updatedInput` only alongside `permissionDecision: "allow"`, and
-emitting that from a PreToolUse hook re-admits a tool a deployment removed from
-`allowedTools`. The pi backend applies such an edit instead, so the two
-deliberately differ here (#145).
+An approval that carries an edited input (`updatedInput`) is re-checked
+before it is applied, the same way on both backends (#145). The shared
+`checkEditedApproval` runs the confirm policy again on the edited input: an
+edit that needs no confirmation, or only the confirmations the card already
+showed (the same confirm pattern, the same archived document), is applied; one
+that needs a confirmation the card did not show is refused whole, and the model
+is told why. The write lock is taken on the edited input's key. On the PreToolUse
+path the edit is returned as `updatedInput` with no `permissionDecision`, which
+the runtime applies without a grant (measured against Claude Code 2.1.280 /
+`@anthropic-ai/claude-agent-sdk` 0.3.278), so a tool left off `allowedTools`
+still goes on to `canUseTool`. The rtk rewrite leaves a confirmed command
+alone, because parallel PreToolUse hooks each see the original input and the
+last to finish wins, so a rewrite could land over the edit.
 
 That argument reaches one input shape of an auto-allowed tool, too.
 `brain_update` takes the same `status` field, so `status: "archived"` is the
