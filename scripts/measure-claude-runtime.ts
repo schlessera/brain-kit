@@ -747,17 +747,19 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
     )
   );
 
-  // The hook holds the call for a while and looks for the tool's marker while
-  // it does: an awaited hook sees none; a hook the runtime did not wait for
-  // would find the tool already run.
-  const holdingHook = (marker: string, ranEarly: string[]) => (record: HookRecorder): HookCallback => async (input) => {
+  // Ordering is observed, not timed: the hook creates a RELEASE file only
+  // after it has held the call, and the tool's own command records whether
+  // that file existed when the tool started. An awaited hook means the tool
+  // always starts after the release.
+  const releasingHook = (release: string) => (record: HookRecorder): HookCallback => async (input) => {
     const call = record.start(input as PreToolUseHookInput);
-    await new Promise((r) => setTimeout(r, 500));
-    if (existsSync(marker)) ranEarly.push(marker);
+    await new Promise((r) => setTimeout(r, 300));
+    writeFileSync(release, "");
     call.endedAt = performance.now();
     return { continue: true };
   };
-  const ranEarly: string[] = [];
+  const orderedTouch = (sc: Scratch) =>
+    bash(`if test -e ${sc.path("release")}; then touch ${sc.path("after")}; else touch ${sc.path("before")}; fi`);
   results.push(
     await measure(
       model,
@@ -766,21 +768,22 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
       ["packages/ui-backend-claude/README.md (write lock)"],
       {
         allowlisted: (sc) => ({
-          call: bash(`touch ${sc.path("marker")}`),
+          call: orderedTouch(sc),
           callback: "deny",
           allowedTools: ["Bash"],
-          hooks: { hold: holdingHook(sc.path("marker"), ranEarly) },
+          hooks: { hold: releasingHook(sc.path("release")) },
         }),
         underAsk: (sc) => ({
-          call: bash(`touch ${sc.path("marker")}`),
+          call: orderedTouch(sc),
           callback: "deny",
           allowedTools: ["Bash"],
           hooks: { ask: askHook },
         }),
       },
       (o, sc) => [
-        [existsSync(sc.allowlisted!.path("marker")), "the allowlisted call did not run"],
-        [ranEarly.length === 0, "the tool ran while the hook was still holding it"],
+        [o.allowlisted!.hookCalls.hold!.every((c) => c.endedAt !== undefined), "the hook had not finished when the turn ended"],
+        [existsSync(sc.allowlisted!.path("after")), "the allowlisted call did not run after the hook released it"],
+        [!existsSync(sc.allowlisted!.path("before")), "the tool ran before the hook released it"],
         [!consulted(o.allowlisted!, "Bash"), "canUseTool was consulted for an allowlisted tool"],
         [consulted(o.underAsk!, "Bash") && refused(o.underAsk!, CALLBACK_DENIAL), "the ask did not force the callback for an allowlisted tool"],
       ]
