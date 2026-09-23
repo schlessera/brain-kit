@@ -114,3 +114,44 @@ site's permission. Fixture: `packages/module-jobs/tests/fixtures/boards/remotive
   do on top of that default, not about the default itself.
 - The terms-of-service note in `packages/module-jobs/README.md` still applies.
   robots.txt is the machine-readable floor, not the whole of a site's terms.
+
+## Corrections
+
+**2026-09-23.** The ruling above is unchanged. Several of the statements that
+describe how it plays out were wrong or too strong, found when the record was
+read against the code. Each correction below supersedes the statement it quotes.
+The original text is left as written.
+
+- *"The endpoint pages only through `?page=` / `?limit=`."* Only a **GET**
+  pages that way. The same endpoint pages through a POST body too, which is the
+  route the rule rules out.
+- *"The site's own docs list that alias as deprecated, with a 2026-09-28
+  sunset … After the sunset, no GET query form is allowed anywhere on the
+  API."* The docs' deprecation names the suffixless `/astroapi/ai/jobs` (as
+  recorded in `packages/module-jobs/tests/fixtures/boards/jobgether/capture.json`).
+  The robots.txt allowance is on `/astroapi/ai/jobs.json`, which the docs list
+  as an alias. Nobody established whether the `.json` alias goes on the same
+  date, so the claim that no GET query form will be allowed after it is
+  unsupported. The ruling does not depend on it: `/api/v1/jobs?page=` is
+  disallowed today either way.
+- *"jobgether returns **ten rows per run** … The cap is set where the adapter
+  makes its one request."* The limit is **one page per run**, not a count. Ten
+  is the server's page size when measured (the response's own `limit: 10` in
+  `packages/module-jobs/tests/fixtures/boards/jobgether/api-v1-jobs.json`). The
+  adapter processes the whole page with no numeric cap and keeps every offer
+  that has a title, a company and a URL. *"Runs are daily, so it contributes
+  about ten … rows a day"* holds only if the host runs the module's advisory
+  daily schedule and the page size stays at ten. Likewise *"any detail-page
+  enrichment (#36) is sized to those ten rows"*: enrichment is sized to the
+  qualifying offers on that one page, however many the server returns.
+- *"`ScrapeClient` … checks every request against `RobotsCache` before the rate
+  limiter and the network."* It checks the URL of each request before that
+  request's first attempt. Retries are paced by backoff or `Retry-After`, not by
+  `Crawl-delay`, and redirects are followed without checking the target against
+  robots.txt. Both are tracked in
+  [#259](https://github.com/schlessera/brain-kit/issues/259).
+- *"`SCRAPE_RESPECT_ROBOTS` … turns enforcement off for a whole process."* It
+  turns enforcement off only for clients built from `resolveEnv()`, which is
+  how `runScrape` in `packages/module-jobs/src/scrape.ts` builds its client. A
+  `ScrapeClient` constructed directly ignores it and follows its own
+  `respectRobots` option.
