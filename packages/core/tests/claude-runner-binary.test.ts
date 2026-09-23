@@ -6,9 +6,9 @@
  * Keyless: the run goes to a loopback server with bogus credentials only.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { bundledClaudeCandidates, claudeCommand, prefersMusl } from "../src/providers/agents/claude-binary";
 import { claudeRunner } from "../src/providers/agents/cli-runners";
@@ -80,7 +80,9 @@ async function chatBinary(): Promise<string> {
 
 describe("the Claude runner's binary", () => {
   test("with no claude on PATH, the runner runs chat's binary and reaches the model", async () => {
-    const path = `${dirname(process.execPath)}:/usr/bin:/bin`;
+    // A PATH that holds bun and nothing else, so no host install can answer.
+    const path = tempDir("runner-path-");
+    symlinkSync(process.execPath, join(path, "bun"));
     expect(Bun.which("claude", { PATH: path })).toBeNull();
     const home = tempDir("runner-home-");
     mkdirSync(join(home, ".claude"), { recursive: true });
