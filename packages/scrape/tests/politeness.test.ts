@@ -215,6 +215,36 @@ describe("RateLimiter", () => {
     expect(grantedAt).toBe(1500);
   });
 
+  test("a delay that is not a finite number is ignored, and does not wedge the host's queue", async () => {
+    // `NaN` never compares >= anything, so a limiter that took it at face
+    // value would sleep forever and hold every later caller for the host
+    // behind it. A non-finite delay carries no spacing to honour; the default
+    // still applies.
+    let sleeps = 0;
+    const clock = fakeClock();
+    const realSleep = clock.sleep;
+    clock.sleep = async (ms: number) => {
+      if (++sleeps > 50) throw new Error(`still sleeping after ${sleeps} sleeps (last: ${ms} ms)`);
+      await realSleep(ms);
+    };
+    const limiter = new RateLimiter({ defaultDelayMs: 1000, clock });
+
+    await limiter.acquire("a.example");
+    await limiter.acquire("a.example", Number.NaN);
+    await limiter.acquire("a.example", Number.POSITIVE_INFINITY);
+    await limiter.acquire("a.example", 2000);
+
+    expect(clock.waits).toEqual([1000, 1000, 2000]);
+
+    // And with no default to fall back on, a non-finite delay is no delay.
+    const bare = new RateLimiter({ clock });
+    clock.waits.length = 0;
+    await bare.acquire("b.example");
+    await bare.acquire("b.example", Number.NaN);
+    await bare.acquire("b.example", Number.POSITIVE_INFINITY);
+    expect(clock.waits).toEqual([]);
+  });
+
   test("two limiters do not throttle each other", async () => {
     // The regression this class exists for: the version it replaces kept its
     // clock in a module-level Map shared by every caller in the process.
