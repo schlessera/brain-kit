@@ -135,11 +135,20 @@ blocked, and it can be picked up now. An agent picking work should filter
 
 **Status is derived, not typed.** `bun scripts/sync-project.ts --apply`
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
-open PR says it closes the issue. It reads the `blocked` label, not the blocker:
-closing a blocker does not clear the label on its dependant, so the dependant
-stays out of Ready until someone removes it (#188 tracks deriving it).
-`In progress` and `Done` are statements about a person or an agent rather than
-about labels, so the script reads them and leaves them alone.
+open PR says it closes the issue. `In progress` and `Done` are statements about
+a person or an agent rather than about labels, so the script reads them and
+leaves them alone.
+
+The `blocked` label is checked against the blockers it names. An issue that
+waits on another says so on its own line in its body — `Blocked by #42`, or
+`Blocked by schlessera/brain-kit#42` across repositories — and carries the
+label. When every issue it names is closed, the script reports it, and with
+`--apply` removes the label and posts a one-line comment naming the closed
+blocker, so the dependant reaches Ready on that run. An issue labelled `blocked`
+with no such line, or whose blocker's state cannot be read, is reported as
+unverifiable and keeps its label: the script never guesses a label away.
+Closing a blocker unblocks nothing by itself — the line has to be there, and
+the script has to run.
 
 That is what the `blocked` label is for, and why it is worth applying: four of
 the container issues and two of the template ones are `agent-ready` and *not*
