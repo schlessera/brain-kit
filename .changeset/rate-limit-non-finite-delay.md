@@ -1,5 +1,5 @@
 ---
-"@schlessera/brain-scrape": patch
+"@schlessera/brain-scrape": minor
 ---
 
 `RateLimiter` ignores a delay that is not a finite positive number. A `NaN` or
