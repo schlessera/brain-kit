@@ -91,15 +91,17 @@ describe("RateLimiter", () => {
       subject.acquire("a.example", delayMs).then(() => acquiredAt.push(now))
     );
 
-    // Let every caller that needs no wait be granted at t=0, then run the fake
-    // clock forward to each scheduled wake-up in turn.
-    for (let drain = 0; drain < 5; drain++) await Promise.resolve();
+    // Let every caller that can be granted without a wait go, then run the
+    // fake clock forward to each scheduled wake-up in turn. `setImmediate`
+    // runs after the whole microtask queue, so no promise hop is left pending.
+    const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+    await settle();
     for (let step = 0; step < 20 && pending.length > 0; step++) {
       pending.sort((a, b) => a.at - b.at);
       const next = pending.shift()!;
       now = Math.max(now, next.at);
       next.wake();
-      for (let drain = 0; drain < 5; drain++) await Promise.resolve();
+      await settle();
     }
     await Promise.all(callers);
     return acquiredAt;
@@ -136,10 +138,9 @@ describe("RateLimiter", () => {
     expect(acquiredAt).toEqual([0, 1000, 4000, 5000]);
   });
 
-  test("a zero-delay call does not pull a reserved slot forward", async () => {
-    // With no default, a call without a Crawl-delay goes straight through, but
-    // it must not overwrite a slot a delayed caller has already reserved, or
-    // the next delayed caller would be spaced from "now" instead.
+  test("a zero-delay call goes straight through without breaking the queue", async () => {
+    // With no default, a call without a Crawl-delay is granted at once, but the
+    // delayed callers either side of it are still spaced from each other.
     const acquiredAt = await grantTimes((clock) => new RateLimiter({ clock }), undefined, [1000, 0, 1000]);
     expect(acquiredAt).toEqual([0, 0, 1000, 2000]);
   });
@@ -157,6 +158,61 @@ describe("RateLimiter", () => {
     await limiter.acquire("a.example");
 
     expect(clock.waits).toEqual([1000]);
+  });
+
+  test("a timer that fires late does not let the next caller in early", async () => {
+    // The spacing is measured from when the previous request was actually
+    // granted. A limiter that recorded the SCHEDULED wake-up instead would see
+    // the overshoot as time already served and let the third call straight
+    // through.
+    const clock = fakeClock();
+    clock.sleep = async (ms: number) => {
+      clock.waits.push(ms);
+      clock.time += ms + 1500; // the event loop was busy
+    };
+    const limiter = new RateLimiter({ defaultDelayMs: 1000, clock });
+
+    await limiter.acquire("a.example");
+    await limiter.acquire("a.example");
+    await limiter.acquire("a.example");
+
+    expect(clock.waits).toEqual([1000, 1000]);
+  });
+
+  test("a request made while a caller sleeps restarts that caller's wait", async () => {
+    // A zero-delay call hits the host at t=500 while a caller with a 1000 ms
+    // delay is asleep until t=1000. That caller's delay is measured from the
+    // most recent request, so it goes back to sleep until t=1500.
+    let now = 0;
+    const pending: Array<{ at: number; wake: () => void }> = [];
+    const clock: RateLimiterClock = {
+      now: () => now,
+      sleep: (ms) => new Promise<void>((resolve) => pending.push({ at: now + ms, wake: resolve })),
+    };
+    const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const limiter = new RateLimiter({ clock });
+
+    await limiter.acquire("a.example", 1000);
+    let grantedAt: number | undefined;
+    const delayed = limiter.acquire("a.example", 1000).then(() => (grantedAt = now));
+    await settle();
+
+    now = 500;
+    await limiter.acquire("a.example");
+
+    const first = pending.shift()!;
+    expect(first.at).toBe(1000);
+    now = first.at;
+    first.wake();
+    await settle();
+    expect(grantedAt).toBeUndefined();
+
+    const second = pending.shift()!;
+    expect(second.at).toBe(1500);
+    now = second.at;
+    second.wake();
+    await delayed;
+    expect(grantedAt).toBe(1500);
   });
 
   test("two limiters do not throttle each other", async () => {
