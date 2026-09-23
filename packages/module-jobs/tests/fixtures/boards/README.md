@@ -180,8 +180,8 @@ how often each one bites.
   markup and finds no `/job/<slug>` links. It returned **0 found with 0 errors**
   — the failure mode the epic is named after — until **#37**, which reports one
   error per page and a run status of `unparseable`, and names the site serving
-  the redirect when the response's own URL shows it. Whether the board is
-  retired is still #128's decision.
+  the redirect when the response's own URL shows it. **Retired in #128**: the
+  adapter is gone, and naming the board now gets the reason instead of a scrape.
   Fixture: `remoteineurope/redirect-target.html`.
 
 ### How the company column is counted

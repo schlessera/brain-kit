@@ -33,14 +33,13 @@ import { DiceAdapter } from "../src/adapters/dice";
 import { NodeskAdapter } from "../src/adapters/nodesk";
 import type { BrowserJobRecord } from "../src/adapters/browser-base";
 import { RemotelyDeAdapter } from "../src/adapters/remotelyde";
-import { RemoteInEuropeAdapter } from "../src/adapters/remoteineurope";
 import { SimplyHiredAdapter } from "../src/adapters/simplyhired";
 import { JobgetherAdapter } from "../src/adapters/jobgether";
 import type { BaseAdapter } from "../src/adapters/base";
 import { openDatabase } from "../src/db";
 import { runDedup } from "../src/dedup";
 import { ingestJobs } from "../src/scrape";
-import type { RawJob } from "../src/types";
+import { ALL_SOURCES, RETIRED_SOURCES, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
 
@@ -346,73 +345,24 @@ describe("remotelyde against its captured listing", () => {
   });
 });
 
-describe("remoteineurope against what its domain now serves", () => {
+describe("remoteineurope is retired, and what its domain serves is why (#128)", () => {
   const served = () => fixture("remoteineurope", "redirect-target.html");
 
-  test("reports zero found and an error per page, not silence (#37)", async () => {
+  test("the domain serves another board's listing, which a repaired parser would only duplicate", () => {
+    // This was the test pinning `0 found, 0 errors` (and, after #37, one
+    // `parsed 0 jobs` error per page). The adapter is gone; the fixture stays
+    // as the record of why. Every configured URL answered 301 to
+    // weworkremotely.com, and this is a slice of what came back: We Work
+    // Remotely's own markup, whose postings the `weworkremotely` board already
+    // scrapes.
     const html = served();
-    // Every configured URL answers 301 to weworkremotely.com; this is a slice
-    // of what comes back.
     expect(html).toContain('href="https://weworkremotely.com/remote-software-developer-jobs"');
+    expect(html).toContain('href="/remote-jobs/');
     expect(html).not.toContain('href="/job/');
 
-    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), html);
-    expect(result.jobs).toEqual([]);
-    // This is the assertion #37 flipped. Until it did, this board reported
-    // `0 found, 0 errors` — the one adapter in the #33 run that did, and
-    // indistinguishable from a board that simply had no jobs that day.
-    expect(result.status).toBe("unparseable");
-    expect(result.errors).toHaveLength(5);
-    for (const error of result.errors) expect(error).toContain("parsed 0 jobs");
-  });
-
-  test("and when the redirect is visible, the error names the site serving it (#37)", async () => {
-    // What the body alone cannot show: these URLs answer 200, so only the URL
-    // the response came from separates "this board is broken" from "this
-    // board's domain now belongs to another job site". #128 owns the decision
-    // about whether it is retired; this only has to report it.
-    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), () => ({
-      body: served(),
-      url: "https://weworkremotely.com/remote-software-developer-jobs",
-    }));
-
-    expect(result.status).toBe("unparseable");
-    expect(result.errors[0]).toContain("served by weworkremotely.com after a redirect");
-  });
-
-  test("the parser still runs — it is pointed at a link shape that is not there", async () => {
-    // Without this half the test above passes for the WRONG reason: an adapter
-    // whose parser had been gutted to `return []` satisfies it just as well,
-    // and it is the only executable evidence for #37's premise. Same bytes,
-    // with the one thing changed that the parser looks for.
-    const rewritten = served().replaceAll('href="/remote-jobs/', 'href="/job/');
-    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), rewritten);
-
-    expect(result.jobs).toHaveLength(2);
-    expect(result.errors).toEqual([]);
-    expect(result.status).toBe("ok");
-    expect(result.jobs.map((job) => job.url)).toEqual([
-      "https://remoteineurope.com/job/sanctuary-computer-senior-shopify-developer",
-      "https://remoteineurope.com/job/samsara-staff-software-engineer",
-    ]);
-  });
-
-  test("and when it runs, the titles are still the whole card (#128)", async () => {
-    // The August table's "titles like 'Canonical 1 Apr Canonical Senior Design
-    // Researcher'" was never fixed — it is only hidden, because the parser
-    // matches nothing at all today. Repointing this adapter at a live board
-    // would bring the mangling straight back, so the title extraction is part
-    // of whatever #128 decides, not a separate surprise.
-    const rewritten = served().replaceAll('href="/remote-jobs/', 'href="/job/');
-    const result = await scrapeAgainst(new RemoteInEuropeAdapter(), rewritten);
-
-    expect(result.jobs[0].title).toStartWith("Senior Shopify Developer");
-    expect(result.jobs[0].title).toContain("Sanctuary Computer");
-    expect(result.jobs[0].title).toContain("4d");
-    // The company comes out of the surrounding markup, and on the second card
-    // it is a location.
-    expect(result.jobs[0].company).toBe("Sanctuary Computer");
-    expect(result.jobs[1].company).toBe("New York City");
+    expect(ALL_SOURCES as readonly string[]).not.toContain("remoteineurope");
+    expect(ALL_SOURCES).toContain("weworkremotely");
+    expect(RETIRED_SOURCES.remoteineurope).toContain("weworkremotely");
   });
 });
 

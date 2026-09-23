@@ -10,7 +10,7 @@
       "full_response_bytes": 134623,
       "full_response_sha256": "1773076bcddf7118cbcd43868c9a2217cbbca7adca835124462d01061c840e3f",
       "http_status": 200,
-      "note": "remoteineurope.com no longer exists as a board: every configured URL answers 301 to weworkremotely.com, and this is a slice of what comes back. The page has no /job/<slug> links at all - We Work Remotely uses /remote-jobs/<slug> - so the regex at src/adapters/remoteineurope.ts:57 matches nothing and the adapter returns 0 found with 0 errors. The harness reports this as final_url on every remoteineurope URL: the request answers 301 and fetch follows it, so the board looks like a 200 unless something compares where the response came from with where it was asked for.",
+      "note": "remoteineurope.com no longer exists as a board: every configured URL answers 301 to weworkremotely.com, and this is a slice of what comes back. The page has no /job/<slug> links at all - We Work Remotely uses /remote-jobs/<slug> - so the adapter's /job/<slug> regex (the adapter was removed when the board was retired in #128) matched nothing and the adapter returned 0 found with 0 errors. The harness reports this as final_url on every remoteineurope URL: the request answers 301 and fetch follows it, so the board looks like a 200 unless something compares where the response came from with where it was asked for.",
       "source": "remoteineurope",
       "transport": "http",
       "url": "https://remoteineurope.com/categories/programming",

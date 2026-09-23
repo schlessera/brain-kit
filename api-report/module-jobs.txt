@@ -11,6 +11,7 @@ export "." (./src/index.ts)
   type JobsConfig
   type JobsEnv
   type LocationScoring
+  RETIRED_SOURCES
   REVIEW_STATUSES
   type RawJob
   type ReviewStatus

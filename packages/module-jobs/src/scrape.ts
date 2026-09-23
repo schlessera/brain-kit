@@ -27,7 +27,6 @@ import { SimplyHiredAdapter } from "./adapters/simplyhired.js";
 import { JobgetherAdapter } from "./adapters/jobgether.js";
 import { DiceAdapter } from "./adapters/dice.js";
 import { RemotelyDeAdapter } from "./adapters/remotelyde.js";
-import { RemoteInEuropeAdapter } from "./adapters/remoteineurope.js";
 import type { ScraperAdapter } from "./types.js";
 
 // The two query-driven boards accept the user's search terms; the rest fetch
@@ -43,7 +42,6 @@ const ADAPTERS: Record<Source, (queries?: string[]) => ScraperAdapter> = {
   jobgether: () => new JobgetherAdapter(),
   dice: (queries) => new DiceAdapter(queries),
   remotelyde: () => new RemotelyDeAdapter(),
-  remoteineurope: () => new RemoteInEuropeAdapter(),
 };
 
 export function getAdapter(source: Source, queries?: string[]): ScraperAdapter {
