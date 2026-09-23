@@ -434,6 +434,53 @@ describe("vectors are read through the shared loadVecSupport", () => {
     db.close();
   });
 
+  test("a vector table the loaded extension still cannot count → null, not 0, and not a crash", async () => {
+    // The third unknown state (#169): sqlite-vec loads, vec_chunks exists, and
+    // COUNT(*) throws anyway. vec0 guards its shadow tables on a connection
+    // that has the module, so the damage is done from one that does not —
+    // there `vec_chunks_rowids` is a plain table and can be dropped.
+    const root = tempDir();
+    const dbPath = join(root, "brain.db");
+    const writer = openDatabase(dbPath);
+    const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(writer, id, 0);
+    const { load } = await import("sqlite-vec");
+    load(writer);
+    writer.run("CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[4])");
+    const chunkId = (writer.prepare("SELECT id FROM chunks LIMIT 1").get() as { id: number }).id;
+    writer.run("INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)", [
+      chunkId,
+      new Uint8Array(new Float32Array([0.1, 0.2, 0.3, 0.4]).buffer),
+    ]);
+    writer.close();
+    const vandal = new Database(dbPath);
+    vandal.run("DROP TABLE vec_chunks_rowids");
+    vandal.close();
+
+    const db = openDatabase(dbPath, { readonly: true });
+    try {
+      load(db);
+      // Staged as claimed: the extension is loaded and the count really throws.
+      expect(() => db.prepare("SELECT COUNT(*) AS c FROM vec_chunks").get()).toThrow(/vec_chunks_rowids/);
+
+      const { stats, warnings } = await collectCapturingWarnings(db, {
+        root,
+        dbPath,
+        taxonomy: taxonomyWith(),
+        config: null,
+        now: NOW,
+        embeddingsConfigured: true,
+      });
+
+      expect(stats.embeddings).toBeNull();
+      expect(stats.health.embeddingCoverage).toBeNull();
+      // The extension loaded, so nothing may claim it did not.
+      expect(warnings).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("a brain with no vec_chunks is answered without loading the extension, and warns nothing", async () => {
     const root = tempDir();
     const dbPath = join(root, "brain.db");
