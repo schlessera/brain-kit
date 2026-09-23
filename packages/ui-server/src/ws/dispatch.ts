@@ -171,6 +171,23 @@ export async function handleClientMessage(
     case "tool_approval": {
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
+        // Voice may deny; it may never grant (docs/decisions/voice-permission.md).
+        // A grant attributed to voice is refused before anything else looks
+        // at it: the request stays pending, nothing is recorded or
+        // remembered, and the card is still there to answer it. The wire is
+        // not trusted to enforce policy — a client offering no spoken grant
+        // is not the reason this holds.
+        if (msg.channel === "voice") {
+          host.log.emit({
+            severityText: "WARN",
+            body: "voice-attributed grant refused",
+            attributes: {
+              "tool.name": pending.request.toolName,
+              "toolUse.id": pending.request.toolUseId,
+            },
+          });
+          break;
+        }
         coordinator.pendingApprovals.delete(msg.toolUseId);
         // Remember-on-approve. Kind "command" never persists (the client
         // hides the option, but the wire is not trusted to enforce policy).
@@ -221,6 +238,7 @@ export async function handleClientMessage(
           {
             principalId: connection.authorization.principalId,
             ...(msg.always && remembers ? { always: true } : {}),
+            ...(msg.channel ? { channel: msg.channel } : {}),
           }
         );
       }
@@ -233,7 +251,10 @@ export async function handleClientMessage(
         coordinator.pendingApprovals.delete(msg.toolUseId);
         pending.resolve(
           { behavior: "deny", message: msg.message },
-          { principalId: connection.authorization.principalId }
+          {
+            principalId: connection.authorization.principalId,
+            ...(msg.channel ? { channel: msg.channel } : {}),
+          }
         );
       }
       break;

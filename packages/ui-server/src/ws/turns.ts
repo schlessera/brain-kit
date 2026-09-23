@@ -7,6 +7,7 @@ import type {
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
+  ApprovalChannel,
   AskUserQuestion,
   ChatImageAttachment,
   ClientEnvironment,
@@ -121,7 +122,7 @@ export interface PendingApproval {
   request: PermissionRequest;
   resolve: (
     decision: PermissionDecision,
-    response?: { principalId: string; always?: boolean }
+    response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
   ) => void;
 }
 

@@ -117,12 +117,59 @@ export function eventTypeLabel(eventType: string): string {
   return eventType.replace(/_/g, " ");
 }
 
+const DECISION_TEXT: Record<string, string> = {
+  allow: "Allowed",
+  always_allow: "Always allowed",
+  deny: "Denied",
+};
+const CHANNEL_TEXT: Record<string, string> = { card: "on the card", voice: "by voice" };
+
+/**
+ * An `approval_decision` event as a sentence: what was decided and, when the
+ * client said, the channel it was decided on (#113) — "who said yes and how"
+ * is the question the record exists to answer. A decision recorded without a
+ * channel reads as the decision alone rather than guessing one. Anything
+ * this does not recognise returns null and falls back to the raw block.
+ */
+export function readApprovalDecision(
+  payload: unknown
+): { text: string; facts: string | null } | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const decision = typeof p.decision === "string" ? DECISION_TEXT[p.decision] : undefined;
+  if (!decision) return null;
+  const channel = typeof p.channel === "string" ? CHANNEL_TEXT[p.channel] : undefined;
+  if (p.channel !== undefined && !channel) return null;
+  const facts = [
+    typeof p.principalId === "string" ? `principal ${p.principalId}` : null,
+    p.requestKind === "command" ? "command confirmation" : null,
+  ].filter(Boolean);
+  return {
+    text: channel ? `${decision} ${channel}` : decision,
+    facts: facts.length > 0 ? facts.join(" · ") : null,
+  };
+}
+
 /**
  * ONE labelled block per recorded event — the shared renderer behind the tool
  * payload expander and the run detail's narrative stream, so every event type
  * lands somewhere visible instead of only the two the expander knows.
  */
 export function SpanEventBlock({ event }: { event: ActivitySpanEvent }) {
+  const approval = event.eventType === "approval_decision" ? readApprovalDecision(event.payload) : null;
+  if (approval) {
+    return (
+      <div>
+        <div className="mb-0.5 text-[10px] uppercase text-muted-foreground/60">Approval</div>
+        <p data-testid="approval-decision" className="text-[11px] text-foreground">
+          {approval.text}
+        </p>
+        {approval.facts && (
+          <p className="text-[10px] text-muted-foreground/60">{approval.facts}</p>
+        )}
+      </div>
+    );
+  }
   const text =
     typeof event.payload === "string" ? event.payload : JSON.stringify(event.payload, null, 2);
   return (

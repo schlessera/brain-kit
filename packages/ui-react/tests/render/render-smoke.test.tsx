@@ -50,6 +50,7 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { MarkdownContent } from "../../src/components/chat/markdown-content.js";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
+import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { AskUserCard } from "../../src/components/chat/ask-user-card.js";
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
 import type { ToolCall } from "../../src/stores/chat-store.js";
@@ -5144,15 +5145,16 @@ describe("approval cards follow rememberability (#147)", () => {
       const { receipt, frame } = approvalOutcome(tool, "t1", true, true);
       expect(receipt.text).toBe("Allowed");
       expect(receipt.effect).toBe("tool_approval");
-      expect(frame).toEqual({ type: "tool_approval", toolUseId: "t1" });
+      expect(frame).toEqual({ type: "tool_approval", toolUseId: "t1", channel: "card" });
     }
     const kept = approvalOutcome(OFFERED, "t1", true, true);
     expect(kept.receipt).toEqual({ text: "Always allowed", target: "mcp_proxy_tool", effect: "write_policy" });
-    expect(kept.frame).toEqual({ type: "tool_approval", toolUseId: "t1", always: true });
+    expect(kept.frame).toEqual({ type: "tool_approval", toolUseId: "t1", always: true, channel: "card" });
     expect(approvalOutcome(OFFERED, "t1", false, true).frame).toEqual({
       type: "tool_denial",
       toolUseId: "t1",
       message: "Denied by user",
+      channel: "card",
     });
   });
 
@@ -5217,7 +5219,7 @@ describe("approval cards follow rememberability (#147)", () => {
       await act(flushPromises);
       expect(page.container.textContent).not.toContain("Always allowed");
       expect(page.getByText("Allowed")).toBeTruthy();
-      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1" }]);
+      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1", channel: "card" }]);
       expect(always === null).toBe(true);
     } finally {
       done();
@@ -5255,9 +5257,77 @@ describe("approval cards follow rememberability (#147)", () => {
       fireEvent.click(page.getByRole("button", { name: /Always allow/ }));
       await act(flushPromises);
       expect(page.getByText("Always allowed")).toBeTruthy();
-      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1", always: true }]);
+      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1", always: true, channel: "card" }]);
     } finally {
       done();
+    }
+  });
+});
+
+/* ── #113: a resolved approval names the channel it was made on ─────────── */
+
+describe("approval decisions in the run detail (#113)", () => {
+  test("a decision on the transcript's card is sent as made on the card", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({ entries: [], providers: [], backends: {}, slugs: {}, models: [], sessions: [] })) as unknown as typeof fetch;
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    const root = createBrainUiRoot({ storage: null });
+    const release = root.connection.connect();
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      const socket = PageSocket.instances.at(-1)!;
+      act(() => {
+        socket.open();
+        socket.deliver({ type: "text_delta", text: "working" });
+        root.connection.flushChatDeltas();
+        for (const toolUseId of ["t1", "t2"]) {
+          socket.deliver({ type: "tool_approval_request", toolUseId, toolName: "Write", input: {}, kind: "tool" });
+        }
+      });
+      view = render(<BrainUiProvider root={root}><ChatPage /></BrainUiProvider>);
+      await act(flushPromises);
+      fireEvent.click(view.getAllByRole("button", { name: /^Allow/ })[0]!);
+      fireEvent.click(view.getByRole("button", { name: /^Deny/ }));
+      const sent = socket.sent
+        .map((f) => JSON.parse(f) as Record<string, unknown>)
+        .filter((f) => f.type === "tool_approval" || f.type === "tool_denial");
+      expect(sent).toEqual([
+        { type: "tool_approval", toolUseId: "t1", channel: "card" },
+        { type: "tool_denial", toolUseId: "t2", message: "Denied by user", channel: "card" },
+      ]);
+    } finally {
+      view?.unmount();
+      release();
+      root.dispose();
+    }
+  });
+
+  test("each recorded decision reads as what was decided and how", async () => {
+    const decisions = [
+      { principalId: "p-1", decision: "deny", requestKind: "tool", channel: "voice" },
+      { principalId: "p-1", decision: "always_allow", requestKind: "tool", channel: "card" },
+      // Recorded before the channel existed, or by a client that did not say.
+      { principalId: "p-1", decision: "allow", requestKind: "command" },
+    ];
+    const detail: ActivityRunDetail = {
+      ...activityDetail("run-113", "Approvals"),
+      spans: [
+        { spanId: "run-113:turn", runId: "run-113", name: "turn", kind: "turn", origin: "session", startedAt: 1, endedAt: 9, outcome: "success" },
+        { spanId: "t1", runId: "run-113", parentSpanId: "run-113:turn", name: "execute_tool Write", toolName: "Write", kind: "tool", origin: "session", startedAt: 2, endedAt: 8, outcome: "success" },
+      ],
+      events: decisions.map((payload, eventIndex) => ({ spanId: "t1", eventIndex, ts: 3 + eventIndex, eventType: "approval_decision", payload })),
+    };
+    const root = createBrainUiRoot({ storage: null, request: async () => Response.json(detail) });
+    const view = render(<BrainUiProvider root={root}><RunDetail runId="run-113" onBack={() => {}} /></BrainUiProvider>);
+    try {
+      await act(flushPromises);
+      fireEvent.click(view.getByText("Write"));
+      expect(view.container.textContent).toContain("Denied by voice");
+      const rows = view.getAllByTestId("approval-decision").map((row) => row.textContent);
+      expect(rows).toEqual(["Denied by voice", "Always allowed on the card", "Allowed"]);
+    } finally {
+      view.unmount();
+      root.dispose();
     }
   });
 });

@@ -142,10 +142,11 @@ export function ChatPage() {
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {
       root.stores.chat.getState().resolveToolApproval(sessionId, toolUseId, approved);
+      // The transcript's approval card is the only caller: channel "card" (#113).
       if (approved) {
-        send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) });
+        send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), channel: "card" });
       } else {
-        send({ type: "tool_denial", toolUseId, message: "Denied by user" });
+        send({ type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" });
       }
     },
     [send, sessionId, root]

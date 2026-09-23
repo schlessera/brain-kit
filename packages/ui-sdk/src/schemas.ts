@@ -54,6 +54,7 @@ import type {
   ClientMaskResponse,
   ClientMessage,
   ClientSessionResume,
+  ApprovalChannel,
   ClientToolApproval,
   ClientToolDenial,
   ClientActivitySubscribe,
@@ -240,6 +241,8 @@ export const clientChatMessageSchema = z
     { message: `attachments exceed ${MAX_TOTAL_IMAGE_BYTES} total decoded bytes` }
   ) satisfies z.ZodType<ClientChatMessage>;
 
+const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
+
 export const clientToolApprovalSchema = z.looseObject({
   type: z.literal("tool_approval"),
   toolUseId: id,
@@ -264,6 +267,7 @@ export const clientToolApprovalSchema = z.looseObject({
     )
     .optional(),
   always: z.boolean().optional(),
+  channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
 
@@ -271,6 +275,7 @@ export const clientToolDenialSchema = z.looseObject({
   type: z.literal("tool_denial"),
   toolUseId: id,
   message: z.string().max(MAX_ANSWER_CHARS),
+  channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientToolDenial>;
 

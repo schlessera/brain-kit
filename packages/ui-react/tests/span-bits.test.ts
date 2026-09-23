@@ -11,6 +11,7 @@ import {
   formatAggregateCost,
   formatEffectiveCost,
   formatSpanUsage,
+  readApprovalDecision,
   runCostText,
   spanToolLabel,
 } from "../src/components/activity/span-bits";
@@ -214,5 +215,31 @@ describe("digestCostClause", () => {
   test("a pre-pricing digest keeps the old list-cost clause", () => {
     expect(digestCostClause({ costUsd: 2 })).toBe("$2.00 spent");
     expect(digestCostClause({ costUsd: 0 })).toBeNull();
+  });
+});
+
+describe("readApprovalDecision (#113)", () => {
+  test("names the channel when the record has one, and only then", () => {
+    expect(readApprovalDecision({ decision: "deny", channel: "voice", principalId: "p" })).toEqual({
+      text: "Denied by voice",
+      facts: "principal p",
+    });
+    expect(readApprovalDecision({ decision: "allow", channel: "card", requestKind: "command" })).toEqual({
+      text: "Allowed on the card",
+      facts: "command confirmation",
+    });
+    // A backend-side denial (no principal, no channel) reads as the decision alone.
+    expect(readApprovalDecision({ decision: "deny", requestKind: "tool" })).toEqual({
+      text: "Denied",
+      facts: null,
+    });
+  });
+
+  test("anything it does not recognise falls back to the raw block", () => {
+    expect(readApprovalDecision(null)).toBeNull();
+    expect(readApprovalDecision("deny")).toBeNull();
+    expect(readApprovalDecision({ decision: "maybe" })).toBeNull();
+    // An unknown channel is not silently dropped into "Allowed".
+    expect(readApprovalDecision({ decision: "allow", channel: "telepathy" })).toBeNull();
   });
 });

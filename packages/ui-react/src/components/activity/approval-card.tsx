@@ -59,9 +59,10 @@ export function approvalOutcome(
       target: tool ? tool.name : toolUseId,
       effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial",
     },
+    // Every decision on this surface is made on the card (#113).
     frame: approved
-      ? { type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) }
-      : { type: "tool_denial", toolUseId, message: "Denied by user" },
+      ? { type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), channel: "card" }
+      : { type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" },
   };
 }
 
