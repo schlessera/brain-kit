@@ -165,14 +165,32 @@ interface CatalogueRow<C extends Candidate> {
   transform(candidate: C, answers: ClassificationAnswers, questions: ClassificationQuestions): Classified | null;
 }
 
+/**
+ * The most options a comparison draws. The transform refuses a wider one, and
+ * the `recommended` question is asked only of a table within it: that question
+ * offers one option per column and the classifier takes at most 255 (D42), and
+ * one oversized question fails the request for every candidate batched into
+ * it. The detector accepts a table of any width, so the bound has to be here.
+ */
+const COMPARISON_OPTIONS_MAX = 4;
+
 const table: CatalogueRow<TableCandidate> = {
   produces: ["comparison", "table"],
   questions(candidate) {
-    const headerOptions: Record<string, string> = { none: "No column is presented as the recommended one." };
-    for (const header of candidate.headers.slice(1)) {
-      if (header && !(header in headerOptions)) {
-        headerOptions[header] = `The column "${header}" is the option the text recommends.`;
+    const perComparison: Record<string, ClassificationQuestion> = {};
+    if (candidate.headers.length - 1 <= COMPARISON_OPTIONS_MAX) {
+      const headerOptions: Record<string, string> = { none: "No column is presented as the recommended one." };
+      for (const header of candidate.headers.slice(1)) {
+        if (header && !(header in headerOptions)) {
+          headerOptions[header] = `The column "${header}" is the option the text recommends.`;
+        }
       }
+      perComparison.recommended = {
+        threshold: CONFIDENCE.tone,
+        type: "choice",
+        instructions: `In \`${candidate.id}\`, does the text single out one column as recommended or preferred? Answer only from what is written.`,
+        criteria: headerOptions,
+      };
     }
     return {
       shape: {
@@ -186,12 +204,7 @@ const table: CatalogueRow<TableCandidate> = {
           plain: "Neither: a layout device, a schedule, or a table that mixes both readings.",
         },
       },
-      recommended: {
-        threshold: CONFIDENCE.tone,
-        type: "choice",
-        instructions: `In \`${candidate.id}\`, does the text single out one column as recommended or preferred? Answer only from what is written.`,
-        criteria: headerOptions,
-      },
+      ...perComparison,
       criteria_first: {
         threshold: CONFIDENCE.noul,
         type: "noul",
@@ -204,7 +217,7 @@ const table: CatalogueRow<TableCandidate> = {
     if (!shape) return null;
     if (shape.choice === "comparison") {
       const options = candidate.headers.slice(1);
-      if (options.length < 2 || options.length > 4 || candidate.rows.length === 0) return null;
+      if (options.length < 2 || options.length > COMPARISON_OPTIONS_MAX || candidate.rows.length === 0) return null;
       if (!noulAt(answers, questions, `${candidate.id}.criteria_first`)) return null;
       const recommended = choiceAt(answers, questions, `${candidate.id}.recommended`);
       const columns = options.map((label) => ({

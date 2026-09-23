@@ -133,6 +133,56 @@ describe("the catalogue", () => {
     ).toBeNull();
   });
 
+  /** A GFM table with `options` columns after the corner, every header distinct. */
+  const wideTable = (options: number) => {
+    const headers = ["", ...Array.from({ length: options }, (_, i) => `Ship ${i + 1}`)];
+    const row = ["Oars", ...Array.from({ length: options }, (_, i) => String(i + 1))];
+    return [headers, headers.map(() => "---"), row].map((cells) => `| ${cells.join(" | ")} |`).join("\n");
+  };
+
+  test("no question asked of a table carries more than the classifier's 255 options, however wide the table", () => {
+    // One over-limit question fails the request for every candidate in the
+    // message, not only this table's.
+    for (const options of [1, 4, 5, 254, 255, 256, 300]) {
+      const [table] = detectCandidates(wideTable(options));
+      expect(table?.kind).toBe("table");
+      for (const [id, question] of Object.entries(questionsFor(table!))) {
+        if (question.type !== "choice") continue;
+        const count = Object.keys(question.criteria).length;
+        if (count > 255) throw new Error(`${options}-option table: ${id} offers ${count} options`);
+      }
+    }
+  });
+
+  test("the `recommended` question is asked only of a table narrow enough to be drawn as a comparison", () => {
+    const [narrow] = detectCandidates(wideTable(4));
+    expect(Object.keys(questionsFor(narrow!))).toEqual(["c0.shape", "c0.recommended", "c0.criteria_first"]);
+    const [wide] = detectCandidates(wideTable(5));
+    expect(Object.keys(questionsFor(wide!))).toEqual(["c0.shape", "c0.criteria_first"]);
+  });
+
+  test("above the bound, a comparison stays markdown and a data table is drawn with no column recommended", () => {
+    const [wide] = detectCandidates(wideTable(5));
+    // A recommendation the classifier was never asked for is not honoured
+    // either: a comparison this wide is refused whatever the answers say.
+    expect(
+      transformCandidate(wide!, {
+        "c0.shape": choice("comparison", 0.9),
+        "c0.recommended": choice("Ship 1", 0.95),
+        "c0.criteria_first": noul(1),
+      })
+    ).toBeNull();
+    const data = transformCandidate(wide!, { "c0.shape": choice("data", 0.9) });
+    expect(data?.block.kind).toBe("table");
+    expect(JSON.stringify(data?.block)).not.toContain("recommended");
+    // Past the data table's own six columns nothing is drawn at all.
+    const [wider] = detectCandidates(wideTable(6));
+    expect(transformCandidate(wider!, { "c0.shape": choice("data", 0.9) })).toBeNull();
+    expect(
+      transformCandidate(wider!, { "c0.shape": choice("comparison", 0.9), "c0.criteria_first": noul(1) })
+    ).toBeNull();
+  });
+
   test("an ordered list becomes steps; checks force the checklist variant", () => {
     const [plain] = detectCandidates("1. String the bow\n2. Shoot");
     expect(
