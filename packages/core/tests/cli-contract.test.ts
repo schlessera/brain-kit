@@ -131,7 +131,9 @@ describe("okf", () => {
 describe("stats", () => {
   // The additive guarantee, at the machine surface: `brain stats --json` grew
   // `health` and `size`, and every field a consumer already reads is still
-  // there under the same name with the same type. A rename fails here.
+  // there under the same name. A rename fails here. Every one keeps its type
+  // too, except `embeddings`, which became `number | null` in 0.37.0 (#169);
+  // it is a number here because this corpus's vector table can be counted.
   test("keeps every pre-existing field and adds the health/size blocks", async () => {
     const { stdout, code } = await runCli(root, ["stats", "--json"]);
     expect(code).toBe(0);

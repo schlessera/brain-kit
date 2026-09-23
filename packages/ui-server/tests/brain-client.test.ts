@@ -54,6 +54,29 @@ const registry = () =>
   createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
 
 describe("brain CLI invocation", () => {
+  test("a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0", async () => {
+    // `brain stats --json` reports `embeddings: null` when the brain has a
+    // vector table this host cannot count (#169). The client and route pass
+    // the object through; neither may coerce the unknown into a number.
+    const root = temporaryBrain();
+    installBrainCli(
+      root,
+      `console.log(JSON.stringify({ documents: 3, byType: { note: 3 }, byStatus: { active: 3 }, ` +
+        `byRelevance: {}, tags: 0, links: 0, brokenLinks: 0, chunks: 3, embeddings: null, ` +
+        `health: { embeddingCoverage: null } }));\n`
+    );
+    const brain = createBrainClient({ brainPath: root });
+
+    const stats = (await brain.stats()) as unknown as Record<string, unknown>;
+    expect(stats.embeddings).toBeNull();
+
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const response = await app.request("/brain/stats");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("embeddings", null);
+  });
+
   test("places flags before -- and a --prefixed search query after it", async () => {
     const root = temporaryBrain();
     const capture = join(root, "argv.jsonl");
