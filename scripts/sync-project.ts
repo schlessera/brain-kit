@@ -299,32 +299,82 @@ export type BlockerState = "open" | "closed";
  * and a line inside a code fence is an example, not a dependency.
  */
 export function blockersIn(body: string, repo: string): string[] {
+  return parseBlockers(body, repo).refs;
+}
+
+/** `#12`, `owner/repo#12`, or a GitHub issue or pull request URL. */
+const BLOCKER_REF =
+  /^(?:([\w.-]+\/[\w.-]+)?#(\d+)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)(?:[#?]\S*?)?)(?=$|[\s,.;:)!?])/;
+
+/** "blocked by" under any markdown formatting: `__Blocked by__`, `*blocked* by`. */
+const MENTIONS_BLOCKED_BY = /blocked[\s_*`~-]*by(?![a-z])/i;
+
+/**
+ * The blockers an issue body names, and the declarations it could not read.
+ *
+ * A declaration is a `Blocked by` line whose text starts with a list of
+ * references (`#1`, `#1, #2`, `#1 and o/r#2`); anything after the list is
+ * commentary. A declaration that starts with something else, or that still
+ * mentions a reference after its list, is `unreadable` — reading only part of
+ * it could clear a label while the part it skipped is still open.
+ */
+export function parseBlockers(body: string, repo: string): { refs: string[]; unreadable: string[] } {
   const refs: string[] = [];
+  const lines = body.split(/\r?\n/);
+  /** Indices of the lines read in full as plain declarations. */
+  const read = new Set<number>();
   // The open fence, if any. A fence closes only on the same character, at
-  // least as long, with nothing after it — a ``` line inside a ~~~~ example is
-  // part of the example, and toggling on it would read the example's blockers
-  // and skip the real ones.
+  // least as long, with nothing after it. Lines inside a fence are examples
+  // and are never read as declarations.
   let fence: { char: string; length: number } | undefined;
-  for (const line of body.split(/\r?\n/)) {
+  // HTML comments are blanked the same way: what a reader cannot see is not
+  // a declaration the script may act on. Newlines survive, so indices match.
+  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, (hidden) => hidden.replace(/[^\r\n]/g, " "));
+  visible.split(/\r?\n/).forEach((line, index) => {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       const run = marker?.[1];
       if (run && run[0] === fence.char && run.length >= fence.length && !marker![2].trim()) {
         fence = undefined;
       }
-      continue;
+      return;
     }
     if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
       fence = { char: marker[1][0], length: marker[1].length };
-      continue;
+      return;
     }
-    const match = line.match(/^\s*(?:[-*]\s+)?(?:\*\*)?blocked by(?:\*\*)?:?\s+(.*)$/i);
-    if (!match) continue;
-    for (const ref of match[1].matchAll(/(?:\b([\w.-]+\/[\w.-]+))?#(\d+)\b/g)) {
-      refs.push(`${ref[1] ?? repo}#${ref[2]}`);
+    // A line an HTML comment touched is never read: blanking may have erased
+    // a reference from it, and a declaration must be read in full.
+    if (line !== lines[index]) return;
+    // A plain declaration: at the start of the line, optionally a top-level
+    // bullet and bold.
+    const match = line.match(/^(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
+    if (!match) return;
+    let rest = match[1];
+    const found: string[] = [];
+    for (;;) {
+      const ref = rest.match(BLOCKER_REF);
+      if (!ref) break;
+      found.push(ref[2] ? `${ref[1] ?? repo}#${ref[2]}` : `${ref[3]}#${ref[4]}`);
+      rest = rest.slice(ref[0].length);
+      const separator = rest.match(/^\s*(?:,\s*and|,|and)\s+|^,\s*/i);
+      if (!separator || !BLOCKER_REF.test(rest.slice(separator[0].length))) break;
+      rest = rest.slice(separator[0].length);
     }
-  }
-  return refs;
+    if (found.length === 0 || /#\d|github\.com\/\S+\/(?:issues|pull)\/\d/i.test(rest)) return;
+    refs.push(...found);
+    read.add(index);
+  });
+  // The safety net, and the rule that makes the rest safe: every line of the
+  // RAW body that mentions "blocked by", however it is formatted or wherever
+  // it sits — a quote, a heading, a fence, a comment, prose — is either a
+  // declaration read in full above or unreadable. A declaration the parser
+  // did not recognise can therefore never be skipped while the ones it did
+  // recognise clear the label.
+  const unreadable = lines.flatMap((line, index) =>
+    MENTIONS_BLOCKED_BY.test(line) && !read.has(index) ? [line.trim()] : [],
+  );
+  return { refs, unreadable };
 }
 
 export type BlockedVerdict =
@@ -346,7 +396,10 @@ export function blockedVerdict(
   stateOf: (ref: string) => BlockerState | undefined,
 ): BlockedVerdict {
   if (!issue.labels.some((label) => label.name === "blocked")) return { kind: "not-blocked" };
-  const blockers = blockersIn(issue.body ?? "", issue.repo);
+  const { refs: blockers, unreadable } = parseBlockers(issue.body ?? "", issue.repo);
+  if (unreadable.length > 0) {
+    return { kind: "unverifiable", reason: `cannot read the declaration "${unreadable[0]}"` };
+  }
   if (blockers.length === 0) {
     return { kind: "unverifiable", reason: "labelled `blocked` with no `Blocked by #N` line" };
   }
@@ -370,6 +423,17 @@ export interface BlockerIO {
   state(ref: string): Promise<BlockerState | undefined>;
   removeLabel(issue: BlockableIssue): Promise<void>;
   comment(issue: BlockableIssue, text: string): Promise<void>;
+  /** Whether the issue already has a comment containing `marker`. */
+  hasComment(issue: BlockableIssue, marker: string): Promise<boolean>;
+}
+
+/**
+ * Whether a comment is this script's notice for `marker`: the whole comment,
+ * one line, so the marker quoted inside someone else's comment — or an
+ * example of the notice in a code block — does not suppress the real one.
+ */
+export function isOwnNotice(body: string, marker: string): boolean {
+  return body.startsWith("Unblocked: ") && body.endsWith(marker) && !body.includes("\n");
 }
 
 /** `#110` in its own repository, `owner/repo#110` from another. */
@@ -380,10 +444,14 @@ function shortRef(ref: string, repo: string): string {
 /**
  * Clear `blocked` from every issue whose named blockers have all closed.
  *
- * The label comes off before the comment is posted, so a failure between the
- * two leaves an issue that the next run no longer considers — never one that
- * collects a second comment. On success the in-memory labels are updated too,
- * so the same run derives the issue's Status from what it now carries.
+ * The comment goes first and carries a marker naming the blockers; the label
+ * comes off second. A run that fails between the two leaves the label on, so
+ * the next run retries — and finds the marker, so it removes the label
+ * without commenting again. Either order without the marker loses one of the
+ * two: removing first strands an issue with no comment if the comment fails,
+ * commenting first posts it twice if the removal fails. Runs are assumed not
+ * to overlap. On success the in-memory labels are updated too, so the same
+ * run derives the issue's Status from what it now carries.
  */
 export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],
@@ -398,7 +466,7 @@ export async function reconcileBlocked<T extends BlockableIssue>(
   const known = new Map<string, BlockerState | undefined>();
   for (const issue of issues) {
     if (!issue.labels.some((label) => label.name === "blocked")) continue;
-    for (const ref of blockersIn(issue.body ?? "", issue.repo)) {
+    for (const ref of parseBlockers(issue.body ?? "", issue.repo).refs) {
       if (!known.has(ref)) known.set(ref, await io.state(ref));
     }
     const verdict = blockedVerdict(issue, (ref) => known.get(ref));
@@ -406,14 +474,17 @@ export async function reconcileBlocked<T extends BlockableIssue>(
     if (verdict.kind !== "cleared") continue;
     cleared.push({ issue, closed: verdict.closed });
     if (!apply) continue;
+    const marker = `<!-- sync-project: unblocked by ${[...new Set(verdict.closed)].sort().join(" ")} -->`;
+    if (!(await io.hasComment(issue, marker))) {
+      const names = verdict.closed.map((ref) => shortRef(ref, issue.repo));
+      await io.comment(
+        issue,
+        `Unblocked: ${names.join(", ")} ${names.length === 1 ? "is" : "are"} closed, so ` +
+          `\`scripts/sync-project.ts\` is removing the \`blocked\` label. ${marker}`,
+      );
+    }
     await io.removeLabel(issue);
     issue.labels = issue.labels.filter((label) => label.name !== "blocked");
-    const names = verdict.closed.map((ref) => shortRef(ref, issue.repo));
-    await io.comment(
-      issue,
-      `Unblocked: ${names.join(", ")} ${names.length === 1 ? "is" : "are"} closed, so ` +
-        "`scripts/sync-project.ts` removed the `blocked` label.",
-    );
   }
   return { cleared, unverifiable };
 }
@@ -450,7 +521,17 @@ const trackerIO: BlockerIO = {
   async state(ref) {
     const [repo, number] = ref.split("#");
     try {
-      const state = (await gh(["api", `repos/${repo}/issues/${number}`, "--jq", ".state"])).trim();
+      // The issues endpoint answers for pull requests too. A PR closed without
+      // merging did not land what the dependant waits for, so it is neither
+      // open nor closed here: the verdict becomes unverifiable.
+      const state = (
+        await gh([
+          "api",
+          `repos/${repo}/issues/${number}`,
+          "--jq",
+          'if .pull_request and .state == "closed" and .pull_request.merged_at == null then "unmerged" else .state end',
+        ])
+      ).trim();
       return state === "open" || state === "closed" ? state : undefined;
     } catch {
       return undefined;
@@ -461,6 +542,18 @@ const trackerIO: BlockerIO = {
   },
   async comment(issue, text) {
     await gh(["issue", "comment", String(issue.number), "--repo", issue.repo, "--body", text]);
+  },
+  async hasComment(issue, marker) {
+    // One JSON string per comment, so a comment is compared whole.
+    const bodies = await gh([
+      "api", "--paginate", `repos/${issue.repo}/issues/${issue.number}/comments`,
+      "--jq", ".[].body | @json",
+    ]);
+    return bodies
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string)
+      .some((body) => isOwnNotice(body, marker));
   },
 };
 
