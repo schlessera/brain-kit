@@ -36,17 +36,19 @@ const FILE = "(?:[\\w@.-]+/)*(?:[\\w@-][\\w@.-]*\\.[A-Za-z][A-Za-z0-9]*|[A-Z][A-
 const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*)$`);
 
 /**
- * Anything inside a span that looks like it names a line — `name:12` at a word
- * boundary — so a shape the check cannot read is reported rather than
- * skipped. `localhost:6006/mcp` and `width:100%` are not followed by a
- * boundary and do not match.
+ * Anything inside a span that names a line of a file in ANY spelling the
+ * strict pattern does not read — `[brain-ui] Dockerfile:12`, `a.ts:12:3`,
+ * `a.ts: 12`, `a.ts:2–4`, `"a.ts:2"`, a URL with `#L12` — so it is reported
+ * rather than skipped. Matched as "contains", not by shape: a file name (a
+ * dot extension, a path, or a `*file`) then a colon and a digit, or `#L` and a
+ * digit. CSS such as `flex:1 1 auto` has no file name before its colon.
  */
 const LOOSE_CITATION =
-  /(?:^|[\s(\[])(?:[\w@-]*[./][\w@./-]*[A-Za-z][\w@./-]*|[\w@-]*[A-Za-z][\w@-]*[./][\w@./-]*|[A-Z][\w-]*)(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?)(?=$|[\s,;.)\]])/;
+  /(?:[\w-]\.[A-Za-z]\w*|\/[\w.-]+|[A-Z][A-Za-z]*file|\b[A-Z][A-Z0-9_-]{2,})\s*:\s*\d|#L\d/;
 
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(
-  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+):\\d+`,
+  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+):[ \\t]*\\n?[ \\t]*\\d+`,
   "g",
 );
 
@@ -132,7 +134,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
       /^:?\d+(?:\s*[-,:]\s*\d+)*$/.test(content) &&
       before !== undefined &&
       citationish[i - 1] &&
-      /^\s*\)?\s*\/\s*$|^\s*,\s*$/.test(text.slice(before.index! + before[0].length, span.index));
+      /^\s*\)?\s*(?:\/|,|and)\s*$/.test(text.slice(before.index! + before[0].length, span.index));
     const lineWithColumn = !match && /^:\d+(?::\d+)+$/.test(content);
     citationish[i] =
       Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);

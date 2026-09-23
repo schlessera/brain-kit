@@ -97,7 +97,8 @@ where each drifted anchor now is. What it does **not** check:
   docs. They follow the same convention, and the grep above is the check.
 - **Citations inside fenced code blocks**, which are examples and command
   output, not pointers.
-- **A line named in words** ("line 12 of `auth.ts`"). Write it as a citation.
+- **A line named in words** ("line 12 of `auth.ts`"), or a second line number
+  in plain text after a citation. Write each line as its own citation.
 - **Citations it cannot resolve.** Another repository (`[brain-ui] path:line`),
   a dependency's installed source, a quotation, and code the record describes
   as it was before the change it decided. Each of these is listed in

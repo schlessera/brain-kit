@@ -257,6 +257,38 @@ describe("what the check cannot verify is reported, not skipped", () => {
     }
   });
 
+  test("a line citation in any spelling inside a span is reported", () => {
+    for (const span of [
+      "https://github.com/org/repo/blob/main/src/hooks.ts#L2",
+      "src/hooks.ts:2/4",
+      "src/hooks.ts:2\u20134",
+      "src/hooks.ts: 2",
+      '"src/hooks.ts:2"',
+      "LICENSE:12",
+    ]) {
+      const kinds = check(`See \`${span}\`.`).map((r) => r.verdict.kind);
+      expect({ span, kinds }).toEqual({ span, kinds: ["unresolved"] });
+    }
+  });
+
+  test("a continuation after a comma or 'and' is reported", () => {
+    for (const body of [
+      "(`enforcementHook`, `src/hooks.ts:2`), `4`",
+      "(`enforcementHook`, `src/hooks.ts:2`) and `4`",
+    ]) {
+      const reported = check(body)
+        .filter((r) => r.verdict.kind !== "anchored")
+        .map((r) => r.citation.text);
+      expect({ body, reported }).toEqual({ body, reported: ["4"] });
+    }
+  });
+
+  test("a prose citation wrapped after its colon is reported", () => {
+    expect(check("It lives at src/hooks.ts:\n2 today.").map((r) => r.verdict.kind)).toEqual([
+      "unanchored",
+    ]);
+  });
+
   test("a root file with no extension or directory, in prose", () => {
     for (const body of ["See LICENSE:12.", "See .gitignore:12."]) {
       expect({ body, kinds: check(body).map((r) => r.verdict.kind) }).toEqual({
