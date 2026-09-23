@@ -289,6 +289,10 @@ so each pattern carries the effect it has in words:
 | `git clean -f` | "delete untracked files from the working tree" |
 | `git checkout --` | "discard changes to specific files" |
 
+The phrases live beside the patterns (`DEFAULT_CONFIRM_BASH_PATTERNS`, each
+entry `{ pattern, effect }`, since #112), and a `command` approval's `reason` is
+the matched pattern's effect, so the same words are already on the card.
+
 **Two cases the six phrases do not cover, and the announcement must not assume
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:

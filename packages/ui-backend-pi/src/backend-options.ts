@@ -5,6 +5,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
   BackendBridge,
   ClientEnvironment,
+  ConfirmPatternSource,
   WriteLock,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -114,8 +115,10 @@ export interface CreatePiBackendOptions {
    * card before it runs even though bash is auto-allowed. Defaults to the
    * shared DEFAULT_CONFIRM_BASH_PATTERNS. An EMPTY array disables the
    * confirmation entirely — honoured as given, like the Claude backend.
+   * Entries are bare regex sources or `{ pattern, effect }`; the effect is
+   * what the approval card shows.
    */
-  confirmBashPatterns?: readonly string[];
+  confirmBashPatterns?: readonly ConfirmPatternSource[];
   /**
    * Tool names that run WITHOUT an approval card. Defaults to
    * DEFAULT_PI_ALLOWED_TOOLS (every curated tool except brain_archive, plus

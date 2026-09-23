@@ -73,6 +73,13 @@ export interface ToolCall {
    */
   approvalRememberable?: false;
   /**
+   * The approval request's description. For a "command" confirmation it is
+   * what the command will do, in words — the matched confirm pattern's
+   * effect (#112) — and the card draws it; for a "tool" grant it is the
+   * runtime's own text and is not drawn.
+   */
+  approvalDescription?: string;
+  /**
    * Execution timing for the duration badge. `startedAt` is (re)stamped when
    * the input finishes streaming or an approval is granted — so approval
    * wait time doesn't inflate the reported duration. `endedAt` is stamped by
@@ -551,7 +558,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           ),
         })),
 
-      requestToolApproval: (key, toolUseId, toolName, input, _description, kind, rememberable) =>
+      requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable) =>
         mutateLastAssistant(key, (last) => {
           // Check if tool call already exists (from streaming)
           const existingIdx = last.toolCalls.findIndex(
@@ -566,6 +573,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             status: "pending_approval",
             ...(kind ? { approvalKind: kind } : {}),
             ...(rememberable === false ? { approvalRememberable: false } : {}),
+            ...(description ? { approvalDescription: description } : {}),
           };
           let parts = last.parts;
           if (existingIdx >= 0) {

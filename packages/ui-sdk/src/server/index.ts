@@ -92,6 +92,11 @@ export {
 } from "./web-search.js";
 export type { WebSearchProviderSpec, WebSearchBrief } from "./web-search.js";
 
+export type {
+  CompiledConfirmPattern,
+  ConfirmPattern,
+  ConfirmPatternSource,
+} from "./confirm-patterns.js";
 export {
   DEFAULT_CONFIRM_BASH_PATTERNS,
   ARCHIVING_UPDATE_REASON,

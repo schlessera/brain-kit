@@ -3,7 +3,7 @@ import {
   listSessions as sdkListSessions,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
+import type { ConfirmPatternSource, KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { DEFAULT_PROFILES, type InferenceProfile } from "./profiles.js";
 
@@ -51,11 +51,16 @@ export interface ClaudeBackendOptions {
    * array disables the confirmation entirely — which is a real choice, not a
    * misconfiguration, so it is honoured as given.
    *
+   * Each entry is a bare regex source or `{ pattern, effect }`, where `effect`
+   * says in words what a matching command does and becomes what the approval
+   * card shows. A bare source still works; its card falls back to a generic
+   * sentence.
+   *
    * Configurable because "destructive" is deployment-specific: a published
    * package can ship `rm -rf`, but it cannot know which of YOUR commands are
    * the ones worth stopping on.
    */
-  confirmBashPatterns?: readonly string[];
+  confirmBashPatterns?: readonly ConfirmPatternSource[];
   /**
    * Where this backend reports degradations. Absent, it falls back to
    * `console.warn` so a standalone consumer still sees them.

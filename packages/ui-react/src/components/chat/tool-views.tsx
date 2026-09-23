@@ -735,3 +735,12 @@ function ReadOutputStub({ output }: { output: string }) {
     </div>
   );
 }
+
+/**
+ * What a confirmed command will do, in words, when the request said (#112).
+ * Only a "command" confirmation's description is an effect; a tool grant's
+ * is the runtime's own text, so it is not drawn.
+ */
+export function effectOf(tool: ToolCall): string | undefined {
+  return tool.approvalKind === "command" ? tool.approvalDescription : undefined;
+}

@@ -150,8 +150,8 @@ describe("tool_call permission gate", () => {
         toolUseId: "t2",
         toolName: "bash",
         input: { command: "rm -rf notes" },
-        description:
-          "This command matches a pattern configured to require confirmation.",
+        // The matched pattern's effect, in words (#112).
+        description: "delete a directory and everything inside it",
         kind: "command",
       },
     ]);
