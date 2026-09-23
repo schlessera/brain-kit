@@ -348,6 +348,7 @@ export interface MapScene {
    * world's own invented route has nothing to credit and leaves it unset.
    */
   attribution?: string;
-  /** Closed land, filled under the strokes. Islands only; see `geoLand`. */
+  /** Closed land, filled under the strokes: islands, and mainland shores
+   * closed against the fetch envelope. See `geoLand`. */
   land?: MapLand;
 }

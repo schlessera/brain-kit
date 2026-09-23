@@ -469,8 +469,9 @@ const probe = (scene: MapScene, points: [number, number][]) => {
   const drawn = [...html.matchAll(/<polyline[^>]*points="([-\d.]+),([-\d.]+) /g)].map(
     (match) => [Number(match[1]), Number(match[2])] as [number, number],
   );
-  // One polyline per probe, and the fixture's own coastline is passed as
-  // `paths` too — so the probes are the LAST ones, in order.
+  // One polyline per probe. The probes REPLACE the scene's own `paths`, so
+  // they are the only polylines; taking the last ones keeps this right if a
+  // caller ever passes the coastline alongside them.
   return drawn.slice(-points.length).map(([x, y]) => {
     let inside = false;
     for (const ring of rings) {
