@@ -97,8 +97,9 @@ needs an API key or the network.
    `packages/ui-react/tests/asr-deepgram.test.ts` does. A tool renderer is
    resolved and rendered from fixed `ToolCallView` fixtures; the resolution
    half is what `packages/ui-react/tests/tool-renderers.test.ts` covers. A site
-   adapter reads saved pages, and a browser-backed one a scripted browser
-   session, as `packages/module-jobs/tests/board-fixtures.test.ts` does. Cover
+   adapter reads saved pages through a stub HTTP client. A browser-backed one
+   gets a stub browser session that runs its extractor over the saved page in
+   a DOM, as `packages/module-jobs/tests/board-fixtures.test.ts` does. Cover
    every method, and every `capabilities` flag the interface has and you
    declare.
 
