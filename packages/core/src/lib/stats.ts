@@ -14,6 +14,7 @@ import { join, relative } from "path";
 
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
+import { loadVecSupport, vecTableExists } from "./db.js";
 import type { Taxonomy } from "./taxonomy.js";
 
 export interface StatsThresholds {
@@ -197,19 +198,6 @@ export function freeSpaceBytes(
 }
 
 /**
- * Whether this database carries a vec_chunks table at all. Checked through
- * sqlite_master so a keyless brain is answered without loading the extension
- * (and without the "sqlite-vec not available" warning that a failed load on a
- * read-only connection would print).
- */
-function hasVecTable(db: Database): boolean {
-  const row = db
-    .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'")
-    .get() as { present: number } | null;
-  return row !== null;
-}
-
-/**
  * Collect every figure `brain stats` reports. Nothing here fails the command:
  * a figure that cannot be measured is null, never 0.
  */
@@ -229,20 +217,21 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   // vec_chunks is a vec0 virtual table: counting it needs the extension on
   // this connection, and an older or hand-built database may not have it at
   // all. Either way the count is unknown, not 0.
+  //
+  // The table is looked for first, through sqlite_master, so a keyless brain
+  // is answered without loading the extension at all — and without the
+  // "sqlite-vec not available" warning a failed load prints. When the table IS
+  // there and the extension will not load, that warning is the point: the
+  // brain holds vectors this host cannot read. `loadVecSupport` is the read
+  // path and only loads the extension; `migrateVecSchema` would also run the
+  // vec0 schema migrations, one of which is a bare `DROP TABLE vec_chunks`,
+  // and counting rows is not a reason to migrate anything.
   let embeddingCount: number | null = null;
-  if (hasVecTable(db)) {
+  if (vecTableExists(db) && (await loadVecSupport(db)).ok) {
     try {
-      // Load the extension and nothing else. `initVecSupport` would also run
-      // the vec0 schema migrations, and one of them is a bare
-      // `DROP TABLE vec_chunks` — on a writable connection to a pre-cosine
-      // index, merely asking for statistics would destroy the vectors and
-      // charge a re-embedding run to get them back. Counting rows is not a
-      // reason to migrate anything.
-      const { load } = await import("sqlite-vec");
-      load(db);
       embeddingCount = count(db, "SELECT COUNT(*) as count FROM vec_chunks");
     } catch {
-      // extension unavailable — same answer as no table
+      // a table the extension cannot read — still unknown, still not 0
     }
   }
 

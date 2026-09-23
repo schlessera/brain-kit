@@ -365,6 +365,93 @@ describe("embedding coverage is absent, not zero, when it cannot be known", () =
   });
 });
 
+/** A connection that cannot load extensions — sqlite-vec failing the way a broken install does. */
+class NoExtensionDatabase extends Database {
+  override loadExtension(): void {
+    throw new Error("extension loading refused by the test");
+  }
+}
+
+/** Collect with console.warn captured, so a test can say what reached stderr. */
+async function collectCapturingWarnings(
+  db: Database,
+  opts: Parameters<typeof collectStats>[1]
+): Promise<{ stats: Awaited<ReturnType<typeof collectStats>>; warnings: string[] }> {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+  try {
+    return { stats: await collectStats(db, opts), warnings };
+  } finally {
+    console.warn = original;
+  }
+}
+
+describe("vectors are read through the shared loadVecSupport", () => {
+  // collectStats used to hand-roll the sqlite-vec import and swallow its
+  // failure. The shared read path reports WHY vectors are unreadable, and says
+  // so on stderr when the cause is the extension itself (#170).
+  test("vec_chunks holding vectors but an extension that will not load → coverage null, and the cause is named", async () => {
+    const root = tempDir();
+    const dbPath = join(root, "brain.db");
+    const writer = openDatabase(dbPath);
+    const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(writer, id, 0);
+    const { load } = await import("sqlite-vec");
+    load(writer);
+    writer.run("CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[4])");
+    const chunkId = (writer.prepare("SELECT id FROM chunks LIMIT 1").get() as { id: number }).id;
+    writer.run("INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)", [
+      chunkId,
+      new Uint8Array(new Float32Array([0.1, 0.2, 0.3, 0.4]).buffer),
+    ]);
+    writer.close();
+
+    const db = new NoExtensionDatabase(dbPath, { readonly: true });
+    const { stats, warnings } = await collectCapturingWarnings(db, {
+      root,
+      dbPath,
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      embeddingsConfigured: true,
+    });
+
+    expect(stats.health.embeddingCoverage).toBeNull();
+    // Behaviour-preserving for the count itself; #169 makes this null.
+    expect(stats.embeddings).toBe(0);
+    expect(warnings).toEqual([
+      "sqlite-vec not available: extension loading refused by the test",
+    ]);
+    db.close();
+  });
+
+  test("a brain with no vec_chunks is answered without loading the extension, and warns nothing", async () => {
+    const root = tempDir();
+    const dbPath = join(root, "brain.db");
+    const writer = openDatabase(dbPath);
+    const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
+    insertChunk(writer, id, 0);
+    writer.close();
+
+    // Loading would throw here, so a quiet answer proves it was never tried.
+    const db = new NoExtensionDatabase(dbPath, { readonly: true });
+    const { stats, warnings } = await collectCapturingWarnings(db, {
+      root,
+      dbPath,
+      taxonomy: taxonomyWith(),
+      config: null,
+      now: NOW,
+      embeddingsConfigured: true,
+    });
+
+    expect(warnings).toEqual([]);
+    expect(stats.embeddings).toBe(0);
+    expect(stats.health.embeddingCoverage).toBeNull();
+    db.close();
+  });
+});
+
 describe("counting vectors never migrates the index", () => {
   // Found by review: `collectStats` is exported, so a caller can hand it a
   // WRITABLE connection. It used to reach vec_chunks through initVecSupport,
