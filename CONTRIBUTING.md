@@ -40,6 +40,7 @@ issue when you are not sure.
 ```sh
 bun install
 bun run test        # all packages — NOT bare `bun test`
+bun run test packages/scrape   # only the paths you name, same timeout
 bun run typecheck   # strict tsc, no emit
 bun run lint        # refuses raw control/invisible characters in source
 ```
@@ -47,6 +48,11 @@ bun run lint        # refuses raw control/invisible characters in source
 Use `bun run test`, not bare `bun test`: the script supplies `--timeout 30000`,
 and the CLI onboarding tests spawn a real `brain` process per assertion, which
 does not fit the 5s default — bare `bun test` fakes timeout failures.
+Paths narrow the run (`bun run test packages/ui-server tests/foo.test.ts`), and
+flags pass through (`bun run test --shard=1/2`, `bun run test -t "name"`); with
+no path it runs `packages` and `tests`. A `--timeout` of your own overrides the
+script's, because the last one wins. A flag whose value is optional
+(`--changed`) takes it only as `--changed=<ref>`.
 
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run

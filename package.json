@@ -12,7 +12,7 @@
     "env-docs": "bun scripts/env-docs.ts",
     "lint": "bun scripts/lint.ts",
     "api-report": "bun scripts/api-report.ts",
-    "test": "bun test packages tests --timeout 30000",
+    "test": "bun scripts/test.ts --timeout 30000",
     "test:browser": "node scripts/visual.mjs",
     "visual": "node scripts/visual.mjs --project=visual",
     "visual:update": "node scripts/visual.mjs --project=visual --update",
