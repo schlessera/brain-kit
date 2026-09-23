@@ -15,14 +15,31 @@ export const ALL_SOURCES = [
 ] as const;
 export type Source = (typeof ALL_SOURCES)[number];
 
-// Sources enabled by default (ones that work reliably without a headless
-// browser or proxy). Disabled: nodesk, dice (client-rendered, need a browser);
-// simplyhired, jobgether, builtin (Cloudflare 403 or empty responses). Any of
-// these can be re-enabled per run, e.g. `jobs scrape nodesk --proxy "..."`, or
-// permanently via the module `boards` config.
+/**
+ * Boards with an adapter that are NOT enabled by default, and why. Every board
+ * in `ALL_SOURCES` is either here or in `SOURCES`, never both — a test holds
+ * the two lists to that, so neither can drift from the other. Any of these can
+ * be enabled per run, e.g. `jobs scrape nodesk --proxy "..."`, or permanently
+ * via the module `boards` config, unless its reason says otherwise.
+ */
+export const DISABLED_BY_DEFAULT = {
+  nodesk: "client-rendered; needs a browser",
+  dice: "client-rendered; needs a browser",
+  simplyhired: "Cloudflare 403 or empty responses",
+  jobgether: "Cloudflare 403 or empty responses",
+  builtin: "Cloudflare 403 or empty responses",
+  // robots.txt disallows /api/*, and /api/remote-jobs is the only path the
+  // adapter fetches, so every request is refused before it is sent. Enabling
+  // it changes nothing without the site's permission: the adapter stays for
+  // whoever has that, and `allowDisallowed` is deliberately not set for it.
+  remotive:
+    "robots.txt disallows /api/*, the only path its adapter fetches; it needs the site's permission before it can run",
+} as const satisfies Partial<Record<Source, string>>;
+
+// Sources enabled by default: the ones that work reliably without a headless
+// browser or proxy. The rest are in `DISABLED_BY_DEFAULT`, with their reasons.
 export const SOURCES = [
   "remoteok",
-  "remotive",
   "weworkremotely",
   "workingnomads",
   "remotelyde",

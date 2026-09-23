@@ -116,8 +116,10 @@ how often each one bites.
 
 - **`remotive`** — `remotive.com/robots.txt` disallows `/api/*`, the only path
   the adapter fetches, so the politeness layer refuses all five category
-  requests. Reported as five errors, not silently. It is still one of the six
-  default-enabled `SOURCES` in `src/types.ts`. Fixture: `remotive/robots.txt`.
+  requests. Reported as five errors, not silently. **Demoted in #130**: it is
+  out of the default-enabled `SOURCES`, and `DISABLED_BY_DEFAULT` in
+  `src/types.ts` records that it needs the site's permission. Fixture:
+  `remotive/robots.txt`.
 - **`builtin`** — the browser path works (August's "parser matched nothing" is
   closed), but the company is never extracted. `src/adapters/builtin.ts:44`
   calls `link.closest('[class*="job"], [class*="card"], …')` and the anchor's
