@@ -7,7 +7,7 @@
  * source" would send its owner looking for a typo (#128).
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,5 +105,8 @@ describe("jobs scrape <retired board>", () => {
 
     expect(code).toBe(1);
     expect(stderr.join("\n")).toContain("remoteineurope was retired");
+    // A scrape opens (and so creates) the jobs database before any board is
+    // fetched; a refusal never gets that far.
+    expect(existsSync(join(root, "jobs.db"))).toBe(false);
   });
 });
