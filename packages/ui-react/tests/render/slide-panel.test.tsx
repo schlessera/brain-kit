@@ -288,3 +288,44 @@ describe("Settings drawer while a credential is protected", () => {
     view.unmount();
   });
 });
+
+// A stream that closes without a `done` frame (#131): a dropped connection, or a
+// route that unwound past its last send. The panel must still reach a terminal
+// state, keep what arrived, and swap Cancel for Close.
+describe("a stream that ends without a done frame", () => {
+  const cut = (text: string) => new Response(`data: ${JSON.stringify({ type: "progress", text })}\n\n`);
+
+  test("WhatsupPanel renders what arrived and offers Close", async () => {
+    const { root, requests } = transport();
+    const view = render(
+      <BrainUiProvider root={root}>
+        <WhatsupPanel open onClose={() => {}} />
+      </BrainUiProvider>
+    );
+    try {
+      await act(async () => { requests[0]!.response.resolve(cut("Half a briefing.")); await flushPromises(); });
+      expect(view.queryByText("Generating briefing...")).toBeNull();
+      expect(view.getByText(/Half a briefing\./)).toBeTruthy();
+      expect(view.getByText("Failed")).toBeTruthy();
+      expect(view.queryByRole("button", { name: "Cancel" })).toBeNull();
+      expect(view.getByRole("button", { name: "Close" })).toBeTruthy();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  test("StreamingPanel renders what arrived and offers Close", async () => {
+    const { root, requests } = transport();
+    const view = render(
+      <BrainUiProvider root={root}>
+        <StreamingPanel open title="Brain Sync" endpoint="/api/brain/sync" onClose={() => {}} />
+      </BrainUiProvider>
+    );
+    try {
+      await act(async () => { requests[0]!.response.resolve(cut("Pulled 3 files")); await flushPromises(); });
+      expect(view.getByText("Pulled 3 files")).toBeTruthy();
+      expect(view.queryByText("Running...")).toBeNull();
+      expect(view.getByText("Failed")).toBeTruthy();
+      expect(view.queryByRole("button", { name: "Cancel" })).toBeNull();
+      expect(view.getByRole("button", { name: "Close" })).toBeTruthy();
+    } finally { view.unmount(); root.dispose(); }
+  });
+});

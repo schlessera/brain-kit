@@ -66,6 +66,7 @@ export function StreamingPanel({
         reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let finished = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -88,10 +89,19 @@ export function StreamingPanel({
                 setLines((l) => [...l, data.text]);
               }
               if (data.type === "done") {
+                finished = true;
                 setState(data.success ? "success" : "error");
               }
             } catch {}
           }
+        }
+
+        // EOF without a `done` frame — a dropped connection, or a route that
+        // unwound past its last send. Running is not terminal, so staying in
+        // it would strand the panel on a Cancel for a stream that is gone.
+        if (!finished) {
+          setLines((l) => [...l, "The connection closed before the job reported a result."]);
+          setState("error");
         }
       } catch (err: any) {
         if (disposed || controller.signal.aborted) return;

@@ -176,6 +176,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
               ? "Briefing complete"
               : `Failed (exit ${exitCode})`,
         });
+      } catch (error) {
+        // Anything that throws before the last send — a spawn that cannot
+        // start, for one — still ends on the frame the panel waits for. The
+        // send itself may be what failed, so this one cannot throw again.
+        await send({
+          type: "done",
+          success: false,
+          text: error instanceof Error ? error.message : "Briefing failed",
+        }).catch(() => {});
       } finally {
         clearInterval(heartbeat);
       }
