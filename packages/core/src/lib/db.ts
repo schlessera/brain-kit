@@ -342,8 +342,11 @@ export async function loadVecSupport(db: Database): Promise<VecSupport> {
   return { ok: true };
 }
 
-/** True when the `vec_chunks` virtual table has been created in this database. */
-function vecTableExists(db: Database): boolean {
+/**
+ * True when the `vec_chunks` virtual table has been created in this database.
+ * Read from `sqlite_master`, so it needs no extension and loads none.
+ */
+export function vecTableExists(db: Database): boolean {
   try {
     const row = db
       .prepare("SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'")
