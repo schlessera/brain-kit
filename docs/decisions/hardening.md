@@ -119,7 +119,7 @@ question it was answering.
     releases.** Dispatcher, store and page splits (U33) ship in the 0.34.x
     train, never in the container release. Because U28 changes frame
     production (`adapter.adapt(msg)`,
-    `packages/ui-backend-claude/src/turn-runner.ts:297`) and U33 changes frame
+    `packages/ui-backend-claude/src/turn-runner.ts:305`) and U33 changes frame
     consumption
     (`handleServerMessage`, `packages/ui-react/src/connection.ts:125`), the
     same symptom could come from either, so they are **0.34.0** (seam) and **0.34.1** (splits), each its own
