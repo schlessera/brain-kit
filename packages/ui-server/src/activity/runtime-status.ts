@@ -54,6 +54,8 @@ export interface RuntimeStatus {
   authFailure(event: AuthFailure, runId: string, policy?: BillingMode): void;
   /** The last auth failure of a turn that ran on the subscription. */
   subscriptionAuthFailure(): (RecordedAuthFailure & { action: SubscriptionAuthAction }) | undefined;
+  /** A turn that ran on the subscription succeeded, and ended at `at`. */
+  subscriptionProven(at: number): void;
   snapshot(): RuntimeStatusSnapshot;
 }
 
@@ -68,9 +70,15 @@ export function redactCredentials(text: string): string {
 
 /**
  * `log`, when given, receives one WARN per auth failure carrying the
- * instruction for it, so the log says what `/api/status` says.
+ * instruction for it, so the log says what `/api/status` says. `keepProof`,
+ * when given, keeps a successful subscription turn's end the moment it is
+ * committed, before detail retention can prune the span it came from.
  */
-export function createRuntimeStatus(now: () => Date = () => new Date(), log?: Logger): RuntimeStatus {
+export function createRuntimeStatus(
+  now: () => Date = () => new Date(),
+  log?: Logger,
+  keepProof?: (at: number) => void
+): RuntimeStatus {
   let boot: RuntimeStatusSnapshot["boot"] = [];
   let lastObserved: RuntimeStatusSnapshot["lastObserved"];
   let lastAuthFailure: RecordedAuthFailure | undefined;
@@ -112,6 +120,9 @@ export function createRuntimeStatus(now: () => Date = () => new Date(), log?: Lo
       });
     },
     subscriptionAuthFailure: () => lastSubscriptionFailure,
+    subscriptionProven(at) {
+      keepProof?.(at);
+    },
     snapshot() {
       return {
         boot,

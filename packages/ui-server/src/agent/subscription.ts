@@ -129,12 +129,14 @@ export function lastSubscriptionTurnAt(db: Database): number | null {
     )
     .get() as { at: number | null } | null;
   const fromSpans = row?.at ?? null;
+  if (fromSpans !== null) keepSubscriptionProof(db, fromSpans);
+  return getSetting<number | null>(db, LAST_PROVEN_SETTING, null);
+}
+
+/** Keep `at` as the last proof, unless a later one is already kept. */
+export function keepSubscriptionProof(db: Database, at: number): void {
   const kept = getSetting<number | null>(db, LAST_PROVEN_SETTING, null);
-  if (fromSpans !== null && (kept === null || fromSpans > kept)) {
-    setSetting(db, LAST_PROVEN_SETTING, fromSpans);
-    return fromSpans;
-  }
-  return kept;
+  if (kept === null || at > kept) setSetting(db, LAST_PROVEN_SETTING, at);
 }
 
 /**
@@ -148,10 +150,22 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
   const expiresAt = mintedAt ? new Date(mintedAt.getTime() + TOKEN_LIFETIME_MS) : null;
   let lastWarnedAt: number | null = null;
 
-  /** The hourly pass: keep the proof ahead of retention, then the expiry check. */
+  /**
+   * The hourly pass: keep the proof ahead of retention, then the expiry
+   * check. It runs on a timer, so nothing it meets — a locked database —
+   * may escape and take the server down.
+   */
   function hourly(): void {
-    lastSubscriptionTurnAt(options.db);
-    checkExpiry();
+    try {
+      lastSubscriptionTurnAt(options.db);
+      checkExpiry();
+    } catch (error) {
+      log.emit({
+        severityText: "WARN",
+        body: "subscription check failed",
+        attributes: { error: error instanceof Error ? error.message : String(error) },
+      });
+    }
   }
 
   function checkExpiry(): void {
@@ -182,7 +196,9 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
       attributes: { "config.variable": MINTED_AT_ENV },
     });
   }
-  checkExpiry();
+  // Before the activity runtime's first prune can run: a proof recorded by
+  // an earlier process is kept before its span detail can go.
+  hourly();
 
   const every =
     options.every ??

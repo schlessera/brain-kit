@@ -21,6 +21,7 @@ import {
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import {
   createSubscriptionMonitor,
+  LAST_PROVEN_SETTING,
   MINTED_AT_ENV,
   parseMintedAt,
   type SubscriptionStatus,
@@ -157,6 +158,31 @@ describe("the expiry warning", () => {
     m.monitor.tick();
     expect(warnings(m.observability, "expires on")).toHaveLength(2);
     m.close();
+  });
+
+  test("a database that fails the hourly pass is logged, not thrown into the timer", () => {
+    const observability = createRecordingObservability();
+    const broken = {
+      query: () => {
+        throw new Error("SQLITE_BUSY: database is locked");
+      },
+    } as unknown as ReturnType<typeof createUiDb>;
+    const scheduled: Array<() => void> = [];
+    const monitor = createSubscriptionMonitor({
+      config: { tokenSet: true, mintedAt: daysBefore(10) },
+      log: observability.logger("agent"),
+      db: broken,
+      lastTurnFailure: () => undefined,
+      modelSource: async () => null,
+      now: () => NOW,
+      every: (check) => {
+        scheduled.push(check);
+        return () => {};
+      },
+    });
+    expect(() => scheduled[0]!()).not.toThrow();
+    expect(warnings(observability, "subscription check failed").length).toBeGreaterThanOrEqual(2);
+    monitor.close();
   });
 
   test("a token without a mint date gets the one cannot-warn WARN at boot", () => {
@@ -297,19 +323,37 @@ describe("/api/status's subscription", () => {
     }
   });
 
-  test("the last proof outlives the span detail it was read from", async () => {
+  test("the last proof outlives the span detail, even when nothing read it first", async () => {
     const at = host();
     const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     await turn(first.app);
-    const proven = (await status(first.app)).subscription.lastProvenAt;
-    expect(proven).not.toBeNull();
-    // What detail retention does to a digested run after its window.
+    const ended = (first.app.db.query("SELECT MAX(ended_at) AS at FROM activity_spans").get() as { at: number }).at;
+    // What detail retention does to a digested run after its window, before
+    // any status request or hourly pass has looked.
     first.app.db.run("DELETE FROM activity_spans");
     first.app.close();
 
     const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     try {
-      expect((await status(second.app)).subscription.lastProvenAt).toBe(proven);
+      expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
+    } finally {
+      second.app.close();
+    }
+  });
+
+  test("a proof recorded before this version is kept at boot, before retention can prune it", async () => {
+    const at = host();
+    const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    await turn(first.app);
+    const ended = (first.app.db.query("SELECT MAX(ended_at) AS at FROM activity_spans").get() as { at: number }).at;
+    // As an older server leaves it: the span, and nothing kept.
+    first.app.db.run("DELETE FROM settings WHERE key = ?", [LAST_PROVEN_SETTING]);
+    first.app.close();
+
+    const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
+    second.app.db.run("DELETE FROM activity_spans");
+    try {
+      expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
     } finally {
       second.app.close();
     }
@@ -420,6 +464,7 @@ describe("/api/status's subscription", () => {
     try {
       await turn(app);
       const proven = (await status(app)).subscription.lastProvenAt;
+      expect(proven).not.toBeNull();
       await Bun.sleep(5);
       fail = true;
       await turn(app);

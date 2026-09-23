@@ -450,7 +450,7 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:388-403`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:391-406`),
 fed from the bridge's
 `recorded()` wrapper
 (`const recorded`, `packages/ui-server/src/ws/bridge.ts:157-172`).

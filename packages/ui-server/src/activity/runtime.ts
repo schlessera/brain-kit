@@ -19,6 +19,7 @@ import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
+import { keepSubscriptionProof } from "../agent/subscription.js";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
 import { getDetailRetentionDays } from "../db/settings.js";
 
@@ -160,7 +161,7 @@ export function createActivityRuntime(
     stream,
     notifier,
     pushSender,
-    runtime: createRuntimeStatus(undefined, log),
+    runtime: createRuntimeStatus(undefined, log, (at) => keepSubscriptionProof(db, at)),
     query: (query) => runActivityQuery(db, store, query, notifier),
     close() {
       clearInterval(tick);
