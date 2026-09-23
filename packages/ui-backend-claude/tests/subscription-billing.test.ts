@@ -273,6 +273,18 @@ describe("a profile without its own credential bills the subscription", () => {
     expectOnlySubscription();
   }, LIVE);
 
+  test("a project settings env block that switches to another provider refuses the turn", async () => {
+    // Bedrock would be billed by someone else entirely, with its own bearer.
+    const fixture = arrange({
+      oauth: OAUTH,
+      projectSettings: { env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_BEARER_TOKEN_BEDROCK: "bogus-bedrock" } },
+    });
+    const { frames } = await runTurn(fixture);
+
+    expect(seen).toEqual([]);
+    expectAuthFailure(frames);
+  }, LIVE);
+
   test("a project settings env block that sets a key refuses the turn", async () => {
     // The brain repo is the turn's cwd and writable by the agent.
     const fixture = arrange({ oauth: OAUTH, projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY } } });

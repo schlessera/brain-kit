@@ -193,6 +193,15 @@ for (const [mode, invoke] of Object.entries(MODES)) {
       expectOnlySubscription();
     }, LIVE);
 
+    test("a project settings env block that switches to another provider refuses the run", async () => {
+      const fixture = arrange({
+        oauth: OAUTH,
+        projectSettings: { env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_BEARER_TOKEN_BEDROCK: "bogus-bedrock" } },
+      });
+      await expect(invoke(fixture)).rejects.toBeInstanceOf(ClaudeSubscriptionError);
+      expect(seen).toEqual([]);
+    }, LIVE);
+
     test("a project settings env block that sets a key refuses the run", async () => {
       const fixture = arrange({ oauth: OAUTH, projectSettings: { env: { ANTHROPIC_API_KEY: API_KEY } } });
       await expect(invoke(fixture)).rejects.toBeInstanceOf(ClaudeSubscriptionError);

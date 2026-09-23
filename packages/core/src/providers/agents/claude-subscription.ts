@@ -32,6 +32,18 @@ export const CLEARED_API_CREDENTIALS: Readonly<Record<string, string>> = Object.
   // headers included, after the variables above were cleared.
   CLAUDE_CODE_HOST_CREDS_FILE: "",
   CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "",
+  // The subscription is first-party Anthropic. Each of these routes inference
+  // somewhere else, billed by someone else — and a settings file the agent
+  // can write is re-read mid-session, so they are pinned off in flag settings
+  // too, not only here.
+  CLAUDE_CODE_USE_BEDROCK: "",
+  CLAUDE_CODE_USE_VERTEX: "",
+  CLAUDE_CODE_USE_FOUNDRY: "",
+  CLAUDE_CODE_USE_GATEWAY: "",
+  CLAUDE_CODE_USE_MANTLE: "",
+  CLAUDE_CODE_USE_ANTHROPIC_AWS: "",
+  CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "",
+  ANTHROPIC_UNIX_SOCKET: "",
 });
 
 /**
