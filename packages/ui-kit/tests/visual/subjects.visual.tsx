@@ -130,13 +130,19 @@ interface ComposedStory {
  * sits seven times above the noise and below the quietest token the kit ships.
  *
  * `includeAA: false` (the default, kept) is not enough on its own: of those 64
- * pixels, 20 were not classed as antialiasing. The ratio below is what absorbs
- * them.
+ * pixels, 20 were not classed as antialiasing, so at a threshold of 0 they
+ * would count. At 0.01 none of them does — every one is under the bar — so
+ * the measured noise is absorbed by the threshold, and the ratio below is
+ * headroom the measurement never used.
  *
  * `allowedMismatchedPixelRatio` is the count: at 0.1% of a phone screen it is
  * about 240 pixels, a softened glyph edge and nowhere near a moved element or a
- * missing fill. Every defect this file exists for — a collapsed box, a seam
- * between two bars, a crushed row, a tint gone — is orders of magnitude larger.
+ * missing fill. The defects this file was built after — a collapsed box, a run
+ * drawn as two bars, a crushed row, a tint gone — are the size of an element
+ * (a tint removed from `ApprovalCard` moved 28,141). It is not a bound on
+ * everything: a one-pixel seam cut into `LaneChart`'s bar counts a dozen or fewer
+ * mismatches, with or without antialiasing, and passes. A defect that small
+ * needs an assertion, not a baseline.
  */
 const TOLERANCE = { comparatorOptions: { threshold: 0.01, allowedMismatchedPixelRatio: 0.001 } } as const;
 
