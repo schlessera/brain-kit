@@ -192,7 +192,8 @@ function flattenBareAddresses(node: Node, source: string, out: Flattened[]): voi
       before?.type === "text" &&
       before.position?.end.offset === start &&
       MAILTO.test(source.slice(start - scheme, start)) &&
-      /mailto:$/i.test((before as Text).value)
+      // A word of its own: `notmailto:` is the author's text, not a scheme.
+      /(?:^|[^\p{L}\p{N}])mailto:$/iu.test((before as Text).value)
     ) {
       (before as Text).value = (before as Text).value.slice(0, -scheme);
       from = start - scheme;
@@ -217,15 +218,18 @@ function flatSource(source: string, span: CandidateSpan, flattened: readonly Fla
 /**
  * Inline markup the kit's cells cannot hold. A candidate carrying any is
  * left as markdown: flattening a labelled link to its text would lose where
- * it points, and the plain render is not wrong, only less shaped. A bare
- * address never gets here — `flattenBareAddresses` has already made it text.
- * Emphasis and code spans flatten to their text with nothing lost but a face,
- * so they pass — the model writes `**Key**: \`value\`` far more often than it
- * writes links.
+ * it points, and the plain render is not wrong, only less shaped. The
+ * reference-style spellings (`[the docs][ref]`, `![alt][ref]`, `[^note]`)
+ * point elsewhere just the same (#220). A bare address never gets here —
+ * `flattenBareAddresses` has already made it text. Emphasis and code spans
+ * flatten to their text with nothing lost but a face, so they pass — the
+ * model writes `**Key**: \`value\`` far more often than it writes links.
  */
+const REFERS_ELSEWHERE = new Set(["link", "image", "html", "linkReference", "imageReference", "footnoteReference"]);
+
 function hasRichInline(node: Node): boolean {
   const type = node.type;
-  if (type === "link" || type === "image" || type === "html") return true;
+  if (REFERS_ELSEWHERE.has(type)) return true;
   return Array.isArray(node.children) && node.children.some((child) => hasRichInline(child));
 }
 

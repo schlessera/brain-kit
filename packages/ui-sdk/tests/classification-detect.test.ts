@@ -186,6 +186,10 @@ describe("detectCandidates", () => {
     expect(valueOf("**Site:** https://ithaca.example/palace")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** <https://ithaca.example/palace>")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** see https://ithaca.example/palace first")).toBe("see https://ithaca.example/palace first");
+    // `mailto:` is a scheme only as a word of its own: the tail of another
+    // word is the author's text and stays.
+    expect(valueOf("**Herald:** notmailto:eurybates@ithaca.example")).toBe("notmailto:eurybates@ithaca.example");
+    expect(valueOf("**Herald:** (mailto:eurybates@ithaca.example)")).toBe("(eurybates@ithaca.example)");
     // A bullet list of key lines reads its values the same way.
     const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
     if (list?.kind !== "kv_run") throw new Error("expected kv_run");
@@ -206,6 +210,12 @@ describe("detectCandidates", () => {
     // A backtick is legal in an address, but the run strips backticks as
     // code-span markup, so flattening would change the address.
     expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);
+    // A reference-style link, image or footnote loses its target just as an
+    // inline one does, and an address beside it must not let it through
+    // (#220): before #167 the address kept the run out, now nothing else did.
+    expect(run("**Site:** [the palace][p] or eurybates@ithaca.example\n\n[p]: https://ithaca.example/palace")).toEqual([]);
+    expect(run("**Crest:** ![the owl][owl]\n\n[owl]: https://ithaca.example/owl.png")).toEqual([]);
+    expect(run("**Herald:** eurybates@ithaca.example[^n]\n\n[^n]: Only by day.")).toEqual([]);
     // GFM links `www.` to `http://www.`: the text is not the destination, so
     // by the rule it is not a bare address (#167's ruling is text = target).
     expect(run("**Site:** www.ithaca.example")).toEqual([]);
@@ -227,6 +237,9 @@ describe("detectCandidates", () => {
     if (quote?.kind !== "blockquote") throw new Error("expected blockquote");
     expect(quote.text).toBe("Send word to eurybates@ithaca.example.");
 
+    expect(
+      detectCandidates("> Write [the docs][ref] and eurybates@ithaca.example\n\n[ref]: https://ithaca.example")
+    ).toEqual([]);
     // And a labelled link still rejects there too.
     expect(detectCandidates("| Who | Reach |\n|---|---|\n| Eurybates | [write](mailto:eurybates@ithaca.example) |")).toEqual([]);
   });
