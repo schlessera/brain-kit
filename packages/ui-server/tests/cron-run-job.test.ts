@@ -10,6 +10,7 @@ import {
   runJob,
 } from "../src/cron/run-job";
 import { createUiDb } from "../src/db/client";
+import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
 
 function textSink() {
   let text = "";
@@ -429,5 +430,67 @@ describe("cron runs jobs through the exec wrapper", () => {
       "/bin/echo",
       "hi",
     ]);
+  });
+
+  /** A repository's module list with a cron entry, and a module, named `digest`. */
+  const digestNamedModules = () =>
+    emitCrontab({
+      modules: {
+        enabled: [
+          {
+            name: "notes", key: "notes", description: null, types: [], commands: [],
+            cron: [{ name: "digest", schedule: "0 5 * * *", command: "notes digest" }],
+          },
+          {
+            name: "digest", key: "digest", description: null, types: [], commands: [],
+            cron: [{ name: "daily", schedule: "0 6 * * *", command: "digest daily" }],
+          },
+        ],
+        available: [],
+      },
+      wrapperCommand: "brain-ui-cron run",
+      digestCommand: "brain-ui-cron digest",
+      pathLine: "PATH=/usr/bin:/bin",
+      user: "root",
+      legacyScraperPresent: false,
+    });
+
+  /** Job names of the crontab lines that run a module's `brain` command. */
+  const moduleJobNames = (crontab: string) =>
+    crontab
+      .split("\n")
+      .filter((line) => / -- brain (notes|digest) /.test(line))
+      .map((line) => line.match(/brain-ui-cron run (\S+) -- /)![1]!)
+      .sort();
+
+  test("a module cron entry named like a trusted job still runs wrapped (#81)", async () => {
+    // Start from what a repository controls: its module list. Whatever names
+    // the emitter gives its jobs, none may be one the runner trusts, and every
+    // one must reach spawn behind the wrapper.
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    const crontab = digestNamedModules();
+    for (const jobName of moduleJobNames(crontab)) {
+      expect(TRUSTED_JOB_NAMES.has(jobName)).toBe(false);
+      expect(await commandSeenBySpawn(["/bin/echo", "hi"], jobName)).toEqual([
+        "/opt/run-as-agent",
+        "/bin/echo",
+        "hi",
+      ]);
+    }
+    // The server's own digest line is still there, and still trusted.
+    expect(crontab).toContain("brain-ui-cron run digest -- brain-ui-cron digest");
+  });
+
+  test("module jobs are namespaced, so today neither is refused", () => {
+    // Both entries are emitted: the refusal in emitCrontab is defence in
+    // depth and cannot fire while jobs are `<module>-<entry>`. If this goes
+    // red with the namespacing gone, the refusal is what dropped the entry.
+    expect(moduleJobNames(digestNamedModules())).toEqual(["digest-daily", "notes-digest"]);
+  });
+
+  test("no trusted job name can be a namespaced module job", () => {
+    // Module jobs are always `<module>-<entry>`, so a trusted name with a `-`
+    // is the one way the namespacing alone would stop protecting it.
+    for (const name of TRUSTED_JOB_NAMES) expect(name).not.toContain("-");
   });
 });

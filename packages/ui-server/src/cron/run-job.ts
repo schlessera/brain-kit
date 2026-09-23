@@ -11,6 +11,7 @@ import { createUiDb } from "../db/client.js";
 import { resolveSystemPrincipal } from "../db/principals.js";
 import { recordCronRun } from "./scheduler.js";
 import { execConfig } from "../config/env.js";
+import { TRUSTED_JOB_NAMES } from "./emit.js";
 import {
   execWrapperSpawnOptions,
   wrapCommand,
@@ -201,14 +202,6 @@ async function startRecord(
 }
 
 /** Run a job as argv (never through a shell) and return its exact exit code. */
-/**
- * Jobs the cron runner executes on the server's own behalf, not the
- * repository's. They are not launched through the exec wrapper: the digest
- * writes the UI database, which a privilege-dropping wrapper puts out of
- * reach.
- */
-const TRUSTED_JOB_NAMES: ReadonlySet<string> = new Set(["digest"]);
-
 export async function runJob(
   options: RunJobOptions,
   dependencies: RunJobDependencies = {}
@@ -241,6 +234,11 @@ export async function runJob(
     // opens and writes the UI database, so running it as a user that dropped
     // out of reach of that database breaks it. Wrapping is about repository
     // code, and the digest is not repository code.
+    //
+    // Trust is matched by NAME, which is only safe because the repository
+    // cannot produce one: `emitCrontab` refuses a module job whose name is
+    // in TRUSTED_JOB_NAMES (#81), and module jobs are namespaced
+    // `<module>-<entry>` on top of that.
     const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : execConfig();
     const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
       stdin: "inherit",

@@ -51,6 +51,16 @@ export interface EmitCrontabOptions {
   subprocessEnvExtraNames?: readonly string[];
 }
 
+/**
+ * Jobs the cron runner executes on the server's own behalf, not the
+ * repository's, and therefore does not launch through the exec wrapper: the
+ * digest writes the UI database, which a privilege-dropping wrapper puts out
+ * of reach. `runJob` matches on these names, so {@link emitCrontab} refuses
+ * any module job that would carry one — a repository must never be able to
+ * choose to run unwrapped.
+ */
+export const TRUSTED_JOB_NAMES: ReadonlySet<string> = new Set(["digest"]);
+
 const MODULE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CRON_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CRON_SCHEDULE = /^[-0-9*,/ ]{1,100}$/;
@@ -134,6 +144,10 @@ export function emitCrontab(options: EmitCrontabOptions): string {
       for (const entry of entries) {
         if (!validCronEntry(entry)) continue;
         const jobName = `${module.name}-${entry.name}`;
+        // Defence in depth (#81): the namespacing above already keeps a
+        // module job off every trusted name, since none contains a `-`. This
+        // keeps it off them if that ever changes, from this same set.
+        if (TRUSTED_JOB_NAMES.has(jobName)) continue;
         lines.push(
           `${entry.schedule} ${user} cd /data/brain && ${wrapper} ${jobName} -- brain ${entry.command} 2>&1 | logger -t brain-${jobName}`
         );
