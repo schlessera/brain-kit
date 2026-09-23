@@ -28,6 +28,16 @@ export interface ToolPermissionDecisionInput {
   confirmPatterns: readonly CompiledConfirmPattern[];
 }
 
+/**
+ * `re.test` from the start of the string. A caller may pass a RegExp with the
+ * `g` or `y` flag, whose `test` resumes from `lastIndex`, so the same command
+ * would match on one call and not the next.
+ */
+function matches(re: RegExp, text: string): boolean {
+  re.lastIndex = 0;
+  return re.test(text);
+}
+
 /** @experimental */
 export interface ToolPermissionApproval {
   kind: "tool" | "command";
@@ -60,7 +70,7 @@ export function decideToolPermission(
   }
   if (toolName === shellToolName && confirmPatterns.length > 0) {
     const command = bashCommand(input);
-    const matched = command ? confirmPatterns.find((re) => re.test(command)) : undefined;
+    const matched = command ? confirmPatterns.find((re) => matches(re, command)) : undefined;
     if (matched) {
       // The first matching pattern's effect, so the card says what will
       // happen. A deployment's bare-string pattern has none, and says only
@@ -101,7 +111,7 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
     const command = bashCommand(input);
     if (command) {
       for (const re of options.confirmPatterns) {
-        if (re.test(command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
+        if (matches(re, command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
       }
     }
   }

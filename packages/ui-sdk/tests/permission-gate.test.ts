@@ -448,3 +448,22 @@ describe("an edited input, as the backends receive it", () => {
     expect((got as { updatedInput?: unknown }).updatedInput).toBeUndefined();
   });
 });
+
+describe("a caller-supplied stateful RegExp", () => {
+  test("a g or y pattern matches on every call, not every other one", () => {
+    for (const flags of ["g", "y", "gi"]) {
+      const confirmPatterns = [new RegExp("rm", flags)];
+      const decide = () =>
+        decideToolPermission({
+          toolName: "bash",
+          shellToolName: "bash",
+          input: { command: "rm" },
+          allowedTools: new Set(["bash"]),
+          confirmPatterns,
+        });
+      expect(decide(), flags).not.toBeNull();
+      expect(decide(), flags).not.toBeNull();
+    }
+  });
+});
+

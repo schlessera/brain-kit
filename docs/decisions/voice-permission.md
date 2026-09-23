@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:242-274`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:252-284`).
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
@@ -300,7 +300,8 @@ opts.description` straight through to `createToolPermissionRequest`,
 `permission-hooks.ts:178-188`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-58`)
-lets a deployment supply its own patterns, which will have no phrase. Both fall
+lets a deployment supply its own patterns, which have no phrase when given as
+bare regex sources (the `{ pattern, effect }` form carries one). Both fall
 back to the same payload-free
 shape, which names the tool and nothing else:
 

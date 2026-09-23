@@ -63,6 +63,15 @@ async function runTurn(
   return { outcome, frames, sessions: () => opened };
 }
 
+/** The turn ran and succeeded: not merely resolved (a failed turn resolves too). */
+function expectSucceeded(frames: ServerMessage[]): void {
+  expect(frames.some((f) => f.type === "error")).toBe(false);
+  expect(frames.find((f) => f.type === "result")).toMatchObject({
+    outcome: "success",
+    isError: false,
+  });
+}
+
 describe("pi: noGrantSurface without enforceAllowedTools", () => {
   test("declared alone, startTurn rejects with BackendRequestError before a session exists", async () => {
     const turn = await runTurn({ noGrantSurface: true });
@@ -84,20 +93,54 @@ describe("pi: noGrantSurface without enforceAllowedTools", () => {
     const turn = await runTurn({ noGrantSurface: true, enforceAllowedTools: true });
 
     await expect(turn.outcome).resolves.toBeUndefined();
-    expect(turn.frames.some((f) => f.type === "result")).toBe(true);
+    expectSucceeded(turn.frames);
   });
 
   test("declaring neither runs the turn", async () => {
     const turn = await runTurn({});
 
     await expect(turn.outcome).resolves.toBeUndefined();
-    expect(turn.frames.some((f) => f.type === "result")).toBe(true);
+    expectSucceeded(turn.frames);
   });
 
   test("enforceAllowedTools alone runs the turn", async () => {
     const turn = await runTurn({ enforceAllowedTools: true });
 
     await expect(turn.outcome).resolves.toBeUndefined();
-    expect(turn.frames.some((f) => f.type === "result")).toBe(true);
+    expectSucceeded(turn.frames);
+  });
+
+  test("a resume is refused the same way, cold or resident, and the session stays usable", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      let opened = 0;
+      const backend = createPiBackend({
+        brainPath: brain.root,
+        sessionFactory: {
+          newSession: async () => fakeSession(`s${++opened}`),
+          openSession: async (id: string) => (++opened, fakeSession(id)),
+        } as never,
+      });
+      const frames: ServerMessage[] = [];
+      const bridge: BackendBridge = {
+        emit: (m) => frames.push(m),
+        requestPermission: async () => ({ behavior: "deny", message: "No." }),
+      };
+      const turn = (sessionId: string, posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">) =>
+        backend.startTurn({ prompt: "hi", sessionId, signal: new AbortController().signal, bridge, ...posture });
+
+      // Cold: the session is not resident, and nothing may be opened for it.
+      await expect(turn("cold", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+      expect(opened).toBe(0);
+
+      // Resident: open it with a valid turn, then refuse, then run again.
+      await turn("warm", {});
+      await expect(turn("warm", { noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+      frames.length = 0;
+      await expect(turn("warm", { noGrantSurface: true, enforceAllowedTools: true })).resolves.toBeUndefined();
+      expectSucceeded(frames);
+    } finally {
+      brain.cleanup();
+    }
   });
 });
