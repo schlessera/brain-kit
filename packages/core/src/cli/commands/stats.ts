@@ -92,6 +92,51 @@ function pct(ratio: number | null): string {
 }
 
 /**
+ * `ratio` as a percentage with `decimals` places, read off `ratio.toFixed`
+ * with the point moved two places rather than off `ratio * 100`. Only for the
+ * case `ratio * 100` cannot serve: the multiplication can round two distinct
+ * ratios onto the same double, and then no number of places tells them apart.
+ * It is not the everyday formatter because it rounds the true binary value,
+ * so an exact half like 3/80 reads 3.7% here and 3.8% through `pct`.
+ */
+function exactPercent(ratio: number, decimals: number): string {
+  const digits = ratio.toFixed(decimals + 2).replace(".", "");
+  const whole = digits.slice(0, -decimals).replace(/^0+(?=\d)/, "");
+  return `${whole}.${digits.slice(-decimals)}`;
+}
+
+/** Enough places to separate any two distinct ratios a brain can produce. */
+const MAX_PCT_DECIMALS = 20;
+
+/**
+ * A measured ratio and the threshold that judged it, printed at one decimal —
+ * or at as many as it takes for the two to read as different numbers when
+ * they are. Without the extra places, 6 broken links in 119 printed as `5.0%,
+ * over the 5.0% ceiling`: a correct verdict that looked self-contradictory.
+ * Both figures widen together, so a threshold configured finer than one
+ * decimal is never shown rounded past the ratio it judged. A ratio equal to
+ * its threshold, or nowhere near it, prints exactly as `pct` would.
+ *
+ * Display only. The verdict is decided on the unrounded values by the caller;
+ * comparing at display precision instead would report a corpus over its
+ * ceiling as within it, which is a threshold loosened by a formatting choice.
+ */
+function judgedPair(ratio: number, threshold: number): { ratio: string; threshold: string } {
+  const collapsed = ratio !== threshold && ratio * 100 === threshold * 100;
+  const format = (r: number, decimals: number) =>
+    collapsed ? exactPercent(r, decimals) : (r * 100).toFixed(decimals);
+  let decimals = 1;
+  while (
+    ratio !== threshold &&
+    decimals < MAX_PCT_DECIMALS &&
+    format(ratio, decimals) === format(threshold, decimals)
+  ) {
+    decimals += 1;
+  }
+  return { ratio: `${format(ratio, decimals)}%`, threshold: `${format(threshold, decimals)}%` };
+}
+
+/**
  * A byte count at a scale a human reads. The flat-MB rendering this replaces
  * printed a 22 KB corpus as `0.0 MB` and free space as `605726.6 MB` — one
  * reads as nothing and the other cannot be taken in at a glance.
@@ -161,22 +206,26 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
   const ceiling = pct(brokenLinkCeiling);
   const floor = pct(coverageFloor);
 
-  const broken =
-    health.brokenLinkRate === null
-      ? `n/a — no links to judge (ceiling ${ceiling})`
-      : `${stats.brokenLinks} of ${stats.links} (${pct(health.brokenLinkRate)}), ` +
-        `${health.brokenLinkRate > brokenLinkCeiling ? "over" : "within"} the ${ceiling} ceiling`;
+  let broken = `n/a — no links to judge (ceiling ${ceiling})`;
+  if (health.brokenLinkRate !== null) {
+    const shown = judgedPair(health.brokenLinkRate, brokenLinkCeiling);
+    broken =
+      `${stats.brokenLinks} of ${stats.links} (${shown.ratio}), ` +
+      `${health.brokenLinkRate > brokenLinkCeiling ? "over" : "within"} the ${shown.threshold} ceiling`;
+  }
 
   // "not measured", not "nothing embedded": collectStats returns null for a
   // brain that does not embed AND for one whose vec_chunks could not be
   // counted because the extension would not load on this connection — an
   // index that may well hold every vector it should. The renderer cannot tell
   // the two apart, so it must not claim either.
-  const coverage =
-    health.embeddingCoverage === null
-      ? `n/a — not measured (floor ${floor})`
-      : `${pct(health.embeddingCoverage)} of ${plural(stats.chunks, "chunk")}, ` +
-        `${health.embeddingCoverage < coverageFloor ? "below" : "meets"} the ${floor} floor`;
+  let coverage = `n/a — not measured (floor ${floor})`;
+  if (health.embeddingCoverage !== null) {
+    const shown = judgedPair(health.embeddingCoverage, coverageFloor);
+    coverage =
+      `${shown.ratio} of ${plural(stats.chunks, "chunk")}, ` +
+      `${health.embeddingCoverage < coverageFloor ? "below" : "meets"} the ${shown.threshold} floor`;
+  }
 
   // "(180)" when no type carries its own window — "(else 180)" would name an
   // exception list that is empty.
