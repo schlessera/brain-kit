@@ -141,7 +141,9 @@ The original text is left as written.
   adapter processes the whole page with no numeric cap and keeps every offer
   that has a title, a company and a URL. *"Runs are daily, so it contributes
   about ten … rows a day"* holds only if the host runs the module's advisory
-  daily schedule and the page size stays at ten.
+  daily schedule and the page size stays at ten. Likewise *"any detail-page
+  enrichment (#36) is sized to those ten rows"*: enrichment is sized to the
+  qualifying offers on that one page, however many the server returns.
 - *"`ScrapeClient` … checks every request against `RobotsCache` before the rate
   limiter and the network."* It checks the URL of each request before that
   request's first attempt. Retries are paced by backoff or `Retry-After`, not by
