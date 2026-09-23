@@ -92,6 +92,12 @@ describe("settingsRefusal", () => {
     }
   });
 
+  test("a policy helper, which can change the policy after the check, refuses", () => {
+    expect(
+      settingsRefusal({ sources: [{ source: "policySettings", settings: { policyHelper: { command: "x" } } }] })
+    ).toContain("policyHelper");
+  });
+
   test("no report is refused, not trusted", () => {
     expect(settingsRefusal(undefined)).not.toBeNull();
   });

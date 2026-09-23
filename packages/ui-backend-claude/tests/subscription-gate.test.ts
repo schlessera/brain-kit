@@ -41,7 +41,11 @@ function double(
   return { queryFn, released };
 }
 
-async function turn(d: Double, signal = new AbortController().signal): Promise<ServerMessage[]> {
+async function turn(
+  d: Double,
+  signal = new AbortController().signal,
+  sessionId?: string
+): Promise<ServerMessage[]> {
   const frames: ServerMessage[] = [];
   const bridge: BackendBridge = {
     emit: (message) => frames.push(message),
@@ -52,7 +56,7 @@ async function turn(d: Double, signal = new AbortController().signal): Promise<S
     queryFn: d.queryFn,
     log: () => {},
   });
-  await backend.startTurn({ prompt: "hi", signal, bridge });
+  await backend.startTurn({ prompt: "hi", signal, bridge, ...(sessionId ? { sessionId } : {}) });
   return frames;
 }
 
@@ -90,7 +94,17 @@ describe("the subscription gate", () => {
     expect(d.released).toEqual([]);
     const failures = frames.filter((f) => f.type === "error" && f.code === "CLAUDE_AUTH");
     expect(failures).toHaveLength(1);
+    expect(frames.at(-1)).toBe(failures[0]!);
     expect(frames.some((f) => f.type === "result" && f.outcome === "success")).toBe(false);
+  });
+
+  test("a resumed session is gated too, and its refusal still ends the turn", async () => {
+    const d = double(async () => ({ account: { tokenSource: "none", apiProvider: "firstParty" } }), []);
+    const frames = await turn(d, new AbortController().signal, "existing-session");
+
+    expect(d.released).toEqual([]);
+    expect(frames.filter((f) => f.type === "error" && f.code === "CLAUDE_AUTH")).toHaveLength(1);
+    expect(frames.at(-1)).toMatchObject({ type: "result", outcome: "error", sessionId: "existing-session" });
   });
 
   test("a cancellation during the handshake is a cancelled turn, even if the stream then reports success", async () => {

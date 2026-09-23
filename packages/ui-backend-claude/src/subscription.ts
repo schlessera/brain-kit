@@ -64,6 +64,8 @@ export interface CliSettingsReport {
 
 interface SettingsLike {
   apiKeyHelper?: unknown;
+  policyHelper?: unknown;
+  policyHelpers?: unknown;
   env?: Record<string, unknown>;
 }
 
@@ -90,6 +92,13 @@ export function settingsRefusal(report: CliSettingsReport | undefined): string |
   for (const [name, settings] of layers) {
     if (typeof settings?.apiKeyHelper === "string" && settings.apiKeyHelper.trim() !== "") {
       return `${name} configure an apiKeyHelper`;
+    }
+    // A policy helper can replace the policy tier while the turn runs, after
+    // this check has passed, so its presence is refused rather than trusted.
+    // What a root-owned policy does once it is running is the machine owner's
+    // choice and outside what this check can see.
+    if (settings?.policyHelper != null || settings?.policyHelpers != null) {
+      return `${name} configure a policyHelper`;
     }
     for (const key of Object.keys(CLEARED_API_CREDENTIALS)) {
       const value = settings?.env?.[key];
