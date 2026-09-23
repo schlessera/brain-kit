@@ -8,6 +8,7 @@ export { createClaudeBackend, DEFAULT_CONFIRM_BASH_PATTERNS } from "./backend.js
 export type { ClaudeBackendOptions, BackendLogFn } from "./backend.js";
 export { backendModule } from "./module.js";
 export { defineProfiles, DEFAULT_PROFILES } from "./profiles.js";
+export { VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
 export type { InferenceProfile, InferenceProfileInput } from "./profiles.js";
 export {
   discoverAnthropicModels,

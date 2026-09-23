@@ -5,6 +5,11 @@ import {
   bashLockKey,
 } from "@schlessera/brain-ui-sdk/server";
 
+import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
+import { ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
+import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
+import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
+
 /**
  * The brain repo registers the brain CLI's MCP server project-scoped in its
  * `.mcp.json` under the key `brain`, so the SDK exposes those tools as
@@ -73,6 +78,76 @@ export const DEFAULT_ALLOWED_TOOLS = [
   `${BRAIN_MCP_PREFIX}brain_add`,
   BRAIN_UPDATE_TOOL,
 ];
+
+/**
+ * The voice posture: the tool set a spoken turn runs under.
+ *
+ * The membership, and every reason below, comes from
+ * `docs/decisions/voice-permission.md` ("The voice posture"). A change to this
+ * list is a change to that record first. It is selected like any other
+ * allowlist (a profile's `allowedTools`, or the backend's), and it is only a
+ * boundary when the turn also declares `enforceAllowedTools`. Without that,
+ * the runtime's own shortcuts can still admit a tool this list leaves out.
+ * A spoken turn also has nobody to answer an approval card, so it declares
+ * `noGrantSurface` as well; the two declarations are separate, and #173
+ * refuses the second without the first. Under both, a tool left out is
+ * denied where it is raised rather than parked on a card.
+ *
+ * Left out, each on purpose:
+ * - `Bash`: 192 of 192 measured approvals came from it, and its payload cannot
+ *   be read aloud (median 118 spoken seconds). Removing it removes the problem
+ *   instead of narrating it.
+ * - `Write`, `Edit`, `NotebookEdit`: raw writes to arbitrary paths. The brain
+ *   document tools cover the legitimate eyes-free write and keep frontmatter
+ *   and the index correct.
+ * - `Agent`: a subagent's own `Bash`/`Edit`/`Write` calls would each be
+ *   denied, one at a time, inside work nobody can see.
+ * - `Skill`: a skill without `Bash` fails partway, with side effects written.
+ * - `LSP`: no eyes-free use.
+ * - `brain_archive`: the one visibility change, and one whose damage is
+ *   invisible later. An archiving `brain_update` is denied as well, because it
+ *   raises a per-use confirmation this turn cannot grant.
+ * - `request_image_mask`: it needs someone to paint a region. The backend
+ *   appends it outside any allowlist when the host offers an editor, so it is
+ *   withheld by `noGrantSurface`, not by its absence here.
+ *
+ * @experimental
+ */
+export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
+  // Read-only queries over the user's own documents: the reason to talk to a
+  // brain at all.
+  `${BRAIN_MCP_PREFIX}brain_search`,
+  // Read-only context assembly; how a question gets an answer with sources.
+  `${BRAIN_MCP_PREFIX}brain_context`,
+  // Read-only, one document.
+  `${BRAIN_MCP_PREFIX}brain_read`,
+  // Read-only enumeration.
+  `${BRAIN_MCP_PREFIX}brain_list`,
+  // Read-only link traversal.
+  `${BRAIN_MCP_PREFIX}brain_graph`,
+  // Capture, the most valuable eyes-free action. A create destroys nothing:
+  // the worst case is an unwanted document, visible in Files and removable.
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  // "Add this to my note about X". It never rewrites the body, only appends to
+  // it, so no prose is lost. It can overwrite the six frontmatter fields, and
+  // those are recoverable only if the document was committed.
+  BRAIN_UPDATE_TOOL,
+  // Read-only over the brain repo, for questions the brain tools do not cover.
+  // No mutation, no egress.
+  "Read",
+  "Glob",
+  "Grep",
+  // Read-only egress, kept with the exposure the decision record states.
+  "WebSearch",
+  "WebFetch",
+  // The bridge tools, minus the mask editor. None of them is a permission
+  // decision, and each is appended per turn only when the host offers it; they
+  // are named here so the posture states its whole membership.
+  ASK_USER_TOOL_NAME,
+  GET_LOCATION_TOOL_NAME,
+  QUERY_ACTIVITY_TOOL_NAME,
+  SHOW_BLOCK_TOOL_NAME,
+]);
 
 /**
  * Tools whose execution MAY mutate the shared working tree, and therefore may

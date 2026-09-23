@@ -21,6 +21,7 @@ export "." (./src/index.ts)
   type ModelSource
   type ModelSourceOptions
   type ModelSourceState
+  VOICE_ALLOWED_TOOLS
   backendModule
   canonicalModelId
   createClaudeBackend

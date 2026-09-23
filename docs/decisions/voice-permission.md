@@ -52,7 +52,7 @@ existing behaviour.
 Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
-(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:24`), the
+(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:29`), the
 five bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
 `packages/ui-backend-claude/src/sdk-options.ts:52-67`)
@@ -81,7 +81,7 @@ their rows do not sum to the first column.
 matching a confirm pattern. **Zero** were kind `tool`. That is not an accident of
 the corpus, it is the policy: everything the model reaches for is on
 `DEFAULT_ALLOWED_TOOLS` already, and the only tool deliberately left off it is
-`mcp__brain__brain_archive` (`Deliberately absent`, `tool-policy.ts:41-42`).
+`mcp__brain__brain_archive` (`Deliberately absent`, `tool-policy.ts:46-47`).
 The "always allow" path —
 the whole grantable-tool mechanism, and the one thing the client hides for
 `command` requests — is **almost never exercised in practice**.
@@ -206,7 +206,11 @@ provenance, not a fixture.
 
 The tool set a voice turn runs under. Declared as a named list beside
 `DEFAULT_ALLOWED_TOOLS`, with a reason per entry — "safe tools only" is not a
-posture, it is a wish.
+posture, it is a wish. It is `VOICE_ALLOWED_TOOLS` in
+`packages/ui-backend-claude/src/tool-policy.ts` (#111), and
+`tests/voice-posture.test.ts` asserts that list against the two tables below,
+so a change to either one fails until the other agrees. A voice turn selects it
+as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 
 **Allowed:**
 
@@ -229,7 +233,7 @@ posture, it is a wish.
 | --- | --- |
 | `Bash` | 192 of 192 measured approvals came from it, and its payload is the unspeakable one (median 118 spoken seconds). Removing it removes the problem instead of narrating it. This is the whole of the cost of the voice posture, and it is deliberate. |
 | `Write`, `Edit`, `NotebookEdit` | Raw byte writes to arbitrary paths. The brain document tools cover the legitimate eyes-free write and keep frontmatter and the search index correct; these do not. |
-| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:80-81`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
+| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:155-156`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
 | `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:50-58`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
@@ -722,7 +726,7 @@ prepared to accept. Rejected because it removes the thing voice is *for*: saying
 is a write, and a read-only voice mode is a search box you talk to. The
 cost of allowing the two document writes is not a measured figure and must not
 be dressed as one: `brain_add` and `brain_update` are on `DEFAULT_ALLOWED_TOOLS`
-(`brain_add`, `tool-policy.ts:73-74`),
+(`brain_add`, `tool-policy.ts:78-79`),
 so they raise **zero** approvals by construction —
 with the single exception added by #144, a `brain_update` that sets
 `status: "archived"`, which is the archive boundary above and is denied in a
