@@ -93,8 +93,9 @@ needs an API key or the network.
    fake executable on `PATH` that prints a scripted reply. A skill emitter
    writes into a temporary repository, as
    `packages/core/tests/skills-claude-emitter.test.ts` does. A speech
-   provider's `createSession` is called with fixed keyterms against a stubbed
-   token endpoint, asserting the connection material and expiry it returns.
+   provider's `createSession` is called with fixed keyterms, against a stubbed
+   token endpoint if it mints one, asserting the `url`, `token` and `expiresAt`
+   it returns.
    There is no in-tree test to copy yet. An ASR client
    runs against a fake `WebSocket` and `MediaRecorder`, as
    `packages/ui-react/tests/asr-deepgram.test.ts` does. A tool renderer is
