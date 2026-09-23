@@ -35,18 +35,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import {
-  createSdkMcpServer,
-  query,
-  tool,
-  type CanUseTool,
-  type HookCallback,
-  type Options,
-  type SDKMessage,
+import type {
+  CanUseTool,
+  HookCallback,
+  Options,
+  PreToolUseHookInput,
+  SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { createClaudeBackend, defineProfiles, MEASURED_RUNTIME } from "../packages/ui-backend-claude/src/index";
+
+// The SDK the BACKEND loads, not whatever this directory would resolve: a
+// hoisted second copy must not answer for the one the measurements are about.
+const BACKEND_SOURCE = join(import.meta.dir, "../packages/ui-backend-claude/src");
+const SDK_ENTRY = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", BACKEND_SOURCE);
+const { createSdkMcpServer, query, tool } = (await import(SDK_ENTRY)) as typeof import("@anthropic-ai/claude-agent-sdk");
 
 // ---------------------------------------------------------------------------
 // The scripted model
@@ -121,10 +125,15 @@ function toolReply(call: PlannedCall): Response {
   ]);
 }
 
+/** A tool result's text, with any tool references ToolSearch returned named inline. */
 export function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("");
+    return content
+      .map((part) =>
+        typeof part?.text === "string" ? part.text : typeof part?.tool_name === "string" ? `[tool:${part.tool_name}]` : ""
+      )
+      .join("");
   }
   return "";
 }
@@ -188,8 +197,12 @@ interface TurnSetup {
   call: PlannedCall;
   /** Project settings for the turn's cwd. */
   projectSettings?: Record<string, unknown>;
-  /** In-process PreToolUse hooks, by name so their firing can be recorded. */
-  hooks?: Record<string, (fired: () => void) => HookCallback>;
+  /**
+   * In-process PreToolUse hooks, by name, registered in this order with a
+   * matcher for the planned tool only. Each is handed a recorder, so its
+   * firing is tied to the planned call's tool-use id.
+   */
+  hooks?: Record<string, (record: HookRecorder) => HookCallback>;
   /** What `canUseTool` answers. It records every consultation either way. */
   callback: "allow" | "deny";
   /** An in-process MCP server whose tools are deferred, so ToolSearch exists. */
@@ -199,11 +212,26 @@ interface TurnSetup {
   allowedTools?: string[];
 }
 
+interface HookCall {
+  toolUseId: string;
+  command: string | undefined;
+  startedAt: number;
+  endedAt?: number;
+}
+
+interface HookRecorder {
+  start(input: PreToolUseHookInput): HookCall;
+}
+
 interface TurnObservation {
   claudeCodeVersion: string | undefined;
-  callSent: boolean;
+  /** The CLI emitted the planned tool_use, with its id, in the main loop. */
+  toolUseSeen: boolean;
+  /** canUseTool consultations for the planned call only. */
   callbackCalls: Array<{ tool: string; input: Record<string, unknown> }>;
-  hooksFired: Record<string, number>;
+  hookCalls: Record<string, HookCall[]>;
+  /** The turn's result subtype; anything but success makes a case inconclusive. */
+  resultSubtype: string | undefined;
   /** tool_result blocks the CLI produced for the planned call. */
   toolResults: Array<{ isError: boolean; text: string }>;
   /** The tools the first main-loop request offered, and which were deferred. */
@@ -224,15 +252,23 @@ async function runTurn(
     writeFileSync(join(cwd, ".claude", "settings.json"), JSON.stringify(setup.projectSettings));
   }
   const callbackCalls: TurnObservation["callbackCalls"] = [];
-  const hooksFired: Record<string, number> = {};
+  const hookCalls: Record<string, HookCall[]> = {};
   const hookCallbacks = Object.entries(setup.hooks ?? {}).map(([name, make]) => {
-    hooksFired[name] = 0;
-    return make(() => {
-      hooksFired[name]++;
+    hookCalls[name] = [];
+    return make({
+      start(input) {
+        const call: HookCall = {
+          toolUseId: input.tool_use_id,
+          command: (input.tool_input as { command?: string } | undefined)?.command,
+          startedAt: performance.now(),
+        };
+        hookCalls[name]!.push(call);
+        return call;
+      },
     });
   });
-  const canUseTool: CanUseTool = async (toolName, input) => {
-    callbackCalls.push({ tool: toolName, input });
+  const canUseTool: CanUseTool = async (toolName, input, { toolUseID }) => {
+    if (toolUseID === CALL_ID && toolName === setup.call.name) callbackCalls.push({ tool: toolName, input });
     return setup.callback === "allow"
       ? { behavior: "allow", updatedInput: input }
       : { behavior: "deny", message: "denied by the probe" };
@@ -257,7 +293,9 @@ async function runTurn(
     // A model id the CLI recognises, so model-dependent features (tool search)
     // behave as they do in production. The loopback model ignores it.
     model: "claude-sonnet-4-6",
-    ...(hookCallbacks.length > 0 ? { hooks: { PreToolUse: [{ hooks: hookCallbacks }] } } : {}),
+    ...(hookCallbacks.length > 0
+      ? { hooks: { PreToolUse: [{ matcher: `^${setup.call.name}$`, hooks: hookCallbacks }] } }
+      : {}),
     ...(setup.deferredMcp || setup.loadedMcp
       ? {
           mcpServers: {
@@ -272,11 +310,18 @@ async function runTurn(
   };
   let claudeCodeVersion: string | undefined;
   let error: string | undefined;
+  let toolUseSeen = false;
+  let resultSubtype: string | undefined;
   const toolResults: TurnObservation["toolResults"] = [];
   try {
     for await (const message of query({ prompt: "Run the planned tool call.", options }) as AsyncIterable<SDKMessage>) {
       if (message.type === "system" && message.subtype === "init") {
         claudeCodeVersion = (message as { claude_code_version?: string }).claude_code_version;
+      }
+      if (message.type === "assistant" && message.parent_tool_use_id === null) {
+        for (const part of message.message.content) {
+          if (part.type === "tool_use" && part.id === CALL_ID && part.name === setup.call.name) toolUseSeen = true;
+        }
       }
       if (message.type === "user" && Array.isArray(message.message.content)) {
         for (const part of message.message.content as Array<{ type: string; tool_use_id?: string; is_error?: boolean; content?: unknown }>) {
@@ -285,16 +330,20 @@ async function runTurn(
           }
         }
       }
-      if (message.type === "result") break;
+      if (message.type === "result") {
+        resultSubtype = message.subtype;
+        break;
+      }
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
   return {
     claudeCodeVersion,
-    callSent: log.callSent,
+    toolUseSeen,
     callbackCalls,
-    hooksFired,
+    hookCalls,
+    resultSubtype,
     toolResults,
     offered: log.offered[0] ?? [],
     deferred: log.deferred[0] ?? [],
@@ -335,13 +384,13 @@ function scratch(): Scratch {
 }
 
 /** The enforcement hook's answer: `ask`, for every call. */
-const askHook = (fired: () => void): HookCallback => async () => {
-  fired();
+const askHook = (record: HookRecorder): HookCallback => async (input) => {
+  record.start(input as PreToolUseHookInput).endedAt = performance.now();
   return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } };
 };
 
-const denyHook = (fired: () => void): HookCallback => async () => {
-  fired();
+const denyHook = (record: HookRecorder): HookCallback => async (input) => {
+  record.start(input as PreToolUseHookInput).endedAt = performance.now();
   return {
     continue: true,
     hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "probe" },
@@ -350,12 +399,12 @@ const denyHook = (fired: () => void): HookCallback => async () => {
 
 /** Rewrites the command, with NO decision, optionally after a delay. */
 const rewriteHook =
-  (command: string, delayMs = 0, seen?: string[]) =>
-  (fired: () => void): HookCallback =>
+  (command: string, delayMs = 0) =>
+  (record: HookRecorder): HookCallback =>
   async (input) => {
-    fired();
-    seen?.push(String(((input as { tool_input?: { command?: unknown } }).tool_input ?? {}).command));
+    const call = record.start(input as PreToolUseHookInput);
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    call.endedAt = performance.now();
     return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { command } } };
   };
 
@@ -370,15 +419,20 @@ function settingsAllowHook(marker: string): Record<string, unknown> {
 }
 
 const ran = (o: TurnObservation) => o.toolResults.some((r) => !r.isError);
+/** Only the planned call's consultations are recorded, so any is the one. */
 const consulted = (o: TurnObservation, name: string) => o.callbackCalls.some((c) => c.tool === name);
 
-/** INCONCLUSIVE unless the call went out and every installed hook fired. */
+/**
+ * INCONCLUSIVE unless the turn completed, the CLI emitted the planned tool
+ * call, and every installed hook fired FOR THAT CALL.
+ */
 function premises(o: TurnObservation, label: string): string | null {
-  if (o.error && !o.claudeCodeVersion) return `${label}: the CLI did not start (${o.error})`;
-  if (!o.claudeCodeVersion) return `${label}: no init message`;
-  if (!o.callSent) return `${label}: the planned tool call was never sent`;
-  for (const [hook, count] of Object.entries(o.hooksFired)) {
-    if (count === 0) return `${label}: the ${hook} hook never fired`;
+  if (!o.claudeCodeVersion) return `${label}: no init message${o.error ? ` (${o.error})` : ""}`;
+  if (o.error) return `${label}: the turn failed (${o.error})`;
+  if (o.resultSubtype !== "success") return `${label}: the turn ended ${o.resultSubtype ?? "without a result"}`;
+  if (!o.toolUseSeen) return `${label}: the CLI never emitted the planned tool call`;
+  for (const [hook, calls] of Object.entries(o.hookCalls)) {
+    if (!calls.some((c) => c.toolUseId === CALL_ID)) return `${label}: the ${hook} hook never fired for the planned call`;
   }
   return null;
 }
@@ -470,10 +524,11 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         denied: (sc) => ({ call: bash(`touch ${sc.path("marker")}`), callback: "deny" }),
         allowed: (sc) => ({ call: bash(`touch ${sc.path("marker")}`), callback: "allow" }),
       },
-      (o) => [
+      (o, sc) => [
         [consulted(o.denied!, "Bash"), "canUseTool was not consulted for touch"],
-        [!ran(o.denied!), "touch ran with a denying callback"],
-        [consulted(o.allowed!, "Bash") && ran(o.allowed!), "touch did not run with an allowing callback"],
+        [!existsSync(sc.denied!.path("marker")), "touch ran with a denying callback"],
+        [consulted(o.allowed!, "Bash"), "canUseTool was not consulted in the allowing arm"],
+        [existsSync(sc.allowed!.path("marker")), "touch did not run with an allowing callback"],
       ]
     )
   );
@@ -493,6 +548,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         [ran(o.bypass!), "ToolSearch did not run with an empty allowlist"],
         [!consulted(o.bypass!, "ToolSearch"), "canUseTool was consulted for ToolSearch"],
         [consulted(o.underAsk!, "ToolSearch"), "the ask did not force canUseTool for ToolSearch"],
+        [!ran(o.underAsk!), "ToolSearch ran under ask with a denying callback"],
       ]
     )
   );
@@ -554,6 +610,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
         (o, sc) => [
           [consulted(o.denied!, "Bash"), "canUseTool was not consulted"],
           [!existsSync(sc.denied!.path("marker")), "touch ran with a denying callback"],
+          [consulted(o.allowed!, "Bash"), "canUseTool was not consulted in the allowing arm"],
           [existsSync(sc.allowed!.path("marker")), "touch did not run with an allowing callback"],
         ]
       )
@@ -608,27 +665,36 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
     )
   );
 
-  const seenByHooks: string[] = [];
+  // Registration order is varied, so "the last REGISTERED wins" and "the last
+  // to FINISH wins" predict different outcomes in one of the two arms; the
+  // overlap check tells parallel from sequential.
+  const race = (first: "slow" | "fast") => (sc: Scratch): TurnSetup => {
+    // Both wait, so run in parallel they are in flight at the same time.
+    const slow = rewriteHook(`touch ${sc.path("slow")}`, 600);
+    const fast = rewriteHook(`touch ${sc.path("fast")}`, 150);
+    return {
+      call: bash(`touch ${sc.path("a")}`),
+      callback: "allow",
+      hooks: first === "slow" ? { slow, fast } : { fast, slow },
+    };
+  };
+  const raced = (o: TurnObservation, sc: Scratch, label: string): Check[] => {
+    const slow = o.hookCalls.slow!.find((c) => c.toolUseId === CALL_ID)!;
+    const fast = o.hookCalls.fast!.find((c) => c.toolUseId === CALL_ID)!;
+    return [
+      [slow.command?.includes(sc.path("a")) === true && fast.command?.includes(sc.path("a")) === true, `${label}: a hook saw another hook's rewrite`],
+      [fast.startedAt < (slow.endedAt ?? Infinity) && slow.startedAt < (fast.endedAt ?? Infinity), `${label}: the hooks did not overlap`],
+      [existsSync(sc.path("slow")) && !existsSync(sc.path("fast")), `${label}: the slower hook's rewrite did not win`],
+    ];
+  };
   results.push(
     await measure(
       model,
       "parallel-rewrites-last-wins",
-      "Matching PreToolUse hooks run in parallel, each sees the ORIGINAL input, and the last to finish decides what runs.",
+      "Matching PreToolUse hooks run in parallel, each sees the ORIGINAL input, and the last to FINISH decides what runs — whatever the registration order.",
       [REWRITE_SITE, HOOKS_SITE],
-      {
-        raced: (sc) => ({
-          call: bash(`touch ${sc.path("a")}`),
-          callback: "allow",
-          hooks: {
-            fast: rewriteHook(`touch ${sc.path("b")}`, 0, seenByHooks),
-            slow: rewriteHook(`touch ${sc.path("c")}`, 400, seenByHooks),
-          },
-        }),
-      },
-      (_o, sc) => [
-        [seenByHooks.length === 2 && seenByHooks.every((c) => c.includes(sc.raced!.path("a"))), "a hook saw another hook's rewrite"],
-        [existsSync(sc.raced!.path("c")) && !existsSync(sc.raced!.path("b")), "the slower hook's rewrite did not win"],
-      ]
+      { slowFirst: race("slow"), slowLast: race("fast") },
+      (o, sc) => [...raced(o.slowFirst!, sc.slowFirst!, "slow registered first"), ...raced(o.slowLast!, sc.slowLast!, "slow registered last")]
     )
   );
 
@@ -668,7 +734,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
       ["docs/decisions/design-kit.md (D44)", "packages/ui-backend-claude/src/ask-user-tool.ts"],
       {
         loaded: () => ({ call: bash("echo hi"), callback: "allow", loadedMcp: true }),
-        deferred: () => ({ call: bash("echo hi"), callback: "allow", deferredMcp: true }),
+        deferred: () => ({ call: toolSearch, callback: "allow", deferredMcp: true }),
       },
       (o) => {
         const config = createSdkMcpServer({ name: "probe", tools: [], alwaysLoad: true });
@@ -676,7 +742,10 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
           [!("alwaysLoad" in config), "createSdkMcpServer put alwaysLoad on the server config"],
           [o.loaded!.offered.includes(lookup) && !o.loaded!.deferred.includes(lookup), "the stamped tool did not reach the model undeferred"],
           [!o.deferred!.offered.includes(lookup) || o.deferred!.deferred.includes(lookup), "the unstamped tool was not deferred"],
-          [o.deferred!.offered.includes("ToolSearch"), "no ToolSearch was offered for the deferred tool"],
+          [
+            o.deferred!.toolResults.some((r) => !r.isError && r.text.includes("probe_lookup")),
+            "ToolSearch did not find the deferred tool, so its absence proves nothing",
+          ],
         ];
       }
     )
@@ -694,22 +763,35 @@ interface CredentialRow {
   apiKeySource: string | undefined;
   tokenSource: string | undefined;
   auth: ModelLog["auth"];
+  /** How the turn ended: the result text, or the error it threw. */
+  ending: string;
   verdict: Verdict;
   detail?: string;
 }
 
 async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<CredentialRow[]> {
   const rows: CredentialRow[] = [];
+  // A credentialed row must have sent something; an empty log proves nothing.
+  const sent = (r: CredentialRow) => r.auth.length > 0;
   const cases: Array<[string, Record<string, string>, (r: CredentialRow) => string | null]> = [
     ["OAuth only", { CLAUDE_CODE_OAUTH_TOKEN: OAUTH }, (r) =>
-      r.apiKeySource === "none" && r.auth.every((a) => a.authorization === `Bearer ${OAUTH}` && !a.xApiKey) ? null : "expected the OAuth bearer only"],
+      r.tokenSource === "CLAUDE_CODE_OAUTH_TOKEN" && r.apiKeySource === "none" && sent(r) &&
+      r.auth.every((a) => a.authorization === `Bearer ${OAUTH}` && !a.xApiKey)
+        ? null
+        : "expected the OAuth bearer only"],
     ["API key only", { ANTHROPIC_API_KEY: API_KEY }, (r) =>
-      r.apiKeySource === "ANTHROPIC_API_KEY" && r.auth.every((a) => a.xApiKey === API_KEY) ? null : "expected x-api-key"],
+      r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) && r.auth.every((a) => a.xApiKey === API_KEY)
+        ? null
+        : "expected x-api-key"],
     ["both (raw CLI)", { CLAUDE_CODE_OAUTH_TOKEN: OAUTH, ANTHROPIC_API_KEY: API_KEY }, (r) =>
-      r.apiKeySource === "ANTHROPIC_API_KEY" && r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)
+      r.tokenSource === "CLAUDE_CODE_OAUTH_TOKEN" && r.apiKeySource === "ANTHROPIC_API_KEY" && sent(r) &&
+      r.auth.every((a) => a.xApiKey === API_KEY && !a.authorization)
         ? null
         : "the raw CLI no longer prefers the API key — #253's reason changed"],
-    ["neither", {}, (r) => (r.auth.length === 0 ? null : "a request was sent with no credential")],
+    ["neither", {}, (r) =>
+      r.tokenSource === "none" && !sent(r) && /Not logged in/.test(r.ending)
+        ? null
+        : "expected no request and a not-logged-in ending"],
   ];
   for (const [row, creds, judge] of cases) {
     const log = model.plan({ name: "Bash", input: { command: "echo hi" } });
@@ -731,16 +813,20 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     });
     let apiKeySource: string | undefined;
     let tokenSource: string | undefined;
+    let ending = "";
     try {
       tokenSource = (await q.initializationResult()).account?.tokenSource;
       for await (const message of q) {
         if (message.type === "system" && message.subtype === "init") apiKeySource = message.apiKeySource;
-        if (message.type === "result") break;
+        if (message.type === "result") {
+          ending = "result" in message ? String(message.result) : message.subtype;
+          break;
+        }
       }
-    } catch {
-      // "neither" ends in an auth error; the row judges what was sent.
+    } catch (e) {
+      ending = e instanceof Error ? e.message : String(e);
     }
-    const result: CredentialRow = { row, apiKeySource, tokenSource, auth: [...log.auth], verdict: "pass" };
+    const result: CredentialRow = { row, apiKeySource, tokenSource, auth: [...log.auth], ending, verdict: "pass" };
     const problem = judge(result);
     if (problem) {
       result.verdict = "fail";
@@ -784,6 +870,7 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     apiKeySource: undefined,
     tokenSource: undefined,
     auth: [...log.auth],
+    ending: "",
     verdict:
       log.auth.length > 0 && log.auth.every((a) => a.authorization === `Bearer ${OAUTH}` && !a.xApiKey) ? "pass" : "fail",
   };
@@ -798,9 +885,9 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
 // Run
 // ---------------------------------------------------------------------------
 
+/** The version of the SDK copy this run actually loaded (SDK_ENTRY). */
 function installedSdkVersion(): string {
-  const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
-  return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
+  return (JSON.parse(readFileSync(join(dirname(SDK_ENTRY), "package.json"), "utf8")) as { version: string }).version;
 }
 
 function flag(name: string): string | undefined {
@@ -823,10 +910,11 @@ if (import.meta.main) {
       claudeCode: [...versions].join(", "),
       constant: MEASURED_RUNTIME,
       cases: cases.map(({ name, claim, sites, verdict, detail }) => ({ name, claim, sites, verdict, ...(detail ? { detail } : {}) })),
-      credentials: credentials.map(({ row, apiKeySource, tokenSource, auth, verdict, detail }) => ({
+      credentials: credentials.map(({ row, apiKeySource, tokenSource, auth, ending, verdict, detail }) => ({
         row,
         apiKeySource,
         tokenSource,
+        ending: ending.slice(0, 80),
         headers: auth.map((a) => ({ xApiKey: a.xApiKey ? `${a.xApiKey.slice(0, 14)}…` : null, authorization: a.authorization ? `${a.authorization.slice(0, 20)}…` : null })),
         verdict,
         ...(detail ? { detail } : {}),
@@ -836,7 +924,8 @@ if (import.meta.main) {
     const out = flag("--out");
     if (out) writeFileSync(out, `${text}\n`);
     console.log(text);
-    const bad = [...report.cases, ...report.credentials].filter((c) => c.verdict !== "pass");
+    const bad: Array<{ verdict: string }> = [...report.cases, ...report.credentials].filter((c) => c.verdict !== "pass");
+    if (versions.size !== 1) bad.push({ verdict: `mixed or missing Claude Code versions: ${[...versions].join(", ") || "none"}` });
     if (bad.length > 0) {
       console.error(`${bad.length} case(s) did not pass.`);
       process.exitCode = 1;

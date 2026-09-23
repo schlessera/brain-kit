@@ -65,9 +65,9 @@
  * That pair of numbers is what the keep-or-retire decision rests on.
  */
 
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { createSdkMcpServer, query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -808,6 +808,12 @@ function loadModeRows(runs: readonly TurnResult[]): string[] {
   ];
 }
 
+/** The SDK copy the backend loads, and so the one this harness measured. */
+function installedSdkVersion(): string {
+  const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
+  return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
+}
+
 function report(
   runs: readonly TurnResult[],
   cost: { lines: number; chars: number; tokens: number },
@@ -817,7 +823,7 @@ function report(
   return [
     "# `show_block` rate with the classification pass on",
     "",
-    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
+    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
     errors.length
       ? `**${errors.length} turn(s) did not complete** and are excluded from every rate below; they are listed at the end. A rate is only over turns that produced an answer.`
       : `Every turn completed, so no rate below is drawn over a partial sample.`,
@@ -828,7 +834,7 @@ function report(
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
-    `Runtime: Claude Code ${[...new Set(runs.map((run) => run.claudeCode ?? "unknown"))].join(", ")} as each turn's \`init\` reported it.`,
+    `Runtime: \`@anthropic-ai/claude-agent-sdk\` ${installedSdkVersion()}, Claude Code ${[...new Set(runs.map((run) => run.claudeCode ?? "unknown"))].join(", ")} as each turn's \`init\` reported it.`,
     new Set(runs.map((run) => run.alwaysLoad)).size > 1
       ? "MCP tools ran BOTH ways (`--both-arms`); the load-mode table below compares them."
       : `MCP tools ${runs[0]?.alwaysLoad ? "were in the prompt (\`--always-load\`), which is what ships since D44" : "sat behind tool search (\`--always-load\` not passed), which is what shipped BEFORE D44"}.`,
