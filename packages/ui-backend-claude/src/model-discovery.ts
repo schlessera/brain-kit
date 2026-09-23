@@ -27,6 +27,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/server";
 import { resolveEnv } from "./config/env.js";
 import type { BackendLogFn } from "./options.js";
 import type { InferenceProfileInput } from "./profiles.js";
@@ -69,7 +70,11 @@ interface ModelCacheFile {
 
 /** The Models API refused the credential discovery sent. */
 export class ModelDiscoveryAuthError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    /** Which credential was refused. */
+    readonly credential: DiscoveryCredential = "oauth"
+  ) {
     super(`Anthropic Models API refused the credential (HTTP ${status}): authentication failed`);
     this.name = "ModelDiscoveryAuthError";
   }
@@ -82,9 +87,14 @@ export interface DiscoverOptions {
   fetchImpl?: typeof fetch;
 }
 
+/** The credential discovery authenticated with. */
+export type DiscoveryCredential = "oauth" | "api_key";
+
 export interface DiscoverResult {
   models: InferenceProfileInput[];
   aliasChecks: AliasChecks;
+  /** The credential the roster was fetched with; null when there was none. */
+  credential: DiscoveryCredential | null;
 }
 
 /**
@@ -93,7 +103,7 @@ export interface DiscoverResult {
  * turns follow (subscription.ts): a host that holds both runs its chat on the
  * subscription, so it discovers the models the subscription can reach.
  */
-function authHeaders(): Record<string, string> | null {
+function authHeaders(): { headers: Record<string, string>; credential: DiscoveryCredential } | null {
   const base = {
     "anthropic-version": ANTHROPIC_VERSION,
     accept: "application/json",
@@ -102,15 +112,18 @@ function authHeaders(): Record<string, string> | null {
   const oauth = claudeCodeOauthToken?.trim();
   if (oauth) {
     return {
-      ...base,
-      authorization: `Bearer ${oauth}`,
-      // Without this the OAuth token is rejected on most endpoints.
-      "anthropic-beta": OAUTH_BETA,
+      credential: "oauth",
+      headers: {
+        ...base,
+        authorization: `Bearer ${oauth}`,
+        // Without this the OAuth token is rejected on most endpoints.
+        "anthropic-beta": OAUTH_BETA,
+      },
     };
   }
 
   const apiKey = anthropicApiKey?.trim();
-  if (apiKey) return { ...base, "x-api-key": apiKey };
+  if (apiKey) return { credential: "api_key", headers: { ...base, "x-api-key": apiKey } };
   return null;
 }
 
@@ -149,8 +162,9 @@ export async function discoverAnthropicModels(
 ): Promise<DiscoverResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const aliasChecks: AliasChecks = { ...(options.aliasChecks ?? {}) };
-  const headers = authHeaders();
-  if (!headers) return { models: [], aliasChecks };
+  const auth = authHeaders();
+  if (!auth) return { models: [], aliasChecks, credential: null };
+  const { headers, credential } = auth;
 
   const rows: AnthropicModel[] = [];
   let url = `${MODELS_URL}?limit=100`;
@@ -158,7 +172,7 @@ export async function discoverAnthropicModels(
     const { status, body } = await getJson(url, headers, fetchImpl);
     // A refused credential is an auth failure to report, not an empty
     // roster: the same token authenticates every chat turn (#211).
-    if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status);
+    if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status, credential);
     const parsed = (body ?? {}) as ModelsListResponse;
     if (!Array.isArray(parsed.data)) break;
     rows.push(...parsed.data);
@@ -177,7 +191,7 @@ export async function discoverAnthropicModels(
     if (alias !== row.id) {
       let valid = aliasChecks[alias];
       if (valid === undefined) {
-        valid = await aliasResolves(alias, headers, fetchImpl);
+        valid = await aliasResolves(alias, headers, fetchImpl, credential);
         aliasChecks[alias] = valid;
       }
       // A dated id whose alias doesn't resolve stays dated — better an ugly
@@ -201,7 +215,7 @@ export async function discoverAnthropicModels(
     });
   }
 
-  return { models, aliasChecks };
+  return { models, aliasChecks, credential };
 }
 
 /**
@@ -211,7 +225,8 @@ export async function discoverAnthropicModels(
 async function aliasResolves(
   alias: string,
   headers: Record<string, string>,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
+  credential: DiscoveryCredential
 ): Promise<boolean> {
   let status: number;
   try {
@@ -219,7 +234,7 @@ async function aliasResolves(
   } catch {
     return false;
   }
-  if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status);
+  if (status === 401 || status === 403) throw new ModelDiscoveryAuthError(status, credential);
   return status === 200;
 }
 
@@ -282,6 +297,10 @@ export interface ModelSourceState {
   stale: boolean;
   /** Last discovery failure, if the current list is served despite one. */
   error?: string;
+  /** When discovery last succeeded on the subscription token, in this process. */
+  subscriptionProvenAt?: number;
+  /** The last time the Models API refused the subscription token. */
+  subscriptionRefused?: { status: number; at: number };
 }
 
 /**
@@ -313,6 +332,10 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
   let aliasChecks: AliasChecks = cached?.aliasChecks ?? {};
   let refreshedAt: number | null = cached?.fetchedAt ?? null;
   let lastError: string | undefined;
+  // In memory only: a cached roster from an earlier process proves nothing
+  // about the token this one holds.
+  let subscriptionProvenAt: number | undefined;
+  let subscriptionRefused: { status: number; at: number } | undefined;
   let inFlight: Promise<void> | null = null;
 
   const isStale = () =>
@@ -328,6 +351,7 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
       aliasChecks = result.aliasChecks;
       refreshedAt = now();
       lastError = undefined;
+      if (result.credential === "oauth") subscriptionProvenAt = refreshedAt;
       writeCache(cachePath, {
         version: CACHE_VERSION,
         fetchedAt: refreshedAt,
@@ -338,10 +362,18 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
       // Keep serving whatever we already had; surface the reason.
       lastError = err instanceof Error ? err.message : String(err);
       if (err instanceof ModelDiscoveryAuthError) {
-        options.log?.("warn", "model discovery: authentication failed", {
-          "http.status": err.status,
-          "failure.class": "authentication_failed",
-        });
+        if (err.credential === "oauth") subscriptionRefused = { status: err.status, at: now() };
+        options.log?.(
+          "warn",
+          err.credential === "oauth"
+            ? `model discovery: ${SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin}`
+            : "model discovery: the API key was refused",
+          {
+            "http.status": err.status,
+            "failure.class": "authentication_failed",
+            ...(err.credential === "oauth" ? { "auth.action": "relogin" } : {}),
+          }
+        );
       }
       throw err;
     }
@@ -365,6 +397,8 @@ export function createModelSource(options: ModelSourceOptions): ModelSource {
       refreshedAt,
       stale: enabled ? isStale() : false,
       ...(lastError !== undefined ? { error: lastError } : {}),
+      ...(subscriptionProvenAt !== undefined ? { subscriptionProvenAt } : {}),
+      ...(subscriptionRefused !== undefined ? { subscriptionRefused } : {}),
     }),
     async ensureFresh() {
       if (!enabled || !isStale()) return;

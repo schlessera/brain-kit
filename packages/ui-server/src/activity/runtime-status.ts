@@ -10,7 +10,15 @@
  * the auth guard on `/api/status`; the per-run half is also on each run's
  * root span.
  */
-import type { BackendActivityEvent, BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
+import {
+  SUBSCRIPTION_AUTH_INSTRUCTIONS,
+  subscriptionAuthAction,
+  type BackendActivityEvent,
+  type BackendRuntimeReport,
+  type SubscriptionAuthAction,
+} from "@schlessera/brain-ui-sdk/server";
+
+import type { Logger } from "@opentelemetry/api-logs";
 
 type RuntimeObserved = Extract<BackendActivityEvent, { kind: "runtime_observed" }>;
 type AuthFailure = Extract<BackendActivityEvent, { kind: "auth_failure" }>;
@@ -20,8 +28,8 @@ export interface RuntimeStatusSnapshot {
   boot: Array<{ backendId: string } & BackendRuntimeReport>;
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
-  /** The last turn that failed to authenticate. */
-  lastAuthFailure?: Omit<AuthFailure, "kind"> & { runId: string; at: string };
+  /** The last turn that failed to authenticate, and what the operator does about it (#254). */
+  lastAuthFailure?: Omit<AuthFailure, "kind"> & { runId: string; at: string; action: SubscriptionAuthAction };
 }
 
 export interface RuntimeStatus {
@@ -31,7 +39,11 @@ export interface RuntimeStatus {
   snapshot(): RuntimeStatusSnapshot;
 }
 
-export function createRuntimeStatus(now: () => Date = () => new Date()): RuntimeStatus {
+/**
+ * `log`, when given, receives one WARN per auth failure carrying the
+ * instruction for it, so the log says what `/api/status` says.
+ */
+export function createRuntimeStatus(now: () => Date = () => new Date(), log?: Logger): RuntimeStatus {
   let boot: RuntimeStatusSnapshot["boot"] = [];
   let lastObserved: RuntimeStatusSnapshot["lastObserved"];
   let lastAuthFailure: RuntimeStatusSnapshot["lastAuthFailure"];
@@ -43,7 +55,13 @@ export function createRuntimeStatus(now: () => Date = () => new Date()): Runtime
       lastObserved = { ...event, runId, at: now().toISOString() };
     },
     authFailure({ kind: _kind, ...event }, runId) {
-      lastAuthFailure = { ...event, runId, at: now().toISOString() };
+      const action = subscriptionAuthAction(event.errorClass);
+      lastAuthFailure = { ...event, runId, at: now().toISOString(), action };
+      log?.emit({
+        severityText: "WARN",
+        body: `a turn failed to authenticate (${event.errorClass}). ${SUBSCRIPTION_AUTH_INSTRUCTIONS[action]}`,
+        attributes: { "run.id": runId, "failure.class": event.errorClass, "auth.action": action },
+      });
     },
     snapshot() {
       return {

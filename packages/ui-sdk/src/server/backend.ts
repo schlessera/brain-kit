@@ -239,6 +239,38 @@ export type BackendActivityEvent =
       message?: string;
     };
 
+/**
+ * What an operator does about a subscription auth failure (#254): mint a new
+ * token, or look at the account itself, which a new token will not fix.
+ *
+ * @experimental
+ */
+export type SubscriptionAuthAction = "relogin" | "check_account";
+
+/** @experimental The instruction an operator is given for each action. */
+export const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>> = Object.freeze({
+  relogin:
+    "The Claude subscription token was rejected. Mint a new one with `claude setup-token` on a machine " +
+    "with a browser, put it in the host's secret store as CLAUDE_CODE_OAUTH_TOKEN with today's date as " +
+    'BRAIN_UI_CLAUDE_TOKEN_MINTED_AT, and redeploy (docs/hosting/README.md, "Claude subscription login").',
+  check_account:
+    "The Claude account itself was refused (organisation not allowed, account on hold, or billing). " +
+    "A new token will not help: check the account at claude.ai, then send a turn to confirm.",
+});
+
+const ACCOUNT_CLASSES: ReadonlySet<string> = new Set(["oauth_org_not_allowed", "account_on_hold", "billing_error"]);
+
+/**
+ * The action for an auth failure class: the account classes need the account
+ * looked at; anything else — a rejected token, or no usable subscription
+ * credential at all — needs a new token.
+ *
+ * @experimental
+ */
+export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction {
+  return ACCOUNT_CLASSES.has(errorClass) ? "check_account" : "relogin";
+}
+
 export interface StartTurnRequest {
   prompt: string;
   attachments?: ChatImageAttachment[];

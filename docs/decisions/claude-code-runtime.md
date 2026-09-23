@@ -29,7 +29,7 @@ next to it.
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
   `packages/ui-server/src/config/env.ts:346-351`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:780`). The whole `agent` block is copied into the backend's module
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:801`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:428`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
@@ -49,7 +49,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the brain repo's own CLI pin`,
   `packages/ui-server/src/brain/client.ts:115-180`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:194`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:198`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:274-276`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -192,7 +192,7 @@ the separate install step becomes unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:177-182`).
+  `packages/ui-server/src/app.ts:178-183`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -244,9 +244,9 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:46-61`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:49-64`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:9-11`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:10-12`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is
@@ -416,13 +416,13 @@ into them.
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
   only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
-  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:699-703`, applied at
+  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:720-724`, applied at
   `const ambientBilling`, `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
   `Billing mode decision`, `cost-tracking.md:93`). Nothing reads what the CLI actually used.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`name: "ANTHROPIC_API_KEY"`, `packages/ui-backend-claude/src/config/env.ts:84-88`,
   `function authHeaders`, `packages/ui-backend-claude/src/model-discovery.ts:86-104`). A 401 there
-  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:130-131`).
+  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:143-144`).
 
 ### The precedence, measured
 
@@ -612,10 +612,18 @@ subscription authenticates.
    real binary the lockfile installs and asserts the header, and it runs in CI
    (#253 for the rule, #213 for the binary switch).
 5. **There is a login and re-login procedure that has been run on a headless
-   host.** Which mechanism is a maintainer decision with three live options,
-   filed as #254. Until it lands, the supported mechanism is the one in use:
-   `setup-token` on a machine with a browser, the token in the host's secret
-   store, a restart, and a yearly rotation.
+   host.** Which mechanism was a maintainer decision with three live options,
+   filed as #254. The ruling (2026-09-23) is the off-host token: `setup-token`
+   on a machine with a browser, the token in the host's secret store, a
+   redeploy, and a yearly rotation. A server-driven login through Settings and
+   `claude auth login` credentials in `CLAUDE_CONFIG_DIR` were not taken. The
+   procedure is `docs/hosting/README.md`, "Claude subscription login". The
+   server's part: the operator records the mint date
+   (`BRAIN_UI_CLAUDE_TOKEN_MINTED_AT`), the server warns from 30 days before
+   the measured one-year expiry, and `/api/status` shows when the token last
+   worked. Every auth failure also becomes an instruction: `relogin` for a
+   rejected token, `check_account` for an account the token cannot fix. A
+   keyless test rehearses the rotation on a headless host.
 
 The follow-up issues from the first half of this record gained acceptance
 criteria so none of them can regress this: #209's probe covers the precedence

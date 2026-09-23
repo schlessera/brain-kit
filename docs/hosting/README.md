@@ -126,6 +126,59 @@ write-capable agent without authentication.
 | `proxy`     | Trusts an upstream auth header from a reverse proxy (Authelia, oauth2-proxy, Caddy basic-auth). | You already run an auth proxy.     |
 | `none`      | **Refused in production** unless the host is loopback.                                        | Local development only.               |
 
+## Claude subscription login
+
+The chat UI's Claude turns bill the Claude subscription. They never bill an API
+key: a turn whose profile has no credential of its own clears
+`ANTHROPIC_API_KEY` before Claude Code starts, and refuses to send its prompt if
+Claude Code still selects a key. The subscription is authenticated by one
+secret, `CLAUDE_CODE_OAUTH_TOKEN`: a **bearer credential for the account's
+inference**. Anyone holding it can spend that account's usage, so keep it where
+you keep your other secrets.
+
+The token is minted **off the host**, because minting it needs the account
+holder to approve it in a browser, and a headless server has neither the
+browser nor, usually, a terminal you can paste into. It lasts one year. Run
+this procedure once a year, and again whenever the token is revoked or the
+server says to log in again:
+
+1. **Mint.** On any machine with a browser and Claude Code installed, run
+   `claude setup-token` and approve in the browser. Either completion path
+   works. The browser can redirect back to the CLI, or, if it cannot reach the
+   CLI, the page shows a code to paste at the CLI's prompt. The CLI prints the
+   token.
+2. **Store.** In the host's secret store, set `CLAUDE_CODE_OAUTH_TOKEN` to the
+   token and `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` to today's date (for example
+   `2026-09-23`). Change both together: the date is how the server knows when
+   the token expires.
+3. **Redeploy.** The server reads both at start-up; there is nothing to restart
+   by hand beyond your platform's redeploy.
+4. **Confirm.** Send a chat turn, then open `/api/status` (it is behind the
+   login). Its `subscription` object shows `tokenSet: true`, the new `mintedAt`
+   and `expiresAt`, and `lastProvenAt` from the turn you just sent.
+
+What the server does between logins:
+
+- **Before expiry.** From 30 days before `expiresAt`, and after it, the server
+  logs a WARN at boot and at most once a day, naming the date and this
+  procedure. Without `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` it cannot tell, and says
+  so once at boot. A date it cannot read refuses the boot.
+- **Proof it works.** `lastProvenAt` is the latest successful turn that ran on
+  the subscription (kept in the database, so it survives a restart), or a
+  successful model-discovery call with the token, whichever is later. Model
+  discovery costs no usage.
+- **When it stops working.** Every auth failure logs one WARN with an
+  instruction, and `/api/status`'s `subscription.lastAuthFailure.action` carries
+  the same:
+  - `relogin`: the token was rejected (`authentication_failed`, or a 401 from
+    model discovery). Run the procedure above.
+  - `check_account`: the account itself was refused (`oauth_org_not_allowed`,
+    `account_on_hold`, `billing_error`). A new token will not help; look at the
+    account at claude.ai.
+
+`claude auth status` is not a liveness check: it reports any well-formed token
+as logged in. `/api/status` is the check.
+
 ## Agent and device access
 
 A principal is the server-side identity attached to an authenticated device,

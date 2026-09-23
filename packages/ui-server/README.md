@@ -199,13 +199,14 @@ Every variable this package reads, and what happens when it is unset.
 | --- | --- | --- |
 | `AGENT_BACKEND` | Primary agent backend: "claude" (default) or "pi". | claude |
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
-| `ANTHROPIC_API_KEY` | Consulted for PRESENCE only, to classify billing: when set it wins over CLAUDE_CODE_OAUTH_TOKEN (mirroring the Agent SDK's credential precedence), so ambient-credential profiles count as api-billed. | — |
+| `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
 | `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
+| `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` | The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), set next to the token in the same redeploy. The server counts the token's one-year lifetime from it and warns 30 days before expiry. An unparseable date refuses boot. Server-only. | no expiry warning (one WARN at boot says so) |
 | `BRAIN_UI_COASTLINE` | "0"/"off"/"false" stops the server fetching map geometry. Maps then draw their graticule, pins and scale bar with no coastline, which is still an accurate locator. | enabled |
 | `BRAIN_UI_CONFIRM_BASH` | JSON array of regex sources, or {"pattern", "effect"} objects whose effect (what the command does, in words) is shown on the card; a Bash command matching any of them raises a confirmation card before it runs. Unset uses the shipped defaults (brain archive, rm -r, git push --force, git reset --hard, git clean -f, git checkout -- ). An empty array [] disables the confirmation. Not a security boundary — an agent with Bash can reach the same effect another way; it stops a destructive command you did not intend, not one that is trying to get past you. | the shipped pattern set |
 | `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH` | Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access. | 0 |
@@ -224,7 +225,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
 | `BRAIN_UI_WS_MAX_CONNECTIONS` | Maximum number of WebSocket connections accepted by one server process. | 32 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Consulted for PRESENCE only, to classify billing: with it set and no ANTHROPIC_API_KEY, ambient-credential Claude profiles (the built-in default and discovered models) count as subscription-billed. The token itself is consumed by the Claude backend / Agent SDK, not this package. | — |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token from `claude setup-token`: authenticates every Claude profile without its own credential, and model discovery. The Claude backend consumes it; this package reads only whether it is set, for /api/status. Minted off the host and rotated by redeploy (docs/hosting, "Claude subscription login"). | — |
 | `CLAUDE_CODE_PATH` | Path to a Claude Code binary to run instead of the Agent SDK's built-in one. Unset runs the built-in binary, the version the lockfile pins. | — |
 | `COASTLINE_CACHE_DIR` | Directory holding fetched map geometry. Cached forever; coastlines do not move. | $BRAIN_PATH/.brain-ui/geo |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |

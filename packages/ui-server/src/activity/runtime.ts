@@ -160,7 +160,7 @@ export function createActivityRuntime(
     stream,
     notifier,
     pushSender,
-    runtime: createRuntimeStatus(),
+    runtime: createRuntimeStatus(undefined, log),
     query: (query) => runActivityQuery(db, store, query, notifier),
     close() {
       clearInterval(tick);

@@ -74,6 +74,13 @@ export interface BackendModelSourceState {
   refreshedAt: number | null;
   stale: boolean;
   error?: string;
+  /**
+   * When discovery last succeeded on the subscription token, in this process:
+   * a free proof that the token still works (#254).
+   */
+  subscriptionProvenAt?: number;
+  /** The last time the Models API refused the subscription token. */
+  subscriptionRefused?: { status: number; at: number };
 }
 
 /** @experimental Optional model discovery owned by a backend module. */

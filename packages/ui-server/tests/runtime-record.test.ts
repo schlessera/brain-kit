@@ -95,6 +95,7 @@ describe("the run record", () => {
       message: "Failed to authenticate.",
       runId: "run-b",
       at: "2026-09-23T12:00:00.000Z",
+      action: "relogin",
     });
   });
 

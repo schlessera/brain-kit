@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
+import type { SubscriptionStatus } from "../agent/subscription.js";
 import type { MetricSnapshot } from "../observability/index.js";
 
 const startTime = Date.now();
@@ -41,13 +42,16 @@ export interface StatusDeps {
   getMetrics?(): MetricSnapshot | undefined;
   /** What the server knows about the agent runtime (#211). */
   getRuntime?(): RuntimeStatusSnapshot;
+  /** The Claude subscription token: expiry, last proof, last failure (#254). */
+  getSubscription?(): Promise<SubscriptionStatus>;
 }
 
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
 // cron job errors (raw stderr with filesystem paths), and whether a turn is
 // active — none of which should be readable unauthenticated.
 export function createStatusRoutes(deps: StatusDeps): Hono {
-  return new Hono().get("/status", (c) => {
+  return new Hono().get("/status", async (c) => {
+    const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     return c.json({
       healthy: true,
       uptime: Date.now() - startTime,
@@ -61,6 +65,9 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       // the last turn actually ran on, and the last auth failure. Here and not
       // on /health: the version is operational detail, and /health is public.
       ...(deps.getRuntime ? { runtime: deps.getRuntime() } : {}),
+      // Whether the subscription token is set, when it expires, when it last
+      // worked, and what to do about the last auth failure. Never the token.
+      ...(subscription ? { subscription } : {}),
     });
   });
 }
