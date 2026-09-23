@@ -76,7 +76,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:30-39`; `slot.queue.push(entry)`, `run-session.ts:404` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:31-40`; `slot.queue.push(entry)`, `run-session.ts:404` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
@@ -149,7 +149,7 @@ server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:283`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:284`). The revocation itself is recorded in the activity record.
 
 **6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
 replacement labelled "Safari on iPhone" before it is revoked, or revoke the
@@ -163,7 +163,7 @@ credentials, not people.
 (`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
 pruning, so cost-by-actor dies at prune time without it. The precedent is
 profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
-`activity/recorder.ts:115-130`). Nullable for cron (`origin: "cron"`,
+`activity/recorder.ts:120-135`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
 
