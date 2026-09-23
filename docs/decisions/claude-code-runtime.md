@@ -139,7 +139,8 @@ unnecessary.
   pin lives in the host's build file, where no test in this repo can see it or
   compare it with the SDK it has to agree with.
 - **Reproducible and reversible.** The lockfile hash pins the bytes; npm versions
-  are immutable (npm refuses to republish a name and version once used), so
+  are immutable — a name and version cannot be reused even after an unpublish
+  ([npm publish](https://docs.npmjs.com/cli/v11/commands/npm-publish/)) — so
   rolling back is reverting the lockfile and rebuilding.
 - **No new updater.** Nothing runs at boot or on a timer, and nothing needs
   network access at runtime.
@@ -240,10 +241,14 @@ a permission boundary:
   been measured, not a closed set (`permission-hooks.ts:72-74`). A version gate
   would separate "probed" from "not probed", not "safe" from "unsafe", and it
   would say the second thing to whoever reads it.
-- **It would block the path a CLI fix takes.** Under this decision the version
-  moves only when somebody changes a lockfile or sets `CLAUDE_CODE_PATH` — both
-  deliberate. One reason to do either ahead of a brain-kit release is a CLI
-  security fix, and a refusal would stop exactly that deployment.
+- **It would block the path a CLI fix takes.** The built-in binary moves only
+  when somebody changes a lockfile, which is deliberate. One reason to do that,
+  or to set `CLAUDE_CODE_PATH`, ahead of a brain-kit release is a CLI security
+  fix, and a refusal would stop exactly that deployment. A `CLAUDE_CODE_PATH`
+  binary is different: the variable names a path, not a version, so the file
+  behind it can be replaced or updated with nothing in the server's
+  configuration changing. Warning rather than refusing accepts that too; the
+  per-turn record is what shows it happened.
 - **The control belongs where the version is chosen.** In this repo that is the
   guard test below, which does fail. For a published consumer it is the
   exact-pin question (#210). A boot gate is the wrong place to make up for
@@ -269,9 +274,11 @@ name instead of repeating the numbers. Two mechanisms hang off it:
 - **A keyless guard test** fails when the SDK the backend actually imports is
   not the one the constant names. It locates that SDK by resolving the
   backend's own import, then reads `package.json` and `manifest.json` from the
-  directory beside the resolved entry. Neither file is exported as a package
-  subpath (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`), so
-  importing them works under one runtime and not another; a path
+  directory beside the resolved entry, by filesystem path. Neither is an
+  exported package subpath
+  (`node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29`): Bun lets
+  `package.json` be imported anyway and Node does not, and `manifest.json`
+  fails in both. A path
   hard-coded to the root `node_modules` could read a different copy from the one
   the backend loads. CI installs with `--frozen-lockfile`
   (`.github/workflows/ci.yml:52`), so bumping the SDK in this repo fails CI until
