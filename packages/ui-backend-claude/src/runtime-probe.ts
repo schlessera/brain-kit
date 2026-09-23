@@ -52,14 +52,18 @@ class Captured extends Error {
 
 let sdkVersion: string | undefined;
 
-/** The version of the SDK copy this package loads. Read once; it cannot change under a running process. */
-export function installedAgentSdkVersion(): string {
-  if (sdkVersion === undefined) {
-    const entry = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
-    sdkVersion = (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string })
-      .version;
-  }
+/**
+ * The version of the SDK copy this package loads. Read once; it cannot change
+ * under a running process. `sdkEntry` is where the SDK resolved to, for tests.
+ */
+export function installedAgentSdkVersion(sdkEntry?: string): string {
+  if (sdkEntry !== undefined) return readSdkVersion(sdkEntry);
+  sdkVersion ??= readSdkVersion(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));
   return sdkVersion;
+}
+
+function readSdkVersion(entry: string): string {
+  return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
 }
 
 /** Whether a pair is the one the backend's behaviour was measured against. Both halves count. */

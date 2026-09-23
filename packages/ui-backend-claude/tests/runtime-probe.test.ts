@@ -14,7 +14,12 @@ import { dirname, join } from "node:path";
 
 import { MEASURED_RUNTIME } from "../src/measured-runtime";
 import { backendModule } from "../src/module";
-import { ClaudeRuntimeUnavailableError, isMeasuredRuntime, probeClaudeRuntime } from "../src/runtime-probe";
+import {
+  ClaudeRuntimeUnavailableError,
+  installedAgentSdkVersion,
+  isMeasuredRuntime,
+  probeClaudeRuntime,
+} from "../src/runtime-probe";
 
 const scratch: string[] = [];
 
@@ -160,6 +165,14 @@ describe("probeClaudeRuntime", () => {
     expect(() => probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: {} })).toThrow(
       /exited 3 on --version: cannot load libc/
     );
+  });
+});
+
+describe("installedAgentSdkVersion", () => {
+  test("reads the version of the SDK copy it resolved, not the measured constant", () => {
+    const dir = tempDir("sdk-copy-");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.999" }));
+    expect(installedAgentSdkVersion(join(dir, "sdk.mjs"))).toBe("0.3.999");
   });
 });
 

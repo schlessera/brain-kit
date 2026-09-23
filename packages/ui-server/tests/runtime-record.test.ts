@@ -136,12 +136,15 @@ describe("the run record", () => {
     expect(runtime.snapshot().lastAuthFailure).toBeUndefined();
   });
 
-  test("a stored subscription login is recorded with every credential field the CLI reported", async () => {
+  test("a stored subscription login is recorded with every credential field the CLI reported, and no identity", async () => {
     const { store } = await recordTurn(
       "run-stored",
       scripted({ claude_code_version: "2.1.999", apiKeySource: "none" }, {
         subscriptionType: "Claude Max",
         apiProvider: "firstParty",
+        // Who the account is stays out of the activity record.
+        email: "alex@example.com",
+        organization: "Example Org",
       })
     );
     const root = store.getSpan("run-stored:turn")!;
