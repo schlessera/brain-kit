@@ -120,6 +120,24 @@ describe("robots.txt enforcement", () => {
     // 7s from robots.txt, not the client's own 100ms.
     expect(clock.waits).toEqual([7000]);
   });
+
+  test("a non-finite per-call delay does not erase the Crawl-delay floor", async () => {
+    // The two are combined before the limiter sees them, so an unusable
+    // caller value has to be dropped on its own, not along with the site's.
+    for (const delayMs of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      stubFetch([new Response("ok"), new Response("ok")]);
+      const clock = fakeClock();
+      const client = new ScrapeClient({
+        robots: robotsFor("User-agent: *\nCrawl-delay: 7\n"),
+        rateLimiter: new RateLimiter({ defaultDelayMs: 100, clock }),
+      });
+
+      await client.get("https://example.com/a", { delayMs });
+      await client.get("https://example.com/b", { delayMs });
+
+      expect(`${delayMs}: ${clock.waits.join(",")}`).toBe(`${delayMs}: 7000`);
+    }
+  });
 });
 
 describe("retries", () => {

@@ -236,6 +236,17 @@ describe("RateLimiter", () => {
 
     expect(clock.waits).toEqual([1000, 1000, 2000]);
 
+    // A non-finite DEFAULT is no default: the limiter still grants, and a
+    // later per-call delay is honoured.
+    for (const defaultDelayMs of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const broken = new RateLimiter({ defaultDelayMs, clock });
+      clock.waits.length = 0;
+      await broken.acquire("c.example");
+      await broken.acquire("c.example");
+      await broken.acquire("c.example", 500);
+      expect(`${defaultDelayMs}: ${clock.waits.join(",")}`).toBe(`${defaultDelayMs}: 500`);
+    }
+
     // And with no default to fall back on, a non-finite delay is no delay.
     const bare = new RateLimiter({ clock });
     clock.waits.length = 0;
@@ -308,6 +319,16 @@ describe("RobotsCache", () => {
     const rules = await robots.forUrl("https://example.com/");
     expect(rules.crawlDelayMs("some-bot")).toBe(3000);
     expect(rules.crawlDelayMs("brain-scrape")).toBeUndefined();
+  });
+
+  test("ignores a Crawl-delay no crawler could follow", async () => {
+    for (const value of ["Infinity", "1e306"]) {
+      const robots = cache({
+        "https://example.com/robots.txt": { status: 200, body: `User-agent: *\nCrawl-delay: ${value}\n` },
+      });
+      const rules = await robots.forUrl("https://example.com/");
+      expect(`${value}: ${rules.crawlDelayMs("some-bot")}`).toBe(`${value}: undefined`);
+    }
   });
 
   test("fetches robots.txt once per origin, even under concurrency", async () => {

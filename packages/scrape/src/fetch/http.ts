@@ -181,7 +181,10 @@ export class ScrapeClient {
       crawlDelayMs = rules.crawlDelayMs(userAgent);
     }
 
-    await this.rateLimiter.acquire(hostOf(url), Math.max(opts.delayMs ?? 0, crawlDelayMs ?? 0));
+    // Each delay is checked on its own before they are combined, so an
+    // unusable caller value cannot take the site's Crawl-delay down with it.
+    const callerDelayMs = Number.isFinite(opts.delayMs) ? (opts.delayMs as number) : 0;
+    await this.rateLimiter.acquire(hostOf(url), Math.max(callerDelayMs, crawlDelayMs ?? 0));
   }
 
   /**

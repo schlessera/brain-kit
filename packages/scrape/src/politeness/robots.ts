@@ -44,7 +44,12 @@ function parse(robotsUrl: string, body: string): RobotsRules {
     },
     crawlDelayMs(userAgent) {
       const seconds = parsed.getCrawlDelay(userAgent);
-      return typeof seconds === "number" && seconds > 0 ? seconds * 1000 : undefined;
+      if (typeof seconds !== "number" || !(seconds > 0)) return undefined;
+      // `Infinity`, or a value that overflows once in ms, is a directive no
+      // crawler can follow; it is ignored like a negative one, not obeyed by
+      // parking the host's queue forever.
+      const ms = seconds * 1000;
+      return Number.isFinite(ms) ? ms : undefined;
     },
   };
 }
