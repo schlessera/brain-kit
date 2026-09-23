@@ -9,8 +9,10 @@ import type {
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "./backend.js";
-import { readEnvVar } from "./config/env.js";
+import { envSnapshot, readEnvVar, resolveExecConfig } from "./config/env.js";
 import { createModelSource } from "./model-discovery.js";
+import { probeClaudeRuntime } from "./runtime-probe.js";
+import { CLEARED_API_CREDENTIALS } from "./subscription.js";
 import {
   defineProfiles,
   type InferenceProfile,
@@ -135,9 +137,20 @@ export const backendModule: BackendModule = defineBackendModule({
     customOpenRouterModels: true,
     billingOverrides: true,
   },
+  probeRuntime(context) {
+    const claudeCodePath = configString(context, "claudeCodePath");
+    return probeClaudeRuntime({
+      ...(claudeCodePath ? { claudeCodePath } : {}),
+      brainPath: context.brainPath,
+      // The environment a default-profile turn's CLI gets (sdk-options.ts).
+      env: { ...envSnapshot(), ...CLEARED_API_CREDENTIALS },
+      exec: resolveExecConfig(),
+    });
+  },
   modelSource(context) {
     return createModelSource({
       brainPath: context.brainPath,
+      ...(context.log ? { log: context.log } : {}),
       enabled: configBoolean(context, "modelDiscovery"),
       ...(configNumber(context, "modelTtlMs") !== undefined
         ? { ttlMs: configNumber(context, "modelTtlMs") }

@@ -34,10 +34,13 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 
+import type { RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
   store: ActivityStore;
+  /** Where the runtime a turn reported, and its auth failures, are kept for /api/status. */
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure">;
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;
@@ -89,7 +92,7 @@ export function createTurnRecorder(
     principalId?: string;
   }
 ): TurnRecorder {
-  const { store, onWrite, log } = deps;
+  const { store, onWrite, log, runtime } = deps;
   const runId = turn.turnId;
   const rootSpanId = `${runId}:turn`;
   let sessionId = turn.sessionId ?? undefined;
@@ -275,6 +278,45 @@ export function createTurnRecorder(
           }
           case "subagent_transcript": {
             store.appendEvent(event.toolUseId, `transcript_${event.role}`, event.text);
+            onWrite?.();
+            break;
+          }
+          case "runtime_observed": {
+            // Observed next to the classification on the root: what ran, the
+            // credential it selected, and whether that honours the profile.
+            ensureRoot();
+            store.patchSpan(rootSpanId, {
+              attrs: {
+                ...(event.runtime
+                  ? { "brain.runtime.name": event.runtime.name, "brain.runtime.version": event.runtime.version }
+                  : {}),
+                ...(event.sdk ? { "brain.sdk.name": event.sdk.name, "brain.sdk.version": event.sdk.version } : {}),
+                ...(event.measured !== undefined ? { "brain.runtime.measured": event.measured } : {}),
+                ...(event.credential ? { "brain.credential": event.credential } : {}),
+                "brain.billing_observed": event.billing,
+                ...(event.policy ? { "brain.billing_policy": event.policy } : {}),
+                ...(event.policyViolation ? { "brain.billing_policy_violation": event.policyViolation } : {}),
+              },
+            });
+            if (event.policyViolation) {
+              store.appendEvent(rootSpanId, "billing_policy_violation", {
+                policy: event.policy,
+                observed: event.billing,
+                reason: event.policyViolation,
+              });
+            }
+            runtime?.observe(event, runId);
+            onWrite?.();
+            break;
+          }
+          case "auth_failure": {
+            ensureRoot();
+            store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": event.errorClass } });
+            store.appendEvent(rootSpanId, "auth_failure", {
+              errorClass: event.errorClass,
+              ...(event.message ? { message: event.message } : {}),
+            });
+            runtime?.authFailure(event, runId);
             onWrite?.();
             break;
           }

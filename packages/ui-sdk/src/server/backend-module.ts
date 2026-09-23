@@ -96,6 +96,25 @@ export interface BackendModuleContext {
   modelSource?: BackendModelSource | null;
 }
 
+/**
+ * What a backend found when it probed its own runtime at boot.
+ *
+ * @experimental
+ */
+export interface BackendRuntimeReport {
+  runtime: {
+    name: string;
+    version: string;
+    /** What a turn would spawn, as the backend's SDK selected it. */
+    command: string;
+    /** The host named the binary itself instead of taking the SDK's. */
+    hostProvided: boolean;
+  };
+  sdk?: { name: string; version: string };
+  /** The pair the backend's behaviour was measured against, and whether this is it. */
+  measured?: { runtime: string; sdk?: string; matches: boolean };
+}
+
 /** @experimental Backend-specific registry behavior returned with the backend value. */
 export interface ResolvedBackendModule {
   backend: AgentBackend;
@@ -132,6 +151,12 @@ export interface BackendModule {
   profileSchema: BackendProfileSchema;
   settingsHooks: BackendSettingsHooks;
   modelSource?(context: BackendModuleContext): BackendModelSource | null;
+  /**
+   * Probe the runtime a turn would spawn, synchronously, at boot. Throws when
+   * that runtime is missing or will not start, which refuses the boot; returns
+   * what it found otherwise.
+   */
+  probeRuntime?(context: BackendModuleContext): BackendRuntimeReport;
 }
 
 /** @experimental Identity helper providing inference and excess-property checks. */

@@ -19,6 +19,7 @@ import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
+import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
 import { getDetailRetentionDays } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
@@ -37,6 +38,8 @@ export interface ActivityRuntime {
   stream: ActivityStream;
   notifier: ActivityNotifier;
   pushSender: PushSender;
+  /** What the server knows about the agent runtime (boot probe, last turn, last auth failure). */
+  runtime: RuntimeStatus;
   /** The agent-facing read seam (bridge.queryActivity). */
   query(query: ActivityQuery): ActivityQueryResult;
   close(): void;
@@ -157,6 +160,7 @@ export function createActivityRuntime(
     stream,
     notifier,
     pushSender,
+    runtime: createRuntimeStatus(),
     query: (query) => runActivityQuery(db, store, query, notifier),
     close() {
       clearInterval(tick);

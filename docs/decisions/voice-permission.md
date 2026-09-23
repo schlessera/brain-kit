@@ -358,7 +358,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:198` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:199` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:300-312`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -371,7 +371,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:193`; `drainPendingForTurn`, `:198`),
+(`abortController.abort()`, `run-session.ts:194`; `drainPendingForTurn`, `:199`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -450,7 +450,7 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:339-354`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:381-396`),
 fed from the bridge's
 `recorded()` wrapper
 (`const recorded`, `packages/ui-server/src/ws/bridge.ts:157-172`).
@@ -563,7 +563,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:252`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:287`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

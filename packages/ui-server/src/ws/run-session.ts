@@ -46,6 +46,7 @@ function recordPendingCancellations(
       ? createTurnRecorder(
           {
             store: host.activity.store,
+            ...(host.activity.runtime ? { runtime: host.activity.runtime } : {}),
             onWrite: () => host.activity!.stream.pump(),
             log: host.log,
           },
@@ -238,6 +239,7 @@ async function runRetainedSession(
         ? createTurnRecorder(
             {
               store: host.activity.store,
+              ...(host.activity.runtime ? { runtime: host.activity.runtime } : {}),
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },

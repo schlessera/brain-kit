@@ -482,6 +482,20 @@ replied, so its next answer is correlated — because the voice channel may deny
 voice-attributed grant in the record is by construction a bug.
 An answered `ask_user` interaction appends an `ask_user_response` event carrying
 the responder's `principalId`.
+A run's root span may additionally carry what the backend's runtime reported
+about itself (additive in 0.37.0): `brain.runtime.name` / `brain.runtime.version`
+(the runtime that actually ran, e.g. `claude-code` / `2.1.278`),
+`brain.sdk.name` / `brain.sdk.version`, `brain.runtime.measured` (whether that
+pair is the one the backend's behaviour was measured against), `brain.credential`
+(the credential fields the runtime selected, in its own names),
+`brain.billing_observed` (`subscription` | `api` | `unknown`, derived from that
+credential) and `brain.billing_policy` (what the run's profile requires). When
+the two disagree the root also carries `brain.billing_policy_violation` (a
+sentence) and a `billing_policy_violation` event. A run that failed to
+authenticate carries `brain.failure_class` (the runtime's own class, e.g.
+`authentication_failed`, or `subscription_required` when the backend refused
+the turn before sending it) and an `auth_failure` event. Absent means the
+backend did not report it; older clients may ignore all of them.
 Run summaries and rollups may additionally carry `principalId`,
 `principalLabel`, and `principalKind`. The label and kind are immutable
 historical snapshots taken when the rollup is first written, so consumers must

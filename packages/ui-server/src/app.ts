@@ -53,6 +53,7 @@ import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
   assertBackendResolvable,
+  probeBackendRuntimes,
   createBackendRegistry,
   type BackendRegistry,
 } from "./agent/backend.js";
@@ -207,6 +208,14 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     log: observability.logger("activity"),
     pricing,
   });
+  // The runtime every active backend would spawn, probed now (#211): a
+  // missing or unstartable binary refuses the boot here instead of failing
+  // the first turn. Skipped with an injected registry, like the check above.
+  activity.runtime.setBoot(
+    options.registry
+      ? []
+      : probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"))
+  );
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -257,6 +266,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       stream: activity.stream,
       pushSender: activity.pushSender,
       query: activity.query,
+      runtime: activity.runtime,
     },
   });
   const wsUpgrade = createWsUpgrade(host);
@@ -400,6 +410,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       // Undefined when the injected consumer cannot be read back (a real OTel
       // SDK exports elsewhere), in which case the field is simply absent.
       getMetrics: () => observability.metrics?.snapshot(),
+      getRuntime: () => activity.runtime.snapshot(),
     })
   );
   app.route(
