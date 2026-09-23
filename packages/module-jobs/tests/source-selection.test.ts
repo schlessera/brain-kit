@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { CommandContext } from "@schlessera/brain";
 import command, { selectSources } from "../src/cli";
 import { configSchema, type JobsConfig } from "../src/module";
-import { ALL_SOURCES, RETIRED_SOURCES, SOURCES } from "../src/types";
+import { ALL_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES } from "../src/types";
 
 describe("selectSources", () => {
   test("a scrape naming a retired board is refused, and says it was retired", () => {
@@ -73,6 +73,19 @@ describe("selectSources", () => {
       expect(defaults.sources).not.toContain(retired);
       expect(ALL_SOURCES as readonly string[]).not.toContain(retired);
     }
+  });
+});
+
+describe("the default boards and the disabled ones", () => {
+  test("every board is either enabled by default or disabled with a reason, never both (#130)", () => {
+    const enabled = new Set<string>(SOURCES);
+    const disabled = new Set(Object.keys(DISABLED_BY_DEFAULT));
+
+    for (const source of ALL_SOURCES) {
+      expect(`${source}: ${enabled.has(source) !== disabled.has(source)}`).toBe(`${source}: true`);
+    }
+    for (const source of disabled) expect(ALL_SOURCES as readonly string[]).toContain(source);
+    for (const reason of Object.values(DISABLED_BY_DEFAULT)) expect(reason.length).toBeGreaterThan(0);
   });
 });
 

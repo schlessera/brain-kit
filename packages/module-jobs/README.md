@@ -16,7 +16,7 @@ export default defineConfig({
     "@schlessera/brain-module-jobs": {
       criteria: "career/opportunities/search-criteria.md",
       opportunitiesDir: "career/opportunities",
-      boards: ["remoteok", "remotive", "weworkremotely"],
+      boards: ["remoteok", "weworkremotely", "workingnomads"],
       // queries: ["staff engineer", "platform engineer"],  // for query-driven boards
       // dbPath: "jobs.db",                                   // default: <root>/jobs.db
     },
@@ -172,9 +172,14 @@ not be read stops advancing its cursor. The exact `--json` shape is in
 ## Boards & sources
 
 Full-feed / category boards (no browser, enabled by default): `remoteok`,
-`remotive`, `weworkremotely`, `workingnomads`, `remotelyde`.
+`weworkremotely`, `workingnomads`, `remotelyde`.
 Query-driven or JS-heavy boards (may need `--proxy` or `--browser`): `simplyhired`,
 `jobgether`, `builtin`, `nodesk`, `dice`.
+
+Not enabled by default, and not usable without the site's permission:
+`remotive`. Its `robots.txt` disallows `/api/*`, which is the only path the
+adapter fetches, so the scraper refuses every request. The adapter is kept for
+anyone who has that permission.
 
 Retired: `remoteineurope`. Its domain now redirects every page to We Work
 Remotely, which is already scraped as `weworkremotely`. A scrape that names it

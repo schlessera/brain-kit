@@ -10,7 +10,7 @@
  * Every assertion that pins a defect says so, and names the issue that flips
  * it. Nothing here touches the network — the fixtures are the network.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -35,11 +35,12 @@ import type { BrowserJobRecord } from "../src/adapters/browser-base";
 import { RemotelyDeAdapter } from "../src/adapters/remotelyde";
 import { SimplyHiredAdapter } from "../src/adapters/simplyhired";
 import { JobgetherAdapter } from "../src/adapters/jobgether";
+import { RemotiveAdapter } from "../src/adapters/remotive";
 import type { BaseAdapter } from "../src/adapters/base";
 import { openDatabase } from "../src/db";
 import { runDedup } from "../src/dedup";
 import { ingestJobs } from "../src/scrape";
-import { ALL_SOURCES, RETIRED_SOURCES, type RawJob } from "../src/types";
+import { ALL_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
 
@@ -456,6 +457,42 @@ describe("remotive's robots.txt", () => {
         "brain-scrape"
       )
     ).toBe(false);
+  });
+
+  test("so the adapter fails every request it makes, before any reaches the network (#130)", async () => {
+    // The real adapter, through a real ScrapeClient, with the committed
+    // robots.txt served in place of the live one. Every category request is
+    // refused by the politeness layer; nothing is fetched.
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((() => {
+      throw new Error("the network must never be reached from this test");
+    }) as unknown as typeof fetch);
+    try {
+      const http = new ScrapeClient({
+        robots: new RobotsCache({
+          fetcher: async () => ({ status: 200, body: fixture("remotive", "robots.txt") }),
+        }),
+      });
+      const result = await new RemotiveAdapter().bind({ http, log: () => {} }).scrape({ incremental: false });
+
+      expect(result.jobs).toEqual([]);
+      expect(result.status).toBe("not_run");
+      expect(result.errors).toHaveLength(5);
+      for (const error of result.errors) expect(error).toContain("robots.txt disallows");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("and a board that fails by construction is not enabled by default (#130)", () => {
+    // The ruling was to demote it, not retire it: the adapter stays for anyone
+    // the site gives permission to, and the reason says so.
+    expect(SOURCES as readonly string[]).not.toContain("remotive");
+    expect(ALL_SOURCES).toContain("remotive");
+    expect(DISABLED_BY_DEFAULT).toHaveProperty("remotive");
+    const reason = (DISABLED_BY_DEFAULT as Record<string, string>).remotive;
+    expect(reason).toContain("robots.txt disallows /api/*");
+    expect(reason).toContain("permission");
   });
 });
 
