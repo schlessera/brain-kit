@@ -12,7 +12,7 @@ export type {
   AskUserResult,
   LocationFix,
 } from "./backend.js";
-export { BackendBusyError, BackendRequestError } from "./backend.js";
+export { BackendBusyError, BackendRequestError, assertTurnPosture } from "./backend.js";
 
 export type {
   BackendLogFn,

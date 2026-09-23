@@ -259,10 +259,12 @@ export interface StartTurnRequest {
    * budget expires. A capability that needs a human surface is withheld from
    * the turn for the same reason, rather than offered and then blocked on.
    *
-   * Distinct from `enforceAllowedTools`, and normally declared WITH it: a turn
-   * may enforce its allowlist and still have a human able to answer a card,
-   * and it is enforcement that makes the decision happen here at all rather
-   * than be skipped by one of the runtime's own shortcuts.
+   * Distinct from `enforceAllowedTools`, and only valid WITH it: a turn may
+   * enforce its allowlist and still have a human able to answer a card, but
+   * it is enforcement that makes the decision happen here at all rather than
+   * be skipped by one of the runtime's own shortcuts. Declared without it,
+   * the shipped backends reject the turn with `BackendRequestError`
+   * (`assertTurnPosture`).
    *
    * Absent or false (the default) every existing deployment behaves exactly as
    * it always has. A backend that does not understand the field ignores it,
@@ -320,5 +322,28 @@ export class BackendRequestError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BackendRequestError";
+  }
+}
+
+/**
+ * Refuse a turn whose permission posture cannot mean what it says: one that
+ * declares `noGrantSurface` without `enforceAllowedTools`. Without enforcement
+ * a runtime's own shortcuts can admit a tool before any permission request is
+ * raised, so the refusal `noGrantSurface` promises is never reached for it.
+ * Every shipped backend calls this first in `startTurn`, including one whose
+ * runtime has no such shortcuts, so one rule describes the declaration
+ * wherever a posture runs.
+ *
+ * @experimental
+ */
+export function assertTurnPosture(
+  req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">
+): void {
+  if (req.noGrantSurface === true && req.enforceAllowedTools !== true) {
+    throw new BackendRequestError(
+      "A turn that declares noGrantSurface must also declare enforceAllowedTools. " +
+        "Without enforcement a tool can be admitted before any permission request " +
+        "is raised, so there would be nothing to refuse."
+    );
   }
 }

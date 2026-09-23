@@ -5,6 +5,7 @@ import type {
   ServerMessage,
   StartTurnRequest,
 } from "@schlessera/brain-ui-sdk/server";
+import { assertTurnPosture } from "@schlessera/brain-ui-sdk/server";
 
 import { mapPiEvent } from "./event-adapter.js";
 import type { SessionPool } from "./session-pool.js";
@@ -22,6 +23,9 @@ export function createPiTurnRunner(
 ): (req: StartTurnRequest) => Promise<void> {
   return async function startTurn(req: StartTurnRequest): Promise<void> {
     const startedAt = Date.now();
+    // pi has none of the runtime shortcuts the pairing guards against, but the
+    // declaration is refused here too so it means the same on both backends.
+    assertTurnPosture(req);
     // acquire() claims the session (per-session busy) and validates caller
     // input. On any throw — BackendBusyError / BackendRequestError — nothing
     // has been emitted and the promise REJECTS, per the startTurn contract.

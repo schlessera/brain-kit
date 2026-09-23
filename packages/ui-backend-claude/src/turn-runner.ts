@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
+  assertTurnPosture,
   BackendBusyError,
   BackendRequestError,
 } from "@schlessera/brain-ui-sdk/server";
@@ -33,6 +34,9 @@ export function createClaudeTurnRunner(options: {
   const queryFn = options.backend.queryFn ?? query;
 
   return async function startTurn(req: StartTurnRequest): Promise<void> {
+    // Before anything is claimed or emitted: a refused posture rejects, per
+    // the startTurn contract, and leaves no turn behind.
+    assertTurnPosture(req);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);

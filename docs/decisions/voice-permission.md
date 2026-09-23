@@ -569,6 +569,11 @@ instead of handing it to the bridge, with a message that names the tool and is
 written to be read aloud. It covers both request kinds because that one call is
 where both pass through, and the refusal is reported on the activity side
 channel so the record shows a denied span rather than a call that errored.
+Declared without `enforceAllowedTools` the field would be reached only by the
+requests that happen to arrive, so since #173 both backends refuse that turn
+with a `BackendRequestError` (`assertTurnPosture`,
+`packages/ui-sdk/src/server/backend.ts`; the reasoning is in
+`docs/extending/agent-backends.md`).
 
 **Found since, and the reason the `ask` carries the load.** Withholding this
 codebase's own shortcuts was never sufficient: the runtime has permission

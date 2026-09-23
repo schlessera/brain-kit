@@ -203,10 +203,24 @@ out.
 
 It is a separate field from `enforceAllowedTools` because the two facts are
 separate — a turn may enforce its allowlist and still have a human able to
-answer — and a posture with no grant surface normally declares both. Enforcement
-is what makes the decision happen at all: without it, a runtime's own shortcuts
-can admit a tool before the backend's callback is ever consulted, and there is
-then no request to refuse.
+answer — but it is only valid together with it. Enforcement is what makes the
+decision happen at all: without it, a runtime's own shortcuts can admit a tool
+before the backend's callback is ever consulted, and there is then no request
+to refuse.
+
+**Declared without `enforceAllowedTools`, the turn is refused.** Both shipped
+backends call `assertTurnPosture(req)` first in `startTurn`, which rejects
+`noGrantSurface` without `enforceAllowedTools: true` with a
+`BackendRequestError` before anything is emitted. The alternatives were
+weighed in #173: documenting or warning would leave a caller able to build a
+posture that is decoration, and turning enforcement on implicitly would make a
+turn that said only "nobody can answer" also narrow what the model may reach,
+which is a different statement from the one the caller made. The pi backend
+refuses too, although its runtime has none of the shortcuts that make the
+unpaired declaration unreachable on Claude — every pi tool call passes its
+gate — so that one rule describes the declaration on either backend, and a
+posture that works on one does not start failing when moved to the other. A
+third-party backend that honours the field should call the same function.
 
 A backend that honours it must:
 
