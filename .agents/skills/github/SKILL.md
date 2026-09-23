@@ -247,11 +247,12 @@ below exists because the tracker drifted without it.
 - **Clear `blocked` when the blocker closes.** The label does not clear itself.
   `bun scripts/sync-project.ts --apply` clears it from every issue whose
   `Blocked by #N` lines all name closed issues, and comments saying which. The
-  comment carries a marker, so a run that fails part way comments only once
-  when it is retried. Run it once at a time, never in parallel. The dry run
-  lists those issues, plus every `blocked` issue it cannot verify: no such
-  line, or a line that does not start with its references. It leaves those
-  alone, so fix the line. Without
+  comment carries a marker naming the blockers, so a run that fails part way
+  comments only once when it is retried. Run it once at a time, never in
+  parallel. The dry run lists those issues, plus every `blocked` issue it
+  cannot verify. That is either a problem with the line (none, one that is not
+  plain, or one that names another reference after its list), so fix the line.
+  Or it is a blocker whose state `gh` could not read, so check `gh auth status`. Without
   running the script, find what named a closed issue by hand:
 
   ```sh

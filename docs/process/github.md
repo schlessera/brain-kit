@@ -142,16 +142,18 @@ leaves them alone.
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the
 references: `Blocked by #42`, `Blocked by #42 and #43`, or
-`Blocked by schlessera/brain-kit#42` across repositories. Anything after the
-list is commentary. When every issue it names is closed (a pull request counts
-once it has merged), the script reports it, and with `--apply` posts a
-one-line comment naming the closed blocker and removes the label. The same
-run then re-derives the issue's Status, which is Ready if nothing else holds
-it back. An issue labelled `blocked` keeps its label and is reported as
-unverifiable when it has no such line, when a line does not start with a
-reference or mentions another one after its list, or when a blocker's state
-cannot be read. The script clears a label only on a declaration it read in
-full. Closing a blocker unblocks nothing by itself — the line has to be there,
+`Blocked by schlessera/brain-kit#42` across repositories. Write it as a plain
+line: not indented, quoted, nested in a list or inside an HTML comment.
+Commentary may follow the list as long as it names no other reference. When
+every issue it names is closed (a pull request counts once it has merged), the
+script reports it, and with `--apply` posts a one-line comment naming the
+closed blocker and removes the label. In the same run it then re-derives
+Status, unless someone set the Status by hand, and the issue lands in Ready if
+nothing else holds it back. An issue labelled `blocked` keeps its label and is
+reported as unverifiable when it has no such line, when a line looks like a
+declaration but is not a plain one, when a line names another reference after
+its list, or when a blocker's state cannot be read. The script clears a label
+only on declarations it read in full. Closing a blocker unblocks nothing by itself — the line has to be there,
 and the script has to run.
 
 That is what the `blocked` label is for, and why it is worth applying: four of

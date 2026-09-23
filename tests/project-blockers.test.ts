@@ -81,9 +81,27 @@ describe("blockersIn", () => {
 });
 
 describe("a declaration read in part is not read at all", () => {
-  test("an indented code example is not a declaration", () => {
-    // Four spaces is a markdown code block: an example of the convention.
-    expect(parseBlockers("    Blocked by #1", REPO)).toEqual({ refs: [], unreadable: [] });
+  test("a declaration in any other markdown context is unreadable, not skipped", () => {
+    // An indented example, a quote, a nested item, an HTML comment: none is a
+    // plain declaration, and skipping one could hide an open blocker.
+    for (const body of [
+      "    Blocked by #1",
+      "  > Blocked by #1",
+      "- Dependencies\n  - Blocked by #1\n    Blocked by #2",
+      "-\tBlocked by #1",
+      "<!--\nBlocked by #1\n-->",
+    ]) {
+      const parsed = parseBlockers(body, REPO);
+      expect(parsed.unreadable.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("a reference with a suffix is not read as its prefix", () => {
+    expect(parseBlockers("Blocked by #1abc", REPO).refs).toEqual([]);
+    expect(parseBlockers("Blocked by https://github.com/o/r/issues/5abc", REPO).refs).toEqual([]);
+    expect(blockersIn("Blocked by https://github.com/o/r/issues/5#issuecomment-1.", REPO)).toEqual([
+      "o/r#5",
+    ]);
   });
 
   test("a declaration that names no reference first is unreadable", () => {
@@ -96,7 +114,7 @@ describe("a declaration read in part is not read at all", () => {
   test("a reference left over after the list makes the line unreadable", () => {
     // Reading #1 and skipping the URL would clear the label on #1 alone.
     const line = "Blocked by #1 and the fix in https://github.com/o/r/issues/5";
-    expect(parseBlockers(line, REPO).unreadable).toEqual([line]);
+    expect(parseBlockers(line, REPO)).toEqual({ refs: [], unreadable: [line] });
   });
 
   test("an issue URL is a reference", () => {
@@ -196,7 +214,9 @@ function fakeTracker(fixtures: ReturnType<typeof issue>[], known: Record<string,
         comments.set(target.number, [...(comments.get(target.number) ?? []), text]);
       },
       hasComment: async (target: { number: number }, marker: string) =>
-        (comments.get(target.number) ?? []).some((text) => text.includes(marker)),
+        (comments.get(target.number) ?? []).some(
+          (text) => text.startsWith("Unblocked: ") && text.endsWith(marker),
+        ),
     },
   };
 }
@@ -255,10 +275,23 @@ describe("reconcileBlocked", () => {
     const tracker = fakeTracker(fixtures(), known);
     tracker.failNext.removeLabel = true;
     await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    // The comment landed before the removal failed.
+    expect(tracker.comments.get(111)).toHaveLength(1);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
     await reconcileBlocked(tracker.list(), tracker.io, true);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
     expect(tracker.comments.get(111)).toHaveLength(1);
+  });
+
+  test("reordering the same blockers does not post a second notice", async () => {
+    const two = () => [issue(7, ["blocked"], "Blocked by #1 and #2")];
+    const closed: Record<string, BlockerState> = { [`${REPO}#1`]: "closed", [`${REPO}#2`]: "closed" };
+    const tracker = fakeTracker(two(), closed);
+    tracker.failNext.removeLabel = true;
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    const reordered = tracker.list().map((i) => ({ ...i, body: "Blocked by #2 and #1" }));
+    await reconcileBlocked(reordered, tracker.io, true);
+    expect(tracker.comments.get(7)).toHaveLength(1);
   });
 
   test("a second --apply run does nothing", async () => {

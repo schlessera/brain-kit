@@ -304,7 +304,15 @@ export function blockersIn(body: string, repo: string): string[] {
 
 /** `#12`, `owner/repo#12`, or a GitHub issue or pull request URL. */
 const BLOCKER_REF =
-  /^(?:([\w.-]+\/[\w.-]+)?#(\d+)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+))/;
+  /^(?:([\w.-]+\/[\w.-]+)?#(\d+)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)(?:[#?]\S*?)?)(?=$|[\s,.;:)!?])/;
+
+/**
+ * Any line that looks like it declares a blocker, wherever it sits: indented,
+ * quoted, in a list item, after a tab. Only a plain one is read; the rest
+ * make the issue unverifiable instead of being skipped, because a skipped
+ * declaration is a blocker the verdict never sees.
+ */
+const DECLARATION_LIKE = /^[\s>]*(?:(?:[-*+]|\d+[.)])\s*)?(?:\*\*)?blocked by\b/i;
 
 /**
  * The blockers an issue body names, and the declarations it could not read.
@@ -323,6 +331,7 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
   // part of the example, and toggling on it would read the example's blockers
   // and skip the real ones.
   let fence: { char: string; length: number } | undefined;
+  let comment = false;
   for (const line of body.split(/\r?\n/)) {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
@@ -336,10 +345,22 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
       fence = { char: marker[1][0], length: marker[1].length };
       continue;
     }
-    // At most three spaces of indent, as markdown allows before a paragraph:
-    // four is an indented code block, which is an example.
-    const match = line.match(/^ {0,3}(?:[-*] +)?(?:\*\*)?blocked by(?:\*\*)?:?\s+(.*)$/i);
-    if (!match) continue;
+    // Inside an HTML comment a declaration is hidden from the reader, so it
+    // is not one the script may act on either.
+    const hidden = comment || line.includes("<!--");
+    if (line.includes("<!--")) comment = !line.slice(line.lastIndexOf("<!--")).includes("-->");
+    else if (comment && line.includes("-->")) comment = false;
+    if (!DECLARATION_LIKE.test(line)) continue;
+    // A plain declaration: at most three spaces of indent, optionally a list
+    // bullet and bold. Anything else that looks like one — an indented code
+    // example, a quote, a nested item — is unreadable, not ignored.
+    const match = hidden
+      ? null
+      : line.match(/^ {0,3}(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
+    if (!match) {
+      unreadable.push(line.trim());
+      continue;
+    }
     let rest = match[1];
     const found: string[] = [];
     for (;;) {
@@ -448,13 +469,13 @@ export async function reconcileBlocked<T extends BlockableIssue>(
     if (verdict.kind !== "cleared") continue;
     cleared.push({ issue, closed: verdict.closed });
     if (!apply) continue;
-    const marker = `<!-- sync-project: unblocked by ${verdict.closed.join(" ")} -->`;
+    const marker = `<!-- sync-project: unblocked by ${[...new Set(verdict.closed)].sort().join(" ")} -->`;
     if (!(await io.hasComment(issue, marker))) {
       const names = verdict.closed.map((ref) => shortRef(ref, issue.repo));
       await io.comment(
         issue,
         `Unblocked: ${names.join(", ")} ${names.length === 1 ? "is" : "are"} closed, so ` +
-          `\`scripts/sync-project.ts\` removed the \`blocked\` label. ${marker}`,
+          `\`scripts/sync-project.ts\` is removing the \`blocked\` label. ${marker}`,
       );
     }
     await io.removeLabel(issue);
@@ -521,7 +542,11 @@ const trackerIO: BlockerIO = {
     const bodies = await gh([
       "api", "--paginate", `repos/${issue.repo}/issues/${issue.number}/comments`, "--jq", ".[].body",
     ]);
-    return bodies.includes(marker);
+    // Only the script's own notice counts: the marker quoted in someone
+    // else's comment must not suppress it.
+    return bodies
+      .split("\n")
+      .some((body) => body.startsWith("Unblocked: ") && body.endsWith(marker));
   },
 };
 
