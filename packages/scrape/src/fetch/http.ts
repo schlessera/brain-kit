@@ -190,9 +190,10 @@ export class ScrapeClient {
           `its Crawl-delay is longer than this client can wait, 2^31 - 1 ms`
         );
       }
-      // Overridden, an unfollowable Crawl-delay contributes nothing, so it
-      // cannot take the caller's own delay down with it through Math.max.
-      if (crawlDelayMs !== undefined && !Number.isFinite(crawlDelayMs)) crawlDelayMs = undefined;
+      // Overridden, an unfollowable Crawl-delay contributes nothing: not a
+      // clamped wait of weeks, and not an Infinity that would take the
+      // caller's own delay down with it through Math.max.
+      if (crawlDelayMs !== undefined && !(crawlDelayMs <= MAX_DELAY_MS)) crawlDelayMs = undefined;
     }
 
     // Each delay is checked on its own before they are combined, so an

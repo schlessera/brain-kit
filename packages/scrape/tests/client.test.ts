@@ -134,17 +134,19 @@ describe("robots.txt enforcement", () => {
   });
 
   test("overriding an unfollowable Crawl-delay keeps the caller's own delay", async () => {
-    stubFetch([new Response("ok"), new Response("ok")]);
-    const clock = fakeClock();
-    const client = new ScrapeClient({
-      robots: robotsFor("User-agent: *\nCrawl-delay: Infinity\n"),
-      rateLimiter: new RateLimiter({ defaultDelayMs: 100, clock }),
-    });
+    for (const value of ["Infinity", "3000000"]) {
+      stubFetch([new Response("ok"), new Response("ok")]);
+      const clock = fakeClock();
+      const client = new ScrapeClient({
+        robots: robotsFor(`User-agent: *\nCrawl-delay: ${value}\n`),
+        rateLimiter: new RateLimiter({ defaultDelayMs: 100, clock }),
+      });
 
-    await client.get("https://example.com/a", { allowDisallowed: true, delayMs: 5000 });
-    await client.get("https://example.com/b", { allowDisallowed: true, delayMs: 5000 });
+      await client.get("https://example.com/a", { allowDisallowed: true, delayMs: 5000 });
+      await client.get("https://example.com/b", { allowDisallowed: true, delayMs: 5000 });
 
-    expect(clock.waits).toEqual([5000]);
+      expect(`${value}: ${clock.waits.join(",")}`).toBe(`${value}: 5000`);
+    }
   });
 
   test("a non-finite per-call delay does not erase the Crawl-delay floor", async () => {
