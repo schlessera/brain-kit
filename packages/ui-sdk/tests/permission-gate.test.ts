@@ -311,8 +311,12 @@ describe("checkEditedApproval", () => {
     expect(check("read_file", { path: "a.md" }, { path: "b.md" })).toBeNull();
   });
 
-  test("an edit within the confirmed pattern or document passes", () => {
-    expect(check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes/old" })).toBeNull();
+  test("an edit that keeps the confirmed command or document passes", () => {
+    // Only what the confirmation is not about may change: here the command
+    // text is identical and a field beside it moves.
+    expect(
+      check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes", timeout: 5 })
+    ).toBeNull();
     expect(
       check(
         "brain_update",
@@ -346,6 +350,26 @@ describe("checkEditedApproval", () => {
     expect(
       check("brain_update", { path: "a.md", summary: "x" }, { path: "a.md", status: "archived" })
     ).toContain("brain_update");
+  });
+
+  test("a destructive command edited to another destructive command is refused, even on the same pattern", () => {
+    // The card confirmed THIS command. The pattern names a class of effect,
+    // not the target: `brain archive a.md` and `brain archive b.md` match the
+    // same pattern and archive different documents (#145 follow-up).
+    const archive = [/\bbrain\s+archive\b/i];
+    const retarget = checkEditedApproval({
+      toolName: "bash",
+      shellToolName: "bash",
+      confirmPatterns: archive,
+      originalInput: { command: "brain archive notes/a.md" },
+      editedInput: { command: "brain archive notes/b.md" },
+    });
+    expect(retarget).toContain("bash");
+    expect(retarget).toContain("did not run");
+    // Narrowing is refused too: the card did not show the narrower command.
+    expect(check("bash", { command: "rm -rf notes" }, { command: "rm -rf notes/old" })).toContain(
+      "bash"
+    );
   });
 
   test("a confirmation hiding behind a tool grant is still seen", () => {

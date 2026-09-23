@@ -158,9 +158,10 @@ describe("tool_call permission gate", () => {
   });
 
   test("approval with updatedInput patches the input in place", async () => {
+    // An edit that needs no confirmation of its own is applied whole.
     const turn = createTurnContext();
     const mock = makeMockBridge({
-      decision: { behavior: "allow", updatedInput: { command: "rm -r safe-subdir" } },
+      decision: { behavior: "allow", updatedInput: { command: "ls notes" } },
     });
     turn.bridge = mock.bridge;
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
@@ -169,8 +170,25 @@ describe("tool_call permission gate", () => {
     const res = await handler({ toolName: "bash", toolCallId: "t3", input });
     expect(res).toBeUndefined();
     // updatedInput replaces the whole input: patched key applied, absent key dropped.
-    expect(input.command).toBe("rm -r safe-subdir");
+    expect(input.command).toBe("ls notes");
     expect("timeout" in input).toBe(false);
+  });
+
+  test("a confirmed command edited to another on the same pattern is refused", async () => {
+    // Behaviour change (#145 follow-up): the pattern names the kind of effect,
+    // not the target, so `brain archive` of another document would pass a
+    // pattern-only check. The card confirmed the command it showed.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: { command: "brain archive notes/b.md" } },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "retarget", input });
+    expect(res?.block).toBe(true);
+    expect(input).toEqual({ command: "brain archive notes/a.md" });
   });
 
   test("an edit that moves a confirmed archive to another document is refused, not applied", async () => {
@@ -248,13 +266,13 @@ describe("tool_call permission gate", () => {
   test("the applied edit is what the executing tool takes its lock key from", async () => {
     // pi applies an edit by patching the arguments in place, and the tool then
     // executes with them — so the lock key is derived from the edited command,
-    // not the one on the card. The edit stays within the confirmed pattern
-    // (recursive delete) but adds a staging write, which needs the git lock.
+    // not the one on the card. The edit needs no confirmation of its own
+    // but is a staging write, which needs the git lock.
     const turn = createTurnContext();
     const mock = makeMockBridge({
       decision: {
         behavior: "allow",
-        updatedInput: { command: "rm -rf scratch && git add -A" },
+        updatedInput: { command: "git add -A" },
       },
     });
     turn.bridge = mock.bridge;

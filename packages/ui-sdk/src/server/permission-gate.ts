@@ -89,8 +89,11 @@ export interface EditedApprovalCheckInput
 
 /**
  * The per-use confirmations one call needs, each named by what it confirms:
- * the confirm pattern a command matches, or the document an update archives.
- * Two inputs that produce the same name need the same confirmation.
+ * the command a confirm pattern matched, or the document an update archives.
+ * Two inputs that produce the same name need the same confirmation. A
+ * command's name carries its full text, not just the pattern: the pattern
+ * names a kind of effect, and `brain archive a.md` and `brain archive b.md`
+ * match the same one.
  */
 function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): string[] {
   const names: string[] = [];
@@ -98,7 +101,7 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
     const command = bashCommand(input);
     if (command) {
       for (const re of options.confirmPatterns) {
-        if (re.test(command)) names.push(`pattern:${re.source}`);
+        if (re.test(command)) names.push(`pattern:${re.source}:${JSON.stringify(command)}`);
       }
     }
   }
@@ -124,8 +127,9 @@ function confirmationsFor(options: EditedApprovalCheckInput, input: unknown): st
  * as allowed is what exposes a per-use confirmation hiding behind a tool
  * card. An edit that needs no confirmation passes. One that does passes only
  * if every confirmation it needs was needed by the input the card showed: the
- * same confirm pattern, the same archived document. Anything else is refused
- * whole, never applied in part.
+ * same command, the same archived document. Anything else — including a
+ * narrower command on the same pattern — is refused whole, never applied in
+ * part, and can be re-issued to be confirmed as it is.
  *
  * @experimental
  */
