@@ -5,7 +5,8 @@
 `brain stats` reports health and size, not just row counts.
 
 `--json` grows two nested blocks and loses nothing: every field a consumer
-already reads keeps its name and its type.
+already reads keeps its name, and its type, except `embeddings`, which becomes
+`number | null` in the same release (see its breaking-change note).
 
 `health` answers "what needs attention": the broken-link **rate** over the
 link count, embedding coverage as vectors over chunks, and the stale, orphan

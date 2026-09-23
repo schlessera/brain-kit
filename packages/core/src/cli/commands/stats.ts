@@ -92,20 +92,65 @@ function pct(ratio: number | null): string {
 }
 
 /**
- * `ratio` as a percentage with `decimals` places, read off `ratio.toFixed`
- * with the point moved two places rather than off `ratio * 100`. Only for the
- * case `ratio * 100` cannot serve: the multiplication can round two distinct
- * ratios onto the same double, and then no number of places tells them apart.
- * It is not the everyday formatter because it rounds the true binary value,
- * so an exact half like 3/80 reads 3.7% here and 3.8% through `pct`.
+ * The exact decimal expansion of a finite, non-negative double, as a
+ * percentage: every digit of `x * 100` without the rounding that the
+ * multiplication or `toFixed` (which stops at 100 places) would apply. A
+ * double is `mantissa * 2^exponent`, and for a negative exponent that is
+ * `mantissa * 5^-exponent / 10^-exponent`, so the digits are one BigInt
+ * product.
  */
-function exactPercent(ratio: number, decimals: number): string {
-  const digits = ratio.toFixed(decimals + 2).replace(".", "");
-  const whole = digits.slice(0, -decimals).replace(/^0+(?=\d)/, "");
-  return `${whole}.${digits.slice(-decimals)}`;
+function exactPercentDigits(x: number): { whole: string; frac: string } {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, x);
+  const bits = view.getBigUint64(0);
+  const biased = Number((bits >> 52n) & 0x7ffn);
+  const fraction = bits & ((1n << 52n) - 1n);
+  const mantissa = biased === 0 ? fraction : fraction | (1n << 52n);
+  const exponent = biased === 0 ? -1074 : biased - 1075;
+
+  let whole: string;
+  let frac: string;
+  if (exponent >= 0) {
+    whole = (mantissa << BigInt(exponent)).toString();
+    frac = "";
+  } else {
+    const places = -exponent;
+    const digits = (mantissa * 5n ** BigInt(places)).toString().padStart(places + 1, "0");
+    whole = digits.slice(0, -places);
+    frac = digits.slice(-places);
+  }
+  // Two places right for the percentage.
+  const shifted = frac.padEnd(2, "0");
+  return {
+    whole: `${whole}${shifted.slice(0, 2)}`.replace(/^0+(?=\d)/, ""),
+    frac: shifted.slice(2).replace(/0+$/, ""),
+  };
 }
 
-/** Enough places to separate any two distinct ratios a brain can produce. */
+/**
+ * The pair as exact digits, cut at the first decimal place where they
+ * differ. Truncating is monotone, and the first differing digit keeps the two
+ * apart in the right order, for any two distinct doubles — subnormals
+ * included — at the cost of a long line in a case only a pathological
+ * threshold reaches.
+ */
+function exactPair(ratio: number, threshold: number): { ratio: string; threshold: string } {
+  const r = exactPercentDigits(ratio);
+  const t = exactPercentDigits(threshold);
+  const width = Math.max(r.frac.length, t.frac.length);
+  const rf = r.frac.padEnd(width, "0");
+  const tf = t.frac.padEnd(width, "0");
+  let decimals = 1;
+  if (r.whole === t.whole) {
+    let i = 0;
+    while (i < width && rf[i] === tf[i]) i++;
+    decimals = Math.max(1, i + 1);
+  }
+  const cut = (whole: string, frac: string) => `${whole}.${frac.padEnd(decimals, "0").slice(0, decimals)}%`;
+  return { ratio: cut(r.whole, rf), threshold: cut(t.whole, tf) };
+}
+
+/** How far the everyday `pct` formula is widened before giving up on it. */
 const MAX_PCT_DECIMALS = 20;
 
 /**
@@ -117,23 +162,26 @@ const MAX_PCT_DECIMALS = 20;
  * decimal is never shown rounded past the ratio it judged. A ratio equal to
  * its threshold, or nowhere near it, prints exactly as `pct` would.
  *
+ * The `pct` formula is widened first, so every ordinary line keeps its old
+ * rounding. When twenty places of it still collide — `ratio * 100` rounded the
+ * two onto one double, or they differ further out than that — the pair is
+ * printed from its exact digits instead (`exactPair`).
+ *
  * Display only. The verdict is decided on the unrounded values by the caller;
  * comparing at display precision instead would report a corpus over its
  * ceiling as within it, which is a threshold loosened by a formatting choice.
  */
 function judgedPair(ratio: number, threshold: number): { ratio: string; threshold: string } {
-  const collapsed = ratio !== threshold && ratio * 100 === threshold * 100;
-  const format = (r: number, decimals: number) =>
-    collapsed ? exactPercent(r, decimals) : (r * 100).toFixed(decimals);
-  let decimals = 1;
-  while (
-    ratio !== threshold &&
-    decimals < MAX_PCT_DECIMALS &&
-    format(ratio, decimals) === format(threshold, decimals)
-  ) {
-    decimals += 1;
+  const everyday = (decimals: number) => ({
+    ratio: `${(ratio * 100).toFixed(decimals)}%`,
+    threshold: `${(threshold * 100).toFixed(decimals)}%`,
+  });
+  if (ratio === threshold) return everyday(1);
+  for (let decimals = 1; decimals <= MAX_PCT_DECIMALS; decimals++) {
+    const shown = everyday(decimals);
+    if (shown.ratio !== shown.threshold) return shown;
   }
-  return { ratio: `${format(ratio, decimals)}%`, threshold: `${format(threshold, decimals)}%` };
+  return exactPair(ratio, threshold);
 }
 
 /**
@@ -245,6 +293,9 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
   ];
 }
 
+/** The inventory row for a vector table this host could not count. */
+const UNKNOWN_EMBEDDINGS = "  Embeddings: n/a — vector table could not be read on this host";
+
 function inventorySection(stats: BrainStats, all: boolean): string[] {
   const { size } = stats;
   const lines = [
@@ -261,7 +312,7 @@ function inventorySection(stats: BrainStats, all: boolean): string[] {
   // Suppressed at 0 (nothing embedded is not worth a row), but never when the
   // count is unknown: a brain whose vectors could not be read must not render
   // like one holding none.
-  if (stats.embeddings === null) lines.push("  Embeddings: n/a — vector table could not be read on this host");
+  if (stats.embeddings === null) lines.push(UNKNOWN_EMBEDDINGS);
   else if (stats.embeddings > 0) lines.push(`  Embeddings: ${stats.embeddings}`);
   lines.push(
     `  Corpus: ${size.corpus ? `${plural(size.corpus.files, "file")}, ${bytes(size.corpus.bytes)}` : "n/a"}`,
@@ -276,8 +327,11 @@ export function formatStats(stats: BrainStats, opts: StatsRenderOptions): string
   // Nothing indexed: every ratio is already null and every breakdown empty, so
   // the sections would print a page of `n/a` that tells the user nothing they
   // can act on. One line that names the next step does.
+  // An unreadable vector table is still worth its line: it is the one figure
+  // here that is unknown rather than empty.
   if (stats.documents === 0) {
-    return "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`.";
+    const empty = "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`.";
+    return stats.embeddings === null ? `${empty}\n${UNKNOWN_EMBEDDINGS}` : empty;
   }
 
   return [

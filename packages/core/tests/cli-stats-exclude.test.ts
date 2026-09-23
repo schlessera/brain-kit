@@ -59,3 +59,42 @@ describe('exclude.dirs: ["skipme/"]', () => {
     expect(results.filter((r) => r.path.startsWith("skipme/"))).toEqual([]);
   });
 });
+
+describe("an existing brain that adds a trailing-slash exclude", () => {
+  // The ruled effect on upgrade: notes already in the index under `skipme/`
+  // leave it on the next plain `brain index`, not only on a fresh one.
+  test("the next incremental index drops what the entry now excludes", async () => {
+    const existing = makeTempBrain();
+    try {
+      mkdirSync(join(existing, "skipme"), { recursive: true });
+      writeFileSync(
+        join(existing, "skipme/a.md"),
+        "---\ntitle: Indexed Before\ntype: note\n---\n\nIndexed before the exclude existed.\n"
+      );
+      expect((await runCli(existing, ["index", "--json"])).code).toBe(0);
+      const before = JSON.parse((await runCli(existing, ["stats", "--json"])).stdout) as { documents: number };
+      expect(before.documents).toBe(CORPUS_DOCUMENTS + 1);
+      const found = async () =>
+        (
+          JSON.parse((await runCli(existing, ["search", "exclude existed", "--json"])).stdout) as {
+            results: { path: string }[];
+          }
+        ).results.map((r) => r.path);
+      expect(await found()).toContain("skipme/a.md");
+
+      const configPath = join(existing, "brain.config.ts");
+      const anchor = "  taxonomy: {";
+      const config = readFileSync(configPath, "utf8");
+      expect(config).toContain(anchor);
+      writeFileSync(configPath, config.replace(anchor, `  exclude: { dirs: ["skipme/"] },\n\n${anchor}`));
+
+      expect((await runCli(existing, ["index", "--json"])).code).toBe(0);
+      const after = JSON.parse((await runCli(existing, ["stats", "--json"])).stdout) as { documents: number };
+      expect(after.documents).toBe(CORPUS_DOCUMENTS);
+      // And the one that left is the excluded note, not some other document.
+      expect(await found()).not.toContain("skipme/a.md");
+    } finally {
+      cleanup(existing);
+    }
+  });
+});

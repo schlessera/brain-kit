@@ -391,8 +391,8 @@ describe("module cron field constraints", () => {
 
 describe("exclude.dirs spelling", () => {
   // A directory list invites `drafts/` and `./drafts`. Matched literally, both
-  // excluded nothing from the index while the stats corpus walk pruned them
-  // (#139). Normalised on load, every spelling means the same directory — so
+  // excluded nothing from the index, and the stats corpus walk pruned the
+  // first of them anyway (#139). Normalised on load, every spelling means the same directory — so
   // a brain whose config carries one of them loses those files from its index
   // on the next `brain index`, which is the ruled behaviour.
   for (const entry of ["skipme", "skipme/", "./skipme", "./skipme/", "skipme//", "././skipme"]) {

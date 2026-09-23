@@ -25,7 +25,7 @@ const CORPUS_VECTORS = 30;
 
 interface Stats {
   chunks: number;
-  embeddings: number;
+  embeddings: number | null;
   health: { embeddingCoverage: number | null };
 }
 
