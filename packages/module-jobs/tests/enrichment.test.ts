@@ -239,7 +239,13 @@ describe("rows that need no detail page are not fetched", () => {
     const http = stubHttp(() => detailPage("From an ATS."));
     const rows = [job("remoteok", "https://ats.example/apply/1", { source_url: undefined })];
 
-    const stats = await enricherFor(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
+    // Even with the apply link's host allowed, `url` is not a candidate.
+    const stats = await enricherFor(http).enrich({
+      source: "remoteok",
+      name: "RemoteOK",
+      jobs: rows,
+      detailHosts: ["ats.example"],
+    });
 
     expect(http.requests).toEqual([]);
     expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
@@ -461,6 +467,28 @@ describe("the description is stored as the page served it, stripped once", () =>
     } finally {
       db.close();
     }
+  });
+});
+
+describe("a description with no text is no description", () => {
+  test("a detail page whose description is only markup is a failure, not an enrichment", async () => {
+    const http = stubHttp(() => detailPage("<p>&nbsp;</p><br>"));
+    const rows = [job("dice", "https://dice.example/job/1")];
+
+    const stats = await enricherFor(http).enrich({ source: "dice", name: "Dice", jobs: rows });
+
+    expect(stats).toMatchObject({ enriched: 0, failed: 1 });
+    expect(rows[0].description).toBeUndefined();
+  });
+
+  test("a listing description that is only markup does not stop the fetch", async () => {
+    const http = stubHttp(() => detailPage("The real description."));
+    const rows = [job("dice", "https://dice.example/job/1", { description: "<p> </p>" })];
+
+    const stats = await enricherFor(http).enrich({ source: "dice", name: "Dice", jobs: rows });
+
+    expect(stats.enriched).toBe(1);
+    expect(rows[0].description).toBe("The real description.");
   });
 });
 

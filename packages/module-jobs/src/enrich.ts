@@ -43,6 +43,7 @@ import {
   extractJsonLd,
   hostOf,
   jsonLdByType,
+  stripHtml,
   type FetchOptions,
   type ScrapeClient,
 } from "@schlessera/brain-scrape";
@@ -133,11 +134,19 @@ function detailUrl(job: RawJob, hosts: readonly string[]): string | undefined {
   return hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`)) ? candidate : undefined;
 }
 
-/** The first non-empty `JobPosting` description on a page, as served. */
+/**
+ * Whether a description says anything once it is text — what `ingestJobs`
+ * stores. `<p>&nbsp;</p>` is not a description, from a page or from a feed.
+ */
+function hasText(description: string | undefined): boolean {
+  return !!description && stripHtml(description).trim().length > 0;
+}
+
+/** The first `JobPosting` description on a page that has text, as served. */
 function postingDescription(html: string): string | undefined {
   for (const posting of jsonLdByType(extractJsonLd(html).documents, "JobPosting")) {
     const value = posting.description;
-    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "string" && hasText(value)) return value;
   }
   return undefined;
 }
@@ -167,7 +176,7 @@ export function createEnricher(
     }
     const wanted: BoardPlan["wanted"] = [];
     for (const jobs of groups.values()) {
-      if (jobs.some((job) => job.description?.trim())) continue;
+      if (jobs.some((job) => hasText(job.description))) continue;
       const url = jobs.map((job) => detailUrl(job, hosts)).find(Boolean);
       if (!url) continue;
       if (board.isDescribed?.(jobs[0])) continue;
