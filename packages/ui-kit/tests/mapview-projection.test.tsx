@@ -25,7 +25,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { geoLand } from "../fixtures/geo/index.js";
-import { straitMap, voyageMap, voyageRoute } from "../fixtures/places.js";
+import { ithacaMap, straitMap, voyageMap, voyageRoute } from "../fixtures/places.js";
+import type { MapScene } from "../fixtures/types.js";
 import { MapView, mercY, step } from "../src/blocks/MapView.js";
 
 /** Scylla and Charybdis, from `fixtures/places.ts`. Both are Wikipedia geotags. */
@@ -441,55 +442,56 @@ describe("the accuracy ring", () => {
   });
 });
 
-describe("the strait's land, in the pixels the component draws", () => {
-  /**
-   * The check a coordinate test cannot make, and one a screenshot makes only
-   * after the fact: the visual suite's baseline sees the fill (`map-land` at
-   * 6% alpha clears its threshold since #140), but a baseline regenerated with
-   * land and sea swapped would pass forever. So this asks the question in the
-   * component's own pixel space: it projects each probe by handing it to
-   * `paths`, which runs the same `px`/`py` the land `d` is built with, and then
-   * asks which side of the drawn polygon the probe came out on.
-   */
-  const probe = (points: [number, number][]) => {
-    const html = renderToStaticMarkup(
-      <MapView
-        {...straitMap}
-        paths={points.map((point) => ({ coords: [point, point] }))}
-      />,
-    );
-    const d = html.match(/fill-rule="evenodd"[^>]*\bd="([^"]+)"|d="([^"]+)"[^>]*fill-rule="evenodd"/);
-    const rings = (d?.[1] ?? d?.[2] ?? "")
-      .split("M")
-      .filter(Boolean)
-      .map((ring) => ring.replace(/Z$/, "").split("L").map((pair) => pair.split(",").map(Number) as [number, number]));
-    // `[-\d.]`, not `[\d.]`: the rings are not clipped to the viewport, so a
-    // projected coordinate outside it is negative and a digits-only pattern
-    // silently skips that probe rather than failing.
-    const drawn = [...html.matchAll(/<polyline[^>]*points="([-\d.]+),([-\d.]+) /g)].map(
-      (match) => [Number(match[1]), Number(match[2])] as [number, number],
-    );
-    // One polyline per probe, and the fixture's own coastline is passed as
-    // `paths` too — so the probes are the LAST ones, in order.
-    return drawn.slice(-points.length).map(([x, y]) => {
-      let inside = false;
-      for (const ring of rings) {
-        for (let i = 0; i < ring.length; i += 1) {
-          const [ax, ay] = ring[i]!;
-          const [bx, by] = ring[(i + 1) % ring.length]!;
-          if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside;
-        }
+/**
+ * The check a coordinate test cannot make, and one a screenshot makes only
+ * after the fact: the visual suite's baseline sees the fill (`map-land` at
+ * 6% alpha clears its threshold since #140), but a baseline regenerated with
+ * land and sea swapped would pass forever. So this asks the question in the
+ * component's own pixel space: it projects each probe by handing it to
+ * `paths`, which runs the same `px`/`py` the land `d` is built with, and then
+ * asks which side of the drawn polygon the probe came out on.
+ */
+const probe = (scene: MapScene, points: [number, number][]) => {
+  const html = renderToStaticMarkup(
+    <MapView
+      {...scene}
+      paths={points.map((point) => ({ coords: [point, point] }))}
+    />,
+  );
+  const d = html.match(/fill-rule="evenodd"[^>]*\bd="([^"]+)"|d="([^"]+)"[^>]*fill-rule="evenodd"/);
+  const rings = (d?.[1] ?? d?.[2] ?? "")
+    .split("M")
+    .filter(Boolean)
+    .map((ring) => ring.replace(/Z$/, "").split("L").map((pair) => pair.split(",").map(Number) as [number, number]));
+  // `[-\d.]`, not `[\d.]`: the rings are not clipped to the viewport, so a
+  // projected coordinate outside it is negative and a digits-only pattern
+  // silently skips that probe rather than failing.
+  const drawn = [...html.matchAll(/<polyline[^>]*points="([-\d.]+),([-\d.]+) /g)].map(
+    (match) => [Number(match[1]), Number(match[2])] as [number, number],
+  );
+  // One polyline per probe. The probes REPLACE the scene's own `paths`, so
+  // they are the only polylines; taking the last ones keeps this right if a
+  // caller ever passes the coastline alongside them.
+  return drawn.slice(-points.length).map(([x, y]) => {
+    let inside = false;
+    for (const ring of rings) {
+      for (let i = 0; i < ring.length; i += 1) {
+        const [ax, ay] = ring[i]!;
+        const [bx, by] = ring[(i + 1) % ring.length]!;
+        if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside;
       }
-      return inside;
-    });
-  };
+    }
+    return inside;
+  });
+};
 
+describe("the strait's land, in the pixels the component draws", () => {
   test("both hazards are on land and the passage between them is not", () => {
     // Scylla is a rock on the Calabrian shore and Charybdis a whirlpool off
     // Sicily's; the scene's own centre is the water a ship steers through. If
     // the closure came out inverted, all three of these flip together.
     expect(
-      probe([
+      probe(straitMap, [
         [15.719, 38.2507], // Scylla
         [15.6508, 38.2647], // Charybdis
         [15.6858, 38.2577], // the channel, and the scene's centre
@@ -503,6 +505,22 @@ describe("the strait's land, in the pixels the component draws", () => {
     expect(geoLand("messina")?.rings).toHaveLength(3);
     expect(html.match(/fill-rule="evenodd"/g)).toHaveLength(1);
     expect(html.match(/M[-\d.]+,[-\d.]+(?:L[-\d.]+,[-\d.]+)+Z/g)).toHaveLength(3);
+  });
+});
+
+describe("Ithaca's land, in the pixels the component draws", () => {
+  test("the island itself is filled, and the channel between it and Kefalonia is not", () => {
+    // Ithaca is wider than its own fetch envelope, so its coastline arrives as
+    // a chain rather than a ring, and before the fixture was regenerated
+    // through the viewport closure only four offshore islets were filled. All
+    // three probes sit inside the drawn viewport, not merely inside the fetch.
+    expect(
+      probe(ithacaMap, [
+        [20.705, 38.35], // the south of the island, a kilometre inland from Vathy
+        [20.667, 38.385], // the north of the island, past the isthmus at Aetos
+        [20.645, 38.365], // the channel, with Kefalonia's shore to its west
+      ]),
+    ).toEqual([true, true, false]);
   });
 });
 
