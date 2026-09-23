@@ -121,7 +121,7 @@ the `canUseTool` permission callback (it even warns
 path would therefore never engage for allowlisted mutating tools. The lock
 here is acquired in an awaited **PreToolUse hook**, which fires for every tool
 execution regardless of allowlisting — measured against the runtime
-`MEASURED_RUNTIME` names (the `pretooluse-fires-when-allowlisted` case of
+`MEASURED_RUNTIME` names (the `pretooluse-awaited-when-allowlisted` case of
 `scripts/measure-claude-runtime.ts`), not inferred from types.
 
 The mutating set is `Bash`, `Edit`, `Write`, `NotebookEdit` and all three brain

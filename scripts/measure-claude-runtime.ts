@@ -747,26 +747,42 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
     )
   );
 
+  // The hook holds the call for a while and looks for the tool's marker while
+  // it does: an awaited hook sees none; a hook the runtime did not wait for
+  // would find the tool already run.
+  const holdingHook = (marker: string, ranEarly: string[]) => (record: HookRecorder): HookCallback => async (input) => {
+    const call = record.start(input as PreToolUseHookInput);
+    await new Promise((r) => setTimeout(r, 500));
+    if (existsSync(marker)) ranEarly.push(marker);
+    call.endedAt = performance.now();
+    return { continue: true };
+  };
+  const ranEarly: string[] = [];
   results.push(
     await measure(
       model,
-      "pretooluse-fires-when-allowlisted",
-      "An in-process PreToolUse hook fires for a tool on `allowedTools`, which the SDK runs without canUseTool — so a lock taken in that hook engages where the callback never would.",
+      "pretooluse-awaited-when-allowlisted",
+      "An in-process PreToolUse hook fires, and is AWAITED, for a tool on `allowedTools`, which runs without canUseTool — so a lock taken in that hook engages where the callback never would. An `ask` still forces the callback.",
       ["packages/ui-backend-claude/README.md (write lock)"],
       {
         allowlisted: (sc) => ({
           call: bash(`touch ${sc.path("marker")}`),
           callback: "deny",
           allowedTools: ["Bash"],
-          hooks: { observe: (record) => async (input) => {
-            record.start(input as PreToolUseHookInput).endedAt = performance.now();
-            return { continue: true };
-          } },
+          hooks: { hold: holdingHook(sc.path("marker"), ranEarly) },
+        }),
+        underAsk: (sc) => ({
+          call: bash(`touch ${sc.path("marker")}`),
+          callback: "deny",
+          allowedTools: ["Bash"],
+          hooks: { ask: askHook },
         }),
       },
       (o, sc) => [
         [existsSync(sc.allowlisted!.path("marker")), "the allowlisted call did not run"],
+        [ranEarly.length === 0, "the tool ran while the hook was still holding it"],
         [!consulted(o.allowlisted!, "Bash"), "canUseTool was consulted for an allowlisted tool"],
+        [consulted(o.underAsk!, "Bash") && refused(o.underAsk!, CALLBACK_DENIAL), "the ask did not force the callback for an allowlisted tool"],
       ]
     )
   );
