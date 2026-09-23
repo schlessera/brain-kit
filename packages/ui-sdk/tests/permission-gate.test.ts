@@ -384,3 +384,51 @@ describe("checkEditedApproval", () => {
     expect(check("bash", { command: "ls" }, { command: "rm -rf notes" })).toContain("bash");
   });
 });
+
+describe("an edited input, as the backends receive it", () => {
+  const request = {
+    toolUseId: "t1",
+    toolName: "bash",
+    input: { command: "ls" },
+    description: undefined,
+    kind: "command" as const,
+  };
+  const via = (updatedInput: unknown) =>
+    requestToolPermission(
+      { requestPermission: async () => ({ behavior: "allow", updatedInput }) as never },
+      request
+    );
+
+  test("is a plain snapshot: accessors are read once and serialization hooks are applied once", async () => {
+    let reads = 0;
+    const decision = await via({
+      get command() {
+        return ++reads === 1 ? "ls" : "rm -rf notes";
+      },
+    });
+    expect(decision).toEqual({ behavior: "allow", updatedInput: { command: "ls" } });
+    const snapshot = (decision as { updatedInput: Record<string, unknown> }).updatedInput;
+    expect(snapshot.command).toBe("ls");
+    expect(snapshot.command).toBe("ls");
+
+    const hooked = await via({ command: "ls", toJSON: () => ({ command: "rm -rf notes" }) });
+    // Whatever the hook says is what is checked AND what runs: one value.
+    expect(hooked).toEqual({ behavior: "allow", updatedInput: { command: "rm -rf notes" } });
+  });
+
+  test("drops what is not an own enumerable property", async () => {
+    expect(await via(Object.create({ command: "ls" }))).toEqual({
+      behavior: "allow",
+      updatedInput: {},
+    });
+  });
+
+  test("an input that is not a plain object, or will not serialize, is denied", async () => {
+    for (const bad of [["ls"], "ls", 7, { self: null as unknown }]) {
+      if (typeof bad === "object" && bad && "self" in bad) (bad as { self: unknown }).self = bad;
+      const decision = await via(bad);
+      expect(decision.behavior, JSON.stringify(typeof bad)).toBe("deny");
+    }
+  });
+});
+

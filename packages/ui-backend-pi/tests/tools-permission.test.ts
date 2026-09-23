@@ -196,6 +196,44 @@ describe("tool_call permission gate", () => {
     expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
   });
 
+  test("an edit whose command is a getter is checked and applied as one value", async () => {
+    // A bridge in the same process can hand back any object. The first read
+    // says `ls`, every later one says archive: what was checked must be what
+    // runs, so the edit is taken as one plain snapshot before either.
+    let reads = 0;
+    const updatedInput = {
+      get command() {
+        return ++reads === 1 ? "ls notes" : "brain archive notes/b.md";
+      },
+    };
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision: { behavior: "allow", updatedInput } });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    const res = await handler({ toolName: "bash", toolCallId: "getter", input });
+    expect(res).toBeUndefined();
+    expect(input.command).toBe("ls notes");
+    expect(Object.getOwnPropertyDescriptor(input, "command")?.get).toBeUndefined();
+  });
+
+  test("an edit whose command is only inherited replaces nothing it did not show", async () => {
+    // `Object.create({ command })` has no own command: the checked value and
+    // the applied value must agree, so the destructive original must not
+    // survive an approval that looked like a safe replacement.
+    const turn = createTurnContext();
+    const mock = makeMockBridge({
+      decision: { behavior: "allow", updatedInput: Object.create({ command: "ls notes" }) },
+    });
+    turn.bridge = mock.bridge;
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+
+    const input: Record<string, unknown> = { command: "brain archive notes/a.md" };
+    await handler({ toolName: "bash", toolCallId: "inherited", input });
+    expect(input.command).not.toBe("brain archive notes/a.md");
+  });
+
   test("a confirmed command edited to another on the same pattern is refused", async () => {
     // Behaviour change (#145 follow-up): the pattern names the kind of effect,
     // not the target, so `brain archive` of another document would pass a

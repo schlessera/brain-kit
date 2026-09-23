@@ -270,5 +270,32 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
-  return bridge.requestPermission(request);
+  return bridge.requestPermission(request).then((decision) => snapshotEdit(request, decision));
+}
+
+/**
+ * Replace an approval's edited input with one plain JSON snapshot, taken once.
+ *
+ * A bridge in the same process can hand back any object: a getter that
+ * answers differently on each read, a `toJSON` that serializes to something
+ * else, a value that is only inherited. Checking one reading of it and
+ * applying another would let an edit through that nobody checked. The
+ * WebSocket host already delivers parsed JSON; this makes every bridge do so,
+ * and refuses an edit that is not a plain object or will not serialize.
+ */
+function snapshotEdit(request: PermissionRequest, decision: PermissionDecision): PermissionDecision {
+  if (decision.behavior !== "allow" || decision.updatedInput === undefined) return decision;
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(JSON.stringify(decision.updatedInput));
+  } catch {
+    snapshot = undefined;
+  }
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return {
+      behavior: "deny",
+      message: `The approval for ${request.toolName} came back with an input that cannot be applied, so it did not run. Re-issue the call as you want it.`,
+    };
+  }
+  return { ...decision, updatedInput: snapshot as Record<string, unknown> };
 }
