@@ -323,8 +323,11 @@ export function ingestJobs(
   // every ingest, regroups all three.
   const releaseRow = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE id = ?");
   const releaseDependants = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE duplicate_of = ?");
+  // Only duplicates still attached to a canonical: a mark whose canonical was
+  // deleted (`deleteJob`, `jobs gc --purge`) keeps the row hidden on purpose,
+  // and regrouping must not bring it back into the review queue.
   const releaseGroup = db.prepare(
-    "UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE fingerprint = ? AND is_duplicate = 1"
+    "UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE fingerprint = ? AND is_duplicate = 1 AND duplicate_of IS NOT NULL"
   );
 
   const transaction = db.transaction(() => {

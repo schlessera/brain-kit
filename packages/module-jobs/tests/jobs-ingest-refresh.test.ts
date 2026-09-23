@@ -14,6 +14,7 @@ import type { Database } from "bun:sqlite";
 
 import { openDatabase } from "../src/db";
 import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "../src/dedup";
+import { deleteJob } from "../src/review";
 import { ingestJobs } from "../src/scrape";
 import type { RawJob } from "../src/types";
 
@@ -54,9 +55,24 @@ function ftsMatches(db: Database, query: string): number[] {
   }>).map((r) => r.rowid);
 }
 
-/** FTS5's own check that the index agrees with the `jobs` content table. */
+/**
+ * FTS5's own check that the index agrees with the `jobs` content table.
+ *
+ * `rank = 1` is what makes it compare against the content table: for an
+ * external-content index, a bare `integrity-check` only checks the index is
+ * internally consistent, which a row indexed under the wrong company still is.
+ */
+function ftsInSync(db: Database): boolean {
+  try {
+    db.run("INSERT INTO jobs_fts(jobs_fts, rank) VALUES('integrity-check', 1)");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function expectFtsInSync(db: Database): void {
-  expect(() => db.run("INSERT INTO jobs_fts(jobs_fts) VALUES('integrity-check')")).not.toThrow();
+  expect(ftsInSync(db)).toBe(true);
 }
 
 function withDb(fn: (db: Database) => void): void {
@@ -67,6 +83,20 @@ function withDb(fn: (db: Database) => void): void {
     db.close();
   }
 }
+
+describe("the FTS sync check", () => {
+  test("sees a content row whose indexed company is stale", () => {
+    // Without this, every `expectFtsInSync` below could pass over exactly the
+    // drift it is there to catch.
+    withDb((db) => {
+      ingestJobs(db, [job({ company: "Acme Robotics" })]);
+      expect(ftsInSync(db)).toBe(true);
+
+      db.run("UPDATE jobs SET company = 'Globex'");
+      expect(ftsInSync(db)).toBe(false);
+    });
+  });
+});
 
 describe("source_url", () => {
   test("a corrected source_url replaces the stored one", () => {
@@ -237,6 +267,27 @@ describe("a row whose fingerprint changes moves dedup group", () => {
         )
         .all();
       expect(chained).toEqual([]);
+    });
+  });
+
+  test("a duplicate orphaned by a deleted canonical stays hidden when its group is regrouped", () => {
+    // `deleteJob` and `jobs gc --purge` clear `duplicate_of` on the rows that
+    // pointed at a deleted job but keep them marked: they were duplicates of
+    // something the user dismissed. A row that later joins their fingerprint
+    // must not bring them back into the review queue.
+    withDb((db) => {
+      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b"), acme("dice", "d", "Unknown")]);
+      age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
+      age(db, "weworkremotely", "b", "2026-01-02T00:00:00.000Z");
+      runDedup(db);
+      deleteJob(db, row(db, "remoteok", "a").id);
+      expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: null });
+
+      ingestJobs(db, [acme("dice", "d")]);
+      runDedup(db);
+
+      expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: null });
+      expect(row(db, "dice", "d")).toMatchObject({ is_duplicate: 0, duplicate_of: null });
     });
   });
 
