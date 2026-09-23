@@ -8,8 +8,9 @@ import { bashCommand, rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server"
  * as well — `permissionDecision: "allow"` was believed to be what makes
  * `updatedInput` take effect. It is not: a PreToolUse hook that returns
  * `updatedInput` and NO decision still rewrites the call, and the rewritten
- * input is what the permission path then sees (verified against Claude Code
- * 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278; see the PR for #124). The
+ * input is what the permission path then sees (measured for #124, and
+ * against the runtime MEASURED_RUNTIME names by
+ * scripts/measure-claude-runtime.ts). The
  * grant was therefore a side effect, and under an enforced allowlist it is the
  * side effect that gets dropped — the rewrite, which is the point, stays.
  */
@@ -31,8 +32,8 @@ export interface RewriteHookOptions {
    * A call this names is not rewritten at all. The Bash hook uses it for a
    * command that raises a per-use confirmation: matching PreToolUse hooks run
    * in parallel, each sees the ORIGINAL input, and the `updatedInput` of
-   * whichever finishes last is what executes (measured against Claude Code
-   * 2.1.280 / @anthropic-ai/claude-agent-sdk 0.3.278, #145). A rewrite of the
+   * whichever finishes last is what executes (measured for #145, and against
+   * MEASURED_RUNTIME by scripts/measure-claude-runtime.ts). A rewrite of the
    * original could therefore land over an approved edit of it.
    */
   leaveAlone?: (input: unknown) => boolean;

@@ -80,8 +80,8 @@ showed (the same command, the same archived document), is applied; one
 that needs a confirmation the card did not show is refused whole, and the model
 is told why. The write lock is taken on the edited input's key. On the PreToolUse
 path the edit is returned as `updatedInput` with no `permissionDecision`, which
-the runtime applies without a grant (measured against Claude Code 2.1.280 /
-`@anthropic-ai/claude-agent-sdk` 0.3.278), so a tool left off `allowedTools`
+the runtime applies without a grant (measured against the runtime
+`MEASURED_RUNTIME` names, by `scripts/measure-claude-runtime.ts`), so a tool left off `allowedTools`
 still goes on to `canUseTool`. The rtk rewrite leaves a confirmed command
 alone, because parallel PreToolUse hooks each see the original input and the
 last to finish wins, so a rewrite could land over the edit.

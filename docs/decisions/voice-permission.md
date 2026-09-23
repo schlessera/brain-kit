@@ -301,7 +301,7 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:178-188`) and is not
+`permission-hooks.ts:179-189`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-58`)
 lets a deployment supply its own patterns, which have no phrase when given as
@@ -569,9 +569,9 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
   take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
   without granting
-  (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:16-30`;
-  `!mayGrant`, `:69-77`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:339-355`).
+  (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:17-31`;
+  `!mayGrant`, `:70-78`; wired at their `agentHook`/`rtkHook` constructions,
+  `const agentHook`, `permission-hooks.ts:340-356`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -588,7 +588,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:103-118`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:104-119`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -626,7 +626,9 @@ against an in-process one returning `deny`, on Claude Code 2.1.280 /
 `@anthropic-ai/claude-agent-sdk` 0.3.278. The tool does not run and the model
 is told "Denied by the user." Without that result the refusal below would be a
 suggestion the runtime could overrule, and the posture would be decoration for
-a second reason.
+a second reason. That probe is now the `inprocess-deny-beats-settings-allow`
+case of `scripts/measure-claude-runtime.ts`, and the runtime it last passed on
+is the one `MEASURED_RUNTIME` names (#209).
 
 That last group is the strongest available argument for the fail-closed
 primitive, and against the intuition the record started from. "Take it off the
@@ -659,8 +661,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:130-132`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:253-260`). So a
+`permission-hooks.ts:131-133`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:254-261`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about

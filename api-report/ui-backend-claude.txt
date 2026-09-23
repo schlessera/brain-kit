@@ -18,6 +18,7 @@ export "." (./src/index.ts)
   type EnvVarSpec
   type InferenceProfile
   type InferenceProfileInput
+  MEASURED_RUNTIME
   type ModelSource
   type ModelSourceOptions
   type ModelSourceState

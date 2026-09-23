@@ -330,8 +330,8 @@ so it holds itself to these rules:
   about another.
 - **Composition, not only parts.** The enforcement hook's `ask` must leave
   another hook's `updatedInput` intact (`An explicit "ask" beats all three`,
-  `permission-hooks.ts:98-100`; `(e) a hook's`,
-  `allowlist-enforcement.test.ts:16-19`). That is its own case: a rewrite, an
+  `permission-hooks.ts:99-101`; `(e) a hook's`,
+  `allowlist-enforcement.test.ts:17-20`). That is its own case: a rewrite, an
   `ask` and a `canUseTool` decision in one call, asserting the input the
   callback saw and the input that executed.
 

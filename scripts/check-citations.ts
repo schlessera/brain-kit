@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -440,6 +440,8 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the Claude runner spawning with the inherited environment; #253 moved it to a cleared, handshake-checked session",
   "docs/decisions/claude-code-runtime.md|cli-runners.ts:66-72":
     "the Claude streaming runner spawning with the inherited environment, replaced by #253",
+  "docs/decisions/claude-code-runtime.md|scripts/measure-show-block.ts:304,369":
+    "the harness as it stood before #209 gave it --both-arms and a recorded version",
   "docs/decisions/claude-code-runtime.md|packages/core/src/lib/registry.ts:40":
     "the completion registry building providers with no options; #253 added completions.apiKeyEnv",
   "docs/decisions/hardening.md|backend.ts:1039":
