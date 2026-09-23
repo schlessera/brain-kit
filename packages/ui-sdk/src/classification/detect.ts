@@ -192,8 +192,10 @@ function flattenBareAddresses(node: Node, source: string, out: Flattened[]): voi
       before?.type === "text" &&
       before.position?.end.offset === start &&
       MAILTO.test(source.slice(start - scheme, start)) &&
-      // A word of its own: `notmailto:` is the author's text, not a scheme.
-      /(?:^|[^\p{L}\p{N}])mailto:$/iu.test((before as Text).value)
+      // A word of its own: `notmailto:` is the author's text, not a scheme,
+      // and so is `**not**mailto:`, where the word starts in the node before.
+      (/[^\p{L}\p{N}]mailto:$/iu.test((before as Text).value) ||
+        (MAILTO.test((before as Text).value) && i - 1 === 0))
     ) {
       (before as Text).value = (before as Text).value.slice(0, -scheme);
       from = start - scheme;

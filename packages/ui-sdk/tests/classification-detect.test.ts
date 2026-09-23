@@ -190,6 +190,10 @@ describe("detectCandidates", () => {
     // word is the author's text and stays.
     expect(valueOf("**Herald:** notmailto:eurybates@ithaca.example")).toBe("notmailto:eurybates@ithaca.example");
     expect(valueOf("**Herald:** (mailto:eurybates@ithaca.example)")).toBe("(eurybates@ithaca.example)");
+    const [quote] = detectCandidates("> **not**mailto:eurybates@ithaca.example");
+    expect(quote?.kind === "blockquote" && quote.text).toBe("notmailto:eurybates@ithaca.example");
+    const [first] = detectCandidates("> mailto:eurybates@ithaca.example");
+    expect(first?.kind === "blockquote" && first.text).toBe("eurybates@ithaca.example");
     // A bullet list of key lines reads its values the same way.
     const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
     if (list?.kind !== "kv_run") throw new Error("expected kv_run");
@@ -214,7 +218,7 @@ describe("detectCandidates", () => {
     // inline one does, and an address beside it must not let it through
     // (#220): before #167 the address kept the run out, now nothing else did.
     expect(run("**Site:** [the palace][p] or eurybates@ithaca.example\n\n[p]: https://ithaca.example/palace")).toEqual([]);
-    expect(run("**Crest:** ![the owl][owl]\n\n[owl]: https://ithaca.example/owl.png")).toEqual([]);
+    expect(run("**Crest:** ![the owl][owl] eurybates@ithaca.example\n\n[owl]: https://ithaca.example/owl.png")).toEqual([]);
     expect(run("**Herald:** eurybates@ithaca.example[^n]\n\n[^n]: Only by day.")).toEqual([]);
     // GFM links `www.` to `http://www.`: the text is not the destination, so
     // by the rule it is not a bare address (#167's ruling is text = target).
