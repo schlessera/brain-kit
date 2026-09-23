@@ -98,6 +98,21 @@ The prefix assumes the brain repo registers the MCP server under the key
 different prefix and these entries stop matching, so the tools prompt — the
 safe direction to fail.
 
+
+### The voice posture
+
+`VOICE_ALLOWED_TOOLS` is the narrower set a spoken turn runs under: the read-only
+brain tools, `brain_add` and `brain_update`, `Read`/`Glob`/`Grep`,
+`WebSearch`/`WebFetch`, and the bridge tools except the mask editor. `Bash`,
+the raw file writes, `Agent`, `Skill`, `LSP` and `brain_archive` are left out.
+The reasons are in the source and in `docs/decisions/voice-permission.md`.
+
+Select it like any allowlist, through a profile's `allowedTools` or the
+backend's. It is a boundary only when the turn declares `enforceAllowedTools`,
+and a voice turn also declares `noGrantSurface`. With both declared, a tool
+the list leaves out is denied where it is raised, and no card is put up for
+it.
+
 ## Write serialization: PreToolUse, not canUseTool
 
 The Agent SDK **auto-allows** tools listed in `allowedTools` without invoking
