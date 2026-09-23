@@ -22,15 +22,30 @@ const FIXTURES = join(import.meta.dir, "fixtures");
 const BOARDS = join(FIXTURES, "boards");
 
 /**
- * What sits beside a record and is not one of the bytes it describes.
- *
- * `capture.json` and `README.md` are structural: any record directory may
- * hold them. `criteria.md` is not — it is ONE file, `fixtures/criteria.md`,
- * the scoring-criteria input `jobs-score.test.ts` reads, and it is test data
- * rather than a capture. If it moves, move this entry with it; a test below
- * fails while the entry names a file that is not there.
+ * What sits beside a record and is not one of the bytes it describes. These
+ * are structural: any record directory may hold them.
  */
-const NOT_A_FIXTURE = new Set(["capture.json", "README.md", "criteria.md"]);
+const NOT_A_FIXTURE = new Set(["capture.json", "README.md"]);
+
+/**
+ * Single files, by path under `fixtures/`, that are test data rather than
+ * captures. Unlike `NOT_A_FIXTURE` these name ONE file each, so a file with
+ * the same name anywhere else is still a fixture that needs a record.
+ *
+ * `criteria.md` is the scoring-criteria input `jobs-score.test.ts` reads, and
+ * the only file directly in `fixtures/`. It is why the root is not a fixture
+ * directory today. If it moves, move this entry with it: a test below fails
+ * while an entry names a file that is not there.
+ */
+const NOT_A_CAPTURE = new Set(["criteria.md"]);
+
+/** The fixture files directly in `dir` — the bytes its record must describe. */
+function fixtureFilesIn(dir: string, root = FIXTURES): string[] {
+  return readdirSync(join(root, dir), { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => !NOT_A_FIXTURE.has(name) && !NOT_A_CAPTURE.has(join(dir, name)));
+}
 
 /**
  * Where a fixture's bytes came from.
@@ -86,16 +101,15 @@ function provenanceOf(capture: Capture): Provenance {
  *
  * The `fixtures/` root is judged like every other directory, and is reported
  * as `.`. It does not qualify today only because the one file directly in it,
- * `criteria.md`, is named in `NOT_A_FIXTURE`; a capture written there is
+ * `criteria.md`, is named in `NOT_A_CAPTURE`; a capture written there is
  * covered, and fails for having no record, the day it lands.
  */
 function fixtureDirs(root = FIXTURES): string[] {
   const dirs: string[] = [];
   const walk = (relative: string): void => {
-    const entries = readdirSync(join(root, relative), { withFileTypes: true });
-    const holdsFixtures = entries.some((entry) => entry.isFile() && !NOT_A_FIXTURE.has(entry.name));
-    if (holdsFixtures) dirs.push(relative || ".");
-    for (const entry of entries) {
+    const dir = relative || ".";
+    if (fixtureFilesIn(dir, root).length > 0) dirs.push(dir);
+    for (const entry of readdirSync(join(root, relative), { withFileTypes: true })) {
       if (entry.isDirectory()) walk(relative ? join(relative, entry.name) : entry.name);
     }
   };
@@ -183,9 +197,33 @@ describe("which directories the guard covers", () => {
     }
   });
 
-  test("the criteria.md exemption names a file that is really there", () => {
+  test("a file named criteria.md anywhere else is still a fixture", () => {
+    // The exemption is one path, not a name: a capture that happens to be
+    // called criteria.md under boards/ needs a record like any other.
+    const root = tree({ "criteria.md": "---\n", "boards/x/criteria.md": "<html></html>" });
+    try {
+      expect(fixtureDirs(root)).toEqual([join("boards", "x")]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a recorded capture at the root is judged by its files, not its subdirectories", () => {
+    const root = tree({
+      "criteria.md": "---\n",
+      "stray.html": "<html></html>",
+      "boards/x/page.html": "<html></html>",
+    });
+    try {
+      expect(fixtureFilesIn(".", root)).toEqual(["stray.html"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("every NOT_A_CAPTURE entry names a file that is really there", () => {
     // Otherwise moving criteria.md leaves an entry that protects nothing.
-    expect(existsSync(join(FIXTURES, "criteria.md"))).toBe(true);
+    for (const path of NOT_A_CAPTURE) expect(existsSync(join(FIXTURES, path)), path).toBe(true);
   });
 
   test("the root is reported by a name a reader can find", () => {
@@ -234,7 +272,7 @@ describe("capture records", () => {
 
       test("every committed fixture is recorded", () => {
         const recorded = new Set(capturesOf(board).map((c) => c.fixture));
-        const onDisk = readdirSync(join(FIXTURES, board)).filter((f) => !NOT_A_FIXTURE.has(f));
+        const onDisk = fixtureFilesIn(board);
         expect([...onDisk].sort()).toEqual([...recorded].sort());
       });
 
