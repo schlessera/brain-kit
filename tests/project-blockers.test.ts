@@ -114,7 +114,8 @@ describe("a declaration read in part is not read at all", () => {
       "__Blocked by__ #2",
       "_Blocked by_ #2",
       "## Blocked by #2",
-      "Blocked by #3 and https://GITHUB.COM/o/r/issues/2",
+      "Blocked by #1 and https://GITHUB.COM/o/r/issues/2",
+      "Blocked by #1 and the `<!--` parsing fix in #2",
       "```html\n<!-- example opener\n```\n\n<!-- unrelated note -->\n\nBlocked by #2",
     ]) {
       const verdict = blockedVerdict(issue(9, ["blocked"], `Blocked by #1\n\n${second}`), closedOne);

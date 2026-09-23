@@ -343,6 +343,9 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
       fence = { char: marker[1][0], length: marker[1].length };
       return;
     }
+    // A line an HTML comment touched is never read: blanking may have erased
+    // a reference from it, and a declaration must be read in full.
+    if (line !== lines[index]) return;
     // A plain declaration: at the start of the line, optionally a top-level
     // bullet and bold.
     const match = line.match(/^(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
