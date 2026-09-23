@@ -523,6 +523,14 @@ subscription authenticates.
    production start and resume paths is for #253's test to show, not assumed
    here.
 
+   The handshake is not enough on its own either. The binary reports an
+   `apiKeyHelper` source only once the helper has produced a value; a helper
+   that has not run yet leaves `apiKeySource` absent while the request path
+   still switches to the helper's key. That was read from the binary's source,
+   not reproduced on the wire. So an `apiKeyHelper` in effect is itself grounds
+   to refuse: the backend neutralises it or ends the turn before releasing the
+   prompt, rather than trusting an absent source.
+
    The same rule covers the core CLI's Claude runners. Legitimate non-inference
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
    completions, keep working by naming their key separately: the completion
@@ -549,7 +557,8 @@ subscription authenticates.
    - Anything else is **unknown**.
 
    On the handshake's `AccountInfo`, `apiKeySource` is omitted rather than
-   `none` when no key is in use; the derivation treats the two the same.
+   `none` when no key has been produced. The derivation treats the two the same
+   for observation, but not as authorisation (rule 1).
    `apiKeySource` alone is not enough, because it also reads `none` when nothing
    is logged in. The check that matters compares the observation with what the
    profile requires — subscription for a credential-free profile — not with
