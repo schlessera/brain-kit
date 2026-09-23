@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { openDatabase, getLastCursor, logScrapeRun } from "./db.js";
-import { computeFingerprint, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
+import { computeFingerprint, isIdentifiableCompany, normalizeCompany, normalizeTitle, runDedup } from "./dedup.js";
 import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
 import {
   ScrapeClient,
@@ -292,10 +292,15 @@ export function ingestJobs(
     ON CONFLICT(source, source_id) DO UPDATE SET
       last_seen_at = $now,
       scraped_at = $now,
+      fingerprint = $fingerprint,
       title = COALESCE($title, title),
+      title_normalized = $title_normalized,
+      company = $company,
+      company_normalized = $company_normalized,
       description = COALESCE($description, description),
       description_text = COALESCE($description_text, description_text),
       url = COALESCE($url, url),
+      source_url = COALESCE($source_url, source_url),
       location = COALESCE($location, location),
       salary_min = COALESCE($salary_min, salary_min),
       salary_max = COALESCE($salary_max, salary_max),
@@ -309,14 +314,50 @@ export function ingestJobs(
     "INSERT INTO jobs_fts(rowid, title, company, description_text, tags) VALUES (?, ?, ?, ?, ?)"
   );
   const deleteFts = db.prepare("DELETE FROM jobs_fts WHERE rowid = ?");
+  // A row whose fingerprint moved has left one dedup group and may have joined
+  // another. It is no longer a duplicate of anything; nothing that matched its
+  // OLD fingerprint is a duplicate of it; and the group it joins must be
+  // settled again, because a row older than that group's canonical takes its
+  // place — leaving the group's marks would chain its duplicates to a
+  // canonical that is now a duplicate itself. `runDedup`, which runs after
+  // every ingest, regroups all three.
+  const releaseRow = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE id = ?");
+  const releaseDependants = db.prepare("UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE duplicate_of = ?");
+  const releaseGroup = db.prepare(
+    "UPDATE jobs SET is_duplicate = 0, duplicate_of = NULL WHERE fingerprint = ? AND is_duplicate = 1"
+  );
 
   const transaction = db.transaction(() => {
     for (const job of jobs) {
       if (!job.source_id || !job.title || !job.company) continue;
 
-      const companyNorm = normalizeCompany(job.company);
+      // Check if exists (fetch FTS-indexed columns to detect content drift)
+      const existing = db
+        .query(
+          "SELECT id, fingerprint, title, company, description_text, tags FROM jobs WHERE source = ? AND source_id = ?"
+        )
+        .get(job.source, job.source_id) as {
+        id: number;
+        fingerprint: string;
+        title: string;
+        company: string;
+        description_text: string | null;
+        tags: string | null;
+      } | null;
+
+      // The conflict clause refreshes `company`, but `Unknown` (or nothing) is
+      // an adapter saying it found no company on this card, not that the
+      // company changed — so a stored row keeps a real company over it, the
+      // way `COALESCE` keeps a column over a null.
+      const company =
+        existing && !isIdentifiableCompany(job.company) && isIdentifiableCompany(existing.company)
+          ? existing.company
+          : job.company;
+      const companyNorm = normalizeCompany(company);
       const titleNorm = normalizeTitle(job.title);
-      const fingerprint = computeFingerprint(job.company, job.title, {
+      // Derived from the post-upsert company and title, so the stored
+      // fingerprint always matches the row it sits on.
+      const fingerprint = computeFingerprint(company, job.title, {
         source: job.source,
         sourceId: job.source_id,
       });
@@ -334,26 +375,15 @@ export function ingestJobs(
 
       const tagsJson = job.tags ? JSON.stringify(job.tags) : null;
 
-      // Check if exists (fetch FTS-indexed columns to detect content drift)
-      const existing = db
-        .query(
-          "SELECT id, title, company, description_text, tags FROM jobs WHERE source = ? AND source_id = ?"
-        )
-        .get(job.source, job.source_id) as {
-        id: number;
-        title: string;
-        company: string;
-        description_text: string | null;
-        tags: string | null;
-      } | null;
-
-      // The ON CONFLICT clause only updates title/description_text among the
-      // FTS-indexed columns (company/tags are never updated). Compute the
+      // The ON CONFLICT clause updates title, company and description_text
+      // among the FTS-indexed columns (tags are never updated). Compute the
       // post-upsert values to detect whether the FTS row must be rebuilt.
       const effectiveDesc = existing ? descText ?? existing.description_text : descText;
       const contentChanged =
         existing !== null &&
-        (existing.title !== job.title || existing.description_text !== effectiveDesc);
+        (existing.title !== job.title ||
+          existing.company !== company ||
+          existing.description_text !== effectiveDesc);
 
       // Delete the stale FTS row BEFORE the upsert — external-content FTS5
       // resolves the removed values from the jobs row, which must still hold
@@ -366,7 +396,7 @@ export function ingestJobs(
         $fingerprint: fingerprint,
         $title: job.title,
         $title_normalized: titleNorm,
-        $company: job.company,
+        $company: company,
         $company_normalized: companyNorm,
         $description: job.description ?? null,
         $description_text: descText,
@@ -388,10 +418,15 @@ export function ingestJobs(
 
       if (existing) {
         stats.updated++;
-        // Reinsert the FTS row with the post-upsert values (company/tags are
-        // not touched by the conflict clause, so the existing values apply).
+        // Reinsert the FTS row with the post-upsert values (tags are not
+        // touched by the conflict clause, so the existing value applies).
         if (contentChanged) {
-          insertFts.run(existing.id, job.title, existing.company, effectiveDesc, existing.tags);
+          insertFts.run(existing.id, job.title, company, effectiveDesc, existing.tags);
+        }
+        if (existing.fingerprint !== fingerprint) {
+          releaseRow.run(existing.id);
+          releaseDependants.run(existing.id);
+          releaseGroup.run(fingerprint);
         }
       } else {
         stats.new++;

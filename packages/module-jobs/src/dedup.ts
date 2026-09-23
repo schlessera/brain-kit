@@ -50,6 +50,15 @@ export function normalizeTitle(raw: string): string {
   return s.replace(/[^a-z0-9]/g, "");
 }
 
+/**
+ * Whether a company names an employer. The adapters' fallback `Unknown` and an
+ * empty string do not: they mean "no company on this card".
+ */
+export function isIdentifiableCompany(raw: string): boolean {
+  const companyNorm = normalizeCompany(raw);
+  return companyNorm !== "" && companyNorm !== "unknown";
+}
+
 export function computeFingerprint(
   company: string,
   title: string,
@@ -59,9 +68,8 @@ export function computeFingerprint(
   // Jobs without a real company (adapter fallback "Unknown" or empty string)
   // must never share a cross-source fingerprint — every such posting would
   // collapse into one dedup group. Fall back to source+source_id identity.
-  const unidentifiable = companyNorm === "" || companyNorm === "unknown";
   const input =
-    unidentifiable && identity
+    !isIdentifiableCompany(company) && identity
       ? `${identity.source}|${identity.sourceId}`
       : companyNorm + "|" + normalizeTitle(title);
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
