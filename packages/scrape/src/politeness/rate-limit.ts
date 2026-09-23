@@ -30,13 +30,22 @@ export interface RateLimiterOptions {
 }
 
 /**
+ * The longest single wait a timer can express (2^31 - 1 ms, about 24.8 days).
+ * A longer `setTimeout` fires after 1 ms instead, so a limiter re-checking
+ * after every sleep would spin on it forever.
+ */
+export const MAX_DELAY_MS = 2_147_483_647;
+
+/**
  * A delay as a usable number of ms. Anything that is not a finite positive
  * number carries no spacing to honour: `NaN` never compares `>=` anything and
  * `Infinity` is never reached, so taken at face value either would hold every
- * later caller for the host forever.
+ * later caller for the host forever. A finite delay longer than a timer can
+ * wait is waited out as far as one can, rather than spun on.
  */
 function spacing(ms: number | undefined): number {
-  return ms !== undefined && Number.isFinite(ms) && ms > 0 ? ms : 0;
+  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.min(ms, MAX_DELAY_MS);
 }
 
 export class RateLimiter {

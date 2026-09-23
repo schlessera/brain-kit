@@ -121,6 +121,18 @@ describe("robots.txt enforcement", () => {
     expect(clock.waits).toEqual([7000]);
   });
 
+  test("a Crawl-delay longer than any crawler can wait refuses the request", async () => {
+    // Ignoring it would treat the strictest spacing a site can ask for as no
+    // spacing at all.
+    for (const value of ["Infinity", "1e306", "3000000"]) {
+      const calls = stubFetch([new Response("ok")]);
+      const client = new ScrapeClient({ robots: robotsFor(`User-agent: *\nCrawl-delay: ${value}\n`) });
+
+      await expect(client.get("https://example.com/a")).rejects.toBeInstanceOf(RobotsDisallowedError);
+      expect(`${value}: ${calls.length}`).toBe(`${value}: 0`);
+    }
+  });
+
   test("a non-finite per-call delay does not erase the Crawl-delay floor", async () => {
     // The two are combined before the limiter sees them, so an unusable
     // caller value has to be dropped on its own, not along with the site's.

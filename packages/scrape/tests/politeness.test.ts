@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { RateLimiter, hostOf, type RateLimiterClock } from "../src/politeness/rate-limit.js";
+import { MAX_DELAY_MS, RateLimiter, hostOf, type RateLimiterClock } from "../src/politeness/rate-limit.js";
 import { RobotsCache, RobotsDisallowedError } from "../src/politeness/robots.js";
 
 /** A clock that never really sleeps, and records what it was asked to wait. */
@@ -247,6 +247,14 @@ describe("RateLimiter", () => {
       expect(`${defaultDelayMs}: ${clock.waits.join(",")}`).toBe(`${defaultDelayMs}: 500`);
     }
 
+    // A finite delay longer than a timer can wait is waited out as far as a
+    // timer can, once, not re-slept on every 1 ms overflow.
+    const long = new RateLimiter({ clock });
+    clock.waits.length = 0;
+    await long.acquire("d.example");
+    await long.acquire("d.example", 1e308);
+    expect(clock.waits).toEqual([MAX_DELAY_MS]);
+
     // And with no default to fall back on, a non-finite delay is no delay.
     const bare = new RateLimiter({ clock });
     clock.waits.length = 0;
@@ -321,13 +329,14 @@ describe("RobotsCache", () => {
     expect(rules.crawlDelayMs("brain-scrape")).toBeUndefined();
   });
 
-  test("ignores a Crawl-delay no crawler could follow", async () => {
+  test("reports a Crawl-delay no crawler could follow as it is, not as absent", async () => {
+    // Dropping it would read as "no spacing asked for"; it is the opposite.
     for (const value of ["Infinity", "1e306"]) {
       const robots = cache({
         "https://example.com/robots.txt": { status: 200, body: `User-agent: *\nCrawl-delay: ${value}\n` },
       });
       const rules = await robots.forUrl("https://example.com/");
-      expect(`${value}: ${rules.crawlDelayMs("some-bot")}`).toBe(`${value}: undefined`);
+      expect(`${value}: ${rules.crawlDelayMs("some-bot")}`).toBe(`${value}: Infinity`);
     }
   });
 

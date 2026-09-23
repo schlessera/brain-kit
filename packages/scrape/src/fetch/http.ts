@@ -17,7 +17,7 @@
  * clock and a fake robots fetcher and touches no network at all.
  */
 import { DEFAULT_USER_AGENT } from "../config/env.js";
-import { RateLimiter, hostOf } from "../politeness/rate-limit.js";
+import { MAX_DELAY_MS, RateLimiter, hostOf } from "../politeness/rate-limit.js";
 import { RobotsCache, RobotsDisallowedError } from "../politeness/robots.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -179,6 +179,13 @@ export class ScrapeClient {
         throw new RobotsDisallowedError(url, userAgent);
       }
       crawlDelayMs = rules.crawlDelayMs(userAgent);
+      // A Crawl-delay longer than any wait a crawler can make is the site
+      // asking not to be crawled at this pace at all. Honouring the intent
+      // means not fetching, not ignoring the line (see
+      // docs/decisions/scraping-politeness.md).
+      if (!opts.allowDisallowed && crawlDelayMs !== undefined && !(crawlDelayMs <= MAX_DELAY_MS)) {
+        throw new RobotsDisallowedError(url, userAgent, `its Crawl-delay is longer than a crawler can wait`);
+      }
     }
 
     // Each delay is checked on its own before they are combined, so an
