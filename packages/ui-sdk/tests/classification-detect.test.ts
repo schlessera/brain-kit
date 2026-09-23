@@ -207,6 +207,15 @@ describe("detectCandidates", () => {
     expect(quoted("> not**mailto:eurybates@ithaca.example**")).toBe("notmailto:eurybates@ithaca.example");
     expect(quoted("> `(`mailto:eurybates@ithaca.example")).toBe("(eurybates@ithaca.example");
     expect(quoted("> `not`mailto:eurybates@ithaca.example")).toBe("notmailto:eurybates@ithaca.example");
+    // A letter outside the Basic Multilingual Plane is still one letter.
+    expect(quoted("> \u{1D49C}mailto:eurybates@ithaca.example")).toBe("\u{1D49C}mailto:eurybates@ithaca.example");
+    // A flattened address before it counts by its own last character.
+    expect(quoted("> [a@ithaca.example](mailto:a@ithaca.example)**mailto:eurybates@ithaca.example**")).toBe(
+      "a@ithaca.examplemailto:eurybates@ithaca.example"
+    );
+    expect(quoted("> [https://ithaca.example/](https://ithaca.example/)**mailto:eurybates@ithaca.example**")).toBe(
+      "https://ithaca.example/eurybates@ithaca.example"
+    );
     // (A hard break still joins the words either side, which is #240.)
     expect(quoted("> Write to\\\n> mailto:eurybates@ithaca.example")).not.toContain("mailto:");
     // A bullet list of key lines reads its values the same way.

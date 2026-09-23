@@ -136,6 +136,9 @@ interface Flattened extends CandidateSpan {
 
 const MAILTO = /^mailto:/i;
 
+/** The last character of `text` as a reader counts it: `𝒜` is one, not two halves. */
+const lastCodePoint = (text: string): string => Array.from(text.slice(-2)).at(-1) ?? "";
+
 /** Nodes that sit inside a line of text; any other node starts a new one. */
 const INLINE = new Set([
   "text",
@@ -202,11 +205,11 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
       const child = children[i]!;
       if (child.type === "text") {
         seenBefore.set(child, last);
-        last = (child as Text).value.slice(-1) || last;
+        last = lastCodePoint((child as Text).value) || last;
         continue;
       }
       if (child.type === "inlineCode") {
-        last = (child as Text).value.slice(-1) || last;
+        last = lastCodePoint((child as Text).value) || last;
         continue;
       }
       if (child.type === "break") {
@@ -233,7 +236,7 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
         /mailto:$/i.test((before as Text).value)
       ) {
         const prose = (before as Text).value;
-        const ahead = prose.length > scheme ? prose.charAt(prose.length - scheme - 1) : (seenBefore.get(before) ?? "");
+        const ahead = lastCodePoint(prose.slice(0, -scheme)) || (seenBefore.get(before) ?? "");
         if (!/[\p{L}\p{N}]/u.test(ahead)) {
           (before as Text).value = prose.slice(0, -scheme);
           from = start - scheme;
@@ -241,7 +244,7 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
       }
       children[i] = { type: "text", value: text, position: { start: { offset: from }, end: { offset: end } } } as Text;
       out.push({ start: from, end, text });
-      last = text.slice(-1);
+      last = lastCodePoint(text);
     }
     if (block) last = "";
   };
