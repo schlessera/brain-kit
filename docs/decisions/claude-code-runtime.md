@@ -665,7 +665,7 @@ What that changes and what it does not:
   auto-mode classifier's headers are another. None of the measured cases uses
   auto mode.
 - **CI runs it (#284).** The `claude-runtime-probe` job in
-  `.github/workflows/ci.yml` runs the probe on every PR and on `main`, inside
+  `.depot/workflows/ci.yml` (mirrored in `.github/workflows/ci.yml`) runs the probe on every PR and on `main`, inside
   a network namespace that holds nothing but loopback, so a request that tried
   to leave the runner would fail its case. A failed or inconclusive case fails
   the job, and the job prints the JSON report.
