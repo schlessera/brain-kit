@@ -13,10 +13,11 @@ import type { RawJob, ScrapeOptions } from "../types.js";
  *
  * One request, no pagination. A GET pages through `?page=`/`?limit=` and
  * nothing else (a POST body can page too, which is the route
- * docs/decisions/scraping-politeness.md rules out), and robots.txt disallows `/*?*` for every path but the
- * deprecated `/astroapi/ai/jobs.json` alias, which the site's own docs retire
- * on 2026-09-28. So a run takes the first page of the unqualified path and
- * stops; widening it means asking the site for permission, not adding a loop.
+ * docs/decisions/scraping-politeness.md rules out), and robots.txt disallows
+ * `/*?*` for every path but `/astroapi/ai/jobs.json`, an alias of the
+ * `/astroapi/ai/jobs` endpoint the site's own docs deprecate for 2026-09-28.
+ * So a run takes the first page of the unqualified path and stops; widening it
+ * means asking the site for permission, not adding a loop.
  */
 const API_URL = "https://jobgether.com/api/v1/jobs";
 
