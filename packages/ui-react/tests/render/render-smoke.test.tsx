@@ -4103,6 +4103,79 @@ describe("printed keys follow the pointer (#86)", () => {
     });
   });
 
+  test("the Actions pane prints its j / k / d keys only with a fine pointer, and they still act without one (#100)", async () => {
+    installActivityFetch((url) => {
+      if (url.includes("/activity/inbox") && !url.includes("/ack")) {
+        return Response.json({
+          intents: [1, 2, 3].map((n) => ({
+            id: n,
+            runId: `run-${n}`,
+            spanId: null,
+            kind: "failure",
+            tag: "t",
+            title: `Intent ${n}`,
+            body: "",
+            status: "pending",
+            acknowledged: false,
+            createdAt: Date.now(),
+          })),
+        });
+      }
+      return undefined;
+    });
+    // Async, so the pointer is swapped by hand rather than through `withPointer`,
+    // whose finally would restore it before the page's effects settle.
+    // One live list for the pointer query, so the test can pair a trackpad
+    // mid-session and watch the page follow it.
+    const real = window.matchMedia;
+    const listeners = new Set<(e: { matches: boolean }) => void>();
+    const pointer = {
+      matches: false,
+      media: FINE,
+      addEventListener: (_: string, fn: (e: { matches: boolean }) => void) => void listeners.add(fn),
+      removeEventListener: (_: string, fn: (e: { matches: boolean }) => void) => void listeners.delete(fn),
+    };
+    window.matchMedia = ((q: string) => (q === FINE ? pointer : real.call(window, q))) as never;
+    try {
+      const page = render(<ActivityPage />);
+      await act(flushPromises);
+      const cards = page.getAllByRole("button", { name: /Intent \d/ });
+      expect(cards).toHaveLength(3);
+      // Neither footer (the below-laptop line nor the laptop column's), and
+      // no card carries its "· d" hint.
+      expect(page.container.textContent).not.toContain("j / k move");
+      expect(page.queryAllByRole("button", { name: "Dismiss · d" })).toHaveLength(0);
+      expect(page.getAllByRole("button", { name: "Dismiss" })).toHaveLength(3);
+
+      // The bindings are the keyboard's, not the pointer's: they still act.
+      cards[0]!.focus();
+      fireEvent.keyDown(cards[0]!, { key: "j" });
+      expect(document.activeElement).toBe(cards[1]);
+      fireEvent.keyDown(cards[1]!, { key: "k" });
+      expect(document.activeElement).toBe(cards[0]);
+      fireEvent.keyDown(cards[0]!, { key: "d" });
+      await act(flushPromises);
+      expect(useActivityStore.getState().inbox.map((i) => i.id)).toEqual([2, 3]);
+
+      // A trackpad arrives: all three print again, exactly as D36 draws them.
+      pointer.matches = true;
+      act(() => listeners.forEach((fn) => fn({ matches: true })));
+      expect(page.getByText("j / k move · d dismiss · ⏎ open")).toBeTruthy();
+      expect(page.getByText("j / k move · d dismiss")).toBeTruthy();
+      expect(page.getAllByRole("button", { name: "Dismiss · d" })).toHaveLength(2);
+
+      // And the pointer never overrides the switch: with single-key shortcuts
+      // off, a fine pointer prints nothing either.
+      act(() => useUIStore.getState().setSingleKeyShortcuts(false));
+      expect(page.container.textContent).not.toContain("j / k move");
+      expect(page.queryAllByRole("button", { name: "Dismiss · d" })).toHaveLength(0);
+      page.unmount();
+    } finally {
+      window.matchMedia = real;
+      useUIStore.getState().setSingleKeyShortcuts(true);
+    }
+  });
+
   test("the search and add panels print their key hints only with a fine pointer", () => {
     const search = render(<SearchPanel open onClose={() => {}} />);
     expect(search.getByText(/to pick/).textContent).toContain("to open");
