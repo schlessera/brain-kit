@@ -246,9 +246,12 @@ below exists because the tracker drifted without it.
   `docs/decisions/` record — file it as its own issue if it is not written now.
 - **Clear `blocked` when the blocker closes.** The label does not clear itself.
   `bun scripts/sync-project.ts --apply` clears it from every issue whose
-  `Blocked by #N` lines all name closed issues, and comments once saying which;
-  the dry run lists them, plus every `blocked` issue it cannot verify because
-  it has no such line. Those it leaves alone, so give them the line. Without
+  `Blocked by #N` lines all name closed issues, and comments saying which. The
+  comment carries a marker, so a run that fails part way comments only once
+  when it is retried. Run it once at a time, never in parallel. The dry run
+  lists those issues, plus every `blocked` issue it cannot verify: no such
+  line, or a line that does not start with its references. It leaves those
+  alone, so fix the line. Without
   running the script, find what named a closed issue by hand:
 
   ```sh

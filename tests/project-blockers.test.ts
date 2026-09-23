@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   blockedVerdict,
   blockersIn,
+  parseBlockers,
   reconcileBlocked,
   type BlockerState,
 } from "../scripts/sync-project.ts";
@@ -79,6 +80,48 @@ describe("blockersIn", () => {
   });
 });
 
+describe("a declaration read in part is not read at all", () => {
+  test("an indented code example is not a declaration", () => {
+    // Four spaces is a markdown code block: an example of the convention.
+    expect(parseBlockers("    Blocked by #1", REPO)).toEqual({ refs: [], unreadable: [] });
+  });
+
+  test("a declaration that names no reference first is unreadable", () => {
+    expect(parseBlockers("Blocked by a design decision; #1 is only an example.", REPO)).toEqual({
+      refs: [],
+      unreadable: ["Blocked by a design decision; #1 is only an example."],
+    });
+  });
+
+  test("a reference left over after the list makes the line unreadable", () => {
+    // Reading #1 and skipping the URL would clear the label on #1 alone.
+    const line = "Blocked by #1 and the fix in https://github.com/o/r/issues/5";
+    expect(parseBlockers(line, REPO).unreadable).toEqual([line]);
+  });
+
+  test("an issue URL is a reference", () => {
+    expect(blockersIn("Blocked by https://github.com/o/r/issues/5, #2", REPO)).toEqual([
+      "o/r#5",
+      `${REPO}#2`,
+    ]);
+  });
+
+  test("commentary after the list is allowed", () => {
+    expect(parseBlockers("Blocked by #110 (the store rewrite)", REPO)).toEqual({
+      refs: [`${REPO}#110`],
+      unreadable: [],
+    });
+  });
+
+  test("an unreadable declaration keeps the label, even when the rest is closed", () => {
+    const verdict = blockedVerdict(
+      issue(9, ["blocked"], "Blocked by #1\nBlocked by the design review"),
+      states({ [`${REPO}#1`]: "closed" }),
+    );
+    expect(verdict.kind).toBe("unverifiable");
+  });
+});
+
 describe("blockedVerdict", () => {
   test("an issue whose every blocker is closed is reported as cleared", () => {
     const verdict = blockedVerdict(
@@ -124,7 +167,10 @@ describe("blockedVerdict", () => {
 function fakeTracker(fixtures: ReturnType<typeof issue>[], known: Record<string, BlockerState>) {
   const labels = new Map(fixtures.map((f) => [f.number, new Set(f.labels.map((l) => l.name))]));
   const comments = new Map<number, string[]>();
+  /** Calls to make fail once, to model a run that dies half way. */
+  const failNext = { comment: false, removeLabel: false };
   return {
+    failNext,
     comments,
     labels,
     /** Fresh copies, the way a new `gh issue list` would return them. */
@@ -136,11 +182,21 @@ function fakeTracker(fixtures: ReturnType<typeof issue>[], known: Record<string,
     io: {
       state: async (ref: string) => known[ref],
       removeLabel: async (target: { number: number }) => {
+        if (failNext.removeLabel) {
+          failNext.removeLabel = false;
+          throw new Error("gh issue edit failed");
+        }
         labels.get(target.number)!.delete("blocked");
       },
       comment: async (target: { number: number }, text: string) => {
+        if (failNext.comment) {
+          failNext.comment = false;
+          throw new Error("gh issue comment failed");
+        }
         comments.set(target.number, [...(comments.get(target.number) ?? []), text]);
       },
+      hasComment: async (target: { number: number }, marker: string) =>
+        (comments.get(target.number) ?? []).some((text) => text.includes(marker)),
     },
   };
 }
@@ -182,6 +238,27 @@ describe("reconcileBlocked", () => {
     expect(tracker.labels.get(23)!.has("blocked")).toBe(true);
     expect(tracker.comments.has(145)).toBe(false);
     expect(tracker.comments.has(23)).toBe(false);
+  });
+
+  test("a run that dies before commenting retries on the next run", async () => {
+    const tracker = fakeTracker(fixtures(), known);
+    tracker.failNext.comment = true;
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    // Nothing is half done: the label is still on, so the next run sees it.
+    expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
+    await reconcileBlocked(tracker.list(), tracker.io, true);
+    expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
+    expect(tracker.comments.get(111)).toHaveLength(1);
+  });
+
+  test("a run that dies after commenting does not comment again", async () => {
+    const tracker = fakeTracker(fixtures(), known);
+    tracker.failNext.removeLabel = true;
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
+    await reconcileBlocked(tracker.list(), tracker.io, true);
+    expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
+    expect(tracker.comments.get(111)).toHaveLength(1);
   });
 
   test("a second --apply run does nothing", async () => {
