@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:102-117`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -36,18 +36,28 @@ const FILE = "(?:[\\w@.-]+/)*(?:[\\w@-][\\w@.-]*\\.[A-Za-z][A-Za-z0-9]*|[A-Z][A-
 const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*)$`);
 
 /**
- * Anything inside a span that looks like it names a line — `name:12` at a word
- * boundary — so a shape the check cannot read is reported rather than
- * skipped. `localhost:6006/mcp` and `width:100%` are not followed by a
- * boundary and do not match.
+ * Anything inside a span that names a line of a file in ANY spelling the
+ * strict pattern does not read — `[brain-ui] Dockerfile:12`, `a.ts:12:3`,
+ * `a.ts: 12`, `a.ts:2–4`, `"a.ts:2"`, a URL with `#L12` — so it is reported
+ * rather than skipped. Matched as "contains", not by shape: a file name (a
+ * dot extension, a path, or a `*file`) then a colon and a digit, or `#L` and a
+ * digit. CSS such as `flex:1 1 auto` has no file name before its colon.
  */
-const LOOSE_CITATION = /(?:^|[\s(\[])[\w@./-]*[A-Za-z][\w@./-]*:\d+(?:-\d+)?(?=$|[\s,;.)\]])/;
+const LOOSE_CITATION =
+  /(?:[\w-]?\.[A-Za-z]\w*|\/[\w.-]+|[A-Z][A-Za-z]*file|\b[A-Z][A-Z0-9_-]{2,})\s*:\s*\d|#L\d/;
 
 /** A citation anywhere in prose, outside a code span. */
-const BARE_CITATION = new RegExp(`(?<![\\w\`/.-])(${FILE}):\\d+`, "g");
+const BARE_CITATION = new RegExp(
+  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+)[ \\t]*:[ \\t]*\\n?[ \\t]*\\d+`,
+  "g",
+);
 
-/** A markdown link to a line, which cannot carry an anchor either. */
-const LINE_LINK = /\]\(([^)\s]+)#L\d+/g;
+/**
+ * A `#L12` line fragment anywhere in prose — an inline or reference link, an
+ * HTML `href` in any spelling, an autolink, a bare path — which cannot carry
+ * an anchor either.
+ */
+const LINE_LINK = /([^\s"'<>()[\]`]+)#L\d+/gi;
 
 export interface Citation {
   /** The record, repo-relative. */
@@ -65,6 +75,8 @@ export interface Citation {
   bare?: boolean;
   /** A span that cites a line in a shape this check cannot read. */
   unreadable?: boolean;
+  /** For an extensionless `name:12`: the name, which must be a file to count. */
+  fileName?: string;
 }
 
 export type Verdict =
@@ -102,16 +114,58 @@ export function parseCitations(doc: string, body: string): Citation[] {
   // A span may wrap onto the next line, as markdown allows, but not across a
   // blank one.
   const spans = [...text.matchAll(/`((?:[^`\n]|\n(?![ \t]*\n))+)`/g)];
+  // Every span's text normalised once, the same way for the span and for its
+  // neighbours. A wrap right after the colon (`hooks.ts:` then `12`) is still
+  // one citation.
+  const contents = spans.map((span) =>
+    span[1].replace(/:[ \t]*\n\s*(?=\d)/g, ":").replace(/\s+/g, " ").trim(),
+  );
+  /** Whether a span is a citation, or a line number continuing one. */
+  const citationish: boolean[] = [];
   let lastPath: string | undefined;
   for (let i = 0; i < spans.length; i++) {
     const span = spans[i];
-    const content = span[1].replace(/\s+/g, " ").trim();
+    const content = contents[i];
     const match = content.match(CITATION);
+    // A line number right after a citation, joined by `/` or a comma
+    // (`chat-store.ts:364`/`228`, and any chain of them), is another line of
+    // that file in a shape the check cannot anchor. So is a `:12:3` with a
+    // column. Both are reported, not skipped.
+    const before = spans[i - 1];
+    const continuesCitation =
+      /^:?\d+(?:\s*[-,:\u2013\u2014]\s*\d+)*$/.test(content) &&
+      before !== undefined &&
+      citationish[i - 1] &&
+      /^\s*\)?\s*(?:\/|,|and)\s*$/.test(text.slice(before.index! + before[0].length, span.index));
+    // Any other span that starts with a colon and a line number: `:4:2`,
+    // `: 20`, `:20–24`.
+    const lineWithColumn = !match && /^:\s*\d/.test(content);
+    citationish[i] =
+      Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);
+    if (!match && (continuesCitation || lineWithColumn)) {
+      citations.push({
+        doc,
+        line: lineAt(span.index!),
+        text: content,
+        path: undefined,
+        ranges: [],
+        anchor: undefined,
+        unreadable: true,
+      });
+      continue;
+    }
     if (!match) {
       // Something that cites a line but is not a shape this check reads —
       // `[brain-ui] scripts/entrypoint.sh:59-85`, a path with a space — is
       // reported, not skipped.
-      if (LOOSE_CITATION.test(content)) {
+      // A lowercase extensionless name (`post-commit:12`) cannot be told
+      // from CSS (`flex-shrink:0`) by shape, so it is kept as a candidate and
+      // reported only if a file in the tree has that name.
+      const bareName = content.match(/^([\w@-]+)\s*:\s*\d+(?:\s*[-,\u2013]\s*\d+)*$/)?.[1];
+      // A URL's host and port are not a file and a line.
+      const withoutHosts = content.replace(/[a-z][\w+.-]*:\/\/[^/\s#?]*/gi, "//host");
+      const loose = LOOSE_CITATION.test(withoutHosts);
+      if (loose || bareName) {
         citations.push({
           doc,
           line: lineAt(span.index!),
@@ -120,6 +174,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
           ranges: [],
           anchor: undefined,
           unreadable: true,
+          ...(loose ? {} : { fileName: bareName }),
         });
       }
       continue;
@@ -134,7 +189,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
     const previous = spans[i - 1];
     if (previous) {
       const between = text.slice(previous.index! + previous[0].length, span.index);
-      const candidate = previous[1].replace(/\s+/g, " ").trim();
+      const candidate = contents[i - 1];
       if (/^,\s*$/.test(between) && !CITATION.test(candidate)) anchor = candidate;
     }
     citations.push({
@@ -239,7 +294,7 @@ export function checkCitation(
 ): Verdict {
   if (citation.bare) return { kind: "unanchored", reason: "written outside a code span" };
   if (citation.unreadable) {
-    return { kind: "unresolved", reason: "not a `path:line` this check can read (another repository?)" };
+    return { kind: "unresolved", reason: "not a `path:line` this check can read: another repository, or a bare line number" };
   }
   if (!citation.path) return { kind: "unresolved", reason: "a bare line number with no file before it" };
   const resolved = resolveCitedPath(citation.path, citedInDoc, tree);
@@ -268,10 +323,17 @@ export function checkCitation(
  *
  * Keyed `<record>|<citation as written>`. An entry here is a claim about one
  * citation; if the citation changes, the entry stops matching and the check
- * says so. Two identical citations in one record share an entry, so they
- * share its reason.
+ * says so. An entry covers exactly as many identical citations as it
+ * declares, so a new one cannot borrow an old one's reason.
  */
-export const CITATION_EXCEPTIONS: Record<string, string> = {
+/**
+ * An exception's reason, or its reason and how many citations it covers.
+ * A bare reason covers exactly one: a second identical citation in the same
+ * record is a new pointer, and it must not inherit the first one's excuse.
+ */
+export type CitationException = string | { reason: string; occurrences: number };
+
+export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // Another repository. The `[brain-ui]` prefix says so; this check reads only
   // this tree.
   ...Object.fromEntries(
@@ -358,6 +420,12 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
     "chat-store.ts is now a shim; the cited localStorage read moved behind an injected env.storage()",
   "docs/decisions/design-kit.md|provider-store.ts:44":
     "provider-store.ts is now a shim; the cited read moved behind an injected env.storage()",
+  "docs/decisions/design-kit.md|228":
+    "the guard line paired with chat-store.ts:364; chat-store.ts is now a shim",
+  "docs/decisions/design-kit.md|8":
+    "the guard line paired with provider-store.ts:44; provider-store.ts is now a shim",
+  "docs/decisions/design-kit.md|26":
+    "the guard line paired with file-store.ts:135; file-store.ts is now a shim",
   "docs/decisions/design-kit.md|file-store.ts:135":
     "file-store.ts is now a shim; the cited read moved behind an injected env.storage()",
   "docs/decisions/design-kit.md|components/chat/renderers/index.ts:10":
@@ -366,10 +434,14 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
     "records the call as it was before D44; it now passes alwaysLoad",
   "docs/decisions/hardening.md|backend.ts:1039":
     "describes getBackendForSession substituting the default, which the fix replaced with a throw",
-  "docs/decisions/session-principals.md|middleware/auth.ts:253":
-    "the epoch-bearing cookie mint, replaced by principal cookies",
-  "docs/decisions/session-principals.md|auth.ts:265-296":
-    "epoch cookie verification, replaced by resolveCookiePrincipal",
+  "docs/decisions/session-principals.md|middleware/auth.ts:253": {
+    reason: "the epoch-bearing cookie mint, replaced by principal cookies",
+    occurrences: 2,
+  },
+  "docs/decisions/session-principals.md|auth.ts:265-296": {
+    reason: "epoch cookie verification, replaced by resolveCookiePrincipal",
+    occurrences: 2,
+  },
   "docs/decisions/session-principals.md|auth.ts:321": "bumpSessionsEpoch, which was removed",
   "docs/decisions/session-principals.md|auth.ts:302-318":
     "the global sessionsEpoch settings row, which was removed",
@@ -429,7 +501,7 @@ export function checkRecords(
     body: readFileSync(join(ROOT, doc), "utf8"),
   })),
   tree: Tree = repoTree(),
-  exceptions: Record<string, string> = CITATION_EXCEPTIONS,
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
 ): Report[] {
   const reports: Report[] = [];
   for (const { doc, body } of records) {
@@ -442,12 +514,41 @@ export function checkRecords(
     ].map((m) => m[1]);
     const cited = [...named, ...citations.flatMap((c) => (c.path && !c.bare ? [c.path] : []))];
     for (const citation of citations) {
+      if (
+        citation.fileName &&
+        !tree.files.some((file) => file === citation.fileName || file.endsWith(`/${citation.fileName}`))
+      ) {
+        continue;
+      }
       const verdict = checkCitation(citation, cited, tree);
-      const exception = exceptions[`${doc}|${citation.text}`];
+      const entry = exceptions[`${doc}|${citation.text}`];
+      const exception = typeof entry === "string" ? entry : entry?.reason;
       reports.push({ citation, verdict, exception });
     }
   }
   return reports;
+}
+
+/**
+ * Exceptions whose count does not match the citations that need them: `0`
+ * means the entry is stale, more than declared means a second identical
+ * citation is borrowing an excuse written for the first.
+ */
+export function exceptionMismatches(
+  reports: Report[],
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
+): { key: string; expected: number; actual: number }[] {
+  const actual = new Map<string, number>();
+  for (const report of reports) {
+    if (report.verdict.kind === "anchored" || !report.exception) continue;
+    const key = `${report.citation.doc}|${report.citation.text}`;
+    actual.set(key, (actual.get(key) ?? 0) + 1);
+  }
+  return Object.entries(exceptions).flatMap(([key, entry]) => {
+    const expected = typeof entry === "string" ? 1 : entry.occurrences;
+    const found = actual.get(key) ?? 0;
+    return found === expected ? [] : [{ key, expected, actual: found }];
+  });
 }
 
 export function describe(report: Report): string {
@@ -476,4 +577,7 @@ if (import.meta.main) {
     if (report.verdict.kind !== "anchored" && !report.exception) console.log(describe(report));
   }
   console.log(`\n${reports.length} citation(s):`, counts);
+  for (const { key, expected, actual } of exceptionMismatches(reports)) {
+    console.log(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
+  }
 }
