@@ -114,18 +114,19 @@ interface ComposedStory {
  * `threshold` is how far apart two colours must be before a pixel counts at
  * all. pixelmatch calls a pixel unchanged while its YIQ distance is under
  * `35215 × threshold²`, so the default of 0.1 is a bar of 352 — and the kit's
- * quiet layer lives under that: every `rgba()` token composited over its own
- * theme's surface lands between 4.3 (`button-effect-bg-on-solid`, paper) and
- * the bar, 208 token/theme pairs in all, `map-land`'s 6% at 85 among them. At
- * 0.1 a component could lose its tint, its hover veil or its land fill and stay
- * green; `ApprovalCard` without `surface-tint-amber` did (issue #140).
+ * quiet layer lives under that. Composited over its own theme's surface, the
+ * quietest `rgba()` token that paints at all is at 4.3
+ * (`button-effect-bg-on-solid`, paper), and 208 token/theme pairs sit between
+ * there and the bar — `map-land`'s 6% at 77 among them. At 0.1 a component
+ * could lose its tint, its hover veil or its land fill and stay green;
+ * `ApprovalCard` without `surface-tint-amber` did (issue #140).
  *
  * 0.01 is a bar of 3.5, chosen from a measurement rather than picked. The noise
  * floor, inside `mcr.microsoft.com/playwright:v1.63.0-noble`: five full runs
  * from empty baselines, compared pairwise (270 image pairs). 26 of the 27
  * subjects came out byte-identical every time; the one that did not,
  * `paints-graph-view-shrink-to-fit`, differed by at most 0.51 in YIQ — one
- * level of one channel — on at most 64 pixels over all ten pairs. So the bar
+ * level in each channel — on at most 64 pixels over all ten pairs. So the bar
  * sits seven times above the noise and below the quietest token the kit ships.
  *
  * `includeAA: false` (the default, kept) is not enough on its own: of those 64
@@ -256,7 +257,7 @@ test("paints: lane chart", async () => {
 });
 
 /**
- * This subject sees the land fill. `map-land` is 6% alpha, a YIQ distance of 85
+ * This subject sees the land fill. `map-land` is 6% alpha, a YIQ distance of 77
  * on the dark ground: at the old default threshold it was invisible, so #48
  * added a second, SVG-only reading of this story at a stricter threshold. At
  * the suite's threshold above, removing the fill fails this subject on its own,
