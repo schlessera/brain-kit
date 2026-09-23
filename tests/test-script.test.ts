@@ -103,6 +103,8 @@ test("a signal sent to the wrapper stops the tests it started", async () => {
   // CI cancels a step by signalling its process; without a relay the child
   // `bun test` outlived the wrapper and kept running.
   const dir = mkdtempSync(join(tmpdir(), "root-test-signal-"));
+  let wrapper: ReturnType<typeof Bun.spawn> | undefined;
+  let child = 0;
   try {
     mkdirSync(join(dir, "tests"));
     const marker = join(dir, "child.pid");
@@ -110,18 +112,22 @@ test("a signal sent to the wrapper stops the tests it started", async () => {
       join(dir, "tests/slow.test.ts"),
       `import { test } from "bun:test";\n` +
         `test("slow", async () => {\n` +
-        `  await Bun.write(${JSON.stringify(marker)}, String(process.pid));\n` +
+        // Written then renamed, so the marker never exists half-written.
+        `  await Bun.write(${JSON.stringify(marker + ".tmp")}, String(process.pid));\n` +
+        `  require("node:fs").renameSync(${JSON.stringify(marker + ".tmp")}, ${JSON.stringify(marker)});\n` +
         `  await Bun.sleep(20_000);\n` +
         `}, 30_000);\n`
     );
-    const wrapper = Bun.spawn([process.execPath, join(ROOT, "scripts/test.ts"), "tests"], {
+    wrapper = Bun.spawn([process.execPath, join(ROOT, "scripts/test.ts"), "tests"], {
       cwd: dir,
       stdout: "ignore",
       stderr: "ignore",
     });
     const deadline = Date.now() + 10_000;
     while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(20);
-    const child = Number(readFileSync(marker, "utf8"));
+    child = Number(readFileSync(marker, "utf8"));
+    // Never signal 0 or a negative: those address whole process groups.
+    expect(Number.isInteger(child) && child > 0).toBe(true);
     const alive = (pid: number) => {
       try {
         process.kill(pid, 0);
@@ -135,10 +141,14 @@ test("a signal sent to the wrapper stops the tests it started", async () => {
     expect(await wrapper.exited).not.toBe(0);
     const gone = Date.now() + 5_000;
     while (alive(child) && Date.now() < gone) await Bun.sleep(20);
-    const orphaned = alive(child);
-    if (orphaned) process.kill(child, "SIGKILL");
-    expect(orphaned).toBe(false);
+    expect(alive(child)).toBe(false);
   } finally {
+    wrapper?.kill("SIGKILL");
+    if (child > 0) {
+      try {
+        process.kill(child, "SIGKILL");
+      } catch {}
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -189,6 +199,18 @@ describe("testArgv", () => {
     expect(testArgv(["-tname", "packages/scrape"])).toEqual(["-tname", "packages/scrape"]);
     // `-u` is --update-snapshots under bun test and takes no value.
     expect(testArgv(["-u", "packages/scrape"])).toEqual(["-u", "packages/scrape"]);
+    // `-c` (config) has an optional value: it ends the cluster, so the `t`
+    // after it is never reached and the next argument stays a path.
+    expect(testArgv(["-ct", "packages/scrape"])).toEqual(["-ct", "packages/scrape"]);
+    expect(testArgv(["-uct", "packages/scrape"])).toEqual(["-uct", "packages/scrape"]);
+  });
+
+  test("a long flag bun test does not know takes no value, as in Bun", () => {
+    // Build and run flags are not bun test's; Bun skips them and reads the
+    // next argument as a path.
+    for (const flag of ["--filter", "--outdir", "--target", "--shell", "--elide-lines"]) {
+      expect(testArgv([flag, "packages/scrape"])).toEqual([flag, "packages/scrape"]);
+    }
   });
 
   test("paths after -- and a bare - are paths", () => {

@@ -23,55 +23,57 @@ export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
 
 /**
  * Long flags whose value may follow as the NEXT argument (`--timeout 30000`),
- * so that argument is the flag's, not a path: every `<STR>`/`<PATH>`-valued
- * param in Bun 1.3.14's `src/cli/Arguments.zig` (runtime, transpiler, test,
- * and build params `bun test` would reject anyway). A value flag missing from
- * here has its value read as a path, which drops the default roots.
+ * so that argument is the flag's, not a path. Exactly the required-value
+ * params of `test_params` in Bun 1.3.14's `src/cli/Arguments.zig` (test-only,
+ * runtime, transpiler and base params), aliases included. Only `bun test`'s
+ * own: Bun skips a long flag it does not know, so the argument after one is a
+ * path to it, and must be one here too.
  */
 const VALUE_FLAGS: ReadonlySet<string> = new Set([
-  "--allow-unresolved", "--asset-naming", "--banner", "--breakpoint-print",
-  "--breakpoint-resolve", "--chunk-naming", "--compile-exec-argv",
-  "--compile-executable-path", "--conditions", "--console-depth",
-  "--coverage-dir", "--coverage-reporter", "--cpu-prof-dir",
-  "--cpu-prof-interval", "--cpu-prof-name", "--cron-period", "--cron-title",
-  "--cwd", "--define", "--dns-result-order", "--drop", "--elide-lines",
-  "--entry-naming", "--env-file", "--eval", "--extension-order", "--external",
-  "--feature", "--fetch-preconnect", "--filter", "--footer", "--format",
-  "--grep", "--heap-prof-dir", "--heap-prof-name", "--import", "--install",
-  "--jsx-factory", "--jsx-fragment", "--jsx-import-source", "--jsx-runtime",
-  "--loader", "--main-fields", "--max-concurrency", "--max-http-header-size",
-  "--origin", "--outdir", "--outfile", "--packages", "--parallel-delay",
-  "--path-ignore-patterns", "--port", "--preload", "--print", "--public-path",
-  "--reporter", "--reporter-outfile", "--require", "--rerun-each", "--retry",
-  "--root", "--seed", "--shard", "--shell", "--target", "--test-name-pattern",
-  "--timeout", "--title", "--tsconfig-override", "--unhandled-rejections",
-  "--user-agent", "--windows-copyright", "--windows-description",
-  "--windows-icon", "--windows-publisher", "--windows-title",
-  "--windows-version",
+  "--conditions", "--console-depth", "--coverage-dir", "--coverage-reporter",
+  "--cpu-prof-dir", "--cpu-prof-interval", "--cpu-prof-name", "--cron-period",
+  "--cron-title", "--cwd", "--define", "--dns-result-order", "--drop",
+  "--env-file", "--eval", "--extension-order", "--feature",
+  "--fetch-preconnect", "--grep", "--heap-prof-dir", "--heap-prof-name",
+  "--import", "--install", "--jsx-factory", "--jsx-fragment",
+  "--jsx-import-source", "--jsx-runtime", "--loader", "--main-fields",
+  "--max-concurrency", "--max-http-header-size", "--origin",
+  "--parallel-delay", "--path-ignore-patterns", "--port", "--preload",
+  "--print", "--reporter", "--reporter-outfile", "--require", "--rerun-each",
+  "--retry", "--seed", "--shard", "--test-name-pattern", "--timeout",
+  "--title", "--tsconfig-override", "--unhandled-rejections", "--user-agent",
 ]);
 
 /**
- * Short flags that take a value under `bun test`: `-t` (name pattern), `-r`
- * (preload), `-d` (define), `-l` (loader), `-e`/`-p` (eval/print). Not `-u`,
- * which is `--update-snapshots` here and takes nothing.
+ * Short flags that take a required value under `bun test`: `-t` (name
+ * pattern), `-r` (preload), `-d` (define), `-l` (loader), `-e`/`-p`
+ * (eval/print). Not `-u`: `bun test` resolves it to `--update-snapshots`,
+ * which takes nothing, before the runtime's `-u, --origin`.
  */
 const SHORT_VALUE_LETTERS: ReadonlySet<string> = new Set(["t", "r", "d", "l", "e", "p"]);
 
+/** Short flags with an optional value (`-c`, `--config`): they end a cluster and take nothing after it. */
+const SHORT_OPTIONAL_LETTERS: ReadonlySet<string> = new Set(["c"]);
+
 /**
- * Optional-valued flags (`--bail`, `--parallel`, `--changed`, `--config`, ...)
- * are deliberately absent: Bun's parser gives them a value only through `=`,
- * so a separate argument after one is a positional path to Bun too.
+ * Optional-valued long flags (`--bail`, `--parallel`, `--changed`,
+ * `--config`, `--inspect*`) are deliberately absent: Bun's parser gives them a
+ * value only through `=`, so a separate argument after one is a positional
+ * path to Bun too.
  */
 
 /**
  * Whether a short-flag token (`-t`, `-ut`, `-tname`, `-t=name`) leaves its
- * value to the next argument. Bun walks the cluster left to right, and the
- * first value-taking letter takes the REST of the token as its value; only
- * when that letter ends the token does the value come from the next argument.
+ * value to the next argument. Bun walks the cluster left to right: the first
+ * required-value letter takes the REST of the token as its value, and only
+ * when it ends the token does the value come from the next argument; an
+ * optional-value letter ends the cluster and never reaches the next argument.
  */
 function shortTakesNext(token: string): boolean {
   for (let i = 1; i < token.length; i++) {
-    if (SHORT_VALUE_LETTERS.has(token[i]!)) return i === token.length - 1;
+    const letter = token[i]!;
+    if (SHORT_OPTIONAL_LETTERS.has(letter)) return false;
+    if (SHORT_VALUE_LETTERS.has(letter)) return i === token.length - 1;
   }
   return false;
 }
