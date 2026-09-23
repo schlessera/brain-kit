@@ -252,7 +252,9 @@ below exists because the tracker drifted without it.
   parallel. The dry run lists those issues, plus every `blocked` issue it
   cannot verify. That is either a problem with the line (none, one that is not
   plain, or one that names another reference after its list), so fix the line.
-  Or it is a blocker whose state `gh` could not read, so check `gh auth status`. Without
+  Or it is a blocker whose state `gh` could not read, so check `gh auth status`.
+  Or it is a pull request that closed without merging, which never counts as
+  closed. Without
   running the script, find what named a closed issue by hand:
 
   ```sh

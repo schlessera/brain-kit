@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   blockedVerdict,
   blockersIn,
+  isOwnNotice,
   parseBlockers,
   reconcileBlocked,
   type BlockerState,
@@ -84,16 +85,30 @@ describe("a declaration read in part is not read at all", () => {
   test("a declaration in any other markdown context is unreadable, not skipped", () => {
     // An indented example, a quote, a nested item, an HTML comment: none is a
     // plain declaration, and skipping one could hide an open blocker.
+    // Each case on its own, with no other line to make it unreadable.
     for (const body of [
       "    Blocked by #1",
       "  > Blocked by #1",
-      "- Dependencies\n  - Blocked by #1\n    Blocked by #2",
+      "- > Blocked by #1",
+      "- Dependencies\n  - Blocked by #1",
+      "- Dependencies\n  Blocked by #1",
       "-\tBlocked by #1",
+      "- [ ] Blocked by #1",
       "<!--\nBlocked by #1\n-->",
+      "<!-- Blocked by #1 -->",
     ]) {
       const parsed = parseBlockers(body, REPO);
-      expect(parsed.unreadable.length).toBeGreaterThan(0);
+      expect({ body, refs: parsed.refs, unreadable: parsed.unreadable.length }).toEqual({
+        body,
+        refs: [],
+        unreadable: 1,
+      });
     }
+  });
+
+  test("a fence inside an HTML comment does not hide the declarations after it", () => {
+    const body = ["Blocked by #1", "<!--", "```", "-->", "Blocked by #2"].join("\n");
+    expect(blockersIn(body, REPO)).toEqual([`${REPO}#1`, `${REPO}#2`]);
   });
 
   test("a reference with a suffix is not read as its prefix", () => {
@@ -137,6 +152,17 @@ describe("a declaration read in part is not read at all", () => {
       states({ [`${REPO}#1`]: "closed" }),
     );
     expect(verdict.kind).toBe("unverifiable");
+  });
+});
+
+describe("isOwnNotice", () => {
+  const marker = "<!-- sync-project: unblocked by o/r#1 -->";
+  test("is the whole one-line notice, not a quote of it", () => {
+    expect(isOwnNotice(`Unblocked: #1 is closed. ${marker}`, marker)).toBe(true);
+    expect(isOwnNotice(`Unblocked: #1 is closed. ${marker}\nand more`, marker)).toBe(false);
+    expect(isOwnNotice(`Example:\n\`\`\`\nUnblocked: #1 is closed. ${marker}\n\`\`\``, marker)).toBe(
+      false,
+    );
   });
 });
 
@@ -214,9 +240,7 @@ function fakeTracker(fixtures: ReturnType<typeof issue>[], known: Record<string,
         comments.set(target.number, [...(comments.get(target.number) ?? []), text]);
       },
       hasComment: async (target: { number: number }, marker: string) =>
-        (comments.get(target.number) ?? []).some(
-          (text) => text.startsWith("Unblocked: ") && text.endsWith(marker),
-        ),
+        (comments.get(target.number) ?? []).some((text) => isOwnNotice(text, marker)),
     },
   };
 }

@@ -312,7 +312,7 @@ const BLOCKER_REF =
  * make the issue unverifiable instead of being skipped, because a skipped
  * declaration is a blocker the verdict never sees.
  */
-const DECLARATION_LIKE = /^[\s>]*(?:(?:[-*+]|\d+[.)])\s*)?(?:\*\*)?blocked by\b/i;
+const DECLARATION_LIKE = /^[\s>*+\-\d.)[\]xX]*(?:\*\*)?blocked by\b/i;
 
 /**
  * The blockers an issue body names, and the declarations it could not read.
@@ -331,8 +331,14 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
   // part of the example, and toggling on it would read the example's blockers
   // and skip the real ones.
   let fence: { char: string; length: number } | undefined;
-  let comment = false;
-  for (const line of body.split(/\r?\n/)) {
+  // HTML comments go first, before fences are tracked: a fence marker inside
+  // a comment must not open a fence that swallows the real declarations after
+  // it. A declaration hidden in a comment is not one the script may act on.
+  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, (hidden) => {
+    if (/blocked by/i.test(hidden)) unreadable.push(hidden.replace(/\s+/g, " ").trim());
+    return hidden.replace(/[^\n]/g, " ");
+  });
+  for (const line of visible.split(/\r?\n/)) {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       const run = marker?.[1];
@@ -345,18 +351,11 @@ export function parseBlockers(body: string, repo: string): { refs: string[]; unr
       fence = { char: marker[1][0], length: marker[1].length };
       continue;
     }
-    // Inside an HTML comment a declaration is hidden from the reader, so it
-    // is not one the script may act on either.
-    const hidden = comment || line.includes("<!--");
-    if (line.includes("<!--")) comment = !line.slice(line.lastIndexOf("<!--")).includes("-->");
-    else if (comment && line.includes("-->")) comment = false;
     if (!DECLARATION_LIKE.test(line)) continue;
-    // A plain declaration: at most three spaces of indent, optionally a list
-    // bullet and bold. Anything else that looks like one — an indented code
-    // example, a quote, a nested item — is unreadable, not ignored.
-    const match = hidden
-      ? null
-      : line.match(/^ {0,3}(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
+    // A plain declaration: at the start of the line, optionally a top-level
+    // bullet and bold. Anything else that looks like one — indented, quoted,
+    // nested, a task item — is unreadable, not ignored.
+    const match = line.match(/^(?:[-*] )?(?:\*\*)?blocked by(?:\*\*)?:?[ \t]+(.*)$/i);
     if (!match) {
       unreadable.push(line.trim());
       continue;
@@ -429,6 +428,15 @@ export interface BlockerIO {
   comment(issue: BlockableIssue, text: string): Promise<void>;
   /** Whether the issue already has a comment containing `marker`. */
   hasComment(issue: BlockableIssue, marker: string): Promise<boolean>;
+}
+
+/**
+ * Whether a comment is this script's notice for `marker`: the whole comment,
+ * one line, so the marker quoted inside someone else's comment — or an
+ * example of the notice in a code block — does not suppress the real one.
+ */
+export function isOwnNotice(body: string, marker: string): boolean {
+  return body.startsWith("Unblocked: ") && body.endsWith(marker) && !body.includes("\n");
 }
 
 /** `#110` in its own repository, `owner/repo#110` from another. */
@@ -539,14 +547,16 @@ const trackerIO: BlockerIO = {
     await gh(["issue", "comment", String(issue.number), "--repo", issue.repo, "--body", text]);
   },
   async hasComment(issue, marker) {
+    // One JSON string per comment, so a comment is compared whole.
     const bodies = await gh([
-      "api", "--paginate", `repos/${issue.repo}/issues/${issue.number}/comments`, "--jq", ".[].body",
+      "api", "--paginate", `repos/${issue.repo}/issues/${issue.number}/comments`,
+      "--jq", ".[].body | @json",
     ]);
-    // Only the script's own notice counts: the marker quoted in someone
-    // else's comment must not suppress it.
     return bodies
       .split("\n")
-      .some((body) => body.startsWith("Unblocked: ") && body.endsWith(marker));
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string)
+      .some((body) => isOwnNotice(body, marker));
   },
 };
 

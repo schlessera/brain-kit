@@ -143,13 +143,14 @@ The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the
 references: `Blocked by #42`, `Blocked by #42 and #43`, or
 `Blocked by schlessera/brain-kit#42` across repositories. Write it as a plain
-line: not indented, quoted, nested in a list or inside an HTML comment.
+line at the start of the line, optionally as a top-level bullet. Do not indent
+it, quote it, nest it, make it a task item or put it inside an HTML comment.
 Commentary may follow the list as long as it names no other reference. When
 every issue it names is closed (a pull request counts once it has merged), the
 script reports it, and with `--apply` posts a one-line comment naming the
 closed blocker and removes the label. In the same run it then re-derives
-Status, unless someone set the Status by hand, and the issue lands in Ready if
-nothing else holds it back. An issue labelled `blocked` keeps its label and is
+Status, unless the Status is `In progress` or `Done`, and the issue lands in
+Ready if nothing else holds it back. An issue labelled `blocked` keeps its label and is
 reported as unverifiable when it has no such line, when a line looks like a
 declaration but is not a plain one, when a line names another reference after
 its list, or when a blocker's state cannot be read. The script clears a label
