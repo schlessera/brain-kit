@@ -316,6 +316,18 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
     "pi 0.84.4's installed extensions/loader.js, not in this tree",
   "docs/decisions/container-privilege.md|core/exec.js:10-16":
     "pi 0.84.4's installed core/exec.js, not in this tree",
+  ...Object.fromEntries(
+    [
+      "node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889",
+      "sdk.d.ts:5590",
+      "node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228",
+      "sdk.mjs:127",
+      "node_modules/@anthropic-ai/claude-agent-sdk/package.json:6-29",
+    ].map((cited) => [
+      `docs/decisions/claude-code-runtime.md|${cited}`,
+      "the Claude Agent SDK's installed package, not in this tree",
+    ]),
+  ),
   "docs/decisions/session-principals.md|hono/utils/cookie.js:79-89":
     "hono's installed cookie utility, not in this tree",
 

@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:150-182`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:221-253`).
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
@@ -293,7 +293,7 @@ so each pattern carries the effect it has in words:
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:155-165`) and is not
+`permission-hooks.ts:178-188`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-58`)
 lets a deployment supply its own patterns, which will have no phrase. Both fall
@@ -561,8 +561,8 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:16-30`;
-  `!mayGrant`, `:60-68`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:295-302`).
+  `!mayGrant`, `:69-77`; wired at their `agentHook`/`rtkHook` constructions,
+  `const agentHook`, `permission-hooks.ts:339-355`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -579,7 +579,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:102-117`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:103-118`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -599,7 +599,7 @@ with a `BackendRequestError` (`assertTurnPosture`,
 codebase's own shortcuts was never sufficient: the runtime has permission
 opinions of its own that also land before `canUseTool`
 (the block above `enforcementHook`, `DO NOT WEAKEN THIS INTO A FALLTHROUGH`,
-`permission-hooks.ts:70-101`, with the measurements in #154) — a safe-command
+`permission-hooks.ts:71-102`, with the measurements in #154) — a safe-command
 classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
 never consulted), a built-in tool's own check (`ToolSearch` executed twice under
 the same conditions), and a `PreToolUse` hook in the project settings this
@@ -650,8 +650,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:129-131`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:222-229`). So a
+`permission-hooks.ts:130-132`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:253-260`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about
