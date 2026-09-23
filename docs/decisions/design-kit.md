@@ -3080,13 +3080,17 @@ number-series candidate, no `trend` transform and no delta-tone question, and
 the record no longer says there is. The other four routes were already built and
 are untouched.
 
-**Known limit, recorded rather than fixed.** GFM autolinks a bare email address
-or URL, a link is inline markup the kit's cells cannot hold, and so a run
-carrying one is not a candidate at all — which removes the most natural shape a
-contact has. The rejection rule predates this work and applies to every
-candidate kind, so widening it is its own decision: #167.
-`packages/ui-sdk/tests/classification-detect.test.ts` pins the behaviour so the
-next reader meets it on purpose.
+**Known limit, since lifted (2026-09-23, #167).** GFM autolinks a bare email
+address or URL, a link is inline markup the kit's cells cannot hold, and so a
+run carrying one was not a candidate at all — which removed the most natural
+shape a contact has. The maintainer's ruling on #167 narrows the rule for every
+candidate kind: a link whose text is its own destination flattens to that text,
+since nothing is lost, and a `mailto:` destination reads as the bare address.
+A labelled link (`[the docs](https://…)`) still keeps its candidate out of the
+pass, because flattening it would drop where it points; so does a link with a
+title or an image inside it, and GFM's `www.` form, whose destination adds a
+scheme its text does not carry. So the filter is narrower, not gone.
+`packages/ui-sdk/tests/classification-detect.test.ts` pins both sides.
 
 ## 2026-09-22 — measured: pi draws the block, so the net never gets cast
 

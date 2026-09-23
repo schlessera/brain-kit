@@ -149,16 +149,76 @@ describe("detectCandidates", () => {
     expect(detectCandidates("**Ships:** 12")).toEqual([]);
   });
 
-  test("a run of facts about one person is a key-value candidate; an address GFM autolinks is not", () => {
+  test("a run of facts about one person is a key-value candidate, and a bare address on it reads as the address", () => {
     const [run] = detectCandidates("**Name:** Odysseus\n**Role:** King of Ithaca\n**Last seen:** Ogygia");
     expect(run?.kind).toBe("kv_run");
     if (run?.kind !== "kv_run") return;
     expect(run.rows[0]).toEqual({ k: "Name", v: "Odysseus" });
 
-    // GFM autolinks a bare address, and a link is markup the kit's cells
-    // cannot hold, so the whole run is left as markdown. It is the one
-    // contact shape the pass cannot reach (noted in D45).
-    expect(detectCandidates("**Name:** Odysseus\n**Herald:** eurybates@ithaca.example")).toEqual([]);
+    // GFM autolinks a bare address. Its text is its own destination, so it
+    // flattens with nothing lost and the run stays a candidate (#167).
+    const [contact] = detectCandidates("**Name:** Odysseus\n**Herald:** eurybates@ithaca.example");
+    expect(contact?.kind).toBe("kv_run");
+    if (contact?.kind !== "kv_run") return;
+    expect(contact.rows).toEqual([
+      { k: "Name", v: "Odysseus" },
+      { k: "Herald", v: "eurybates@ithaca.example" },
+    ]);
+  });
+
+  test("every way of writing a bare address becomes the same plain value; a mailto: target reads as the bare address", () => {
+    const valueOf = (line: string) => {
+      const [run] = detectCandidates(`**Name:** Odysseus\n${line}`);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(line)}`);
+      return run.rows[1]!.v;
+    };
+    expect(valueOf("**Herald:** eurybates@ithaca.example")).toBe("eurybates@ithaca.example");
+    expect(valueOf("**Herald:** <eurybates@ithaca.example>")).toBe("eurybates@ithaca.example");
+    expect(valueOf("**Herald:** <mailto:eurybates@ithaca.example>")).toBe("eurybates@ithaca.example");
+    expect(valueOf("**Herald:** mailto:eurybates@ithaca.example")).toBe("eurybates@ithaca.example");
+    expect(valueOf("**Herald:** [eurybates@ithaca.example](mailto:eurybates@ithaca.example)")).toBe(
+      "eurybates@ithaca.example"
+    );
+    expect(valueOf("**Site:** https://ithaca.example/palace")).toBe("https://ithaca.example/palace");
+    expect(valueOf("**Site:** <https://ithaca.example/palace>")).toBe("https://ithaca.example/palace");
+    expect(valueOf("**Site:** see https://ithaca.example/palace first")).toBe("see https://ithaca.example/palace first");
+    // A bullet list of key lines reads its values the same way.
+    const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
+    if (list?.kind !== "kv_run") throw new Error("expected kv_run");
+    expect(list.rows[1]).toEqual({ k: "Herald", v: "eurybates@ithaca.example" });
+  });
+
+  test("a link that would lose something when flattened still keeps the run out of the pass", () => {
+    const run = (line: string) => detectCandidates(`**Name:** Odysseus\n${line}`);
+    // A labelled link loses its destination.
+    expect(run("**Herald:** [Eurybates](mailto:eurybates@ithaca.example)")).toEqual([]);
+    expect(run("**Site:** [the palace](https://ithaca.example/palace)")).toEqual([]);
+    // A title would be dropped, and so would an image inside the link.
+    expect(run('**Site:** [https://ithaca.example](https://ithaca.example "The palace")')).toEqual([]);
+    expect(run("**Site:** [![https://ithaca.example](https://ithaca.example/a.png)](https://ithaca.example)")).toEqual([]);
+    // GFM links `www.` to `http://www.`: the text is not the destination, so
+    // by the rule it is not a bare address (#167's ruling is text = target).
+    expect(run("**Site:** www.ithaca.example")).toEqual([]);
+  });
+
+  test("a bare address flattens in every candidate kind, not only a key-value run", () => {
+    const [table] = detectCandidates("| Who | Reach |\n|---|---|\n| Eurybates | <eurybates@ithaca.example> |");
+    if (table?.kind !== "table") throw new Error("expected table");
+    expect(table.rows).toEqual([["Eurybates", "eurybates@ithaca.example"]]);
+
+    const [steps] = detectCandidates("1. Write to eurybates@ithaca.example\n2. Read https://ithaca.example/palace");
+    if (steps?.kind !== "ordered_list") throw new Error("expected ordered_list");
+    expect(steps.items).toEqual([
+      { title: "Write to eurybates@ithaca.example" },
+      { title: "Read https://ithaca.example/palace" },
+    ]);
+
+    const [quote] = detectCandidates("> Send word to <mailto:eurybates@ithaca.example>.");
+    if (quote?.kind !== "blockquote") throw new Error("expected blockquote");
+    expect(quote.text).toBe("Send word to eurybates@ithaca.example.");
+
+    // And a labelled link still rejects there too.
+    expect(detectCandidates("| Who | Reach |\n|---|---|\n| Eurybates | [write](mailto:eurybates@ithaca.example) |")).toEqual([]);
   });
 
   test("candidates keep document order and stable ids", () => {

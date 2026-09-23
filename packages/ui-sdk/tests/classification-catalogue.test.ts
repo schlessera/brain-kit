@@ -257,6 +257,28 @@ describe("the catalogue", () => {
     expect(BLOCK_SCHEMA.safeParse(result?.block).success).toBe(true);
   });
 
+  test("a contact whose run carries a bare address draws the address as a plain fact", () => {
+    // #167: the address flattens to its text, and a `mailto:` target to the
+    // bare address, so the card shows exactly what the reader would type.
+    const [run] = detectCandidates(
+      "**Name:** Odysseus\n**Herald:** <mailto:eurybates@ithaca.example>\n**Site:** https://ithaca.example/palace"
+    );
+    const result = transformCandidate(run!, {
+      "c0.shape": choice("contact", 0.88),
+      "c0.subject": choice("Name", 0.93),
+      "c0.contact_kind": choice("person", 0.9),
+    });
+    expect(result?.block).toEqual({
+      kind: "contact",
+      label: "Odysseus",
+      contactKind: "person",
+      facts: [
+        { k: "Herald", v: "eurybates@ithaca.example" },
+        { k: "Site", v: "https://ithaca.example/palace" },
+      ],
+    });
+  });
+
   test("a contact the run does not name stays markdown, and so does a run the classifier calls plain", () => {
     const [run] = detectCandidates("**Role:** King of Ithaca\n**Last seen:** Ogygia");
     // The run is about someone, but no line carries the name; a label the

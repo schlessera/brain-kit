@@ -118,12 +118,93 @@ export function parseMarkdown(text: string): Root {
   return parser.parse(text) as unknown as Root;
 }
 
+interface Link extends Node {
+  type: "link";
+  url: string;
+  title?: string | null;
+  children: Node[];
+}
+interface Text extends Node {
+  type: "text";
+  value: string;
+}
+
+/** A stretch of the source that reads as `text` once its markup is flattened. */
+interface Flattened extends CandidateSpan {
+  text: string;
+}
+
+const MAILTO = /^mailto:/i;
+
+/**
+ * The text a link flattens to without losing anything, or null. That is a
+ * link whose text is its own destination — what GFM makes of a bare address,
+ * `<…>` or not — and nothing else: `[the docs](https://…)` would lose where it
+ * points, a title would be dropped, and an image inside would be dropped with
+ * it. A `mailto:` destination reads as the bare address (#167).
+ */
+function bareAddress(link: Link): string | null {
+  if (link.title || link.children.some((child) => hasRichInline(child))) return null;
+  const text = mdastToString(link);
+  if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
+  return MAILTO.test(link.url) ? text.replace(MAILTO, "") : text;
+}
+
+/**
+ * Replace every bare address in the tree with the text it flattens to, and
+ * return where each one sat in the source. After this the tree carries a link
+ * only where flattening would lose something, so `hasRichInline` keeps
+ * rejecting exactly those. A `mailto:` typed as prose just before an email
+ * address — GFM links the address and leaves the scheme outside it — goes
+ * with it, so the address reads the same however it was written.
+ */
+function flattenBareAddresses(node: Node, out: Flattened[]): void {
+  const children = node.children;
+  if (!Array.isArray(children)) return;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!;
+    const start = child.position?.start.offset;
+    const end = child.position?.end.offset;
+    const text = child.type === "link" ? bareAddress(child as Link) : null;
+    if (text === null || typeof start !== "number" || typeof end !== "number") {
+      flattenBareAddresses(child, out);
+      continue;
+    }
+    let from = start;
+    const before = children[i - 1];
+    if (MAILTO.test((child as Link).url) && before?.type === "text" && before.position?.end.offset === start) {
+      const prose = (before as Text).value;
+      const scheme = /mailto:$/i.exec(prose);
+      if (scheme) {
+        (before as Text).value = prose.slice(0, scheme.index);
+        from = start - scheme[0].length;
+      }
+    }
+    children[i] = { type: "text", value: text, position: { start: { offset: from }, end: { offset: end } } } as Text;
+    out.push({ start: from, end, text });
+  }
+}
+
+/** The source between `start` and `end`, with every flattened stretch read as its text. */
+function flatSource(source: string, span: CandidateSpan, flattened: readonly Flattened[]): string {
+  let out = "";
+  let at = span.start;
+  for (const flat of flattened) {
+    if (flat.start < span.start || flat.end > span.end) continue;
+    out += source.slice(at, flat.start) + flat.text;
+    at = flat.end;
+  }
+  return out + source.slice(at, span.end);
+}
+
 /**
  * Inline markup the kit's cells cannot hold. A candidate carrying any is
- * left as markdown: flattening a link to its text would lose the link, and
- * the plain render is not wrong, only less shaped. Emphasis and code spans
- * flatten to their text with nothing lost but a face, so they pass — the
- * model writes `**Key**: \`value\`` far more often than it writes links.
+ * left as markdown: flattening a labelled link to its text would lose where
+ * it points, and the plain render is not wrong, only less shaped. A bare
+ * address never gets here — `flattenBareAddresses` has already made it text.
+ * Emphasis and code spans flatten to their text with nothing lost but a face,
+ * so they pass — the model writes `**Key**: \`value\`` far more often than it
+ * writes links.
  */
 function hasRichInline(node: Node): boolean {
   const type = node.type;
@@ -234,12 +315,19 @@ function kvRows(lines: string[]): Array<{ k: string; v: string }> | null {
 }
 
 /** A paragraph of key-colon-value lines, or a bullet list whose items are such lines. */
-function kvRunCandidate(node: Paragraph | List, id: string, span: CandidateSpan, source: string): KeyValueRunCandidate | null {
+function kvRunCandidate(
+  node: Paragraph | List,
+  id: string,
+  span: CandidateSpan,
+  source: string,
+  flattened: readonly Flattened[]
+): KeyValueRunCandidate | null {
   if (node.type === "paragraph") {
     if (hasRichInline(node)) return null;
     // Raw source lines, not `toString`: the `**` around the key is the
-    // signal, and toString would strip it.
-    const lines = source.slice(span.start, span.end).split(/\r?\n/).map((line) => line.replace(/\s+$/, ""));
+    // signal, and toString would strip it. A bare address still reads as its
+    // text, so `<…>` does not reach a cell.
+    const lines = flatSource(source, span, flattened).split(/\r?\n/).map((line) => line.replace(/\s+$/, ""));
     const rows = kvRows(lines);
     return rows ? { kind: "kv_run", id, rows, ...span } : null;
   }
@@ -250,7 +338,7 @@ function kvRunCandidate(node: Paragraph | List, id: string, span: CandidateSpan,
     if (paragraphs.length !== 1 || item.children.length !== 1 || hasRichInline(paragraphs[0]!)) return null;
     const itemSpan = spanOf(paragraphs[0]!);
     if (!itemSpan) return null;
-    lines.push(source.slice(itemSpan.start, itemSpan.end));
+    lines.push(flatSource(source, itemSpan, flattened));
   }
   const rows = kvRows(lines);
   return rows ? { kind: "kv_run", id, rows, ...span } : null;
@@ -289,6 +377,9 @@ function blockquoteCandidate(
 export function detectCandidates(text: string): Candidate[] {
   if (!text.trim()) return [];
   const root = parseMarkdown(text);
+  const flattened: Flattened[] = [];
+  flattenBareAddresses(root, flattened);
+  flattened.sort((a, b) => a.start - b.start);
   const out: Candidate[] = [];
   const children = root.children;
   const consumed = new Set<number>();
@@ -307,7 +398,7 @@ export function detectCandidates(text: string): Candidate[] {
         const list = node as List;
         candidate = list.ordered
           ? orderedListCandidate(list, id, span)
-          : (timedListCandidate(list, id, span) ?? kvRunCandidate(list, id, span, text));
+          : (timedListCandidate(list, id, span) ?? kvRunCandidate(list, id, span, text, flattened));
         break;
       }
       case "blockquote": {
@@ -316,7 +407,7 @@ export function detectCandidates(text: string): Candidate[] {
         break;
       }
       case "paragraph":
-        candidate = kvRunCandidate(node as Paragraph, id, span, text);
+        candidate = kvRunCandidate(node as Paragraph, id, span, text, flattened);
         break;
       default:
         break;
