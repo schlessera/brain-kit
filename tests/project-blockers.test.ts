@@ -39,6 +39,23 @@ describe("blockersIn", () => {
     ]);
   });
 
+  test("a fence closes only on its own delimiter", () => {
+    // A ``` line inside a ~~~~ example is part of the example. Toggling on it
+    // would read the example's blocker and skip the real one after the fence.
+    const body = [
+      "~~~~markdown",
+      "```",
+      "Blocked by #1",
+      "~~~~",
+      "Blocked by #2",
+    ].join("\n");
+    expect(blockersIn(body, REPO)).toEqual([`${REPO}#2`]);
+  });
+
+  test("reads a body with CRLF line endings", () => {
+    expect(blockersIn("Context.\r\nBlocked by #7\r\n", REPO)).toEqual([`${REPO}#7`]);
+  });
+
   test("reads every blocker on the line, and every line", () => {
     expect(blockersIn("Blocked by #1 and #2\nblocked by: #3", REPO)).toEqual([
       `${REPO}#1`,

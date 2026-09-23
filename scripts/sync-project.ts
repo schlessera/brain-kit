@@ -300,13 +300,24 @@ export type BlockerState = "open" | "closed";
  */
 export function blockersIn(body: string, repo: string): string[] {
   const refs: string[] = [];
-  let fenced = false;
-  for (const line of body.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced;
+  // The open fence, if any. A fence closes only on the same character, at
+  // least as long, with nothing after it — a ``` line inside a ~~~~ example is
+  // part of the example, and toggling on it would read the example's blockers
+  // and skip the real ones.
+  let fence: { char: string; length: number } | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const run = marker?.[1];
+      if (run && run[0] === fence.char && run.length >= fence.length && !marker![2].trim()) {
+        fence = undefined;
+      }
       continue;
     }
-    if (fenced) continue;
+    if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
+      fence = { char: marker[1][0], length: marker[1].length };
+      continue;
+    }
     const match = line.match(/^\s*(?:[-*]\s+)?(?:\*\*)?blocked by(?:\*\*)?:?\s+(.*)$/i);
     if (!match) continue;
     for (const ref of match[1].matchAll(/(?:\b([\w.-]+\/[\w.-]+))?#(\d+)\b/g)) {
