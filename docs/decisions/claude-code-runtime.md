@@ -150,17 +150,19 @@ unnecessary.
 | **Rebuild on release, installing `latest`** | The version is whatever was newest at build time. Two builds of one commit can differ; a rollback cannot rebuild the old binary. | Not reproducible. |
 | **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime (`container-privilege.md:70`), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
 | **Sidecar or scheduled updater** | The binary changes under a running server, possibly between two turns of one conversation, with no deploy event to attach a re-check to. | Same immutability conflict, and the worst observability of the set. |
-| **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download, and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | With `--no-install` over a preinstalled package it reduces to the chosen mechanism plus a resolution step; without it, it makes the registry a runtime dependency. |
+| **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download, and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | Without `--no-install` it makes the registry a runtime dependency. With it, over a preinstalled Claude Code package, it is the pinned host install above plus a resolution step on every turn — still a second pin, and no longer the SDK's binary. |
 | **Do nothing** | Today's state: whatever binary the host installs, pinned or not, and nothing in this repo knows which. | The problem this record exists to fix. |
 
 ### What this costs
 
-- **Claude Code fixes arrive at brain-kit's cadence.** A CLI fix reaches a
-  deployment when this repo bumps the SDK, releases, and the host rebuilds. The
-  two series have published in lockstep so far (above), so the delay has been
-  ours rather than upstream's; that is observed history, not a promise. A host
-  that needs a fix sooner sets `CLAUDE_CODE_PATH` and accepts the unmeasured
-  warning.
+- **Measured Claude Code upgrades arrive at brain-kit's cadence.** A CLI
+  version that has been re-probed reaches a deployment when this repo bumps the
+  SDK, releases, and the host rebuilds. The two series have published in
+  lockstep so far (above), so the delay has been ours rather than upstream's;
+  that is observed history, not a promise. A host that needs a fix sooner can
+  take it without us — by moving the SDK inside the published range in its own
+  lockfile, or by setting `CLAUDE_CODE_PATH` — and runs an unmeasured pair,
+  with the warning, until we catch up.
 - **Optional dependencies must be installed.** The SDK looks for its platform
   package relative to its own module: on Linux it tries the glibc package
   first and then the musl one, reversed when the runtime reports no glibc, and
@@ -193,51 +195,64 @@ unnecessary.
 
 ## The server knows the version
 
-**Yes, from two sources, and it warns rather than refuses on a mismatch.**
+**Yes, the pair and not only the CLI, from two sources; and it warns rather
+than refuses on a mismatch.**
 
 - **Per turn, from `init`.** `claude_code_version` is recorded on the run the
-  turn belongs to. It is the binary that actually ran, costs nothing, and needs
-  no second copy of the SDK's resolution logic.
+  turn belongs to, beside the SDK version the backend loaded. The CLI version is
+  the binary that actually ran and costs nothing to learn. The SDK version is
+  needed too: a host can move the SDK while `CLAUDE_CODE_PATH` holds the CLI
+  at the measured version, and then the CLI number alone looks right while the
+  pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`packages/ui-server/src/brain/client.ts:115`). The SDK's
-  resolver is not exported, so the probe must not re-implement it: it takes the
-  command the SDK itself selects — the SDK hands it to `spawnClaudeCodeProcess`
-  before launching, the seam `spawn-wrapper.ts` already uses — and runs it with
-  `--version` through the same exec wrapper and environment a turn uses, so a
-  binary the agent's uid cannot execute fails here and not on the first turn.
-  Then it logs the version (9 ms above),
-  log it, and **refuse to start if the binary is missing or will not launch**.
-  A version other than the measured one is a warning naming both versions, not
-  a refusal.
+  resolver is not exported, so the probe must not re-implement it. The SDK
+  resolves the binary when a query is built, and fails there if none is found
+  (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
+  `{ command, args }` to `spawnClaudeCodeProcess` instead of spawning
+  (`sdk.mjs:127`), the seam `spawn-wrapper.ts` already uses. A probe can
+  supply a callback that records what it was handed and throws a sentinel
+  error, so no process starts, and must tell that sentinel apart from a
+  resolution error. For the native binary `command` is the binary itself. For
+  a JavaScript `CLAUDE_CODE_PATH`, `command` is the interpreter and the script
+  path leads `args`, so the probe keeps every argument up to the session
+  arguments and replaces only those with `--version`. It then runs that through
+  the same exec wrapper and environment a turn uses, so a binary the agent's
+  uid cannot execute fails here and not on the first turn.
+- **What boot does with the answer.** A missing binary, or one that will not
+  run `--version`: **refuse to start**. A pair other than the measured one: one
+  warning naming both pairs, and boot continues. A clean `--version` shows the
+  binary launches, not that a session works; the first turn's `init` is the
+  first proof of that.
+- **Where it shows.** `/api/status`, which is behind the auth guard and already
+  reports the source commit (`packages/ui-server/src/routes/health.ts:43-58`),
+  and the run record. Not `/api/health`: it is public and deliberately carries
+  no version (`health.ts:8-10`). Not `brain doctor`: it runs on the user's
+  machine against a different binary.
 
-Why warn rather than refuse an unmeasured version, given that what was
-measured is a permission boundary:
+Why warn rather than refuse an unmeasured pair, given that what was measured is
+a permission boundary:
 
 - **A refusal would not buy what it appears to.** The measured version is not
   known-safe either: the list of mechanisms that skip `canUseTool` is what has
   been measured, not a closed set (`permission-hooks.ts:72-74`). A version gate
   would separate "probed" from "not probed", not "safe" from "unsafe", and it
   would say the second thing to whoever reads it.
-- **It would block the path a CLI security fix takes.** Under this decision the
-  version moves only when somebody changes a lockfile or sets
-  `CLAUDE_CODE_PATH` — both deliberate. The reason to do either ahead of a
-  brain-kit release is a CLI fix, and a refusal would stop exactly that
-  deployment.
+- **It would block the path a CLI fix takes.** Under this decision the version
+  moves only when somebody changes a lockfile or sets `CLAUDE_CODE_PATH` — both
+  deliberate. One reason to do either ahead of a brain-kit release is a CLI
+  security fix, and a refusal would stop exactly that deployment.
 - **The control belongs where the version is chosen.** In this repo that is the
   guard test below, which does fail. For a published consumer it is the
-  exact-pin question (#210). A boot gate is the wrong
-  place to make up for either.
+  exact-pin question (#210). A boot gate is the wrong place to make up for
+  either.
 
 This is a judgement against `ROADMAP.md`'s "fail closed on exposure", and it is
 recorded as one. That rule refuses a configuration known to be exposed; an
 unmeasured runtime is unknown rather than known-exposed. If a probe ever finds a
-version that re-opens a measured bypass, that version goes on a refusal list —
-a refusal for a known fact, which the rule does cover.
-- **Where it shows.** `/api/status`, which is behind the auth guard and already
-  reports the source commit (`packages/ui-server/src/routes/health.ts:43-58`),
-  and the run record. Not `/api/health`: it is public and deliberately carries
-  no version (`health.ts:8-10`). Not `brain doctor`: it runs on the user's
-  machine against a different binary.
+version that re-opens a measured bypass, refusing that version is a refusal for
+a known fact, which the rule does cover — and the issue to build it gets filed
+then. Nothing needs refusing today.
 
 Whether the run-record field reaches a documented `--json` or `/api/activity`
 envelope is for the follow-up to settle, and if it does it is a `CONTRACT:`
@@ -271,12 +286,21 @@ name instead of repeating the numbers. Two mechanisms hang off it:
 A probe that can report success without observing anything is worse than none,
 so it holds itself to these rules:
 
-- **Every negative result needs a positive control in the same harness.** "The
-  tool did not run" counts only when the model was seen to request that tool,
-  the hook under test was seen to fire, and the same setup with the hook
-  removed does run it. Anything else — no tool request, an auth or `init`
-  failure, a hook that never fired — is **inconclusive**, and an inconclusive
-  case fails the probe.
+- **Every result needs its own control in the same harness, and the control
+  depends on the property.** Every case first needs the model to have requested
+  the tool under test and the hooks and callback it involves to have been seen
+  firing or not firing as the case expects. Then:
+  - *a bypass* (the tool runs without `canUseTool`): the control is the same
+    call with the `ask` registered, where the callback must be consulted;
+  - *an override* (the `ask`, or an in-process `deny`, stops it): the control
+    is the same call without the overriding hook, where the tool must run;
+  - *not a bypass* (`touch <path>`, `permissions.allow`,
+    `defaultMode: "bypassPermissions"`): the observation is that the callback
+    was consulted, and the control is an allowing callback, under which the
+    tool must run.
+
+  Anything else — no tool request, an auth or `init` failure, a hook that never
+  fired — is **inconclusive**, and an inconclusive case fails the probe.
 - **Both command shapes, as #154 learned.** The classifier case runs `echo hi`
   and `touch <path>` in the same harness; one probe command proves nothing
   about another.
@@ -294,7 +318,7 @@ them:
   covers the first two.
 - A host that sets `CLAUDE_CODE_PATH`, or resolves a different SDK in its own
   lockfile, passes this repo's guard whatever it runs. The per-turn record and
-  the boot warning are what it gets.
+  the boot warning, both of which compare the pair, are what it gets.
 - Nothing stops a constant being bumped without a fresh probe. The PR carrying
   the probe's output is a review rule, not a check.
 
@@ -312,7 +336,7 @@ plus historical anchors that are deliberately left alone.
 | `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `docs/decisions/voice-permission.md:584-594` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
 | `docs/extending/agent-backends.md:164-179` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `docs/decisions/design-kit.md:2576-2600` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:74` and `tests/bridge-tools.test.ts:707,725`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half by re-running the D44 measurement, which is already a committed script (`bun scripts/measure-show-block.ts --always-load`, and `--tokens`), when the constant moves. |
+| `docs/decisions/design-kit.md:2576-2600` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:74` and `tests/bridge-tools.test.ts:707,725`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 Historical anchors, **not** re-checked because they describe what was true when
 a record was written, not what the code relies on now:
