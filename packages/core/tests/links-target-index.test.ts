@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -78,6 +78,12 @@ function downgradeToPreIndex(dbPath: string): void {
 }
 
 describe("links.target_id index", () => {
+  test("the query under test is still the one brain_links runs", () => {
+    // A stale copy would keep the plan test green while the real query moved.
+    const source = readFileSync(join(import.meta.dir, "../src/mcp-server.ts"), "utf8");
+    expect(source.includes(INCOMING_QUERY)).toBe(true);
+  });
+
   test("the brain_links incoming query searches links by target_id instead of scanning it", () => {
     const db = openDatabase(tempDbPath());
     try {
