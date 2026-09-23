@@ -57,8 +57,9 @@ next to it.
 - **Two moving parts.** The SDK is a runtime dependency of
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
-  `packages/ui-backend-claude/package.json:43`), resolved to 0.3.278 by this
-  repo's lockfile (`@anthropic-ai/claude-agent-sdk@0.3.278`, `bun.lock:348`).
+  `packages/ui-backend-claude/package.json:43`), resolved by this repo's
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:348`): 0.3.278 when
+  this record was written, 0.3.280 from 0.37.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
 ### What the SDK already ships
@@ -73,7 +74,7 @@ than recalled:
   optional dependencies pinned to the SDK's exact version
   (`optionalDependencies`, `bun.lock:348`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
-  hash in the lockfile (`@anthropic-ai/claude-agent-sdk-linux-x64@0.3.278`,
+  hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
   `bun.lock:358`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
