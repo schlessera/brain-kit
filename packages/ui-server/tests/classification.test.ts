@@ -82,7 +82,9 @@ describe("the timed client", () => {
     expect(result.outcome).toBe("answered");
     expect(result.answers).toEqual(GOOD_ANSWERS as never);
     expect(seen!.url).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(seen!.init.method).toBe("POST");
     expect((seen!.init.headers as Record<string, string>).authorization).toBe("Bearer k");
+    expect((seen!.init.headers as Record<string, string>)["content-type"]).toBe("application/json");
 
     const body = JSON.parse(seen!.init.body as string);
     expect(Object.keys(body).sort()).toEqual(["model", "questions", "state"]);
