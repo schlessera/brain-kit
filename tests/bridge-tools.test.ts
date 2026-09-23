@@ -518,7 +518,7 @@ describe("bridge tool adapter validation", () => {
     }
   });
 
-  test("every pi JSON Schema compiles under pi-ai's resolved typebox 1.3.7", async () => {
+  test("every pi JSON Schema compiles under pi-ai's resolved typebox 1.3.27", async () => {
     const require = createRequire(import.meta.url);
     const piAiManifest = require.resolve("@earendil-works/pi-ai/package.json");
     const piRequire = createRequire(piAiManifest);
@@ -526,7 +526,7 @@ describe("bridge tool adapter validation", () => {
     expect(
       (JSON.parse(readFileSync(typeboxManifest, "utf8")) as { version: string })
         .version
-    ).toBe("1.3.7");
+    ).toBe("1.3.27");
     const compilePath = piRequire.resolve("typebox/compile");
     const { Compile } = (await import(pathToFileURL(compilePath).href)) as {
       Compile(schema: unknown): { Check(value: unknown): boolean };
