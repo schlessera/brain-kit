@@ -359,6 +359,9 @@ describe("a refused always-allow is recorded", () => {
         : {}),
     });
     close = () => {
+      // A failed assertion skips the test's own finish(): drop the turn and
+      // its pending approval here so the timeout does not outlive the test.
+      host.coordinator.reset();
       host.close();
       db.close();
     };
