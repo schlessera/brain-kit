@@ -87,6 +87,57 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
 
+### Tests that cannot fail
+
+A green test is evidence only if it could have been red. Each of these shapes
+shipped in a PR whose suite was green:
+
+- **An assertion every value satisfies.** Asserting that `Object.keys(tool)`
+  does *not* contain `deferLoading` passes for any object without it, including
+  the wrong one (#158).
+- **A guard on the wrong object.** The test asserted the factory
+  (`createBrainUiMcpServer`), not the `mcpServers` entry that the call site it
+  was meant to protect actually builds (#158). A predicate-only test is the
+  same shape.
+- **An earlier layer answers first.** A 401 assertion kept passing with the
+  route deleted, because the auth guard answers before routing. It proved
+  nothing about the route, which a mounting test then did (#115).
+- **The harness has nothing to observe.** "principal B is recorded for
+  ordinary and always-allow approvals" passed with nothing stored anywhere,
+  because its harness wired no store (#154).
+- **The field under test is empty by construction.** A `toEqual` over a whole
+  classifier request body passed with the threshold strip removed, because the
+  test had built the request's `questions` map as `{}` (#192). An assertion over
+  a whole structure is only as strong as its emptiest field. When a test builds
+  the input and asserts the output, also assert that the part it covers is
+  non-empty.
+- **An earlier assertion masks the one under test.** An `overflowing(card)`
+  assertion fired before the document-overflow check it sat above (#102). A
+  change meant to break the kind-naming assertion tripped the character budget
+  first (#121). The test went red, but for a different reason.
+
+Checking for these takes a mutation, not reasoning. Break the guard the test
+protects: revert the fix, delete the route, empty the store. Run the named
+test, watch it fail on the assertion you expect, then restore. Record the
+mutation and the failing assertion in the PR.
+
+A "failing first" receipt must fail **for the reason claimed**. A module-load
+error — `SyntaxError: Export named 'X' not found`, because the code under test
+does not exist yet — is not a behavioural failure: three of the five failures
+one PR first presented were load errors (#144). Give the test something to
+load (a stub export that keeps the old behaviour), then show the assertion
+failing. Read which assertion failed: if it is not the one the test is named
+for, reorder or split the assertions until it is.
+
+### A finding is an instance
+
+A review finding is one occurrence of a bug class. Before calling it closed,
+grep the diff, and the file it sits in, for every other instance of the same
+shape. #115 fixed a window that enforced `started_at >= since` with no upper
+bound and left the same missing bound live twelve lines up in `lifetime`, which
+only a second review found. In #136, `localeCompare` survived fifty lines above
+the comment explaining why `breakdown()` had stopped using it.
+
 ## Releasing
 
 **Load the `release` skill (`.agents/skills/release/`) before doing any of
@@ -141,6 +192,29 @@ Two things that are easy to get wrong:
 - **Work found mid-session gets filed, not fixed and not forgotten** — and an
   issue with no acceptance criteria is a note, so do not label it
   `agent-ready`.
+
+Two checks when verifying a PR, because a green check can describe a
+different commit from the one you mean:
+
+- **Green is a claim about a SHA, not about `main`.** A commit pushed to a
+  branch after its PR has merged never reaches `main`. CI never runs on it,
+  and `gh pr checks` keeps reporting the old green run. After merging, confirm
+  that the squash commit is on `main`, and never push to a merged branch:
+
+  ```sh
+  git fetch origin
+  git merge-base --is-ancestor <squash-sha> origin/main && echo on-main
+  ```
+
+- **After a rebase, a green summary can belong to the pre-rebase commit.**
+  Read the checks for the PR's current head, not the latest summary. No rows
+  means CI has not started on that commit, which is not the same as green:
+
+  ```sh
+  sha=$(gh pr view <n> --json headRefOid -q .headRefOid)
+  gh api "repos/schlessera/brain-kit/commits/$sha/check-runs" \
+    --jq '.check_runs[] | "\(.name) \(.status) \(.conclusion)"'
+  ```
 
 ## Repo-local skills
 
