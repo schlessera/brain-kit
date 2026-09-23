@@ -133,7 +133,7 @@ export function makeBridge(
       }
       host.sendToClients(
         withTurnScope(
-          approvalRequestFrame(req),
+          approvalRequestFrame(req, host.toolPermissions !== null),
           turn,
           turnId
         )

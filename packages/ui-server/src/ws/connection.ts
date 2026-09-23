@@ -21,7 +21,7 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
     host.sendMessage(
       ws,
       withTurnScope(
-        approvalRequestFrame(p.request),
+        approvalRequestFrame(p.request, host.toolPermissions !== null),
         p.turn,
         p.turnId
       )

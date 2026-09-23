@@ -312,10 +312,11 @@ describe("the approval frame says whether a grant can be kept", () => {
     const reconnected = fakeClient();
     await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
 
+    expect(cardsIn(client.sent)).toHaveLength(1);
+    expect(cardsIn(reconnected.sent)).toHaveLength(1);
     for (const card of [...cardsIn(client.sent), ...cardsIn(reconnected.sent)]) {
       expect("rememberable" in card).toBe(false);
     }
-    expect(cardsIn(reconnected.sent)).toHaveLength(1);
     controls[0]!.finish();
   });
 });
@@ -487,6 +488,25 @@ describe("a refused always-allow is recorded", () => {
     expect(records).toHaveLength(1);
     expect(records[0]!.attributes.reason).toBe("no grant store configured");
 
+    controls[0]!.finish();
+  });
+
+  test("with no grants store, the card says so on first delivery and on reconnect", async () => {
+    // The store-less host refuses every "always" (above), so its cards must
+    // not offer one — the same rule as the enforced posture, for a different
+    // reason.
+    const { host, controls } = setup([], false);
+    const client = await openTurn(host, controls);
+    void controls[0]!.request({ toolName: "mcp_proxy_tool", input: {}, kind: "tool" }, "t14");
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const reconnected = fakeClient();
+    await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
+
+    const cards = [...client.sent, ...reconnected.sent].filter(
+      (f) => f.type === "tool_approval_request"
+    ) as Array<{ rememberable?: boolean }>;
+    expect(cards).toHaveLength(2);
+    for (const card of cards) expect(card.rememberable).toBe(false);
     controls[0]!.finish();
   });
 
