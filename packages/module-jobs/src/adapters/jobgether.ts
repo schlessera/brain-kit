@@ -90,6 +90,7 @@ export class JobgetherAdapter extends BaseAdapter {
     try {
       if (opts.verbose) console.log(`[jobgether] Fetching: ${API_URL}...`);
 
+      // One page, ten rows: robots.txt wins over POST paging (docs/decisions/scraping-politeness.md).
       const data = await this.http.getJson<JobgetherResponse>(API_URL, {
         delayMs: CRAWL_DELAY_MS,
         proxy: opts.proxy,
