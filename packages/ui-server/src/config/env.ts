@@ -33,6 +33,13 @@ import {
 // --- descriptor -------------------------------------------------------------
 
 /**
+ * The model the built-in Claude profile is pinned to when
+ * `BRAIN_UI_CLAUDE_DEFAULT_MODEL` is unset. Written once: the descriptor
+ * documents it and the resolver applies it, and they used to be two literals.
+ */
+const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+
+/**
  * The shared descriptor contract (sync-enforced copy in ./env-core.ts),
  * under the name this package has always exported. This package's entries
  * use the `string` arm of `required` for conditionally-required variables
@@ -341,7 +348,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_CLAUDE_DEFAULT_MODEL",
     description: "Model the built-in default Claude profile is pinned to.",
-    default: "claude-sonnet-4-6",
+    default: DEFAULT_CLAUDE_MODEL,
     required: false,
   },
   {
@@ -751,7 +758,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       backend: env.AGENT_BACKEND?.trim().toLowerCase() || null,
       confirmBashPatterns: parseConfirmBash(env.BRAIN_UI_CONFIRM_BASH),
       claudeCodePath: env.CLAUDE_CODE_PATH || "/usr/local/bin/claude",
-      defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || "claude-sonnet-4-6",
+      defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || DEFAULT_CLAUDE_MODEL,
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
       modelDiscovery,

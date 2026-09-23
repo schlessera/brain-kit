@@ -13,7 +13,7 @@
 //
 //  2. ALIASES. The API lists some models ONLY under a dated id
 //     (`claude-haiku-4-5-20251001`), while others are undated
-//     (`claude-opus-5`). Showing dated ids is noise, but dropping them loses
+//     (`claude-opus-5-5`). Showing dated ids is noise, but dropping them loses
 //     those models entirely. Stripping the `-YYYYMMDD` suffix yields the public
 //     alias, which the API itself resolves (`GET /v1/models/claude-haiku-4-5`
 //     → 200, canonicalizing back to the dated id). We strip, then confirm the

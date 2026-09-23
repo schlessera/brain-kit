@@ -110,7 +110,7 @@ const failingFetch = (() => {
 describe("canonicalModelId", () => {
   test("strips a dated snapshot suffix and leaves undated ids alone", () => {
     expect(canonicalModelId("claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5");
-    expect(canonicalModelId("claude-opus-5")).toBe("claude-opus-5");
+    expect(canonicalModelId("claude-opus-5-5")).toBe("claude-opus-5-5");
   });
 });
 

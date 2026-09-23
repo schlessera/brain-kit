@@ -204,7 +204,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
 | `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |
-| `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-sonnet-4-6 |
+| `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
 | `BRAIN_UI_COASTLINE` | "0"/"off"/"false" stops the server fetching map geometry. Maps then draw their graticule, pins and scale bar with no coastline, which is still an accurate locator. | enabled |
 | `BRAIN_UI_CONFIRM_BASH` | JSON array of regex sources; a Bash command matching any of them raises a confirmation card before it runs. Unset uses the shipped defaults (brain archive, rm -r, git push --force, git reset --hard, git clean -f, git checkout -- ). An empty array [] disables the confirmation. Not a security boundary — an agent with Bash can reach the same effect another way; it stops a destructive command you did not intend, not one that is trying to get past you. | the shipped pattern set |

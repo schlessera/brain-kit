@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { resolveCronConfig, resolveServerConfig, subprocessEnv } from "../src/config/env";
+import { ENV_VARS, resolveCronConfig, resolveServerConfig, subprocessEnv } from "../src/config/env";
 
 const SUBPROCESS_KEYS = [
   "COOKIE_SECRET",
@@ -169,5 +169,25 @@ describe("config/env resolveServerConfig flags", () => {
       resolveServerConfig({ BRAIN_UI_MODEL_DISCOVERY: "banana", NODE_ENV: "test" }).agent
         .modelDiscovery
     ).toBe(false);
+  });
+});
+
+describe("config/env default Claude model", () => {
+  const declared = () =>
+    ENV_VARS.find((v) => v.name === "BRAIN_UI_CLAUDE_DEFAULT_MODEL")!.default;
+
+  test("unset resolves to Claude Opus 5.5", () => {
+    expect(resolveServerConfig({}).agent.defaultModel).toBe("claude-opus-5-5");
+  });
+
+  test("the resolver's fallback is the declared default, so the two cannot drift", () => {
+    expect(resolveServerConfig({}).agent.defaultModel).toBe(declared()!);
+    expect(resolveServerConfig({ BRAIN_UI_CLAUDE_DEFAULT_MODEL: "  " }).agent.defaultModel).toBe(declared()!);
+  });
+
+  test("the variable still overrides it", () => {
+    expect(
+      resolveServerConfig({ BRAIN_UI_CLAUDE_DEFAULT_MODEL: "claude-sonnet-5" }).agent.defaultModel
+    ).toBe("claude-sonnet-5");
   });
 });
