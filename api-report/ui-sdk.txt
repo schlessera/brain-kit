@@ -817,6 +817,7 @@ export "./server" (./src/server/index.ts)
   STEPS_BLOCK_SCHEMA
   SUBPROCESS_ENV
   SUBSCRIPTION_AUTH_INSTRUCTIONS
+  SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest

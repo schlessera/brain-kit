@@ -622,8 +622,9 @@ subscription authenticates.
    (`BRAIN_UI_CLAUDE_TOKEN_MINTED_AT`), the server warns from 30 days before
    the measured one-year expiry, and `/api/status` shows when the token last
    worked. Every auth failure also becomes an instruction: `relogin` for a
-   rejected token, `check_account` for an account the token cannot fix. A
-   keyless test rehearses the rotation on a headless host.
+   rejected token, `check_account` for an account the token cannot fix, and
+   `check_config` for a turn the backend refused before sending it. A keyless
+   test rehearses the rotation on a headless host.
 
 The follow-up issues from the first half of this record gained acceptance
 criteria so none of them can regress this: #209's probe covers the precedence

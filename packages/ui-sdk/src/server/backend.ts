@@ -241,34 +241,46 @@ export type BackendActivityEvent =
 
 /**
  * What an operator does about a subscription auth failure (#254): mint a new
- * token, or look at the account itself, which a new token will not fix.
+ * token; look at the account itself, which a new token will not fix; or fix
+ * the host's Claude configuration, which kept the turn off the subscription
+ * before anything was sent.
  *
  * @experimental
  */
-export type SubscriptionAuthAction = "relogin" | "check_account";
+export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
+
+/** @experimental How to mint and install a new subscription token. */
+export const SUBSCRIPTION_RELOGIN_PROCEDURE =
+  "Mint a new token with `claude setup-token` on a machine with a browser, put it in the host's secret store as " +
+  "CLAUDE_CODE_OAUTH_TOKEN with today's date as BRAIN_UI_CLAUDE_TOKEN_MINTED_AT, and redeploy " +
+  '(docs/hosting/README.md, "Claude subscription login").';
 
 /** @experimental The instruction an operator is given for each action. */
 export const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>> = Object.freeze({
-  relogin:
-    "The Claude subscription token was rejected. Mint a new one with `claude setup-token` on a machine " +
-    "with a browser, put it in the host's secret store as CLAUDE_CODE_OAUTH_TOKEN with today's date as " +
-    'BRAIN_UI_CLAUDE_TOKEN_MINTED_AT, and redeploy (docs/hosting/README.md, "Claude subscription login").',
+  relogin: `The Claude subscription token was rejected. ${SUBSCRIPTION_RELOGIN_PROCEDURE}`,
   check_account:
     "The Claude account itself was refused (organisation not allowed, account on hold, or billing). " +
     "A new token will not help: check the account at claude.ai, then send a turn to confirm.",
+  check_config:
+    "Claude Code was not set to run on the subscription, so the turn was refused before anything was sent. " +
+    "Check that CLAUDE_CODE_OAUTH_TOKEN is set, and that no Claude settings on the host select another " +
+    "credential or provider (apiKeyHelper, policyHelper, a stored API key, a third-party provider). The " +
+    "refusal names which.",
 });
 
 const ACCOUNT_CLASSES: ReadonlySet<string> = new Set(["oauth_org_not_allowed", "account_on_hold", "billing_error"]);
 
 /**
  * The action for an auth failure class: the account classes need the account
- * looked at; anything else — a rejected token, or no usable subscription
- * credential at all — needs a new token.
+ * looked at; `subscription_required` (the backend refused the turn before
+ * sending it) needs the configuration fixed; anything else — a rejected
+ * token — needs a new token.
  *
  * @experimental
  */
 export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction {
-  return ACCOUNT_CLASSES.has(errorClass) ? "check_account" : "relogin";
+  if (ACCOUNT_CLASSES.has(errorClass)) return "check_account";
+  return errorClass === "subscription_required" ? "check_config" : "relogin";
 }
 
 export interface StartTurnRequest {

@@ -17,6 +17,7 @@ export {
   BackendBusyError,
   BackendRequestError,
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
+  SUBSCRIPTION_RELOGIN_PROCEDURE,
   assertTurnPosture,
   subscriptionAuthAction,
 } from "./backend.js";

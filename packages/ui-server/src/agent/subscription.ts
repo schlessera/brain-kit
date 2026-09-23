@@ -13,13 +13,14 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
+  SUBSCRIPTION_RELOGIN_PROCEDURE,
   type BackendModelSourceState,
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { SubscriptionConfig } from "../config/env.js";
+import { getSetting, setSetting } from "../db/settings.js";
 
 export const MINTED_AT_ENV = "BRAIN_UI_CLAUDE_TOKEN_MINTED_AT";
 
@@ -104,15 +105,20 @@ export interface SubscriptionMonitorOptions {
 }
 
 export interface SubscriptionMonitor {
-  /** The expiry check, run hourly; warns at most once a day. */
+  /** The hourly pass: keeps the last proof, and warns about expiry at most once a day. */
   tick(): void;
   status(): Promise<SubscriptionStatus>;
   close(): void;
 }
 
+/** Where the last proof is kept once it is read, so detail retention cannot take it. */
+export const LAST_PROVEN_SETTING = "subscription.lastProvenTurnAt";
+
 /**
  * The last successful root turn that ran on the subscription, from the
- * activity store: it survives a restart, unlike anything held in memory.
+ * activity store: it survives a restart, unlike anything held in memory. The
+ * store prunes span detail after its retention window, so every read also
+ * keeps the answer in the settings table, and the later of the two wins.
  */
 export function lastSubscriptionTurnAt(db: Database): number | null {
   const row = db
@@ -122,7 +128,13 @@ export function lastSubscriptionTurnAt(db: Database): number | null {
          AND json_extract(attrs, '$."brain.billing_observed"') = 'subscription'`
     )
     .get() as { at: number | null } | null;
-  return row?.at ?? null;
+  const fromSpans = row?.at ?? null;
+  const kept = getSetting<number | null>(db, LAST_PROVEN_SETTING, null);
+  if (fromSpans !== null && (kept === null || fromSpans > kept)) {
+    setSetting(db, LAST_PROVEN_SETTING, fromSpans);
+    return fromSpans;
+  }
+  return kept;
 }
 
 /**
@@ -135,6 +147,12 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
   const mintedAt = parseMintedAt(config.mintedAt, now());
   const expiresAt = mintedAt ? new Date(mintedAt.getTime() + TOKEN_LIFETIME_MS) : null;
   let lastWarnedAt: number | null = null;
+
+  /** The hourly pass: keep the proof ahead of retention, then the expiry check. */
+  function hourly(): void {
+    lastSubscriptionTurnAt(options.db);
+    checkExpiry();
+  }
 
   function checkExpiry(): void {
     if (!config.tokenSet || !expiresAt) return;
@@ -150,7 +168,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
         (left <= 0
           ? `The Claude subscription token expired on ${when}. `
           : `The Claude subscription token expires on ${when}, in ${Math.ceil(left / DAY_MS)} days. `) +
-        SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin,
+        SUBSCRIPTION_RELOGIN_PROCEDURE,
       attributes: { "subscription.expires_at": expiresAt.toISOString(), "auth.action": "relogin" },
     });
   }
@@ -174,10 +192,10 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
       if (typeof timer === "object" && "unref" in timer) timer.unref();
       return () => clearInterval(timer);
     });
-  const cancel = every(checkExpiry, 60 * 60 * 1000);
+  const cancel = every(hourly, 60 * 60 * 1000);
 
   return {
-    tick: checkExpiry,
+    tick: hourly,
     async status() {
       const discovery = await options
         .modelSource()

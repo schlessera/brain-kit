@@ -105,7 +105,11 @@ describe("the expiry warning", () => {
   test("warns once at boot for a token minted 340 days ago", () => {
     const m = monitorWith({ tokenSet: true, mintedAt: daysBefore(340) });
     expect(warnings(m.observability, "expires on")).toHaveLength(1);
-    expect(warnings(m.observability, "expires on")[0]).toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin);
+    const [warning] = warnings(m.observability, "expires on");
+    // The procedure, and no claim that anything was rejected: nothing was tried.
+    expect(warning).toContain("claude setup-token");
+    expect(warning).toContain(MINTED_AT_ENV);
+    expect(warning).not.toContain("rejected");
     m.close();
   });
 
@@ -293,6 +297,24 @@ describe("/api/status's subscription", () => {
     }
   });
 
+  test("the last proof outlives the span detail it was read from", async () => {
+    const at = host();
+    const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    await turn(first.app);
+    const proven = (await status(first.app)).subscription.lastProvenAt;
+    expect(proven).not.toBeNull();
+    // What detail retention does to a digested run after its window.
+    first.app.db.run("DELETE FROM activity_spans");
+    first.app.close();
+
+    const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
+    try {
+      expect((await status(second.app)).subscription.lastProvenAt).toBe(proven);
+    } finally {
+      second.app.close();
+    }
+  });
+
   test("a turn that ran on an API key proves nothing about the subscription", async () => {
     const at = host();
     const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
@@ -312,6 +334,8 @@ describe("/api/status's subscription", () => {
     ["oauth_org_not_allowed", "check_account"],
     ["account_on_hold", "check_account"],
     ["billing_error", "check_account"],
+    // Refused before sending: a configuration a new token would not fix.
+    ["subscription_required", "check_config"],
   ] as const) {
     test(`a turn failing with ${errorClass} says ${action}, on the status and in one WARN`, async () => {
       const at = host();
@@ -323,6 +347,10 @@ describe("/api/status's subscription", () => {
         const found = warnings(observability, `failed to authenticate (${errorClass})`);
         expect(found).toHaveLength(1);
         expect(found[0]).toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS[action]);
+        // The instruction says what to do, in words an operator can act on.
+        expect(found[0]).toContain(
+          { relogin: "claude setup-token", check_account: "claude.ai", check_config: "apiKeyHelper" }[action]
+        );
       } finally {
         app.close();
       }

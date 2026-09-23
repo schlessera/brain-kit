@@ -164,9 +164,9 @@ What the server does between logins:
   procedure. Without `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` it cannot tell, and says
   so once at boot. A date it cannot read refuses the boot.
 - **Proof it works.** `lastProvenAt` is the latest successful turn that ran on
-  the subscription (kept in the database, so it survives a restart), or a
-  successful model-discovery call with the token, whichever is later. Model
-  discovery costs no usage.
+  the subscription (kept in the database, so it survives a restart and the
+  activity retention window), or a successful model-discovery call with the
+  token in this process, whichever is later. Model discovery costs no usage.
 - **When it stops working.** Every auth failure logs one WARN with an
   instruction, and `/api/status`'s `subscription.lastAuthFailure.action` carries
   the same:
@@ -175,6 +175,13 @@ What the server does between logins:
   - `check_account`: the account itself was refused (`oauth_org_not_allowed`,
     `account_on_hold`, `billing_error`). A new token will not help; look at the
     account at claude.ai.
+  - `check_config`: the server refused the turn before sending anything,
+    because Claude Code was not set to run on the subscription
+    (`subscription_required`): the token is missing, or a Claude setting on the
+    host selects another credential or provider. The refusal names which.
+
+  A failure on a profile that declares its own credential is that profile's
+  and does not appear under `subscription`.
 
 `claude auth status` is not a liveness check: it reports any well-formed token
 as logged in. `/api/status` is the check.
