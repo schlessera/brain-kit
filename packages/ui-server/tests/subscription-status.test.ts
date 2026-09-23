@@ -16,6 +16,7 @@ import {
   filterSubprocessEnv,
   type BackendActivityEvent,
   type BackendBridge,
+  type BackendModelSource,
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
@@ -169,7 +170,8 @@ describe("the expiry warning", () => {
     } as unknown as ReturnType<typeof createUiDb>;
     const scheduled: Array<() => void> = [];
     const monitor = createSubscriptionMonitor({
-      config: { tokenSet: true, mintedAt: daysBefore(10) },
+      // Inside the warning window: the failing database must not silence it.
+      config: { tokenSet: true, mintedAt: daysBefore(340) },
       log: observability.logger("agent"),
       db: broken,
       lastTurnFailure: () => undefined,
@@ -182,6 +184,7 @@ describe("the expiry warning", () => {
     });
     expect(() => scheduled[0]!()).not.toThrow();
     expect(warnings(observability, "subscription check failed").length).toBeGreaterThanOrEqual(2);
+    expect(warnings(observability, "expires on")).toHaveLength(1);
     monitor.close();
   });
 
@@ -217,7 +220,8 @@ function boot(
   at: Host,
   env: Record<string, string>,
   script: Script = () => {},
-  observability = createRecordingObservability()
+  observability = createRecordingObservability(),
+  modelSource: BackendModelSource | null = null
 ): { app: BrainUiApp; observability: RecordingObservability } {
   const config = resolveServerConfig({
     AUTH_MODE: "none",
@@ -238,7 +242,7 @@ function boot(
   const app = createApp({
     config,
     observability,
-    registry: createStaticBackendRegistry([backend], backend.id),
+    registry: createStaticBackendRegistry([backend], backend.id, { modelSource }),
   });
   return { app, observability };
 }
@@ -468,6 +472,49 @@ describe("/api/status's subscription", () => {
       await Bun.sleep(5);
       fail = true;
       await turn(app);
+      expect((await status(app)).subscription.lastProvenAt).toBe(proven);
+    } finally {
+      app.close();
+    }
+  });
+
+  test("model discovery's proof and refusal reach the route", async () => {
+    const state: ReturnType<BackendModelSource["state"]> = { enabled: true, refreshedAt: null, stale: false };
+    const source: BackendModelSource = { list: () => [], state: () => state, ensureFresh: async () => {}, refresh: async () => {} };
+    const at = host();
+    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, undefined, undefined, source);
+    try {
+      state.subscriptionProvenAt = Date.parse("2026-09-20T10:00:00Z");
+      expect((await status(app)).subscription).toMatchObject({
+        lastProvenAt: "2026-09-20T10:00:00.000Z",
+        provenBy: "model_discovery",
+      });
+      state.subscriptionRefused = { status: 401, at: Date.parse("2026-09-21T10:00:00Z") };
+      expect((await status(app)).subscription.lastAuthFailure).toMatchObject({
+        action: "relogin",
+        source: "model_discovery",
+        at: "2026-09-21T10:00:00.000Z",
+      });
+    } finally {
+      app.close();
+    }
+  });
+
+  test("only a root turn counts, not a later successful child or cron span", async () => {
+    const at = host();
+    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    try {
+      await turn(app);
+      const proven = (await status(app)).subscription.lastProvenAt;
+      expect(proven).not.toBeNull();
+      const later = Date.parse(proven!) + 60_000;
+      const attrs = JSON.stringify({ "brain.billing_observed": "subscription" });
+      const insert = app.db.prepare(
+        `INSERT INTO activity_spans (span_id, run_id, parent_span_id, name, kind, origin, attrs, started_at, ended_at, outcome, writer)
+         VALUES (?, ?, ?, 'x', ?, ?, ?, ?, ?, 'success', 'test')`
+      );
+      insert.run("child", "run-x", "run-x:turn", "turn", "session", attrs, later, later);
+      insert.run("job", "run-y", null, "cron", "cron", attrs, later, later);
       expect((await status(app)).subscription.lastProvenAt).toBe(proven);
     } finally {
       app.close();

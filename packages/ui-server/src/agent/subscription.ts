@@ -156,9 +156,15 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
    * may escape and take the server down.
    */
   function hourly(): void {
+    guarded(() => lastSubscriptionTurnAt(options.db));
+    // Needs only the configuration and the clock: a database that fails
+    // above must not also silence the warning.
+    guarded(checkExpiry);
+  }
+
+  function guarded(step: () => unknown): void {
     try {
-      lastSubscriptionTurnAt(options.db);
-      checkExpiry();
+      step();
     } catch (error) {
       log.emit({
         severityText: "WARN",
