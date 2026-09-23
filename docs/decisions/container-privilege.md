@@ -97,7 +97,7 @@ persistent binds (`[brain-ui] docs/examples/docker-compose.coolify.yml:40-45`).
 | `/etc/cron.d/brain-ui` | `root:root` | `0644` | no; regenerated | Validated crontab. Lines run as `brain`, replacing current `CRONTAB_USER=root` (`[brain-ui] scripts/entrypoint.sh:194-210`). |
 | `/etc/environment` | `root:root` | `0600` | no; regenerated | Cron's secret-bearing allowlist. Root cron reads it before dropping to the job user; neither runtime user may read it. Current generation is `[brain-ui] scripts/entrypoint.sh:212-232`. |
 | `/run/supervisord.pid`, cron/syslog runtime files | `root:root` | service defaults | no | Supervisor, cron and syslog remain root control processes; only the app child changes uid. |
-| `/tmp/brain-activity-sink-*` | `brain:brain` initially, child append access explicitly granted | `0660` | no | Cron recorder creates and later ingests the span sink (`const sinkPath`, `packages/ui-server/src/cron/run-job.ts:218-224`). Creation must be race-safe (`open(O_CREAT|O_EXCL|O_NOFOLLOW)`) before its path reaches an `agent` child. |
+| `/tmp/brain-activity-sink-*` | `brain:brain` initially, child append access explicitly granted | `0660` | no | Cron recorder creates and later ingests the span sink (`const sinkPath`, `packages/ui-server/src/cron/run-job.ts:211-217`). Creation must be race-safe (`open(O_CREAT|O_EXCL|O_NOFOLLOW)`) before its path reaches an `agent` child. |
 | `/usr/bin/google-chrome-stable` and `/opt/google/chrome/chrome-sandbox` | `root:root` | `0755` and `4755` | no | Chrome runs as `brain`; the distro's setuid sandbox helper must retain its bit. The renderer adds no sandbox-disabling args by default (`createRenderer`, `packages/ui-render-puppeteer/src/renderer.ts:130-165`). |
 
 The app tree and toolchain are executable, never mutable, by either runtime
@@ -401,7 +401,7 @@ command it launches is stripped again before the helper drops to `agent`.
 | --- | --- | --- |
 | `PATH` | cron, agent, brainCli | Keep, but synthesize the fixed owned-only path from section 2. Never copy an ambient path. |
 | `BRAIN_PATH` | cron, agent, brainCli | Keep; non-secret and required as cwd/root. |
-| `NODE_ENV` | cron, agent, brainCli | Keep in the descriptor; retain the existing explicit cron exclusion until 0.33.1 decides its `.env.production` behavior (`CRON_ENV_EXCLUSIONS`, `packages/ui-server/src/cron/emit.ts:171`). |
+| `NODE_ENV` | cron, agent, brainCli | Keep in the descriptor; retain the existing explicit cron exclusion until 0.33.1 decides its `.env.production` behavior (`CRON_ENV_EXCLUSIONS`, `packages/ui-server/src/cron/emit.ts:185`). |
 | `TZ` | cron, agent, brainCli | Keep. |
 | `HOME` | agent, brainCli | Keep; helper overwrites it with `/home/agent`. |
 | `PI_CODING_AGENT_DIR` | agent | **Change to none/server-only.** With pi retained in-process it points inside `/data/db/pi`; the restricted shell neither needs nor may traverse that state. This is currently exposed to agent children and should not be. |
