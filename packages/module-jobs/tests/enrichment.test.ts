@@ -25,10 +25,10 @@ import {
 import { BuiltInAdapter } from "../src/adapters/builtin";
 import type { BrowserJobRecord } from "../src/adapters/browser-base";
 import { openDatabase } from "../src/db";
-import { DEFAULT_DETAIL_DELAY_MS, createEnricher } from "../src/enrich";
+import { DEFAULT_DETAIL_DELAY_MS, createEnricher, type BoardEnrichment } from "../src/enrich";
 import { jobsFromJsonLd } from "../src/jsonld";
 import { setReviewStatus } from "../src/review";
-import { ingestJobs } from "../src/scrape";
+import { getAdapter, ingestJobs } from "../src/scrape";
 import { autoClassify, loadScoringConfig, scoreNewJobs } from "../src/score";
 import type { RawJob, Source } from "../src/types";
 
@@ -48,6 +48,24 @@ function detailPage(description: string): string {
 
 function job(source: Source, url: string, extra: Partial<RawJob> = {}): RawJob {
   return { source, source_id: url, title: "Platform Engineer", company: "Example Corp", url, source_url: url, ...extra };
+}
+
+/**
+ * The enricher, with `detailHosts` defaulting to the hosts the rows point at.
+ * Tests about which hosts may be followed pass their own.
+ */
+function enricherFor(http: Parameters<typeof createEnricher>[0], config?: Parameters<typeof createEnricher>[1]) {
+  const enricher = createEnricher(http, config);
+  const withHosts = (board: BoardEnrichment): BoardEnrichment => ({
+    ...board,
+    detailHosts:
+      board.detailHosts ??
+      board.jobs.flatMap((row) => (row.source_url?.startsWith("http") ? [new URL(row.source_url).hostname] : [])),
+  });
+  return {
+    enrich: (board: BoardEnrichment) => enricher.enrich(withHosts(board)),
+    enrichAll: (boards: BoardEnrichment[]) => enricher.enrichAll(boards.map(withHosts)),
+  };
 }
 
 /** An HTTP client that answers `getPage` from a function and records calls. */
@@ -95,7 +113,13 @@ describe("each board's stored rows carry the description its detail page has", (
 
       const http = stubHttp((url) => (url === capture.url ? html : new Error(`unexpected ${url}`)));
       const rows = [job(capture.source, capture.url)];
-      const stats = await createEnricher(http).enrich({ source: capture.source, name: capture.source, jobs: rows });
+      // The adapter's own declared hosts, so a capture URL off them fails here.
+      const stats = await enricherFor(http).enrich({
+        source: capture.source,
+        name: capture.source,
+        jobs: rows,
+        detailHosts: getAdapter(capture.source).detailHosts ?? [],
+      });
 
       expect(stats).toMatchObject({ enriched: 1, failed: 0, truncated: 0 });
       const db = openDatabase(":memory:");
@@ -117,6 +141,29 @@ describe("each board's stored rows carry the description its detail page has", (
     const window = new Window({ url: "https://builtin.com/jobs/remote" });
     window.document.body.innerHTML =
       read("boards", "builtin", "rendered-card.html") + read("boards", "builtin", "listing-jsonld.html");
+    const globals = globalThis as unknown as { document: unknown };
+    const saved = globals.document;
+    globals.document = window.document;
+    let records: BrowserJobRecord[];
+    try {
+      records = (new BuiltInAdapter() as unknown as { extract(): BrowserJobRecord[] }).extract();
+    } finally {
+      globals.document = saved;
+      window.close();
+    }
+
+    expect(records).toHaveLength(1);
+    expect(records[0].description).toStartWith("Architect and operate scalable backend systems");
+  });
+
+  test("builtin: a malformed ItemList entry costs that entry, not the page", () => {
+    const listing = read("boards", "builtin", "listing-jsonld.html").replace(
+      '"itemListElement": [',
+      '"itemListElement": [null, 7, {"item": null},'
+    );
+    expect(listing).toContain("[null, 7,");
+    const window = new Window({ url: "https://builtin.com/jobs/remote" });
+    window.document.body.innerHTML = read("boards", "builtin", "rendered-card.html") + listing;
     const globals = globalThis as unknown as { document: unknown };
     const saved = globals.document;
     globals.document = window.document;
@@ -164,7 +211,7 @@ describe("rows that need no detail page are not fetched", () => {
     const http = stubHttp(() => new Error("must not fetch"));
     const rows = [job("remoteok", "https://remoteok.example/1", { description: "<p>From the feed.</p>" })];
 
-    const stats = await createEnricher(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
+    const stats = await enricherFor(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
 
     expect(http.requests).toEqual([]);
     expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
@@ -175,7 +222,7 @@ describe("rows that need no detail page are not fetched", () => {
     const http = stubHttp(() => detailPage("Fetched."));
     const rows = [job("dice", "https://dice.example/1"), job("dice", "https://dice.example/2")];
 
-    const stats = await createEnricher(http, { maxDetailPages: 1 }).enrich({
+    const stats = await enricherFor(http, { maxDetailPages: 1 }).enrich({
       source: "dice",
       name: "Dice",
       jobs: rows,
@@ -192,17 +239,65 @@ describe("rows that need no detail page are not fetched", () => {
     const http = stubHttp(() => detailPage("From an ATS."));
     const rows = [job("remoteok", "https://ats.example/apply/1", { source_url: undefined })];
 
-    const stats = await createEnricher(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
+    const stats = await enricherFor(http).enrich({ source: "remoteok", name: "RemoteOK", jobs: rows });
 
     expect(http.requests).toEqual([]);
     expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
+  });
+
+  test("a row whose source_url is off the board's hosts is not followed", async () => {
+    const http = stubHttp(() => detailPage("From elsewhere."));
+    const stats = await enricherFor(http).enrich({
+      source: "jobgether",
+      name: "Jobgether",
+      jobs: [job("jobgether", "https://ats.example/apply/1")],
+      detailHosts: ["jobgether.com"],
+    });
+
+    expect(http.requests).toEqual([]);
+    expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
+  });
+
+  test("a board that names no detail hosts is never enriched", async () => {
+    const http = stubHttp(() => detailPage("Fetched."));
+    const stats = await createEnricher(http).enrich({
+      source: "remoteok",
+      name: "RemoteOK",
+      jobs: [job("remoteok", "https://remoteok.com/remote-jobs/1")],
+    });
+
+    expect(http.requests).toEqual([]);
+    expect(stats.enriched).toBe(0);
+  });
+
+  test("a posting that has a description on any of its rows is not fetched for another", async () => {
+    // The upsert applies rows in order, so a fetched description on the
+    // second row would overwrite the feed's on the first.
+    const http = stubHttp(() => detailPage("Detail replacement."));
+    const rows = [
+      job("jobgether", "https://jobgether.example/offer/1", { description: "Original feed description." }),
+      job("jobgether", "https://jobgether.example/offer/1"),
+    ];
+
+    await enricherFor(http).enrich({ source: "jobgether", name: "Jobgether", jobs: rows });
+
+    expect(http.requests).toEqual([]);
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, rows);
+      expect(db.query("SELECT description_text FROM jobs").get()).toEqual({
+        description_text: "Original feed description.",
+      });
+    } finally {
+      db.close();
+    }
   });
 
   test("two rows for one posting cost one request and count once", async () => {
     const http = stubHttp(() => detailPage("Fetched once."));
     const rows = [job("jobgether", "https://jobgether.example/offer/1"), job("jobgether", "https://jobgether.example/offer/1")];
 
-    const stats = await createEnricher(http, { maxDetailPages: 1 }).enrich({
+    const stats = await enricherFor(http, { maxDetailPages: 1 }).enrich({
       source: "jobgether",
       name: "Jobgether",
       jobs: [...rows, job("jobgether", "https://jobgether.example/offer/2")],
@@ -219,7 +314,7 @@ describe("rows that need no detail page are not fetched", () => {
       job("dice", "https://ats.example/apply/1", { source_url: "https://dice.example/job/1" }),
     ];
 
-    await createEnricher(http).enrich({ source: "dice", name: "Dice", jobs: rows });
+    await enricherFor(http).enrich({ source: "dice", name: "Dice", jobs: rows });
 
     expect(http.requests.map((r) => r.url)).toEqual(["https://dice.example/job/1"]);
   });
@@ -242,7 +337,7 @@ describe("concurrency is bounded and configurable", () => {
     });
     const rows = Array.from({ length: 7 }, (_, i) => job("nodesk", `https://host${i}.example/job`));
 
-    const stats = await createEnricher(http, { concurrency }).enrich({ source: "nodesk", name: "NoDesk", jobs: rows });
+    const stats = await enricherFor(http, { concurrency }).enrich({ source: "nodesk", name: "NoDesk", jobs: rows });
     return { max, done: stats.enriched };
   }
 
@@ -264,7 +359,7 @@ describe("concurrency is bounded and configurable", () => {
       inFlight--;
       return detailPage("Fetched.");
     });
-    const enricher = createEnricher(http, { concurrency: 2 });
+    const enricher = enricherFor(http, { concurrency: 2 });
     const board = (source: Source) =>
       enricher.enrich({
         source,
@@ -282,7 +377,7 @@ describe("the per-run cap is reported when it truncates", () => {
     const http = stubHttp(() => detailPage("Fetched."));
     const rows = Array.from({ length: 5 }, (_, i) => job("dice", `https://dice.example/${i}`));
 
-    const stats = await createEnricher(http, { maxDetailPages: 2 }).enrich({ source: "dice", name: "Dice", jobs: rows });
+    const stats = await enricherFor(http, { maxDetailPages: 2 }).enrich({ source: "dice", name: "Dice", jobs: rows });
 
     expect(http.requests).toHaveLength(2);
     expect(stats).toMatchObject({ enriched: 2, failed: 0, truncated: 3 });
@@ -297,7 +392,7 @@ describe("the per-run cap is reported when it truncates", () => {
 
   test("the cap is one budget for the whole run, not one per board", async () => {
     const http = stubHttp(() => detailPage("Fetched."));
-    const enricher = createEnricher(http, { maxDetailPages: 3 });
+    const enricher = enricherFor(http, { maxDetailPages: 3 });
     const rows = (source: Source) => [job(source, `https://${source}.example/1`), job(source, `https://${source}.example/2`)];
 
     const first = await enricher.enrich({ source: "dice", name: "Dice", jobs: rows("dice") });
@@ -315,7 +410,7 @@ describe("the per-run cap is reported when it truncates", () => {
     const rows = (source: Source, n: number) =>
       Array.from({ length: n }, (_, i) => job(source, `https://${source}.example/${i}`));
 
-    const stats = await createEnricher(http, { maxDetailPages: 4 }).enrichAll([
+    const stats = await enricherFor(http, { maxDetailPages: 4 }).enrichAll([
       { source: "remotelyde", name: "Remotely.de", jobs: rows("remotelyde", 5) },
       { source: "dice", name: "Dice", jobs: rows("dice", 1) },
       { source: "nodesk", name: "NoDesk", jobs: rows("nodesk", 3) },
@@ -332,7 +427,7 @@ describe("the per-run cap is reported when it truncates", () => {
     // Off is a setting, not a truncation: a run configured not to enrich does
     // not report every row as left behind.
     const http = stubHttp(() => detailPage("Fetched."));
-    const stats = await createEnricher(http, { maxDetailPages: 0 }).enrich({
+    const stats = await enricherFor(http, { maxDetailPages: 0 }).enrich({
       source: "dice",
       name: "Dice",
       jobs: [job("dice", "https://dice.example/1")],
@@ -347,6 +442,28 @@ describe("the per-run cap is reported when it truncates", () => {
 // 4. Failures
 // ---------------------------------------------------------------------------
 
+describe("the description is stored as the page served it, stripped once", () => {
+  test("escaped angle brackets in the text survive", async () => {
+    // Stripping at extraction AND at ingest decodes `&lt;10ms` into a
+    // tag-shaped `<10ms …>` that the second strip deletes, with the words in
+    // between — the keywords scoring reads.
+    const http = stubHttp(() =>
+      detailPage("<p>latency &lt;10ms for distributed systems with throughput &gt;1000 req/s</p>")
+    );
+    const rows = [job("dice", "https://dice.example/job/1")];
+    await enricherFor(http).enrich({ source: "dice", name: "Dice", jobs: rows });
+
+    const db = openDatabase(":memory:");
+    try {
+      ingestJobs(db, rows);
+      const { description_text } = db.query("SELECT description_text FROM jobs").get() as { description_text: string };
+      expect(description_text).toContain("<10ms for distributed systems with throughput >1000 req/s");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("enrichment failures are counted, and lose nothing", () => {
   test("a failure is quoted by its cause, not by the error page it carried", async () => {
     // `ScrapeClient.getPage` puts the whole response body in its error; a
@@ -354,7 +471,7 @@ describe("enrichment failures are counted, and lose nothing", () => {
     const http = stubHttp(
       () => new Error(`HTTP 404 from https://nodesk.example/x: <!doctype html><html>${"x".repeat(5000)}</html>`)
     );
-    const stats = await createEnricher(http).enrich({
+    const stats = await enricherFor(http).enrich({
       source: "nodesk",
       name: "NoDesk",
       jobs: [job("nodesk", "https://nodesk.example/x")],
@@ -377,7 +494,7 @@ describe("enrichment failures are counted, and lose nothing", () => {
       job("simplyhired", "https://simplyhired.example/good"),
     ];
 
-    const stats = await createEnricher(http).enrich({ source: "simplyhired", name: "SimplyHired", jobs: rows });
+    const stats = await enricherFor(http).enrich({ source: "simplyhired", name: "SimplyHired", jobs: rows });
 
     expect(stats).toMatchObject({ enriched: 1, failed: 2, truncated: 0 });
     expect(stats.errors).toHaveLength(1);
@@ -514,7 +631,7 @@ describe("per-host pacing holds with enrichment on", () => {
       for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => setImmediate(resolve));
     };
 
-    const run = createEnricher(http, { concurrency: 3 }).enrich({
+    const run = enricherFor(http, { concurrency: 3 }).enrich({
       source: "dice",
       name: "Dice",
       jobs: rows,

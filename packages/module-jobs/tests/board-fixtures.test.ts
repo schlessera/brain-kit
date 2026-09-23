@@ -40,7 +40,7 @@ import type { BaseAdapter } from "../src/adapters/base";
 import { openDatabase } from "../src/db";
 import { runDedup } from "../src/dedup";
 import { createEnricher } from "../src/enrich";
-import { ingestJobs } from "../src/scrape";
+import { getAdapter, ingestJobs } from "../src/scrape";
 import { ALL_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "boards");
@@ -538,7 +538,7 @@ describe("builtin's rendered card", () => {
     const $ = parseHtml(fixture("builtin", "rendered-card.html"));
     const link = $('a[href*="/job/"]').first();
     expect(link.length).toBe(1);
-    // src/adapters/builtin.ts:44 asks for closest('[class*="job"], [class*="card"], …'),
+    // src/adapters/builtin.ts:86 asks for closest('[class*="job"], [class*="card"], …'),
     // and Element.closest() starts at the element itself.
     expect(link.attr("class")).toContain("card");
     // Meanwhile the company is sitting behind a stable selector, contrary to
@@ -730,6 +730,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
    * the jobs table holds.
    */
   async function enrichAndStore(rows: RawJob[], source: RawJob["source"], detailHtml: string | null, host: string) {
+    const detailHosts = getAdapter(source).detailHosts ?? [];
     const requests: string[] = [];
     const http = {
       async getPage(url: string): Promise<FetchedPage> {
@@ -739,7 +740,13 @@ describe("each board's own rows, followed to their detail page, are stored with 
         return { body: detailHtml, url };
       },
     };
-    const stats = await createEnricher(http).enrich({ source, name: source, jobs: rows });
+    const stats = await createEnricher(http).enrich({ source, name: source, jobs: rows, detailHosts });
+    // Each row's own posting page on the board: not the board's home page,
+    // not an apply link, and not one page for all of them.
+    if (detailHtml !== null) {
+      expect([...requests].sort()).toEqual([...new Set(rows.map((row) => row.source_url!))].sort());
+      for (const url of requests) expect(new URL(url).pathname.length).toBeGreaterThan(5);
+    }
     const db = openDatabase(":memory:");
     try {
       ingestJobs(db, rows);

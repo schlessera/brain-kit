@@ -84,6 +84,8 @@ export class JobgetherAdapter extends BaseAdapter {
   readonly source = "jobgether" as const;
   readonly name = "Jobgether";
   readonly tier = 2 as const;
+  /** Its job pages, which detail-page enrichment may follow (#36). */
+  override readonly detailHosts = ["jobgether.com"];
   /** The same misplaced `Crawl-delay: 2` applies to its offer pages (#36). */
   override readonly detailFetchOptions = { delayMs: CRAWL_DELAY_MS };
 

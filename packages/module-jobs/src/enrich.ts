@@ -9,12 +9,15 @@
  *   RemoteOK, Remotive, Working Nomads and We Work Remotely feeds) is kept, and
  *   so is one an earlier run stored: the upsert keeps it over a null, so
  *   fetching the page again would spend a request and the cap on nothing.
- * - **The board's own page, and only that.** `source_url`, which every
- *   adapter sets to the posting on its board. Never `url`: on boards that
- *   have one it is the apply link, somebody else's site, and a row whose
- *   only link is that is left alone rather than followed off the board.
- * - **Once per posting.** Two rows with the same `(source, source_id)` are
- *   one stored row, so they cost one request and count once.
+ * - **The board's own page, and only that.** `source_url`, and only when its
+ *   host is one the adapter names in `detailHosts`. Never `url`: on boards
+ *   that have one it is the apply link, somebody else's site. A board that
+ *   names no detail hosts is never enriched, so a feed URL pointing
+ *   anywhere cannot send enrichment off the board.
+ * - **Once per posting.** Rows with the same `(source, source_id)` are one
+ *   stored row, so they cost one request and count once — and if any of them
+ *   already has a description, none is fetched, since the upsert would let
+ *   the fetched one overwrite it.
  * - **Through the run's one `ScrapeClient`,** so robots.txt and the per-host
  *   rate limiter decide every detail request exactly as they decide listing
  *   requests. Enrichment adds a floor between requests to one host
@@ -26,16 +29,24 @@
  *
  * A detail page that fails, or carries no description, costs the row nothing:
  * it is stored as the listing gave it, and the failure is counted. Only the
- * description is taken. The detail page's other fields are not trusted over
+ * description is taken, as the page serves it: `ingestJobs` strips it once,
+ * as it does a feed's. Stripping it here as well would decode `&lt;10ms` into
+ * a tag-shaped `<10ms` that the second strip deletes. The detail page's other fields are not trusted over
  * the listing's: jobgether's `datePosted`, for one, is a JavaScript
  * `Date.toString()` where its listing's is ISO (#36).
  *
  * The reported numbers are findings about the rows, not about whether the
  * board could be read, so they never move a board's `status` (#37).
  */
-import { Semaphore, type FetchOptions, type ScrapeClient } from "@schlessera/brain-scrape";
+import {
+  Semaphore,
+  extractJsonLd,
+  hostOf,
+  jsonLdByType,
+  type FetchOptions,
+  type ScrapeClient,
+} from "@schlessera/brain-scrape";
 
-import { jobsFromJsonLd } from "./jsonld.js";
 import type { RawJob, Source } from "./types.js";
 
 export interface EnrichmentConfig {
@@ -79,6 +90,12 @@ export interface BoardEnrichment {
   isDescribed?: (job: RawJob) => boolean;
   /** The board's own fetch options for its detail pages. */
   fetchOptions?: FetchOptions;
+  /**
+   * The hosts this board's own job pages live on. A row is followed only
+   * when its `source_url` is on one of them (or a subdomain of one); a board
+   * that names none is not enriched.
+   */
+  detailHosts?: readonly string[];
 }
 
 export interface Enricher {
@@ -108,10 +125,21 @@ function brief(err: unknown): string {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
-/** The board's own page for a row, if it has an absolute one. */
-function detailUrl(job: RawJob): string | undefined {
+/** The board's own page for a row: an absolute `source_url` on one of its hosts. */
+function detailUrl(job: RawJob, hosts: readonly string[]): string | undefined {
   const candidate = job.source_url;
-  return candidate && /^https?:\/\//i.test(candidate) ? candidate : undefined;
+  if (!candidate || !/^https?:\/\//i.test(candidate)) return undefined;
+  const host = hostOf(candidate).toLowerCase();
+  return hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`)) ? candidate : undefined;
+}
+
+/** The first non-empty `JobPosting` description on a page, as served. */
+function postingDescription(html: string): string | undefined {
+  for (const posting of jsonLdByType(extractJsonLd(html).documents, "JobPosting")) {
+    const value = posting.description;
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }
 
 /**
@@ -128,21 +156,22 @@ export function createEnricher(
   let remaining = maxDetailPages;
 
   function plan(board: BoardEnrichment): BoardPlan {
-    const wanted: BoardPlan["wanted"] = [];
-    const byIdentity = new Map<string, BoardPlan["wanted"][number]>();
+    const hosts = (board.detailHosts ?? []).map((host) => host.toLowerCase());
+    // Every row of a posting first, so a described row anywhere in the group
+    // is seen before the group is judged.
+    const groups = new Map<string, RawJob[]>();
     for (const job of board.jobs) {
-      if (job.description?.trim()) continue;
-      const url = detailUrl(job);
+      const group = groups.get(job.source_id);
+      if (group) group.push(job);
+      else groups.set(job.source_id, [job]);
+    }
+    const wanted: BoardPlan["wanted"] = [];
+    for (const jobs of groups.values()) {
+      if (jobs.some((job) => job.description?.trim())) continue;
+      const url = jobs.map((job) => detailUrl(job, hosts)).find(Boolean);
       if (!url) continue;
-      const same = byIdentity.get(job.source_id);
-      if (same) {
-        same.jobs.push(job);
-        continue;
-      }
-      if (board.isDescribed?.(job)) continue;
-      const entry = { jobs: [job], url };
-      byIdentity.set(job.source_id, entry);
-      wanted.push(entry);
+      if (board.isDescribed?.(jobs[0])) continue;
+      wanted.push({ jobs, url });
     }
     return { board, wanted, granted: 0 };
   }
@@ -181,9 +210,7 @@ export function createEnricher(
             delayMs: DEFAULT_DETAIL_DELAY_MS,
             ...board.fetchOptions,
           });
-          const description = jobsFromJsonLd(page.body, { source: board.source, pageUrl: page.url }).jobs.find(
-            (posting) => posting.description?.trim()
-          )?.description;
+          const description = postingDescription(page.body);
           if (!description) {
             stats.failed++;
             failures.push(`${url}: no JobPosting description on the page`);

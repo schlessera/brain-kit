@@ -62,7 +62,10 @@ export class BuiltInAdapter extends BrowserAdapter {
         const list = node as { "@type"?: unknown; itemListElement?: unknown };
         if (list["@type"] !== "ItemList" || !Array.isArray(list.itemListElement)) continue;
         for (const entry of list.itemListElement) {
+          // One malformed entry costs that entry, not the page's cards.
+          if (!entry || typeof entry !== "object") continue;
           const item = (entry as { item?: unknown }).item ?? entry;
+          if (!item || typeof item !== "object") continue;
           const { url, description } = item as { url?: unknown; description?: unknown };
           if (typeof url === "string" && typeof description === "string" && description.trim()) {
             descriptions.set(key(url), description.trim());

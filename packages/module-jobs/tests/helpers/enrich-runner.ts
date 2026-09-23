@@ -2,7 +2,13 @@
 // real enrichment, over a listing whose two rows carry no description.
 import { ScrapeClient } from "@schlessera/brain-scrape";
 import { openDatabase } from "../../src/db.js";
+import { RemoteOKAdapter } from "../../src/adapters/remoteok.js";
 import { runScrape } from "../../src/scrape.js";
+
+// RemoteOK's feed carries descriptions, so the real board names no detail
+// hosts. The fixture listing here carries none; give the board its fixture
+// host so the real runner enriches it.
+Object.defineProperty(RemoteOKAdapter.prototype, "detailHosts", { value: ["remoteok.example"] });
 
 const [mode, dbPath] = process.argv.slice(2);
 const listing = [1, 2].map((id) => ({

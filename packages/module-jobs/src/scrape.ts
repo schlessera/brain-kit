@@ -222,6 +222,7 @@ export async function runScrape(opts: {
         // The run's proxy, where one was asked for, reaches the detail pages
         // the same way it reaches the listing.
         fetchOptions: { ...(opts.proxy ? { proxy: opts.proxy } : {}), ...adapter.detailFetchOptions },
+        detailHosts: adapter.detailHosts,
       }))
     );
     fulfilled.forEach((value, index) => enrichments.set(value, stats[index]));

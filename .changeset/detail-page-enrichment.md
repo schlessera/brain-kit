@@ -3,12 +3,13 @@
 ---
 
 `jobs scrape` follows a job with no description to its own page on the board
-(`source_url`, never the apply link) and takes the description from that page's
+(`source_url`, only on the hosts the adapter names, never the apply link) and takes the description from that page's
 `JobPosting` structured data. This covers `nodesk`, `simplyhired`, `dice`,
 `remotelyde` and `jobgether`. `builtin` now reads its descriptions from its own
 listing's structured data. A row that already has a description, from the feed
 or an earlier run, is not fetched, and two rows for one posting cost one
-request. Detail requests go through the run's shared client and the run's
+request (none, if either already has a description). The description is stored
+as the page served it and stripped once. Detail requests go through the run's shared client and the run's
 `--proxy`, so robots.txt and per-host pacing apply, with a 2 s floor between
 detail requests to one host (retries and redirects are not paced separately;
 see #259). The new `enrichment` config (`concurrency`, default 4;

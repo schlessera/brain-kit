@@ -154,6 +154,12 @@ export interface ScraperAdapter {
    * robots.txt does not carry, say.
    */
   readonly detailFetchOptions?: FetchOptions;
+  /**
+   * The hosts this board's own job pages live on (#36). Enrichment follows a
+   * row's `source_url` only on these; a board that names none is not
+   * enriched.
+   */
+  readonly detailHosts?: readonly string[];
   scrape(
     opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }
   ): Promise<ScrapeResult>;

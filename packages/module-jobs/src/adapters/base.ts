@@ -180,8 +180,10 @@ export abstract class BaseAdapter implements ScraperAdapter {
   abstract readonly tier: 1 | 2 | 3;
   needsBrowser = false;
   needsProxy = false;
-  /** See `ScraperAdapter.detailFetchOptions`. */
-  readonly detailFetchOptions?: FetchOptions;
+  /** See `ScraperAdapter.detailFetchOptions`. Declared only: a board sets it. */
+  declare readonly detailFetchOptions?: FetchOptions;
+  /** See `ScraperAdapter.detailHosts`. Declared only: a board sets it. */
+  declare readonly detailHosts?: readonly string[];
 
   /** Set by `bind()`; reading it before then is a runner bug, not a site bug. */
   protected ctx!: ScrapeContext;
