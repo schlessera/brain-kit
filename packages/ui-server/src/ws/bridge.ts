@@ -6,7 +6,7 @@ import type {
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { withTurnScope } from "./frames.js";
+import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
@@ -133,14 +133,7 @@ export function makeBridge(
       }
       host.sendToClients(
         withTurnScope(
-          {
-            type: "tool_approval_request",
-            toolUseId: req.toolUseId,
-            toolName: req.toolName,
-            input: req.input,
-            description: req.description,
-            ...(req.kind ? { kind: req.kind } : {}),
-          },
+          approvalRequestFrame(req, host.toolPermissions !== null),
           turn,
           turnId
         )

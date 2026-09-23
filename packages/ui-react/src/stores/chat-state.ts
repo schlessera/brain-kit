@@ -66,6 +66,13 @@ export interface ToolCall {
    */
   approvalKind?: "tool" | "command";
   /**
+   * `false` when the host said it will not keep an "always allow" given on
+   * this card (#147) — the request is outside the turn's enforced allowlist.
+   * Absent means `approvalKind` alone decides. Read it through
+   * `offersAlwaysAllow`, not directly.
+   */
+  approvalRememberable?: false;
+  /**
    * Execution timing for the duration badge. `startedAt` is (re)stamped when
    * the input finishes streaming or an approval is granted — so approval
    * wait time doesn't inflate the reported duration. `endedAt` is stamped by
@@ -189,7 +196,8 @@ export interface ChatState {
     toolName: string,
     input: Record<string, unknown>,
     description?: string,
-    kind?: "tool" | "command"
+    kind?: "tool" | "command",
+    rememberable?: boolean
   ) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
@@ -288,6 +296,16 @@ function revokeAttachmentUrls(messages: ChatMessage[]) {
       if (a.previewUrl.startsWith("blob:")) URL.revokeObjectURL(a.previewUrl);
     }
   }
+}
+
+/**
+ * Whether a pending approval may offer "always allow": never for a
+ * destructive-command confirmation, and never when the host said it would
+ * not keep the grant. Both approval surfaces and the Actions receipt read
+ * this one rule, so the button and the receipt cannot disagree.
+ */
+export function offersAlwaysAllow(tool: Pick<ToolCall, "approvalKind" | "approvalRememberable">): boolean {
+  return tool.approvalKind !== "command" && tool.approvalRememberable !== false;
 }
 
 /**
@@ -533,7 +551,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           ),
         })),
 
-      requestToolApproval: (key, toolUseId, toolName, input, _description, kind) =>
+      requestToolApproval: (key, toolUseId, toolName, input, _description, kind, rememberable) =>
         mutateLastAssistant(key, (last) => {
           // Check if tool call already exists (from streaming)
           const existingIdx = last.toolCalls.findIndex(
@@ -547,6 +565,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             inputJson: JSON.stringify(input, null, 2),
             status: "pending_approval",
             ...(kind ? { approvalKind: kind } : {}),
+            ...(rememberable === false ? { approvalRememberable: false } : {}),
           };
           let parts = last.parts;
           if (existingIdx >= 0) {

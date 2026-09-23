@@ -2,7 +2,7 @@ import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
 import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
-import { withTurnScope } from "./frames.js";
+import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { WSContext as WSContextType } from "./clients.js";
 import type { Principal } from "../db/principals.js";
 import type { AppEnv } from "../app-env.js";
@@ -21,14 +21,7 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
     host.sendMessage(
       ws,
       withTurnScope(
-        {
-          type: "tool_approval_request",
-          toolUseId: p.request.toolUseId,
-          toolName: p.request.toolName,
-          input: p.request.input,
-          description: p.request.description,
-          ...(p.request.kind ? { kind: p.request.kind } : {}),
-        },
+        approvalRequestFrame(p.request, host.toolPermissions !== null),
         p.turn,
         p.turnId
       )

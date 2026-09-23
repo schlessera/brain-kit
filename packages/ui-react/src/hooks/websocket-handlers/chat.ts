@@ -163,7 +163,8 @@ export const chatFrameHandlers = {
       msg.toolName,
       msg.input,
       msg.description,
-      msg.kind
+      msg.kind,
+      msg.rememberable
     );
   },
   tool_result: (msg, context) => {
