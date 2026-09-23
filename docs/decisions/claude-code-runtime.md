@@ -666,6 +666,8 @@ What that changes and what it does not:
   auto mode.
 - **CI runs it (#284).** The `claude-runtime-probe` job in
   `.depot/workflows/ci.yml` (mirrored in `.github/workflows/ci.yml`) runs the probe on every PR and on `main`, inside
-  a network namespace that holds nothing but loopback, so a request that tried
-  to leave the runner would fail its case. A failed or inconclusive case fails
+  a network namespace that holds nothing but loopback: nothing but loopback is
+  reachable, so every case passing there shows the probe needs no network. It
+  does not audit connection attempts, so a background request that fails
+  quietly would not fail a case. A failed or inconclusive case fails
   the job, and the job prints the JSON report.

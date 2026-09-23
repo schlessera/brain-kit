@@ -358,6 +358,9 @@ jobs:
     # user namespaces by default; the sysctl lifts that for this job only,
     # where the knob exists.
     runs-on: ubuntu-latest
+    # A CLI that stalls inside the namespace must not hold the runner for
+    # hours; the probe takes about a minute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -372,6 +375,7 @@ jobs:
           if [ -e "$knob" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Probe the Claude runtime, with no network but loopback
         # A failed or inconclusive case exits non-zero and fails the job.
+        timeout-minutes: 10
         run: >-
           unshare --user --map-root-user --net
           sh -c 'ip link set lo up && bun scripts/measure-claude-runtime.ts --out probe.json'
