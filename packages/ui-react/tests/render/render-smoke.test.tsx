@@ -5160,7 +5160,7 @@ describe("approval cards follow rememberability (#147)", () => {
    * Driven from the wire: the frame the host sends, through the socket
    * handler and the store, to the Actions page and the receipt it prints.
    */
-  async function actionsFrom(frame: Record<string, unknown>) {
+  async function actionsFrom(frame: Record<string, unknown>, before: Record<string, unknown>[] = [], times = 1) {
     installActivityFetch();
     globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
     const root = createBrainUiRoot({ storage: null });
@@ -5170,14 +5170,19 @@ describe("approval cards follow rememberability (#147)", () => {
       socket.open();
       socket.deliver({ type: "text_delta", text: "working" });
       root.connection.flushChatDeltas();
-      socket.deliver({
-        type: "tool_approval_request",
-        toolUseId: "t1",
-        toolName: "mcp_proxy_tool",
-        input: {},
-        kind: "tool",
-        ...frame,
-      });
+      for (const f of before) socket.deliver(f);
+      // `times > 1` is the re-delivery a reconnect produces: the same card
+      // again, replacing the tool the first one created.
+      for (let i = 0; i < times; i++) {
+        socket.deliver({
+          type: "tool_approval_request",
+          toolUseId: "t1",
+          toolName: "mcp_proxy_tool",
+          input: {},
+          kind: "tool",
+          ...frame,
+        });
+      }
     });
     const page = render(<BrainUiProvider root={root}><ActivityPage /></BrainUiProvider>);
     await act(flushPromises);
@@ -5206,6 +5211,22 @@ describe("approval cards follow rememberability (#147)", () => {
       expect(page.getByText("Allowed")).toBeTruthy();
       expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1" }]);
       expect(always === null).toBe(true);
+    } finally {
+      done();
+    }
+  });
+
+  test("the marking survives replacing a streamed tool and a re-delivered card", async () => {
+    // The approval usually lands on a tool that already streamed, and a
+    // reconnect delivers the card again; both replace the stored ToolCall.
+    const streamed = [
+      { type: "tool_use_start", toolUseId: "t1", toolName: "mcp_proxy_tool" },
+      { type: "tool_use_complete", toolUseId: "t1", toolName: "mcp_proxy_tool", input: {} },
+    ];
+    const { page, done } = await actionsFrom({ rememberable: false }, streamed, 2);
+    try {
+      expect(page.getAllByRole("button", { name: /^Allow/ })).toHaveLength(1);
+      expect(page.queryByRole("button", { name: /Always allow/ }) === null).toBe(true);
     } finally {
       done();
     }

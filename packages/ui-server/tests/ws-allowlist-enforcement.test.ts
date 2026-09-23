@@ -502,11 +502,13 @@ describe("a refused always-allow is recorded", () => {
     const reconnected = fakeClient();
     await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
 
-    const cards = [...client.sent, ...reconnected.sent].filter(
-      (f) => f.type === "tool_approval_request"
-    ) as Array<{ rememberable?: boolean }>;
-    expect(cards).toHaveLength(2);
-    for (const card of cards) expect(card.rememberable).toBe(false);
+    for (const sent of [client.sent, reconnected.sent]) {
+      const cards = sent.filter((f) => f.type === "tool_approval_request") as Array<{
+        rememberable?: boolean;
+      }>;
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.rememberable).toBe(false);
+    }
     controls[0]!.finish();
   });
 
