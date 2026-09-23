@@ -83,6 +83,13 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "CLAUDE_CODE_PATH",
+    description:
+      "Claude Code binary the Claude agent runner spawns, as for the chat server.",
+    default: "the Agent SDK's built-in binary when the SDK is installed, else `claude` on PATH",
+    required: false,
+  },
+  {
     name: "GEMINI_API_KEY",
     description:
       "Default API key for the built-in Gemini embedding/completion providers " +
@@ -120,6 +127,8 @@ export interface CoreEnv {
   noColor: boolean;
   /** Either no-sandbox spelling is truthy (1/true/on/yes). */
   chromeNoSandbox: boolean;
+  /** CLAUDE_CODE_PATH, or undefined to run the Agent SDK's built-in binary. */
+  claudeCodePath: string | undefined;
 }
 
 /**
@@ -143,5 +152,6 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     chromeNoSandbox:
       envFlag(env.BRAIN_CHROME_NO_SANDBOX, false) ||
       envFlag(env.BRAIN_UI_CHROME_NO_SANDBOX, false),
+    claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
   };
 }

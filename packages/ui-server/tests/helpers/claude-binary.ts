@@ -1,23 +1,32 @@
 /**
- * The Claude Code binary the Agent SDK ships for this platform, from the
- * workspace install. `createApp()` probes the binary a turn would spawn at
- * boot (#211) and refuses to start without one; app-level suites point
- * `CLAUDE_CODE_PATH` here so they boot on the binary the lockfile installs
- * rather than on whatever a developer's host has at the default path.
+ * The Claude Code binary the Agent SDK selects when it is given no path: the
+ * backend's own copy of the SDK, asked directly, so the answer follows its
+ * platform and libc rules rather than a copy of them. `createApp()` probes the
+ * binary a turn would spawn at boot (#211); app-level suites boot on this one.
  */
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+type Query = typeof import("@anthropic-ai/claude-agent-sdk").query;
+
 export function bundledClaudeBinary(): string {
-  const libc = process.platform === "linux" ? ["", "-musl"] : [""];
-  for (const suffix of libc) {
-    try {
-      return Bun.resolveSync(
-        `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${suffix}/claude`,
-        join(import.meta.dir, "../../../ui-backend-claude")
-      );
-    } catch {
-      // try the next libc
-    }
+  const sdk = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../../ui-backend-claude"));
+  const { query } = require(sdk) as { query: Query };
+  let command: string | undefined;
+  try {
+    query({
+      prompt: "",
+      options: {
+        cwd: tmpdir(),
+        spawnClaudeCodeProcess: (spawn) => {
+          command = spawn.command;
+          throw new Error("captured");
+        },
+      },
+    });
+  } catch {
+    // the capture
   }
-  throw new Error("the Agent SDK's bundled Claude Code binary is not installed");
+  if (!command) throw new Error("the Agent SDK did not select a Claude Code binary");
+  return command;
 }

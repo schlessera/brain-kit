@@ -344,8 +344,9 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   },
   {
     name: "CLAUDE_CODE_PATH",
-    description: "Path to the Claude Code native binary handed to the Agent SDK.",
-    default: "/usr/local/bin/claude",
+    description:
+      "Path to a Claude Code binary to run instead of the Agent SDK's built-in one. Unset runs the built-in binary, the version the lockfile pins.",
+    default: null,
     required: false,
   },
   {
@@ -514,7 +515,8 @@ export interface AgentConfig {
    * An empty array is a deliberate opt-out and is passed through as such.
    */
   confirmBashPatterns: ConfirmPatternSource[] | null;
-  claudeCodePath: string;
+  /** `CLAUDE_CODE_PATH`; null runs the Agent SDK's built-in binary. */
+  claudeCodePath: string | null;
   defaultModel: string;
   /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed at boot and again by the registry. */
   profilesJson: string | null;
@@ -775,7 +777,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     agent: {
       backend: env.AGENT_BACKEND?.trim().toLowerCase() || null,
       confirmBashPatterns: parseConfirmBash(env.BRAIN_UI_CONFIRM_BASH),
-      claudeCodePath: env.CLAUDE_CODE_PATH || "/usr/local/bin/claude",
+      claudeCodePath: env.CLAUDE_CODE_PATH || null,
       defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || DEFAULT_CLAUDE_MODEL,
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,

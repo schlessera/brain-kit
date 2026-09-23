@@ -52,6 +52,7 @@ describe("config/env descriptor", () => {
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
         "BRAIN_UI_CHROME_NO_SANDBOX",
+        "CLAUDE_CODE_PATH",
         "GEMINI_API_KEY",
         "NO_COLOR",
         "XDG_BIN_HOME",

@@ -17,25 +17,30 @@ import { ClaudeSubscriptionError } from "../src/providers/agents/claude-subscrip
 
 const scratch: string[] = [];
 const savedPath = process.env.PATH;
+const savedClaudeCodePath = process.env.CLAUDE_CODE_PATH;
 
 afterEach(() => {
   process.env.PATH = savedPath;
+  if (savedClaudeCodePath === undefined) delete process.env.CLAUDE_CODE_PATH;
+  else process.env.CLAUDE_CODE_PATH = savedClaudeCodePath;
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 /**
- * Put a fake `claude` on PATH that logs every stdin line to `log`, answers the
+ * Put a fake `claude` in CLAUDE_CODE_PATH that logs every stdin line to `log`, answers the
  * handshake with `account`, and answers a user message with `result`.
  */
 function fakeClaude(
   account: Record<string, string>,
   result: string | null,
-  settings: unknown = { effective: {}, sources: [] }
+  settings: unknown = { effective: {}, sources: [] },
+  /** A JavaScript file, not executable: what a JS `CLAUDE_CODE_PATH` names. */
+  asScript = false
 ): { log: string; cwd: string } {
   const dir = mkdtempSync(join(tmpdir(), "fake-claude-"));
   scratch.push(dir);
   const log = join(dir, "stdin.log");
-  const script = join(dir, "claude");
+  const script = join(dir, asScript ? "cli.js" : "claude");
   writeFileSync(
     script,
     `#!${process.execPath}
@@ -66,7 +71,9 @@ for await (const chunk of process.stdin) {
 }
 `
   );
-  chmodSync(script, 0o755);
+  chmodSync(script, asScript ? 0o644 : 0o755);
+  // The runner takes CLAUDE_CODE_PATH first, as chat does (#213).
+  process.env.CLAUDE_CODE_PATH = script;
   process.env.PATH = `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`;
   return { log, cwd: dir };
 }
@@ -89,6 +96,11 @@ describe("the Claude runner's protocol", () => {
     const lines = written(log);
     expect(lines.map((line) => line.type)).toEqual(["control_request", "control_request", "user"]);
     expect(lines.map((line) => line.request?.subtype)).toEqual(["initialize", "get_settings", undefined]);
+  });
+
+  test("a JavaScript CLAUDE_CODE_PATH runs through the interpreter, as chat runs it", async () => {
+    const { cwd } = fakeClaude(OAUTH_ACCOUNT, "from the script", undefined, true);
+    expect(await claudeRunner().run("hi", { cwd })).toBe("from the script");
   });
 
   test("runStreaming() reports assistant text as it arrives", async () => {
