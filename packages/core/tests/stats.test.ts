@@ -533,6 +533,47 @@ describe("size figures", () => {
     db.close();
   });
 
+  // #139: the walk prunes a directory by testing `dir + "/"`, the indexer
+  // tests each file. For `dirs: ["skipme/"]` the first matched and the second
+  // did not, so `size.corpus` left out files the index held. Every spelling
+  // must give the walk and the per-file filter the same file set.
+  for (const entry of ["skipme", "skipme/", "./skipme", "./skipme/"]) {
+    test(`the walk and the per-file filter keep the same files for dirs: [${JSON.stringify(entry)}]`, async () => {
+      const root = tempDir();
+      mkdirSync(join(root, "skipme/sub"), { recursive: true });
+      mkdirSync(join(root, "notes"), { recursive: true });
+      // Distinct sizes, so the byte total names the file set, not just its size.
+      const files: Record<string, number> = {
+        "keep.md": 1,
+        "notes/keep.md": 2,
+        "skipme/a.md": 4,
+        "skipme/sub/b.md": 8,
+      };
+      for (const [file, size] of Object.entries(files)) writeFileSync(join(root, file), "x".repeat(size));
+
+      const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ exclude: { dirs: [entry] } }) });
+      const perFile = Object.entries(files).filter(([file]) => !taxonomy.isExcludedPath(file));
+      const expected = {
+        files: perFile.length,
+        bytes: perFile.reduce((sum, [, size]) => sum + size, 0),
+      };
+
+      const db = openDatabase(":memory:");
+      const stats = await collectStats(db, {
+        root,
+        dbPath: join(root, "brain.db"),
+        taxonomy,
+        config: null,
+        now: NOW,
+      });
+      db.close();
+
+      expect(stats.size.corpus).toEqual(expected);
+      // And the entry works: skipme/ is out of both, whatever its spelling.
+      expect(expected).toEqual({ files: 2, bytes: 3 });
+    });
+  }
+
   test("brain.db and its journal sidecars are the index, not the corpus", async () => {
     const root = tempDir();
     const dbPath = join(root, "brain.db");

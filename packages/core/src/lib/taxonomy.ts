@@ -244,6 +244,20 @@ export class Taxonomy {
 }
 
 /**
+ * An `exclude.dirs` entry in the one spelling `isExcludedPath` matches:
+ * relative, no leading `./`, no trailing `/`. Matched literally, `drafts/` and
+ * `./drafts` excluded nothing from the index while the stats corpus walk,
+ * which tests `dir + "/"`, pruned `drafts/` — the two disagreed, and the entry
+ * was a silent no-op (#139). An entry that normalises to nothing (`./`, `/`)
+ * is dropped rather than read as the whole brain.
+ */
+function normaliseExcludeDir(entry: string): string {
+  let dir = entry;
+  while (dir.startsWith("./")) dir = dir.slice(2);
+  return dir.replace(/\/+$/, "");
+}
+
+/**
  * Build the effective taxonomy from core defaults, loaded modules (config
  * order), and the user config. Throws on ownership collisions.
  */
@@ -360,7 +374,11 @@ export function buildTaxonomy(opts: {
 
   // --- exclusions: core defaults ∪ module segments ∪ user
   const exclude = {
-    dirs: [...new Set([...DEFAULT_EXCLUDE.dirs, ...(user?.exclude?.dirs ?? [])])],
+    dirs: [
+      ...new Set(
+        [...DEFAULT_EXCLUDE.dirs, ...(user?.exclude?.dirs ?? [])].map(normaliseExcludeDir).filter((d) => d !== "")
+      ),
+    ],
     files: [...new Set([...DEFAULT_EXCLUDE.files, ...(user?.exclude?.files ?? [])])],
     segments: [
       ...new Set([

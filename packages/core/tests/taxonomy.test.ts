@@ -388,3 +388,45 @@ describe("module cron field constraints", () => {
     expect(name.test("scrape\nroot")).toBe(false);
   });
 });
+
+describe("exclude.dirs spelling", () => {
+  // A directory list invites `drafts/` and `./drafts`. Matched literally, both
+  // excluded nothing from the index while the stats corpus walk pruned them
+  // (#139). Normalised on load, every spelling means the same directory — so
+  // a brain whose config carries one of them loses those files from its index
+  // on the next `brain index`, which is the ruled behaviour.
+  for (const entry of ["skipme", "skipme/", "./skipme", "./skipme/", "skipme//", "././skipme"]) {
+    test(`${JSON.stringify(entry)} excludes the directory and everything under it`, () => {
+      const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ exclude: { dirs: [entry] } }) });
+
+      expect(taxonomy.exclude.dirs).toContain("skipme");
+      expect(taxonomy.exclude.dirs).not.toContain(entry === "skipme" ? "skipme/" : entry);
+      expect(taxonomy.isExcludedPath("skipme/a.md")).toBe(true);
+      expect(taxonomy.isExcludedPath("skipme/sub/b.md")).toBe(true);
+      expect(taxonomy.isExcludedPath("skipme")).toBe(true);
+      // A sibling that only shares the prefix is not the same directory.
+      expect(taxonomy.isExcludedPath("skipmenot/a.md")).toBe(false);
+    });
+  }
+
+  test("nested entries keep their inner separators", () => {
+    const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ exclude: { dirs: ["./a/b/"] } }) });
+    expect(taxonomy.exclude.dirs).toContain("a/b");
+    expect(taxonomy.isExcludedPath("a/b/c.md")).toBe(true);
+    expect(taxonomy.isExcludedPath("a/c.md")).toBe(false);
+  });
+
+  test("an entry that normalises to nothing is dropped, not widened to the whole brain", () => {
+    const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ exclude: { dirs: ["./", "/", ""] } }) });
+    expect(taxonomy.exclude.dirs).not.toContain("");
+    expect(taxonomy.isExcludedPath("notes/a.md")).toBe(false);
+    expect(taxonomy.isExcludedPath("a.md")).toBe(false);
+  });
+
+  test("two spellings of one directory are one entry", () => {
+    const taxonomy = buildTaxonomy({
+      user: brainConfigSchema.parse({ exclude: { dirs: ["skipme", "skipme/", "./skipme"] } }),
+    });
+    expect(taxonomy.exclude.dirs.filter((d) => d === "skipme")).toHaveLength(1);
+  });
+});
