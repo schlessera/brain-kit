@@ -200,6 +200,9 @@ describe("detectCandidates", () => {
     // A title would be dropped, and so would an image inside the link.
     expect(run('**Site:** [https://ithaca.example](https://ithaca.example "The palace")')).toEqual([]);
     expect(run("**Site:** [![https://ithaca.example](https://ithaca.example/a.png)](https://ithaca.example)")).toEqual([]);
+    expect(
+      run("**Site:** [![https://ithaca.example][pic]](https://ithaca.example)\n\n[pic]: https://ithaca.example/a.png")
+    ).toEqual([]);
     // A backtick is legal in an address, but the run strips backticks as
     // code-span markup, so flattening would change the address.
     expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);

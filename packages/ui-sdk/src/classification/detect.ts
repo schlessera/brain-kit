@@ -137,14 +137,23 @@ interface Flattened extends CandidateSpan {
 const MAILTO = /^mailto:/i;
 
 /**
+ * Inline nodes that flatten to their text with nothing lost but a face. A
+ * link's text is admitted only when it is made of these, so an image, a
+ * reference-style one included, is never dropped with it.
+ */
+const PLAIN_INLINE = new Set(["text", "emphasis", "strong", "delete", "inlineCode"]);
+const isPlainInline = (node: Node): boolean =>
+  PLAIN_INLINE.has(node.type) && (node.children ?? []).every(isPlainInline);
+
+/**
  * The text a link flattens to without losing anything, or null. That is a
  * link whose text is its own destination — what GFM makes of a bare address,
  * `<…>` or not — and nothing else: `[the docs](https://…)` would lose where it
- * points, a title would be dropped, and an image inside would be dropped with
- * it. A `mailto:` destination reads as the bare address (#167).
+ * points, a title would be dropped, and so would anything inside it that is
+ * not plain text. A `mailto:` destination reads as the bare address (#167).
  */
 function bareAddress(link: Link): string | null {
-  if (link.title || link.children.some((child) => hasRichInline(child))) return null;
+  if (link.title || !link.children.every(isPlainInline)) return null;
   const text = mdastToString(link);
   if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
   // A backtick is legal in an address, but a key-value run's value has its
