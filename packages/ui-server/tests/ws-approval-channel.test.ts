@@ -113,7 +113,7 @@ function setup() {
       .map((e) => e.payload);
   }
   const settle = () => new Promise((r) => setTimeout(r, 20));
-  return { host, handlers, observability, state, granted, open, send, decisions, settle };
+  return { host, handlers, ws, observability, state, granted, open, send, decisions, settle };
 }
 
 describe("an approval decision records its channel", () => {
@@ -145,6 +145,13 @@ describe("an approval decision records its channel", () => {
   test("a grant attributed to voice is refused and the request stays pending", async () => {
     const s = setup();
     const turnId = await s.open();
+    // A second window: it holds its own copy of the card, which a refusal on
+    // another connection has no reason to touch.
+    const other = fakeSocket();
+    await s.handlers.onOpen(undefined as never, other);
+    const cards = (sock: ReturnType<typeof fakeSocket>) =>
+      sock.frames().filter((f) => f.type === "tool_approval_request");
+    const otherBefore = cards(other).length;
     s.send({ type: "tool_approval", toolUseId: "t1", channel: "voice", turnId });
     s.send({ type: "tool_approval", toolUseId: "t1", always: true, channel: "voice", turnId });
     s.send({
@@ -168,6 +175,11 @@ describe("an approval decision records its channel", () => {
     expect(refused).toHaveLength(3);
     expect(refused[0]!.severity).toBe("WARN");
     expect(refused[0]!.attributes["toolUse.id"]).toBe("t1");
+    // Each refusal hands the same card back to the sender, and only to it.
+    const mine = cards(s.ws);
+    expect(mine).toHaveLength(4);
+    for (const card of mine) expect(card).toEqual(mine[0]);
+    expect(cards(other)).toHaveLength(otherBefore);
 
     s.send({ type: "tool_approval", toolUseId: "t1", channel: "card", turnId });
     await until(() => s.state.decided !== null);
