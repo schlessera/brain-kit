@@ -53,7 +53,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
-| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively; every earlier field keeps its name and type. `embeddings` keeps its name and type but **changed value** in 0.37.0: it now reports the real vector count on an embedded brain, where before it read `0` on every brain |
+| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively. **Breaking in 0.37.0:** `embeddings` is retyped from `number` to `number \| null` — `null` when a vector table exists but could not be counted, `0` when there is none. It also changed value: it reports the real vector count on an embedded brain, where before it read `0` on every brain. Every other earlier field keeps its name and type |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
@@ -61,28 +61,31 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 additive; never rely on field order.
 
 `brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
-renamed, so a consumer reading only the flat counts (as
+renamed, so a consumer reading only the flat counts other than `embeddings` (as
 `packages/ui-react/src/lib/api-client.ts` does) needs no change.
 
-One flat count did change value, though its name and type did not. Before
-0.37.0 the command counted `vec_chunks` on a read-only connection that had
-never loaded sqlite-vec, so the query raised `no such module: vec0` and a bare
-`catch` reported `embeddings: 0` — on a fully embedded brain as much as on a
-keyless one. It now loads the extension before counting, so on any host where
-sqlite-vec loads, `embeddings` is the real number of stored vectors. A consumer
-that treated `0` as "this brain does not embed" was reading a measurement
-failure, and will now see the true count; one that charted the figure over time
-will see a step at this version, not a re-embedding run.
+One flat count changed in 0.37.0, and it is the one breaking change in this
+shape: `embeddings`, which was a `number` and is now `number | null`.
 
-**The failure is narrowed, not closed.** `embeddings` is typed `number` and is
-emitted as `embeddingCount ?? 0`, so when the extension will not load *at all*
-on a host it still reads `0` for a brain that holds vectors. The two states
-remain indistinguishable in that field. What separates them is its sibling:
-`health.embeddingCoverage` is `null` when the count is unknown and a ratio when
-it is known, so a consumer that needs to tell "no vectors" from "could not
-count" must read the coverage, not the count. Making `embeddings` itself
-nullable would say this in the field's own type, but that is a breaking shape
-change and is deliberately not made here.
+It changed value first. Before 0.37.0 the command counted `vec_chunks` on a
+read-only connection that had never loaded sqlite-vec, so the query raised
+`no such module: vec0` and a bare `catch` reported `embeddings: 0` — on a fully
+embedded brain as much as on a keyless one. It now loads the extension before
+counting, so on any host where sqlite-vec loads, `embeddings` is the real number
+of stored vectors. A consumer that treated `0` as "this brain does not embed"
+was reading a measurement failure, and will now see the true count; one that
+charted the figure over time will see a step at this version, not a
+re-embedding run.
+
+It also changed type. When the brain has a `vec_chunks` table and sqlite-vec
+will not load on this host, the count cannot be taken, and `embeddings` is
+`null` rather than a `0` that reads exactly like a brain holding no vectors. A
+brain with no `vec_chunks` at all still reports `0`: there is nothing to count,
+and that is known. A consumer doing arithmetic on the field must handle `null`
+(the maintainer ruling is on
+[#169](https://github.com/schlessera/brain-kit/issues/169)). When the cause is
+the extension, `brain stats` also prints `sqlite-vec not available: <cause>` on
+stderr, never on stdout.
 
 ```jsonc
 {

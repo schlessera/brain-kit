@@ -31,7 +31,11 @@ export interface BrainStats {
   links: number;
   brokenLinks: number;
   chunks: number;
-  embeddings: number;
+  /**
+   * Rows in vec_chunks. 0 when the brain has no vector table; null when it has
+   * one that could not be counted (sqlite-vec would not load) — never 0 then.
+   */
+  embeddings: number | null;
   health: {
     /** brokenLinks / links; null when the corpus has no links to judge. */
     brokenLinkRate: number | null;
@@ -216,7 +220,10 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
 
   // vec_chunks is a vec0 virtual table: counting it needs the extension on
   // this connection, and an older or hand-built database may not have it at
-  // all. Either way the count is unknown, not 0.
+  // all. Those are different answers. With no table there is nothing to
+  // count, so `embeddings` is a known 0. With a table the extension cannot
+  // read, the count is unknown, and `embeddings` is null rather than a 0 that
+  // reads exactly like a brain holding no vectors.
   //
   // The table is looked for first, through sqlite_master, so a keyless brain
   // is answered without loading the extension at all — and without the
@@ -226,19 +233,27 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   // path and only loads the extension; `migrateVecSchema` would also run the
   // vec0 schema migrations, one of which is a bare `DROP TABLE vec_chunks`,
   // and counting rows is not a reason to migrate anything.
+  let vecTable = vecTableExists(db);
   let embeddingCount: number | null = null;
-  if (vecTableExists(db) && (await loadVecSupport(db)).ok) {
-    try {
-      embeddingCount = count(db, "SELECT COUNT(*) as count FROM vec_chunks");
-    } catch {
-      // a table the extension cannot read — still unknown, still not 0
+  if (vecTable) {
+    const vec = await loadVecSupport(db);
+    if (vec.ok) {
+      try {
+        embeddingCount = count(db, "SELECT COUNT(*) as count FROM vec_chunks");
+      } catch {
+        // a table the extension cannot read — still unknown, still not 0
+      }
+    } else if (vec.reason === "no-vector-table") {
+      // dropped between the two looks: nothing to count after all
+      vecTable = false;
     }
   }
 
   // Coverage only means something for a brain that embeds: one with a
   // provider configured, or one that already holds vectors. A keyless brain
   // gets an empty vec_chunks from every `brain index`, and "0% embedded"
-  // there would be a warning nobody can act on.
+  // there would be a warning nobody can act on. A brain with no vec_chunks at
+  // all has no coverage either, even though its count is a known 0.
   const embeddingCoverage =
     embeddingCount !== null && (opts.embeddingsConfigured || embeddingCount > 0) && chunkCount > 0
       ? embeddingCount / chunkCount
@@ -277,7 +292,7 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
     links: linkCount,
     brokenLinks,
     chunks: chunkCount,
-    embeddings: embeddingCount ?? 0,
+    embeddings: vecTable ? embeddingCount : 0,
     health: {
       brokenLinkRate: linkCount > 0 ? brokenLinks / linkCount : null,
       embeddingCoverage,

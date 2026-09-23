@@ -418,8 +418,9 @@ describe("vectors are read through the shared loadVecSupport", () => {
     });
 
     expect(stats.health.embeddingCoverage).toBeNull();
-    // Behaviour-preserving for the count itself; #169 makes this null.
-    expect(stats.embeddings).toBe(0);
+    // A vector sits in that table. 0 here would read exactly like a brain
+    // holding none, so the count that could not be taken is null (#169).
+    expect(stats.embeddings).toBeNull();
     expect(warnings).toEqual([
       "sqlite-vec not available: extension loading refused by the test",
     ]);
@@ -446,6 +447,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
     });
 
     expect(warnings).toEqual([]);
+    // No table is nothing to count: a known 0, not the unknown null.
     expect(stats.embeddings).toBe(0);
     expect(stats.health.embeddingCoverage).toBeNull();
     db.close();

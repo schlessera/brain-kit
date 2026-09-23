@@ -511,6 +511,10 @@ describe("brain stats (spawned)", () => {
     expect(stdout).toContain(`brokenLinkCeiling ${DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling}`);
     expect(stdout).toContain("staleDays");
     expect(stdout).toContain("unaffected by --all");
+    // The pre-#169 caveat — `embeddings` reading 0 for a count it could not
+    // take — is gone with the behaviour it described.
+    expect(stdout).not.toContain("read it, not the row");
+    expect(stdout).toContain("reads `n/a` when the brain has a vector table");
   });
 
   test("a brain with no documents prints an empty state, not NaN", async () => {
@@ -543,35 +547,36 @@ describe("the stale line with no per-type windows", () => {
   });
 });
 
-describe("the embeddings count cannot carry the unknown", () => {
-  // `embeddings` is a plain number emitted as `embeddingCount ?? 0`, so a
-  // brain whose vectors could not be counted reports 0 exactly as one holding
-  // none does. The help text, docs/cli.md and the contract all say so rather
-  // than claiming the figure is always real; this pins the behaviour those
-  // sentences describe, so a later change cannot quietly falsify them.
-  test("0 embeddings with a null coverage is the unknown-count shape", () => {
+describe("an embeddings count that could not be taken reads as unknown", () => {
+  // `embeddings` is null when vec_chunks exists but could not be counted
+  // (#169). Until then it was emitted as `embeddingCount ?? 0`, so such a brain
+  // rendered exactly like one holding no vectors and only the coverage line
+  // told them apart. The row is suppressed at 0; null must neither vanish with
+  // it nor print as a number.
+  test("a null count prints an n/a row, never 0 and never NaN", () => {
     const uncounted = statsWith({
-      embeddings: 0,
+      embeddings: null,
       chunks: 12,
       health: { ...statsWith().health, embeddingCoverage: null },
     });
     const out = formatStats(uncounted, { all: false, stale: STALE });
 
-    // The inventory row is suppressed at 0, so the count says nothing at all
-    // and the coverage line is the only signal.
-    expect(out).not.toMatch(/^ {2}Embeddings:/m);
+    expect(out).toMatch(/^ {2}Embeddings: n\/a — vector table could not be read on this host$/m);
+    expect(out).not.toMatch(/Embeddings: (0|null|NaN)\b/);
     expect(out).toContain("  Embedding coverage: n/a — not measured (floor 90.0%)");
+  });
 
-    // A brain holding no vectors renders identically — which is the point the
-    // prose has to make, rather than claim the count is always real.
+  test("a brain holding no vectors still prints no row, so the two no longer render alike", () => {
     const none = statsWith({
       embeddings: 0,
-      chunks: 0,
+      chunks: 12,
       health: { ...statsWith().health, embeddingCoverage: null },
     });
     const noneOut = formatStats(none, { all: false, stale: STALE });
-    const line = (t: string) => t.split("\n").find((l) => l.includes("Embedding coverage"));
-    expect(line(noneOut)).toBe(line(out));
+    expect(noneOut).not.toMatch(/^ {2}Embeddings:/m);
+
+    const uncounted = formatStats(statsWith({ ...none, embeddings: null }), { all: false, stale: STALE });
+    expect(uncounted).not.toBe(noneOut);
   });
 
   test("a counted brain does show the row", () => {
