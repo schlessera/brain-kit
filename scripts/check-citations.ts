@@ -26,22 +26,28 @@ import { join, resolve } from "path";
 
 export const ROOT = resolve(import.meta.dir, "..");
 
-/** Files a citation can name, by extension. */
-const EXTENSIONS = "ts|tsx|js|mjs|cjs|md|json|css|sql|yml|yaml|sh|html|toml";
+/**
+ * A file name a citation can use: anything with an extension, or one of the
+ * conventional extensionless build files.
+ */
+const FILE = "(?:[\\w@.-]+/)*(?:[\\w@-][\\w@.-]*\\.[A-Za-z][A-Za-z0-9]*|[A-Z][A-Za-z]*file)";
 
 /** `path:12`, `path:12-40`, `path:12,40-44`, or `:12` continuing the last path. */
-const CITATION = new RegExp(
-  `^((?:[\\w@.-]+/)*[\\w@.-]+\\.(?:${EXTENSIONS}))?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*)$`,
-);
+const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*)$`);
 
-/** Anything inside a span that names a line of a file. */
-const LOOSE_CITATION = new RegExp(`\\.(?:${EXTENSIONS}):\\d`);
+/**
+ * Anything inside a span that looks like it names a line — `name:12` at a word
+ * boundary — so a shape the check cannot read is reported rather than
+ * skipped. `localhost:6006/mcp` and `width:100%` are not followed by a
+ * boundary and do not match.
+ */
+const LOOSE_CITATION = /(?:^|[\s(\[])[\w@./-]*[A-Za-z][\w@./-]*:\d+(?:-\d+)?(?=$|[\s,;.)\]])/;
 
-/** The same shape anywhere in prose, to find citations written outside a code span. */
-const BARE_CITATION = new RegExp(
-  `(?<![\\w\`/.-])((?:[\\w@.-]+/)*[\\w@.-]+\\.(?:${EXTENSIONS})):\\d+`,
-  "g",
-);
+/** A citation anywhere in prose, outside a code span. */
+const BARE_CITATION = new RegExp(`(?<![\\w\`/.-])(${FILE}):\\d+`, "g");
+
+/** A markdown link to a line, which cannot carry an anchor either. */
+const LINE_LINK = /\]\(([^)\s]+)#L\d+/g;
 
 export interface Citation {
   /** The record, repo-relative. */
@@ -144,7 +150,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
   const prose = text.replace(/`((?:[^`\n]|\n(?![ \t]*\n))+)`/g, (span) =>
     span.replace(/[^\n]/g, " "),
   );
-  for (const match of prose.matchAll(BARE_CITATION)) {
+  for (const match of [...prose.matchAll(BARE_CITATION), ...prose.matchAll(LINE_LINK)]) {
     citations.push({
       doc,
       line: lineAt(match.index!),
@@ -262,7 +268,8 @@ export function checkCitation(
  *
  * Keyed `<record>|<citation as written>`. An entry here is a claim about one
  * citation; if the citation changes, the entry stops matching and the check
- * says so.
+ * says so. Two identical citations in one record share an entry, so they
+ * share its reason.
  */
 export const CITATION_EXCEPTIONS: Record<string, string> = {
   // Another repository. The `[brain-ui]` prefix says so; this check reads only
@@ -281,6 +288,11 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
       "scripts/entrypoint.sh:234-235",
       "scripts/entrypoint.sh:47-55",
       "scripts/entrypoint.sh:59-85",
+      "Dockerfile:217-231",
+      "Dockerfile:239-244",
+      "Dockerfile:246-258",
+      "Dockerfile:269-287",
+      "config/supervisord.conf:43-58",
     ].map((cited) => [
       `docs/decisions/container-privilege.md|[brain-ui] ${cited}`,
       "cites the private deployment repository, which is not in this tree",
@@ -375,12 +387,18 @@ export const CITATION_EXCEPTIONS: Record<string, string> = {
     "root exports of bumpSessionsEpoch, which was removed",
 };
 
+/** Every markdown file under `docs/decisions/`, at any depth. */
 export function decisionRecords(): string[] {
-  const dir = join(ROOT, "docs", "decisions");
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".md") && statSync(join(dir, name)).isFile())
-    .map((name) => `docs/decisions/${name}`)
-    .sort();
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const path = `${dir}/${name}`;
+      if (statSync(join(ROOT, path)).isDirectory()) walk(path);
+      else if (name.endsWith(".md")) found.push(path);
+    }
+  };
+  walk("docs/decisions");
+  return found.sort();
 }
 
 export interface Report {

@@ -95,6 +95,8 @@ where each drifted anchor now is. What it does **not** check:
   still passes.
 - **Citations outside `docs/decisions/`**, including source comments and other
   docs. They follow the same convention, and the grep above is the check.
+- **Citations inside fenced code blocks**, which are examples and command
+  output, not pointers.
 - **Citations it cannot resolve.** Another repository (`[brain-ui] path:line`),
   a dependency's installed source, a quotation, and code the record describes
   as it was before the change it decided. Each of these is listed in

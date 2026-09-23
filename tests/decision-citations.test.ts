@@ -149,6 +149,24 @@ describe("what the check cannot verify is reported, not skipped", () => {
     expect(report.verdict.kind).toBe("unresolved");
   });
 
+  test("a citation of an extensionless file", () => {
+    const [report] = check("(`FROM oven/bun`, `Dockerfile:1`)", { Dockerfile: "FROM oven/bun\n" });
+    expect(report.verdict.kind).toBe("anchored");
+    const [external] = check("(`FROM`, `[brain-ui] Dockerfile:217-231`)");
+    expect(external.verdict.kind).toBe("unresolved");
+  });
+
+  test("a markdown link to a line", () => {
+    const [report] = check("See [the hook](../../src/hooks.ts#L2).");
+    expect(report.verdict.kind).toBe("unanchored");
+  });
+
+  test("a ratio or a port is not a citation", () => {
+    expect(check("Contrast is 4.5:1 in prose, `localhost:6006/mcp` and `width:100%` in code.")).toEqual(
+      [],
+    );
+  });
+
   test("a listed exception is carried with its reason, not turned into a pass", () => {
     const [report] = checkRecords(
       [{ doc: "docs/decisions/x.md", body: "See `src/missing.ts:2`." }],
