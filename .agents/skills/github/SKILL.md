@@ -244,9 +244,12 @@ below exists because the tracker drifted without it.
   `needs:` label, and add `agent-ready` if the criteria are now complete. A
   ruling that binds later work, not only this issue, also gets a
   `docs/decisions/` record — file it as its own issue if it is not written now.
-- **Clear `blocked` when the blocker closes.** The label does not clear itself,
-  and the board keeps the dependant out of Ready until someone removes it. When
-  work merges or an issue closes, find what named it:
+- **Clear `blocked` when the blocker closes.** The label does not clear itself.
+  `bun scripts/sync-project.ts --apply` clears it from every issue whose
+  `Blocked by #N` lines all name closed issues, and comments once saying which;
+  the dry run lists them, plus every `blocked` issue it cannot verify because
+  it has no such line. Those it leaves alone, so give them the line. Without
+  running the script, find what named a closed issue by hand:
 
   ```sh
   gh issue list --repo schlessera/brain-kit --state open --label blocked \

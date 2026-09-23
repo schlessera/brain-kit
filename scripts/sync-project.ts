@@ -217,6 +217,7 @@ interface Issue {
   title: string;
   url: string;
   labels: { name: string }[];
+  body: string;
   repo: string;
 }
 
@@ -233,7 +234,7 @@ async function openIssues(): Promise<Issue[]> {
       "--limit",
       "200",
       "--json",
-      "number,title,url,labels",
+      "number,title,url,labels,body",
     ]);
     for (const issue of JSON.parse(raw) as Omit<Issue, "repo">[]) all.push({ ...issue, repo });
   }
@@ -266,7 +267,8 @@ export function trackFor(
  * `In progress` and `Done` are statements about a human or an agent, not about
  * the issue's labels, so a re-run leaves them exactly as it found them. The
  * other three are derived, and re-deriving them on every run is the point:
- * close a blocker and its dependant becomes Ready without anyone remembering.
+ * close a blocker, and a dependant that names it with `Blocked by #N` loses
+ * its `blocked` label and becomes Ready without anyone remembering.
  */
 const DERIVED_STATUSES = new Set(["Backlog", "Ready", "In review"]);
 
@@ -285,6 +287,135 @@ export function statusFor(
   const blocked = labels.includes("blocked") || labels.some((l) => l.startsWith("needs: "));
   if (blocked) return "Backlog";
   return labels.includes("agent-ready") ? "Ready" : "Backlog";
+}
+
+export type BlockerState = "open" | "closed";
+
+/**
+ * The blockers an issue body names, as `owner/repo#number`.
+ *
+ * The convention is `Blocked by #N` on its own line (`docs/process/github.md`).
+ * Prose that merely mentions being blocked names nothing a script can check,
+ * and a line inside a code fence is an example, not a dependency.
+ */
+export function blockersIn(body: string, repo: string): string[] {
+  const refs: string[] = [];
+  // The open fence, if any. A fence closes only on the same character, at
+  // least as long, with nothing after it — a ``` line inside a ~~~~ example is
+  // part of the example, and toggling on it would read the example's blockers
+  // and skip the real ones.
+  let fence: { char: string; length: number } | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const run = marker?.[1];
+      if (run && run[0] === fence.char && run.length >= fence.length && !marker![2].trim()) {
+        fence = undefined;
+      }
+      continue;
+    }
+    if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
+      fence = { char: marker[1][0], length: marker[1].length };
+      continue;
+    }
+    const match = line.match(/^\s*(?:[-*]\s+)?(?:\*\*)?blocked by(?:\*\*)?:?\s+(.*)$/i);
+    if (!match) continue;
+    for (const ref of match[1].matchAll(/(?:\b([\w.-]+\/[\w.-]+))?#(\d+)\b/g)) {
+      refs.push(`${ref[1] ?? repo}#${ref[2]}`);
+    }
+  }
+  return refs;
+}
+
+export type BlockedVerdict =
+  | { kind: "not-blocked" }
+  | { kind: "unverifiable"; reason: string }
+  | { kind: "still-blocked"; open: string[] }
+  | { kind: "cleared"; closed: string[] };
+
+/**
+ * Whether a `blocked` label still has a reason.
+ *
+ * Only a label whose every named blocker is known to be closed is `cleared`.
+ * No `Blocked by` line, or a blocker whose state could not be read, is
+ * `unverifiable`: the label may be right for a reason nobody wrote down, and
+ * removing it would hand an agent a trap through the Ready view.
+ */
+export function blockedVerdict(
+  issue: { labels: { name: string }[]; body?: string; repo: string },
+  stateOf: (ref: string) => BlockerState | undefined,
+): BlockedVerdict {
+  if (!issue.labels.some((label) => label.name === "blocked")) return { kind: "not-blocked" };
+  const blockers = blockersIn(issue.body ?? "", issue.repo);
+  if (blockers.length === 0) {
+    return { kind: "unverifiable", reason: "labelled `blocked` with no `Blocked by #N` line" };
+  }
+  const unknown = blockers.filter((ref) => stateOf(ref) === undefined);
+  if (unknown.length > 0) {
+    return { kind: "unverifiable", reason: `could not read the state of ${unknown.join(", ")}` };
+  }
+  const open = blockers.filter((ref) => stateOf(ref) === "open");
+  if (open.length > 0) return { kind: "still-blocked", open };
+  return { kind: "cleared", closed: blockers };
+}
+
+interface BlockableIssue {
+  number: number;
+  repo: string;
+  labels: { name: string }[];
+  body?: string;
+}
+
+export interface BlockerIO {
+  state(ref: string): Promise<BlockerState | undefined>;
+  removeLabel(issue: BlockableIssue): Promise<void>;
+  comment(issue: BlockableIssue, text: string): Promise<void>;
+}
+
+/** `#110` in its own repository, `owner/repo#110` from another. */
+function shortRef(ref: string, repo: string): string {
+  return ref.startsWith(`${repo}#`) ? ref.slice(repo.length) : ref;
+}
+
+/**
+ * Clear `blocked` from every issue whose named blockers have all closed.
+ *
+ * The label comes off before the comment is posted, so a failure between the
+ * two leaves an issue that the next run no longer considers — never one that
+ * collects a second comment. On success the in-memory labels are updated too,
+ * so the same run derives the issue's Status from what it now carries.
+ */
+export async function reconcileBlocked<T extends BlockableIssue>(
+  issues: T[],
+  io: BlockerIO,
+  apply: boolean,
+): Promise<{
+  cleared: { issue: T; closed: string[] }[];
+  unverifiable: { issue: T; reason: string }[];
+}> {
+  const cleared: { issue: T; closed: string[] }[] = [];
+  const unverifiable: { issue: T; reason: string }[] = [];
+  const known = new Map<string, BlockerState | undefined>();
+  for (const issue of issues) {
+    if (!issue.labels.some((label) => label.name === "blocked")) continue;
+    for (const ref of blockersIn(issue.body ?? "", issue.repo)) {
+      if (!known.has(ref)) known.set(ref, await io.state(ref));
+    }
+    const verdict = blockedVerdict(issue, (ref) => known.get(ref));
+    if (verdict.kind === "unverifiable") unverifiable.push({ issue, reason: verdict.reason });
+    if (verdict.kind !== "cleared") continue;
+    cleared.push({ issue, closed: verdict.closed });
+    if (!apply) continue;
+    await io.removeLabel(issue);
+    issue.labels = issue.labels.filter((label) => label.name !== "blocked");
+    const names = verdict.closed.map((ref) => shortRef(ref, issue.repo));
+    await io.comment(
+      issue,
+      `Unblocked: ${names.join(", ")} ${names.length === 1 ? "is" : "are"} closed, so ` +
+        "`scripts/sync-project.ts` removed the `blocked` label.",
+    );
+  }
+  return { cleared, unverifiable };
 }
 
 /**
@@ -313,6 +444,25 @@ export function priorityFor(issue: { labels: { name: string }[] }): string | und
   const label = issue.labels.find((l) => l.name.startsWith("priority: "));
   return label?.name.replace("priority: ", "").toUpperCase();
 }
+
+/** The tracker, through `gh`, for {@link reconcileBlocked}. */
+const trackerIO: BlockerIO = {
+  async state(ref) {
+    const [repo, number] = ref.split("#");
+    try {
+      const state = (await gh(["api", `repos/${repo}/issues/${number}`, "--jq", ".state"])).trim();
+      return state === "open" || state === "closed" ? state : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  async removeLabel(issue) {
+    await gh(["issue", "edit", String(issue.number), "--repo", issue.repo, "--remove-label", "blocked"]);
+  },
+  async comment(issue, text) {
+    await gh(["issue", "comment", String(issue.number), "--repo", issue.repo, "--body", text]);
+  },
+};
 
 async function buildMembership(): Promise<Map<string, Set<string>>> {
   const membership = new Map<string, Set<string>>();
@@ -372,6 +522,18 @@ if (import.meta.main) {
   const issues = await openIssues();
   const underReview = await issuesUnderReview();
   const currentValues = await boardValues(project.number);
+
+  // Before Status is derived: an issue unblocked here is Ready in this run.
+  const blockers = await reconcileBlocked(issues, trackerIO, apply);
+  for (const { issue, closed } of blockers.cleared) {
+    console.log(
+      `${apply ? "unblocked" : "would unblock"} ${issue.repo}#${issue.number}: ` +
+        `every blocker is closed (${closed.join(", ")})`,
+    );
+  }
+  for (const { issue, reason } of blockers.unverifiable) {
+    console.log(`cannot verify blocked ${issue.repo}#${issue.number}: ${reason}`);
+  }
 
   let added = 0;
   let edited = 0;
