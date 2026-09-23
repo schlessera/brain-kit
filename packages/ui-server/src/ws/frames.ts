@@ -1,4 +1,5 @@
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ServerMessage, ServerToolApprovalRequest } from "@schlessera/brain-ui-sdk/protocol";
+import type { PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import type { RunningTurn } from "./turns.js";
 
 /**
@@ -25,6 +26,26 @@ export function withTurnScope(
   const scoped = withSessionId(msg, turn.sessionId);
   if ((scoped as { turnId?: string }).turnId) return scoped;
   return { ...scoped, turnId } as ServerMessage;
+}
+
+/**
+ * The approval card for a permission request, before turn scoping. One
+ * builder for the first emission (bridge.ts) and the re-delivery on reconnect
+ * (connection.ts), so a card that survives a screen lock says exactly what it
+ * said the first time. `rememberable: false` mirrors the refusal dispatch.ts
+ * applies to an "always allow" outside the enforced allowlist; that guard
+ * still decides, this only stops the client offering what it will refuse.
+ */
+export function approvalRequestFrame(req: PermissionRequest): ServerToolApprovalRequest {
+  return {
+    type: "tool_approval_request",
+    toolUseId: req.toolUseId,
+    toolName: req.toolName,
+    input: req.input,
+    description: req.description,
+    ...(req.kind ? { kind: req.kind } : {}),
+    ...(req.outsideEnforcedAllowlist ? { rememberable: false } : {}),
+  };
 }
 
 /** Human-readable reason for a GeolocationPositionError code. */

@@ -409,6 +409,17 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
   kind?: "tool" | "command";
+  /**
+   * Whether the host will keep an "always allow" given on this card (rev 4,
+   * additive). Sent as `false` when the host will refuse to remember the
+   * grant — the request is for a tool outside the turn's enforced allowlist,
+   * and a grant made inside that narrower posture must not widen the others.
+   * The call itself can still be allowed; only the memory is refused, so the
+   * client must not offer "always allow". Absent means `kind` alone decides,
+   * as it did before this field existed. Advisory: the host enforces the
+   * refusal whatever the client sends.
+   */
+  rememberable?: boolean;
 }
 
 export interface ServerResultMessage {

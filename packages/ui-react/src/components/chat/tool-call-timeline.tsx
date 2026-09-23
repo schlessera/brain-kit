@@ -11,7 +11,7 @@ import {
   FileText,
 } from "lucide-react";
 import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
-import { useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
@@ -319,7 +319,8 @@ function ToolCallEntry({
 
               {/* Approval buttons. "Always allow" only for grantable tool
                   requests — a destructive-command confirmation (kind
-                  "command") stays per-use. */}
+                  "command") stays per-use, and a grant the host said it
+                  will not keep (#147) is not offered. */}
               {isPending && (
                 // The card is the focus scope for `a` / `d` (D36): the keys
                 // act only while it, or a button inside it, holds focus, and
@@ -340,7 +341,7 @@ function ToolCallEntry({
                     Allow
                     {printKeys && <KeyCap>a</KeyCap>}
                   </button>
-                  {toolCall.approvalKind !== "command" && (
+                  {offersAlwaysAllow(toolCall) && (
                     <button
                       onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true, true)}
                       title={`Allow ${toolCall.name} without asking from now on (revocable in Settings → Models)`}

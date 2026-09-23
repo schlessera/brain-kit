@@ -1,6 +1,7 @@
 import { ActionCard, Button } from "@schlessera/brain-ui-kit";
 import type { KeyboardEvent } from "react";
-import type { ToolCall } from "../../stores/chat-store.js";
+import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { offersAlwaysAllow, type ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { getToolLabel, getToolSummary } from "../chat/tool-views.js";
 import { KeyCap } from "../layout/key-cap.js";
@@ -35,6 +36,35 @@ export interface ApprovalCardProps {
 
 export const APPROVAL_CARD = "[data-approval-card]";
 
+/**
+ * What a decision on an Actions card prints and sends. The receipt follows
+ * what the card was allowed to offer, not the click (#147): "Always allowed"
+ * claims a policy write, and the host refuses one the card did not offer —
+ * so an `always` the card could not have offered is neither printed nor
+ * sent. A card no longer in the list (`tool` undefined) offered nothing.
+ */
+export function approvalOutcome(
+  tool: ToolCall | undefined,
+  toolUseId: string,
+  approved: boolean,
+  asked?: boolean
+): {
+  receipt: { text: string; target: string; effect: string };
+  frame: Extract<ClientMessage, { type: "tool_approval" | "tool_denial" }>;
+} {
+  const always = approved && asked === true && tool !== undefined && offersAlwaysAllow(tool);
+  return {
+    receipt: {
+      text: approved ? (always ? "Always allowed" : "Allowed") : "Denied",
+      target: tool ? tool.name : toolUseId,
+      effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial",
+    },
+    frame: approved
+      ? { type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) }
+      : { type: "tool_denial", toolUseId, message: "Denied by user" },
+  };
+}
+
 export function ApprovalCard(p: ApprovalCardProps) {
   const label = getToolLabel(p.tool.name);
   const summary = getToolSummary(p.tool);
@@ -65,7 +95,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
       >
         <div className="mt-2 flex flex-wrap gap-2">
           <Button label="Allow" icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
-          {p.tool.approvalKind !== "command" && (
+          {offersAlwaysAllow(p.tool) && (
             <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} onClick={() => decide(cardOf(), true, true)} />
           )}
           <Button label="Deny" icon="deny" tone="danger" size="sm" center block={false} style={DENY_MOUNT} onClick={() => decide(cardOf(), false)} />

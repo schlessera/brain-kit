@@ -241,6 +241,86 @@ describe("remembered grants under an enforced allowlist", () => {
 });
 
 /**
+ * The card has to say what the host will do with its answer (#147). The host
+ * refuses to remember an "always allow" given outside an enforced allowlist;
+ * a card that still offers the button makes that refusal a lie told by the UI.
+ * So the frame carries it, and so does the frame re-delivered on reconnect —
+ * a card that survives a screen lock must not come back with the button.
+ */
+describe("the approval frame says whether a grant can be kept", () => {
+  beforeEach(() => {
+    resetForTests();
+    closeDb();
+  });
+  afterEach(() => {
+    resetForTests();
+    closeDb();
+  });
+
+  type Card = { toolUseId?: string; rememberable?: boolean; turnId?: string };
+  const cardsIn = (sent: ServerMessage[]) =>
+    sent.filter((f) => f.type === "tool_approval_request") as Card[];
+
+  test("a request outside the enforced allowlist is sent as not rememberable", async () => {
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    setToolPermissionsForTests(memoryGrants().tp);
+    const { host, client } = await startTurn(controls);
+
+    void controls[0]!.request(
+      { toolName: "mcp_proxy_tool", input: {}, kind: "tool", outsideEnforcedAllowlist: true },
+      "t20"
+    );
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+
+    const cards = cardsIn(client.sent);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.rememberable).toBe(false);
+    controls[0]!.finish();
+  });
+
+  test("the same card re-delivered after a reconnect is still not rememberable", async () => {
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    setToolPermissionsForTests(memoryGrants().tp);
+    const { host } = await startTurn(controls);
+
+    void controls[0]!.request(
+      { toolName: "mcp_proxy_tool", input: {}, kind: "tool", outsideEnforcedAllowlist: true },
+      "t21"
+    );
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+
+    const reconnected = fakeClient();
+    await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
+    const cards = cardsIn(reconnected.sent);
+    expect(cards.map((c) => c.toolUseId)).toEqual(["t21"]);
+    expect(cards[0]!.rememberable).toBe(false);
+    controls[0]!.finish();
+  });
+
+  test("an unmarked request carries no marking, first time or re-delivered", async () => {
+    // Absent is today's frame: the client falls back to kind alone, which is
+    // what an older host would have sent it anyway.
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    setToolPermissionsForTests(memoryGrants().tp);
+    const { host, client } = await startTurn(controls);
+
+    void controls[0]!.request({ toolName: "mcp_proxy_tool", input: {}, kind: "tool" }, "t22");
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const reconnected = fakeClient();
+    await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
+
+    for (const card of [...cardsIn(client.sent), ...cardsIn(reconnected.sent)]) {
+      expect("rememberable" in card).toBe(false);
+    }
+    expect(cardsIn(reconnected.sent)).toHaveLength(1);
+    controls[0]!.finish();
+  });
+});
+
+/**
  * The refusal to remember has to be visible. The read side already records a
  * grant it declines to apply; the write side refusing the user's own "always"
  * is the same gap facing the other way, and it is the one a person will

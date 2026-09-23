@@ -594,6 +594,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
   kind: z.enum(["tool", "command"]).optional(),
+  rememberable: z.boolean().optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 

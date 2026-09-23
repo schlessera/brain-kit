@@ -57,7 +57,7 @@ import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import { useHashRoutes } from "../../src/hooks/use-hash-routes.js";
 import { useFinePointer } from "../../src/hooks/use-fine-pointer.js";
 import { useMediaQuery } from "../../src/hooks/use-media-query.js";
-import { ApprovalCard } from "../../src/components/activity/approval-card.js";
+import { ApprovalCard, approvalOutcome } from "../../src/components/activity/approval-card.js";
 import {
   hasUnsentText,
   useServiceWorkerUpdates,
@@ -5096,5 +5096,130 @@ describe("ModelsCatalogView", () => {
     expect(empty.getByRole("alert").textContent).toContain("save failed");
     expect(empty.getByRole("button", { name: "Refreshing…" }).getAttribute("aria-disabled")).toBe("true");
     empty.unmount();
+  });
+});
+
+/* ── #147: a card never offers a grant the host will not keep ───────────── */
+
+describe("approval cards follow rememberability (#147)", () => {
+  function card(extra: Partial<ToolCall>): ToolCall {
+    return {
+      id: "t1",
+      name: "mcp_proxy_tool",
+      input: {},
+      inputJson: "{}",
+      status: "pending_approval",
+      ...extra,
+    } as ToolCall;
+  }
+  // The three states a card can be in. Only the first may offer the button.
+  const OFFERED = card({ approvalKind: "tool" });
+  const UNKEPT = card({ approvalKind: "tool", approvalRememberable: false });
+  const COMMAND = card({ name: "Bash", approvalKind: "command" });
+
+  test("the transcript card drops Always allow when the host will not keep it", () => {
+    for (const [tool, offered] of [[OFFERED, true], [UNKEPT, false], [COMMAND, false]] as const) {
+      const view = render(<ToolCallTimeline toolCalls={[tool]} onApproval={() => {}} />);
+      expect(view.queryByRole("button", { name: "Always allow" }) !== null).toBe(offered);
+      // Allow and Deny are never what this changes.
+      expect(view.getByRole("button", { name: /^Allow/ })).toBeTruthy();
+      expect(view.getByRole("button", { name: /^Deny/ })).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  test("the Actions card drops Always allow when the host will not keep it", () => {
+    for (const [tool, offered] of [[OFFERED, true], [UNKEPT, false], [COMMAND, false]] as const) {
+      const view = render(<ApprovalCard tool={tool} origin="this conversation" keys onDecide={() => {}} />);
+      expect(view.queryByRole("button", { name: /Always allow/ }) !== null).toBe(offered);
+      expect(view.getByRole("button", { name: /^Allow/ })).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  test("an always the card could not offer is neither printed nor sent", () => {
+    // The button is gone, so this is the guard behind it: whatever reaches
+    // the decision, the receipt and the frame follow the card.
+    for (const tool of [UNKEPT, COMMAND, undefined]) {
+      const { receipt, frame } = approvalOutcome(tool, "t1", true, true);
+      expect(receipt.text).toBe("Allowed");
+      expect(receipt.effect).toBe("tool_approval");
+      expect(frame).toEqual({ type: "tool_approval", toolUseId: "t1" });
+    }
+    const kept = approvalOutcome(OFFERED, "t1", true, true);
+    expect(kept.receipt).toEqual({ text: "Always allowed", target: "mcp_proxy_tool", effect: "write_policy" });
+    expect(kept.frame).toEqual({ type: "tool_approval", toolUseId: "t1", always: true });
+    expect(approvalOutcome(OFFERED, "t1", false, true).frame).toEqual({
+      type: "tool_denial",
+      toolUseId: "t1",
+      message: "Denied by user",
+    });
+  });
+
+  /**
+   * Driven from the wire: the frame the host sends, through the socket
+   * handler and the store, to the Actions page and the receipt it prints.
+   */
+  async function actionsFrom(frame: Record<string, unknown>) {
+    installActivityFetch();
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    const root = createBrainUiRoot({ storage: null });
+    const release = root.connection.connect();
+    const socket = PageSocket.instances.at(-1)!;
+    act(() => {
+      socket.open();
+      socket.deliver({ type: "text_delta", text: "working" });
+      root.connection.flushChatDeltas();
+      socket.deliver({
+        type: "tool_approval_request",
+        toolUseId: "t1",
+        toolName: "mcp_proxy_tool",
+        input: {},
+        kind: "tool",
+        ...frame,
+      });
+    });
+    const page = render(<BrainUiProvider root={root}><ActivityPage /></BrainUiProvider>);
+    await act(flushPromises);
+    const approvals = () =>
+      socket.sent
+        .map((f) => JSON.parse(f) as Record<string, unknown>)
+        .filter((f) => f.type === "tool_approval" || f.type === "tool_denial");
+    const done = () => {
+      page.unmount();
+      release();
+      root.dispose();
+    };
+    return { page, approvals, done };
+  }
+
+  test("an unkept card's receipt never says Always allowed, and no always goes on the wire", async () => {
+    const { page, approvals, done } = await actionsFrom({ rememberable: false });
+    try {
+      // Whatever the card offers is what the user can press. Before #147 it
+      // offered Always allow here and the receipt printed a policy write the
+      // host then refused; now it offers Allow, and the receipt says that.
+      const always = page.queryByRole("button", { name: /Always allow/ });
+      fireEvent.click(always ?? page.getByRole("button", { name: /^Allow/ }));
+      await act(flushPromises);
+      expect(page.container.textContent).not.toContain("Always allowed");
+      expect(page.getByText("Allowed")).toBeTruthy();
+      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1" }]);
+      expect(always === null).toBe(true);
+    } finally {
+      done();
+    }
+  });
+
+  test("a card the host will keep still offers Always allow and still says so", async () => {
+    const { page, approvals, done } = await actionsFrom({});
+    try {
+      fireEvent.click(page.getByRole("button", { name: /Always allow/ }));
+      await act(flushPromises);
+      expect(page.getByText("Always allowed")).toBeTruthy();
+      expect(approvals()).toEqual([{ type: "tool_approval", toolUseId: "t1", always: true }]);
+    } finally {
+      done();
+    }
   });
 });

@@ -12,7 +12,7 @@ import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
 import { EmptyState, FilterRow, InlineToast, Label } from "@schlessera/brain-ui-kit";
 import { cn } from "../../lib/utils.js";
-import { ApprovalCard } from "./approval-card.js";
+import { ApprovalCard, approvalOutcome } from "./approval-card.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
 import { RollupCards } from "./activity-rollups.js";
@@ -243,13 +243,13 @@ export function ActivityPage() {
     setDrained(approvals.length === 0);
     void acknowledgeAllIntents();
   }
-  function decideApproval(key: string | null, toolUseId: string, approved: boolean, always?: boolean) {
+  function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
-    setReceipt({ text: approved ? (always ? "Always allowed" : "Allowed") : "Denied", target: tool ? tool.name : toolUseId, effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial" });
+    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked);
+    setReceipt(receipt);
     setDrained(inbox.length + approvals.length <= 1);
     resolveToolApproval(key, toolUseId, approved);
-    if (approved) root.connection.send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}) });
-    else root.connection.send({ type: "tool_denial", toolUseId, message: "Denied by user" });
+    root.connection.send(frame);
   }
   const needsYouCount = inbox.length + approvals.length;
   const runningCount = liveRoots.length + restLive.length;
