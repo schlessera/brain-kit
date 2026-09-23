@@ -20,6 +20,7 @@ import { LiveRow, RunRow } from "./activity-run-list.js";
 import { RunDetail, RunTraceSteps } from "./activity-run-detail.js";
 import { IntentCard } from "./activity-views.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { PushToggle } from "./push-toggle.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 
@@ -209,6 +210,11 @@ export function ActivityPage() {
   }
 
   const keys = useUIStore((s) => s.singleKeyShortcuts);
+  // The keys bind on `keys` alone; they are PRINTED only while a mouse or
+  // trackpad is present (#86, #100), like the approval card's caps. A
+  // touch-only tablet past `laptop:` would otherwise read keys it cannot fire.
+  const finePointer = useFinePointer();
+  const printKeys = keys && finePointer;
   const INTENT_CARD = "[data-intent-card] > [role=\"button\"]";
   /**
    * `j` / `k` move inside the focused list and `d` dismisses the focused
@@ -360,7 +366,7 @@ export function ActivityPage() {
                         <IntentCard
                           intent={intent}
                           when={formatRelativeTime(intent.createdAt)}
-                          keyHint={keys}
+                          keyHint={printKeys}
                           onOpen={() => {
                             void acknowledgeIntent(intent.id);
                             openIntent(intent);
@@ -370,7 +376,7 @@ export function ActivityPage() {
                       </div>
                     ))}
                   </div>
-                  {keys && (
+                  {printKeys && (
                     <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:hidden">
                       j / k move · d dismiss · ⏎ open{approvals.length > 0 ? " · a allow" : ""}
                     </p>
@@ -422,8 +428,9 @@ export function ActivityPage() {
         </div>
         {/* The column's footer (D4): the printed keys, pinned under the list
             from `laptop:`. Only while the keys can fire — they act inside the
-            inbox list — so a lens without cards advertises nothing. */}
-        {keys && lens === "needs-you" && inbox.length > 0 && (
+            inbox list — so a lens without cards advertises nothing, and
+            only with a fine pointer (#100). */}
+        {printKeys && lens === "needs-you" && inbox.length > 0 && (
           <p className="sticky bottom-0 mt-auto hidden border-t border-border-subtle bg-background px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:block">
             j / k move · d dismiss
           </p>
