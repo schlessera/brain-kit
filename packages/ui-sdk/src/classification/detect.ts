@@ -136,6 +136,22 @@ interface Flattened extends CandidateSpan {
 
 const MAILTO = /^mailto:/i;
 
+/** Nodes that sit inside a line of text; any other node starts a new one. */
+const INLINE = new Set([
+  "text",
+  "emphasis",
+  "strong",
+  "delete",
+  "inlineCode",
+  "break",
+  "link",
+  "linkReference",
+  "image",
+  "imageReference",
+  "footnoteReference",
+  "html",
+]);
+
 /**
  * Inline nodes that flatten to their text with nothing lost but a face. A
  * link's text is admitted only when it is made of these, so an image, a
@@ -170,39 +186,66 @@ function bareAddress(link: Link): string | null {
  * address — GFM links the address and leaves the scheme outside it — goes
  * with it, so the address reads the same however it was written.
  */
-function flattenBareAddresses(node: Node, source: string, out: Flattened[]): void {
-  const children = node.children;
-  if (!Array.isArray(children)) return;
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i]!;
-    const start = child.position?.start.offset;
-    const end = child.position?.end.offset;
-    const text = child.type === "link" ? bareAddress(child as Link) : null;
-    if (text === null || typeof start !== "number" || typeof end !== "number") {
-      flattenBareAddresses(child, source, out);
-      continue;
+function flattenBareAddresses(root: Node, source: string, out: Flattened[]): void {
+  // The last character a reader sees before each text node, carried across
+  // inline nodes and reset at every block, so `mailto:` is judged a word of
+  // its own by what is on the page: `**not**mailto:` and `x**mailto:…**` are
+  // the author's text, `(mailto:` and a scheme opening a line are schemes.
+  const seenBefore = new Map<Node, string>();
+  let last = "";
+  const walk = (node: Node): void => {
+    const children = node.children;
+    if (!Array.isArray(children)) return;
+    const block = !INLINE.has(node.type);
+    if (block) last = "";
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]!;
+      if (child.type === "text") {
+        seenBefore.set(child, last);
+        last = (child as Text).value.slice(-1) || last;
+        continue;
+      }
+      if (child.type === "inlineCode") {
+        last = (child as Text).value.slice(-1) || last;
+        continue;
+      }
+      if (child.type === "break") {
+        last = "\n";
+        continue;
+      }
+      const start = child.position?.start.offset;
+      const end = child.position?.end.offset;
+      const text = child.type === "link" ? bareAddress(child as Link) : null;
+      if (text === null || typeof start !== "number" || typeof end !== "number") {
+        walk(child);
+        continue;
+      }
+      let from = start;
+      const before = children[i - 1];
+      // Read the scheme from the source, not the decoded prose: `mailto&#58;`
+      // decodes to the same seven characters from eleven.
+      const scheme = "mailto:".length;
+      if (
+        MAILTO.test((child as Link).url) &&
+        before?.type === "text" &&
+        before.position?.end.offset === start &&
+        MAILTO.test(source.slice(start - scheme, start)) &&
+        /mailto:$/i.test((before as Text).value)
+      ) {
+        const prose = (before as Text).value;
+        const ahead = prose.length > scheme ? prose.charAt(prose.length - scheme - 1) : (seenBefore.get(before) ?? "");
+        if (!/[\p{L}\p{N}]/u.test(ahead)) {
+          (before as Text).value = prose.slice(0, -scheme);
+          from = start - scheme;
+        }
+      }
+      children[i] = { type: "text", value: text, position: { start: { offset: from }, end: { offset: end } } } as Text;
+      out.push({ start: from, end, text });
+      last = text.slice(-1);
     }
-    let from = start;
-    const before = children[i - 1];
-    // Read the scheme from the source, not the decoded prose: `mailto&#58;`
-    // decodes to the same seven characters from eleven.
-    const scheme = "mailto:".length;
-    if (
-      MAILTO.test((child as Link).url) &&
-      before?.type === "text" &&
-      before.position?.end.offset === start &&
-      MAILTO.test(source.slice(start - scheme, start)) &&
-      // A word of its own: `notmailto:` is the author's text, not a scheme,
-      // and so is `**not**mailto:`, where the word starts in the node before.
-      (/[^\p{L}\p{N}]mailto:$/iu.test((before as Text).value) ||
-        (MAILTO.test((before as Text).value) && i - 1 === 0))
-    ) {
-      (before as Text).value = (before as Text).value.slice(0, -scheme);
-      from = start - scheme;
-    }
-    children[i] = { type: "text", value: text, position: { start: { offset: from }, end: { offset: end } } } as Text;
-    out.push({ start: from, end, text });
-  }
+    if (block) last = "";
+  };
+  walk(root);
 }
 
 /** The source between `start` and `end`, with every flattened stretch read as its text. */

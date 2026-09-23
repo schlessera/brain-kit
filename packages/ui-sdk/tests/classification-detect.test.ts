@@ -194,6 +194,21 @@ describe("detectCandidates", () => {
     expect(quote?.kind === "blockquote" && quote.text).toBe("notmailto:eurybates@ithaca.example");
     const [first] = detectCandidates("> mailto:eurybates@ithaca.example");
     expect(first?.kind === "blockquote" && first.text).toBe("eurybates@ithaca.example");
+    // What decides it is the character the reader sees before the scheme,
+    // across inline nodes: an earlier `mailto:` in the same text does not
+    // license a later one, a word inside emphasis still counts, and code or
+    // a line break before it is a boundary like any punctuation.
+    const quoted = (text: string) => {
+      const [q] = detectCandidates(text);
+      return q?.kind === "blockquote" ? q.text : null;
+    };
+    expect(quoted("> mailto: notmailto:eurybates@ithaca.example")).toBe("mailto: notmailto:eurybates@ithaca.example");
+    expect(quoted("> mailto:\n> notmailto:eurybates@ithaca.example")).toBe("mailto: notmailto:eurybates@ithaca.example");
+    expect(quoted("> not**mailto:eurybates@ithaca.example**")).toBe("notmailto:eurybates@ithaca.example");
+    expect(quoted("> `(`mailto:eurybates@ithaca.example")).toBe("(eurybates@ithaca.example");
+    expect(quoted("> `not`mailto:eurybates@ithaca.example")).toBe("notmailto:eurybates@ithaca.example");
+    // (A hard break still joins the words either side, which is #240.)
+    expect(quoted("> Write to\\\n> mailto:eurybates@ithaca.example")).not.toContain("mailto:");
     // A bullet list of key lines reads its values the same way.
     const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
     if (list?.kind !== "kv_run") throw new Error("expected kv_run");
