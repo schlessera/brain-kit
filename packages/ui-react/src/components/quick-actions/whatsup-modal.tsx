@@ -58,6 +58,7 @@ export function WhatsupPanel({
         const decoder = new TextDecoder();
         let buffer = "";
         const lines: string[] = [];
+        let finished = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -80,12 +81,20 @@ export function WhatsupPanel({
                 lines.push(data.text);
               }
               if (data.type === "done") {
+                finished = true;
                 setState(data.success ? "done" : "error");
               }
             } catch {}
           }
         }
 
+        // EOF without a `done` frame — a dropped connection, or a route that
+        // unwound past its last send. Loading is not terminal, so staying in
+        // it would strand the panel behind the skeleton and a Cancel.
+        if (!finished) {
+          lines.push("", "_The connection closed before the job reported a result._");
+          setState("error");
+        }
         setContent(lines.join("\n"));
       } catch (err: any) {
         if (disposed || controller.signal.aborted) return;

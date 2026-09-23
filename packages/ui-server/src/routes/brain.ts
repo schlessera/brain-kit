@@ -176,6 +176,14 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
               ? "Briefing complete"
               : `Failed (exit ${exitCode})`,
         });
+      } catch (error) {
+        // Anything that throws before the last send — a spawn that cannot
+        // start, for one — still ends on the frame the panel waits for. The
+        // send itself may be what failed, so neither can throw again. The panel
+        // renders only progress text, so the reason goes there too.
+        const text = error instanceof Error ? error.message : "Briefing failed";
+        await send({ type: "progress", text }).catch(() => {});
+        await send({ type: "done", success: false, text }).catch(() => {});
       } finally {
         clearInterval(heartbeat);
       }
