@@ -85,7 +85,7 @@ describe("discoverAnthropicModels", () => {
     expect(headers["x-api-key"]).toBeUndefined();
   });
 
-  test("prefers an explicit API key over the subscription token", async () => {
+  test("prefers the subscription token over an API key, as the turns do (#253)", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-api-test";
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-test";
     let headers: Record<string, string> = {};
@@ -96,8 +96,8 @@ describe("discoverAnthropicModels", () => {
 
     await discoverAnthropicModels({ fetchImpl });
 
-    expect(headers["x-api-key"]).toBe("sk-ant-api-test");
-    expect(headers.authorization).toBeUndefined();
+    expect(headers.authorization).toBe("Bearer sk-ant-oat01-test");
+    expect(headers["x-api-key"]).toBeUndefined();
   });
 
   test("canonicalizes a dated id to its alias when the alias resolves", async () => {

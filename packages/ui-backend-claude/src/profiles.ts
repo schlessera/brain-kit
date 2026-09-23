@@ -27,6 +27,14 @@ export interface InferenceProfile {
   source?: "builtin" | "declared" | "discovered";
   /** Env vars that must be present (non-empty) for this profile to be usable. */
   requiredEnvKeys: string[];
+  /**
+   * How a turn on this profile is billed. `"api"` only for a profile that
+   * declares its own credential (`apiKeyEnv` / `authTokenEnv`); anything else —
+   * including a profile built by hand without this field — is held to the
+   * subscription: the ambient API credentials are cleared and the account the
+   * CLI selected is checked before the prompt is sent (see subscription.ts).
+   */
+  billing?: "subscription" | "api";
   /** Environment overrides merged over the host environment before the query runs. */
   buildEnv(): Record<string, string>;
 }
@@ -79,6 +87,8 @@ export function defineProfiles(
     const requiredEnvKeys = [input.authTokenEnv, input.apiKeyEnv].filter(
       (key): key is string => typeof key === "string" && key.length > 0
     );
+    // Same test as the module's billing classification, so the two agree.
+    const billing = input.authTokenEnv || input.apiKeyEnv ? "api" : "subscription";
 
     return {
       id: input.id,
@@ -89,6 +99,7 @@ export function defineProfiles(
       contextWindow: input.contextWindow,
       source: input.source,
       requiredEnvKeys,
+      billing,
       buildEnv(): Record<string, string> {
         const env: Record<string, string> = {};
         if (input.baseUrl !== undefined) {

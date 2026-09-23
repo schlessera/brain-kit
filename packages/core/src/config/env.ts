@@ -122,6 +122,17 @@ export interface CoreEnv {
   chromeNoSandbox: boolean;
 }
 
+/**
+ * The environment a spawned agent CLI inherits — this process's own, read at
+ * call time — with `overrides` set over it. Passed explicitly because a spawn
+ * without an `env` does not see changes made to `process.env` after start-up.
+ */
+export function inheritedEnv(
+  overrides: Readonly<Record<string, string>>
+): Record<string, string | undefined> {
+  return { ...process.env, ...overrides };
+}
+
 /** Resolve the statically-named variables. Reads happen here and only here. */
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
   return {

@@ -223,14 +223,15 @@ export const backendModule: BackendModule = defineBackendModule({
           : {}),
         ...(context.log ? { log: context.log } : {}),
       });
-      const ambientBilling =
-        context.config.ambientBilling === "subscription" ? "subscription" : "api";
       return {
         ok: true,
         value: {
           backend,
           classifyBilling(profile: ProviderInfo) {
-            return declaredApiProfileIds.has(profile.id) ? "api" : ambientBilling;
+            // A profile without its own credential runs on the subscription or
+            // is refused before its prompt is sent (subscription.ts), so the
+            // host's ambient credentials no longer decide this.
+            return declaredApiProfileIds.has(profile.id) ? "api" : "subscription";
           },
           classifyRoute(profile: ProviderInfo) {
             // A profile that declares no baseUrl does NOT thereby reach

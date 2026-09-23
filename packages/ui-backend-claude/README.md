@@ -175,13 +175,13 @@ to touch `process.env`.
 
 | Variable | What it controls | Unset |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | API key for the Anthropic Models API (model discovery). Takes precedence over the subscription token, mirroring the Agent SDK. | — |
+| `ANTHROPIC_API_KEY` | API key for the Anthropic Models API (model discovery), used when no subscription token is set. Never reaches a chat turn on a profile without its own credential: those run on the subscription. | — |
 | `ANTHROPIC_BASE_URL` | Anthropic-compatible endpoint inherited by profiles that declare no baseUrl of their own. Read to classify a run's pricing route; also passed through to the agent subprocess. | — |
 | `BRAIN_UI_EXEC_KILLER` | Absolute path to an authorised helper that cancels the wrapped Claude Code process group, invoked as `<killer> <pgid> <TERM\|KILL\|INT>`. Needed only when the wrapper changes uid: signalling then fails with EPERM however the group is arranged, and an aborted turn would keep running. | (none — signal the group directly) |
 | `BRAIN_UI_EXEC_WRAPPER` | Absolute path to an executable the Claude Code subprocess is launched through, as `<wrapper> <program> <args…>`. Lets a host run the agent as another user without this package knowing how. It is an argv[0], never a command line: no shell parses it. Unset, the SDK spawns exactly as it did before. | (none — let the SDK spawn directly) |
 | `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |
 | `BRAIN_UI_SUBPROCESS_ENV_EXTRA` | Comma-separated environment variable names to admit to the Claude Code subprocess when an operator integration needs a variable outside the shipped agent allowlist. Names are trimmed; malformed entries are ignored; the control variable itself is never forwarded. | (empty) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token for the Anthropic Models API (model discovery), used when no API key is set. | — |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token: authenticates chat turns on every profile without its own credential, and model discovery. Wins over ANTHROPIC_API_KEY. | — |
 | `NOMINATIM_URL` | Reverse-geocoding endpoint. | https://nominatim.openstreetmap.org |
 | `NOMINATIM_USER_AGENT` | Identifying User-Agent for Nominatim (usage-policy requirement). | brain-kit-ui/1.0 |
 

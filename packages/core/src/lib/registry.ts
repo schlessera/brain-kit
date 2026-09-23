@@ -35,9 +35,12 @@ export const EMBEDDING_PROVIDERS: Record<
   gemini: (config) => geminiEmbeddings(config),
 };
 
-export const COMPLETION_PROVIDERS: Record<string, () => CompletionProvider> = {
-  "gemini-flash": () => geminiCompletions(),
-  "anthropic-haiku": () => anthropicCompletions(),
+export const COMPLETION_PROVIDERS: Record<
+  string,
+  (config: { apiKeyEnv?: string }) => CompletionProvider
+> = {
+  "gemini-flash": (config) => geminiCompletions(config),
+  "anthropic-haiku": (config) => anthropicCompletions(config),
 };
 
 export const AGENT_RUNNERS: Record<string, () => AgentRunner> = {
@@ -75,14 +78,17 @@ export function resolveEmbeddingProvider(config?: EmbeddingsConfig): EmbeddingPr
   return factory({ model, apiKeyEnv, dimensions });
 }
 
-function resolveCompletionEntry(entry: string | CompletionProvider): CompletionProvider {
+function resolveCompletionEntry(
+  entry: string | CompletionProvider,
+  apiKeyEnv: string | undefined
+): CompletionProvider {
   if (typeof entry !== "string") return entry; // custom value, used as-is
 
   const factory = COMPLETION_PROVIDERS[entry];
   if (!factory) {
     throw new Error(unknownMessage("completion provider", entry, COMPLETION_PROVIDERS, "CompletionProvider"));
   }
-  return factory();
+  return factory(apiKeyEnv ? { apiKeyEnv } : {});
 }
 
 /**
@@ -109,9 +115,9 @@ function withFallback(
 
 /** Default built-in is "gemini-flash"; a configured fallback wraps the primary. */
 export function resolveCompletionProvider(config?: CompletionsConfig): CompletionProvider {
-  const primary = resolveCompletionEntry(config?.provider ?? "gemini-flash");
+  const primary = resolveCompletionEntry(config?.provider ?? "gemini-flash", config?.apiKeyEnv);
   if (config?.fallback === undefined) return primary;
-  return withFallback(primary, resolveCompletionEntry(config.fallback));
+  return withFallback(primary, resolveCompletionEntry(config.fallback, config.fallbackApiKeyEnv));
 }
 
 /** Default built-in when no agentRunner config is present. */

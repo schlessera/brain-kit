@@ -432,6 +432,16 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the module-level registration latch this audit found was since removed",
   "docs/decisions/design-kit.md|packages/ui-backend-claude/src/ask-user-tool.ts:104":
     "records the call as it was before D44; it now passes alwaysLoad",
+  "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/module.ts:226-234":
+    "the ambient-credential billing classification, replaced by #253: a credential-free profile is always subscription",
+  "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/model-discovery.ts:86-104":
+    "model discovery preferring the API key; #253 made it prefer the subscription token",
+  "docs/decisions/claude-code-runtime.md|packages/core/src/providers/agents/cli-runners.ts:37-43":
+    "the Claude runner spawning with the inherited environment; #253 moved it to a cleared, handshake-checked session",
+  "docs/decisions/claude-code-runtime.md|cli-runners.ts:66-72":
+    "the Claude streaming runner spawning with the inherited environment, replaced by #253",
+  "docs/decisions/claude-code-runtime.md|packages/core/src/lib/registry.ts:40":
+    "the completion registry building providers with no options; #253 added completions.apiKeyEnv",
   "docs/decisions/hardening.md|backend.ts:1039":
     "describes getBackendForSession substituting the default, which the fix replaced with a throw",
   "docs/decisions/session-principals.md|middleware/auth.ts:253": {
