@@ -876,6 +876,7 @@ export "./server" (./src/server/index.ts)
   type WriteLock
   applyClassification
   archivesDocument
+  assertTurnPosture
   bashCommand
   bashLockKey
   bridgeContractForToolName

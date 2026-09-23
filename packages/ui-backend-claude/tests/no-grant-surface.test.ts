@@ -24,6 +24,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
+import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type {
   BackendActivityEvent,
   BackendBridge,
@@ -174,7 +175,9 @@ async function startTurn(setup: {
     prompt: "speak to me",
     signal: new AbortController().signal,
     bridge,
-    ...(setup.enforceAllowedTools ? { enforceAllowedTools: true } : {}),
+    ...(setup.enforceAllowedTools !== undefined
+      ? { enforceAllowedTools: setup.enforceAllowedTools }
+      : {}),
     ...(setup.noGrantSurface ? { noGrantSurface: true } : {}),
   });
   return { options: captured!, requests, frames, activity };
@@ -363,48 +366,95 @@ describe("the capability that needs eyes", () => {
 });
 
 describe("the pairing the field's documentation asks for", () => {
-  test("declared ALONE, the refusal is never reached for a tool the runtime waves through", async () => {
-    // Characterization, not an endorsement. `noGrantSurface` registers no
-    // enforcement hook — that is `enforceAllowedTools`'s job — so nothing
-    // forces the callback, and the three runtime paths that land before
-    // `canUseTool` still admit the call. Nothing is asked, so nothing is
-    // refused: this is a gap in the PAIRING, not a bypass of the refusal.
-    // Pinned here because the JSDoc requires the pairing and nothing enforces
-    // it. What to do about that is #173.
-    const harness = await startTurn({
-      allowedTools: WITHOUT_SHELL,
-      noGrantSurface: true,
-    });
+  // Declared ALONE, `noGrantSurface` registers no enforcement hook, so a tool
+  // the runtime waves through on its own never reaches the refusal: a posture
+  // nothing reaches. The maintainer ruling on #173 is to refuse the
+  // declaration outright, on both backends, rather than run a turn whose
+  // posture is decoration. These replace the characterization tests that
+  // pinned the gap.
+  test("declared alone, startTurn rejects with BackendRequestError", async () => {
+    const attempt = startTurn({ allowedTools: WITHOUT_SHELL, noGrantSurface: true });
 
-    const outcome = await runToolCall(
-      harness.options,
-      "mcp__external__publish",
-      { id: 7 },
-      "publish-unpaired",
-      true // the runtime approves it on its own, as measured
-    );
-
-    expect(outcome.executed).toBe(true);
-    expect(outcome.decided).toBe(false);
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.activity).toHaveLength(0);
+    await expect(attempt).rejects.toBeInstanceOf(BackendRequestError);
+    await expect(attempt).rejects.toThrow(/noGrantSurface.*enforceAllowedTools/);
   });
 
-  test("declared alone, a request that DOES reach the gate is still refused", async () => {
-    // The other half, and the reason the gap is about reach rather than the
-    // refusal: the Bash confirm pattern comes from a hook that fires whatever
-    // the turn declared, so it reaches the shared gate and is denied.
-    const harness = await startTurn({
+  test("declared alone, nothing is emitted and no query is started", async () => {
+    const frames: ServerMessage[] = [];
+    let queried = false;
+    const backend = createClaudeBackend({
+      brainPath: "/brain",
+      queryFn: (() => {
+        queried = true;
+        throw new Error("query must not start for a refused posture");
+      }) as unknown as typeof query,
       allowedTools: WITH_SHELL,
-      noGrantSurface: true,
+      log: () => {},
     });
 
-    const outcome = await runToolCall(harness.options, "Bash", DESTRUCTIVE, "bash-unpaired");
+    await expect(
+      backend.startTurn({
+        prompt: "speak to me",
+        signal: new AbortController().signal,
+        bridge: {
+          emit: (msg) => frames.push(msg),
+          requestPermission: async () => ({ behavior: "deny", message: "No." }),
+        },
+        noGrantSurface: true,
+      })
+    ).rejects.toBeInstanceOf(BackendRequestError);
+    expect(queried).toBe(false);
+    expect(frames).toHaveLength(0);
+  });
 
-    expect(outcome.executed).toBe(false);
-    expect(harness.requests).toHaveLength(0);
-    expect(approvalFrames(harness)).toHaveLength(0);
-    expectSpeakableDenial(outcome.message, "Bash");
+  test("a refused resume leaves the session free for its next turn", async () => {
+    // The refusal must come before the per-session slot is claimed: a slot
+    // left behind would reject every later turn on the session as busy.
+    let queries = 0;
+    const backend = createClaudeBackend({
+      brainPath: "/brain",
+      queryFn: (() => {
+        queries++;
+        return (async function* () {
+          yield { type: "system", subtype: "init", session_id: "resumed" };
+          yield {
+            type: "result",
+            subtype: "success",
+            session_id: "resumed",
+            total_cost_usd: 0,
+            duration_ms: 1,
+            num_turns: 1,
+          };
+        })();
+      }) as unknown as typeof query,
+      allowedTools: WITH_SHELL,
+      log: () => {},
+    });
+    const turn = (posture: { noGrantSurface?: boolean; enforceAllowedTools?: boolean }) =>
+      backend.startTurn({
+        prompt: "again",
+        sessionId: "resumed",
+        signal: new AbortController().signal,
+        bridge: {
+          emit: () => {},
+          requestPermission: async () => ({ behavior: "deny", message: "No." }),
+        },
+        ...posture,
+      });
+
+    await expect(turn({ noGrantSurface: true })).rejects.toBeInstanceOf(BackendRequestError);
+    await expect(turn({ noGrantSurface: true, enforceAllowedTools: true })).resolves.toBeUndefined();
+    expect(queries).toBe(1);
+  });
+
+  test("an explicit enforceAllowedTools: false is refused the same way", async () => {
+    const attempt = startTurn({
+      allowedTools: WITHOUT_SHELL,
+      noGrantSurface: true,
+      enforceAllowedTools: false,
+    });
+
+    await expect(attempt).rejects.toBeInstanceOf(BackendRequestError);
   });
 });
 
