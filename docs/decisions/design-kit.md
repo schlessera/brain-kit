@@ -1813,20 +1813,24 @@ and the printed keys are ordinary label text. The kit does not bind `a`, `d`,
 `s`, `j` or `k` itself: which card is "focused" for the purpose of a letter
 key is the list's knowledge, not the card's.
 
-### D36 addendum — printed keys follow the pointer, so a keyboard-only tablet prints none (maintainer, 2026-09-22)
+### D36 addendum — printed keys follow the pointer, so a keyboard-only tablet goes without them (maintainer, 2026-09-22)
 
 "Every shortcut is printed where it applies" met a tablet in landscape: past
 `laptop:` it read the rail's `⌘1`–`⌘5` and a footer of letters it had no key
-to press. #86 and #100 answered that by printing the keys only while
+to press. #86 and #100 answered that by printing those keys — the rail's
+`⌘1`–`⌘5`, the approval cards' `a` / `d`, the search and add panels' hint
+lines, and the Actions pane's `j` / `k` / `d` — only while
 `(any-pointer: fine)` matches (`useFinePointer()`,
-`packages/ui-react/src/hooks/use-fine-pointer.ts`). The **bindings** do not
-follow the pointer: every key stays registered in every state, and the
-Settings switch still decides whether single letters bind at all.
+`packages/ui-react/src/hooks/use-fine-pointer.ts:13-15`). The palette's `⌘K`
+on the rail was left out of that and still prints everywhere. The
+**bindings** do not follow the pointer: every key stays registered in every
+state, and the Settings switch still decides whether single letters bind at
+all.
 
 That query is a proxy for "a key can be pressed", and one configuration falls
 through it: **a tablet with a keyboard but no trackpad** (a keyboard folio
 without a trackpad, or any Bluetooth keyboard paired to a touch-only tablet).
-It reads coarse, so it prints nothing, while every binding still fires. A
+It reads coarse, so none of those keys print, while every binding still fires. A
 keyboard that carries a trackpad reads fine and is unaffected.
 
 The platform offers nothing better. Media Queries Level 4 defines `pointer`,
@@ -1835,8 +1839,8 @@ characteristics, or the complete absence, of pointing devices, and can not be
 used to detect the presence of non-pointing device input mechanisms such as
 keyboards". **There is no keyboard-presence media query.**
 
-**Ruling: do nothing (#106).** That tablet keeps working bindings and no
-printed hints. The alternatives were weighed and rejected:
+**Ruling: do nothing (#106).** That tablet keeps working bindings and goes
+without the pointer-gated hints. The alternatives were weighed and rejected:
 
 - **Reveal the keys on the first keydown** re-breaks #86: a soft keyboard
   fires `keydown` with real `key` values, so a touch-only tablet typing a
