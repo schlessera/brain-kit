@@ -32,15 +32,19 @@ afterAll(() => {
 /** A one-pixel PNG: enough bytes for the scan to stat. */
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-/** A brain with a note and an image under `Drafts/`, and a lowercase `drafts/` beside it. */
+/**
+ * A brain with a note and an image under `Drafts/`, and a control image under
+ * `other/`. No two directories differ only by case: on a case-insensitive
+ * volume (macOS by default) `Drafts` and `drafts` would be one directory.
+ */
 function brainWithDrafts(): string {
   const root = mkdtempSync(join(tmpdir(), "brain-asset-exclude-"));
   temps.push(root);
   mkdirSync(join(root, "Drafts"), { recursive: true });
-  mkdirSync(join(root, "drafts"), { recursive: true });
+  mkdirSync(join(root, "other"), { recursive: true });
   writeFileSync(join(root, "Drafts/note.md"), "---\ntitle: Upper note\ntype: note\n---\n\nUpper case directory.\n");
   writeFileSync(join(root, "Drafts/photo.png"), PNG);
-  writeFileSync(join(root, "drafts/lower.png"), PNG);
+  writeFileSync(join(root, "other/control.png"), PNG);
   return root;
 }
 
@@ -50,11 +54,12 @@ const taxonomyExcluding = (dirs: string[]) =>
 describe("exclude entries match an asset's path as it is", () => {
   test('dirs: ["drafts"] keeps the assets under Drafts/, as it keeps the notes', () => {
     const root = brainWithDrafts();
-    const taxonomy = taxonomyExcluding(["drafts"]);
+    const taxonomy = taxonomyExcluding(["drafts", "other"]);
 
     const assets = getAssetFiles(root, taxonomy).map((a) => a.path);
     expect(assets).toContain("Drafts/photo.png");
-    expect(assets).not.toContain("drafts/lower.png");
+    // The exact-case entry beside it still excludes.
+    expect(assets).not.toContain("other/control.png");
     // The markdown scan and the asset scan give one answer for one directory.
     expect(getMarkdownFiles(root, taxonomy)).toContain("Drafts/note.md");
   });
@@ -65,20 +70,22 @@ describe("exclude entries match an asset's path as it is", () => {
 
     const assets = getAssetFiles(root, taxonomy).map((a) => a.path);
     expect(assets).not.toContain("Drafts/photo.png");
-    expect(assets).toContain("drafts/lower.png");
+    expect(assets).toContain("other/control.png");
     expect(getMarkdownFiles(root, taxonomy)).not.toContain("Drafts/note.md");
   });
 
   test("an upper-case extension is still an asset — the lowercasing that stays is the extension's", () => {
     const root = brainWithDrafts();
     writeFileSync(join(root, "Drafts/SCAN.PNG"), PNG);
-    const assets = getAssetFiles(root, taxonomyExcluding([]));
+    // With a lower-case entry in force, so the old whole-path lowercasing
+    // (which would drop `Drafts/`) fails here too.
+    const assets = getAssetFiles(root, taxonomyExcluding(["drafts"]));
     expect(assets.find((a) => a.path === "Drafts/SCAN.PNG")?.mimeType).toBe("image/png");
   });
 });
 
 describe("an asset already in the index under a case-distinct directory", () => {
-  test("is not removed by the next index when a lower-case entry names a different directory", async () => {
+  test("is not removed by the next index when a lower-case entry names a differently cased directory", async () => {
     const root = brainWithDrafts();
     const dbPath = join(root, "brain.db");
     const assetRows = (db: Database) =>
@@ -100,11 +107,11 @@ describe("an asset already in the index under a case-distinct directory", () => 
         embeddings: true,
         provider: fakeEmbeddingProvider(),
       });
-      expect(assetRows(db)).toEqual(["Drafts/photo.png", "drafts/lower.png"]);
+      expect(assetRows(db)).toEqual(["Drafts/photo.png", "other/control.png"]);
 
-      // `drafts` now excluded, on a plain index — the deletion sweep runs on
-      // every run. The lower-case directory leaves; Drafts/ stays.
-      await indexAll(db, { root, taxonomy: taxonomyExcluding(["drafts"]), quiet: true, graph: false });
+      // Now `drafts` and `other` are excluded, on a plain index — the deletion
+      // sweep runs on every run. `other/` leaves; `Drafts/` is not `drafts`.
+      await indexAll(db, { root, taxonomy: taxonomyExcluding(["drafts", "other"]), quiet: true, graph: false });
       expect(assetRows(db)).toEqual(["Drafts/photo.png"]);
     } finally {
       db.close();
