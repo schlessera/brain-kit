@@ -120,6 +120,52 @@ describe("robots.txt enforcement", () => {
     // 7s from robots.txt, not the client's own 100ms.
     expect(clock.waits).toEqual([7000]);
   });
+
+  test("a Crawl-delay longer than any crawler can wait refuses the request", async () => {
+    // Ignoring it would treat the strictest spacing a site can ask for as no
+    // spacing at all.
+    for (const value of ["Infinity", "1e306", "3000000"]) {
+      const calls = stubFetch([new Response("ok")]);
+      const client = new ScrapeClient({ robots: robotsFor(`User-agent: *\nCrawl-delay: ${value}\n`) });
+
+      await expect(client.get("https://example.com/a")).rejects.toBeInstanceOf(RobotsDisallowedError);
+      expect(`${value}: ${calls.length}`).toBe(`${value}: 0`);
+    }
+  });
+
+  test("overriding an unfollowable Crawl-delay keeps the caller's own delay", async () => {
+    for (const value of ["Infinity", "3000000"]) {
+      stubFetch([new Response("ok"), new Response("ok")]);
+      const clock = fakeClock();
+      const client = new ScrapeClient({
+        robots: robotsFor(`User-agent: *\nCrawl-delay: ${value}\n`),
+        rateLimiter: new RateLimiter({ defaultDelayMs: 100, clock }),
+      });
+
+      await client.get("https://example.com/a", { allowDisallowed: true, delayMs: 5000 });
+      await client.get("https://example.com/b", { allowDisallowed: true, delayMs: 5000 });
+
+      expect(`${value}: ${clock.waits.join(",")}`).toBe(`${value}: 5000`);
+    }
+  });
+
+  test("a non-finite per-call delay does not erase the Crawl-delay floor", async () => {
+    // The two are combined before the limiter sees them, so an unusable
+    // caller value has to be dropped on its own, not along with the site's.
+    for (const delayMs of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      stubFetch([new Response("ok"), new Response("ok")]);
+      const clock = fakeClock();
+      const client = new ScrapeClient({
+        robots: robotsFor("User-agent: *\nCrawl-delay: 7\n"),
+        rateLimiter: new RateLimiter({ defaultDelayMs: 100, clock }),
+      });
+
+      await client.get("https://example.com/a", { delayMs });
+      await client.get("https://example.com/b", { delayMs });
+
+      expect(`${delayMs}: ${clock.waits.join(",")}`).toBe(`${delayMs}: 7000`);
+    }
+  });
 });
 
 describe("retries", () => {

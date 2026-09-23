@@ -44,6 +44,9 @@ function parse(robotsUrl: string, body: string): RobotsRules {
     },
     crawlDelayMs(userAgent) {
       const seconds = parsed.getCrawlDelay(userAgent);
+      // May be `Infinity` (written so, or overflowing once in ms): that is the
+      // site asking for more spacing than any crawler can give, and it is
+      // `ScrapeClient` that decides what to do about it, not this parser.
       return typeof seconds === "number" && seconds > 0 ? seconds * 1000 : undefined;
     },
   };
@@ -120,11 +123,14 @@ export class RobotsCache {
 export class RobotsDisallowedError extends Error {
   constructor(
     readonly url: string,
-    readonly userAgent: string
+    readonly userAgent: string,
+    /** Why, when it is not a `Disallow` line — e.g. an unfollowable Crawl-delay. */
+    readonly reason?: string
   ) {
     super(
-      `robots.txt disallows ${url} for '${userAgent}'. ` +
-        `Set allowDisallowed:true on this site's fetch options if you operate ` +
+      `robots.txt disallows ${url} for '${userAgent}'` +
+        (reason ? ` (${reason})` : "") +
+        `. Set allowDisallowed:true on this site's fetch options if you operate ` +
         `the host or have permission.`
     );
     this.name = "RobotsDisallowedError";

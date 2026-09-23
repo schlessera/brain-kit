@@ -83,9 +83,10 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "SCRAPE_RESPECT_ROBOTS",
     description:
-      "Set to 0/off/false to stop enforcing robots.txt process-wide. The " +
-      "per-site opt-out is preferred; this exists for a run against a host " +
-      "you operate.",
+      "Set to 0/off/false to stop enforcing robots.txt in every client built " +
+      "from resolveEnv() (a ScrapeClient constructed directly follows its own " +
+      "respectRobots option). The per-site opt-out is preferred; this exists " +
+      "for a run against a host you operate.",
     default: "on",
     required: false,
   },

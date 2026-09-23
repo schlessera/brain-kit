@@ -2,8 +2,9 @@
 "@schlessera/brain-scrape": patch
 ---
 
-`RateLimiter` grants concurrent callers to one host one at a time, in arrival
-order, so they are spaced by the delay instead of reading the same
+`RateLimiter` grants concurrent callers to one host that have a delay one at a
+time, in arrival order (a zero-delay call still goes straight through), so they
+are spaced by the delay instead of reading the same
 last-request time and firing together. Each caller's delay is measured from
 when the previous request was actually granted and re-checked after every
 sleep, so a timer that fires late never lets the next caller in early. A
