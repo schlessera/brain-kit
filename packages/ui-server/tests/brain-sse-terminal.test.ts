@@ -61,6 +61,11 @@ describe("SSE brain jobs end on a done frame when the spawn throws", () => {
       expect(last?.success).toBe(false);
       expect(last?.text).toContain(MISSING_WRAPPER);
       expect(sent.filter((f) => f.type === "done")).toHaveLength(1);
+      // The briefing panel draws only progress text, so the reason has to be
+      // one; the sync log already prints the done frame's text.
+      if (route === "/brain/whatsup") {
+        expect(sent.some((f) => f.type === "progress" && f.text?.includes(MISSING_WRAPPER))).toBe(true);
+      }
     });
   }
 });

@@ -312,6 +312,21 @@ describe("a stream that ends without a done frame", () => {
     } finally { view.unmount(); root.dispose(); }
   });
 
+  test("WhatsupPanel is not failed by an EOF that follows a successful done", async () => {
+    const { root, requests } = transport();
+    const view = render(
+      <BrainUiProvider root={root}>
+        <WhatsupPanel open onClose={() => {}} />
+      </BrainUiProvider>
+    );
+    try {
+      await act(async () => { requests[0]!.response.resolve(stream("All clear.")); await flushPromises(); });
+      expect(view.getByText("All clear.")).toBeTruthy();
+      expect(view.queryByText("Failed")).toBeNull();
+      expect(view.queryByText(/connection closed/)).toBeNull();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
   test("StreamingPanel renders what arrived and offers Close", async () => {
     const { root, requests } = transport();
     const view = render(
