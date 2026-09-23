@@ -44,11 +44,11 @@ const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*
  * digit. CSS such as `flex:1 1 auto` has no file name before its colon.
  */
 const LOOSE_CITATION =
-  /(?:[\w-]\.[A-Za-z]\w*|\/[\w.-]+|[A-Z][A-Za-z]*file|\b[A-Z][A-Z0-9_-]{2,})\s*:\s*\d|#L\d/;
+  /(?:[\w-]?\.[A-Za-z]\w*|\/[\w.-]+|[A-Z][A-Za-z]*file|\b[A-Z][A-Z0-9_-]{2,})\s*:\s*\d|#L\d/;
 
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(
-  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+):[ \\t]*\\n?[ \\t]*\\d+`,
+  `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+)[ \\t]*:[ \\t]*\\n?[ \\t]*\\d+`,
   "g",
 );
 
@@ -131,11 +131,13 @@ export function parseCitations(doc: string, body: string): Citation[] {
     // column. Both are reported, not skipped.
     const before = spans[i - 1];
     const continuesCitation =
-      /^:?\d+(?:\s*[-,:]\s*\d+)*$/.test(content) &&
+      /^:?\d+(?:\s*[-,:\u2013\u2014]\s*\d+)*$/.test(content) &&
       before !== undefined &&
       citationish[i - 1] &&
       /^\s*\)?\s*(?:\/|,|and)\s*$/.test(text.slice(before.index! + before[0].length, span.index));
-    const lineWithColumn = !match && /^:\d+(?::\d+)+$/.test(content);
+    // Any other span that starts with a colon and a line number: `:4:2`,
+    // `: 20`, `:20–24`.
+    const lineWithColumn = !match && /^:\s*\d/.test(content);
     citationish[i] =
       Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);
     if (!match && (continuesCitation || lineWithColumn)) {

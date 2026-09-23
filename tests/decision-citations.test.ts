@@ -249,6 +249,9 @@ describe("what the check cannot verify is reported, not skipped", () => {
       ["(`enforcementHook`, `src/hooks.ts:\n2`/`4`)", ["4"]],
       ["(`enforcementHook`, `src/hooks.ts:2`) and `:4:2`", [":4:2"]],
       ["`[brain-ui] Dockerfile:12`/`14`", ["[brain-ui] Dockerfile:12", "14"]],
+      ["(`enforcementHook`, `src/hooks.ts:2`)/`4\u20136`", ["4\u20136"]],
+      ["(`enforcementHook`, `src/hooks.ts:2`) and later `: 20`", [": 20"]],
+      ["(`enforcementHook`, `src/hooks.ts:2`) and later `:20\u201324`", [":20\u201324"]],
     ] as [string, string[]][]) {
       const reported = check(body)
         .filter((r) => r.verdict.kind !== "anchored")
@@ -265,6 +268,7 @@ describe("what the check cannot verify is reported, not skipped", () => {
       "src/hooks.ts: 2",
       '"src/hooks.ts:2"',
       "LICENSE:12",
+      ".gitignore:12",
     ]) {
       const kinds = check(`See \`${span}\`.`).map((r) => r.verdict.kind);
       expect({ span, kinds }).toEqual({ span, kinds: ["unresolved"] });
@@ -290,7 +294,7 @@ describe("what the check cannot verify is reported, not skipped", () => {
   });
 
   test("a root file with no extension or directory, in prose", () => {
-    for (const body of ["See LICENSE:12.", "See .gitignore:12."]) {
+    for (const body of ["See LICENSE:12.", "See .gitignore:12.", "See src/hooks.ts : 2."]) {
       expect({ body, kinds: check(body).map((r) => r.verdict.kind) }).toEqual({
         body,
         kinds: ["unanchored"],
