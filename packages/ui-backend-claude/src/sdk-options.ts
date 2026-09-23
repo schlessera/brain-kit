@@ -19,11 +19,17 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWrappedSpawn } from "./spawn-wrapper.js";
+import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 
 export interface ClaudeSdkTurn {
   options: Options;
   prompt: string | AsyncIterable<SDKUserMessage>;
+  /**
+   * The turn is held to the subscription (subscription.ts): its prompt may be
+   * released only after the account the CLI selected has been checked.
+   */
+  subscriptionOnly: boolean;
 }
 
 export function createClaudeSdkTurn(options: {
@@ -83,6 +89,10 @@ export function createClaudeSdkTurn(options: {
   // rtk hook shells out before the SDK does, so both must see the same filtered
   // set rather than the server's own.
   const childEnv = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
+  // After the profile's own env, so nothing a profile builds can put an API
+  // credential back under a turn that is not declared as API-billed.
+  const subscriptionOnly = profile.billing !== "api";
+  if (subscriptionOnly) Object.assign(childEnv, CLEARED_API_CREDENTIALS);
   const sdkOptions: Options = {
     cwd: backend.brainPath,
     includePartialMessages: true,
@@ -141,9 +151,11 @@ export function createClaudeSdkTurn(options: {
     }),
   };
   sdkOptions.env = childEnv;
+  if (subscriptionOnly) sdkOptions.settings = { ...NEUTRALISED_SETTINGS };
 
   return {
     options: sdkOptions,
+    subscriptionOnly,
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(req.prompt, req.attachments)

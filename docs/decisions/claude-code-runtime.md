@@ -33,7 +33,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:369`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:216-219`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:121-122`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:131-132`). Because of the `||`
   default the value is never empty, so **the server always overrides the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -399,19 +399,19 @@ into them.
 ### How the subscription authenticates today
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
-  declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:91-95` and admitted
+  declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:92-96` and admitted
   to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:58`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
   (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`). The `container-privilege.md` table keeps both
   (`CLAUDE_CODE_OAUTH_TOKEN`, `container-privilege.md:411-412`).
 - **The default profile passes both through.** The built-in `claude` profile
-  declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:120-122`).
+  declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:131-133`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`const childEnv`, `packages/ui-backend-claude/src/sdk-options.ts:85`,
-  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:173-181`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:143`). A declared bearer-token profile clears both
-  ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:97-103`); a declared API-key profile sets
-  the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:104-106`).
+  additions (`const childEnv`, `packages/ui-backend-claude/src/sdk-options.ts:91`,
+  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:174-182`), handed to the SDK
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:153`). A declared bearer-token profile clears both
+  ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:108-114`); a declared API-key profile sets
+  the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
   only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
   (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:697-701`, applied at
@@ -420,7 +420,7 @@ into them.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`name: "ANTHROPIC_API_KEY"`, `packages/ui-backend-claude/src/config/env.ts:84-88`,
   `function authHeaders`, `packages/ui-backend-claude/src/model-discovery.ts:86-104`). A 401 there
-  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:120-121`).
+  becomes an empty roster, silently (`4xx is terminal`, `model-discovery.ts:121-122`).
 
 ### The precedence, measured
 
@@ -540,7 +540,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:96`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:106`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's

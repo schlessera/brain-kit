@@ -83,15 +83,16 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "ANTHROPIC_API_KEY",
     description:
-      "API key for the Anthropic Models API (model discovery). Takes " +
-      "precedence over the subscription token, mirroring the Agent SDK.",
+      "API key for the Anthropic Models API (model discovery), used when no " +
+      "subscription token is set. Never reaches a chat turn on a profile " +
+      "without its own credential: those run on the subscription.",
     required: false,
   },
   {
     name: "CLAUDE_CODE_OAUTH_TOKEN",
     description:
-      "Subscription token for the Anthropic Models API (model discovery), " +
-      "used when no API key is set.",
+      "Subscription token: authenticates chat turns on every profile without " +
+      "its own credential, and model discovery. Wins over ANTHROPIC_API_KEY.",
     required: false,
   },
   {

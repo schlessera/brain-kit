@@ -54,9 +54,10 @@ describe("backend registry", () => {
         vendor: "anthropic",
         source: "builtin",
         backendId: "claude",
-        // No credential in the resolved env at all → "api" (nothing
-        // subscription-billed can run without the OAuth token).
-        billingMode: "api",
+        // A profile without its own credential runs on the subscription or
+        // is refused before its prompt is sent (#253), so it is never "api"
+        // — not even with no credential in the environment at all.
+        billingMode: "subscription",
         // No baseUrl, so the turn goes to Anthropic's own endpoint and is
         // billed at Anthropic's rates — the "direct" pricing catalog.
         pricingRoute: "direct",
@@ -286,13 +287,15 @@ describe("billing classification", () => {
     expect(providers[0]?.billingMode).toBe("subscription");
   });
 
-  test("ANTHROPIC_API_KEY wins over the OAuth token (the Agent SDK's precedence)", async () => {
+  test("an ambient ANTHROPIC_API_KEY no longer makes a credential-free profile api-billed (#253)", async () => {
+    // The CLI would prefer the key; the backend clears it and checks the
+    // account before the prompt is sent, so the turn bills the subscription.
     const registry = registryFor({
       CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
       ANTHROPIC_API_KEY: "sk-ant-api03-test",
     });
     const providers = await registry.listAllProviders();
-    expect(providers[0]?.billingMode).toBe("api");
+    expect(providers[0]?.billingMode).toBe("subscription");
   });
 
   test("a declared profile with its own credential env var is api-billed under the subscription token", async () => {

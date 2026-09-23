@@ -80,8 +80,9 @@ export interface DiscoverResult {
 
 /**
  * Auth headers for the Models API, or null when the process holds no usable
- * credential. Mirrors the precedence the Agent SDK itself uses: an explicit API
- * key wins over the subscription token.
+ * credential. The subscription token wins over an API key, the same rule the
+ * turns follow (subscription.ts): a host that holds both runs its chat on the
+ * subscription, so it discovers the models the subscription can reach.
  */
 function authHeaders(): Record<string, string> | null {
   const base = {
@@ -89,9 +90,6 @@ function authHeaders(): Record<string, string> | null {
     accept: "application/json",
   };
   const { anthropicApiKey, claudeCodeOauthToken } = resolveEnv();
-  const apiKey = anthropicApiKey?.trim();
-  if (apiKey) return { ...base, "x-api-key": apiKey };
-
   const oauth = claudeCodeOauthToken?.trim();
   if (oauth) {
     return {
@@ -101,6 +99,9 @@ function authHeaders(): Record<string, string> | null {
       "anthropic-beta": OAUTH_BETA,
     };
   }
+
+  const apiKey = anthropicApiKey?.trim();
+  if (apiKey) return { ...base, "x-api-key": apiKey };
   return null;
 }
 

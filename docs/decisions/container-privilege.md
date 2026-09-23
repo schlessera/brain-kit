@@ -46,7 +46,7 @@ and each would have passed against a broken implementation.
 
 The critical refinement to the earlier plan is that an owned `brain`
 executable is not enough. The CLI imports `brain.config.ts` directly
-(`loadUserConfig`, `packages/core/src/lib/config.ts:349-364`) and imports both
+(`loadUserConfig`, `packages/core/src/lib/config.ts:353-368`) and imports both
 repo-local and repo-resolved modules
 (`importManifest`, `packages/core/src/lib/module-loader.ts:130-162`). Those
 are agent-writable executable inputs. Consequently, the server, cron and root
@@ -624,7 +624,7 @@ process, and closing it is not sufficient. pi's curated brain tools go through
 `initContext` loads the user config and the modules
 (`resolveRoot(opts.root)`, `packages/core/src/lib/context.ts:36-38`), and
 `loadUserConfig` does a direct `await import(tsPath)` of the repo's
-`brain.config.ts` (`existsSync(tsPath)`, `packages/core/src/lib/config.ts:357-359`).
+`brain.config.ts` (`existsSync(tsPath)`, `packages/core/src/lib/config.ts:361-363`).
 `brain.config.ts` is executable code in an agent-writable tree, so a single pi
 brain tool call runs it as `brain` — with project trust off, with no extension loaded, and with every
 CLI-side mitigation in section 4 fully in place, because none of them apply to

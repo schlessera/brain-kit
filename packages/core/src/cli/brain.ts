@@ -72,10 +72,10 @@ const COMPLETION_KEY_ENV: Record<string, string> = {
   "anthropic-haiku": "ANTHROPIC_API_KEY",
 };
 
-function completionEntryAvailable(entry: unknown): boolean {
-  if (entry === undefined) return !!readEnvVar("GEMINI_API_KEY"); // default gemini-flash
+function completionEntryAvailable(entry: unknown, apiKeyEnv?: string): boolean {
+  if (entry === undefined) return !!readEnvVar(apiKeyEnv ?? "GEMINI_API_KEY"); // default gemini-flash
   if (typeof entry !== "string") return true; // custom provider value
-  const env = COMPLETION_KEY_ENV[entry];
+  const env = apiKeyEnv ?? COMPLETION_KEY_ENV[entry];
   return env ? !!readEnvVar(env) : true; // unknown built-in name → let the resolver decide
 }
 
@@ -111,8 +111,8 @@ function resolveProviders(brain: BrainContext): {
   try {
     const cfg = config?.completions;
     const available = cfg
-      ? completionEntryAvailable(cfg.provider) ||
-        (cfg.fallback !== undefined && completionEntryAvailable(cfg.fallback))
+      ? completionEntryAvailable(cfg.provider, cfg.apiKeyEnv) ||
+        (cfg.fallback !== undefined && completionEntryAvailable(cfg.fallback, cfg.fallbackApiKeyEnv))
       : completionEntryAvailable(undefined);
     if (available) completions = resolveCompletionProvider(cfg);
   } catch (e) {

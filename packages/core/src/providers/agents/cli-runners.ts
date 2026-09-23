@@ -14,10 +14,20 @@
  *     simple shell-out may need revisiting when the pi CLI is pinned.
  */
 
+import { inheritedEnv } from "../../config/env.js";
 import type { AgentRunner } from "../../lib/seams.js";
+import {
+  CLEARED_API_CREDENTIALS,
+  ClaudeSubscriptionError,
+  NEUTRALISED_SETTINGS,
+  subscriptionRefusal,
+} from "./claude-subscription.js";
 
 // Safety net: a hung agent CLI session must not block the caller forever.
 const DEFAULT_TIMEOUT_MS = 300_000;
+
+/** The id of the one control request a Claude run sends: the handshake. */
+const INITIALIZE_REQUEST_ID = "brain-initialize";
 
 const CLAUDE_BASE_ARGS = [
   "claude",
@@ -54,29 +64,57 @@ async function spawnCollect(
   return output.trim();
 }
 
+type RunnerEvent = { kind: "tool" | "text"; label: string };
+
 /**
- * Claude Code CLI with streaming progress. Uses --output-format stream-json to
- * surface tool activity as it happens; the final result text is returned.
- * Ported from agent-commands.ts's callClaudeStreaming.
+ * One Claude Code run over stream-json, held to the subscription
+ * (claude-subscription.ts). The API credential variables are cleared and any
+ * `apiKeyHelper` switched off; then the CLI's `initialize` handshake reports
+ * which account it selected, and the prompt is written only if that account is
+ * a subscription. A refused run never sends anything to the model.
+ *
+ * Tool activity streams to `onEvent` as it happens; the final result text is
+ * returned. Ported from agent-commands.ts's callClaudeStreaming.
  */
-async function claudeRunStreaming(
+async function claudeSession(
   prompt: string,
-  opts: { cwd: string; onEvent: (e: { kind: "tool" | "text"; label: string }) => void }
+  opts: { cwd: string; timeoutMs: number; onEvent?: (e: RunnerEvent) => void }
 ): Promise<string> {
-  const proc = Bun.spawn([...CLAUDE_BASE_ARGS, "--verbose", "--output-format", "stream-json"], {
-    cwd: opts.cwd,
-    stdin: new TextEncoder().encode(prompt),
-    stdout: "pipe",
-    stderr: "inherit",
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
-  });
+  const proc = Bun.spawn(
+    [
+      ...CLAUDE_BASE_ARGS,
+      "--verbose",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--settings",
+      JSON.stringify(NEUTRALISED_SETTINGS),
+    ],
+    {
+      cwd: opts.cwd,
+      env: inheritedEnv(CLEARED_API_CREDENTIALS),
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      signal: AbortSignal.timeout(opts.timeoutMs),
+    }
+  );
+  const send = (message: unknown) => {
+    proc.stdin.write(`${JSON.stringify(message)}\n`);
+    proc.stdin.flush();
+  };
+  const stderr = new Response(proc.stderr).text();
+  send({ type: "control_request", request_id: INITIALIZE_REQUEST_ID, request: { subtype: "initialize" } });
 
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let resultText = "";
+  let refusal: string | null = null;
+  let promptSent = false;
 
-  for (;;) {
+  read: for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -93,7 +131,30 @@ async function claudeRunStreaming(
         continue; // Skip unparseable lines.
       }
 
-      if (event.type === "assistant" && Array.isArray(event.message?.content)) {
+      if (
+        !promptSent &&
+        event.type === "control_response" &&
+        event.response?.request_id === INITIALIZE_REQUEST_ID
+      ) {
+        refusal =
+          event.response.subtype === "success"
+            ? subscriptionRefusal(event.response.response?.account)
+            : `the CLI refused its handshake: ${event.response.error ?? "unknown error"}`;
+        if (refusal) {
+          proc.kill();
+          break read;
+        }
+        promptSent = true;
+        send({
+          type: "user",
+          message: { role: "user", content: prompt },
+          parent_tool_use_id: null,
+          session_id: "",
+        });
+        continue;
+      }
+
+      if (event.type === "assistant" && Array.isArray(event.message?.content) && opts.onEvent) {
         for (const block of event.message.content) {
           if (block.type === "tool_use") {
             const input = block.input || {};
@@ -106,32 +167,36 @@ async function claudeRunStreaming(
         }
       }
 
-      if (event.type === "result" && event.result) {
-        resultText = event.result;
+      if (event.type === "result") {
+        if (typeof event.result === "string") resultText = event.result;
+        // One prompt, one result: closing stdin lets the CLI exit.
+        proc.stdin.end();
       }
     }
   }
 
   const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new Error(`claude CLI failed (exit ${exitCode})`);
+  if (refusal) throw new ClaudeSubscriptionError(refusal);
+  if (!promptSent) {
+    throw new Error(`claude CLI exited before its handshake (exit ${exitCode}): ${(await stderr).trim() || "(no stderr)"}`);
   }
-  return resultText;
+  if (exitCode !== 0) {
+    throw new Error(`claude CLI failed (exit ${exitCode}): ${resultText || (await stderr).trim() || "(no output)"}`);
+  }
+  return resultText.trim();
 }
 
-/** claude — `claude --print`, prompt piped via stdin (avoids arg-parsing issues). */
+/** claude — `claude --print` over stream-json, held to the subscription. */
 export function claudeRunner(): AgentRunner {
   return {
     id: "claude",
     capabilities: { streaming: true, skills: true },
     run(prompt, opts) {
-      return spawnCollect(CLAUDE_BASE_ARGS, {
-        cwd: opts.cwd,
-        timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        stdin: prompt,
-      });
+      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS });
     },
-    runStreaming: claudeRunStreaming,
+    runStreaming(prompt, opts) {
+      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: DEFAULT_TIMEOUT_MS, onEvent: opts.onEvent });
+    },
   };
 }
 

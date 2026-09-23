@@ -242,13 +242,28 @@ descriptions), note processing, and briefings.
 | ---------- | ------------------------------- | ---------------- | -------------------------------------------- |
 | `provider` | `string \| CompletionProvider`  | `"gemini-flash"` | Primary provider.                            |
 | `fallback` | `string \| CompletionProvider`  | —                | Tried if the primary throws; wraps it.       |
+| `apiKeyEnv` | `string`                       | the provider's   | Env var holding the key for a built-in `provider`. |
+| `fallbackApiKeyEnv` | `string`               | the provider's   | Env var holding the key for a built-in `fallback`. |
 
-Built-ins: `gemini-flash`, `anthropic-haiku`. A configured `fallback` wraps the
-primary and advertises the primary's capabilities, so pair it with a fallback at
-least as capable. See [extending/completions.md](extending/completions.md).
+Built-ins: `gemini-flash` (key in `GEMINI_API_KEY`), `anthropic-haiku` (key in
+`ANTHROPIC_API_KEY`). A configured `fallback` wraps the primary and advertises
+the primary's capabilities, so pair it with a fallback at least as capable. See
+[extending/completions.md](extending/completions.md).
 
 ```ts
 completions: { provider: "gemini-flash", fallback: "anthropic-haiku" }
+```
+
+**Name the Anthropic key separately when brain-ui runs Claude.** A Claude chat
+turn on a profile without its own credential runs on the subscription, with
+`ANTHROPIC_API_KEY` cleared from its environment so the CLI cannot bill it
+([decision record](decisions/claude-code-runtime.md)). A `brain` command the
+model runs through the Bash tool inherits that environment, so
+`anthropic-haiku` would find no key there. Put the key under another name, and
+admit that name to the agent's environment with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`:
+
+```ts
+completions: { provider: "anthropic-haiku", apiKeyEnv: "BRAIN_ANTHROPIC_COMPLETIONS_KEY" }
 ```
 
 ### `agentRunner`
@@ -331,7 +346,7 @@ path and says so, rather than failing at the call.
 | `BRAIN_ROOT` | root resolution | Which brain to operate on. See below. |
 | `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
 | `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
-| `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. |
+| `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
 | `BRAIN_RERANK_MODE` | search | Overrides the configured rerank mode. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |

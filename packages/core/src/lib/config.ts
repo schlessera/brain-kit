@@ -167,6 +167,10 @@ export const brainConfigSchema = z
       .object({
         provider: z.union([z.string(), completionProviderValue]),
         fallback: z.union([z.string(), completionProviderValue]).optional(),
+        /** Env var holding the key for the built-in `provider` (default: its own). */
+        apiKeyEnv: z.string().min(1).optional(),
+        /** Env var holding the key for the built-in `fallback` (default: its own). */
+        fallbackApiKeyEnv: z.string().min(1).optional(),
       })
       .strict()
       .optional(),

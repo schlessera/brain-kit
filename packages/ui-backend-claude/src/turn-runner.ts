@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   assertTurnPosture,
@@ -10,6 +11,7 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { createClaudeSdkTurn } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
+import { subscriptionRefusalMessage, subscriptionVerdict } from "./subscription.js";
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { DEFAULT_ALLOWED_TOOLS } from "./tool-policy.js";
@@ -80,6 +82,12 @@ export function createClaudeTurnRunner(options: {
     // throws must not get a second one.
     let sawResult = false;
     /**
+     * Set when the subscription check refused the turn before its prompt was
+     * released. It outranks the abort it causes: the turn failed, it was not
+     * cancelled.
+     */
+    let refused: { code: string; message: string } | null = null;
+    /**
      * Unified terminal frame for cancelled/failed turns. With a session
      * identity that is a `result`; WITHOUT one (an abort or failure before
      * the SDK reported a session) the contract's terminal is a bare `error`,
@@ -89,16 +97,21 @@ export function createClaudeTurnRunner(options: {
       if (sawResult) return;
       sawResult = true;
       if (sessionId === null) {
-        emit({
-          type: "error",
-          code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
-          message:
-            outcome === "cancelled"
-              ? "Turn cancelled before the session was established"
-              : "Turn failed before the session was established",
-        });
+        emit(
+          refused
+            ? { type: "error", ...refused }
+            : {
+                type: "error",
+                code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
+                message:
+                  outcome === "cancelled"
+                    ? "Turn cancelled before the session was established"
+                    : "Turn failed before the session was established",
+              }
+        );
         return;
       }
+      if (refused) emit({ type: "error", ...refused });
       // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
       // "no completed turns" for a turn that never finished.
       emit({
@@ -124,7 +137,42 @@ export function createClaudeTurnRunner(options: {
         turnLock,
         log: options.log,
       });
-      const result = queryFn({ prompt: sdkTurn.prompt, options: sdkTurn.options });
+      // A subscription turn's prompt is released only once the account the
+      // CLI selected has been checked. The check lives INSIDE the prompt
+      // iterable, so it runs exactly when the SDK asks for the first message:
+      // nothing can reach the model without passing it.
+      let resolveQuery!: (value: Query) => void;
+      const queryHandle = new Promise<Query>((resolve) => {
+        resolveQuery = resolve;
+      });
+      const prompt = sdkTurn.subscriptionOnly
+        ? gatedPrompt(sdkTurn.prompt, async () => {
+            let account;
+            try {
+              account = (await (await queryHandle).initializationResult()).account;
+            } catch (error) {
+              refused = {
+                code: "CLAUDE_ERROR",
+                message: `Claude Code did not complete its handshake: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              };
+              abortController.abort();
+              return false;
+            }
+            const verdict = subscriptionVerdict(account);
+            if (verdict.ok) return true;
+            refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(verdict.reason) };
+            options.log("warn", "subscription check refused the turn", {
+              "profile.id": profile.id,
+              reason: verdict.reason,
+            });
+            abortController.abort();
+            return false;
+          })
+        : sdkTurn.prompt;
+      const result = queryFn({ prompt, options: sdkTurn.options });
+      resolveQuery(result);
 
       let announced = false;
       for await (const msg of result) {
@@ -168,7 +216,9 @@ export function createClaudeTurnRunner(options: {
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult) {
-        if (abortController.signal.aborted) {
+        if (refused) {
+          emitTerminal("error");
+        } else if (abortController.signal.aborted) {
           emit({ type: "status", status: "cancelled" });
           emitTerminal("cancelled");
         } else {
@@ -190,6 +240,8 @@ export function createClaudeTurnRunner(options: {
       // is over and nothing may follow it.
       if (sawResult) {
         // Terminal frame already sent — swallow the late failure.
+      } else if (refused) {
+        emitTerminal("error");
       } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
@@ -208,6 +260,28 @@ export function createClaudeTurnRunner(options: {
       turnLock.close();
       activeTurns.delete(turnKey);
     }
+  };
+}
+
+/**
+ * The turn's prompt as a stream the SDK pulls from, released only if `check`
+ * passes. A string prompt becomes the single user message the SDK would have
+ * built from it.
+ */
+async function* gatedPrompt(
+  prompt: string | AsyncIterable<SDKUserMessage>,
+  check: () => Promise<boolean>
+): AsyncIterable<SDKUserMessage> {
+  if (!(await check())) return;
+  if (typeof prompt !== "string") {
+    yield* prompt;
+    return;
+  }
+  yield {
+    type: "user",
+    parent_tool_use_id: null,
+    message: { role: "user", content: prompt },
+    session_id: "",
   };
 }
 
