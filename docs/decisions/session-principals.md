@@ -24,8 +24,8 @@ laptop, an agent — holds a session:
    tool is rotating `COOKIE_SECRET`, which is a deploy.
 2. **Nothing is attributable.** The request log records method, path, status and
    duration (`app.ts:267-281`); the activity record stamps sessions, jobs, models
-   and cost (`migrations/007_activity.sql:12-35`) — but no actor. Every action an
-   agent takes reads exactly like the owner taking it.
+   and cost (`activity_spans`, `migrations/007_activity.sql:12-35`) — but no
+   actor. Every action an agent takes reads exactly like the owner taking it.
 
 This plan replaces the epoch with a **principals table**: a named, individually
 revocable, expiring row per login, with the cookie carrying nothing but its
@@ -54,8 +54,8 @@ incident; neither should be the standing answer.
 
 - **Scopes / least privilege per route.** The one exception is R9's kind check on
   the principal-management routes — a single check on a single route family, the
-  same shape as the existing password-disabled guard (`auth.ts:552`), not a
-  scope system.
+  same shape as the existing password-disabled guard (`deps.passwordDisabled`,
+  `packages/ui-server/src/middleware/auth.ts:698`), not a scope system.
 - **Multi-user.** One owner, several principals.
 - **Bearer tokens.** Additive later and cheap (see Q5); not in this plan.
 - **Containment of a compromised principal.** See the Summary.
@@ -70,22 +70,22 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `app.ts:334` | mounted **before** the guard at `app.ts:349`; logout guards itself (`auth.ts:646`) |
-| Passkey management | `app.ts:353` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `app.ts:413-428` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:366` | mounted **before** the guard at `authGuard(authMode`, `app.ts:379`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:796`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:383` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:458-475` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |
-| Follow-up queue | `ws/turns.ts:15-20`, `run-session.ts:305` | queued entries re-mint `turnId` in the same slot and may come from another socket |
-| Password login | `auth.ts:591` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
-| Passkey login | `passkeys.ts:436` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
-| Passkey **registration** | `passkeys.ts:505` | inserts a credential; calls **neither** helper |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:30-39`; `slot.queue.push(entry)`, `run-session.ts:404` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
+| Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
+| Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
 | Passkey delete | `passkeys.ts:578-586` | deletes the credential, then a **global** bump |
-| Sockets | `ws/clients.ts:33` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
+| Sockets | `ClientSet`, `ws/clients.ts:39` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
-| Rollups | `migrations/007_activity.sql`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
-| Client logout | `ui-react/src/lib/api-client.ts:449`, `passkey-tab.tsx:166-175` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
-| Unauthorized in the UI | `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
+| Rollups | `migrations/007_activity.sql`; `upsertRollup`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
+| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:509`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
 
@@ -95,8 +95,9 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`:122`, `:158`), so how attribution reaches a client is a contract decision
-  (Key decision 7), not an implementation detail.
+  (`Revision negotiation`, `docs/integration-contract.md:397`;
+  `Activity stream`, `:436`), so how attribution reaches a client is a
+  contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
 
@@ -126,8 +127,9 @@ edited without breaking the signature.
 **3. Verify the signature first, then read the row.** Unauthenticated traffic
 must not be able to drive database reads with arbitrary ids. The corrupt-row
 throw sits after signature verification and outside the cookie-parser catch,
-exactly as `auth.ts:293-295` does today — so a corrupt row 500s only that
-principal's requests instead of everyone's.
+exactly as today's code does (`Deliberately after signature`,
+`auth.ts:426-428`) — so a corrupt row 500s only that principal's requests
+instead of everyone's.
 
 **4. Principals carry their lineage, and passkey deletion uses it.**
 `credential_id` (passkey logins; NULL for password), `created_by` (delegation),
@@ -135,18 +137,19 @@ principal's requests instead of everyone's.
 bumping a global epoch — the narrower kill the 0.32.0 behaviour was standing in
 for. The credential must also be re-checked **after** the asynchronous assertion
 verification and before the principal is created: today's lookup precedes
-verification (`passkeys.ts:352`), so a ceremony in flight can mint a session for
-a credential deleted meanwhile.
+verification (`credentialById(ctx.db, response.id)`, `passkeys.ts:356`), so a
+ceremony in flight can mint a session for a credential deleted meanwhile.
 
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:162`),
 turn startup awaits routing and billing before `startTurn`
-(`ws/run-session.ts:43,129`), and queued follow-ups execute later. Each
-connection holds a server-resolved authorization context; revocation marks it
-invalid synchronously, refuses later frames, drops that principal's queued
-unstarted follow-ups, and leaves running work running (cancelling a slot would
-take other principals' queued work with it — `ws/turns.ts:164`). The revocation
-itself is recorded in the activity record.
+(`resolveTurnTarget`, `ws/run-session.ts:96`; `const billing = host.activity`,
+`:208`), and queued follow-ups execute later. Each connection holds a
+server-resolved authorization context; revocation marks it invalid
+synchronously, refuses later frames, drops that principal's queued unstarted
+follow-ups, and leaves running work running (cancelling a slot would take other
+principals' queued work with it — `drop its queued follow-ups`,
+`ws/turns.ts:283`). The revocation itself is recorded in the activity record.
 
 **6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
 replacement labelled "Safari on iPhone" before it is revoked, or revoke the
@@ -157,17 +160,18 @@ credentials, not people.
 
 **7. Attribution rides on explicit optional fields and survives retention.**
 `activity_spans.principal_id`, plus `principal_id` on `activity_run_rollups`
-(`activity/sql.ts:19-24`) — the rollup is what survives span pruning, so
-cost-by-actor dies at prune time without it. The precedent is profile/billing:
-a root-span attr that the rollup reads (`activity/recorder.ts:96-107`). Nullable
-for cron (`activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for
-pre-migration rows; nothing is backfilled.
+(`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
+pruning, so cost-by-actor dies at prune time without it. The precedent is
+profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
+`activity/recorder.ts:115-130`). Nullable for cron (`origin: "cron"`,
+`activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
+nothing is backfilled.
 
 **8. Ambient modes keep the identity they already have.** `proxy` mode reads an
-upstream user header (`auth.ts:340`) — that becomes the ambient principal's
-label, bounded like `sanitizeLabel` (`passkeys.ts:265-267`). `tailscale` carries
-the client IP; `none` is fixed. Minting and revocation are disabled in these
-modes. Cron is attributed to an explicit system principal, never to the owner.
+upstream user header (`auth.proxyAuthHeader`, `auth.ts:485`) — that becomes the
+ambient principal's label, bounded like `sanitizeLabel`, `passkeys.ts:268-270`.
+`tailscale` carries the client IP; `none` is fixed. Minting and revocation are
+disabled in these modes. Cron is attributed to an explicit system principal, never to the owner.
 
 ## High-level design
 
@@ -205,8 +209,8 @@ revoke  ──► revoked_at = now
 
 `POST /api/auth/logout` keeps meaning **everywhere** (`UPDATE principals SET
 revoked_at = now WHERE revoked_at IS NULL`); the caller-only operation is a new
-endpoint, so the shipped button (`passkey-tab.tsx:166-175`) does not silently
-become "sign out this device".
+endpoint, so the shipped button (`Sign out everywhere`,
+`passkey-list.tsx:103-105`) does not silently become "sign out this device".
 
 ## System-wide impact
 

@@ -45,7 +45,8 @@ question it was answering.
    by a test); `hasValidSession` rejects a mismatch or a payload without an
    epoch. Logout and passkey revocation bump it **and close every open
    WebSocket** (new `ClientSet.closeAll`). **The bump requires a valid
-   epoch-bearing session**: logout is a public route today (`auth.ts:386`,
+   epoch-bearing session**: logout is a public route today
+   (`/auth/logout`, `packages/ui-server/src/middleware/auth.ts:794`,
    mounted before the guard), and a public epoch bump would let anyone log
    the owner out of everything in a loop. The epoch accessor is strict, not
    the fail-open settings getter: first initialization is distinguished from
@@ -117,9 +118,11 @@ question it was answering.
 10. **The refactor release owns every refactor, as separately tagged
     releases.** Dispatcher, store and page splits (U33) ship in the 0.34.x
     train, never in the container release. Because U28 changes frame
-    production (`ui-backend-claude/src/backend.ts:874`) and U33 changes frame
-    consumption (`use-websocket.ts:219`), the same symptom could come from
-    either, so they are **0.34.0** (seam) and **0.34.1** (splits), each its own
+    production (`adapter.adapt(msg)`,
+    `packages/ui-backend-claude/src/turn-runner.ts:152`) and U33 changes frame
+    consumption
+    (`handleServerMessage`, `packages/ui-react/src/connection.ts:125`), the
+    same symptom could come from either, so they are **0.34.0** (seam) and **0.34.1** (splits), each its own
     image. For the same reason the cron bin and emitters (U13/U14) ship as
     **0.33.0** with the denylist unchanged and the allowlist (U21) as
     **0.33.1**: both change what a scheduled job sees at `cron-run.ts:218`.
