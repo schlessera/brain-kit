@@ -24,7 +24,7 @@ import {
   formatJobDetail,
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
-import { ALL_SOURCES, BROWSER_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import { ALL_SOURCES, BROWSER_SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
 import type { ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
 
@@ -111,6 +111,59 @@ function emitJson(value: unknown): void {
 // Subcommands
 // ---------------------------------------------------------------------------
 
+/**
+ * Which boards a scrape runs: explicit positionals > `--all` > the configured
+ * `boards` > the default `SOURCES`, then the browser selectors on top.
+ *
+ * `warnings` are printed and the run goes ahead; an `error` refuses the run.
+ */
+export function selectSources(input: {
+  positional: string[];
+  configured: string[];
+  all?: boolean;
+  browser?: boolean;
+  browserOnly?: boolean;
+}): { sources: Source[]; warnings: string[] } | { error: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const known = (name: string): name is Source => (ALL_SOURCES as readonly string[]).includes(name);
+  const retired = (name: string): boolean => Object.hasOwn(RETIRED_SOURCES, name);
+  const retiredMessage = (name: string): string => `${name} was retired: ${RETIRED_SOURCES[name]}.`;
+
+  // Asked for by name, a retired board refuses the run: skipping it would
+  // bury the answer in a scrape summary.
+  const retiredRequested = input.positional.filter(retired);
+  if (retiredRequested.length > 0) {
+    return { error: retiredRequested.map(retiredMessage).join("\n"), warnings };
+  }
+
+  // Named in config, it warns and the rest runs, so a scheduled scrape does not
+  // stop over a config written before the board was retired.
+  for (const name of input.configured.filter(retired)) {
+    warnings.push(`${retiredMessage(name)} Remove it from the jobs module's \`boards\` config.`);
+  }
+
+  const requested = input.positional.filter(known);
+  if (input.positional.length > 0 && requested.length === 0) {
+    return { error: `Unknown sources: ${input.positional.join(", ")}. Valid: ${ALL_SOURCES.join(", ")}`, warnings };
+  }
+
+  const configured = input.configured.filter(known);
+  const base: Source[] =
+    requested.length > 0
+      ? requested
+      : input.all
+        ? [...ALL_SOURCES]
+        : configured.length > 0
+          ? configured
+          : [...SOURCES];
+  const sources: Source[] = input.browserOnly
+    ? [...BROWSER_SOURCES]
+    : input.browser
+      ? [...new Set([...base, ...BROWSER_SOURCES])]
+      : base;
+  return { sources, warnings };
+}
+
 async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   const a = makeArgs(args);
   const verbose = a.flag("verbose");
@@ -125,22 +178,19 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
   const browser = a.flag("browser") || browserOnly;
   const proxy = a.option("proxy");
 
-  const positional = a.positionals();
-  const requested = positional.filter((s): s is Source => (ALL_SOURCES as readonly string[]).includes(s));
-  if (positional.length > 0 && requested.length === 0) {
-    console.error(`Unknown sources: ${positional.join(", ")}. Valid: ${ALL_SOURCES.join(", ")}`);
+  const selection = selectSources({
+    positional: a.positionals(),
+    configured: jctx.config.boards,
+    all,
+    browser,
+    browserOnly,
+  });
+  for (const warning of selection.warnings) console.error(warning);
+  if ("error" in selection) {
+    console.error(selection.error);
     return 1;
   }
-
-  // Source selection: explicit positionals > --all > configured boards.
-  const configured = jctx.config.boards.filter((b): b is Source => (ALL_SOURCES as readonly string[]).includes(b));
-  const base: Source[] =
-    requested.length > 0 ? requested : all ? [...ALL_SOURCES] : configured.length > 0 ? configured : [...SOURCES];
-  const sources: Source[] = browserOnly
-    ? [...BROWSER_SOURCES]
-    : browser
-      ? [...new Set([...base, ...BROWSER_SOURCES])]
-      : base;
+  const { sources } = selection;
 
   const scoringConfig = tryLoadScoring(jctx, false);
 

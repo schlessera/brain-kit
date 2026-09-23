@@ -12,7 +12,6 @@ export const ALL_SOURCES = [
   "jobgether",
   "dice",
   "remotelyde",
-  "remoteineurope",
 ] as const;
 export type Source = (typeof ALL_SOURCES)[number];
 
@@ -27,8 +26,20 @@ export const SOURCES = [
   "weworkremotely",
   "workingnomads",
   "remotelyde",
-  "remoteineurope",
 ] as const satisfies readonly Source[];
+
+/**
+ * Boards that used to exist and are gone, with the reason a user is shown.
+ *
+ * Kept so a scrape or a `boards` config naming one is told the board was
+ * retired, rather than "Unknown source" — the name was real, and an existing
+ * brain's config may still carry it.
+ */
+export const RETIRED_SOURCES: Readonly<Record<string, string>> = {
+  remoteineurope:
+    "remoteineurope.com is no longer a job board; every page answers a redirect to weworkremotely.com, " +
+    "which is scraped as `weworkremotely`",
+};
 
 /**
  * Boards that only exist after JavaScript runs, and therefore need Chrome.

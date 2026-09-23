@@ -49,7 +49,7 @@ carry no relationship to the real postings in `boards/`.
 
 ## Boards with no file here
 
-`simplyhired`, `remotelyde`, `remoteineurope` and the three browser boards have
+`simplyhired`, `remotelyde` and the three browser boards have
 no empty-state fixture, because none of them has a captured no-results marker to
 build one from. Their adapters therefore claim no empty state at all, and report
 a served page they read nothing off as drift. That is the safe direction, and

@@ -172,9 +172,14 @@ not be read stops advancing its cursor. The exact `--json` shape is in
 ## Boards & sources
 
 Full-feed / category boards (no browser, enabled by default): `remoteok`,
-`remotive`, `weworkremotely`, `workingnomads`, `remotelyde`, `remoteineurope`.
+`remotive`, `weworkremotely`, `workingnomads`, `remotelyde`.
 Query-driven or JS-heavy boards (may need `--proxy` or `--browser`): `simplyhired`,
 `jobgether`, `builtin`, `nodesk`, `dice`.
+
+Retired: `remoteineurope`. Its domain now redirects every page to We Work
+Remotely, which is already scraped as `weworkremotely`. A scrape that names it
+is refused with that reason, and a `boards` config that names it gets a warning
+while the other boards still run.
 
 ## ⚠️ Scraping & Terms of Service
 

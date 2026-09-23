@@ -40,7 +40,7 @@ export type {
   ScrapeResult,
   ScraperAdapter,
 } from "./types.js";
-export { ALL_SOURCES, SOURCES, REVIEW_STATUSES, SOURCE_STATUSES } from "./types.js";
+export { ALL_SOURCES, SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCE_STATUSES } from "./types.js";
 
 export { default, configSchema, type JobsConfig } from "./module.js";
 
