@@ -386,3 +386,140 @@ closed set — and no probe can close that.
 | brain-kit | #209: the measured-runtime constant, the guard test and the probe. #211: the per-turn version record and the boot probe. #213: `CLAUDE_CODE_PATH` unset runs the built-in binary, after both. #210: whether to pin the SDK exactly — a question, not yet a task. |
 | brain-hosting-template | [brain-hosting-template#1](https://github.com/schlessera/brain-hosting-template/issues/1): the image installs no separate Claude Code, commits its lockfile, installs optional dependencies for the image's libc, and rebuilds when the lockfile moves. That rebuild is the update mechanism. |
 | The private deployment repo | Applying the release there, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked there; not restated here. |
+
+## 2026-09-23 — Subscription billing and authentication
+
+**Requirement (maintainer, 2026-09-23).** Claude turns run on **subscription**
+billing, not API billing, and the subscription account has a reliable way to
+log in and back in. This binds the decision above: a runtime that cannot meet
+it is not an acceptable runtime, whatever else it does. The sections above did
+not cover auth or billing. This one does, and it is added rather than edited
+into them.
+
+### How the subscription authenticates today
+
+- **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
+  declared at `packages/ui-backend-claude/src/config/env.ts:90-95` and admitted
+  to every subprocess audience (`packages/ui-sdk/src/server/subprocess-env.ts:58`).
+  `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
+  (`subprocess-env.ts:59`). The `container-privilege.md` table keeps both
+  (`container-privilege.md:409-410`).
+- **The default profile passes both through.** The built-in `claude` profile
+  declares no credential (`packages/ui-backend-claude/src/profiles.ts:119-121`).
+  A turn's environment is the filtered agent environment plus the profile's
+  additions (`packages/ui-backend-claude/src/sdk-options.ts:85`,
+  `packages/ui-backend-claude/src/config/env.ts:173-181`), handed to the SDK
+  whole (`sdk-options.ts:143`). A declared bearer-token profile clears both
+  ambient credentials (`profiles.ts:97-103`); a declared API-key profile sets
+  the key on purpose (`profiles.ts:104-106`).
+- **Billing is classified, not observed.** An ambient profile is `subscription`
+  only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
+  (`packages/ui-server/src/config/env.ts:679-683`, applied at
+  `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
+  `cost-tracking.md:93`). Nothing reads what the CLI actually used.
+- **Model discovery prefers the API key** and describes that as "mirroring the
+  Agent SDK" (`packages/ui-backend-claude/src/config/env.ts:84-88`,
+  `packages/ui-backend-claude/src/model-discovery.ts:91-104`). A 401 there
+  becomes an empty roster, silently (`model-discovery.ts:119-121`).
+
+### The precedence, measured
+
+Run on 2026-09-23 against the SDK's bundled Claude Code 2.1.278 and a host
+install of 2.1.280, with the same results on both. Each run was a `query()`
+with an empty `HOME` and `CLAUDE_CONFIG_DIR`, bogus credentials of the right
+shape, and `ANTHROPIC_BASE_URL` pointed at a loopback HTTP server that logs
+request headers and answers 401. No request left the machine, so nothing was
+billed. A second set of runs without the loopback server hit the real API with
+the same bogus credentials and got 401s.
+
+| Credentials in the CLI's environment | `init.apiKeySource` | `accountInfo().tokenSource` | What `/v1/messages` carried |
+| --- | --- | --- | --- |
+| OAuth token only | `none` | `CLAUDE_CODE_OAUTH_TOKEN` | `Authorization: Bearer sk-ant-oat01-…` plus the OAuth beta header |
+| API key only | `ANTHROPIC_API_KEY` | `none` | `x-api-key` |
+| **Both** | **`ANTHROPIC_API_KEY`** | `CLAUDE_CODE_OAUTH_TOKEN` | **`x-api-key` only** |
+| Neither | `none` | `none` | no request; the turn ends "Not logged in · Please run /login" |
+
+**The API key silently wins.** With both present the OAuth token is not sent at
+all, and nothing warns: `accountInfo()` still reports the OAuth token as the
+token source. Only `apiKeySource` shows it. So a host that sets
+`ANTHROPIC_API_KEY` for anything else moves every default-profile chat turn to
+API billing. Two such uses exist on the same host: the core CLI's
+`anthropic-haiku` completions (`packages/core/src/cli/brain.ts:72`) and model
+discovery. The cost record then says `api`, which is accurate bookkeeping of
+the thing the requirement forbids.
+
+The SDK's bundled binary honours `CLAUDE_CODE_OAUTH_TOKEN` exactly as the host
+install does, in every row above. The runtime decision does not change how the
+subscription authenticates.
+
+### What the token is, and how it fails
+
+- **Lifetime.** `claude setup-token` asks for an inference-only token
+  (`scope=user:inference` in its authorize URL) with a lifetime of 31536000 s by
+  default. The binary's OAuth module has `var vV=31536000`, and the login flow
+  passes `expiresIn: N==="setup-token" ? W ?? vV : void 0`. The CLI says
+  "valid for 1 year".
+- **Expired or revoked.** Measured with a bogus token, which the API rejects the
+  same way: two `api_retry` messages with status 401 and `authentication_failed`,
+  then an `assistant` message with `error: "authentication_failed"` and the text
+  "Failed to authenticate. API Error: 401 OAuth access token is invalid.", then
+  a `result` with **`subtype: "success"`** and `is_error: true`. The adapter
+  branches on `subtype` alone
+  (`packages/ui-backend-claude/src/stream-adapter.ts:171-181`), so today an auth
+  failure reaches the client as a successful turn with no text. That is #191's
+  failure, and an auth failure is one of its cases.
+- **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
+  `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
+  validity.
+- **Logging in needs a TTY.** Run with stdin from `/dev/null`, `setup-token`
+  printed nothing until it was killed at 20 s. Under a pseudo-terminal it
+  prints an authorize URL and a "Paste code here if prompted" prompt. The
+  redirect is a manual code page, so the browser can be on a different machine
+  from the host.
+- **It can complete with nobody at the keyboard.** Under a pseudo-terminal on
+  a workstation whose browser was already signed in, the flow opened that
+  browser, completed, and printed a real 1-year token. That probe minted a live
+  credential; it was reported for revocation, and nobody should repeat it.
+  Probes of the login flow must run where no signed-in browser can be reached.
+- **Rotation is a restart.** The token lives in the environment, so replacing
+  it means changing the host's secret and restarting. `claude auth login`
+  (subscription by default, `--console` for API billing) stores refreshable
+  credentials under `CLAUDE_CONFIG_DIR` instead. That path was not measured
+  here.
+
+### What binds
+
+1. **A turn that can use the subscription does.** For a profile that declares
+   no credential, when `CLAUDE_CODE_OAUTH_TOKEN` is set, the CLI's environment
+   carries no `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`. API billing happens
+   only through a profile that declares it. Tracked in #253.
+2. **The billing mode in effect is observed per turn, not only classified.**
+   `init.apiKeySource` and `accountInfo().tokenSource` are recorded on the run.
+   `apiKeySource: "none"` with an OAuth token source is subscription; anything
+   else is not. `apiKeySource` alone is not enough, because it also reads
+   `none` when nothing is logged in. When the observed mode differs from
+   `classifyBilling`'s, the run is flagged and a warning is logged. Tracked in
+   #211.
+3. **An auth failure is its own outcome.** `authentication_failed` (and the
+   other account classes the SDK names — `oauth_org_not_allowed`,
+   `account_on_hold`, `billing_error`; `sdk.d.ts:3484`) ends a turn as a
+   distinct error class carrying a re-login instruction, never as success and
+   never as a generic error. The terminal-frame work is #191. The
+   per-turn record is #211. A 401 from model discovery is logged as an auth
+   failure rather than becoming an empty roster.
+4. **A keyless test proves which credential is sent.** The loopback-server
+   probe above needs no key and no network, so it can be a test. It spawns the
+   real binary the lockfile installs and asserts the header, and it runs in CI
+   (#253 for the rule, #213 for the binary switch).
+5. **There is a login and re-login procedure that has been run on a headless
+   host.** Which mechanism is a maintainer decision with three live options,
+   filed as #254. Until it lands, the supported mechanism is the one in use:
+   `setup-token` on a machine with a browser, the token in the host's secret
+   store, a restart, and a yearly rotation.
+
+The follow-up issues from the first half of this record gained acceptance
+criteria so none of them can regress this: #209's probe covers the precedence
+rows, #211 records the billing source, #213 proves the bundled binary sends
+the OAuth token and not an API key, and brain-hosting-template#1 fixes the
+environment contract and checks a built image's first turn reports
+subscription.
