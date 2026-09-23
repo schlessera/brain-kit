@@ -201,7 +201,6 @@ const CRON_ENV_ORDER: readonly string[] = [
   "BRAIN_ROOT",
   "TZ",
   "XDG_BIN_HOME",
-  "CLAUDE_CODE_PATH",
   "DB_PATH",
   "BRAIN_RERANK_MODE",
   "SCRAPE_CHROME_URL",

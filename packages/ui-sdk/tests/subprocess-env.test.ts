@@ -25,6 +25,8 @@ describe("subprocess environment descriptor", () => {
       "ALLOWED_ORIGINS",
       "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH",
       "BRAIN_UI_ALLOW_PASSWORD",
+      // Server-only by container-privilege.md; #213 keeps it so.
+      "CLAUDE_CODE_PATH",
     ] as const;
     const source = Object.fromEntries(
       serverOnly.map((name) => [name, "server-only-test-value"])

@@ -121,7 +121,7 @@ describe("the Claude runner's binary", () => {
     expect(prefersMusl("linux", () => ({ header: { glibcVersionRuntime: "2.39" } }))).toBe(false);
     expect(prefersMusl("linux", () => ({ header: {} }))).toBe(true);
     // No report at all keeps glibc first.
-    expect(prefersMusl("linux", undefined)).toBe(false);
+    expect(prefersMusl("linux", null)).toBe(false);
     expect(prefersMusl("linux", () => null)).toBe(false);
     expect(prefersMusl("darwin", () => ({ header: {} }))).toBe(false);
   });

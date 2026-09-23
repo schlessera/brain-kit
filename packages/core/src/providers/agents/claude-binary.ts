@@ -34,7 +34,8 @@ export interface ClaudeBinaryPlatform {
  */
 export function prefersMusl(
   platform: NodeJS.Platform,
-  getReport: (() => unknown) | undefined = process.report?.getReport?.bind(process.report)
+  /** The runtime's report function; null when it has none. */
+  getReport: (() => unknown) | null = process.report?.getReport?.bind(process.report) ?? null
 ): boolean {
   if (platform !== "linux") return false;
   const report = typeof getReport === "function" ? (getReport() as { header?: { glibcVersionRuntime?: string } } | null) : null;
