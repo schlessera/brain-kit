@@ -739,6 +739,9 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       expect(got.ratio).not.toBe(got.threshold);
       expect(got.ratio.length).toBe(got.threshold.length);
       expect(got.ratio > got.threshold).toBe(true);
+      // The magnitude too, not only the order: 1/2097165 is 4.768342023636671e-7,
+      // so 0.0000476834…% — two places moved, not one.
+      expect(got).toEqual({ ratio: "0.00004768342023636671", verdict, threshold: "0.00004768342023636670" });
     }
 
     // No coverage at all under a tiny floor: (0 * 100).toFixed(20) and
@@ -762,6 +765,10 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       expect(coverage.ratio).not.toBe(coverage.threshold);
       expect(coverage.ratio.length).toBe(coverage.threshold.length);
       expect(coverage.ratio < coverage.threshold).toBe(true);
+      if (floor === 1e-30) {
+        // 1e-30 is 1e-28 percent: the first digit that is not zero is the 28th.
+        expect(coverage.threshold).toBe(`0.${"0".repeat(27)}1`);
+      }
     }
   });
 
