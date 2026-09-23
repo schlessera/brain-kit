@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync } from "fs";
+import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -128,6 +128,12 @@ describe("links.target_id index", () => {
   test("brain doctor stops asking for a reindex once the upgraded database has been opened writable", async () => {
     const root = makeTempBrain();
     dirs.push(root);
+    // Satisfy the MCP check via project config so doctor never falls through to
+    // probing a host `claude` CLI (up to 15s per run, and machine-dependent).
+    writeFileSync(
+      join(root, ".mcp.json"),
+      JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } })
+    );
     const indexed = await runCli(root, ["index", "--json"]);
     expect(indexed.code, indexed.stderr).toBe(0);
     const dbPath = join(root, "brain.db");
