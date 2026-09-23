@@ -744,6 +744,28 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       expect(got).toEqual({ ratio: "0.00004768342023636671", verdict, threshold: "0.00004768342023636670" });
     }
 
+    // A collapse with a whole part: 1/3 and the double two below it are
+    // 33.33333333333333148…% and 33.33333333333332593…%, one double apart
+    // once multiplied by 100.
+    const third = formatStats(
+      statsWith({
+        brokenLinks: 1,
+        links: 3,
+        health: {
+          ...statsWith().health,
+          brokenLinkRate: 1 / 3,
+          thresholds: { ...DEFAULT_STATS_THRESHOLDS, brokenLinkCeiling: 0.33333333333333326 },
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect((1 / 3) * 100).toBe(0.33333333333333326 * 100);
+    expect(parts(line(third, "Broken links"))).toEqual({
+      ratio: "33.33333333333333",
+      verdict: "over",
+      threshold: "33.33333333333332",
+    });
+
     // No coverage at all under a tiny floor: (0 * 100).toFixed(20) and
     // (1e-28).toFixed(20) are both zeros, and past 1e-100 so is any toFixed.
     // Number.MIN_VALUE is the extreme: a subnormal, still a valid floor.
