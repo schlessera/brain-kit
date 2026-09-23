@@ -585,6 +585,177 @@ describe("an embeddings count that could not be taken reads as unknown", () => {
   });
 });
 
+describe("a ratio next to its threshold never reads as the same number", () => {
+  // Both verdicts below are right (6/119 = 0.0504 > 0.05; 4498/5000 = 0.8996
+  // < 0.9), but at one decimal the ratio and its threshold printed as the same
+  // figure, so the line appeared to contradict itself (#171). The fix is
+  // display-only: the verdict still compares the unrounded values. Rounding
+  // before comparing would make it wrong instead, and that is the rejected fix.
+  const line = (out: string, label: string) =>
+    out.split("\n").find((l) => l.startsWith(`  ${label}:`)) ?? "";
+
+  /** The ratio and the threshold as printed on a health line, and its verdict word. */
+  function parts(text: string): { ratio: string; verdict: string; threshold: string } {
+    const m = text.match(/(\d+(?:\.\d+)?)%\)?(?: of [^,]+)?, (\w+) the (\d+(?:\.\d+)?)% (?:ceiling|floor)$/);
+    if (!m) throw new Error(`not a judged health line: ${text}`);
+    return { ratio: m[1], verdict: m[2], threshold: m[3] };
+  }
+
+  test("a broken-link rate just over its ceiling shows a different number, and is still over", () => {
+    const out = formatStats(
+      statsWith({
+        brokenLinks: 6,
+        links: 119,
+        health: { ...statsWith().health, brokenLinkRate: 6 / 119 },
+      }),
+      { all: false, stale: STALE }
+    );
+    const broken = parts(line(out, "Broken links"));
+
+    expect(broken.verdict).toBe("over");
+    expect(broken.ratio).not.toBe(broken.threshold);
+    expect(Number(broken.ratio)).toBeGreaterThan(Number(broken.threshold));
+    expect(line(out, "Broken links")).toBe("  Broken links:       6 of 119 (5.04%), over the 5.00% ceiling");
+  });
+
+  test("a coverage just below its floor shows a different number, and is still below", () => {
+    const out = formatStats(
+      statsWith({
+        embeddings: 4498,
+        chunks: 5000,
+        health: { ...statsWith().health, embeddingCoverage: 4498 / 5000 },
+      }),
+      { all: false, stale: STALE }
+    );
+    const coverage = parts(line(out, "Embedding coverage"));
+
+    expect(coverage.verdict).toBe("below");
+    expect(coverage.ratio).not.toBe(coverage.threshold);
+    expect(Number(coverage.ratio)).toBeLessThan(Number(coverage.threshold));
+    expect(line(out, "Embedding coverage")).toBe(
+      "  Embedding coverage: 89.96% of 5000 chunks, below the 90.00% floor"
+    );
+  });
+
+  test("as many digits as it takes, for ratios arbitrarily close", () => {
+    // 1 broken link in 19,999 over a 1/20,000 ceiling: the two first differ
+    // at the fourth decimal of the percentage.
+    const ceiling = 1 / 20_000;
+    const rate = 1 / 19_999;
+    const out = formatStats(
+      statsWith({
+        brokenLinks: 1,
+        links: 19_999,
+        health: {
+          ...statsWith().health,
+          brokenLinkRate: rate,
+          thresholds: { ...DEFAULT_STATS_THRESHOLDS, brokenLinkCeiling: ceiling },
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    const broken = parts(line(out, "Broken links"));
+    expect(broken.verdict).toBe("over");
+    expect(broken.ratio).not.toBe(broken.threshold);
+    expect(Number(broken.ratio)).toBeGreaterThan(Number(broken.threshold));
+  });
+
+  test("a ratio one ulp over a ceiling that `ratio * 100` rounds onto it still reads as bigger", () => {
+    // 0.007 and the next double up are different ratios, but both times 100
+    // are the same double, so widening `(ratio * 100).toFixed(n)` could never
+    // separate them.
+    const ceiling = 0.007;
+    const bits = new Float64Array([ceiling]);
+    new BigInt64Array(bits.buffer)[0] += 1n;
+    const rate = bits[0];
+    expect(rate).toBeGreaterThan(ceiling);
+    expect(rate * 100).toBe(ceiling * 100);
+
+    const out = formatStats(
+      statsWith({
+        health: {
+          ...statsWith().health,
+          brokenLinkRate: rate,
+          thresholds: { ...DEFAULT_STATS_THRESHOLDS, brokenLinkCeiling: ceiling },
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    const broken = parts(line(out, "Broken links"));
+    expect(broken.verdict).toBe("over");
+    expect(broken.ratio).not.toBe(broken.threshold);
+    // Compared as decimal strings of equal length: Number() would collapse them again.
+    expect(broken.ratio.length).toBe(broken.threshold.length);
+    expect(broken.ratio > broken.threshold).toBe(true);
+  });
+
+  test("a threshold configured finer than one decimal is not shown rounded past the ratio", () => {
+    // Ceiling 5.25%, rate 5.28%: at one decimal both read 5.3%. Widening only
+    // the ratio would print "5.28%, over the 5.3% ceiling" — a smaller number
+    // called over a bigger one.
+    const out = formatStats(
+      statsWith({
+        brokenLinks: 528,
+        links: 10_000,
+        health: {
+          ...statsWith().health,
+          brokenLinkRate: 0.0528,
+          thresholds: { ...DEFAULT_STATS_THRESHOLDS, brokenLinkCeiling: 0.0525 },
+        },
+      }),
+      { all: false, stale: STALE }
+    );
+    const broken = parts(line(out, "Broken links"));
+    expect(broken.verdict).toBe("over");
+    expect(Number(broken.ratio)).toBeGreaterThan(Number(broken.threshold));
+  });
+
+  test("the verdict still compares unrounded values: rounding never loosens a threshold", () => {
+    // Each of these rounds to its threshold at one decimal. Comparing at
+    // display precision would call them within / meets.
+    for (const rate of [0.05004, 0.0500001]) {
+      const out = formatStats(
+        statsWith({ health: { ...statsWith().health, brokenLinkRate: rate } }),
+        { all: false, stale: STALE }
+      );
+      expect(parts(line(out, "Broken links")).verdict).toBe("over");
+    }
+    for (const coverage of [0.89996, 0.8999999]) {
+      const out = formatStats(
+        statsWith({ health: { ...statsWith().health, embeddingCoverage: coverage } }),
+        { all: false, stale: STALE }
+      );
+      expect(parts(line(out, "Embedding coverage")).verdict).toBe("below");
+    }
+  });
+
+  test("a ratio exactly at its threshold, or nowhere near it, keeps one decimal", () => {
+    const at = formatStats(
+      statsWith({
+        brokenLinks: 5,
+        links: 100,
+        embeddings: 90,
+        chunks: 100,
+        health: { ...statsWith().health, brokenLinkRate: 0.05, embeddingCoverage: 0.9 },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(line(at, "Broken links")).toBe("  Broken links:       5 of 100 (5.0%), within the 5.0% ceiling");
+    expect(line(at, "Embedding coverage")).toBe("  Embedding coverage: 90.0% of 100 chunks, meets the 90.0% floor");
+
+    const far = formatStats(
+      statsWith({
+        brokenLinks: 2,
+        links: 37,
+        health: { ...statsWith().health, brokenLinkRate: 2 / 37, embeddingCoverage: 0.5 },
+      }),
+      { all: false, stale: STALE }
+    );
+    expect(line(far, "Broken links")).toBe("  Broken links:       2 of 37 (5.4%), over the 5.0% ceiling");
+    expect(line(far, "Embedding coverage")).toBe("  Embedding coverage: 50.0% of 12 chunks, below the 90.0% floor");
+  });
+});
+
 describe("byte scaling", () => {
   // Boundaries: the last value that stays in a unit, and the first that steps up.
   const cases: [number, string][] = [
