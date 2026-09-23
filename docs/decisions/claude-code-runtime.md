@@ -482,16 +482,45 @@ subscription authenticates.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
   validity.
-- **Logging in needed a TTY in the one run without one.** On 2.1.278 with stdin
+- ~~**Logging in needed a TTY in the one run without one.** On 2.1.278 with stdin
   from `/dev/null`, `setup-token` printed nothing until it was killed at 20 s. Under a pseudo-terminal it
   prints an authorize URL and a "Paste code here if prompted" prompt. The
   redirect is a manual code page, so the browser can be on a different machine
-  from the host.
-- **It can complete with nobody at the keyboard.** Under a pseudo-terminal on
+  from the host.~~
+- ~~**It can complete with nobody at the keyboard.** Under a pseudo-terminal on
   a workstation whose browser was already signed in, the flow opened that
   browser, completed, and printed a real 1-year token. That probe minted a live
   credential; it was reported for revocation, and nobody should repeat it.
-  Probes of the login flow must run where no signed-in browser can be reached.
+  Probes of the login flow must run where no signed-in browser can be reached.~~
+
+  **Corrected 2026-09-23.** Both bullets above got the flow wrong, and the
+  second was false. There were two `setup-token` runs, both on 2.1.278, each
+  with an empty temporary `HOME`:
+
+  1. **Without a TTY** (stdin from `/dev/null`, killed at 20 s). It printed
+     nothing to the terminal, but it was not inert. It opened the host's
+     browser at the authorize page and started a local callback listener on
+     an ephemeral port. The account holder approved in the browser. The
+     browser was then redirected to `http://localhost:<port>/callback?code=…&state=…`,
+     which did not load. The run had been killed at 20 s; which of that or the
+     host's network set-up stopped the callback was not established. No token
+     resulted.
+  2. **Under a pseudo-terminal.** It opened the browser again and also printed
+     the manual authorize URL with a "Paste code here if prompted" prompt. The
+     account holder approved this one too; the flow completed and printed a
+     real token. That token has been revoked.
+
+  So the flow has two completion paths, and **both need the signed-in account
+  holder to approve in a browser** — neither completes on its own. The
+  automatic path redirects to the CLI's local callback listener, so it
+  completes only while that process is running and only if the browser can
+  reach it. Without port forwarding, a browser outside the host's network
+  namespace (a WSL host browser, a container, a headless server) or on another
+  machine cannot. The manual path — the
+  printed URL, whose redirect goes to a code page, and the code pasted back
+  into the CLI's prompt — works across machines, but it needs an interactive
+  terminal to paste into. Probes of the login flow are credential-minting
+  actions and are not run by agents.
 - **Rotation is a restart.** The token lives in the environment, so replacing
   it means changing the host's secret and restarting. `claude auth login`
   (subscription by default, `--console` for API billing) stores refreshable
