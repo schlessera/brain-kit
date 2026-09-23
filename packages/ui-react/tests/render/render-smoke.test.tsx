@@ -4125,9 +4125,17 @@ describe("printed keys follow the pointer (#86)", () => {
     });
     // Async, so the pointer is swapped by hand rather than through `withPointer`,
     // whose finally would restore it before the page's effects settle.
+    // One live list for the pointer query, so the test can pair a trackpad
+    // mid-session and watch the page follow it.
     const real = window.matchMedia;
-    window.matchMedia = ((q: string) =>
-      q === FINE ? { matches: false, media: q, addEventListener() {}, removeEventListener() {} } : real.call(window, q)) as never;
+    const listeners = new Set<(e: { matches: boolean }) => void>();
+    const pointer = {
+      matches: false,
+      media: FINE,
+      addEventListener: (_: string, fn: (e: { matches: boolean }) => void) => void listeners.add(fn),
+      removeEventListener: (_: string, fn: (e: { matches: boolean }) => void) => void listeners.delete(fn),
+    };
+    window.matchMedia = ((q: string) => (q === FINE ? pointer : real.call(window, q))) as never;
     try {
       const page = render(<ActivityPage />);
       await act(flushPromises);
@@ -4148,6 +4156,13 @@ describe("printed keys follow the pointer (#86)", () => {
       fireEvent.keyDown(cards[0]!, { key: "d" });
       await act(flushPromises);
       expect(useActivityStore.getState().inbox.map((i) => i.id)).toEqual([2, 3]);
+
+      // A trackpad arrives: all three print again, exactly as D36 draws them.
+      pointer.matches = true;
+      act(() => listeners.forEach((fn) => fn({ matches: true })));
+      expect(page.getByText("j / k move · d dismiss · ⏎ open")).toBeTruthy();
+      expect(page.getByText("j / k move · d dismiss")).toBeTruthy();
+      expect(page.getAllByRole("button", { name: "Dismiss · d" })).toHaveLength(2);
       page.unmount();
     } finally {
       window.matchMedia = real;
