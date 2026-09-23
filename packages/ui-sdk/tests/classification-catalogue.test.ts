@@ -168,10 +168,14 @@ describe("the catalogue", () => {
       "c0.recommended": choice("Ship 4", 0.9),
       "c0.criteria_first": noul(1),
     });
-    expect(result?.block).toMatchObject({
-      kind: "comparison",
-      columns: [{ label: "Ship 1" }, { label: "Ship 2" }, { label: "Ship 3" }, { label: "Ship 4", recommended: true }],
-    });
+    expect(result?.block.kind).toBe("comparison");
+    // Whole, so a column marked that the answer did not name fails too.
+    expect(result?.block.kind === "comparison" && result.block.columns).toEqual([
+      { label: "Ship 1" },
+      { label: "Ship 2" },
+      { label: "Ship 3" },
+      { label: "Ship 4", recommended: true },
+    ]);
   });
 
   test("above the bound, a comparison stays markdown and a data table is drawn with no column recommended", () => {
