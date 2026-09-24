@@ -9,7 +9,7 @@ compatibility: Requires an API key for at least one image provider — OPENAI_AP
 **This skill orchestrates; `brain image` does the work.** It picks the model,
 calls the API, prices the call and writes the file. Do not hand-roll HTTP
 requests to an image API, and do not reach for a Python or Node image library —
-the deployment has neither.
+a deployment may have neither.
 
 ```sh
 brain image "a cutaway diagram of a heat pump, labelled" --text-in-image

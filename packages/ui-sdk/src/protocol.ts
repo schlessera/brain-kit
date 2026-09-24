@@ -5,7 +5,7 @@
 // AgentBackend. This protocol is a COMPATIBILITY CONTRACT (see
 // docs/integration-contract.md): it is not pluggable, message types are only
 // ever added, and fields are only ever added optionally. It descends from
-// brain-ui's shared/protocol.ts with two deliberate cleanups:
+// the chat UI's original protocol, with two deliberate cleanups:
 //   - ProviderInfo.provider (closed vendor union) → optional `vendor` hint
 //   - agent-specific phrasing neutralized (any backend may serve these frames)
 //

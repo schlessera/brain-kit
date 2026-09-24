@@ -2,7 +2,7 @@
  * The span-sink JSONL contract: how an agent-running cron step reports its
  * activity to the wrapper that records the run.
  *
- * The wrapper (brain-ui's cron-run.ts) exports a file path in
+ * The wrapper (the deployment's cron runner) exports a file path in
  * `BRAIN_ACTIVITY_SPAN_SINK`; the child process appends one JSON object per
  * line and never reads the file back. The wrapper ingests incrementally
  * (liveness) and once at exit (completeness), attaching everything under the

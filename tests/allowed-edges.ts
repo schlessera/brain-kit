@@ -69,7 +69,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   },
   // ui-server drives whichever backend the deployment picks, so BOTH backends
   // are optional peers — a hard dependency on either would ship that agent SDK
-  // to every install regardless of AGENT_BACKEND. The consumer (brain-ui)
+  // to every install regardless of AGENT_BACKEND. The consumer (a deployment)
   // declares the backend it actually deploys.
   "@schlessera/brain-ui-server": {
     dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk"],

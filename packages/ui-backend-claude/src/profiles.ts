@@ -4,9 +4,8 @@ import { readEnvVar } from "./config/env.js";
 
 /**
  * A resolved inference profile: a (model, endpoint, credentials) target the
- * Claude backend can run a conversation on. Descends from brain-ui's hardcoded
- * `ProviderConfig`, but the five personal presets are gone — profiles are now
- * declared by the host via {@link defineProfiles}.
+ * Claude backend can run a conversation on. Replaces an earlier hardcoded
+ * provider table: profiles are declared by the host via {@link defineProfiles}.
  *
  * The env-remap mechanism is unchanged: a profile pointed at an
  * Anthropic-compatible proxy (OpenRouter, a local gateway, …) rewrites

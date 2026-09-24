@@ -14,12 +14,15 @@ import { join, resolve } from "path";
 const ROOT = resolve(import.meta.dir, "..");
 
 /**
- * Every tracked Markdown and YAML file: the docs a reader can reach, plus the
- * configuration GitHub shows them (the issue chooser, workflow names).
+ * Every tracked Markdown, YAML and TypeScript file: the docs a reader can
+ * reach, the configuration GitHub shows them (the issue chooser, workflow
+ * names), and the source comments and strings that ship or that a
+ * contributor reads (#305).
  */
 function trackedDocs(): string[] {
   const proc = Bun.spawnSync([
-    "git", "-C", ROOT, "ls-files", "*.md", "**/*.md", "*.yml", "**/*.yml", "*.yaml", "**/*.yaml",
+    "git", "-C", ROOT, "ls-files",
+    "*.md", "**/*.md", "*.yml", "**/*.yml", "*.yaml", "**/*.yaml", "*.ts", "**/*.ts", "*.tsx", "**/*.tsx",
   ]);
   return [...new Set(new TextDecoder().decode(proc.stdout).split("\n").filter(Boolean))];
 }
@@ -32,6 +35,9 @@ function trackedDocs(): string[] {
  * for *work* is the opposite of naming them as somewhere a reader should go.
  */
 const MAY_NAME_THE_PRIVATE_REPO = [
+  // This file: every reference in it is a fixture, and its recorded digests
+  // could not include themselves.
+  "tests/public-docs.test.ts",
   "AGENTS.md",
   "docs/process/github.md",
   ".agents/skills/github/SKILL.md",
@@ -47,8 +53,13 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *
  * - Three decision records cite the private repository's files, pending #303,
  *   which decides where the container design they describe belongs.
- * - `packages/core/README.md` is generated from an env descriptor in
- *   `packages/core/src/config/env.ts`, which is source, pending #305.
+ * - Tooling pending its own issue: the citation checker's form for another
+ *   repository (#303), and the label taxonomy and sync that still cover the
+ *   private instance (#299).
+ * - Tests and the board sync that name the private repositories on purpose:
+ *   as negative fixtures a guard must refuse, or as the rule that keeps
+ *   them off the board. This is the explicit list of such fixtures (#305);
+ *   a private reference added to any other test fails the scan.
  * - Changelogs are release history: an entry records what was true when it
  *   shipped. The digest keeps a NEW entry, copied in from a changeset at
  *   version time, from carrying a reference past this test.
@@ -57,7 +68,13 @@ const RECORDED: Record<string, string> = {
   "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
   "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
   "docs/decisions/README.md": "4ba97a8e9273de8d",
-  "packages/core/README.md": "cf7e213e057034b4",
+  "scripts/check-citations.ts": "208a75668bf914f4",
+  "scripts/labels.ts": "667ad2a8bcecbf0f",
+  "scripts/sync-labels.ts": "4cf488160f63c036",
+  "scripts/sync-project.ts": "c491185e4368cdc2",
+  "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
+  "tests/project-blockers.test.ts": "934f3633dfb81d63",
+  "tests/project-sync-item.test.ts": "c8805cd52b00d4a9",
   "packages/core/CHANGELOG.md": "74c0ce78fcafc50e",
   "packages/ui-react/CHANGELOG.md": "2d30014b1c9170fd",
   "packages/ui-sdk/CHANGELOG.md": "2d30014b1c9170fd",
@@ -94,6 +111,13 @@ const PRIVATE_REFERENCES: [string, RegExp][] = [
   // One real deployment of the product, rather than the product: "the
   // brain-ui container", not "a brain-ui container can be built".
   ["the deployment", new RegExp(`deployed ${NAME}|\\bthe ${NAME}\`? (?:container|docker image|image|deployment)\\b|${NAME}\`? (?:deploy|deployment shell|shell|docker image)\\b`, "i")],
+  // A statement of what one real deployment has or lacks, rather than what
+  // a deployment may have: "the deployment has neither", "A hosting
+  // container **does** have `python3`".
+  ["what the deployment has", /\bthe deployment (?:has|lacks|does not have)\b|\ba hosting container \*{0,2}does\*{0,2} have\b/i],
+  // Its parts and its history: a file of the private deployment, what it had,
+  // what a package descends from, and it as the named consumer.
+  ["its parts or history", /\bscripts\/entrypoint\.sh\b|\bbrain-ui['\u2019]s (?:hardcoded|container|shell|entrypoint|image|cron)\b|\bdescends from brain-ui\b|\bconsumer \(brain-ui\)/i],
   // The two repositories named side by side, as peers that each keep something.
   ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME} (?:each|both|repos|repositories)\\b`, "i")],
   // A citation into it, never a Markdown link whose text is the product name.
@@ -111,6 +135,9 @@ const referencesIn = (text: string) =>
 const referencingParagraphs = (text: string) =>
   text
     .split(/\n\s*\n/)
+    // A comment's line prefixes (`*`, `//`) sit between the words of one
+    // sentence; drop them so a phrase wrapped in a doc comment is one phrase.
+    .map((paragraph) => paragraph.replace(/^[ \t]*(?:\/\*\*?|\*\/|\*(?!\*)|\/\/)[ \t]?/gm, ""))
     .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
     .filter((paragraph) => referencesIn(paragraph).length > 0);
 
@@ -187,6 +214,20 @@ describe("public documents do not send readers to the private repositories", () 
     "Deployment notes (brain-ui, private) document the maintainer's host.",
     "Read [brain-ui's decisions](../brain-ui/docs/decisions.md).",
     "[the security notes](../brain-ui/SECURITY.md)",
+    // The source-side phrasings #305 removed.
+    "Chrome refuses to start as root. `BRAIN_UI_CHROME_NO_SANDBOX` is the name the brain-ui image already sets.",
+    "a deployment constraint, not a preference: the brain-ui container has bun and nothing else",
+    "the brain repo is cloned and `bun install`ed by entrypoint.sh. The same preference order is mirrored in `scripts/entrypoint.sh`",
+    "The wrapper (brain-ui's cron-run.ts) exports a file path",
+    "Descends from brain-ui's hardcoded `ProviderConfig`, but the five personal presets are gone",
+    "It descends from brain-ui's shared/protocol.ts with two deliberate cleanups",
+    "There is no `magick` in a deployment. A hosting container **does** have `python3`",
+    "do not reach for a Python or Node image library — the deployment has neither.",
+    "The app moved out of the brain-ui repo into packages/ui-server",
+    "The brain-ui shell had to peek at process.env.BRAIN_UI_REVERSE_GEOCODE",
+    "brain-ui's container chain is the real case: relocation, then the user",
+    "The consumer (brain-ui) declares the backend it actually deploys.",
+    "often with a line range, and often in the private deployment-shell repo.",
   ];
   // The product names that stay, which no pattern may flag.
   const KEPT = [
