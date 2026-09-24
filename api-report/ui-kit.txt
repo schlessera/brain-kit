@@ -128,6 +128,7 @@ export "." (./src/index.ts)
   NotificationCard
   type NotificationCardProps
   type OrbitAgent
+  PRINT_TOKENS
   type PaletteGroup
   type PaletteItem
   PathRef
@@ -206,6 +207,7 @@ export "." (./src/index.ts)
   canvas
   color
   font
+  printThemeCss
 
 export "./package.json" (./package.json) [asset]
 

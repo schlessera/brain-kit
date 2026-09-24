@@ -86,6 +86,7 @@ import * as agentOrbit from "../../stories/agents/AgentOrbit.stories.js";
 import * as agentRunCard from "../../stories/agents/AgentRunCard.stories.js";
 import * as graphView from "../../stories/agents/GraphView.stories.js";
 import * as laneChart from "../../stories/agents/LaneChart.stories.js";
+import * as inPrint from "../../stories/blocks/InPrint.stories.js";
 import * as mapView from "../../stories/blocks/MapView.stories.js";
 import * as statTiles from "../../stories/blocks/StatTiles.stories.js";
 import * as trendChart from "../../stories/blocks/TrendChart.stories.js";
@@ -165,6 +166,35 @@ async function looksRightOnPaper(story: unknown, name: string) {
   expect(document.documentElement.dataset.theme).toBe("light");
   await expect(document.body).toMatchScreenshot(`${name}-light`, TOLERANCE);
 }
+
+/* ── Print ─────────────────────────────────────────────────────────────────── */
+// What a shared PNG or PDF draws (#46): every answer block in the print theme.
+// The story pins the theme; the ground is asserted first so a baseline in the
+// wrong theme cannot be written, as with paper below.
+
+async function looksRightInPrint(story: unknown, name: string) {
+  await (story as ComposedStory).run();
+  expect(document.documentElement.dataset.theme).toBe("print");
+  expect(getComputedStyle(document.documentElement).colorScheme).toBe("light");
+  expect(getComputedStyle(document.documentElement).getPropertyValue("--bk-color-canvas").trim()).toBe("#ffffff");
+  await expect(document.body).toMatchScreenshot(name, TOLERANCE);
+}
+
+test("print: figures (comparison, stats, trend, table)", async () => {
+  await looksRightInPrint(inPrint.Figures, "print-figures");
+});
+
+test("print: records (bars, receipt, steps)", async () => {
+  await looksRightInPrint(inPrint.Records, "print-records");
+});
+
+test("print: events (timeline, schedule)", async () => {
+  await looksRightInPrint(inPrint.Events, "print-events");
+});
+
+test("print: people (quote, contact)", async () => {
+  await looksRightInPrint(inPrint.People, "print-people");
+});
 
 /* ── The four assembled screens ───────────────────────────────────────────── */
 // Composition, which is the half no component's own stories can see.

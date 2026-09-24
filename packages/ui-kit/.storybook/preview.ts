@@ -18,8 +18,11 @@ export default definePreview({
     // paper sets `globals: { theme: "light" }`, and the light Vitest project
     // runs every story that way — with the a11y gate still at `'error'`, which
     // is the contrast proof the light theme did not have before.
+    //
+    // `print` is the third value: the palette a shared PNG or PDF is drawn in
+    // (#46). No project runs every story in it; `Blocks/In print` pins it.
     withThemeByDataAttribute({
-      themes: { dark: "dark", light: "light" },
+      themes: { dark: "dark", light: "light", print: "print" },
       defaultTheme: "dark",
       attributeName: "data-theme",
     }),
