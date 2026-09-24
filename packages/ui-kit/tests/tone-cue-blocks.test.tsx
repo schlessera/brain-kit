@@ -25,6 +25,7 @@ import { TrendChart } from "../src/blocks/TrendChart.js";
 import { ComparisonTable } from "../src/conversation/ComparisonTable.js";
 import { DataTable } from "../src/evidence/DataTable.js";
 import { Receipt } from "../src/evidence/Receipt.js";
+import { ICONS, type IconName } from "../src/primitives/Icon.js";
 
 /**
  * The toned elements of a render, in document order, each with the cue keys
@@ -36,10 +37,31 @@ function toned(html: string): { tone: string; cues: string[] }[] {
   const [before, ...chunks] = html.split('data-tone="');
   // Nothing outside a toned element draws a cue.
   expect(before).not.toContain("data-cue");
+  drawsItsGlyph(html);
   return chunks.map((chunk) => ({
     tone: chunk.slice(0, chunk.indexOf('"')),
     cues: [...chunk.matchAll(/data-cue="([^"]+)"/g)].map((m) => m[1]!),
   }));
+}
+
+/** The shapes inside the Lucide glyph an icon key names. */
+function shapesOf(key: IconName): string {
+  const Glyph = ICONS[key];
+  return /<svg[^>]*>(.*)<\/svg>/s.exec(renderToStaticMarkup(<Glyph />))![1]!;
+}
+
+/**
+ * Every cue SVG draws the glyph its `data-cue` names, not merely the label:
+ * a renderer that kept the key and drew another icon would pass a test that
+ * read the attribute alone.
+ */
+function drawsItsGlyph(html: string) {
+  const svgs = [...html.matchAll(/<svg[^>]*data-cue="([^"]+)"[^>]*>(.*?)<\/svg>/gs)];
+  expect(svgs.length).toBe(html.split("data-cue=").length - 1);
+  for (const [, key, shapes] of svgs) {
+    expect(shapes!.length).toBeGreaterThan(0);
+    expect({ key, shapes }).toEqual({ key: key!, shapes: shapesOf(key as IconName) });
+  }
 }
 
 /** Every cue SVG is hidden from the accessibility tree: it repeats colour. */
@@ -82,10 +104,13 @@ describe("ComparisonTable", () => {
       { tone: "ink", cues: [] },
     ]);
     allHidden(html);
-    // Before the text, at 11px.
+    // Before the text, at 11px, in a cell and in a column header alike.
     const cell = html.split('data-tone="gold"')[1]!;
     expect(cell.indexOf("<svg")).toBeLessThan(cell.indexOf(">x<"));
     expect(cell).toContain('width="11"');
+    const header = html.split('data-tone="red"')[1]!;
+    expect(header.indexOf("<svg")).toBeGreaterThan(-1);
+    expect(header.indexOf("<svg")).toBeLessThan(header.indexOf(">A<"));
   });
 });
 
@@ -275,6 +300,19 @@ describe("TimelineList", () => {
     ]);
     allHidden(html);
     expect(html.match(/width="11"/g)).toHaveLength(5);
+    // Each mark is the first thing in the gutter column, above its connector
+    // and apart from the title: a glyph moved beside the title is not in it.
+    const gutters = [...html.matchAll(/<div style="[^"]*flex-direction:column[^"]*width:11px[^"]*"><span data-tone="([^"]+)"[^>]*>(<span[^>]*><svg[^>]*data-cue="([^"]+)")?/g)];
+    expect(gutters.map((m) => [m[1], m[3] ?? null])).toEqual([
+      ["teal", "confirm"],
+      ["amber", "agent"],
+      ["red", "failed"],
+      ["purple", "unverified"],
+      ["gold", "fyi"],
+      ["blue", null],
+      ["neutral", null],
+      ["neutral", null],
+    ]);
     // A dot row still draws the 7px dot, in the same 11px box.
     const dot = html.split('data-tone="blue"')[1]!;
     expect(dot).toContain("width:7px");
