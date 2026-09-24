@@ -142,14 +142,19 @@ blocked, and it can be picked up now. An agent picking work should filter
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
 open PR says it closes the issue. `In progress` and `Done` are statements about
 a person or an agent rather than about labels, so the script reads them and
-leaves them alone. `.github/workflows/project-sync.yml` runs it on every issue
-and PR change in brain-kit and hourly for the two template repositories, so a
-label change reaches the board without anyone running it.
+leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`
+when a brain-kit issue is opened, edited, labelled, unlabelled, closed or
+reopened, when a same-repository PR is opened, edited, closed or reopened, and
+hourly, which covers the two template repositories and any failed run. A label
+change reaches the board without anyone running it. The workflow runs one sync
+at a time. To sync straight away, trigger it (`gh workflow run project-sync`)
+rather than running `--apply` from a terminal, which could overlap a workflow
+run. The dry run is safe from anywhere.
 
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the
 references: `Blocked by #42`, `Blocked by #42 and #43`, or
-`Blocked by schlessera/brain-kit#42` across repositories. Write it as a plain
+`Blocked by schlessera/brain-template#42` across the board's repositories. Write it as a plain
 line at the start of the line, optionally as a top-level bullet. Do not indent
 it, quote it, nest it, make it a task item or put it inside an HTML comment.
 Commentary may follow the list as long as it names no other reference. When
@@ -158,10 +163,12 @@ script reports it, and with `--apply` posts a one-line comment naming the
 closed blocker and removes the label. In the same run it then re-derives
 Status, unless the Status is `In progress` or `Done`, and the issue lands in
 Ready if nothing else holds it back. An issue labelled `blocked` keeps its label and is
-reported as unverifiable in four cases. It has no such line. Some other line
+reported as unverifiable in five cases. It has no such line. Some other line
 in the body says "blocked by" in any form: prose, a quote, a heading, an
 example in a code block, an HTML comment. A declaration names another
-reference after its list. Or a blocker's state cannot be read. The script clears a label
+reference after its list. A blocker's state cannot be read, or it lives outside
+the board's repositories, which the script never looks up: a public run must
+not report on a private issue. The script clears a label
 only on declarations it read in full. Closing a blocker unblocks nothing by itself — the line has to be there,
 and the script has to run.
 
@@ -192,7 +199,7 @@ An issue that turns out to be wrong gets closed with a comment saying why.
 Between those steps the issue has to stay true: its body is the current
 specification and its comments are the history. Corrections are folded into the
 body, a ruling is recorded where it unblocks the work, `blocked` comes off when
-its last blocker closes (`sync-project.ts --apply` does it for a readable
+its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
 

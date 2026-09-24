@@ -144,10 +144,18 @@ Counting works, reading does not.
 GitHub documents this under [fine-grained PAT limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations).
 If the current token cannot access the board, file the issue with its labels
 and milestone. The `project-sync` workflow runs `bun scripts/sync-project.ts
---apply` on every brain-kit issue and PR change and hourly, which adds newly
-filed issues to the board and derives their Status. To sync straight away, run
-the script from a terminal that has the `project` scope, or trigger the
-workflow with `gh workflow run project-sync --repo schlessera/brain-kit`.
+--apply` on brain-kit issue and PR events and hourly, which adds newly filed
+issues to the board and derives their Status. To sync straight away, trigger
+it:
+
+```sh
+gh workflow run project-sync --repo schlessera/brain-kit
+```
+
+Do not run `--apply` from a terminal while the workflow exists: the workflow
+runs one sync at a time, and a terminal run bypasses that and can post a
+notice twice. The dry run (no `--apply`) is safe from anywhere, with a token
+that has `project` and `read:org`.
 
 A `needs:` label says what is blocking the work. `needs: design` is the one
 that is useless on its own — see "Issues that need design" below for what has
@@ -251,11 +259,13 @@ below exists because the tracker drifted without it.
   ruling that binds later work, not only this issue, also gets a
   `docs/decisions/` record — file it as its own issue if it is not written now.
 - **Clear `blocked` when the blocker closes.** The label does not clear itself.
-  `bun scripts/sync-project.ts --apply` clears it from every issue whose
+  The `project-sync` workflow clears it from every issue whose
   `Blocked by #N` lines all name closed issues, and comments saying which. The
   comment carries a marker naming the blockers, so a run that fails part way
-  comments only once when it is retried. Run it once at a time, never in
-  parallel. The dry run lists those issues, plus every `blocked` issue it
+  comments only once when it is retried. It runs once at a time, never in
+  parallel, which is why an immediate sync is a `gh workflow run`, not a
+  terminal `--apply`. A blocker outside the board's three repositories is
+  never looked up and reads as unverifiable. The dry run lists those issues, plus every `blocked` issue it
   cannot verify. That is either a problem with the text, so fix the text. There is no
   declaration, some other line says "blocked by", or a declaration names
   another reference after its list.

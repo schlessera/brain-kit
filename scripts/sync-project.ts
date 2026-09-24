@@ -8,18 +8,21 @@
 // `brain-hosting-template`. The maintainer's private instance repositories are
 // never on it (AGENTS.md, "The five repositories").
 //
-// Needs the `project` scope, which `repo` does not include:
+// Needs the `project` and `read:org` scopes, which `repo` does not include:
 //
-//   gh auth refresh -s project
+//   gh auth refresh -s project,read:org
 //
-// What this script cannot do, and why:
+// What this script does not do, and why:
 //
 // - **Views.** The GitHub API exposes no mutation for creating a project view,
 //   so the board, roadmap and filtered tables are made once in the web UI.
 //   `docs/process/github.md` lists the ones this project is meant to have.
 // - **The Status field's options.** Status is created by GitHub with
-//   Todo / In Progress / Done and `gh project` cannot edit an existing field's
-//   options. Adjust it in the UI; everything else here is idempotent around it.
+//   Todo / In Progress / Done. `gh project` cannot edit an existing field's
+//   options, but the GraphQL `updateProjectV2Field` mutation can, with
+//   `singleSelectOptions` (used on 2026-09-24). This board's options are
+//   already Backlog / Ready / In progress / In review / Done, so the script
+//   leaves them alone, and a Status it cannot find an option for is skipped.
 //
 // Everything it CAN do is idempotent: run it again after filing issues and it
 // adds the new ones and leaves the rest alone.
@@ -28,7 +31,7 @@ import { labelsFor } from "./labels.ts";
 
 const OWNER = "schlessera";
 const TITLE = "brain-kit roadmap";
-const REPOS = [
+export const REPOS = [
   "schlessera/brain-kit",
   "schlessera/brain-template",
   "schlessera/brain-hosting-template",
@@ -453,6 +456,7 @@ export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],
   io: BlockerIO,
   apply: boolean,
+  repos: readonly string[],
 ): Promise<{
   cleared: { issue: T; closed: string[] }[];
   unverifiable: { issue: T; reason: string }[];
@@ -462,7 +466,19 @@ export async function reconcileBlocked<T extends BlockableIssue>(
   const known = new Map<string, BlockerState | undefined>();
   for (const issue of issues) {
     if (!issue.labels.some((label) => label.name === "blocked")) continue;
-    for (const ref of parseBlockers(issue.body ?? "", issue.repo).refs) {
+    const refs = parseBlockers(issue.body ?? "", issue.repo).refs;
+    // The token can read more than the board covers. A blocker outside the
+    // board's repositories is never looked up, so an edited body cannot make
+    // this public run read a private issue's state and report it in a comment.
+    const outside = refs.filter((ref) => !repos.includes(ref.slice(0, ref.lastIndexOf("#"))));
+    if (outside.length > 0) {
+      unverifiable.push({
+        issue,
+        reason: `names a blocker outside the board's repositories: ${outside.join(", ")}`,
+      });
+      continue;
+    }
+    for (const ref of refs) {
       if (!known.has(ref)) known.set(ref, await io.state(ref));
     }
     const verdict = blockedVerdict(issue, (ref) => known.get(ref));
@@ -505,6 +521,27 @@ async function issuesUnderReview(): Promise<Set<string>> {
     }
   }
   return under;
+}
+
+/** The scopes the sync needs beyond repository access. */
+export const REQUIRED_SCOPES = ["project", "read:org"] as const;
+
+/**
+ * The OAuth scopes of the token that answered, from `gh api --include`
+ * output. Exact names only: `read:project` is not `project`. A fine-grained
+ * token sends no header at all, which reads as no scopes.
+ */
+export function scopesFromHeaders(response: string): Set<string> {
+  const header = response.split(/\r?\n\r?\n/, 1)[0];
+  const line = header.split(/\r?\n/).find((l) => /^x-oauth-scopes:/i.test(l));
+  if (!line) return new Set();
+  return new Set(
+    line
+      .slice(line.indexOf(":") + 1)
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
 }
 
 export function priorityFor(issue: { labels: { name: string }[] }): string | undefined {
@@ -575,22 +612,21 @@ if (import.meta.main) {
   const apply = process.argv.includes("--apply");
 
   // `repo` does not imply `project`, and the failure without it is a raw
-  // GraphQL scope error several frames down. Say it here instead.
-  const scopes = await gh(["auth", "status"]).catch(() => "");
-  if (!/\bproject\b/.test(scopes)) {
+  // GraphQL scope error several frames down. `gh project` also resolves
+  // `--owner` through a query that needs `read:org`, and without it fails
+  // with "unknown owner type", which names neither the token nor the scope
+  // (observed in CI with a `repo` + `project` PAT). Say both here instead.
+  //
+  // The scopes come from the API's own header for the token in use, not from
+  // `gh auth status`: that prints every account, and its warning
+  // "Missing required token scopes: 'read:org'" names the very scope it lacks.
+  const scopes = scopesFromHeaders(await gh(["api", "--include", "user"]));
+  const missingScopes = REQUIRED_SCOPES.filter((scope) => !scopes.has(scope));
+  if (missingScopes.length > 0) {
     console.error(
-      "The `project` scope is missing. GitHub Projects is a separate scope from `repo`.\n" +
-        "Grant it, then re-run:\n\n  gh auth refresh -s project\n",
-    );
-    process.exit(1);
-  }
-  // `gh project` resolves `--owner` through a query that needs `read:org`,
-  // and without it fails with "unknown owner type", which names neither the
-  // token nor the scope. Observed in CI with a `repo` + `project` PAT.
-  if (!/\bread:org\b/.test(scopes)) {
-    console.error(
-      "The `read:org` scope is missing. `gh project` needs it to resolve the owner.\n" +
-        "Grant it, then re-run:\n\n  gh auth refresh -s read:org\n",
+      `The token is missing ${missingScopes.map((m) => `\`${m}\``).join(" and ")}. ` +
+        "GitHub Projects needs `project`, and `gh project` needs `read:org` to resolve the owner.\n" +
+        `Grant them, then re-run:\n\n  gh auth refresh -s ${missingScopes.join(",")}\n`,
     );
     process.exit(1);
   }
@@ -623,7 +659,7 @@ if (import.meta.main) {
   const currentValues = await boardValues(project.number);
 
   // Before Status is derived: an issue unblocked here is Ready in this run.
-  const blockers = await reconcileBlocked(issues, trackerIO, apply);
+  const blockers = await reconcileBlocked(issues, trackerIO, apply, REPOS);
   for (const { issue, closed } of blockers.cleared) {
     console.log(
       `${apply ? "unblocked" : "would unblock"} ${issue.repo}#${issue.number}: ` +
@@ -682,12 +718,14 @@ if (import.meta.main) {
       const definition = byName.get(field);
       const option = definition?.options?.find((o) => o.name === value);
       if (!definition || !option) continue;
-      const from = currentValues.get(issue.url)?.[field] ?? "(unset)";
-      console.log(
-        `${apply ? "set" : "would set"} ${issue.repo}#${issue.number} ${field}: ${from} -> ${value}`,
-      );
-      edited++;
-      if (!apply) continue;
+      const change = `${issue.repo}#${issue.number} ${field}: ${
+        currentValues.get(issue.url)?.[field] ?? "(unset)"
+      } -> ${value}`;
+      if (!apply) {
+        console.log(`would set ${change}`);
+        edited++;
+        continue;
+      }
       await gh([
         "project",
         "item-edit",
@@ -700,6 +738,8 @@ if (import.meta.main) {
         "--single-select-option-id",
         option.id,
       ]);
+      console.log(`set ${change}`);
+      edited++;
     }
   }
 
@@ -729,13 +769,9 @@ if (import.meta.main) {
   }
 
   console.log(`
-Two things this script cannot do — finish them once, in the web UI:
+One thing this script cannot do — finish it once, in the web UI:
 
-  1. Status options. GitHub created Status with Todo / In Progress / Done, and
-     no API can edit an existing field's options. Change them to
-     Backlog / Ready / In progress / In review / Done.
-
-  2. Views. The API exposes no mutation for creating one. Make these four:
+  Views. The API exposes no mutation for creating one. Make these four:
        Board      — board layout, grouped by Status
        Roadmap    — roadmap layout on Target, grouped by Track
        Ready      — table, filter: status:Ready label:agent-ready, sorted by Priority

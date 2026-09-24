@@ -275,7 +275,7 @@ describe("reconcileBlocked", () => {
 
   test("a dry run lists the cleared and the unverifiable, and changes nothing", async () => {
     const tracker = fakeTracker(fixtures(), known);
-    const report = await reconcileBlocked(tracker.list(), tracker.io, false);
+    const report = await reconcileBlocked(tracker.list(), tracker.io, false, [REPO]);
     expect(report.cleared.map((r) => r.issue.number)).toEqual([111]);
     expect(report.unverifiable.map((r) => r.issue.number)).toEqual([23]);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
@@ -285,7 +285,7 @@ describe("reconcileBlocked", () => {
   test("--apply removes the label and comments once, naming the closed blocker", async () => {
     const tracker = fakeTracker(fixtures(), known);
     const issues = tracker.list();
-    await reconcileBlocked(issues, tracker.io, true);
+    await reconcileBlocked(issues, tracker.io, true, [REPO]);
 
     expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
     expect(tracker.comments.get(111)).toHaveLength(1);
@@ -304,10 +304,10 @@ describe("reconcileBlocked", () => {
   test("a run that dies before commenting retries on the next run", async () => {
     const tracker = fakeTracker(fixtures(), known);
     tracker.failNext.comment = true;
-    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true, [REPO])).rejects.toThrow();
     // Nothing is half done: the label is still on, so the next run sees it.
     expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
-    await reconcileBlocked(tracker.list(), tracker.io, true);
+    await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
     expect(tracker.comments.get(111)).toHaveLength(1);
   });
@@ -315,11 +315,11 @@ describe("reconcileBlocked", () => {
   test("a run that dies after commenting does not comment again", async () => {
     const tracker = fakeTracker(fixtures(), known);
     tracker.failNext.removeLabel = true;
-    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true, [REPO])).rejects.toThrow();
     // The comment landed before the removal failed.
     expect(tracker.comments.get(111)).toHaveLength(1);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(true);
-    await reconcileBlocked(tracker.list(), tracker.io, true);
+    await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);
     expect(tracker.labels.get(111)!.has("blocked")).toBe(false);
     expect(tracker.comments.get(111)).toHaveLength(1);
   });
@@ -329,16 +329,33 @@ describe("reconcileBlocked", () => {
     const closed: Record<string, BlockerState> = { [`${REPO}#1`]: "closed", [`${REPO}#2`]: "closed" };
     const tracker = fakeTracker(two(), closed);
     tracker.failNext.removeLabel = true;
-    await expect(reconcileBlocked(tracker.list(), tracker.io, true)).rejects.toThrow();
+    await expect(reconcileBlocked(tracker.list(), tracker.io, true, [REPO])).rejects.toThrow();
     const reordered = tracker.list().map((i) => ({ ...i, body: "Blocked by #2 and #1" }));
-    await reconcileBlocked(reordered, tracker.io, true);
+    await reconcileBlocked(reordered, tracker.io, true, [REPO]);
     expect(tracker.comments.get(7)).toHaveLength(1);
+  });
+
+  test("a blocker outside the board's repositories is never looked up or reported", async () => {
+    // A public issue edited to name a private one must not make the run read
+    // that issue's state with its token and post the answer publicly.
+    const outside = () => [issue(5, ["blocked"], "Blocked by schlessera/brain-ui#29")];
+    const tracker = fakeTracker(outside(), { "schlessera/brain-ui#29": "closed" });
+    const looked: string[] = [];
+    const io = { ...tracker.io, state: async (ref: string) => (looked.push(ref), tracker.io.state(ref)) };
+    const report = await reconcileBlocked(tracker.list(), io, true, [REPO]);
+    expect(looked).toEqual([]);
+    expect(report.cleared).toEqual([]);
+    expect(report.unverifiable.map((r) => r.reason)).toEqual([
+      "names a blocker outside the board's repositories: schlessera/brain-ui#29",
+    ]);
+    expect(tracker.labels.get(5)!.has("blocked")).toBe(true);
+    expect(tracker.comments.has(5)).toBe(false);
   });
 
   test("a second --apply run does nothing", async () => {
     const tracker = fakeTracker(fixtures(), known);
-    await reconcileBlocked(tracker.list(), tracker.io, true);
-    const second = await reconcileBlocked(tracker.list(), tracker.io, true);
+    await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);
+    const second = await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);
     expect(second.cleared).toEqual([]);
     expect(tracker.comments.get(111)).toHaveLength(1);
   });

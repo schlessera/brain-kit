@@ -6,6 +6,6 @@ contact_links:
   - name: Question, or an idea that is not a work item yet
     url: https://github.com/schlessera/brain-kit/discussions
     about: Ask before building. Framework rewrites, storage backends and new seams are answered here before they are coded.
-  - name: The chat UI's deployment shell
-    url: https://github.com/schlessera/brain-ui
-    about: Dockerfile, hosting and branding live in brain-ui. Everything the chat UI does lives in this repo.
+  - name: Self-hosting the chat UI
+    url: https://github.com/schlessera/brain-hosting-template/issues
+    about: The container, compose file, proxy and branding for your own instance live in brain-hosting-template. Everything the chat UI does lives in this repo.
