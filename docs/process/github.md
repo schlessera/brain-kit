@@ -142,14 +142,24 @@ blocked, and it can be picked up now. An agent picking work should filter
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
 open PR says it closes the issue. `In progress` and `Done` are statements about
 a person or an agent rather than about labels, so the script reads them and
-leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`
-when a brain-kit issue is opened, edited, labelled, unlabelled, closed or
-reopened, when a same-repository PR is opened, edited, closed or reopened, and
-hourly, which covers the two template repositories and any failed run. A label
-change reaches the board without anyone running it. The workflow runs one sync
-at a time. To sync straight away, trigger it (`gh workflow run project-sync`)
-rather than running `--apply` from a terminal, which could overlap a workflow
-run. The dry run is safe from anywhere.
+leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`:
+
+- When a brain-kit issue is opened, edited, labelled, unlabelled, closed or
+  reopened, it syncs that issue (`--issue`). When the issue is closed, it also
+  syncs the open issues that name it in a `Blocked by` line, so they unblock
+  straight away.
+- When a same-repository PR is opened, edited, closed or reopened, it syncs the
+  issues the PR says it closes (`--pr`).
+- Once a day, and on `gh workflow run project-sync`, it runs the full sweep.
+  That covers the two template repositories, whose events do not reach this
+  workflow, and anything an event run missed.
+
+An event run costs a few GraphQL points. The full sweep costs about 520 of the
+account's 5,000 per hour, so it is not run per event. A label change reaches
+the board within seconds without anyone running anything. Runs for the same
+issue queue behind each other. Do not run `--apply` from a terminal while the
+workflow is live, because it can overlap a workflow run and post a notice
+twice. The dry run is safe from anywhere.
 
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the
