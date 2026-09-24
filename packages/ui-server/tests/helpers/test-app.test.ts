@@ -32,8 +32,8 @@ describe("test-app helper", () => {
     });
   });
 
-  afterAll(() => {
-    testApp.teardown();
+  afterAll(async () => {
+    await testApp.teardown();
   });
 
   test("boots once and serves a real GET", async () => {

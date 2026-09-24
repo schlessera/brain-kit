@@ -19,7 +19,8 @@ it cannot grow without bound. Move a file out of it to keep it.
 Both refuse a \`.brain\` or \`.brain/scratch\` that is a symlink: nothing is
 removed anywhere a link points.
 
---json envelope: { action, removed: [{ path, bytes, reason }], failed: [{ path, reason }], bytes, files }`;
+--json envelope: { action, removed: [{ path, bytes, reason }], failed: [{ path, reason }], bytes, files }
+Exits 2 when a file could not be removed (it is listed in failed); the report is printed either way.`;
 
 export const scratchCommand: CoreCommand = {
   summary: "Clean or prune the brain's scratch area",
@@ -37,6 +38,10 @@ export const scratchCommand: CoreCommand = {
         `${action === "clean" ? "Cleaned" : "Pruned"} ${SCRATCH_DIR}/: removed ${report.removed.length} file(s), ` +
           `${freed} bytes; ${report.files} file(s), ${report.bytes} bytes left.`,
       );
+      for (const f of report.failed) console.log(`  could not remove ${f.path}: ${f.reason}`);
     });
+    // A pass that left something it should have removed is a partial
+    // failure: exit 2, the report printed all the same.
+    return report.failed.length > 0 ? 2 : 0;
   },
 };

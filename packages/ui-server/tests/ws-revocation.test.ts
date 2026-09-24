@@ -263,7 +263,7 @@ describe("principal revocation boundary", () => {
       expect(app.wsHost.clients.count()).toBe(0);
       expect(app.wsHost.coordinator.authorizationRegistry.size).toBe(0);
     } finally {
-      app.close();
+      await app.close();
     }
   });
 

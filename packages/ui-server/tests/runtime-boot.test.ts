@@ -80,7 +80,7 @@ describe("boot", () => {
       const health = (await (await t.fetch("/api/health")).json()) as Record<string, unknown>;
       expect(Object.keys(health).sort()).toEqual(["status", "timestamp", "uptime"]);
     } finally {
-      t.teardown();
+      await t.teardown();
     }
   });
 });

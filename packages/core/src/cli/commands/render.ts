@@ -7,6 +7,7 @@ import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import {
   assertScratchWritable,
   isInScratch,
+  isWriteRefusal,
   pruneScratch,
   SCRATCH_DIR,
   ScratchNotIgnoredError,
@@ -168,28 +169,28 @@ export const renderCommand: CoreCommand = {
 
     const html = buildHtmlDocument({ content, contentType, title, allowHosts });
 
-    // --- write. Into scratch, through the one primitive that checks the
-    // target at the moment of the write: a generated name refuses an existing
-    // file, a name the caller chose (--out) is theirs to replace.
+    // --- write. The destination is classified again now, from its name and
+    // its freshly resolved directory: the renderer ran in between, and a
+    // directory that came to resolve into scratch puts the write under the
+    // scratch rules (the primitive, then the prune). A generated name refuses
+    // an existing file; a name the caller chose (--out) is theirs to replace.
+    // Refusals by design are usage errors; a filesystem failure (ENOSPC, ...)
+    // stays an internal error.
+    let wroteScratch = false;
     const write = (data: string | Uint8Array) => {
-      if (!scratchOutput) {
-        // Outside scratch too, never through a link: the directory resolved,
-        // the entry itself checked, the bytes renamed onto the name.
-        const parent = resolveWritable(root, dirname(outRel));
-        if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
-        try {
-          writeFileSafely(join(parent, basename(outRel)), data);
-        } catch (error) {
-          throw new UsageError(error instanceof Error ? error.message : String(error));
-        }
-        return;
-      }
+      const parent = resolveWritable(root, dirname(outRel));
+      if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+      const target = join(parent, basename(outRel));
+      const inScratch = scratchOutput || isInScratch(root, outRel) || isInScratch(root, target);
       try {
-        writeScratchFile(root, outAbs, data, { replace: !toScratch });
-      } catch (error) {
-        if (error instanceof ScratchNotIgnoredError || error instanceof ScratchRedirectedError) {
-          throw new UsageError(error.message);
+        if (inScratch) {
+          writeScratchFile(root, outRel, data, { replace: !toScratch });
+          wroteScratch = true;
+        } else {
+          writeFileSafely(target, data);
         }
+      } catch (error) {
+        if (isWriteRefusal(error)) throw new UsageError((error as Error).message);
         throw error;
       }
     };
@@ -220,7 +221,7 @@ export const renderCommand: CoreCommand = {
     const bytes = Bun.file(outAbs).size;
     const outputRel = relative(root, outAbs);
     // This command's writes into scratch prune it.
-    if (scratchOutput) pruneScratch(root);
+    if (wroteScratch) pruneScratch(root);
     emit(
       cli.json,
       {

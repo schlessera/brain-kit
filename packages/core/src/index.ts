@@ -105,7 +105,7 @@ export { archiveDocument } from "./lib/archiver.js";
 export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
-export { resolveWritable, safeResolve, writeFileSafely } from "./lib/safe-path.js";
+export { resolveWritable, safeResolve, WriteRefusedError, writeFileSafely } from "./lib/safe-path.js";
 export {
   SCRATCH_DIR,
   SCRATCH_MAX_BYTES,
@@ -117,6 +117,7 @@ export {
   ensureScratch,
   ignoreScratch,
   isInScratch,
+  isWriteRefusal,
   pruneScratch,
   scratchDir,
   scratchIgnored,

@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resolveWritable, safeResolve } from "../src/lib/safe-path";
+import * as fs from "fs";
+import { resolveWritable, safeResolve, WriteRefusedError, writeFileSafely } from "../src/lib/safe-path";
 
 const fixtures: string[] = [];
 afterAll(() => {
@@ -141,5 +142,31 @@ describe("resolveWritable", () => {
 
   test("a NUL byte is refused", () => {
     expect(resolveWritable(root, "\0/etc/passwd")).toBeNull();
+  });
+});
+
+describe("writeFileSafely", () => {
+  const root = mkdtempSync(join(tmpdir(), "brain-write-safely-"));
+  fixtures.push(root);
+  const mode = (p: string) => fs.statSync(p).mode & 0o7777;
+
+  test("a replaced regular file keeps its exact mode; a new file gets the default", () => {
+    const secret = join(root, "secret.txt");
+    fs.writeFileSync(secret, "old", { mode: 0o600 });
+    fs.chmodSync(secret, 0o600);
+    writeFileSafely(secret, "new");
+    expect(fs.readFileSync(secret, "utf8")).toBe("new");
+    expect(mode(secret)).toBe(0o600);
+    const fresh = join(root, "fresh.txt");
+    writeFileSafely(fresh, "x");
+    expect(mode(fresh)).toBe(0o666 & ~process.umask());
+    expect(fs.readdirSync(root).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("a symlink at the name is a refusal by design, typed as one", () => {
+    fs.writeFileSync(join(root, "target.txt"), "keep me");
+    fs.symlinkSync("target.txt", join(root, "link.txt"));
+    expect(() => writeFileSafely(join(root, "link.txt"), "x")).toThrow(WriteRefusedError);
+    expect(fs.readFileSync(join(root, "target.txt"), "utf8")).toBe("keep me");
   });
 });

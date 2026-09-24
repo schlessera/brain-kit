@@ -20,6 +20,7 @@ import {
   startScratchPrune,
 } from "../src/cron/scratch-prune";
 import { createRecordingObservability } from "../src/observability/index";
+import { createTestApp } from "./helpers/test-app";
 
 type Step = "ok" | Error | "hang";
 
@@ -178,6 +179,24 @@ describe("BrainClient.scratchPrune", () => {
     }
   });
 
+  test("a pass that left a file it could not remove (exit 2, report printed) rejects with the report, so the pruner warns", async () => {
+    const { root } = brainWithCli(
+      `console.log(JSON.stringify({ action: "prune", removed: [], failed: [{ path: ".brain/scratch/stuck.pdf", reason: "EPERM" }], bytes: 5, files: 1 }));\n` +
+        `process.exit(2);\n`
+    );
+    try {
+      const brain = createBrainClient({ brainPath: root });
+      await expect(brain.scratchPrune()).rejects.toThrow(/exit 2.*stuck\.pdf/s);
+      const observability = createRecordingObservability();
+      const pruner = startScratchPrune({ brain, log: observability.logger("cron"), every: () => () => {} });
+      await pruner.tick();
+      expect(observability.logs.count({ scope: "cron", severity: "WARN", body: "scratch prune failed" })).toBe(1);
+      await pruner.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("an aborted signal kills the child, and the call rejects only once it is gone", async () => {
     const { root, capture } = brainWithCli(
       `import { writeFileSync } from "fs";\n` +
@@ -250,5 +269,33 @@ describe("BrainUiApp.close", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the shared test-app helper", () => {
+  test("teardown awaits the app's close: the prune child is gone before state is removed", async () => {
+    let capture = "";
+    const harness = createTestApp({
+      prepare: (brainPath) => {
+        const binDir = join(brainPath, "node_modules", ".bin");
+        mkdirSync(binDir, { recursive: true });
+        capture = join(brainPath, "pid.txt");
+        writeFileSync(
+          join(binDir, "brain"),
+          `#!/usr/bin/env bun\n` +
+            `if (process.argv.includes("--version")) { console.log("0.40.0"); process.exit(0); }\n` +
+            `import { writeFileSync } from "fs";\n` +
+            `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
+            `await Bun.sleep(60_000);\n`
+        );
+        chmodSync(join(binDir, "brain"), 0o755);
+      },
+    });
+    while (!existsSync(capture)) await settle(10);
+    const pid = Number(readFileSync(capture, "utf8"));
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await harness.teardown();
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(existsSync(harness.brainPath)).toBe(false);
   });
 });

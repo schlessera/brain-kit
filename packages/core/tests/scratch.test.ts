@@ -276,6 +276,28 @@ describe("a prune beside another process", () => {
     expect(existsSync(outside.deep)).toBe(true);
   });
 
+  test("a file that would not go stays in the cap's total, and the pass moves on to the next oldest", () => {
+    const stuck = file("stuck.pdf", 60, 3000);
+    const other = file("other.pdf", 60, 2000);
+    const real = fs.unlinkSync;
+    const spy = spyOn(fs, "unlinkSync").mockImplementation((path) => {
+      if (String(path).endsWith("stuck.pdf")) {
+        const e = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+        e.code = "EPERM";
+        throw e;
+      }
+      real(path);
+    });
+    spies.push(spy);
+    // 120 bytes against a cap of 80: the oldest will not go, so the next does.
+    const report = pruneScratch(root, NOW, { maxBytes: 80 });
+    expect(existsSync(stuck)).toBe(true);
+    expect(existsSync(other)).toBe(false);
+    expect(report.removed.map((r) => r.path)).toEqual([`${SCRATCH_DIR}/other.pdf`]);
+    expect(report.failed.map((f) => f.path)).toEqual([`${SCRATCH_DIR}/stuck.pdf`]);
+    expect(report).toMatchObject({ bytes: 60, files: 1 });
+  });
+
   test("a removal refused by the OS leaves the file counted and reported, for prune and for clean", () => {
     const stuck = file("stuck.pdf", 5, SCRATCH_TTL_MS + 1000);
     file("fine.pdf", 3, 0);
@@ -447,9 +469,9 @@ describe("writeScratchFile", () => {
     writeFileSync(join(outside, "x.html"), "keep me");
     const nested = join(rootReal, SCRATCH_DIR, "nested");
     const target = join(nested, "x.html");
-    const real = fs.writeFileSync;
-    const spy = spyOn(fs, "writeFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, data: unknown, options?: unknown) => {
-      real(path, data as string, options as never);
+    const real = fs.openSync;
+    const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags: unknown, mode?: unknown) => {
+      const fd = real(path, flags as never, mode as never);
       if (String(path).startsWith(nested + "/.x.html.")) {
         // The temporary file exists in the real directory; the directory is
         // now a link, and the outside holds a file of the temporary's name.
@@ -457,7 +479,8 @@ describe("writeScratchFile", () => {
         rmSync(nested, { recursive: true, force: true });
         symlinkSync(outside, nested);
       }
-    }) as typeof fs.writeFileSync);
+      return fd;
+    }) as typeof fs.openSync);
     try {
       expect(() => writeScratchFile(root, target, "new bytes")).toThrow(ScratchRedirectedError);
     } finally {
@@ -501,6 +524,16 @@ describe("writeScratchFile", () => {
     writeScratchFile(root, target, "third", { replace: true });
     expect(readFileSync(target, "utf8")).toBe("third");
     expect(readdirSync(join(root, SCRATCH_DIR))).toEqual(["taken.html"]);
+  });
+
+  test("a replaced file keeps its exact mode", () => {
+    const rootReal = ready();
+    const target = join(rootReal, SCRATCH_DIR, "secret.pdf");
+    writeScratchFile(root, target, "old");
+    fs.chmodSync(target, 0o600);
+    writeScratchFile(root, target, "new", { replace: true });
+    expect(readFileSync(target, "utf8")).toBe("new");
+    expect(fs.statSync(target).mode & 0o7777).toBe(0o600);
   });
 
   test("a target outside scratch, or resolving out of it through a link, is refused", () => {
@@ -596,6 +629,50 @@ describe("the commands", () => {
     expect(res.code).not.toBe(0);
     expect(res.stderr + res.stdout).toContain("redirected by a symlink");
     cleanup(outside);
+  });
+
+  /** A scratch file the OS will not let go: its directory is read-only. */
+  function stuckFile(): { abs: string; dir: string } {
+    const dir = join(brain, SCRATCH_DIR, "stuck");
+    mkdirSync(dir, { recursive: true });
+    const abs = join(dir, "old.pdf");
+    writeFileSync(abs, "12345");
+    const t = (Date.now() - SCRATCH_TTL_MS - 60_000) / 1000;
+    utimesSync(abs, t, t);
+    fs.chmodSync(dir, 0o500);
+    return { abs, dir };
+  }
+
+  test("brain scratch prune exits 2 when a file could not be removed, prints the report, and names it", async () => {
+    const stuck = stuckFile();
+    try {
+      const res = await runCli(brain, ["scratch", "prune", "--json"]);
+      expect(res.code).toBe(2);
+      const report = JSON.parse(res.stdout) as { failed: { path: string; reason: string }[]; files: number; bytes: number };
+      expect(report.failed).toHaveLength(1);
+      expect(report.failed[0].path).toBe(`${SCRATCH_DIR}/stuck/old.pdf`);
+      expect(report.failed[0].reason).toMatch(/EACCES|EPERM/);
+      expect(report).toMatchObject({ files: 1, bytes: 5 });
+      const human = await runCli(brain, ["scratch", "prune", "--human"]);
+      expect(human.code).toBe(2);
+      expect(human.stdout).toContain(`could not remove ${SCRATCH_DIR}/stuck/old.pdf`);
+      expect(existsSync(stuck.abs)).toBe(true);
+    } finally {
+      fs.chmodSync(stuck.dir, 0o700);
+    }
+  });
+
+  test("brain maintain reports the scratch step as failed and exits 2 when a file could not be removed", async () => {
+    const stuck = stuckFile();
+    try {
+      const res = await runCli(brain, ["maintain", "--json"]);
+      expect(res.code).toBe(2);
+      const steps = JSON.parse(res.stdout) as { step: string; result: string }[];
+      const scratch = steps.find((s) => s.step === "scratch")!;
+      expect(scratch.result).toMatch(/^FAILED — 1 file\(s\) could not be removed: \.brain\/scratch\/stuck\/old\.pdf \(/);
+    } finally {
+      fs.chmodSync(stuck.dir, 0o700);
+    }
   });
 
   test("brain maintain prunes scratch as its last step", async () => {

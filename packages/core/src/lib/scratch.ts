@@ -40,6 +40,7 @@ import {
 import type { Dirent, Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
+import { WriteRefusedError, writeExclusive } from "./safe-path.js";
 
 /** Repo-relative scratch directory. Every mechanism that needs it reads this. */
 export const SCRATCH_DIR = ".brain/scratch";
@@ -290,14 +291,16 @@ export function writeScratchFile(
   realDirectories(dir, parent, rootReal);
   const swapped = () => new ScratchRedirectedError(`${relative(rootReal, parent)} is no longer a directory of its own`);
   if (!genuineDir(root, dir, parent)) throw swapped();
+  const before = lstatSync(abs, { throwIfNoEntry: false });
   const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeFileSync(tmp, data, { flag: "wx" });
+  // A replaced regular file keeps its mode; see `writeExclusive`.
+  writeExclusive(tmp, data, replace ? before : undefined);
   try {
     if (!genuineDir(root, dir, parent)) throw swapped();
     const entry = lstatSync(abs, { throwIfNoEntry: false });
     if (entry?.isSymbolicLink()) throw new ScratchRedirectedError(`${rel} is a symlink`);
-    if (entry?.isDirectory()) throw new Error(`EISDIR: ${rel} is a directory`);
-    if (entry && !replace) throw new Error(`EEXIST: ${rel} already exists`);
+    if (entry?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${rel} is a directory`);
+    if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${rel} already exists`);
     renameSync(tmp, abs);
   } catch (error) {
     // Never remove through a directory that is no longer ours; the prune
@@ -306,6 +309,20 @@ export function writeScratchFile(
     throw error;
   }
   return abs;
+}
+
+/**
+ * Whether an error a scratch or safe write threw is a refusal by design
+ * (not ignored, redirected, a link or directory or taken name), which a
+ * command reports as a usage error, rather than a filesystem failure
+ * (ENOSPC, EACCES, ...), which stays an internal error.
+ */
+export function isWriteRefusal(error: unknown): boolean {
+  return (
+    error instanceof ScratchNotIgnoredError ||
+    error instanceof ScratchRedirectedError ||
+    error instanceof WriteRefusedError
+  );
 }
 
 /**
@@ -397,7 +414,8 @@ function listFiles(dir: string): Entry[] {
  * and the unlink syscall an ancestor can still be swapped, and the unlink
  * would then follow the new link. The window is one syscall wide.
  */
-type Removal = "removed" | "skipped" | { failed: string };
+/** `gone`: already removed by someone else. `skipped`: not ours to remove any more (moved, swapped, a directory now). */
+type Removal = "removed" | "gone" | "skipped" | { failed: string };
 
 function removeFile(root: string, dir: string, abs: string): Removal {
   if (!genuineDir(root, dir, dirname(abs))) return "skipped";
@@ -407,8 +425,9 @@ function removeFile(root: string, dir: string, abs: string): Removal {
     return "removed";
   } catch (error) {
     const code = (error as { code?: string }).code;
+    if (gone(error)) return "gone";
     // EISDIR: a directory now sits where the file was. Not ours to remove.
-    if (gone(error) || code === "EISDIR") return "skipped";
+    if (code === "EISDIR") return "skipped";
     // Anything else (EPERM, EACCES, EBUSY, ...) leaves the file where it is,
     // and the report says so rather than counting it as reclaimed.
     return { failed: error instanceof Error ? error.message : String(error) };
@@ -463,30 +482,40 @@ export function pruneScratch(
   const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
   const removed: ScratchRemoval[] = [];
   const failed: ScratchFailure[] = [];
-  // A file the prune could not remove is still there, and stays in the totals.
-  const survivors: Entry[] = [];
-  const remove = (entry: Entry, reason: ScratchRemoval["reason"]) => {
+  // What is still in scratch after this pass, as far as it could tell: a
+  // file it could not remove (reported in `failed`), one it left alone, one
+  // it did not need to touch.
+  const left: Entry[] = [];
+  /** Try to remove; true when the bytes are gone from disk (removed, or found gone). */
+  const remove = (entry: Entry, reason: ScratchRemoval["reason"]): boolean => {
     const outcome = removeFile(root, dir, entry.abs);
-    if (outcome === "removed") removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason });
-    else if (outcome !== "skipped") {
-      failed.push({ path: rel(entry.abs), reason: outcome.failed });
-      survivors.push(entry);
+    if (outcome === "removed") {
+      removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason });
+      return true;
     }
+    if (outcome === "gone") return true;
+    if (outcome !== "skipped") failed.push({ path: rel(entry.abs), reason: outcome.failed });
+    left.push(entry);
+    return false;
   };
   const entries = listFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
-  const kept: Entry[] = [];
+  const candidates: Entry[] = [];
   for (const entry of entries) {
     if (now - entry.mtimeMs > ttlMs) remove(entry, "age");
-    else kept.push(entry);
+    else candidates.push(entry);
   }
-  let total = kept.reduce((sum, e) => sum + e.bytes, 0);
-  while (total > maxBytes && kept.length > 0) {
-    const oldest = kept.shift()!;
-    remove(oldest, "size");
-    total -= oldest.bytes;
+  // The cap counts everything still there, the files that would not go
+  // included; a failure subtracts nothing and the pass moves on to the next
+  // oldest, so the cap is met whenever the removable files allow it.
+  let total = [...left, ...candidates].reduce((sum, e) => sum + e.bytes, 0);
+  for (const entry of candidates) {
+    if (total <= maxBytes) {
+      left.push(entry);
+      continue;
+    }
+    if (remove(entry, "size")) total -= entry.bytes;
   }
   removeEmptyDirs(root, dir, dir);
-  const left = [...survivors, ...kept];
   return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length };
 }
 
@@ -501,8 +530,9 @@ export function cleanScratch(root: string): ScratchReport {
   for (const entry of listFiles(dir)) {
     const outcome = removeFile(root, dir, entry.abs);
     if (outcome === "removed") removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason: "clean" });
-    else if (outcome !== "skipped") {
-      failed.push({ path: rel(entry.abs), reason: outcome.failed });
+    else if (outcome === "gone") continue;
+    else {
+      if (outcome !== "skipped") failed.push({ path: rel(entry.abs), reason: outcome.failed });
       survivors.push(entry);
     }
   }

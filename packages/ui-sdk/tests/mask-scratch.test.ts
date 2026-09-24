@@ -106,6 +106,20 @@ describe("request_image_mask into scratch", () => {
     expect(readlinkSync(join(root, "assets", "photo-mask.png"))).toBe("other.png");
   });
 
+  test("a replaced mask keeps its exact mode, in scratch and outside it", async () => {
+    ignore();
+    for (const rel of [`${SCRATCH}/draft-mask.png`, "assets/photo-mask.png"]) {
+      writeFileSync(join(root, rel), "old");
+      fs.chmodSync(join(root, rel), 0o600);
+    }
+    await mask(`${SCRATCH}/draft.png`);
+    await mask("assets/photo.png");
+    for (const rel of [`${SCRATCH}/draft-mask.png`, "assets/photo-mask.png"]) {
+      expect(readFileSync(join(root, rel))).toEqual(Buffer.from([1, 2, 3]));
+      expect(fs.statSync(join(root, rel)).mode & 0o7777).toBe(0o600);
+    }
+  });
+
   test("a symlinked scratch is refused even when ignored", () => {
     ignore();
     rmSync(join(root, SCRATCH), { recursive: true, force: true });
@@ -149,15 +163,16 @@ describe("request_image_mask into scratch", () => {
     const rootReal = realpathSync(root);
     const nested = join(rootReal, SCRATCH, "nested");
     mkdirSync(nested);
-    const real = fs.writeFileSync;
-    const spy = spyOn(fs, "writeFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, data: unknown, options?: unknown) => {
-      real(path, data as string, options as never);
+    const real = fs.openSync;
+    const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags: unknown, mode?: unknown) => {
+      const fd = real(path, flags as never, mode as never);
       if (String(path).startsWith(nested + "/.x-mask.png.")) {
         writeFileSync(join(outside, basename(String(path))), "outside tmp");
         rmSync(nested, { recursive: true, force: true });
         symlinkSync(outside, nested);
       }
-    }) as typeof fs.writeFileSync);
+      return fd;
+    }) as typeof fs.openSync);
     try {
       expect(() => writeScratchMask(rootReal, join(nested, "x-mask.png"), new Uint8Array([9]))).toThrow(
         /no longer a directory of its own/

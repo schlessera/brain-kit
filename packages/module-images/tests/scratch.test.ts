@@ -188,6 +188,15 @@ describe("brain image --scratch", () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
+  test("an absolute --out inside the brain is reported repo-relative after generation, as in the dry run", async () => {
+    stubProvider();
+    expect(await run(["a lighthouse", "--draft", "--out", join(root, "assets", "draft.png")])).toBe(0);
+    const payload = JSON.parse(out.join("\n")) as { output: string; outputs: string[] };
+    expect(payload.output).toBe("assets/draft.png");
+    expect(payload.outputs).toEqual(["assets/draft.png"]);
+    expect(readFileSync(join(root, "assets", "draft.png"), "utf8")).toBe(PNG_BYTES);
+  });
+
   test("the ignore rule is checked again after the provider call, so a rule lost in flight refuses the write", async () => {
     ignoreScratch(root);
     // The rule disappears while the request is out: the pre-flight check

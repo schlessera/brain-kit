@@ -18,8 +18,8 @@ beforeAll(() => {
   writeFileSync(join(app.brainPath, "note.md"), "# Frame header fixture\n");
 });
 
-afterAll(() => {
-  app.teardown();
+afterAll(async () => {
+  await app.teardown();
   rmSync(staticRoot, { recursive: true, force: true });
 });
 

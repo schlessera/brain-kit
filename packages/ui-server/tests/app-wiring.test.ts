@@ -151,7 +151,7 @@ describe("app wiring — auth guard ordering", () => {
       expect(deleted.status).toBe(200);
       expect(await deleted.json()).toEqual({ ok: true });
     } finally {
-      instance.close();
+      await instance.close();
     }
   });
 
@@ -195,7 +195,7 @@ describe("app wiring — auth guard ordering", () => {
       expect(body.window.days).toBe(7);
       expect(body.database.sizeBytes).toBeGreaterThan(0);
     } finally {
-      instance.close();
+      await instance.close();
     }
   });
 
@@ -413,7 +413,7 @@ describe("app wiring — WebSocket origin check (CSWSH)", () => {
     expect(record.attributes.path).toBe("/ws");
     expect(record.attributes["auth.principal.id"]).toBeString();
     expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
-    wired.close();
+    await wired.close();
   });
 });
 
@@ -484,7 +484,7 @@ describe("createApp refuses unsafe configuration", () => {
 });
 
 describe("createApp principal retention", () => {
-  test("boot prunes an inactive ambient principal through the production path", () => {
+  test("boot prunes an inactive ambient principal through the production path", async () => {
     const dbPath = join(
       tmpdir(),
       `app-wiring-principal-retention-${process.pid}-${Date.now()}.db`
@@ -500,7 +500,7 @@ describe("createApp principal retention", () => {
       Date.now() - PRINCIPAL_RETENTION_MS - 1,
       inactive.id
     );
-    seed.close();
+    await seed.close();
 
     let wired: ReturnType<typeof createApp> | undefined;
     try {
@@ -511,7 +511,7 @@ describe("createApp principal retention", () => {
       });
       expect(resolvePrincipal(wired.db, inactive.id)).toBeNull();
     } finally {
-      wired?.close();
+      await wired?.close();
       for (const suffix of ["", "-shm", "-wal"]) {
         rmSync(dbPath + suffix, { force: true });
       }
@@ -542,7 +542,7 @@ describe("app wiring — request logging", () => {
     expect("auth.principal.id" in record.attributes).toBe(false);
     expect("auth.principal.label" in record.attributes).toBe(false);
 
-    wired.close();
+    await wired.close();
   });
 
   test("an authenticated request log carries the resolved principal", async () => {
@@ -570,7 +570,7 @@ describe("app wiring — request logging", () => {
     expect(
       wired.db.prepare("SELECT label FROM principals WHERE id = ?").get(principalId)
     ).toEqual({ label: "Unknown device" });
-    wired.close();
+    await wired.close();
   });
 
   test("a successful logout log retains the principal that revoked the sessions", async () => {
@@ -598,7 +598,7 @@ describe("app wiring — request logging", () => {
     expect(record.attributes.path).toBe("/api/auth/logout");
     expect(record.attributes["auth.principal.id"]).toBeString();
     expect(record.attributes["auth.principal.label"]).toBe("Unknown device");
-    wired.close();
+    await wired.close();
   });
 
   test("a proxy identity is sanitized and bounded before storage and logging", async () => {
@@ -638,7 +638,7 @@ describe("app wiring — request logging", () => {
     expect(record.attributes["auth.principal.label"]).not.toMatch(
       /[\u0000-\u001f\u007f-\u009f]/u
     );
-    wired.close();
+    await wired.close();
   });
 
   test("a proxy label cannot forge fields in the rendered request log", async () => {
@@ -674,7 +674,7 @@ describe("app wiring — request logging", () => {
     expect(requestLine).toMatch(
       /^\[http\] request method="GET" path="\/api\/vpn-check" status=200 duration\.ms=\d+ auth\.principal\.id="[A-Za-z0-9_-]{22}" auth\.principal\.label="Alex status=200 auth\.principal\.id=forged"$/
     );
-    wired.close();
+    await wired.close();
   });
 });
 

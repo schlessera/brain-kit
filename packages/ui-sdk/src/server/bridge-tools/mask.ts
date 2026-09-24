@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { closeSync, existsSync, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
+import type { Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "path";
 
@@ -193,6 +194,23 @@ export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: st
 }
 
 /**
+ * Create `tmp` exclusively and fill it; when it replaces a regular file it
+ * takes that file's exact mode first (the port of core's `writeExclusive`),
+ * so a mask never becomes readable more widely than the one it replaces.
+ */
+function writeMaskExclusive(tmp: string, png: Uint8Array, existing: Stats | undefined): void {
+  const mode = existing?.isFile() ? existing.mode & 0o7777 : undefined;
+  const fd = openSync(tmp, "wx", mode);
+  try {
+    if (mode !== undefined) fchmodSync(fd, mode);
+    let offset = 0;
+    while (offset < png.byteLength) offset += writeSync(fd, png, offset, png.byteLength - offset);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
  * Write a mask outside the scratch area, never through a link: the entry
  * itself may not be a symlink or a directory, and the bytes go to a random
  * temporary sibling renamed onto the name once the directory is re-verified
@@ -212,7 +230,7 @@ export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
   const swapped = () => new Error(`${parent} is not a directory of its own, so no mask is written there.`);
   if (!genuine()) throw swapped();
   const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeFileSync(tmp, png, { flag: "wx" });
+  writeMaskExclusive(tmp, png, lstatSync(maskAbs, { throwIfNoEntry: false }));
   try {
     if (!genuine()) throw swapped();
     const entry = lstatSync(maskAbs, { throwIfNoEntry: false });
@@ -272,7 +290,7 @@ export function writeScratchMask(rootReal: string, maskAbs: string, png: Uint8Ar
     new Error(`${relative(rootReal, parent)} is no longer a directory of its own, so no mask is written there.`);
   if (!genuine()) throw swapped();
   const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeFileSync(tmp, png, { flag: "wx" });
+  writeMaskExclusive(tmp, png, lstatSync(maskAbs, { throwIfNoEntry: false }));
   try {
     if (!genuine()) throw swapped();
     const entry = lstatSync(maskAbs, { throwIfNoEntry: false });

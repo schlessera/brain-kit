@@ -31,11 +31,11 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  webauthnOverrideApp.teardown();
-  trustedProxyApp.teardown();
-  splitApp.teardown();
-  app.teardown();
+afterAll(async () => {
+  await webauthnOverrideApp.teardown();
+  await trustedProxyApp.teardown();
+  await splitApp.teardown();
+  await app.teardown();
 });
 
 function textPlainPost(path: string): Promise<Response> {

@@ -87,6 +87,7 @@ export "." (./src/index.ts)
   type ValidationIssue
   type VecSupport
   type VecUnavailableReason
+  WriteRefusedError
   archiveDocument
   assertScratchWritable
   audit
@@ -125,6 +126,7 @@ export "." (./src/index.ts)
   initContext
   installBinLinks
   isInScratch
+  isWriteRefusal
   lintSkills
   loadModules
   loadUserConfig

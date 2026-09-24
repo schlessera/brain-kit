@@ -63,9 +63,15 @@ export const maintainCommand: CoreCommand = {
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);
+      const summary = `removed ${pruned.removed.length} file(s), ${pruned.files} file(s) and ${pruned.bytes} bytes left`;
       report.push({
         step: "scratch",
-        result: `ok — removed ${pruned.removed.length} file(s), ${pruned.files} file(s) and ${pruned.bytes} bytes left`,
+        result:
+          pruned.failed.length === 0
+            ? `ok — ${summary}`
+            : `FAILED — ${pruned.failed.length} file(s) could not be removed: ` +
+              pruned.failed.map((f) => `${f.path} (${f.reason})`).join(", ") +
+              `; ${summary}`,
       });
     } catch (e) {
       report.push({ step: "scratch", result: `FAILED — ${(e as Error).message}` });

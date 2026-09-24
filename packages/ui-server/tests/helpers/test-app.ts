@@ -44,6 +44,8 @@ export interface TestAppOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Non-config app dependencies or display options needed by the suite. */
   appOptions?: Omit<CreateAppOptions, "config" | "dbPath">;
+  /** Runs against the empty brain root before the app boots: a suite that needs a fake `brain` CLI installs it here. */
+  prepare?: (brainPath: string) => void;
 }
 
 /** A booted app and the lifecycle helpers an app-level test suite uses. */
@@ -60,9 +62,11 @@ export interface TestApp {
   fetch(path: string, init?: RequestInit): Promise<Response>;
   /**
    * Close the app, remove temporary state, and restore the pre-suite env.
-   * Idempotent so callers may also use it in failure cleanup.
+   * Awaits the app's close (a scratch prune in flight is killed first)
+   * before removing state. Idempotent so callers may also use it in failure
+   * cleanup.
    */
-  teardown(): void;
+  teardown(): Promise<void>;
 }
 
 /**
@@ -108,6 +112,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   mkdirSync(brainPath, { recursive: true });
   mkdirSync(piAgentDir, { recursive: true });
+  options.prepare?.(brainPath);
   process.env.AUTH_MODE = "none";
   process.env.HOST = "127.0.0.1";
   process.env.NODE_ENV = "test";
@@ -144,11 +149,11 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     piAgentDir,
     fetch: async (path, init) =>
       app.fetch(new Request(new URL(path, "http://localhost"), init)),
-    teardown: () => {
+    teardown: async () => {
       if (tornDown) return;
       tornDown = true;
       try {
-        app.close();
+        await app.close();
       } finally {
         removeTemporaryState();
         restoreEnv();

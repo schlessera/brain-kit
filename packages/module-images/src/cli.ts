@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from "fs";
-import { basename, dirname, extname, join, relative } from "path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "path";
 
 import {
   SCRATCH_DIR,
+  WriteRefusedError,
   assertScratchWritable,
   isInScratch,
+  isWriteRefusal,
   pruneScratch,
   resolveWritable,
   safeResolve,
@@ -304,7 +306,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     let renamed: string | undefined;
     if (extname(outRel).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
       finalRel = outRel.replace(/\.[^./\\]+$/, "") + "." + actualExt;
-      renamed = `${outRel} → ${finalRel} (model returned ${actualExt})`;
+      renamed = `${report(outAbs)} → ${relative(ctx.root, resolve(ctx.root, finalRel))} (model returned ${actualExt})`;
     }
 
     // Every name the provider's answer produced (the corrected extension,
@@ -313,6 +315,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // a write that still never goes through a link. A generated scratch name
     // refuses an existing file; a name the caller chose (--out) is theirs to
     // replace.
+    // Refusals by design are reported and exit 1; a filesystem failure
+    // (ENOSPC, ...) propagates as the internal error it is.
     let wroteScratch = false;
     const write = (rel: string, data: Uint8Array): boolean => {
       try {
@@ -323,20 +327,23 @@ export const imageCommand: CommandModule<ImagesConfig> = {
           return true;
         }
         const parent = resolveWritable(ctx.root, dirname(rel));
-        if (!parent) throw new Error(`Output path is not inside the brain: ${rel}`);
+        if (!parent) throw new WriteRefusedError(`Output path is not inside the brain: ${rel}`);
         writeFileSafely(join(parent, basename(rel)), data);
         return true;
       } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        if (!isWriteRefusal(error)) throw error;
+        console.error((error as Error).message);
         return false;
       }
     };
+    // Reported repo-relative, like the dry run: the UI opens a link by that.
+    const repoRelative = (rel: string) => relative(ctx.root, resolve(ctx.root, rel)).split(sep).join("/");
     if (!write(finalRel, first.data)) return 1;
-    const written = [finalRel];
+    const written = [repoRelative(finalRel)];
     for (const [i, extra] of rest.entries()) {
       const alt = finalRel.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
       if (!write(alt, extra.data)) return 1;
-      written.push(alt);
+      written.push(repoRelative(alt));
     }
     // This command's writes into scratch prune it.
     if (wroteScratch) pruneScratch(ctx.root);

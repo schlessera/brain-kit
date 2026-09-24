@@ -32,11 +32,11 @@ interface Running {
 }
 
 const running: Running[] = [];
-afterEach(() => {
+afterEach(async () => {
   while (running.length) {
     const r = running.pop()!;
     r.server.stop(true);
-    r.app.close();
+    await r.app.close();
   }
 });
 
