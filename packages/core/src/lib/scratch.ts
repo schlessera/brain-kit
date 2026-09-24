@@ -35,12 +35,11 @@ import {
   rmdirSync,
   rmSync,
   unlinkSync,
-  writeFileSync,
 } from "fs";
 import type { Dirent, Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
-import { WriteRefusedError, writeExclusive } from "./safe-path.js";
+import { WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
 
 /** Repo-relative scratch directory. Every mechanism that needs it reads this. */
 export const SCRATCH_DIR = ".brain/scratch";
@@ -125,13 +124,19 @@ export function scratchIgnored(root: string): boolean {
  */
 export function ignoreScratch(root: string): boolean {
   if (scratchIgnored(root)) return false;
-  const path = join(root, ".gitignore");
+  // At the canonical root, never through a link: a `.gitignore` that points
+  // outside the brain would otherwise have this block appended to whatever it
+  // names. The write is a rename, so a hard link's other name is left alone.
+  const path = join(canonicalRoot(root), ".gitignore");
+  if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new WriteRefusedError(".gitignore is a symlink; add the scratch line to the file it names by hand");
+  }
   const current = existsSync(path) ? readFileSync(path, "utf8") : "";
   const block =
     "\n# The brain's scratch area: transient output (renders, generated images)\n" +
     "# that is never part of the brain. Pruned by age and size.\n" +
     `${SCRATCH_IGNORE_LINE}\n`;
-  writeFileSync(path, (current && !current.endsWith("\n") ? `${current}\n` : current) + block);
+  writeFileSafely(path, (current && !current.endsWith("\n") ? `${current}\n` : current) + block);
   return true;
 }
 

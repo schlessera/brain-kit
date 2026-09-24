@@ -21,6 +21,7 @@ import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
+import { WriteRefusedError } from "../../lib/safe-path.js";
 
 const HELP = `brain doctor — health check battery
 
@@ -400,7 +401,8 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     try {
       if (ignoreScratch(root)) applied.push("scratch");
     } catch (e) {
-      if (!(e instanceof ScratchRedirectedError)) throw e;
+      if (!(e instanceof ScratchRedirectedError || e instanceof WriteRefusedError)) throw e;
+      console.error(`doctor --fix: scratch fix refused: ${e.message}`);
     }
   }
   if (failing.has("symlinks")) {

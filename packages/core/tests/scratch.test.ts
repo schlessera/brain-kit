@@ -8,7 +8,7 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
 import { buildTaxonomy } from "../src/lib/taxonomy.js";
-import { resolveWritable } from "../src/lib/safe-path.js";
+import { resolveWritable, WriteRefusedError } from "../src/lib/safe-path.js";
 import { exportOkfBundle, OkfExportError } from "../src/lib/okf-exporter.js";
 import {
   SCRATCH_DIR,
@@ -384,6 +384,26 @@ describe("gitignore guard", () => {
   const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
   const fileIgnored = (rel: string) =>
     Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0;
+
+  test("the fix never writes through a linked .gitignore", () => {
+    const outside = mkdtempSync(join(tmpdir(), "scratch-outside-"));
+    try {
+      const sentinel = join(outside, "sentinel");
+      writeFileSync(sentinel, "keep\n");
+      // A symlink is refused before anything is read or written.
+      symlinkSync(sentinel, join(root, ".gitignore"));
+      expect(() => ignoreScratch(root)).toThrow(WriteRefusedError);
+      expect(readFileSync(sentinel, "utf8")).toBe("keep\n");
+      // A hard link is replaced by a rename, so its other name keeps its bytes.
+      rmSync(join(root, ".gitignore"));
+      fs.linkSync(sentinel, join(root, ".gitignore"));
+      expect(ignoreScratch(root)).toBe(true);
+      expect(readFileSync(sentinel, "utf8")).toBe("keep\n");
+      expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain(".brain/scratch/");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 
   test("outside a git repository the ignore line is required all the same, and git reads it", () => {
     // A later `git init` would put an unignored scratch into the first commit.
