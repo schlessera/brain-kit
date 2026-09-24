@@ -228,8 +228,8 @@ Stated before the requirements because five of them derive from it.
   general guard and check the real socket address with proxy headers ignored, or give it a
   separate loopback listener. Revision 1's "no secret to rotate" did not address the guard.
 - R20. **The poke's recovery claim is bounded.** HTTP cannot reach a dead process or a blocked
-  event loop; supervisord already restarts a crashed server
-  (the deployment's supervisord configuration). The poke detects a *stopped
+  event loop; restarting a crashed server is the process supervisor's job, a
+  hosting prerequisite. The poke detects a *stopped
   interval* via a persisted scheduler heartbeat, re-arms it or runs one drain, and prevents
   overlap. A hung event loop is a supervisor health concern, not this feature's.
 - R21. The generated crontab gains the five-minute poke line (the deployment's

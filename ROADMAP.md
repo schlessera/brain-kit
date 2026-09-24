@@ -40,8 +40,9 @@ What that means in practice:
   build secret, no source overrides. Packages ship both `src/` and a built
   `dist/` behind conditional exports, so Bun resolves TypeScript source while
   tsc and bundlers get the compiled output — all generated from one source.
-- **The chat UI is a thin deployment shell.** A deployment generated from
-  `brain-hosting-template` owns the Dockerfile, the bin entry, and branding;
+- **The chat UI is a thin deployment shell.** A deployment (to be generated
+  from `brain-hosting-template`, not published yet) owns the Dockerfile, the
+  bin entry, and branding;
   every line of app behavior lives in `brain-ui-server` and `brain-ui-react`
   here.
 - **It is dogfooded.** The maintainer's own brain runs the published packages

@@ -92,7 +92,7 @@ question it was answering.
    forbidding specifiers in emitted types; its mirror-drift `Assert<>` block
    is rewritten in the same PR. Unknown non-empty stored backend ids fail
    explicitly (today `getBackendForSession` silently substitutes the
-   default, `backend.ts:1039`, against brain-ui decision 3).
+   default, `backend.ts:1039`, against the fail-loud decision).
 7. **Cron moves as a bin with a parameterised emitter and a golden test.**
    `brain-ui-cron` (`src/bin/brain-ui-cron.ts`, bun-only like the package)
    with `run`, `digest`, `crontab`, `environment` subcommands. The emitters
@@ -113,8 +113,8 @@ question it was answering.
    `safe.directory` for both users). Everything is decided by a container
    spike in 0.33.0 (U24), recorded here before 0.34.0 is cut so 0.35.0 is
    designed a release ahead.
-9. **brain-ui gets tags.** Each milestone's deps-bump merge commit is tagged
-   `v<kit version>`.
+9. **Deployments get tags.** A deployment tags each milestone's deps-bump
+   merge commit `v<kit version>`.
 10. **The refactor release owns every refactor, as separately tagged
     releases.** Dispatcher, store and page splits (U33) ship in the 0.34.x
     train, never in the container release. Because U28 changes frame

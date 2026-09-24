@@ -386,7 +386,7 @@ closed set — and no probe can close that.
 | --- | --- |
 | brain-kit | #209: the measured-runtime constant, the guard test and the probe. #211: the per-turn version record and the boot probe. #213: `CLAUDE_CODE_PATH` unset runs the built-in binary, after both. #210: whether to pin the SDK exactly — a question, not yet a task. |
 | brain-hosting-template | [brain-hosting-template#1](https://github.com/schlessera/brain-hosting-template/issues/1): the image installs no separate Claude Code, commits its lockfile, installs optional dependencies for the image's libc, and rebuilds when the lockfile moves. That rebuild is the update mechanism. |
-| The private deployment repo | Applying the release there, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked there; not restated here. |
+| Each deployment | Applying the release, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked by the deployment; not restated here. |
 
 ## 2026-09-23 — Subscription billing and authentication
 

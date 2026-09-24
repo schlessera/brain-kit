@@ -28,8 +28,8 @@ within a week, not hours.
    there; `AUTH_MODE=none` refuses to start on any non-loopback host,
    regardless of `NODE_ENV`, unless an explicit
    `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. The deployment
-   around it (container, proxy, secrets) is the more critical surface of the
-   two, and is set up from `brain-hosting-template`. From 0.33.1, every agent,
+   around it (container, proxy, secrets) matters at least as much as the
+   app's own auth; `docs/hosting/` covers what a self-hoster sets up. From 0.33.1, every agent,
    cron, and brain CLI subprocess that brain-kit itself spawns receives only
    its audience allowlist; required agent credentials and git tokens remain,
    while server-only values such as `COOKIE_SECRET`, the password hash,

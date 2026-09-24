@@ -30,7 +30,7 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 ### Deferred to Follow-Up Work
 
 - ~~Provider-route-aware price selection~~ — **shipped in #57**, see below.
-- Deployments: after release, a deployment bumps the dependency and verifies its cron env allowlist exposes the same credentials the server classifies against. That work belongs to brain-hosting-template, not to this repo.
+- Deployments: after release, each deployment bumps the dependency and verifies its cron env allowlist exposes the same credentials the server classifies against. That work belongs to the deployment, not to this repo.
 
 ---
 

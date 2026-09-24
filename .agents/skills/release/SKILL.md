@@ -130,8 +130,8 @@ git push origin main --follow-tags
   Rolling the image back does **not** roll back that pin — it lives in the brain
   repo's own `package.json` and lockfile and is managed separately.
 - Consumers pin these by version. A brain repo picks the release up with
-  `bun update @schlessera/brain @schlessera/brain-module-*`; brain-ui takes it
-  through its own lockfile bump and a redeploy.
+  `bun update @schlessera/brain @schlessera/brain-module-*`; a deployment takes
+  it through its own lockfile bump and a redeploy.
 - If a release retires a local skill that was shadowing a packaged one, delete
   the local copy and run `brain skills sync`, or the fork keeps winning.
 

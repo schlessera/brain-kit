@@ -27,8 +27,8 @@ const app = createApp({
 // Fail startup while it is still visible if a lazy backend cannot construct.
 await app.wsHost.registry.getBackends();
 
-// The brain-ui shell does not currently pre-start its Puppeteer browser. For
-// deployments where first-render latency matters, this is a recommended
+// A deployment need not pre-start its Puppeteer browser. For deployments
+// where first-render latency matters, this is a recommended
 // optional warm-up probe before Bun.serve(); let a failure abort startup:
 // await renderPng({ html: "<!doctype html><title>renderer warm-up</title>" });
 
@@ -63,10 +63,9 @@ process.on("SIGTERM", async () => {
 });
 ```
 
-The values and shutdown order above mirror the `brain-ui` deployment shell.
-The only intentionally additional step is the commented renderer warm-up:
-`brain-ui` has no browser pre-start today, so its first real render pays the
-headless Chrome cold-start cost.
+The values and shutdown order above are the reference deployment's. The
+commented renderer warm-up is optional: without it, the first real render pays
+the headless Chrome cold-start cost.
 
 Apps are self-contained: each `createApp()` call builds its own WebSocket
 coordinator, SQLite handle and backend registry from its (resolved or

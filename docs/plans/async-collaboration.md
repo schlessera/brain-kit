@@ -161,7 +161,7 @@ Unit numbers are stable identifiers, not build order. Build order:
 
 ### Institutional Learnings
 
-- **Fail loud, secure by default** (brain-ui `docs/decisions.md` #3): the dominant defect
+- **Fail loud, secure by default** (an earlier fail-loud decision): the dominant defect
   shape found in review was silent substitution instead of loud failure. R36's
   quarantine-not-notify and R41's reservation-not-retrospective-sum both exist because
   revision 1 of the origin reproduced that shape.
@@ -604,7 +604,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 
 ---
 
-### U3. Drain loop, leases, and the backstop poke (ui-server + brain-ui)
+### U3. Drain loop, leases, and the backstop poke (ui-server + the deployment)
 
 **Goal:** Work moves without a human, and the loop's own death is detectable.
 
@@ -994,7 +994,7 @@ text and deep-links into Actions
 - Enforce in the `PreToolUse` hook, because auto-allowed tools never reach `canUseTool`
   (`backend.ts:703-709`)
 - Paths are canonicalized, not string-matched — a symlink into the policy directory is the
-  case the brain-ui decisions doc calls out by name
+  case an earlier decision calls out by name
 - This unit ships in v1 even though policy *formation* is v2: the write path is open **today**, and an
   unread file is inert only for as long as nothing reads it (R33)
 
@@ -1183,7 +1183,7 @@ Two implementations, and they are not equally hard — see the pi note at the en
 - Fail-closed filesystem rules confining writes to the attempt's staging directory, and
   fail-closed network rules
 - **Containment is proven against the running subprocess**, per the renderer lesson in
-  brain-ui `docs/decisions.md`: predicate tests on an allowlist function do not count
+  AGENTS.md ("Testing expectations"): predicate tests on an allowlist function do not count
 
 **pi is the easy case, and it is worth doing second to check the Claude design.** pi's roster is
 hand-built with the permission gate inside each tool's `execute()` (`ui-backend-pi/src/tools.ts:30,60`),
@@ -1396,7 +1396,7 @@ miss escalations fails it
 | Two ticking runtimes contend on SQLite | Immediate transactions cover claims only; a cron-heartbeat-vs-claim race test guards the 5s busy timeout |
 | The yield-at-denial-risk trigger misfires and thrashes | The threshold is explicit (~20s) and tested at both edges: a short autonomous tool call must NOT trigger a yield, and a long one must |
 | Budget reservations leak on crash | Released by the lease sweep; covered by an explicit test |
-| Protocol widening breaks the pinned brain-ui client | Additive-optional throughout; brain-ui bump is a follow-up release as with every protocol rev |
+| Protocol widening breaks a deployment's pinned client | Additive-optional throughout; a deployment's bump is a follow-up release as with every protocol rev |
 
 ---
 
