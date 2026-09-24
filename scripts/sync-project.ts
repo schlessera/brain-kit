@@ -1,24 +1,37 @@
 // Seed and maintain the "brain-kit roadmap" GitHub Project.
 //
-//   bun scripts/sync-project.ts            # dry run: say what would change
-//   bun scripts/sync-project.ts --apply
+//   bun scripts/sync-project.ts                       # dry run, whole board
+//   bun scripts/sync-project.ts --issue owner/repo#N  # dry run, one issue
+//   bun scripts/sync-project.ts --pr owner/repo#N     # dry run, what a PR closes
+//   gh workflow run project-sync --repo schlessera/brain-kit   # apply the sweep
 //
-// The project spans BOTH repositories — the public `brain-kit` and the private
-// `brain-ui` deployment shell — because they ship as one system and a board
-// that shows half of it is a board you have to remember to look past.
+// `--apply` is what `.github/workflows/project-sync.yml` runs: `--issue` or
+// `--pr` per event (a few GraphQL points), and the full sweep daily (about
+// 520 of the account's 5,000 points per hour, measured 2026-09-24). Run
+// `--apply` from a terminal only when that workflow is not running: two
+// overlapping applies can post the same unblock notice twice.
 //
-// Needs the `project` scope, which `repo` does not include:
+// The project spans the three public repositories that make up the
+// open-source project: `brain-kit`, `brain-template` and
+// `brain-hosting-template`. The maintainer's private instance repositories are
+// never on it (AGENTS.md, "The five repositories").
 //
-//   gh auth refresh -s project
+// Needs the `project` and `read:org` scopes, which `repo` does not include:
 //
-// What this script cannot do, and why:
+//   gh auth refresh -s project,read:org
 //
-// - **Views.** The GitHub API exposes no mutation for creating a project view,
-//   so the board, roadmap and filtered tables are made once in the web UI.
+// What this script does not do, and why:
+//
+// - **Views.** The board, roadmap and filtered tables are made once in the web
+//   UI. GraphQL has `createProjectV2View` (checked 2026-09-24); this script
+//   does not use it because the views are set up once and then left alone.
 //   `docs/process/github.md` lists the ones this project is meant to have.
 // - **The Status field's options.** Status is created by GitHub with
-//   Todo / In Progress / Done and `gh project` cannot edit an existing field's
-//   options. Adjust it in the UI; everything else here is idempotent around it.
+//   Todo / In Progress / Done. `gh project` cannot edit an existing field's
+//   options, but the GraphQL `updateProjectV2Field` mutation can, with
+//   `singleSelectOptions` (used on 2026-09-24). This board's options are
+//   already Backlog / Ready / In progress / In review / Done, so the script
+//   leaves them alone, and a Status it cannot find an option for is skipped.
 //
 // Everything it CAN do is idempotent: run it again after filing issues and it
 // adds the new ones and leaves the rest alone.
@@ -27,7 +40,11 @@ import { labelsFor } from "./labels.ts";
 
 const OWNER = "schlessera";
 const TITLE = "brain-kit roadmap";
-const REPOS = ["schlessera/brain-kit", "schlessera/brain-ui"] as const;
+export const REPOS = [
+  "schlessera/brain-kit",
+  "schlessera/brain-template",
+  "schlessera/brain-hosting-template",
+] as const;
 
 /**
  * The roadmap themes. A track is what an epic is about; a milestone is which
@@ -42,18 +59,9 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   // Getting the thing into somebody else's hands: the two templates, and the
   // documentation that has to stop pointing at a private installation.
   Distribution: [{ epics: [26, 70], also: [69], repo: "schlessera/brain-kit" }],
-  Hardening: [
-    { epics: [], also: [38], repo: "schlessera/brain-kit" },
-    { epics: [19], also: [], repo: "schlessera/brain-ui" },
-  ],
-  Reliability: [
-    { epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" },
-    { epics: [], also: [25], repo: "schlessera/brain-ui" },
-  ],
-  "Design system": [
-    { epics: [39], also: [46, 47, 48], repo: "schlessera/brain-kit" },
-    { epics: [], also: [24], repo: "schlessera/brain-ui" },
-  ],
+  Hardening: [{ epics: [], also: [38], repo: "schlessera/brain-kit" }],
+  Reliability: [{ epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" }],
+  "Design system": [{ epics: [39], also: [46, 47, 48], repo: "schlessera/brain-kit" }],
   "Answer quality": [{ epics: [], also: [49, 50], repo: "schlessera/brain-kit" }],
   Modules: [{ epics: [32], also: [59, 60], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
@@ -457,6 +465,7 @@ export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],
   io: BlockerIO,
   apply: boolean,
+  repos: readonly string[],
 ): Promise<{
   cleared: { issue: T; closed: string[] }[];
   unverifiable: { issue: T; reason: string }[];
@@ -466,7 +475,22 @@ export async function reconcileBlocked<T extends BlockableIssue>(
   const known = new Map<string, BlockerState | undefined>();
   for (const issue of issues) {
     if (!issue.labels.some((label) => label.name === "blocked")) continue;
-    for (const ref of parseBlockers(issue.body ?? "", issue.repo).refs) {
+    const refs = parseBlockers(issue.body ?? "", issue.repo).refs;
+    // The token can read more than the board covers. A blocker outside the
+    // board's repositories is never looked up, so an edited body cannot make
+    // this public run read a private issue's state and report it in a comment.
+    // GitHub owner and repository names are case-insensitive, so compare
+    // them that way: `Schlessera/Brain-Kit#1` is on the board.
+    const board = new Set(repos.map((repo) => repo.toLowerCase()));
+    const outside = refs.filter((ref) => !board.has(ref.slice(0, ref.lastIndexOf("#")).toLowerCase()));
+    if (outside.length > 0) {
+      unverifiable.push({
+        issue,
+        reason: `names a blocker outside the board's repositories: ${outside.join(", ")}`,
+      });
+      continue;
+    }
+    for (const ref of refs) {
       if (!known.has(ref)) known.set(ref, await io.state(ref));
     }
     const verdict = blockedVerdict(issue, (ref) => known.get(ref));
@@ -496,19 +520,63 @@ export async function reconcileBlocked<T extends BlockableIssue>(
  * because `Closes #n` in the body is what actually closes the issue on merge
  * and is therefore the thing that is true.
  */
-async function issuesUnderReview(): Promise<Set<string>> {
+/**
+ * The issues a PR body says it closes, as `owner/repo#number`. Only the
+ * same-repository form `Closes #12` is read, because that is the form this
+ * repository's PR template uses.
+ */
+export function closingRefs(body: string, repo: string): string[] {
+  return [...body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)].map((m) => `${repo}#${m[1]}`);
+}
+
+async function issuesUnderReview(repos: readonly string[] = REPOS): Promise<Set<string>> {
   const under = new Set<string>();
-  for (const repo of REPOS) {
+  for (const repo of repos) {
     const raw = await gh([
       "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", "number,body",
     ]);
     for (const pr of JSON.parse(raw) as { body?: string }[]) {
-      for (const match of (pr.body ?? "").matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
-        under.add(`${repo}#${match[1]}`);
-      }
+      for (const ref of closingRefs(pr.body ?? "", repo)) under.add(ref);
     }
   }
   return under;
+}
+
+/**
+ * The scopes the sync needs beyond repository access, each with the broader
+ * scopes that include it. GitHub normalises a token's scopes and drops one
+ * that a broader scope already covers, so a token granted `admin:org` reports
+ * no `read:org` at all. `read:project` does not cover `project`: it is
+ * read-only.
+ */
+export const REQUIRED_SCOPES = {
+  project: ["project"],
+  "read:org": ["read:org", "write:org", "admin:org"],
+} as const;
+
+/** The required scopes a token's scope set does not cover. */
+export function missingScopes(scopes: Set<string>): string[] {
+  return Object.entries(REQUIRED_SCOPES)
+    .filter(([, coveredBy]) => !coveredBy.some((scope) => scopes.has(scope)))
+    .map(([scope]) => scope);
+}
+
+/**
+ * The OAuth scopes of the token that answered, from `gh api --include`
+ * output. Exact names only: `read:project` is not `project`. A fine-grained
+ * token sends no header at all, which reads as no scopes.
+ */
+export function scopesFromHeaders(response: string): Set<string> {
+  const header = response.split(/\r?\n\r?\n/, 1)[0];
+  const line = header.split(/\r?\n/).find((l) => /^x-oauth-scopes:/i.test(l));
+  if (!line) return new Set();
+  return new Set(
+    line
+      .slice(line.indexOf(":") + 1)
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
 }
 
 export function priorityFor(issue: { labels: { name: string }[] }): string | undefined {
@@ -575,18 +643,325 @@ async function buildMembership(): Promise<Map<string, Set<string>>> {
   return membership;
 }
 
+/** One board item's field writes, injected so a test can watch them. */
+export interface BoardIO {
+  /** Put the issue on the board and return its item id. */
+  add(issue: { url: string }): Promise<string>;
+  /** Set a single-select field on an item. */
+  edit(itemId: string, fieldId: string, optionId: string): Promise<void>;
+}
+
+/**
+ * Bring one issue's board item in line with its labels: add it if missing,
+ * then write Priority, Track and Status where they differ. The full sweep and
+ * the single-issue sync both go through here, so they cannot disagree.
+ *
+ * A Status a person set (`In progress`, `Done`) is never overwritten. A dry
+ * run prints what it would write and writes nothing. In apply mode a `set`
+ * line is printed only after its write succeeds.
+ */
+export async function syncItem(
+  issue: Issue,
+  ctx: {
+    apply: boolean;
+    fields: Map<string, ProjectField>;
+    membership: Map<string, Set<string>>;
+    underReview: Set<string>;
+    /** The item's current values, or undefined when it is not on the board. */
+    current?: Record<string, string | undefined>;
+    itemId?: string;
+    io: BoardIO;
+    log?: (line: string) => void;
+  },
+): Promise<{ added: number; edited: number }> {
+  const log = ctx.log ?? console.log;
+  let added = 0;
+  let edited = 0;
+  let itemId = ctx.itemId;
+  if (!itemId) {
+    if (!ctx.apply) {
+      log(`would add ${issue.repo}#${issue.number}  ${issue.title}`);
+      return { added: 1, edited: 0 };
+    }
+    itemId = await ctx.io.add(issue);
+    log(`added ${issue.repo}#${issue.number}`);
+    added++;
+  }
+
+  const current = ctx.current?.Status;
+  // Never drag an item out of a status a person put it in.
+  const wantedStatus =
+    current === undefined || DERIVED_STATUSES.has(current)
+      ? statusFor(issue, ctx.underReview.has(`${issue.repo}#${issue.number}`))
+      : undefined;
+
+  const assignments: { field: string; value: string | undefined }[] = [
+    { field: "Priority", value: priorityFor(issue) },
+    { field: "Track", value: trackFor(issue, ctx.membership) },
+    { field: "Status", value: wantedStatus },
+  ];
+  for (const { field, value } of assignments) {
+    if (!value) continue;
+    // Skip a write that would change nothing: most runs find most fields
+    // already right, and each write is an API call.
+    if (ctx.current?.[field] === value) continue;
+    const definition = ctx.fields.get(field);
+    const option = definition?.options?.find((o) => o.name === value);
+    if (!definition || !option) continue;
+    const change = `${issue.repo}#${issue.number} ${field}: ${ctx.current?.[field] ?? "(unset)"} -> ${value}`;
+    if (!ctx.apply) {
+      log(`would set ${change}`);
+      edited++;
+      continue;
+    }
+    await ctx.io.edit(itemId, definition.id, option.id);
+    log(`set ${change}`);
+    edited++;
+  }
+  return { added, edited };
+}
+
+/** `owner/repo#12` → its parts, or undefined for anything else. */
+export function parseTarget(ref: string): { repo: string; number: number } | undefined {
+  const match = ref.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/);
+  return match ? { repo: match[1], number: Number(match[2]) } : undefined;
+}
+
+/** The board repository a reference names, matched case-insensitively. */
+export function boardRepo(repo: string): string | undefined {
+  return REPOS.find((r) => r.toLowerCase() === repo.toLowerCase());
+}
+
+/** One issue as the sync needs it, read through REST (no GraphQL cost). */
+async function readIssue(
+  repo: string,
+  number: number,
+): Promise<(Issue & { state: string; isPullRequest: boolean; nodeId: string }) | undefined> {
+  try {
+    const raw = await gh(["api", `repos/${repo}/issues/${number}`]);
+    const data = JSON.parse(raw) as {
+      number: number; title: string; html_url: string; body?: string | null; state: string;
+      labels: { name: string }[]; pull_request?: unknown; node_id: string;
+    };
+    return {
+      number: data.number,
+      title: data.title,
+      url: data.html_url,
+      body: data.body ?? "",
+      labels: data.labels.map((label) => ({ name: label.name })),
+      repo,
+      state: data.state,
+      isPullRequest: data.pull_request !== undefined,
+      nodeId: data.node_id,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The board, its fields, and one issue's item on it, in a single GraphQL
+ * query. The full sweep lists every item with every field, which costs
+ * hundreds of points; this reads only what one issue needs.
+ */
+async function boardForIssue(
+  nodeId: string,
+): Promise<{
+  project: Project;
+  fields: ProjectField[];
+  itemId?: string;
+  current?: Record<string, string | undefined>;
+}> {
+  const query = `query($owner: String!, $node: ID!) {
+    user(login: $owner) {
+      projectsV2(first: 20) {
+        nodes {
+          id number title url
+          fields(first: 50) {
+            nodes {
+              ... on ProjectV2FieldCommon { id name }
+              ... on ProjectV2SingleSelectField { options { id name } }
+            }
+          }
+        }
+      }
+    }
+    node(id: $node) {
+      ... on Issue {
+        projectItems(first: 20) {
+          nodes {
+            id
+            project { id }
+            status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            priority: fieldValueByName(name: "Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            track: fieldValueByName(name: "Track") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          }
+        }
+      }
+    }
+  }`;
+  type Value = { name?: string } | null;
+  const data = JSON.parse(
+    await gh(["api", "graphql", "-f", `query=${query}`, "-F", `owner=${OWNER}`, "-F", `node=${nodeId}`]),
+  ).data as {
+    user: { projectsV2: { nodes: (Project & { title: string; fields: { nodes: ProjectField[] } })[] } };
+    node: { projectItems?: { nodes: { id: string; project: { id: string }; status: Value; priority: Value; track: Value }[] } };
+  };
+  const project = data.user.projectsV2.nodes.find((p) => p.title === TITLE);
+  if (!project) throw new Error(`project "${TITLE}" not found; run the full sync to create it`);
+  const item = data.node.projectItems?.nodes.find((i) => i.project.id === project.id);
+  return {
+    project: { id: project.id, number: project.number, url: project.url },
+    fields: project.fields.nodes.filter((field) => field.id),
+    itemId: item?.id,
+    current: item
+      ? { Status: item.status?.name, Priority: item.priority?.name, Track: item.track?.name }
+      : undefined,
+  };
+}
+
+/** The board writes, through `gh`. */
+function boardIO(project: Project): BoardIO {
+  return {
+    async add(issue) {
+      const result = JSON.parse(
+        await gh([
+          "project", "item-add", String(project.number), "--owner", OWNER,
+          "--url", issue.url, "--format", "json",
+        ]),
+      ) as { id: string };
+      return result.id;
+    },
+    async edit(itemId, fieldId, optionId) {
+      await gh([
+        "project", "item-edit", "--id", itemId, "--project-id", project.id,
+        "--field-id", fieldId, "--single-select-option-id", optionId,
+      ]);
+    },
+  };
+}
+
+/**
+ * The open `blocked` issues on the board that name `ref` as a blocker, as
+ * `owner/repo#number`. Read through REST, so it costs no GraphQL points.
+ */
+export async function dependantsOf(ref: string): Promise<string[]> {
+  const wanted = ref.toLowerCase();
+  const found: string[] = [];
+  for (const repo of REPOS) {
+    const raw = await gh([
+      "api", "--paginate", `repos/${repo}/issues?state=open&labels=blocked&per_page=100`,
+      "--jq", ".[] | select(.pull_request | not) | {number, body} | @json",
+    ]);
+    for (const line of raw.split("\n").filter(Boolean)) {
+      const { number, body } = JSON.parse(line) as { number: number; body: string | null };
+      if (parseBlockers(body ?? "", repo).refs.some((r) => r.toLowerCase() === wanted)) {
+        found.push(`${repo}#${number}`);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Sync the issues one event touched: an issue itself, or the issues a PR
+ * says it closes. Costs a few GraphQL points per issue instead of the full
+ * sweep's hundreds, which is what lets it run on every event.
+ */
+async function syncTargets(refs: string[], apply: boolean): Promise<void> {
+  const membership = await buildMembership();
+  let added = 0;
+  let edited = 0;
+  const queue = [...refs];
+  for (let i = 0; i < queue.length; i++) {
+    const ref = queue[i];
+    const target = parseTarget(ref);
+    const repo = target && boardRepo(target.repo);
+    if (!target || !repo) {
+      console.log(`skip ${ref}: not an issue in the board's repositories`);
+      continue;
+    }
+    const issue = await readIssue(repo, target.number);
+    if (!issue || issue.isPullRequest) {
+      console.log(`skip ${ref}: not an issue`);
+      continue;
+    }
+    if (issue.state !== "open") {
+      // Closing is the project's own "Item closed" workflow's to record. What
+      // this run owes a closed issue is the issues it was blocking: sync those,
+      // so a dependant is unblocked now rather than at the daily sweep.
+      const dependants = (await dependantsOf(`${repo}#${issue.number}`)).filter((d) => !queue.includes(d));
+      console.log(`skip ${ref}: closed${dependants.length ? `; syncing what it blocked: ${dependants.join(", ")}` : ""}`);
+      queue.push(...dependants);
+      continue;
+    }
+    const blockers = await reconcileBlocked([issue], trackerIO, apply, REPOS);
+    for (const { closed } of blockers.cleared) {
+      console.log(`${apply ? "unblocked" : "would unblock"} ${ref}: every blocker is closed (${closed.join(", ")})`);
+    }
+    for (const { reason } of blockers.unverifiable) console.log(`cannot verify blocked ${ref}: ${reason}`);
+    const board = await boardForIssue(issue.nodeId);
+    const result = await syncItem(issue, {
+      apply,
+      fields: new Map(board.fields.map((field) => [field.name, field])),
+      membership,
+      // `Closes #N` names the issue's own repository, so only its PRs matter.
+      underReview: await issuesUnderReview([repo]),
+      current: board.current,
+      itemId: board.itemId,
+      io: boardIO(board.project),
+    });
+    added += result.added;
+    edited += result.edited;
+  }
+  console.log(`\n${apply ? "Applied" : "Dry run"}: ${added} item(s) added, ${edited} field value(s) set.`);
+}
+
 if (import.meta.main) {
   const apply = process.argv.includes("--apply");
 
   // `repo` does not imply `project`, and the failure without it is a raw
-  // GraphQL scope error several frames down. Say it here instead.
-  const scopes = await gh(["auth", "status"]).catch(() => "");
-  if (!/\bproject\b/.test(scopes)) {
+  // GraphQL scope error several frames down. `gh project` also resolves
+  // `--owner` through a query that needs `read:org`, and without it fails
+  // with "unknown owner type", which names neither the token nor the scope
+  // (observed in CI with a `repo` + `project` PAT). Say both here instead.
+  //
+  // The scopes come from the API's own header for the token in use, not from
+  // `gh auth status`: that prints every account, and its warning
+  // "Missing required token scopes: 'read:org'" names the very scope it lacks.
+  const scopes = scopesFromHeaders(await gh(["api", "--include", "user"]));
+  const lacking = missingScopes(scopes);
+  if (lacking.length > 0) {
     console.error(
-      "The `project` scope is missing. GitHub Projects is a separate scope from `repo`.\n" +
-        "Grant it, then re-run:\n\n  gh auth refresh -s project\n",
+      `The token is missing ${lacking.map((m) => `\`${m}\``).join(" and ")}. ` +
+        "GitHub Projects needs `project`, and `gh project` needs `read:org` to resolve the owner.\n" +
+        `Grant them, then re-run:\n\n  gh auth refresh -s ${lacking.join(",")}\n`,
     );
     process.exit(1);
+  }
+
+  // `--issue owner/repo#N` syncs one issue; `--pr owner/repo#N` syncs the
+  // issues that PR says it closes. Without either, the full sweep runs.
+  const flag = (name: string) => {
+    const index = process.argv.indexOf(name);
+    return index === -1 ? undefined : process.argv[index + 1];
+  };
+  const issueRef = flag("--issue");
+  const prRef = flag("--pr");
+  if (issueRef !== undefined || prRef !== undefined) {
+    let refs = issueRef !== undefined ? [issueRef] : [];
+    if (prRef !== undefined) {
+      const pr = parseTarget(prRef);
+      const repo = pr && boardRepo(pr.repo);
+      if (!pr || !repo) {
+        console.log(`skip ${prRef}: not a pull request in the board's repositories`);
+        process.exit(0);
+      }
+      const body = await gh(["api", `repos/${repo}/pulls/${pr.number}`, "--jq", ".body // \"\""]);
+      refs = [...refs, ...closingRefs(body, repo)];
+    }
+    await syncTargets(refs, apply);
+    process.exit(0);
   }
 
   const project = await ensureProject(apply);
@@ -617,7 +992,7 @@ if (import.meta.main) {
   const currentValues = await boardValues(project.number);
 
   // Before Status is derived: an issue unblocked here is Ready in this run.
-  const blockers = await reconcileBlocked(issues, trackerIO, apply);
+  const blockers = await reconcileBlocked(issues, trackerIO, apply, REPOS);
   for (const { issue, closed } of blockers.cleared) {
     console.log(
       `${apply ? "unblocked" : "would unblock"} ${issue.repo}#${issue.number}: ` +
@@ -628,76 +1003,31 @@ if (import.meta.main) {
     console.log(`cannot verify blocked ${issue.repo}#${issue.number}: ${reason}`);
   }
 
+  const io = boardIO(project);
   let added = 0;
   let edited = 0;
   for (const issue of issues) {
-    let itemId = existing.get(issue.url);
-    if (!itemId) {
-      if (!apply) {
-        console.log(`would add ${issue.repo}#${issue.number}  ${issue.title}`);
-        added++;
-        continue;
-      }
-      const result = JSON.parse(
-        await gh([
-          "project",
-          "item-add",
-          String(project.number),
-          "--owner",
-          OWNER,
-          "--url",
-          issue.url,
-          "--format",
-          "json",
-        ]),
-      ) as { id: string };
-      itemId = result.id;
-      added++;
-    }
-
-    const current = currentValues.get(issue.url)?.Status;
-    // Never drag an item out of a status a person put it in.
-    const wantedStatus =
-      current === undefined || DERIVED_STATUSES.has(current)
-        ? statusFor(issue, underReview.has(`${issue.repo}#${issue.number}`))
-        : undefined;
-
-    const assignments: { field: string; value: string | undefined }[] = [
-      { field: "Priority", value: priorityFor(issue) },
-      { field: "Track", value: trackFor(issue, membership) },
-      { field: "Status", value: wantedStatus },
-    ];
-    for (const { field, value } of assignments) {
-      if (!value) continue;
-      // Skip a write that would change nothing. Three fields across 44 items
-      // is 132 API calls per run otherwise, all of them saying what the board
-      // already says.
-      if (currentValues.get(issue.url)?.[field] === value) continue;
-      const definition = byName.get(field);
-      const option = definition?.options?.find((o) => o.name === value);
-      if (!definition || !option) continue;
-      if (!apply) continue;
-      await gh([
-        "project",
-        "item-edit",
-        "--id",
-        itemId,
-        "--project-id",
-        project.id,
-        "--field-id",
-        definition.id,
-        "--single-select-option-id",
-        option.id,
-      ]);
-      edited++;
-    }
+    const result = await syncItem(issue, {
+      apply,
+      fields: byName,
+      membership,
+      underReview,
+      current: currentValues.get(issue.url),
+      itemId: existing.get(issue.url),
+      io,
+    });
+    added += result.added;
+    edited += result.edited;
   }
 
   console.log(
     `\n${apply ? "Applied" : "Dry run"}: ${added} item(s) added, ${edited} field value(s) set.`,
   );
   if (!apply) {
-    console.log("Re-run with --apply to make these changes.");
+    console.log(
+      "To make these changes, trigger the sweep (about 520 GraphQL points):\n\n" +
+        "  gh workflow run project-sync --repo schlessera/brain-kit",
+    );
     process.exit(0);
   }
 
@@ -719,13 +1049,9 @@ if (import.meta.main) {
   }
 
   console.log(`
-Two things this script cannot do — finish them once, in the web UI:
+One thing this script does not do — finish it once, in the web UI:
 
-  1. Status options. GitHub created Status with Todo / In Progress / Done, and
-     no API can edit an existing field's options. Change them to
-     Backlog / Ready / In progress / In review / Done.
-
-  2. Views. The API exposes no mutation for creating one. Make these four:
+  Views. Make these four:
        Board      — board layout, grouped by Status
        Roadmap    — roadmap layout on Target, grouped by Track
        Ready      — table, filter: status:Ready label:agent-ready, sorted by Priority

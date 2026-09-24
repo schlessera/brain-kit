@@ -15,6 +15,42 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
 5. The doc for whatever you touch under [docs/](docs/README.md), and the
    decision record for it under [docs/decisions/](docs/decisions/README.md).
 
+## The five repositories
+
+This is the most important context in this file. Never act on one of these
+repositories without knowing which side of the line it sits on.
+
+**The open-source project** — three repositories, all public, meant for
+strangers:
+
+| Repo | What it is |
+| --- | --- |
+| `schlessera/brain-kit` | This repo. The engine: the `@schlessera/brain-*` packages that everything else runs on. |
+| `schlessera/brain-template` | The starting point for your own second-brain repo. |
+| `schlessera/brain-hosting-template` | The starting point for your own hosted PWA that manages your second-brain repo remotely, powered by brain-kit. |
+
+**One person's instance** — two repositories, both private, never part of the
+open-source project:
+
+| Repo | What it is |
+| --- | --- |
+| `schlessera/brain` | The maintainer's own second brain. All of their personal data. Strictly private. |
+| `schlessera/brain-ui` | The maintainer's own hosted PWA, built from brain-kit. |
+
+`brain` is one instance of `brain-template`, and `brain-ui` is one instance
+of `brain-hosting-template`. Dependencies run one way only: the private
+instances consume the public project, and the public project never depends
+on, links to or describes them.
+
+- The public project board and every planning tool cover the three public
+  repositories and nothing else. The private instance has its own private
+  board. A private issue may name a public blocker (`Blocked by
+  schlessera/brain-kit#42`); a public issue never names a private one.
+- Nothing from `brain` or `brain-ui` may appear in a public repository. That
+  covers content, deployment details, hostnames, and issue or PR references.
+- An issue about the instance (its host, its data, an incident on it) is
+  filed in `brain-ui` or `brain`. It never goes on the public board.
+
 ## Hard rules
 
 - **No personal data anywhere in the tree.** No real names, client names, or
@@ -196,10 +232,11 @@ in — is [docs/process/github.md](docs/process/github.md).
 
 Two things that are easy to get wrong:
 
-- **This repository is public, and it is one of four.** brain-kit owns
-  behaviour; `brain-template` and `brain-hosting-template` own what a user
-  generates; `brain-ui` is one private installation. Anything that would have
-  to describe a real deployment goes to `brain-ui`. Run an issue body through
+- **This repository is public, and it is one of five** (see "The five
+  repositories" above). brain-kit owns behaviour. `brain-template` and
+  `brain-hosting-template` own what a user generates. `brain` and `brain-ui`
+  are the maintainer's private instance. Anything that would have to describe
+  a real deployment goes to `brain-ui`. Run an issue body through
   the same gate the tree is held to before filing it; the `github` skill shows
   how, and `docs/process/github.md` has the routing rule.
 - **Work found mid-session gets filed, not fixed and not forgotten** — and an

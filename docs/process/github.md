@@ -19,7 +19,7 @@ taxonomy, `.github/ISSUE_TEMPLATE/` for the shape of an issue.
 | A decision that binds future work | `docs/decisions/`, linked from the issue |
 | A question with no work attached yet | A GitHub Discussion |
 | A security vulnerability | A private advisory — never an issue |
-| Deployment, container or hosting specifics | The private `schlessera/brain-ui` repo |
+| Deployment, container or hosting specifics of the maintainer's instance | The private `schlessera/brain-ui` repo, off the board |
 | Progress on work in flight | Comments on the issue, and the PR |
 
 **Nothing durable lives in a plan document any more.** `docs/plans/` and the old
@@ -28,24 +28,26 @@ every reader had to work out which lines were still true. Decisions moved to
 `docs/decisions/`; open work moved to issues; progress logs were not worth
 keeping once the work shipped.
 
-## The four repositories
+## The five repositories
 
-brain-kit is public and owns every line of behaviour. The other three exist
-because a knowledge base, the thing that hosts it, and one person's actual
-running copy are different objects with different lifetimes.
+Three repositories make up the open-source project and two are one person's
+private instance of it. AGENTS.md ("The five repositories") is the canonical
+statement. This section is the tracker's view of it.
 
 | Repository | Owns | Visibility |
 | --- | --- | --- |
 | **brain-kit** | Every line of behaviour. The published packages. | public |
-| **brain-template** | The starting point for *your brain*: config, skills, empty content. Generated from `template/` here. | public when it is real |
-| **brain-hosting-template** | The starting point for *self-hosting*: container, compose, proxy, branding, over the published packages. | public when it is real |
-| **brain-ui** | One person's actual deployment. An instance, not a product. | **private, permanently** |
+| **brain-template** | The starting point for *your brain*: config, skills, empty content. Generated from `template/` here. | public |
+| **brain-hosting-template** | The starting point for *self-hosting*: a PWA that manages your brain remotely, with container, compose, proxy and branding over the published packages. | public |
+| **brain** | The maintainer's own brain. Personal data. | **private, permanently** |
+| **brain-ui** | The maintainer's own hosted PWA. An instance, not a product. | **private, permanently** |
 
-`brain-ui` is the odd one and the one to get right. It is not "the hosting
-repo" — it is somebody's running installation, with their host, their branding
-and their data. It is where the hosting template will be extracted *from*, and
-it is where a production incident gets written down. **Nothing in a public
-repository should link to it or depend on it existing.**
+The first three are the product and the only repositories on the project
+board. `brain` and `brain-ui` are instances of the two templates: they consume
+the public project, and the public project never depends on, links to or
+describes them. `brain-ui` is where the hosting template will be extracted
+*from*, and it is where a production incident gets written down. **Nothing in
+a public repository should link to either one or depend on it existing.**
 
 ### Where an issue goes
 
@@ -57,8 +59,9 @@ Ask what the issue is actually about:
   interview, what the first clone looks like. → brain-template.
 - **What a generated host contains** — the Dockerfile, the compose file, the
   proxy, the environment contract. → brain-hosting-template.
-- **One deployment's reality** — its host, its data, an incident on it, a
-  migration of its volumes. → brain-ui.
+- **One deployment's reality** — its host, an incident on it, a migration of
+  its volumes. → brain-ui. Its content and data → brain. Neither goes on the
+  project board.
 
 When a change needs two of them, each gets its own issue and both carry the
 `upstream:` label pointing at the other. **A public issue never restates a
@@ -117,8 +120,10 @@ milestones, and its sub-issues carry the milestones individually.
 
 ## The project board
 
-One project, [**brain-kit roadmap**](https://github.com/users/schlessera/projects/1), spanning both repositories. It adds the two
-things labels cannot express: where an item is in flight, and when it is meant
+One project, [**brain-kit roadmap**](https://github.com/users/schlessera/projects/1), spanning the three public repositories: brain-kit, brain-template and
+brain-hosting-template. The private instance repositories are never on it:
+they have their own private board, whose issues may name a public blocker. A
+public issue never names a private one. This board adds the two things labels cannot express: where an item is in flight, and when it is meant
 to happen.
 
 | Field | What it is for |
@@ -137,12 +142,29 @@ blocked, and it can be picked up now. An agent picking work should filter
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
 open PR says it closes the issue. `In progress` and `Done` are statements about
 a person or an agent rather than about labels, so the script reads them and
-leaves them alone.
+leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`:
+
+- When a brain-kit issue is opened, edited, labelled, unlabelled, closed or
+  reopened, it syncs that issue (`--issue`). When the issue is closed, it also
+  syncs the open issues that name it in a `Blocked by` line, so they unblock
+  straight away.
+- When a same-repository PR is opened, edited, closed or reopened, it syncs the
+  issues the PR says it closes (`--pr`).
+- Once a day, and on `gh workflow run project-sync`, it runs the full sweep.
+  That covers the two template repositories, whose events do not reach this
+  workflow, and anything an event run missed.
+
+An event run costs a few GraphQL points. The full sweep costs about 520 of the
+account's 5,000 per hour, so it is not run per event. A label change reaches
+the board within seconds without anyone running anything. Runs for the same
+issue queue behind each other. Do not run `--apply` from a terminal while the
+workflow is live, because it can overlap a workflow run and post a notice
+twice. The dry run is safe from anywhere.
 
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the
 references: `Blocked by #42`, `Blocked by #42 and #43`, or
-`Blocked by schlessera/brain-kit#42` across repositories. Write it as a plain
+`Blocked by schlessera/brain-template#42` across the board's repositories. Write it as a plain
 line at the start of the line, optionally as a top-level bullet. Do not indent
 it, quote it, nest it, make it a task item or put it inside an HTML comment.
 Commentary may follow the list as long as it names no other reference. When
@@ -151,10 +173,13 @@ script reports it, and with `--apply` posts a one-line comment naming the
 closed blocker and removes the label. In the same run it then re-derives
 Status, unless the Status is `In progress` or `Done`, and the issue lands in
 Ready if nothing else holds it back. An issue labelled `blocked` keeps its label and is
-reported as unverifiable in four cases. It has no such line. Some other line
+reported as unverifiable in five cases. It has no such line. Some other line
 in the body says "blocked by" in any form: prose, a quote, a heading, an
 example in a code block, an HTML comment. A declaration names another
-reference after its list. Or a blocker's state cannot be read. The script clears a label
+reference after its list. A blocker's state cannot be read, or it is a pull
+request that closed without merging, which never counts as closed. Or it lives
+outside the board's repositories, which the script never looks up: a public
+run must not report on a private issue. The script clears a label
 only on declarations it read in full. Closing a blocker unblocks nothing by itself — the line has to be there,
 and the script has to run.
 
@@ -185,7 +210,7 @@ An issue that turns out to be wrong gets closed with a comment saying why.
 Between those steps the issue has to stay true: its body is the current
 specification and its comments are the history. Corrections are folded into the
 body, a ruling is recorded where it unblocks the work, `blocked` comes off when
-its last blocker closes (`sync-project.ts --apply` does it for a readable
+its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
 

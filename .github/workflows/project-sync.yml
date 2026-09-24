@@ -1,0 +1,73 @@
+# Keep the "brain-kit roadmap" board in step with the issues, without anyone
+# remembering to run scripts/sync-project.ts.
+#
+# Status is derived from labels (docs/process/github.md, "The project board").
+# An issue event syncs that one issue, and a PR event syncs the issues the PR
+# says it closes. Either costs a few GraphQL points. The full sweep lists every
+# board item with every field, which costs about 520 points of the account's
+# 5,000 per hour (measured 2026-09-24), so it runs once a day and on demand.
+# The daily sweep also picks up brain-template and brain-hosting-template,
+# whose events do not reach this workflow, and anything an event run missed.
+#
+# PROJECT_SYNC_TOKEN is a classic PAT with `project`, `read:org` and repository
+# access. Without `read:org`, `gh project` fails with "unknown owner type".
+# A fine-grained PAT cannot reach a user-owned project. Issue and PR events
+# always run this file from the default branch or the PR's own branch. Event
+# data reaches the script through environment variables, never through an
+# expression inside `run`, and the script reads issue text as data and never
+# runs it through a shell.
+name: project-sync
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
+  pull_request:
+    types: [opened, edited, closed, reopened]
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time per target. Two runs for the same issue queue, and a newer
+# pending run replaces an older one, which is safe because each reads the
+# issue fresh. Runs for different issues may overlap: each touches only its
+# own issue. The sweep has its own group.
+concurrency:
+  group: >-
+    project-sync-${{
+      github.event_name == 'issues' && format('issue-{0}', github.event.issue.number) ||
+      github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) ||
+      'sweep'
+    }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # A fork's PR gets no secrets; the daily sweep covers it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Sync the issue
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          TARGET: ${{ github.repository }}#${{ github.event.issue.number }}
+        run: bun scripts/sync-project.ts --apply --issue "$TARGET"
+      - name: Sync the issues the PR closes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          TARGET: ${{ github.repository }}#${{ github.event.pull_request.number }}
+        run: bun scripts/sync-project.ts --apply --pr "$TARGET"
+      - name: Sync the whole board
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+        run: bun scripts/sync-project.ts --apply

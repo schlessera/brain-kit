@@ -1,6 +1,6 @@
 ---
 name: github
-description: Use when filing, triaging, picking up, updating or closing work in the brain-kit or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which of the two repositories an issue belongs in. Also use before recording found work mid-session.
+description: Use when filing, triaging, picking up, updating or closing work in the brain-kit, brain-template, brain-hosting-template or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which repository an issue belongs in. Also use before recording found work mid-session.
 compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the `project` scope on an OAuth token or classic PAT (`gh auth refresh -s project` for an OAuth login) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
 ---
 
@@ -11,14 +11,17 @@ is the agreement it implements** — read that first if you are deciding
 *whether* something should be an issue. Read this when you are about to run a
 command.
 
-Four repositories, one workflow:
+Five repositories. Three are the open-source project and share one board; two
+are the maintainer's private instance and are never on it. AGENTS.md ("The
+five repositories") is the canonical statement.
 
-| Repo | Visibility | Owns |
-| --- | --- | --- |
-| `schlessera/brain-kit` | public | Every line of behaviour. The packages. |
-| `schlessera/brain-template` | public when real | The starting point for a brain: config, skills, empty content. |
-| `schlessera/brain-hosting-template` | public when real | The starting point for self-hosting: container, compose, proxy. |
-| `schlessera/brain-ui` | **private, permanently** | One person's actual deployment. An instance, not a product. |
+| Repo | Visibility | Owns | On the board |
+| --- | --- | --- | --- |
+| `schlessera/brain-kit` | public | Every line of behaviour. The packages. | yes |
+| `schlessera/brain-template` | public | The starting point for a brain: config, skills, empty content. | yes |
+| `schlessera/brain-hosting-template` | public | The starting point for a hosted PWA: container, compose, proxy. | yes |
+| `schlessera/brain` | **private, permanently** | The maintainer's own brain. Personal data. | no |
+| `schlessera/brain-ui` | **private, permanently** | The maintainer's own hosted PWA. An instance, not a product. | no |
 
 ## Which repo
 
@@ -30,12 +33,13 @@ Ask what the issue is **about**, not where the symptom appeared:
   interview → `brain-template`.
 - **What a generated host contains** — the Dockerfile, compose, the proxy, the
   environment contract → `brain-hosting-template`.
-- **One deployment's reality** — its host, its data, an incident on it →
-  `brain-ui`.
+- **The maintainer's deployment** — its host, an incident on it →
+  `brain-ui`. Its content and data → `brain`.
 
-`brain-ui` is the one to get right. It is not "the hosting repo"; it is
-somebody's running installation, and the hosting template will be extracted
-*from* it. **Nothing public links to it or depends on it existing.**
+`brain` and `brain-ui` are instances of the two templates. They consume the
+public project, and the public project never depends on them. The hosting
+template will be extracted *from* `brain-ui`. **Nothing public links to either
+one or depends on it existing.**
 
 When a change needs two repos, file two issues and cross-link them with the
 `upstream:` labels. A public issue never restates a private deployment detail
@@ -139,9 +143,20 @@ Counting works, reading does not.
 
 GitHub documents this under [fine-grained PAT limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations).
 If the current token cannot access the board, file the issue with its labels
-and milestone; `bun scripts/sync-project.ts --apply` adds newly filed
-issues to the board and derives their Status, and it runs from a terminal that
-has the `project` scope.
+and milestone. The `project-sync` workflow adds it and derives its Status
+within seconds: an issue event syncs that issue, and a PR event syncs the
+issues the PR closes. A full sweep runs daily and covers the template
+repositories. To run the sweep now, trigger it:
+
+```sh
+gh workflow run project-sync --repo schlessera/brain-kit
+```
+
+It costs about 520 of the account's 5,000 GraphQL points per hour, so do not
+trigger it in a loop. Do not run `--apply` from a terminal while the workflow
+exists: it can overlap a workflow run and post a notice twice. The dry run (no
+`--apply`, optionally `--issue owner/repo#N`) is safe from anywhere, with a
+token that has `project` and `read:org`.
 
 A `needs:` label says what is blocking the work. `needs: design` is the one
 that is useless on its own — see "Issues that need design" below for what has
@@ -245,11 +260,14 @@ below exists because the tracker drifted without it.
   ruling that binds later work, not only this issue, also gets a
   `docs/decisions/` record — file it as its own issue if it is not written now.
 - **Clear `blocked` when the blocker closes.** The label does not clear itself.
-  `bun scripts/sync-project.ts --apply` clears it from every issue whose
+  The `project-sync` workflow clears it from every issue whose
   `Blocked by #N` lines all name closed issues, and comments saying which. The
   comment carries a marker naming the blockers, so a run that fails part way
-  comments only once when it is retried. Run it once at a time, never in
-  parallel. The dry run lists those issues, plus every `blocked` issue it
+  comments only once when it is retried. Closing an issue syncs the issues
+  that name it as a blocker straight away, and the daily sweep catches the
+  rest. Runs for the same issue never overlap, which is why a manual sync is
+  a `gh workflow run`, not a terminal `--apply`. A blocker outside the
+  board's three repositories is never looked up and reads as unverifiable. The dry run lists those issues, plus every `blocked` issue it
   cannot verify. That is either a problem with the text, so fix the text. There is no
   declaration, some other line says "blocked by", or a declaration names
   another reference after its list.
