@@ -57,21 +57,31 @@ describe("label taxonomy", () => {
     });
   }
 
-  test("no public label names a private repository, and brain-kit links both templates (#299)", () => {
+  test("no public label names a private repository, and each repo links only its public counterparts (#299)", () => {
     // A public issue never names, labels or links the maintainer's private
-    // instance (AGENTS.md, "The five repositories").
+    // instance (AGENTS.md, "The five repositories"). Names and descriptions
+    // both render on every issue that carries the label.
+    const PRIVATE = /brain-ui(?![-\w])|schlessera\/brain(?![-\w])|\bbrain(?![-\w])\s+repo/;
     for (const repo of ALL_REPOS) {
-      const names = labelsFor(repo).map((label) => label.name);
-      expect({ repo, private: names.filter((n) => /brain-ui(?![-\w])|schlessera\/brain(?![-\w])/.test(n)) }).toEqual({
-        repo,
-        private: [],
-      });
+      const labels = labelsFor(repo);
+      expect(labels.length).toBeGreaterThan(0);
+      const leaks = labels.filter((l) => PRIVATE.test(l.name) || PRIVATE.test(l.description)).map((l) => l.name);
+      expect({ repo, leaks }).toEqual({ repo, leaks: [] });
     }
-    const kit = labelsFor("brain-kit").map((label) => label.name);
-    expect(kit.filter((n) => n.startsWith("upstream: ")).sort()).toEqual([
-      "upstream: brain-hosting-template",
-      "upstream: brain-template",
-    ]);
+    const upstream = (repo: (typeof ALL_REPOS)[number]) =>
+      labelsFor(repo)
+        .map((label) => label.name)
+        .filter((n) => n.startsWith("upstream: "))
+        .sort();
+    expect({
+      "brain-kit": upstream("brain-kit"),
+      "brain-template": upstream("brain-template"),
+      "brain-hosting-template": upstream("brain-hosting-template"),
+    }).toEqual({
+      "brain-kit": ["upstream: brain-hosting-template", "upstream: brain-template"],
+      "brain-template": ["upstream: brain-kit"],
+      "brain-hosting-template": ["upstream: brain-kit"],
+    });
   });
 
   test("a namespace is one colour, so the prefix is legible before it is read", () => {
