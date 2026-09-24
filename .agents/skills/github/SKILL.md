@@ -41,8 +41,9 @@ public project, and the public project never depends on them. The hosting
 template will be extracted *from* `brain-ui`. **Nothing public links to either
 one or depends on it existing.**
 
-When a change needs two public repos, file two issues and cross-link them with
-the `upstream:` labels. When one side is the private instance, only the private
+When a change needs brain-kit and a template, file two issues and cross-link
+them with the `upstream:` labels. The templates have no labels for each other;
+work spanning both goes through a brain-kit issue that links each. When one side is the private instance, only the private
 issue links: a public issue never names, labels or links a private one, and
 never restates a private deployment detail to save the reader a click.
 

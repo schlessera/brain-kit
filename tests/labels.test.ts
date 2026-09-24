@@ -61,7 +61,7 @@ describe("label taxonomy", () => {
     // A public issue never names, labels or links the maintainer's private
     // instance (AGENTS.md, "The five repositories"). Names and descriptions
     // both render on every issue that carries the label.
-    const PRIVATE = /brain-ui(?![-\w])|schlessera\/brain(?![-\w])|\bbrain(?![-\w])\s+repo/;
+    const PRIVATE = /brain-ui(?![-\w])|schlessera\/brain(?![-\w])|(?<![-\w])[`'"]?brain[`'"]?\s+repo/i;
     for (const repo of ALL_REPOS) {
       const labels = labelsFor(repo);
       expect(labels.length).toBeGreaterThan(0);

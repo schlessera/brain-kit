@@ -71,7 +71,7 @@ const RECORDED: Record<string, string> = {
   "scripts/sync-project.ts": "c491185e4368cdc2",
   "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
-  "tests/labels.test.ts": "f37d78332aac7638",
+  "tests/labels.test.ts": "396f8dde5e38d075",
   "tests/project-sync-main.test.ts": "67116a2297046d31",
   "tests/project-sync-item.test.ts": "c8805cd52b00d4a9",
   "packages/core/CHANGELOG.md": "74c0ce78fcafc50e",
