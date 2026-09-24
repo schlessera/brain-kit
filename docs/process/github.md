@@ -19,7 +19,7 @@ taxonomy, `.github/ISSUE_TEMPLATE/` for the shape of an issue.
 | A decision that binds future work | `docs/decisions/`, linked from the issue |
 | A question with no work attached yet | A GitHub Discussion |
 | A security vulnerability | A private advisory — never an issue |
-| Deployment, container or hosting specifics | The private `schlessera/brain-ui` repo |
+| Deployment, container or hosting specifics of the maintainer's instance | The private `schlessera/brain-ui` repo, off the board |
 | Progress on work in flight | Comments on the issue, and the PR |
 
 **Nothing durable lives in a plan document any more.** `docs/plans/` and the old
@@ -28,24 +28,26 @@ every reader had to work out which lines were still true. Decisions moved to
 `docs/decisions/`; open work moved to issues; progress logs were not worth
 keeping once the work shipped.
 
-## The four repositories
+## The five repositories
 
-brain-kit is public and owns every line of behaviour. The other three exist
-because a knowledge base, the thing that hosts it, and one person's actual
-running copy are different objects with different lifetimes.
+Three repositories make up the open-source project and two are one person's
+private instance of it. AGENTS.md ("The five repositories") is the canonical
+statement. This section is the tracker's view of it.
 
 | Repository | Owns | Visibility |
 | --- | --- | --- |
 | **brain-kit** | Every line of behaviour. The published packages. | public |
-| **brain-template** | The starting point for *your brain*: config, skills, empty content. Generated from `template/` here. | public when it is real |
-| **brain-hosting-template** | The starting point for *self-hosting*: container, compose, proxy, branding, over the published packages. | public when it is real |
-| **brain-ui** | One person's actual deployment. An instance, not a product. | **private, permanently** |
+| **brain-template** | The starting point for *your brain*: config, skills, empty content. Generated from `template/` here. | public |
+| **brain-hosting-template** | The starting point for *self-hosting*: a PWA that manages your brain remotely, with container, compose, proxy and branding over the published packages. | public |
+| **brain** | The maintainer's own brain. Personal data. | **private, permanently** |
+| **brain-ui** | The maintainer's own hosted PWA. An instance, not a product. | **private, permanently** |
 
-`brain-ui` is the odd one and the one to get right. It is not "the hosting
-repo" — it is somebody's running installation, with their host, their branding
-and their data. It is where the hosting template will be extracted *from*, and
-it is where a production incident gets written down. **Nothing in a public
-repository should link to it or depend on it existing.**
+The first three are the product and the only repositories on the project
+board. `brain` and `brain-ui` are instances of the two templates: they consume
+the public project, and the public project never depends on, links to or
+describes them. `brain-ui` is where the hosting template will be extracted
+*from*, and it is where a production incident gets written down. **Nothing in
+a public repository should link to either one or depend on it existing.**
 
 ### Where an issue goes
 
@@ -57,8 +59,9 @@ Ask what the issue is actually about:
   interview, what the first clone looks like. → brain-template.
 - **What a generated host contains** — the Dockerfile, the compose file, the
   proxy, the environment contract. → brain-hosting-template.
-- **One deployment's reality** — its host, its data, an incident on it, a
-  migration of its volumes. → brain-ui.
+- **One deployment's reality** — its host, an incident on it, a migration of
+  its volumes. → brain-ui. Its content and data → brain. Neither goes on the
+  project board.
 
 When a change needs two of them, each gets its own issue and both carry the
 `upstream:` label pointing at the other. **A public issue never restates a
@@ -117,8 +120,10 @@ milestones, and its sub-issues carry the milestones individually.
 
 ## The project board
 
-One project, [**brain-kit roadmap**](https://github.com/users/schlessera/projects/1), spanning both repositories. It adds the two
-things labels cannot express: where an item is in flight, and when it is meant
+One project, [**brain-kit roadmap**](https://github.com/users/schlessera/projects/1), spanning the three public repositories: brain-kit, brain-template and
+brain-hosting-template. The private instance repositories are never on it:
+they have their own private board, whose issues may name a public blocker. A
+public issue never names a private one. This board adds the two things labels cannot express: where an item is in flight, and when it is meant
 to happen.
 
 | Field | What it is for |

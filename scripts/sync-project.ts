@@ -3,9 +3,10 @@
 //   bun scripts/sync-project.ts            # dry run: say what would change
 //   bun scripts/sync-project.ts --apply
 //
-// The project spans BOTH repositories — the public `brain-kit` and the private
-// `brain-ui` deployment shell — because they ship as one system and a board
-// that shows half of it is a board you have to remember to look past.
+// The project spans the three public repositories that make up the
+// open-source project: `brain-kit`, `brain-template` and
+// `brain-hosting-template`. The maintainer's private instance repositories are
+// never on it (AGENTS.md, "The five repositories").
 //
 // Needs the `project` scope, which `repo` does not include:
 //
@@ -27,7 +28,11 @@ import { labelsFor } from "./labels.ts";
 
 const OWNER = "schlessera";
 const TITLE = "brain-kit roadmap";
-const REPOS = ["schlessera/brain-kit", "schlessera/brain-ui"] as const;
+const REPOS = [
+  "schlessera/brain-kit",
+  "schlessera/brain-template",
+  "schlessera/brain-hosting-template",
+] as const;
 
 /**
  * The roadmap themes. A track is what an epic is about; a milestone is which
@@ -42,18 +47,9 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   // Getting the thing into somebody else's hands: the two templates, and the
   // documentation that has to stop pointing at a private installation.
   Distribution: [{ epics: [26, 70], also: [69], repo: "schlessera/brain-kit" }],
-  Hardening: [
-    { epics: [], also: [38], repo: "schlessera/brain-kit" },
-    { epics: [19], also: [], repo: "schlessera/brain-ui" },
-  ],
-  Reliability: [
-    { epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" },
-    { epics: [], also: [25], repo: "schlessera/brain-ui" },
-  ],
-  "Design system": [
-    { epics: [39], also: [46, 47, 48], repo: "schlessera/brain-kit" },
-    { epics: [], also: [24], repo: "schlessera/brain-ui" },
-  ],
+  Hardening: [{ epics: [], also: [38], repo: "schlessera/brain-kit" }],
+  Reliability: [{ epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" }],
+  "Design system": [{ epics: [39], also: [46, 47, 48], repo: "schlessera/brain-kit" }],
   "Answer quality": [{ epics: [], also: [49, 50], repo: "schlessera/brain-kit" }],
   Modules: [{ epics: [32], also: [59, 60], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
@@ -676,6 +672,11 @@ if (import.meta.main) {
       const definition = byName.get(field);
       const option = definition?.options?.find((o) => o.name === value);
       if (!definition || !option) continue;
+      const from = currentValues.get(issue.url)?.[field] ?? "(unset)";
+      console.log(
+        `${apply ? "set" : "would set"} ${issue.repo}#${issue.number} ${field}: ${from} -> ${value}`,
+      );
+      edited++;
       if (!apply) continue;
       await gh([
         "project",
@@ -689,7 +690,6 @@ if (import.meta.main) {
         "--single-select-option-id",
         option.id,
       ]);
-      edited++;
     }
   }
 

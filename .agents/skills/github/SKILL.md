@@ -1,6 +1,6 @@
 ---
 name: github
-description: Use when filing, triaging, picking up, updating or closing work in the brain-kit or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which of the two repositories an issue belongs in. Also use before recording found work mid-session.
+description: Use when filing, triaging, picking up, updating or closing work in the brain-kit, brain-template, brain-hosting-template or brain-ui issue trackers — including creating epics and sub-issues, choosing labels and milestones, putting items on the project board, opening a PR against an issue, and deciding which repository an issue belongs in. Also use before recording found work mid-session.
 compatibility: Requires the `gh` CLI, authenticated. Issues, labels, milestones and sub-issues need only repository access. The project board additionally needs the `project` scope on an OAuth token or classic PAT (`gh auth refresh -s project` for an OAuth login) — a fine-grained PAT cannot reach it at all; see "Labels and milestones".
 ---
 
@@ -11,14 +11,17 @@ is the agreement it implements** — read that first if you are deciding
 *whether* something should be an issue. Read this when you are about to run a
 command.
 
-Four repositories, one workflow:
+Five repositories. Three are the open-source project and share one board; two
+are the maintainer's private instance and are never on it. AGENTS.md ("The
+five repositories") is the canonical statement.
 
-| Repo | Visibility | Owns |
-| --- | --- | --- |
-| `schlessera/brain-kit` | public | Every line of behaviour. The packages. |
-| `schlessera/brain-template` | public when real | The starting point for a brain: config, skills, empty content. |
-| `schlessera/brain-hosting-template` | public when real | The starting point for self-hosting: container, compose, proxy. |
-| `schlessera/brain-ui` | **private, permanently** | One person's actual deployment. An instance, not a product. |
+| Repo | Visibility | Owns | On the board |
+| --- | --- | --- | --- |
+| `schlessera/brain-kit` | public | Every line of behaviour. The packages. | yes |
+| `schlessera/brain-template` | public | The starting point for a brain: config, skills, empty content. | yes |
+| `schlessera/brain-hosting-template` | public | The starting point for a hosted PWA: container, compose, proxy. | yes |
+| `schlessera/brain` | **private, permanently** | The maintainer's own brain. Personal data. | no |
+| `schlessera/brain-ui` | **private, permanently** | The maintainer's own hosted PWA. An instance, not a product. | no |
 
 ## Which repo
 
@@ -30,12 +33,13 @@ Ask what the issue is **about**, not where the symptom appeared:
   interview → `brain-template`.
 - **What a generated host contains** — the Dockerfile, compose, the proxy, the
   environment contract → `brain-hosting-template`.
-- **One deployment's reality** — its host, its data, an incident on it →
-  `brain-ui`.
+- **The maintainer's deployment** — its host, an incident on it →
+  `brain-ui`. Its content and data → `brain`.
 
-`brain-ui` is the one to get right. It is not "the hosting repo"; it is
-somebody's running installation, and the hosting template will be extracted
-*from* it. **Nothing public links to it or depends on it existing.**
+`brain` and `brain-ui` are instances of the two templates. They consume the
+public project, and the public project never depends on them. The hosting
+template will be extracted *from* `brain-ui`. **Nothing public links to either
+one or depends on it existing.**
 
 When a change needs two repos, file two issues and cross-link them with the
 `upstream:` labels. A public issue never restates a private deployment detail

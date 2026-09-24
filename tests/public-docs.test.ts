@@ -1,6 +1,6 @@
 /**
- * brain-kit is public, and one of the four repositories is not: `brain-ui` is
- * one person's running installation, permanently private. A public document
+ * brain-kit is public, and two of the five repositories are not: `brain` and
+ * `brain-ui` are the maintainer's own instance, permanently private. A public document
  * that sends a reader there sends them to a 404 and implies a product that
  * does not exist. Self-hosting is served by `brain-hosting-template` instead
  * (#69, and the routing rule in docs/process/github.md).
@@ -23,12 +23,14 @@ function trackedMarkdown(): string[] {
 }
 
 /**
- * The two documents that name the private repository on purpose: they are the
- * routing agreement and the procedure that implements it, and both say in the
- * same line that it is private and permanently so. Naming it as a destination
+ * The three documents that name the private repository on purpose: the
+ * canonical statement of the five repositories (AGENTS.md), the routing
+ * agreement, and the procedure that implements it. Each says in the same line
+ * that it is private and permanently so. Naming it as a destination
  * for *work* is the opposite of naming it as somewhere a reader should go.
  */
 const MAY_NAME_THE_PRIVATE_REPO = [
+  "AGENTS.md",
   "docs/process/github.md",
   ".agents/skills/github/SKILL.md",
 ];
@@ -44,7 +46,7 @@ describe("public documents do not send readers to the private deployment", () =>
     expect(offenders).toEqual([]);
   });
 
-  test("the two documents that may name it still do, so the allowlist is not dead", () => {
+  test("the documents that may name it still do, so the allowlist is not dead", () => {
     for (const f of MAY_NAME_THE_PRIVATE_REPO) {
       expect(REPO_REFERENCE.test(readFileSync(join(ROOT, f), "utf8"))).toBe(true);
     }
