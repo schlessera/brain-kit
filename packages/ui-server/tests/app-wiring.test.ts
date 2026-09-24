@@ -686,7 +686,8 @@ describe("app wiring — health probes the database", () => {
     expect((await send()).status).toBe(200);
 
     // close() releases the handle — the same state a wedged database presents.
-    wired.close();
+    // Awaited: the handle goes only once the scratch prune pass has ended.
+    await wired.close();
     const res = await send();
     expect(res.status).toBe(503);
     const body = await res.json();

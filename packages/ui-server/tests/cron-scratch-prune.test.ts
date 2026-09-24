@@ -9,7 +9,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { createStaticBackendRegistry } from "../src/agent/backend";
+import { createApp } from "../src/app";
 import { createBrainClient } from "../src/brain/client";
+import { resolveServerConfig } from "../src/config/env";
+import { makeFakeBackend } from "./helpers/fake-backend";
 import {
   SCRATCH_PRUNE_DEADLINE_MS,
   SCRATCH_PRUNE_INTERVAL_MS,
@@ -201,6 +205,48 @@ describe("BrainClient.scratchPrune", () => {
         }
       }
       expect(alive).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("BrainUiApp.close", () => {
+  test("resolves only once a scratch prune in flight has been killed and has exited", async () => {
+    const root = mkdtempSync(join(tmpdir(), "brain-app-close-"));
+    const binDir = join(root, "node_modules", ".bin");
+    mkdirSync(binDir, { recursive: true });
+    const capture = join(root, "pid.txt");
+    writeFileSync(
+      join(binDir, "brain"),
+      `#!/usr/bin/env bun\n` +
+        `if (process.argv.includes("--version")) { console.log("0.40.0"); process.exit(0); }\n` +
+        `import { writeFileSync } from "fs";\n` +
+        `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
+        `await Bun.sleep(60_000);\n`
+    );
+    chmodSync(join(binDir, "brain"), 0o755);
+    try {
+      const app = createApp({
+        config: resolveServerConfig({
+          AUTH_MODE: "none",
+          HOST: "127.0.0.1",
+          DB_PATH: ":memory:",
+          BRAIN_PATH: root,
+          BRAIN_UI_PRICING_DISCOVERY: "0",
+        }),
+        observability: createRecordingObservability(),
+        registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
+      });
+      // The boot prune is running: the child wrote its pid and is sleeping.
+      while (!existsSync(capture)) await settle(10);
+      const pid = Number(readFileSync(capture, "utf8"));
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      await app.close();
+      // Already reaped when close resolves: the client awaited the exit
+      // before rejecting, and close awaited the client. A close that only
+      // fired the kill would leave a zombie here, which still answers.
+      expect(() => process.kill(pid, 0)).toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

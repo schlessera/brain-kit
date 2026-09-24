@@ -19,7 +19,7 @@ it cannot grow without bound. Move a file out of it to keep it.
 Both refuse a \`.brain\` or \`.brain/scratch\` that is a symlink: nothing is
 removed anywhere a link points.
 
---json envelope: { action, removed: [{ path, bytes, reason }], bytes, files }`;
+--json envelope: { action, removed: [{ path, bytes, reason }], failed: [{ path, reason }], bytes, files }`;
 
 export const scratchCommand: CoreCommand = {
   summary: "Clean or prune the brain's scratch area",

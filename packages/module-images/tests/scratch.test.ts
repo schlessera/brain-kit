@@ -134,6 +134,60 @@ describe("brain image --scratch", () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
+  test("outside scratch, a corrected name that is a link to an outside file is refused, the file byte-identical", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const victim = join(outside, "victim.png");
+    writeFileSync(victim, "keep me");
+    mkdirSync(join(root, "assets"), { recursive: true });
+    symlinkSync(victim, join(root, "assets", "draft.png"));
+    stubProvider();
+    expect(await run(["a lighthouse", "--draft", "--out", "assets/draft.jpeg"])).toBe(1);
+    expect(out.join("\n")).toContain("symlink");
+    expect(readFileSync(victim, "utf8")).toBe("keep me");
+    expect(readlinkSync(join(root, "assets", "draft.png"))).toBe(victim);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  test("a corrected name whose directory came to resolve into unignored scratch while the request was out is refused", async () => {
+    // The pre-flight saw a plain `assets`; by the time the corrected name is
+    // written, `assets` is a link to the (unignored) scratch directory. By
+    // name the write is content, resolved it is scratch, and scratch's rules
+    // apply to that name on its own.
+    mkdirSync(join(root, "assets"), { recursive: true });
+    mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
+    stubProvider(() => {
+      rmSync(join(root, "assets"), { recursive: true, force: true });
+      symlinkSync(join(".brain", "scratch"), join(root, "assets"));
+    });
+    expect(await run(["a lighthouse", "--draft", "--out", "assets/draft.jpeg"])).toBe(1);
+    expect(out.join("\n")).toContain("brain doctor --fix");
+    expect(scratchFiles()).toEqual([]);
+  });
+
+  test("a derived -2 name that is a link to an outside file is refused, the file byte-identical, the first image kept", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const victim = join(outside, "victim.png");
+    writeFileSync(victim, "keep me");
+    mkdirSync(join(root, "assets"), { recursive: true });
+    symlinkSync(victim, join(root, "assets", "pair-2.png"));
+    // Two images back from OpenAI: the second lands on the `-2` name.
+    process.env.OPENAI_API_KEY = "placeholder-never-sent";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }, { b64_json: Buffer.from("second").toString("base64") }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as unknown as typeof fetch;
+    try {
+      expect(await run(["a lighthouse", "--provider", "openai", "--out", "assets/pair.png"])).toBe(1);
+    } finally {
+      delete process.env.OPENAI_API_KEY;
+    }
+    expect(out.join("\n")).toContain("symlink");
+    expect(readFileSync(victim, "utf8")).toBe("keep me");
+    expect(readFileSync(join(root, "assets", "pair.png"), "utf8")).toBe(PNG_BYTES);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
   test("the ignore rule is checked again after the provider call, so a rule lost in flight refuses the write", async () => {
     ignoreScratch(root);
     // The rule disappears while the request is out: the pre-flight check

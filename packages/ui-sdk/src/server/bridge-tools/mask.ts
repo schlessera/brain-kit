@@ -57,8 +57,16 @@ export async function handleRequestImageMask(
     .join("/");
   const maskRel = options.maskFilename(input.imagePath, canonicalImagePath);
   const absoluteMaskPath = resolve(rootReal, maskRel);
-  const maskAbs = resolveInRepo(options.brainPath, maskRel);
-  if (!maskAbs) {
+  // The mask's directory is canonicalized (contained, through no link that
+  // escapes); the mask's own name is not, so that an entry that is a link is
+  // seen as one and refused by the write, rather than followed to whatever
+  // it points at.
+  const maskParent = resolveInRepo(options.brainPath, dirname(maskRel));
+  if (!maskParent) {
+    throw new Error(`Cannot write a mask for ${input.imagePath}`);
+  }
+  const maskAbs = join(maskParent, basename(maskRel));
+  if (!resolveInRepo(options.brainPath, maskRel)) {
     throw new Error(`Cannot write a mask for ${input.imagePath}`);
   }
   if (maskInScratch(rootReal, maskRel, maskAbs)) {
@@ -68,8 +76,7 @@ export async function handleRequestImageMask(
     writeScratchMask(rootReal, maskAbs, png);
     await bridge.pruneScratch?.();
   } else {
-    mkdirSync(dirname(maskAbs), { recursive: true });
-    writeFileSync(maskAbs, png);
+    writeMaskFile(maskAbs, png);
   }
 
   // Reporting is adapter-owned and deliberately separate from containment.
@@ -186,6 +193,39 @@ export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: st
 }
 
 /**
+ * Write a mask outside the scratch area, never through a link: the entry
+ * itself may not be a symlink or a directory, and the bytes go to a random
+ * temporary sibling renamed onto the name once the directory is re-verified
+ * to be exactly itself. The port of core's `writeFileSafely`; a mask
+ * replaces an earlier mask of the same name, as it always did.
+ */
+export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
+  const parent = dirname(maskAbs);
+  mkdirSync(parent, { recursive: true });
+  const genuine = (): boolean => {
+    try {
+      return realpathSync(parent) === parent && lstatSync(parent).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const swapped = () => new Error(`${parent} is not a directory of its own, so no mask is written there.`);
+  if (!genuine()) throw swapped();
+  const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
+  writeFileSync(tmp, png, { flag: "wx" });
+  try {
+    if (!genuine()) throw swapped();
+    const entry = lstatSync(maskAbs, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) throw new Error(`${maskAbs} is a symlink, so no mask is written through it.`);
+    if (entry?.isDirectory()) throw new Error(`${maskAbs} is a directory, so no mask is written there.`);
+    renameSync(tmp, maskAbs);
+  } catch (error) {
+    if (genuine()) rmSync(tmp, { force: true });
+    throw error;
+  }
+}
+
+/**
  * Write a mask into the scratch area: the port of core's `writeScratchFile`.
  * At the moment of the write, the chain is re-verified, the target's
  * directory must be exactly what its path says (no symlink at any segment),
@@ -215,18 +255,32 @@ export function writeScratchMask(rootReal: string, maskAbs: string, png: Uint8Ar
       throw new Error(`${relative(rootReal, path)} is not a directory of its own, so no mask is written there.`);
     }
   }
-  if (realpathSync(parent) !== parent) {
-    throw new Error(`${relative(rootReal, parent)} resolves to ${realpathSync(parent)}, so no mask is written there.`);
-  }
+  // Re-verified immediately before the rename, and before the temporary
+  // file is removed on failure: a directory swapped for a link while the
+  // temporary file was being written is refused rather than renamed or
+  // removed through. The one syscall between the check and the rename
+  // remains, as in core's primitive.
+  const genuine = (): boolean => {
+    try {
+      scratchDir(rootReal);
+      return realpathSync(parent) === parent && lstatSync(parent).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const swapped = () =>
+    new Error(`${relative(rootReal, parent)} is no longer a directory of its own, so no mask is written there.`);
+  if (!genuine()) throw swapped();
   const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
   writeFileSync(tmp, png, { flag: "wx" });
   try {
+    if (!genuine()) throw swapped();
     const entry = lstatSync(maskAbs, { throwIfNoEntry: false });
     if (entry?.isSymbolicLink()) throw new Error(`${rel} is a symlink, so no mask is written there.`);
     if (entry?.isDirectory()) throw new Error(`${rel} is a directory, so no mask is written there.`);
     renameSync(tmp, maskAbs);
   } catch (error) {
-    rmSync(tmp, { force: true });
+    if (genuine()) rmSync(tmp, { force: true });
     throw error;
   }
 }

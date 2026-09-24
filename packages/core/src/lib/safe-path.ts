@@ -1,4 +1,5 @@
-import { lstatSync, realpathSync, readlinkSync } from "fs";
+import { randomBytes } from "crypto";
+import { lstatSync, mkdirSync, realpathSync, readlinkSync, renameSync, rmSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 
 /**
@@ -89,4 +90,49 @@ export function safeResolve(root: string, relPath: string): string | null {
  */
 export function resolveWritable(root: string, relOrAbs: string): string | null {
   return safeResolve(root, relOrAbs);
+}
+
+/**
+ * Write a file whose directory the caller has already resolved (canonical,
+ * contained) without ever writing through a link or into an inode a hard
+ * link shares: the target's own entry may not be a symlink or a directory,
+ * and the bytes go to a random temporary sibling created exclusively, then
+ * renamed onto the name once the directory is re-verified to be exactly
+ * itself (`realpath` equal, a directory, not a link put in its place). A
+ * rename replaces the directory entry rather than writing through it.
+ * `replace: false` refuses an existing file (EEXIST). The one syscall between
+ * the verification and the rename remains, as it does for any path-based
+ * write in Node. The scratch area has its own primitive on top of the same
+ * shape (`writeScratchFile`); this is for every other write of caller-given
+ * output (`render --out`, `image --out`, the OKF export).
+ */
+export function writeFileSafely(
+  abs: string,
+  data: string | Uint8Array,
+  { replace = true }: { replace?: boolean } = {},
+): void {
+  const parent = dirname(abs);
+  mkdirSync(parent, { recursive: true });
+  const genuine = (): boolean => {
+    try {
+      return realpathSync(parent) === parent && lstatSync(parent).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const swapped = () => new Error(`${parent} is not a directory of its own; refusing to write ${basename(abs)} there`);
+  if (!genuine()) throw swapped();
+  const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
+  writeFileSync(tmp, data, { flag: "wx" });
+  try {
+    if (!genuine()) throw swapped();
+    const entry = lstatSync(abs, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) throw new Error(`${abs} is a symlink; refusing to write through it`);
+    if (entry?.isDirectory()) throw new Error(`EISDIR: ${abs} is a directory`);
+    if (entry && !replace) throw new Error(`EEXIST: ${abs} already exists`);
+    renameSync(tmp, abs);
+  } catch (error) {
+    if (genuine()) rmSync(tmp, { force: true });
+    throw error;
+  }
 }

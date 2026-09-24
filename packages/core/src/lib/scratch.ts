@@ -17,10 +17,10 @@
  * both are refused outright (`ScratchRedirectedError`); the walk reads every
  * entry with `lstat`; a write goes to a temporary sibling and is renamed onto
  * its name, which replaces the directory entry rather than writing through
- * whatever entry was there; and a removal re-verifies the path just before
- * the unlink. Node has no `openat`/`unlinkat`, so a window the width of one
- * syscall remains between each check and its operation; it is named at the
- * check.
+ * whatever entry was there; and a removal, a descent and a rename each
+ * re-verify the path just before they act. Node has no `openat`/`unlinkat`/
+ * `renameat`, so a window the width of one syscall remains between each
+ * check and its operation; it is named at the check.
  */
 import { randomBytes } from "crypto";
 import {
@@ -232,6 +232,23 @@ export function assertScratchWritable(root: string, abs: string): void {
 }
 
 /**
+ * Whether `path` is, right now, a directory of its own inside the verified
+ * scratch chain: `scratchDir` still holds, `path` lies in it, its realpath
+ * is itself (no link at any segment) and `lstat` says directory. The check
+ * a removal, a descent and a rename each repeat just before they act.
+ */
+function genuineDir(root: string, dir: string, path: string): boolean {
+  try {
+    scratchDir(root);
+    if (!under(dir, path)) return false;
+    if (realpathSync(path) !== path) return false;
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The one way bytes land in the scratch area, for every writer: render,
  * image, the OKF export. At the moment of the write it re-checks the chain
  * (`scratchDir`, git's exclusion), requires the target's directory to be
@@ -242,6 +259,14 @@ export function assertScratchWritable(root: string, abs: string): void {
  * name. A rename replaces the directory entry: it never writes through a
  * planted link, and never into an inode a hard link shares with a file
  * elsewhere.
+ *
+ * The directory is re-verified immediately before the rename, and again
+ * before the temporary file is removed on failure, so a directory swapped for
+ * a link while the temporary file was being written is refused rather than
+ * renamed or removed through. What remains, as in the prune, is the one
+ * syscall between that verification and the rename itself: Node has no
+ * `renameat`. A temporary file a refused write leaves behind is pruned like
+ * any other scratch file.
  *
  * `replace` is for a name the caller chose (`--out`): theirs to overwrite. A
  * generated name refuses an existing file. That check is an `lstat` just
@@ -263,22 +288,21 @@ export function writeScratchFile(
   if (!under(dir, abs)) throw new ScratchRedirectedError(`${rel} is outside ${SCRATCH_DIR}/`);
   const parent = dirname(abs);
   realDirectories(dir, parent, rootReal);
-  if (realpathSync(parent) !== parent) {
-    throw new ScratchRedirectedError(`${relative(rootReal, parent)} resolves to ${realpathSync(parent)}`);
-  }
+  const swapped = () => new ScratchRedirectedError(`${relative(rootReal, parent)} is no longer a directory of its own`);
+  if (!genuineDir(root, dir, parent)) throw swapped();
   const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
   writeFileSync(tmp, data, { flag: "wx" });
   try {
+    if (!genuineDir(root, dir, parent)) throw swapped();
     const entry = lstatSync(abs, { throwIfNoEntry: false });
     if (entry?.isSymbolicLink()) throw new ScratchRedirectedError(`${rel} is a symlink`);
     if (entry?.isDirectory()) throw new Error(`EISDIR: ${rel} is a directory`);
     if (entry && !replace) throw new Error(`EEXIST: ${rel} already exists`);
-    // Between the lstat and this rename, the entry could change once more;
-    // rename replaces whatever is there without following it, so nothing
-    // outside scratch is written either way.
     renameSync(tmp, abs);
   } catch (error) {
-    rmSync(tmp, { force: true });
+    // Never remove through a directory that is no longer ours; the prune
+    // takes a stranded temporary file with everything else.
+    if (genuineDir(root, dir, parent)) rmSync(tmp, { force: true });
     throw error;
   }
   return abs;
@@ -303,9 +327,17 @@ export interface ScratchRemoval {
   reason: "age" | "size" | "clean";
 }
 
+export interface ScratchFailure {
+  /** Repo-relative path of the file that could not be removed. */
+  path: string;
+  reason: string;
+}
+
 export interface ScratchReport {
   removed: ScratchRemoval[];
-  /** Bytes still in scratch afterwards. */
+  /** Removals that failed for a reason other than the entry being gone or moved; the file is still there and counted below. */
+  failed: ScratchFailure[];
+  /** Bytes still in scratch afterwards, the files that could not be removed included. */
   bytes: number;
   files: number;
 }
@@ -365,29 +397,34 @@ function listFiles(dir: string): Entry[] {
  * and the unlink syscall an ancestor can still be swapped, and the unlink
  * would then follow the new link. The window is one syscall wide.
  */
-function removeFile(root: string, dir: string, abs: string): boolean {
+type Removal = "removed" | "skipped" | { failed: string };
+
+function removeFile(root: string, dir: string, abs: string): Removal {
+  if (!genuineDir(root, dir, dirname(abs))) return "skipped";
   try {
-    scratchDir(root);
-  } catch {
-    return false;
-  }
-  const parent = dirname(abs);
-  if (!under(dir, abs)) return false;
-  try {
-    if (realpathSync(parent) !== parent) return false;
-    if (lstatSync(abs).isDirectory()) return false;
+    if (lstatSync(abs).isDirectory()) return "skipped";
     unlinkSync(abs);
-    return true;
+    return "removed";
   } catch (error) {
     const code = (error as { code?: string }).code;
-    // EISDIR/EPERM: a directory now sits where the file was. Not ours to remove.
-    if (gone(error) || code === "EISDIR" || code === "EPERM") return false;
-    throw error;
+    // EISDIR: a directory now sits where the file was. Not ours to remove.
+    if (gone(error) || code === "EISDIR") return "skipped";
+    // Anything else (EPERM, EACCES, EBUSY, ...) leaves the file where it is,
+    // and the report says so rather than counting it as reclaimed.
+    return { failed: error instanceof Error ? error.message : String(error) };
   }
 }
 
-function removeEmptyDirs(dir: string, keep: string): void {
-  if (isSymlink(dir)) return;
+/**
+ * Remove the directories the prune emptied, never the scratch root. Before
+ * descending into a directory and again immediately before its rmdir, the
+ * directory is re-verified (`genuineDir`): the chain to scratch, its own
+ * realpath, and that it is a directory rather than a link put in its place
+ * since the listing. A mismatch skips it. The one-syscall window between
+ * that check and the rmdir is the same as the unlink's.
+ */
+function removeEmptyDirs(root: string, scratch: string, dir: string): void {
+  if (!genuineDir(root, scratch, dir)) return;
   let names: Dirent[];
   try {
     names = readdirSync(dir, { withFileTypes: true });
@@ -396,9 +433,10 @@ function removeEmptyDirs(dir: string, keep: string): void {
     throw error;
   }
   for (const entry of names) {
-    if (entry.isDirectory()) removeEmptyDirs(join(dir, entry.name), keep);
+    if (entry.isDirectory()) removeEmptyDirs(root, scratch, join(dir, entry.name));
   }
-  if (dir === keep) return;
+  if (dir === scratch) return;
+  if (!genuineDir(root, scratch, dir)) return;
   try {
     rmdirSync(dir);
   } catch (error) {
@@ -422,33 +460,52 @@ export function pruneScratch(
 ): ScratchReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
+  const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
   const removed: ScratchRemoval[] = [];
+  const failed: ScratchFailure[] = [];
+  // A file the prune could not remove is still there, and stays in the totals.
+  const survivors: Entry[] = [];
   const remove = (entry: Entry, reason: ScratchRemoval["reason"]) => {
-    if (!removeFile(root, dir, entry.abs)) return;
-    removed.push({ path: relative(rootReal, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason });
+    const outcome = removeFile(root, dir, entry.abs);
+    if (outcome === "removed") removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason });
+    else if (outcome !== "skipped") {
+      failed.push({ path: rel(entry.abs), reason: outcome.failed });
+      survivors.push(entry);
+    }
   };
-  let entries = listFiles(dir);
-  for (const entry of entries) if (now - entry.mtimeMs > ttlMs) remove(entry, "age");
-  entries = entries.filter((e) => now - e.mtimeMs <= ttlMs).sort((a, b) => a.mtimeMs - b.mtimeMs);
-  let total = entries.reduce((sum, e) => sum + e.bytes, 0);
-  while (total > maxBytes && entries.length > 0) {
-    const oldest = entries.shift()!;
+  const entries = listFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const kept: Entry[] = [];
+  for (const entry of entries) {
+    if (now - entry.mtimeMs > ttlMs) remove(entry, "age");
+    else kept.push(entry);
+  }
+  let total = kept.reduce((sum, e) => sum + e.bytes, 0);
+  while (total > maxBytes && kept.length > 0) {
+    const oldest = kept.shift()!;
     remove(oldest, "size");
     total -= oldest.bytes;
   }
-  removeEmptyDirs(dir, dir);
-  return { removed, bytes: total, files: entries.length };
+  removeEmptyDirs(root, dir, dir);
+  const left = [...survivors, ...kept];
+  return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length };
 }
 
 /** Empty the scratch area entirely. Refuses a redirected scratch. */
 export function cleanScratch(root: string): ScratchReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
+  const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
   const removed: ScratchRemoval[] = [];
+  const failed: ScratchFailure[] = [];
+  const survivors: Entry[] = [];
   for (const entry of listFiles(dir)) {
-    if (!removeFile(root, dir, entry.abs)) continue;
-    removed.push({ path: relative(rootReal, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason: "clean" });
+    const outcome = removeFile(root, dir, entry.abs);
+    if (outcome === "removed") removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason: "clean" });
+    else if (outcome !== "skipped") {
+      failed.push({ path: rel(entry.abs), reason: outcome.failed });
+      survivors.push(entry);
+    }
   }
-  removeEmptyDirs(dir, dir);
-  return { removed, bytes: 0, files: 0 };
+  removeEmptyDirs(root, dir, dir);
+  return { removed, failed, bytes: survivors.reduce((sum, e) => sum + e.bytes, 0), files: survivors.length };
 }

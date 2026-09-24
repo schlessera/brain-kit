@@ -8,7 +8,6 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "path";
 
@@ -19,7 +18,7 @@ import {
   resolveAlias,
 } from "./indexer.js";
 import { normalizeFrontmatterDates, stringifyDocument } from "./frontmatter.js";
-import { safeResolve } from "./safe-path.js";
+import { safeResolve, writeFileSafely } from "./safe-path.js";
 import { assertScratchWritable, isInScratch, pruneScratch, writeScratchFile } from "./scratch.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { createWikiLinkResolver } from "./indexer/links.js";
@@ -449,8 +448,7 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
       writeScratchFile(root, destination, content, { replace });
       return;
     }
-    mkdirSync(dirname(destination), { recursive: true });
-    writeFileSync(destination, content, replace ? {} : { flag: "wx" });
+    writeFileSafely(destination, content, { replace });
   };
   // All validation and parsing happens before this derived-artifact wipe.
   if (existsSync(output.absolute)) rmSync(output.absolute, { recursive: true, force: true });

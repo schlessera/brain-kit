@@ -135,8 +135,11 @@ export interface BrainUiApp {
   isTurnActive(): boolean;
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
   cancelActiveTurns(): boolean;
-  /** Release process-held resources (the SQLite handle). */
-  close(): void;
+  /**
+   * Release process-held resources (the SQLite handle). Resolves once the
+   * scratch prune pass in flight, if any, has been killed and has exited.
+   */
+  close(): Promise<void>;
 }
 
 function isWebSocketUpgradeAttempt(request: Request): boolean {
@@ -536,10 +539,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: () => {
+    close: async () => {
       host.close();
       subscription.close();
-      void scratchPrune.close();
+      await scratchPrune.close();
       activity.close();
       db.close();
     },

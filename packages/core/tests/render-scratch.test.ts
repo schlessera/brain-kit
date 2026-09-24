@@ -145,6 +145,16 @@ describe("render into the scratch area", () => {
   }, CLI_TIMEOUT_MS);
 });
 
+describe("render --out outside scratch", () => {
+  test("never writes through a link: a --out that is a symlink to a note is refused, and the note is untouched", async () => {
+    symlinkSync("trip.md", join(root, "notes", "link.html"));
+    const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", "notes/link.html"]);
+    expect(res.code).toBe(1);
+    expect(res.stderr + res.stdout).toContain("symlink");
+    expect(readFileSync(join(root, "notes", "trip.md"), "utf8")).toBe("# Trip\n");
+  });
+});
+
 describe("brain doctor", () => {
   test("reports the scratch check, and --fix is idempotent", async () => {
     const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as { checks: { id: string; status: string }[] };

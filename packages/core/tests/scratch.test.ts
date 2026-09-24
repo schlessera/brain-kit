@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 
 import { buildTaxonomy } from "../src/lib/taxonomy.js";
 import { resolveWritable } from "../src/lib/safe-path.js";
@@ -95,7 +95,7 @@ describe("pruneScratch", () => {
     expect(existsSync(join(root, SCRATCH_DIR, "nested"))).toBe(false);
     expect(existsSync(join(root, SCRATCH_DIR))).toBe(true);
     const empty = mkdtempSync(join(tmpdir(), "brain-noscratch-"));
-    expect(pruneScratch(empty, NOW)).toEqual({ removed: [], bytes: 0, files: 0 });
+    expect(pruneScratch(empty, NOW)).toEqual({ removed: [], failed: [], bytes: 0, files: 0 });
     cleanup(empty);
   });
 });
@@ -234,6 +234,70 @@ describe("a prune beside another process", () => {
     const report = cleanScratch(root);
     expect(existsSync(outside.file)).toBe(true);
     expect(report.removed).toEqual([]);
+  });
+
+  /**
+   * The files are gone and the cleanup has just listed `nested`; before it
+   * descends, `nested` becomes a link to an outside directory holding an
+   * empty `deep` of the listed name.
+   */
+  function swapNestedAfterCleanupListing(ageMs: number): { deep: string } {
+    file("nested/deep/x.bin", 5, ageMs);
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    outsides.push(outside);
+    const deep = join(outside, "deep");
+    mkdirSync(deep);
+    const nested = join(root, SCRATCH_DIR, "nested");
+    let reads = 0;
+    const real = fs.readdirSync;
+    const spy = spyOn(fs, "readdirSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+      const result = real(path, options as never);
+      // The first read of `nested` is the listing; the second is the cleanup's.
+      if (String(path) === nested && ++reads === 2) {
+        rmSync(nested, { recursive: true, force: true });
+        symlinkSync(outside, nested);
+      }
+      return result;
+    }) as typeof fs.readdirSync);
+    spies.push(spy);
+    return { deep };
+  }
+
+  test("prune: a directory swapped for a link after the cleanup listed it is not descended into, the outside directory survives", () => {
+    const outside = swapNestedAfterCleanupListing(SCRATCH_TTL_MS + 1000);
+    pruneScratch(root, NOW);
+    expect(existsSync(outside.deep)).toBe(true);
+    expect(lstatSync(outside.deep).isDirectory()).toBe(true);
+  });
+
+  test("clean: the same swap, the outside directory survives", () => {
+    const outside = swapNestedAfterCleanupListing(0);
+    cleanScratch(root);
+    expect(existsSync(outside.deep)).toBe(true);
+  });
+
+  test("a removal refused by the OS leaves the file counted and reported, for prune and for clean", () => {
+    const stuck = file("stuck.pdf", 5, SCRATCH_TTL_MS + 1000);
+    file("fine.pdf", 3, 0);
+    const real = fs.unlinkSync;
+    const spy = spyOn(fs, "unlinkSync").mockImplementation((path) => {
+      if (String(path).endsWith("stuck.pdf")) {
+        const e = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+        e.code = "EPERM";
+        throw e;
+      }
+      real(path);
+    });
+    spies.push(spy);
+    const pruned = pruneScratch(root, NOW);
+    expect(pruned.removed).toEqual([]);
+    expect(pruned.failed).toEqual([{ path: `${SCRATCH_DIR}/stuck.pdf`, reason: "EPERM: operation not permitted" }]);
+    expect(pruned).toMatchObject({ bytes: 8, files: 2 });
+    expect(existsSync(stuck)).toBe(true);
+    const cleaned = cleanScratch(root);
+    expect(cleaned.removed.map((r) => r.path)).toEqual([`${SCRATCH_DIR}/fine.pdf`]);
+    expect(cleaned.failed).toEqual([{ path: `${SCRATCH_DIR}/stuck.pdf`, reason: "EPERM: operation not permitted" }]);
+    expect(cleaned).toMatchObject({ bytes: 5, files: 1 });
   });
 
   test("a file removed between the listing and the unlink is neither an error nor reported", () => {
@@ -376,6 +440,35 @@ describe("writeScratchFile", () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 
+  test("a directory swapped for a link after the temporary file was written is refused, and the outside files are untouched", () => {
+    const rootReal = ready();
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    outsides.push(outside);
+    writeFileSync(join(outside, "x.html"), "keep me");
+    const nested = join(rootReal, SCRATCH_DIR, "nested");
+    const target = join(nested, "x.html");
+    const real = fs.writeFileSync;
+    const spy = spyOn(fs, "writeFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, data: unknown, options?: unknown) => {
+      real(path, data as string, options as never);
+      if (String(path).startsWith(nested + "/.x.html.")) {
+        // The temporary file exists in the real directory; the directory is
+        // now a link, and the outside holds a file of the temporary's name.
+        writeFileSync(join(outside, basename(String(path))), "outside tmp");
+        rmSync(nested, { recursive: true, force: true });
+        symlinkSync(outside, nested);
+      }
+    }) as typeof fs.writeFileSync);
+    try {
+      expect(() => writeScratchFile(root, target, "new bytes")).toThrow(ScratchRedirectedError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readFileSync(join(outside, "x.html"), "utf8")).toBe("keep me");
+    const outsideTmp = readdirSync(outside).filter((f) => f.startsWith(".x.html."));
+    expect(outsideTmp).toHaveLength(1);
+    expect(readFileSync(join(outside, outsideTmp[0]), "utf8")).toBe("outside tmp");
+  });
+
   test("a planted symlink at the target is refused, and its target is untouched", () => {
     const rootReal = ready();
     const outside = outsideDir();
@@ -491,6 +584,7 @@ describe("the commands", () => {
     const report = JSON.parse(res.stdout);
     expect(report).toMatchObject({ action: "clean", files: 0, bytes: 0 });
     expect(report.removed).toEqual([{ path: `${SCRATCH_DIR}/x.pdf`, bytes: 5, reason: "clean" }]);
+    expect(report.failed).toEqual([]);
     expect(existsSync(join(brain, SCRATCH_DIR, "x.pdf"))).toBe(false);
   });
 

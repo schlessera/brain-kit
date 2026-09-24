@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, extname, relative } from "path";
+import { existsSync, readFileSync } from "fs";
+import { basename, dirname, extname, join, relative } from "path";
 
 import {
   SCRATCH_DIR,
@@ -9,6 +9,7 @@ import {
   resolveWritable,
   safeResolve,
   scratchName,
+  writeFileSafely,
   writeScratchFile,
 } from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
@@ -299,40 +300,46 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // under the wrong name only surfaces when something tries to open it.
     const [first, ...rest] = result.images;
     const actualExt = first.mime.replace("image/", "").replace("jpg", "jpeg");
-    let finalAbs = outAbs;
+    let finalRel = outRel;
     let renamed: string | undefined;
-    if (extname(outAbs).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
-      finalAbs = outAbs.replace(/\.[^./\\]+$/, "") + "." + actualExt;
-      renamed = `${report(outAbs)} → ${report(finalAbs)} (model returned ${actualExt})`;
+    if (extname(outRel).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
+      finalRel = outRel.replace(/\.[^./\\]+$/, "") + "." + actualExt;
+      renamed = `${outRel} → ${finalRel} (model returned ${actualExt})`;
     }
 
-    // Into scratch, every name the provider's answer produced (the corrected
-    // extension, the `-2` siblings) goes through the one primitive that
-    // checks the target at the moment of the write: a generated name refuses
-    // an existing file, a name the caller chose (--out) is theirs to replace.
-    const write = (abs: string, data: Uint8Array): boolean => {
-      if (!scratchOutput) {
-        mkdirSync(dirname(abs), { recursive: true });
-        writeFileSync(abs, data);
-        return true;
-      }
+    // Every name the provider's answer produced (the corrected extension,
+    // the `-2` siblings) is resolved and classified on its own: into scratch
+    // (asked for, or resolved into it), the scratch primitive; anywhere else,
+    // a write that still never goes through a link. A generated scratch name
+    // refuses an existing file; a name the caller chose (--out) is theirs to
+    // replace.
+    let wroteScratch = false;
+    const write = (rel: string, data: Uint8Array): boolean => {
       try {
-        writeScratchFile(ctx.root, abs, data, { replace: !toScratch });
+        const resolved = resolveWritable(ctx.root, rel);
+        if (isInScratch(ctx.root, rel) || (resolved !== null && isInScratch(ctx.root, resolved))) {
+          writeScratchFile(ctx.root, rel, data, { replace: !toScratch });
+          wroteScratch = true;
+          return true;
+        }
+        const parent = resolveWritable(ctx.root, dirname(rel));
+        if (!parent) throw new Error(`Output path is not inside the brain: ${rel}`);
+        writeFileSafely(join(parent, basename(rel)), data);
         return true;
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         return false;
       }
     };
-    if (!write(finalAbs, first.data)) return 1;
-    const written = [report(finalAbs)];
+    if (!write(finalRel, first.data)) return 1;
+    const written = [finalRel];
     for (const [i, extra] of rest.entries()) {
-      const alt = finalAbs.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
+      const alt = finalRel.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
       if (!write(alt, extra.data)) return 1;
-      written.push(report(alt));
+      written.push(alt);
     }
     // This command's writes into scratch prune it.
-    if (scratchOutput) pruneScratch(ctx.root);
+    if (wroteScratch) pruneScratch(ctx.root);
 
     const payload = {
       output: written[0],

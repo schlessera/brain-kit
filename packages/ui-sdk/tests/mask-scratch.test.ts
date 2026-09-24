@@ -4,7 +4,8 @@
  * scratch is refused, the write never goes through a planted link, and the
  * host's prune runs afterwards.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import {
   existsSync,
   mkdirSync,
@@ -18,7 +19,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 
 import {
   assertScratchMask,
@@ -95,6 +96,16 @@ describe("request_image_mask into scratch", () => {
     expect(pruned).toHaveLength(0);
   });
 
+  test("outside scratch too, a mask never writes through a link: a symlink at its name is refused, the target untouched", async () => {
+    // The mask's name resolves to another content file through the link;
+    // resolveInRepo allows it (contained), the write refuses it.
+    writeFileSync(join(root, "assets", "other.png"), "keep me");
+    symlinkSync("other.png", join(root, "assets", "photo-mask.png"));
+    await expect(mask("assets/photo.png")).rejects.toThrow(/symlink/);
+    expect(readFileSync(join(root, "assets", "other.png"), "utf8")).toBe("keep me");
+    expect(readlinkSync(join(root, "assets", "photo-mask.png"))).toBe("other.png");
+  });
+
   test("a symlinked scratch is refused even when ignored", () => {
     ignore();
     rmSync(join(root, SCRATCH), { recursive: true, force: true });
@@ -113,8 +124,7 @@ describe("request_image_mask into scratch", () => {
     const victim = join(root, "assets", "photo.png");
     writeFileSync(victim, "keep me");
     symlinkSync(join("..", "..", "assets", "photo.png"), join(root, SCRATCH, "draft-mask.png"));
-    // Canonicalized, the name is the content file: refused as resolving out of scratch.
-    await expect(mask(`${SCRATCH}/draft.png`)).rejects.toThrow(/resolves outside \.brain\/scratch/);
+    await expect(mask(`${SCRATCH}/draft.png`)).rejects.toThrow(/is a symlink/);
     expect(readFileSync(victim, "utf8")).toBe("keep me");
     expect(readlinkSync(join(root, SCRATCH, "draft-mask.png"))).toBe(join("..", "..", "assets", "photo.png"));
   });
@@ -129,6 +139,36 @@ describe("request_image_mask into scratch", () => {
       /not a directory of its own/
     );
     expect(readdirSync(outside)).toEqual([]);
+  });
+
+  test("a directory swapped for a link after the temporary file was written is refused, and the outside files are untouched", () => {
+    ignore();
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    outsides.push(outside);
+    writeFileSync(join(outside, "x-mask.png"), "keep me");
+    const rootReal = realpathSync(root);
+    const nested = join(rootReal, SCRATCH, "nested");
+    mkdirSync(nested);
+    const real = fs.writeFileSync;
+    const spy = spyOn(fs, "writeFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, data: unknown, options?: unknown) => {
+      real(path, data as string, options as never);
+      if (String(path).startsWith(nested + "/.x-mask.png.")) {
+        writeFileSync(join(outside, basename(String(path))), "outside tmp");
+        rmSync(nested, { recursive: true, force: true });
+        symlinkSync(outside, nested);
+      }
+    }) as typeof fs.writeFileSync);
+    try {
+      expect(() => writeScratchMask(rootReal, join(nested, "x-mask.png"), new Uint8Array([9]))).toThrow(
+        /no longer a directory of its own/
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readFileSync(join(outside, "x-mask.png"), "utf8")).toBe("keep me");
+    const outsideTmp = readdirSync(outside).filter((f) => f.startsWith(".x-mask.png."));
+    expect(outsideTmp).toHaveLength(1);
+    expect(readFileSync(join(outside, outsideTmp[0]), "utf8")).toBe("outside tmp");
   });
 
   test("outside a git repository the ignore line is required all the same, and a later negation cancels it", () => {

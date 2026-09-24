@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
 import matter from "gray-matter";
 import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
 
-import { resolveWritable } from "../../lib/safe-path.js";
+import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import {
   assertScratchWritable,
   isInScratch,
@@ -173,7 +173,15 @@ export const renderCommand: CoreCommand = {
     // file, a name the caller chose (--out) is theirs to replace.
     const write = (data: string | Uint8Array) => {
       if (!scratchOutput) {
-        writeFileSync(outAbs, data);
+        // Outside scratch too, never through a link: the directory resolved,
+        // the entry itself checked, the bytes renamed onto the name.
+        const parent = resolveWritable(root, dirname(outRel));
+        if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+        try {
+          writeFileSafely(join(parent, basename(outRel)), data);
+        } catch (error) {
+          throw new UsageError(error instanceof Error ? error.message : String(error));
+        }
         return;
       }
       try {

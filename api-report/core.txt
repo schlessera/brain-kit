@@ -65,6 +65,7 @@ export "." (./src/index.ts)
   SCRATCH_MAX_BYTES
   SCRATCH_TTL_MS
   type SchemaOptions
+  type ScratchFailure
   ScratchNotIgnoredError
   ScratchRedirectedError
   type ScratchRemoval
@@ -152,6 +153,7 @@ export "." (./src/index.ts)
   stringifyDocument
   syncSkills
   validate
+  writeFileSafely
   writeScratchFile
 
 export "./package.json" (./package.json) [asset]
