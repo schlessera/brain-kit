@@ -15,6 +15,8 @@ interface FakeIssue {
   labels?: string[];
   state?: "open" | "closed";
   pr?: boolean;
+  /** For a pull request: whether a closed one merged. */
+  merged?: boolean;
 }
 interface FakeItem {
   id: string;
@@ -34,6 +36,16 @@ const FIELDS = [
   { id: "f-start", name: "Start" },
   { id: "f-target", name: "Target" },
 ];
+
+/**
+ * The `--jq` expressions production passes, verbatim. The fake answers these
+ * and refuses any other, so a changed expression fails here instead of being
+ * answered as if it were right.
+ */
+const STATE_JQ = 'if .pull_request and .state == "closed" and .pull_request.merged_at == null then "unmerged" else .state end';
+const COMMENTS_JQ = ".[].body | @json";
+const DEPENDANTS_JQ = ".[] | select(.pull_request | not) | {number, body} | @json";
+const PR_BODY_JQ = '.body // ""';
 
 /** A board and a tracker behind the exact `gh` calls the script makes. */
 class FakeGitHub {
@@ -64,7 +76,13 @@ class FakeGitHub {
     this.calls.push(args);
     const [a, b] = args;
     const at = (flag: string) => args[args.indexOf(flag) + 1]!;
+    // Flags the parsers depend on: a call without them would get a different
+    // shape from the real gh, so the fake refuses it rather than guess.
+    const need = (flag: string, value: string) => {
+      if (at(flag) !== value) throw new Error(`fake gh: expected ${flag} ${value} in: gh ${args.join(" ")}`);
+    };
     if (a === "api" && b === "--include") return `HTTP/2.0 200 OK\r\nX-Oauth-Scopes: ${this.scopes}\r\n\r\n{}`;
+    if (a === "project" && ["list", "field-list", "item-list", "item-add"].includes(b!)) need("--format", "json");
     if (a === "project" && b === "list") return JSON.stringify({ projects: [{ number: 1, id: "P1", title: "brain-kit roadmap", url: "u" }] });
     if (a === "project" && b === "link") return "";
     if (a === "project" && b === "field-list") return JSON.stringify({ fields: FIELDS });
@@ -81,6 +99,7 @@ class FakeGitHub {
       return JSON.stringify({ id: item.id });
     }
     if (a === "project" && b === "item-edit") {
+      need("--project-id", "P1");
       const item = this.items.find((i) => i.id === at("--id"))!;
       const field = FIELDS.find((f) => f.id === at("--field-id"))!;
       const value = field.options!.find((o) => o.id === at("--single-select-option-id"))!.name;
@@ -88,8 +107,16 @@ class FakeGitHub {
       this.writes.push(`set ${item.url} ${field.name}=${value}`);
       return "";
     }
-    if (a === "issue" && b === "list") return JSON.stringify(this.open(at("--repo")).map((i) => this.json(i)));
-    if (a === "pr" && b === "list") return JSON.stringify(this.prs.filter((p) => p.repo === at("--repo")).map((p) => ({ number: p.number, body: p.body })));
+    if (a === "issue" && b === "list") {
+      need("--state", "open");
+      need("--json", "number,title,url,labels,body");
+      return JSON.stringify(this.open(at("--repo")).map((i) => this.json(i)));
+    }
+    if (a === "pr" && b === "list") {
+      need("--state", "open");
+      need("--json", "number,body");
+      return JSON.stringify(this.prs.filter((p) => p.repo === at("--repo")).map((p) => ({ number: p.number, body: p.body })));
+    }
     if (a === "issue" && b === "edit") {
       const i = this.issue(at("--repo"), Number(args[2]))!;
       i.labels = (i.labels ?? []).filter((l) => l !== at("--remove-label"));
@@ -122,24 +149,31 @@ class FakeGitHub {
       const path = args[2]!;
       const blocked = /^repos\/(.+)\/issues\?state=open&labels=blocked/.exec(path);
       if (blocked) {
+        need("--jq", DEPENDANTS_JQ);
         return this.open(blocked[1]!)
           .filter((i) => i.labels?.includes("blocked"))
           .map((i) => JSON.stringify({ number: i.number, body: i.body ?? "" }))
           .join("\n");
       }
       const comments = /^repos\/(.+)\/issues\/(\d+)\/comments$/.exec(path);
+      if (comments) need("--jq", COMMENTS_JQ);
       if (comments) return (this.comments.get(`${comments[1]}#${comments[2]}`) ?? []).map((c) => JSON.stringify(c)).join("\n");
     }
     if (a === "api" && b) {
       const sub = /^repos\/(.+)\/issues\/(\d+)\/sub_issues$/.exec(b);
       if (sub) return "";
       const pull = /^repos\/(.+)\/pulls\/(\d+)$/.exec(b);
+      if (pull) need("--jq", PR_BODY_JQ);
       if (pull) return this.prs.find((p) => p.repo === pull[1] && p.number === Number(pull[2]))?.body ?? "";
       const one = /^repos\/(.+)\/issues\/(\d+)$/.exec(b);
       if (one) {
         const i = this.issue(one[1]!, Number(one[2]));
         if (!i) throw new Error(`gh: no issue ${b}`);
-        if (args.includes("--jq")) return `${i.state ?? "open"}\n`;
+        if (args.includes("--jq")) {
+          need("--jq", STATE_JQ);
+          const state = i.state ?? "open";
+          return `${i.pr && state === "closed" && !i.merged ? "unmerged" : state}\n`;
+        }
         return JSON.stringify({
           ...this.json(i),
           html_url: url(i.repo, i.number),
@@ -157,12 +191,13 @@ const KIT = "schlessera/brain-kit";
 const saved = { ...runtime };
 afterEach(() => Object.assign(runtime, saved));
 
-/** Runs `main()` against a fake, capturing everything it printed. */
+/** Runs `main()` against a fake, capturing stdout and stderr apart. */
 async function run(fake: FakeGitHub, argv: string[]) {
   const out: string[] = [];
-  Object.assign(runtime, { gh: fake.gh, log: (l: string) => out.push(l), error: (l: string) => out.push(l) });
+  const err: string[] = [];
+  Object.assign(runtime, { gh: fake.gh, log: (l: string) => out.push(l), error: (l: string) => err.push(l) });
   const code = await main(["bun", "sync-project.ts", ...argv]);
-  return { code, out };
+  return { code, out, err };
 }
 
 describe("the full sweep", () => {
@@ -198,11 +233,65 @@ describe("the full sweep", () => {
   test("stops before any write, or any other call, when the token lacks read:org", async () => {
     const fake = new FakeGitHub([{ repo: KIT, number: 1, labels: ["agent-ready"] }], [{ id: "i1", url: url(KIT, 1), Status: "Backlog" }]);
     fake.scopes = "project, repo";
-    const { code, out } = await run(fake, ["--apply"]);
+    const { code, out, err } = await run(fake, ["--apply"]);
     expect(code).toBe(1);
-    expect(out.join("\n")).toContain("`read:org`");
+    // The diagnostic is an error: it goes to stderr, not stdout.
+    expect(err.join("\n")).toContain("`read:org`");
+    expect(out).toEqual([]);
     expect(fake.calls).toEqual([["api", "--include", "user"]]);
     expect(fake.writes).toEqual([]);
+  });
+});
+
+describe("a dry run", () => {
+  test("writes nothing, over a board it would change, and says what it would do", async () => {
+    const fake = new FakeGitHub(
+      [
+        { repo: KIT, number: 1, labels: ["agent-ready"] },
+        { repo: KIT, number: 2, labels: ["agent-ready"] },
+        { repo: KIT, number: 3, labels: ["agent-ready", "blocked"], body: "Blocked by #4" },
+        { repo: KIT, number: 4, state: "closed" },
+      ],
+      [
+        { id: "i1", url: url(KIT, 1), Status: "Backlog" },
+        { id: "i3", url: url(KIT, 3), Status: "Backlog" },
+      ],
+    );
+    const { code, out } = await run(fake, []);
+    expect(code).toBe(0);
+    expect(fake.writes).toEqual([]);
+    expect(fake.calls.some((c) => c[1] === "link")).toBe(false);
+    // What it would have done, so an empty write list is not an empty plan.
+    expect(out).toContain(`would set ${KIT}#1 Status: Backlog -> Ready`);
+    expect(out).toContain(`would add ${KIT}#2  #2`);
+    expect(out).toContain(`would unblock ${KIT}#3: every blocker is closed (${KIT}#4)`);
+  });
+});
+
+describe("a blocker that is a pull request", () => {
+  test("closed without merging, it never counts as closed: the issue stays blocked", async () => {
+    const fake = new FakeGitHub(
+      [
+        { repo: KIT, number: 20, pr: true, state: "closed", merged: false },
+        { repo: KIT, number: 21, labels: ["agent-ready", "blocked"], body: "Blocked by #20" },
+      ],
+      [{ id: "i21", url: url(KIT, 21), Status: "Backlog" }],
+    );
+    const { out } = await run(fake, ["--apply"]);
+    expect(out.some((l) => l.startsWith(`cannot verify blocked ${KIT}#21`))).toBe(true);
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("merged, it counts as closed: the issue unblocks", async () => {
+    const fake = new FakeGitHub(
+      [
+        { repo: KIT, number: 20, pr: true, state: "closed", merged: true },
+        { repo: KIT, number: 21, labels: ["agent-ready", "blocked"], body: "Blocked by #20" },
+      ],
+      [{ id: "i21", url: url(KIT, 21), Status: "Backlog" }],
+    );
+    await run(fake, ["--apply"]);
+    expect(fake.writes).toEqual([`comment ${KIT}#21`, `unlabel ${KIT}#21`, `set ${url(KIT, 21)} Status=Ready`]);
   });
 });
 
