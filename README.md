@@ -14,7 +14,8 @@ with an **individualized directory taxonomy** that works out of the box with:
 - SQLite hybrid search (FTS5 + sqlite-vec) with optional embeddings
 - an MCP server (`brain_*` tools) for any agent session
 - workflow skills (core lifecycle + optional modules: jobs, speaking, finance)
-- optionally, a self-hosted chat UI (brain-ui, separate repo)
+- optionally, a self-hosted chat UI, deployed from
+  [brain-hosting-template](https://github.com/schlessera/brain-hosting-template)
 
 ## What makes it different
 

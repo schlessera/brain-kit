@@ -372,10 +372,8 @@ Historical anchors, **not** re-checked because they describe what was true when
 a record was written, not what the code relies on now: `Investigated against:`,
 `docs/decisions/container-privilege.md:12-14` (investigated against SDK
 0.3.265), `Claude CLI 2.1.236`, `container-privilege.md:990` (a question about
-CLI 2.1.236), `Claude Agent SDK 0.3.241 typings`,
-`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings), and
-`2.1.233`, `.agents/notes/skills-catalog-audit.md:86` (an inventory listing CLI
-2.1.233).
+CLI 2.1.236), and `Claude Agent SDK 0.3.241 typings`,
+`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings).
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
 the absence of a *fourth* mechanism — `AT LEAST three`,

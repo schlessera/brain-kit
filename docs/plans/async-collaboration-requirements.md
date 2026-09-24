@@ -229,11 +229,11 @@ Stated before the requirements because five of them derive from it.
   separate loopback listener. Revision 1's "no secret to rotate" did not address the guard.
 - R20. **The poke's recovery claim is bounded.** HTTP cannot reach a dead process or a blocked
   event loop; supervisord already restarts a crashed server
-  (`[brain-ui] config/supervisord.conf:54-62`). The poke detects a *stopped
+  (the deployment's supervisord configuration). The poke detects a *stopped
   interval* via a persisted scheduler heartbeat, re-arms it or runs one drain, and prevents
   overlap. A hung event loop is a supervisor health concern, not this feature's.
-- R21. The generated crontab gains the five-minute poke line
-  (`[brain-ui] scripts/entrypoint.sh:142-161`).
+- R21. The generated crontab gains the five-minute poke line (the deployment's
+  entrypoint, owned by brain-hosting-template).
 - R22. Claiming is `BEGIN IMMEDIATE`. WAL and `busy_timeout = 5000` are already set for
   two-process writes (`packages/ui-server/src/db/client.ts:25-35`), so no posture change is
   needed — but the invariant is explicit: **an immediate transaction covers the claim or the

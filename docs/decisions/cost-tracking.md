@@ -30,7 +30,7 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 ### Deferred to Follow-Up Work
 
 - ~~Provider-route-aware price selection~~ — **shipped in #57**, see below.
-- brain-ui deployment shell: dependency bump + verifying the cron env allowlist in `scripts/entrypoint.sh` exposes the same credentials the server classifies against — separate PR in the brain-ui repo after release.
+- Deployments: after release, a deployment bumps the dependency and verifies its cron env allowlist exposes the same credentials the server classifies against. That work belongs to brain-hosting-template, not to this repo.
 
 ---
 

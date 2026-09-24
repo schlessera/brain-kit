@@ -127,10 +127,9 @@ needs an API key or the network.
 The header of `tests/env-core-sync.test.ts` records why the `env-core.ts` files
 remain synchronized copies instead of moving into a shared package.
 
-brain-kit and brain-ui each keep their own copies of the invisible-character
-and leakage gates. brain-ui's invisible-character gate stays dependency-free
-so it can run before `bun install`; each leakage gate keeps its
-deployment-specific patterns.
+The invisible-character and leakage gates here are brain-kit's own. A
+deployment keeps its own copies with its own patterns, and a copy that runs
+before `bun install` stays dependency-free.
 
 ## Releasing
 

@@ -616,7 +616,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 - Create: `packages/ui-server/src/inbox/runtime.ts`
 - Create: `packages/ui-server/src/routes/internal.ts`
 - Modify: `packages/ui-server/src/app.ts` (mount internal route **before** the guard)
-- Modify: `[brain-ui] scripts/entrypoint.sh` (five-minute poke line)
+- Deployment: the hosting template's entrypoint gains the five-minute poke line (brain-hosting-template, not this repo)
 - Test: `packages/ui-server/tests/inbox-runtime.test.ts`
 
 **Approach:**
@@ -1322,7 +1322,7 @@ Not a CI job — a gate you run deliberately when considering a new model.
   package would version and publish independently of the thing it constrains.
 - **Never in CI.** It needs three provider keys, spends real money, and is non-deterministic.
   Follow the established convention for exactly this situation — the opt-in flag that already
-  guards the live tests (`BRAIN_UI_LIVE_TESTS=1` in brain-ui) — so it can never join a default
+  guards the live tests (`BRAIN_UI_LIVE_TESTS=1`) — so it can never join a default
   run by accident. `evals/` sits outside the test glob as a second line of defence.
 - **One command per candidate:** `bun run eval:triage --model <id> --provider <p> --effort <e>`.
   Providers are adapters (Anthropic / OpenAI-compatible / Gemini) so a new endpoint is a config
@@ -1402,13 +1402,13 @@ miss escalations fails it
 
 ## Documentation / Operational Notes
 
-- `docs/decisions.md` (brain-ui) needs two entries: the narrowed amendment to the
+- The decision records need two entries: the narrowed amendment to the
   never-act-on-a-share decision (origin R31), and quarantine-not-notify as an instance of
   fail-loud (origin R36).
 - New env values (`MAX_AUTONOMOUS_RUNS`, budget caps and reserve, coalescing window, staleness
   threshold) join the descriptor array; env docs regenerate.
-- The crontab poke line lands in brain-ui's `entrypoint.sh` — a brain-ui release, not a
-  package one.
+- The crontab poke line lands in the hosting template's entrypoint — a template release,
+  not a package one.
 - Release is a lockstep minor with a changeset and a regenerated api-surface report.
 - The release note records the measured cache-read ratio (U17) and the containment pass date
   (U15).
