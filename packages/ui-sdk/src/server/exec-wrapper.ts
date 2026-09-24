@@ -43,7 +43,7 @@ export const EXEC_WRAPPER_ENV = "BRAIN_UI_EXEC_WRAPPER";
  * exception — so once a wrapper has dropped to another uid and exec'd in
  * place, the server can signal nothing at all and the turn keeps running after
  * an abort. That is measured, not theorised:
- * `docs/decisions/container-privilege.md`, "Cancellation".
+ * brain-hosting-template `docs/decisions/container-privilege.md`, "Cancellation".
  *
  * A host that drops privileges therefore supplies a narrowly authorised
  * helper, invoked as `<killer> <pgid> <TERM|KILL|INT>`. This repository
@@ -88,7 +88,7 @@ export function validateExecWrapper(raw: string | undefined): string | undefined
  * And the security reason underneath that: `PATH` in a subprocess environment
  * must not get to choose which `bash` runs, because agent-writable code on it
  * would then be selected by the very mechanism meant to contain the agent
- * (`docs/decisions/container-privilege.md`, "Use absolute commands").
+ * (brain-hosting-template `docs/decisions/container-privilege.md`, "Use absolute commands").
  *
  * Resolution uses THIS process's PATH, which the agent cannot write, and
  * happens only on the wrapped path — an unwrapped spawn passes the argv
@@ -192,7 +192,7 @@ export function killWrapped(
         `Could not signal process group ${proc.pid} (${code ?? "unknown error"}). ` +
           `The wrapper at ${wrapper} appears to run as a uid this process cannot signal, ` +
           `so the aborted work is STILL RUNNING. Configure ${EXEC_KILLER_ENV} with an ` +
-          "authorised cancellation helper — see docs/decisions/container-privilege.md."
+          "authorised cancellation helper — see docs/decisions/container-privilege.md in brain-hosting-template."
       );
     }
   };

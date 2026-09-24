@@ -5,7 +5,7 @@ packaging weaknesses. Closing them was sequenced across four releases, and this
 is the reasoning behind that sequencing and each fix. Three of the four shipped
 — 0.32.0 Boundary, 0.33.0 Kit owns the app, 0.34.0 One backend seam. The fourth,
 least privilege in the container, is open, and belongs to the hosting
-template rather than to this repo (`container-privilege.md`).
+template rather than to this repo (its container privilege record).
 
 The original plan's unit tables and its forty-row progress log are gone: the
 code is the answer to what landed, and the git history is the answer to when.
@@ -16,8 +16,8 @@ change has to respect.
 before the container spike ran; the spike then measured two things that changed
 it — a plain uid drop breaks cancellation, and the pi backend cannot stay in the
 server process. Read
-[`container-privilege.md`](container-privilege.md) instead, and treat 8 as the
-question it was answering.
+[the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) in brain-hosting-template
+instead, and treat 8 as the question it was answering.
 
 ## Key Technical Decisions
 
@@ -125,4 +125,4 @@ question it was answering.
     same symptom could come from either, so they are **0.34.0** (seam) and **0.34.1** (splits), each its own
     image. For the same reason the cron bin and emitters (U13/U14) ship as
     **0.33.0** with the denylist unchanged and the allowlist (U21) as
-    **0.33.1**: both change what a scheduled job sees at `cron-run.ts:218`.
+    **0.33.1**: both change what a scheduled job sees in the deployment's cron runner.

@@ -39,7 +39,7 @@ next to it.
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
   `packages/ui-sdk/src/server/subprocess-env.ts:122`), as
-  [container-privilege.md](container-privilege.md) assigns it.
+  [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
   (`Route the Claude Code subprocess`,
@@ -135,13 +135,14 @@ from a new lockfile.**
 3. The measured pair lives in one constant, and a keyless test fails when the
    installed SDK is not the one it names (the section after).
 
-This does not contradict [container-privilege.md](container-privilege.md). Its
-row for the CLI (`/opt/claude/bin/claude`, `container-privilege.md:74`) asks for
-a real, root-owned, non-writable file, not a symlink into a home directory. The
-built-in binary lives under the application's own install, which that record
-already requires to be root-owned and non-writable at runtime (`/opt/brain-ui`,
-`container-privilege.md:79`). The invariant holds; only the path changes, and
-the separate install step becomes unnecessary.
+This does not contradict [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md)
+(brain-hosting-template). Its row for the CLI, `/opt/claude/bin/claude` in "1.
+Directory ownership map", asks for a real, root-owned, non-writable file, not a
+symlink into a home directory. The built-in binary lives under the
+application's own install, which that record already requires to be
+root-owned and non-writable at runtime (its `/opt/brain-ui` row). The
+invariant holds; only the path changes, and the separate install step becomes
+unnecessary.
 
 ### Why this one
 
@@ -165,7 +166,7 @@ the separate install step becomes unnecessary.
 | --- | --- | --- |
 | **Keep a host-installed binary, pinned** (`claude install <version>` in the image build, bumped by hand) | The pin and the SDK lockfile drift apart in either direction, and nothing checks that they agree. | The runner-up, and what the `CLAUDE_CODE_PATH` override still allows. Lost because it adds a second pin to coordinate, in a file this repo's tests cannot read. |
 | **Rebuild on release, installing `latest`** | The version is whatever was newest at build time. Two builds of one commit can differ; a rollback cannot rebuild the old binary. | Not reproducible. |
-| **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime (`Immutable executable prefix`, `container-privilege.md:71`), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
+| **Entrypoint updates before serving** (`claude update`) | Boot needs the network and fails or stalls when the download does; the version changes on a restart with no code change; a partial download at boot. | The executable prefix is immutable at runtime ("Immutable executable prefix" in the container privilege record, brain-hosting-template), so the entrypoint would have to write it; and a version that moves on restart is exactly the invisibility this spike is about. |
 | **Sidecar or scheduled updater** | The binary changes under a running server, possibly between two turns of one conversation, with no deploy event to attach a re-check to. | Same immutability conflict, and the worst observability of the set. |
 | **`npx`/`bunx` resolution at spawn** | Unless run with `--no-install` against a preinstalled package, a spawn can download (`bunx --help`: "automatically installing into a global shared cache if not installed"), and the resolved version can change between turns; the package cache is a writable place the spawned executable comes from. | Without `--no-install` it makes the registry a runtime dependency. With it, over a preinstalled Claude Code package, it is the pinned host install above plus a resolution step on every turn — still a second pin, and no longer the SDK's binary. |
 | **Do nothing** | Today's state: whatever binary the host installs, pinned or not, and nothing in this repo knows which. | The problem this record exists to fix. |
@@ -369,11 +370,10 @@ until re-measured.
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2629-2652` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:74` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:707,725`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 Historical anchors, **not** re-checked because they describe what was true when
-a record was written, not what the code relies on now: `Investigated against:`,
-`docs/decisions/container-privilege.md:12-14` (investigated against SDK
-0.3.265), `Claude CLI 2.1.236`, `container-privilege.md:990` (a question about
-CLI 2.1.236), and `Claude Agent SDK 0.3.241 typings`,
-`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings).
+a record was written, not what the code relies on now: `Claude Agent SDK 0.3.241 typings`,
+`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings). The
+container privilege record's own version anchors moved with it to
+brain-hosting-template.
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
 the absence of a *fourth* mechanism — `AT LEAST three`,
@@ -403,8 +403,8 @@ into them.
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:92-96` and admitted
   to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:58`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`). The `container-privilege.md` table keeps both
-  (`CLAUDE_CODE_OAUTH_TOKEN`, `container-privilege.md:411-412`).
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`). The container privilege record's
+  environment table (brain-hosting-template) keeps both.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:131-133`).
   A turn's environment is the filtered agent environment plus the profile's

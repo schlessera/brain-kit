@@ -46,6 +46,37 @@ const CITATION = new RegExp(`^(${FILE})?:(\\d+(?:-\\d+)?(?:,\\s*\\d+(?:-\\d+)?)*
 const LOOSE_CITATION =
   /(?:[\w-]?\.[A-Za-z]\w*|\/[\w.-]+|[A-Z][A-Za-z]*file|\b[A-Z][A-Z0-9_-]{2,})\s*:\s*\d|#L\d/;
 
+/**
+ * `[repo] path:12` — a citation into another repository. Only the public
+ * repositories of the open-source project may be cited that way (#303); a
+ * public record never cites the maintainer's private instance (AGENTS.md,
+ * "The five repositories"). Read loosely, so a respelling (`[[brain]]`,
+ * `[Schlessera/Brain-UI]`, a path with a space, a URL) is judged rather than
+ * slipping through as some other kind of span.
+ */
+const EXTERNAL_CITATION = /^\[+([^\]]*)\]+\s*\(?\s*(\S.*?(?::\s*\d|#L\d).*?)\)?$/;
+
+/** A path inside the named repository, and its lines: `scripts/a b.sh:4-9`. */
+const EXTERNAL_PATH = /^([^:]+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
+
+/** The repositories a `[repo] path:line` citation may name. */
+export const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
+
+/**
+ * The repository a bracket names, or undefined when it names none of the
+ * project's: `[Schlessera/Brain-UI]`, `[ brain-ui ]` and
+ * `[https://github.com/schlessera/brain-ui.git/]` are one repository, while
+ * `[data-x]` and `[server]` are CSS and log text, not a repository.
+ */
+export function repoIdentity(prefix: string): string | undefined {
+  const id = prefix
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:https?:\/\/|git@)?(?:www\.)?(?:github\.com[/:])?(?:schlessera\/)?/, "")
+    .replace(/(?:\.git)?\/*$/, "");
+  return /^brain(?:-[a-z0-9-]+)?$/.test(id) ? id : undefined;
+}
+
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(
   `(?<![\\w\`/.-])(${FILE}|[\\w@.-]+/[\\w@./-]*[\\w@-]|[A-Z][A-Z0-9_-]+|\\.[\\w.-]+)[ \\t]*:[ \\t]*\\n?[ \\t]*\\d+`,
@@ -77,10 +108,16 @@ export interface Citation {
   unreadable?: boolean;
   /** For an extensionless `name:12`: the name, which must be a file to count. */
   fileName?: string;
+  /** For `[repo] path:12`: the other repository it cites. */
+  repo?: string;
 }
 
 export type Verdict =
   | { kind: "anchored"; file: string }
+  /** Cites a public repository of the project: accepted, not verifiable here. */
+  | { kind: "external"; repo: string }
+  /** Cites a private repository: never accepted, whatever an exception says. */
+  | { kind: "private"; repo: string; reason: string }
   | { kind: "drifted"; file: string; range: string; found: number[] }
   | { kind: "unanchored"; reason: string }
   | { kind: "unresolved"; reason: string };
@@ -142,6 +179,22 @@ export function parseCitations(doc: string, body: string): Citation[] {
     const lineWithColumn = !match && /^:\s*\d/.test(content);
     citationish[i] =
       Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);
+    const external = content.match(EXTERNAL_CITATION);
+    const repo = external ? repoIdentity(external[1]) : undefined;
+    if (external && repo !== undefined) {
+      citationish[i] = true;
+      const target = external[2].trim().match(EXTERNAL_PATH);
+      citations.push({
+        doc,
+        line: lineAt(span.index!),
+        text: content,
+        path: target?.[1],
+        ranges: [],
+        anchor: undefined,
+        repo,
+      });
+      continue;
+    }
     if (!match && (continuesCitation || lineWithColumn)) {
       citations.push({
         doc,
@@ -293,6 +346,25 @@ export function checkCitation(
   tree: Tree = repoTree(),
 ): Verdict {
   if (citation.bare) return { kind: "unanchored", reason: "written outside a code span" };
+  if (citation.repo !== undefined) {
+    if (citation.repo === "brain-kit") {
+      return { kind: "unresolved", reason: "names this repository; cite the path without a prefix" };
+    }
+    if (!CITABLE_REPOS.has(citation.repo)) {
+      return {
+        kind: "private",
+        repo: citation.repo,
+        reason: `cites ${citation.repo}, which is not a public repository of the project; a public record never cites one`,
+      };
+    }
+    // Only a path inside the named repository is that repository's: a URL or
+    // a `../` could point anywhere, whatever the prefix says.
+    const path = citation.path;
+    if (!path || /:\/\/|^\/|(?:^|\/)\.\.(?:\/|$)/.test(path)) {
+      return { kind: "unresolved", reason: `not a \`path:line\` inside ${citation.repo}` };
+    }
+    return { kind: "external", repo: citation.repo };
+  }
   if (citation.unreadable) {
     return { kind: "unresolved", reason: "not a `path:line` this check can read: another repository, or a bare line number" };
   }
@@ -334,50 +406,7 @@ export function checkCitation(
 export type CitationException = string | { reason: string; occurrences: number };
 
 export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
-  // Another repository. The `[brain-ui]` prefix says so; this check reads only
-  // this tree.
-  ...Object.fromEntries(
-    [
-      "docker-compose.yml:32-41",
-      "docker-compose.yml:36",
-      "docs/examples/docker-compose.coolify.yml:40-45",
-      "scripts/brain-dispatch.sh:17-38",
-      "scripts/entrypoint.sh:109-110",
-      "scripts/entrypoint.sh:112-128",
-      "scripts/entrypoint.sh:147-187",
-      "scripts/entrypoint.sh:194-210",
-      "scripts/entrypoint.sh:212-232",
-      "scripts/entrypoint.sh:234-235",
-      "scripts/entrypoint.sh:47-55",
-      "scripts/entrypoint.sh:59-85",
-      "Dockerfile:217-231",
-      "Dockerfile:239-244",
-      "Dockerfile:246-258",
-      "Dockerfile:269-287",
-      "config/supervisord.conf:43-58",
-    ].map((cited) => [
-      `docs/decisions/container-privilege.md|[brain-ui] ${cited}`,
-      "cites the private deployment repository, which is not in this tree",
-    ]),
-  ),
-  "docs/decisions/hardening.md|cron-run.ts:218":
-    "cites the private deployment repository's cron runner, which is not in this tree",
-
   // A dependency's installed source, at the version the record measured.
-  "docs/decisions/container-privilege.md|sdk.d.ts:2259-2278":
-    "the Claude Agent SDK's installed sdk.d.ts, not in this tree",
-  "docs/decisions/container-privilege.md|sdk.d.ts:8441-8474":
-    "the Claude Agent SDK's installed sdk.d.ts, not in this tree",
-  "docs/decisions/container-privilege.md|settings-manager.js:169":
-    "pi 0.84.4's installed settings-manager.js, not in this tree",
-  "docs/decisions/container-privilege.md|package-manager.js:1988-1993":
-    "pi 0.84.4's installed package-manager.js, not in this tree",
-  "docs/decisions/container-privilege.md|loader.js:473-482":
-    "pi 0.84.4's installed extensions/loader.js, not in this tree",
-  "docs/decisions/container-privilege.md|loader.js:320-323":
-    "pi 0.84.4's installed extensions/loader.js, not in this tree",
-  "docs/decisions/container-privilege.md|core/exec.js:10-16":
-    "pi 0.84.4's installed core/exec.js, not in this tree",
   ...Object.fromEntries(
     [
       "node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889",
@@ -404,8 +433,6 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // decided. That code is gone or now does the opposite, so there is nothing
   // current to anchor to, and re-pointing would make the record claim
   // something about code it never described.
-  "docs/decisions/container-privilege.md|subprocess-env.ts:119-135":
-    "describes the 0.32 denylist filter; filterSubprocessEnv is now an allowlist",
   "docs/decisions/design-kit.md|chat-page.tsx:142,158,168":
     "the static getState call sites this audit found were since fixed",
   "docs/decisions/design-kit.md|composer.tsx:205":
@@ -552,7 +579,10 @@ export function exceptionMismatches(
 ): { key: string; expected: number; actual: number }[] {
   const actual = new Map<string, number>();
   for (const report of reports) {
-    if (report.verdict.kind === "anchored" || !report.exception) continue;
+    // An exception never covers an external citation, which needs none, or a
+    // private one, which none may excuse, so an entry for either is stale.
+    const kind = report.verdict.kind;
+    if (kind === "anchored" || kind === "external" || kind === "private" || !report.exception) continue;
     const key = `${report.citation.doc}|${report.citation.text}`;
     actual.set(key, (actual.get(key) ?? 0) + 1);
   }
@@ -561,6 +591,15 @@ export function exceptionMismatches(
     const found = actual.get(key) ?? 0;
     return found === expected ? [] : [{ key, expected, actual: found }];
   });
+}
+
+/**
+ * Whether a report fails the check: anything not anchored or external that no
+ * exception covers, and a citation of a private repository, always.
+ */
+export function failing(report: Report): boolean {
+  if (report.verdict.kind === "private") return true;
+  return report.verdict.kind !== "anchored" && report.verdict.kind !== "external" && !report.exception;
 }
 
 export function describe(report: Report): string {
@@ -574,22 +613,35 @@ export function describe(report: Report): string {
         `${where} does not start on \`${citation.anchor}\` in ${verdict.file}:${verdict.range}` +
         (verdict.found.length ? ` — it is at line ${verdict.found.join(", ")}` : " — it is not in the file")
       );
+    case "external":
+      return `${where} cites ${verdict.repo}, not verifiable from this tree`;
     case "unanchored":
     case "unresolved":
+    case "private":
       return `${where} ${verdict.kind}: ${verdict.reason}`;
   }
 }
 
-if (import.meta.main) {
-  const reports = checkRecords();
+/** What the command prints: each failure, the counts, each stale exception. */
+export function summarize(
+  reports: Report[],
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
+): string[] {
+  const lines: string[] = [];
   const counts: Record<string, number> = {};
   for (const report of reports) {
-    const key = report.exception ? "exception" : report.verdict.kind;
+    const kind = report.verdict.kind;
+    const key = report.exception && kind !== "private" && kind !== "external" ? "exception" : kind;
     counts[key] = (counts[key] ?? 0) + 1;
-    if (report.verdict.kind !== "anchored" && !report.exception) console.log(describe(report));
+    if (failing(report)) lines.push(describe(report));
   }
-  console.log(`\n${reports.length} citation(s):`, counts);
-  for (const { key, expected, actual } of exceptionMismatches(reports)) {
-    console.log(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
+  lines.push(`\n${reports.length} citation(s): ${JSON.stringify(counts)}`);
+  for (const { key, expected, actual } of exceptionMismatches(reports, exceptions)) {
+    lines.push(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
   }
+  return lines;
+}
+
+if (import.meta.main) {
+  for (const line of summarize(checkRecords())) console.log(line);
 }

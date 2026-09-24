@@ -51,10 +51,8 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  * until the digest is updated. The failure prints the new digest and the
  * paragraphs behind it, so an update is a reviewed diff of both.
  *
- * - Three decision records cite the private repository's files, pending #303,
- *   which decides where the container design they describe belongs.
- * - Tooling pending its own issue: the citation checker's form for another
- *   repository (#303).
+ * - The citation checker and its test, which name a private repository as
+ *   the case they must reject (#303).
  * - Tests and the board sync that name the private repositories on purpose:
  *   as negative fixtures a guard must refuse, or as the rule that keeps
  *   them off the board. This is the explicit list of such fixtures (#305);
@@ -64,12 +62,9 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *   version time, from carrying a reference past this test.
  */
 const RECORDED: Record<string, string> = {
-  "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
-  "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
-  "docs/decisions/README.md": "4ba97a8e9273de8d",
-  "scripts/check-citations.ts": "208a75668bf914f4",
+  "scripts/check-citations.ts": "477b086190156d38",
   "scripts/sync-project.ts": "c491185e4368cdc2",
-  "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
+  "tests/decision-citations.test.ts": "aa6c36c0657d0b6a",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
   "tests/labels.test.ts": "396f8dde5e38d075",
   "tests/project-sync-main.test.ts": "67116a2297046d31",
@@ -119,8 +114,10 @@ const PRIVATE_REFERENCES: [string, RegExp][] = [
   ["its parts or history", new RegExp(`\\bmirrored in \`scripts/entrypoint\\.sh\`|\`bun install\`ed by entrypoint\\.sh|\\b${NAME}['\u2019]s (?:hardcoded|container|shell|entrypoint|image|cron)\\b|\\bdescends from ${NAME}|\\bconsumer \\(brain-ui\\)`, "i")],
   // The two repositories named side by side, as peers that each keep something.
   ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME} (?:each|both|repos|repositories)\\b`, "i")],
-  // A citation into it, never a Markdown link whose text is the product name.
-  ["a citation into it", /\[brain-ui\](?!\()/i],
+  // A citation into it, in any spelling (`[[brain]]`, `[Schlessera/Brain-UI]`,
+  // `[brain-ui](Dockerfile:12)`), never a Markdown link whose text is the
+  // product name and whose target is not a line.
+  ["a citation into it", /\[+\s*(?:schlessera\/)?brain(?:-ui)?\s*\]+(?!\((?![^)]*:\s*\d)[^)]*\))/i],
 ];
 
 const referencesIn = (text: string) =>
@@ -194,6 +191,11 @@ describe("public documents do not send readers to the private repositories", () 
     "- `docs/decisions.md` (brain-ui) needs two entries: the narrowed amendment to the",
     "- The crontab poke line lands in brain-ui's `entrypoint.sh` — a brain-ui release, not a",
     "(`[brain-ui] config/supervisord.conf:54-62`). The poke detects a *stopped",
+    "(`[[brain]] notes/x.md:1`)",
+    "(`[Schlessera/Brain-UI] Dockerfile:12`)",
+    "(`[ brain ] docs/a file.md:1`)",
+    "(`[brain-ui](Dockerfile:12)`)",
+    "(`[brain-ui]Dockerfile:12`)",
     "- brain-ui deployment shell: dependency bump + verifying the cron env allowlist in `scripts/entrypoint.sh` exposes the same credentials the server classifies against — separate PR in the brain-ui repo after release.",
     "worker) lives in the separate `brain-ui` repo. Storybook/Vite would be the",
     "### 3.6 The deployment shell (phase 5, `brain-ui` repo)",
