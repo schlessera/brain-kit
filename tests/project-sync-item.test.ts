@@ -49,7 +49,8 @@ const run = (
   opts: { apply?: boolean; current?: Record<string, string | undefined>; itemId?: string | null; failEdit?: boolean } = {},
 ) => {
   const r = recorder(opts.failEdit);
-  const result = syncItem(issue(labels), {
+  const counts = { added: 0, edited: 0 };
+  const done = syncItem(issue(labels), {
     apply: opts.apply ?? true,
     fields,
     membership: new Map(),
@@ -57,9 +58,10 @@ const run = (
     current: opts.current,
     itemId: opts.itemId === null ? undefined : (opts.itemId ?? "item-46"),
     io: r.io,
+    counts,
     log: (line) => r.log.push(line),
   });
-  return { ...r, result };
+  return { ...r, counts, result: done.then(() => counts) };
 };
 
 describe("syncItem", () => {
@@ -105,10 +107,22 @@ describe("syncItem", () => {
     expect(writes).toEqual([`add https://github.com/${REPO}/issues/46`, "item-new f-status=opt-Ready"]);
   });
 
+  test("a dry run reports the fields a new item would get, not only that it would be added", async () => {
+    const { writes, log, result } = run(["agent-ready", "priority: p2"], { apply: false, itemId: null });
+    expect(await result).toEqual({ added: 1, edited: 2 });
+    expect(writes).toEqual([]);
+    expect(log).toEqual([
+      `would add ${REPO}#46  an issue`,
+      `would set ${REPO}#46 Priority: (unset) -> P2`,
+      `would set ${REPO}#46 Status: (unset) -> Ready`,
+    ]);
+  });
+
   test("a failed write is neither logged as set nor counted", async () => {
-    const { log, result } = run(["agent-ready"], { current: { Status: "Backlog" }, failEdit: true });
+    const { log, counts, result } = run(["agent-ready"], { current: { Status: "Backlog" }, failEdit: true });
     await expect(result).rejects.toThrow("item-edit failed");
     expect(log.filter((line) => line.startsWith("set "))).toEqual([]);
+    expect(counts).toEqual({ added: 0, edited: 0 });
   });
 });
 

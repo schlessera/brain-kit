@@ -458,8 +458,9 @@ function shortRef(ref: string, repo: string): string {
  * without commenting again. Either order without the marker loses one of the
  * two: removing first strands an issue with no comment if the comment fails,
  * commenting first posts it twice if the removal fails. Runs are assumed not
- * to overlap. On success the in-memory labels are updated too, so the same
- * run derives the issue's Status from what it now carries.
+ * to overlap. The in-memory labels are updated in both modes (after the
+ * writes, when applying), so the same run derives the issue's Status from
+ * what it now carries, and a dry run reports the Status `--apply` would set.
  */
 export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],
@@ -497,7 +498,12 @@ export async function reconcileBlocked<T extends BlockableIssue>(
     if (verdict.kind === "unverifiable") unverifiable.push({ issue, reason: verdict.reason });
     if (verdict.kind !== "cleared") continue;
     cleared.push({ issue, closed: verdict.closed });
-    if (!apply) continue;
+    if (!apply) {
+      // Project the removal without making it, so a dry run derives the same
+      // Status that `--apply` will, and reports it.
+      issue.labels = issue.labels.filter((label) => label.name !== "blocked");
+      continue;
+    }
     const marker = `<!-- sync-project: unblocked by ${[...new Set(verdict.closed)].sort().join(" ")} -->`;
     if (!(await io.hasComment(issue, marker))) {
       const names = verdict.closed.map((ref) => shortRef(ref, issue.repo));
@@ -671,21 +677,22 @@ export async function syncItem(
     current?: Record<string, string | undefined>;
     itemId?: string;
     io: BoardIO;
+    /** Incremented per write as it succeeds, so a failed run still says what it did. */
+    counts: Counts;
     log?: (line: string) => void;
   },
-): Promise<{ added: number; edited: number }> {
+): Promise<void> {
   const log = ctx.log ?? console.log;
-  let added = 0;
-  let edited = 0;
   let itemId = ctx.itemId;
   if (!itemId) {
-    if (!ctx.apply) {
+    if (ctx.apply) {
+      itemId = await ctx.io.add(issue);
+      log(`added ${issue.repo}#${issue.number}`);
+    } else {
+      // Keep going: the dry run reports the fields a new item would get too.
       log(`would add ${issue.repo}#${issue.number}  ${issue.title}`);
-      return { added: 1, edited: 0 };
     }
-    itemId = await ctx.io.add(issue);
-    log(`added ${issue.repo}#${issue.number}`);
-    added++;
+    ctx.counts.added++;
   }
 
   const current = ctx.current?.Status;
@@ -711,14 +718,73 @@ export async function syncItem(
     const change = `${issue.repo}#${issue.number} ${field}: ${ctx.current?.[field] ?? "(unset)"} -> ${value}`;
     if (!ctx.apply) {
       log(`would set ${change}`);
-      edited++;
+      ctx.counts.edited++;
       continue;
     }
-    await ctx.io.edit(itemId, definition.id, option.id);
+    await ctx.io.edit(itemId!, definition.id, option.id);
     log(`set ${change}`);
-    edited++;
+    ctx.counts.edited++;
   }
-  return { added, edited };
+}
+
+/** Items added and field values set, by one run. */
+export interface Counts {
+  added: number;
+  edited: number;
+}
+
+/** A run's closing line. */
+export function summaryLine(apply: boolean, counts: Counts): string {
+  return `${apply ? "Applied" : "Dry run"}: ${counts.added} item(s) added, ${counts.edited} field value(s) set.`;
+}
+
+/**
+ * One pass over a set of issues: clear the `blocked` labels whose blockers
+ * have closed, then bring each issue's board item in line. The full sweep
+ * and the per-event sync both run this, and a dry run and `--apply` differ
+ * only in whether the writes happen.
+ */
+export async function sweep(
+  issues: Issue[],
+  ctx: {
+    apply: boolean;
+    tracker: BlockerIO;
+    board: BoardIO;
+    /** Each issue's board item and current values, keyed by issue URL. */
+    items: Map<string, { itemId?: string; current?: Record<string, string | undefined> }>;
+    fields: Map<string, ProjectField>;
+    membership: Map<string, Set<string>>;
+    underReview: Set<string>;
+    counts: Counts;
+    log?: (line: string) => void;
+  },
+): Promise<void> {
+  const log = ctx.log ?? console.log;
+  // Before Status is derived: an issue unblocked here is Ready in this run.
+  const blockers = await reconcileBlocked(issues, ctx.tracker, ctx.apply, REPOS);
+  for (const { issue, closed } of blockers.cleared) {
+    log(
+      `${ctx.apply ? "unblocked" : "would unblock"} ${issue.repo}#${issue.number}: ` +
+        `every blocker is closed (${closed.join(", ")})`,
+    );
+  }
+  for (const { issue, reason } of blockers.unverifiable) {
+    log(`cannot verify blocked ${issue.repo}#${issue.number}: ${reason}`);
+  }
+  for (const issue of issues) {
+    const item = ctx.items.get(issue.url);
+    await syncItem(issue, {
+      apply: ctx.apply,
+      fields: ctx.fields,
+      membership: ctx.membership,
+      underReview: ctx.underReview,
+      current: item?.current,
+      itemId: item?.itemId,
+      io: ctx.board,
+      counts: ctx.counts,
+      log,
+    });
+  }
 }
 
 /** `owner/repo#12` → its parts, or undefined for anything else. */
@@ -870,8 +936,7 @@ export async function dependantsOf(ref: string): Promise<string[]> {
  */
 async function syncTargets(refs: string[], apply: boolean): Promise<void> {
   const membership = await buildMembership();
-  let added = 0;
-  let edited = 0;
+  const counts: Counts = { added: 0, edited: 0 };
   const queue = [...refs];
   for (let i = 0; i < queue.length; i++) {
     const ref = queue[i];
@@ -895,26 +960,20 @@ async function syncTargets(refs: string[], apply: boolean): Promise<void> {
       queue.push(...dependants);
       continue;
     }
-    const blockers = await reconcileBlocked([issue], trackerIO, apply, REPOS);
-    for (const { closed } of blockers.cleared) {
-      console.log(`${apply ? "unblocked" : "would unblock"} ${ref}: every blocker is closed (${closed.join(", ")})`);
-    }
-    for (const { reason } of blockers.unverifiable) console.log(`cannot verify blocked ${ref}: ${reason}`);
     const board = await boardForIssue(issue.nodeId);
-    const result = await syncItem(issue, {
+    await sweep([issue], {
       apply,
+      tracker: trackerIO,
+      board: boardIO(board.project),
+      items: new Map([[issue.url, { itemId: board.itemId, current: board.current }]]),
       fields: new Map(board.fields.map((field) => [field.name, field])),
       membership,
       // `Closes #N` names the issue's own repository, so only its PRs matter.
       underReview: await issuesUnderReview([repo]),
-      current: board.current,
-      itemId: board.itemId,
-      io: boardIO(board.project),
+      counts,
     });
-    added += result.added;
-    edited += result.edited;
   }
-  console.log(`\n${apply ? "Applied" : "Dry run"}: ${added} item(s) added, ${edited} field value(s) set.`);
+  console.log(`\n${summaryLine(apply, counts)}`);
 }
 
 if (import.meta.main) {
@@ -991,38 +1050,21 @@ if (import.meta.main) {
   const underReview = await issuesUnderReview();
   const currentValues = await boardValues(project.number);
 
-  // Before Status is derived: an issue unblocked here is Ready in this run.
-  const blockers = await reconcileBlocked(issues, trackerIO, apply, REPOS);
-  for (const { issue, closed } of blockers.cleared) {
-    console.log(
-      `${apply ? "unblocked" : "would unblock"} ${issue.repo}#${issue.number}: ` +
-        `every blocker is closed (${closed.join(", ")})`,
-    );
-  }
-  for (const { issue, reason } of blockers.unverifiable) {
-    console.log(`cannot verify blocked ${issue.repo}#${issue.number}: ${reason}`);
-  }
+  const counts: Counts = { added: 0, edited: 0 };
+  await sweep(issues, {
+    apply,
+    tracker: trackerIO,
+    board: boardIO(project),
+    items: new Map(
+      issues.map((issue) => [issue.url, { itemId: existing.get(issue.url), current: currentValues.get(issue.url) }]),
+    ),
+    fields: byName,
+    membership,
+    underReview,
+    counts,
+  });
 
-  const io = boardIO(project);
-  let added = 0;
-  let edited = 0;
-  for (const issue of issues) {
-    const result = await syncItem(issue, {
-      apply,
-      fields: byName,
-      membership,
-      underReview,
-      current: currentValues.get(issue.url),
-      itemId: existing.get(issue.url),
-      io,
-    });
-    added += result.added;
-    edited += result.edited;
-  }
-
-  console.log(
-    `\n${apply ? "Applied" : "Dry run"}: ${added} item(s) added, ${edited} field value(s) set.`,
-  );
+  console.log(`\n${summaryLine(apply, counts)}`);
   if (!apply) {
     console.log(
       "To make these changes, trigger the sweep (about 520 GraphQL points):\n\n" +
