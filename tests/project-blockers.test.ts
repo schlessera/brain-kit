@@ -36,7 +36,7 @@ describe("blockersIn", () => {
   });
 
   test("reads a cross-repository blocker as written", () => {
-    expect(blockersIn("Blocked by schlessera/brain-kit#194", "schlessera/brain-ui")).toEqual([
+    expect(blockersIn("Blocked by schlessera/brain-kit#194", "schlessera/brain-template")).toEqual([
       "schlessera/brain-kit#194",
     ]);
   });

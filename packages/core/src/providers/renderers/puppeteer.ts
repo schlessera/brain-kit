@@ -43,8 +43,10 @@ export async function resolveDocumentRenderer(opts: {
 
 /**
  * Chrome refuses to start as root with its sandbox on, which is the normal case
- * inside a container. `BRAIN_UI_CHROME_NO_SANDBOX` is the name the brain-ui
- * image already sets, so honour it as well as the CLI-native spelling.
+ * inside a container. `BRAIN_UI_CHROME_NO_SANDBOX` is the spelling a
+ * chat-server deployment sets, and the server passes it to the brain CLI it
+ * spawns (`ui-sdk/src/server/subprocess-env.ts`), so honour it as well as the
+ * CLI-native spelling.
  */
 export function noSandboxFromEnv(): boolean {
   return resolveEnv().chromeNoSandbox;

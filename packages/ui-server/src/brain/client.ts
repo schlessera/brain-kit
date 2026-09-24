@@ -69,11 +69,11 @@ export const MIN_BRAIN_CLI_VERSION = "0.33.0";
  * `@schlessera/brain` gets a real bin at `node_modules/.bin/brain`, while the
  * legacy layout vendors `scripts/brain-cli.ts`. Prefer the packaged bin.
  *
- * Resolved per call (a bare `existsSync` stat) rather than at construction: in
- * the container the brain repo is cloned and `bun install`ed by entrypoint.sh,
- * and a repo can gain the dependency without restarting this server. The same
- * preference order is mirrored in `scripts/entrypoint.sh`, which links whichever
- * it finds onto PATH for cron.
+ * Resolved per call (a bare `existsSync` stat) rather than at construction: a
+ * container deployment may clone and `bun install` the brain repo at startup,
+ * and a repo can gain the dependency without restarting this server. A
+ * deployment that links the CLI onto PATH for cron should use the same
+ * preference order.
  */
 export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");

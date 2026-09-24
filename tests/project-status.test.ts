@@ -28,9 +28,9 @@ describe("statusFor", () => {
   });
 
   test("a sibling blocker takes it out of Ready", () => {
-    // brain-ui's container chain is the real case: relocation, then the user,
-    // then the agent uid, then the docs. Three of the four are `agent-ready`
-    // and only the first is pickable.
+    // A container hardening chain is the real case: relocation, then the
+    // user, then the agent uid, then the docs. Three of the four are
+    // `agent-ready` and only the first is pickable.
     expect(statusFor(labelled("agent-ready", "blocked"), false)).toBe("Backlog");
   });
 

@@ -201,7 +201,7 @@ describe("environment documentation", () => {
   for (const dir of withEnv) {
     test(`packages/${dir}: the chokepoint is reachable from the package entry`, () => {
       // A contract a consumer cannot read is a contract a consumer will guess
-      // at. The brain-ui shell had to peek at process.env.BRAIN_UI_REVERSE_GEOCODE
+      // at. A deployment shell had to peek at process.env.BRAIN_UI_REVERSE_GEOCODE
       // raw because ui-backend-claude's resolver was not exported — the ambient
       // read moved out of the library and straight into its consumer, which is
       // RC3 one level out. Checked against the API-surface report rather than by

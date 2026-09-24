@@ -64,7 +64,7 @@ const DOC_FILES = [
  *   repos. Demanding those resolve would fail every plan before its first
  *   implementation commit.
  * - A **decision record** cites the code as it was when the decision was made,
- *   often with a line range, and often in the private deployment-shell repo.
+ *   often with a line range, and sometimes in another repository.
  *   Those records are append-only by rule — you supersede an entry, you do not
  *   rewrite one — so a gate that demanded they track the current tree would be
  *   demanding the one edit the records forbid.
@@ -156,8 +156,8 @@ describe("documentation paths", () => {
   });
 
   test("no doc cites a pre-extraction path", () => {
-    // The app moved out of the brain-ui repo into packages/ui-server and
-    // packages/ui-react. Prose that still says `server/src/…` or `client/src/…`
+    // The app moved out of its original deployment shell into
+    // packages/ui-server and packages/ui-react. Prose that still says `server/src/…` or `client/src/…`
     // is describing a layout that has not existed since phase 4.
     const offenders: string[] = [];
     for (const file of files) {

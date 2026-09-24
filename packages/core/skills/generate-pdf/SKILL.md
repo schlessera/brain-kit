@@ -90,11 +90,11 @@ re-render with smaller ones.
 
 ### Do not go looking for an image tool
 
-There is no `magick`, `convert`, `gm`, `cjpeg` or `ffmpeg` in a deployment, and
-probing for one wastes a turn. A hosting container **does** have `python3` —
-and finding it is a trap: it has no pip, no `ensurepip` and no Pillow, so a
-script that imports an image library dies on the import rather than at the
-point you could have predicted it.
+Do not count on `magick`, `convert`, `gm`, `cjpeg` or `ffmpeg` being installed,
+and do not probe for them: it wastes a turn. If a `python3` turns up, it may
+have no pip, no `ensurepip` and no Pillow, so a script that imports an image
+library can die on the import rather than at the point you could have
+predicted it.
 
 Ask for the size you want up front instead. `brain image` takes `--resolution`
 and `--aspect`; image hosts take a size in the URL; `brain render` takes

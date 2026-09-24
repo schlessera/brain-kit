@@ -78,7 +78,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "BRAIN_UI_CHROME_NO_SANDBOX",
     description:
-      "Same as BRAIN_CHROME_NO_SANDBOX — the spelling the brain-ui Docker image already sets.",
+      "Same as BRAIN_CHROME_NO_SANDBOX, in the BRAIN_UI_* spelling a chat-server deployment sets; the server passes it to the brain CLI it spawns.",
     default: "sandbox on",
     required: false,
   },

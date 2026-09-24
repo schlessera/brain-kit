@@ -2,10 +2,10 @@
  * The provider seam.
  *
  * Every provider speaks plain `fetch` against a documented REST endpoint — no
- * vendor SDKs. That is a deployment constraint, not a preference: the brain-ui
- * container has bun and nothing else (no node, no npm, no python, no uv), so
- * anything that needs an SDK or an interpreter cannot run where the agent
- * actually lives.
+ * vendor SDKs. That is a deployment constraint, not a preference: a hosted
+ * container may have bun and nothing else (no node, no npm, no python, no uv),
+ * so anything that needs an SDK or an interpreter cannot be relied on where
+ * the agent actually lives.
  */
 
 /** What the caller wants. Provider-neutral; each provider maps it to its own API. */
