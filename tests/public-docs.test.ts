@@ -65,15 +65,16 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *   version time, from carrying a reference past this test.
  */
 const RECORDED: Record<string, string> = {
-  "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
-  "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
+  "docs/decisions/container-privilege.md": "a787d2c3dc0b49f2",
+  "docs/decisions/agent-observability.md": "12daf66b1658bd40",
   "docs/decisions/README.md": "4ba97a8e9273de8d",
-  "scripts/check-citations.ts": "208a75668bf914f4",
+  "scripts/check-citations.ts": "819f30d08a731a31",
   "scripts/labels.ts": "667ad2a8bcecbf0f",
   "scripts/sync-labels.ts": "4cf488160f63c036",
   "scripts/sync-project.ts": "c491185e4368cdc2",
   "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
-  "tests/project-blockers.test.ts": "934f3633dfb81d63",
+  "tests/project-blockers.test.ts": "84dc8b0154e79476",
+  "tests/project-sync-main.test.ts": "67116a2297046d31",
   "tests/project-sync-item.test.ts": "c8805cd52b00d4a9",
   "packages/core/CHANGELOG.md": "74c0ce78fcafc50e",
   "packages/ui-react/CHANGELOG.md": "2d30014b1c9170fd",
@@ -114,10 +115,10 @@ const PRIVATE_REFERENCES: [string, RegExp][] = [
   // A statement of what one real deployment has or lacks, rather than what
   // a deployment may have: "the deployment has neither", "A hosting
   // container **does** have `python3`".
-  ["what the deployment has", /\bthe deployment (?:has|lacks|does not have)\b|\ba hosting container \*{0,2}does\*{0,2} have\b/i],
+  ["what the deployment has", /\bthe deployment (?:has neither|lacks)\b|\ba hosting container \*{0,2}does\*{0,2} have\b/i],
   // Its parts and its history: a file of the private deployment, what it had,
   // what a package descends from, and it as the named consumer.
-  ["its parts or history", /\bscripts\/entrypoint\.sh\b|\bbrain-ui['\u2019]s (?:hardcoded|container|shell|entrypoint|image|cron)\b|\bdescends from brain-ui\b|\bconsumer \(brain-ui\)/i],
+  ["its parts or history", new RegExp(`\\bmirrored in \`scripts/entrypoint\\.sh\`|\`bun install\`ed by entrypoint\\.sh|\\b${NAME}['\u2019]s (?:hardcoded|container|shell|entrypoint|image|cron)\\b|\\bdescends from ${NAME}|\\bconsumer \\(brain-ui\\)`, "i")],
   // The two repositories named side by side, as peers that each keep something.
   ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME} (?:each|both|repos|repositories)\\b`, "i")],
   // A citation into it, never a Markdown link whose text is the product name.
@@ -138,6 +139,9 @@ const referencingParagraphs = (text: string) =>
     // A comment's line prefixes (`*`, `//`) sit between the words of one
     // sentence; drop them so a phrase wrapped in a doc comment is one phrase.
     .map((paragraph) => paragraph.replace(/^[ \t]*(?:\/\*\*?|\*\/|\*(?!\*)|\/\/)[ \t]?/gm, ""))
+    // A reference inside a string literal or inline markup is still one:
+    // unescape quotes (`brain-ui\'s`) and drop tags (`<code>brain-ui</code>'s`).
+    .map((paragraph) => paragraph.replace(/\\(['"`])/g, "$1").replace(/<\/?[a-z][^>]*>/gi, ""))
     .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
     .filter((paragraph) => referencesIn(paragraph).length > 0);
 
@@ -228,6 +232,9 @@ describe("public documents do not send readers to the private repositories", () 
     "brain-ui's container chain is the real case: relocation, then the user",
     "The consumer (brain-ui) declares the backend it actually deploys.",
     "often with a line range, and often in the private deployment-shell repo.",
+    // Syntax the second review hid references in.
+    "const help = 'See brain-ui\\'s cron-run.ts';",
+    "<p>See <code>brain-ui</code>'s SECURITY.md</p>",
   ];
   // The product names that stay, which no pattern may flag.
   const KEPT = [
@@ -253,16 +260,21 @@ describe("public documents do not send readers to the private repositories", () 
     "brain-kit and brain-ui expose CLI and chat interfaces respectively.",
     "Open Settings in brain-ui to configure voice.",
     "Create a private repo from the template",
+    // Code and prose the TypeScript scan must leave alone.
+    'const script = "scripts/entrypoint.sh";',
+    "If the deployment has no Chrome, render skips.",
+    "This protocol descends from brain-ui-sdk.",
   ];
 
   for (const text of REMOVED) {
     test(`catches: ${text.slice(0, 70)}`, () => {
-      expect(referencesIn(text).length).toBeGreaterThan(0);
+      // Through the scan's own path, normalisation included.
+      expect(referencingParagraphs(text).length).toBeGreaterThan(0);
     });
   }
 
   test("flags none of the product names that stay", () => {
-    expect(KEPT.filter((text) => referencesIn(text).length > 0)).toEqual([]);
+    expect(KEPT.filter((text) => referencingParagraphs(text).length > 0)).toEqual([]);
   });
 
   test("the documents that may name them still do, so the allowlist is not dead", () => {
