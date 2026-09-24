@@ -54,6 +54,8 @@ const MUTATING_COMMANDS = new Set([
   "graph",
   // render writes the rendered file into the repo.
   "render",
+  // scratch removes files from the brain's scratch area.
+  "scratch",
 ]);
 
 /**

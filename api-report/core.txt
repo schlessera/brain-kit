@@ -61,7 +61,13 @@ export "." (./src/index.ts)
   type RerankerConfig
   type ResolvedTypeSpec
   SCHEMA_VERSION
+  SCRATCH_DIR
+  SCRATCH_MAX_BYTES
+  SCRATCH_TTL_MS
   type SchemaOptions
+  ScratchNotIgnoredError
+  type ScratchRemoval
+  type ScratchReport
   type SearchDeps
   type SearchOptions
   type SearchResponse
@@ -88,6 +94,7 @@ export "." (./src/index.ts)
   chunkDocument
   chunkTextForEmbedding
   classifyContent
+  cleanScratch
   collectStats
   createEnrichment
   defineAgentRunner
@@ -97,6 +104,7 @@ export "." (./src/index.ts)
   defineModule
   defineSkillEmitter
   discoverSkills
+  ensureScratch
   exportOkfBundle
   extractWikiLinks
   filterSearch
@@ -108,10 +116,12 @@ export "." (./src/index.ts)
   getMeta
   hasVecSupport
   hybridSearch
+  ignoreScratch
   indexAll
   ingest
   initContext
   installBinLinks
+  isInScratch
   lintSkills
   loadModules
   loadUserConfig
@@ -119,6 +129,7 @@ export "." (./src/index.ts)
   migrateVecSchema
   normalizeFrontmatterDates
   openDatabase
+  pruneScratch
   readEnvVar
   repoRelativePathSchema
   rerank
@@ -130,6 +141,7 @@ export "." (./src/index.ts)
   resolveWikiLink
   resolveWritable
   safeResolve
+  scratchIgnored
   setContext
   setMeta
   storedVectorWidth

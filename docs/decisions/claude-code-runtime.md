@@ -51,7 +51,7 @@ next to it.
   `packages/ui-server/src/brain/client.ts:115-180`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:198`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
-  `packages/core/src/cli/commands/doctor.ts:274-276`) — the user's own Claude
+  `packages/core/src/cli/commands/doctor.ts:275-277`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
   binary.
 - **Two moving parts.** The SDK is a runtime dependency of
@@ -456,7 +456,7 @@ all, and nothing warns: `accountInfo()` still reports the OAuth token as the
 token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
 reaches the CLI for any reason moves every default-profile chat turn to API
 billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
-completion provider reads it (`"anthropic-haiku": "ANTHROPIC_API_KEY"`, `packages/core/src/cli/brain.ts:72`), and so does
+completion provider reads it (`"anthropic-haiku": "ANTHROPIC_API_KEY"`, `packages/core/src/cli/brain.ts:74`), and so does
 model discovery. The cost record then says `api`, which is accurate
 bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
@@ -574,7 +574,7 @@ subscription authenticates.
    (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
-   (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry
+   (`completions: z`, `packages/core/src/lib/config.ts:167-172`), and the registry
    builds the provider with no options
    (`"anthropic-haiku": () => anthropicCompletions()`, `packages/core/src/lib/registry.ts:40`).
    A supported route to name that key is part of the work. Tracked in #253.

@@ -20,11 +20,12 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
+import { ignoreScratch, SCRATCH_DIR, scratchIgnored } from "../../lib/scratch.js";
 
 const HELP = `brain doctor — health check battery
 
   --fix                   Apply the auto-fixable checks (hooks, symlinks, index,
-                          deps, mcp), then re-run and report.
+                          deps, mcp, scratch), then re-run and report.
 
 --json: { "checks": [{ "id", "status": "pass"|"warn"|"fail", "detail", "fix"? }] }`;
 
@@ -338,6 +339,21 @@ async function checkSqliteVecMac(): Promise<Check> {
   }
 }
 
+/**
+ * The scratch area must be gitignored before anything writes there (#310),
+ * or a render could land in the brain's history. Fixable: `--fix` adds the
+ * line to `.gitignore`.
+ */
+function checkScratch(root: string): Check {
+  if (scratchIgnored(root)) return { id: "scratch", status: "pass", detail: `${SCRATCH_DIR}/ is gitignored` };
+  return {
+    id: "scratch",
+    status: "warn",
+    detail: `${SCRATCH_DIR}/ is not gitignored, so renders and image drafts cannot be written there`,
+    fix: "run `brain doctor --fix`",
+  };
+}
+
 async function runChecks(cli: CliContext): Promise<Check[]> {
   const root = cli.brain.root;
   return [
@@ -351,6 +367,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkDeps(root),
     checkVersion(),
     checkPrivacy(root),
+    checkScratch(root),
     await checkSqliteVecMac(),
   ];
 }
@@ -371,6 +388,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
       console.error(`doctor --fix: git-hooks fix failed: ${e instanceof Error ? e.message : e}`);
     }
   }
+  if (failing.has("scratch") && ignoreScratch(root)) applied.push("scratch");
   if (failing.has("symlinks")) {
     const { emitters } = resolveEmitters(cli.brain);
     syncSkills({ root, modules: cli.brain.modules }, { emitters });

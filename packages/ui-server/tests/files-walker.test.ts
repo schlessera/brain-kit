@@ -279,6 +279,22 @@ describe("resolveAncestors", () => {
   });
 });
 
+describe("the brain's scratch area (#310)", () => {
+  test("a render in .brain/scratch/ opens through the raw file route, and stays out of the tree", async () => {
+    // What a chat link to `brain render --scratch` output resolves to.
+    await mkdir(join(root, ".brain/scratch"), { recursive: true });
+    await writeFile(join(root, ".brain/scratch/trip.pdf"), "%PDF-1.7 scratch");
+    const response = await createFilesRoutes({ brainRoot: root }).request(
+      `/files/content?path=${encodeURIComponent(".brain/scratch/trip.pdf")}&raw=1`
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(await response.text()).toBe("%PDF-1.7 scratch");
+    const top = await listDirectory("", root);
+    expect(top.map((e) => e.name)).not.toContain(".brain");
+  });
+});
+
 describe("resolveForRaw", () => {
   test("returns abs path and mime for image-style request", async () => {
     const r = await resolveForRaw("binary.bin", root);

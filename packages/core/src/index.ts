@@ -106,6 +106,20 @@ export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
 export { resolveWritable, safeResolve } from "./lib/safe-path.js";
+export {
+  SCRATCH_DIR,
+  SCRATCH_MAX_BYTES,
+  SCRATCH_TTL_MS,
+  ScratchNotIgnoredError,
+  cleanScratch,
+  ensureScratch,
+  ignoreScratch,
+  isInScratch,
+  pruneScratch,
+  scratchIgnored,
+  type ScratchRemoval,
+  type ScratchReport,
+} from "./lib/scratch.js";
 export { exportOkfBundle, checkOkfBundle, OkfExportError } from "./lib/okf-exporter.js";
 export type {
   OkfExportOptions,

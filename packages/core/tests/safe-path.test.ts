@@ -118,26 +118,25 @@ describe("resolveWritable", () => {
 
   test("a repo-relative path resolves inside the repo", () => {
     const r = resolveWritable(root, "notes/x.md");
-    expect(r?.inRepo).toBe(true);
-    expect(r?.abs.startsWith(realpathSync(root))).toBe(true);
+    expect(r?.startsWith(realpathSync(root))).toBe(true);
   });
 
-  test("a path under the temp directory is allowed, flagged as outside", () => {
+  test("the scratch area is inside the repo, so it resolves", () => {
+    expect(resolveWritable(root, ".brain/scratch/x.pdf")).toBe(join(realpathSync(root), ".brain/scratch/x.pdf"));
+  });
+
+  test("a path under the system temp directory but outside the brain is refused (#310)", () => {
+    // Output there could not be opened from the UI; transient output goes to
+    // the brain's scratch area instead.
     const target = join(tmpdir(), "scratch", "x.html");
-    const r = resolveWritable(root, target);
-    expect(r?.inRepo).toBe(false);
-    expect(r?.abs).toBe(target);
+    expect(target.startsWith(realpathSync(root))).toBe(false);
+    expect(resolveWritable(root, target)).toBeNull();
   });
 
-  test("somewhere that is neither is refused", () => {
-    // The whole point of the containment: scratch space, not free rein.
+  test("anywhere else outside the brain is refused", () => {
     for (const bad of ["/etc/passwd", "/etc/cron.d/x", "/root/.ssh/authorized_keys"]) {
       expect(resolveWritable(root, bad)).toBeNull();
     }
-  });
-
-  test("the temp directory itself is not a target", () => {
-    expect(resolveWritable(root, tmpdir())).toBeNull();
   });
 
   test("a NUL byte is refused", () => {

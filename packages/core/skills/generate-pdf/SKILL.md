@@ -34,10 +34,16 @@ designed mode only when the content genuinely needs a layout.
 brain render travel/wallis-2026/day-plan.html --out travel/wallis-2026/day-plan.pdf
 ```
 
-Or pipe it without leaving a file behind:
+Or pipe it without leaving an HTML file behind:
 
 ```sh
 brain render - --as html --out travel/wallis-2026/day-plan.pdf
+```
+
+For a render that is only for now, send it to the scratch area instead:
+
+```sh
+brain render travel/wallis-2026/day-plan.html --scratch
 ```
 
 ## Formats
@@ -102,10 +108,18 @@ and `--aspect`; image hosts take a size in the URL; `brain render` takes
 
 ## Where the file goes
 
-Output must live inside the brain repo — `brain render` refuses paths that
-escape it, and a file written outside is invisible to anyone browsing the brain.
-Put it next to what it describes (`travel/{trip-slug}/`, the project directory)
-or in an exports directory for one-offs.
+Output must live inside the brain repo: `brain render` refuses any path outside
+it, and a file written outside is invisible to anyone browsing the brain.
+
+- **To keep:** put it next to what it describes (`travel/{trip-slug}/`, the
+  project directory) or in an exports directory.
+- **For now only** (a preview, a file to share and forget): pass `--scratch`.
+  It lands in the brain's scratch area, `.brain/scratch/`, which the reader can
+  open from a link but which is never committed and is pruned after 7 days or
+  past 1 GB. Reading from stdin without `--out` goes there too. To keep a
+  scratch file after all, move it out into the content.
+
+Never write to `/tmp`: the reader cannot open it, and `brain render` refuses it.
 
 ## Authoring HTML that survives a page break
 

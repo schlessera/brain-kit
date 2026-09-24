@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, extname, relative } from "path";
 
-import { resolveWritable, safeResolve } from "@schlessera/brain";
+import { SCRATCH_DIR, ensureScratch, isInScratch, pruneScratch, resolveWritable, safeResolve } from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { readEnvVar } from "./config/env.js";
@@ -17,6 +17,9 @@ const HELP = `brain image — generate and edit images, routed by capability
 
 Output:
   --out <path>            Where to write, repo-relative. Default: <imagesDir>/<slug>-<date>.<ext>
+  --scratch               Write to the brain's scratch area instead (.brain/scratch/): for a
+                          draft that should not become part of the brain. Never committed;
+                          pruned after 7 days or past 1 GB.
   --format png|jpeg|webp  Default: whatever the chosen model returns
                           (every Gemini image model serves JPEG only)
 
@@ -57,6 +60,7 @@ interface ParsedArgs {
 
 const BOOLEANS = new Set([
   "transparent", "dry-run", "text-in-image", "characters", "no-watermark", "draft", "json", "human",
+  "scratch",
 ]);
 const REPEATABLE = new Set(["ref"]);
 
@@ -215,18 +219,30 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // Gemini serves JPEG whatever the file is called, and writing those bytes
     // into a .png would be a lie that only shows up when something opens it.
     const ext = request.format ?? model.defaultFormat;
-    const outRel =
-      (parsed.flags.out as string | undefined) ??
-      `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`;
-    const out = resolveWritable(ctx.root, outRel);
-    if (!out) {
-      console.error(
-        `Output path is neither inside the brain root nor under the temp directory: ${outRel}`
-      );
+    if (parsed.flags.out !== undefined && parsed.flags.scratch === true) {
+      console.error("--out and --scratch are exclusive");
       return 1;
     }
-    const outAbs = out.abs;
-    const report = (abs: string) => (out.inRepo ? relative(ctx.root, abs) : abs);
+    const fileName = `${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+    const outRel =
+      (parsed.flags.out as string | undefined) ??
+      (parsed.flags.scratch === true ? `${SCRATCH_DIR}/${fileName}` : `${cfg.imagesDir}/${fileName}`);
+    const outAbs = resolveWritable(ctx.root, outRel);
+    if (!outAbs) {
+      console.error(`Output path is not inside the brain: ${outRel}`);
+      return 1;
+    }
+    // Output into the scratch area needs it gitignored first (#310).
+    const scratchOutput = isInScratch(ctx.root, outAbs);
+    if (scratchOutput) {
+      try {
+        ensureScratch(ctx.root);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+    const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
       const payload = {
@@ -282,6 +298,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       writeFileSync(alt, extra.data);
       written.push(report(alt));
     }
+    // Keep scratch within its bounds on every write into it.
+    if (scratchOutput) pruneScratch(ctx.root);
 
     const payload = {
       output: written[0],
