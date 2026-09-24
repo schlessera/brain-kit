@@ -143,9 +143,11 @@ Counting works, reading does not.
 
 GitHub documents this under [fine-grained PAT limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations).
 If the current token cannot access the board, file the issue with its labels
-and milestone; `bun scripts/sync-project.ts --apply` adds newly filed
-issues to the board and derives their Status, and it runs from a terminal that
-has the `project` scope.
+and milestone. The `project-sync` workflow runs `bun scripts/sync-project.ts
+--apply` on every brain-kit issue and PR change and hourly, which adds newly
+filed issues to the board and derives their Status. To sync straight away, run
+the script from a terminal that has the `project` scope, or trigger the
+workflow with `gh workflow run project-sync --repo schlessera/brain-kit`.
 
 A `needs:` label says what is blocking the work. `needs: design` is the one
 that is useless on its own — see "Issues that need design" below for what has

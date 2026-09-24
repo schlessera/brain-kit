@@ -142,7 +142,9 @@ blocked, and it can be picked up now. An agent picking work should filter
 computes `Backlog`, `Ready` and `In review` from the labels and from whether an
 open PR says it closes the issue. `In progress` and `Done` are statements about
 a person or an agent rather than about labels, so the script reads them and
-leaves them alone.
+leaves them alone. `.github/workflows/project-sync.yml` runs it on every issue
+and PR change in brain-kit and hourly for the two template repositories, so a
+label change reaches the board without anyone running it.
 
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the

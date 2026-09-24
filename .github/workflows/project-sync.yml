@@ -1,0 +1,51 @@
+# Keep the "brain-kit roadmap" board in step with the issues, without anyone
+# remembering to run scripts/sync-project.ts.
+#
+# Status is derived from labels (docs/process/github.md, "The project board"),
+# so any label, state or PR change re-runs the whole sync. The script is
+# idempotent and skips writes that would change nothing.
+#
+# Only brain-kit's own events reach this workflow. The hourly run picks up
+# changes in brain-template and brain-hosting-template, and catches any run
+# that failed.
+#
+# PROJECT_SYNC_TOKEN is a classic PAT with `project` plus repository access.
+# A fine-grained PAT cannot reach a user-owned project. Issue and PR events
+# always run this file from the default branch or the PR's own branch, and the
+# script reads issue text as data and never runs it through a shell.
+name: project-sync
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
+  pull_request:
+    types: [opened, edited, closed, reopened]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time (the github skill: never in parallel). A burst of label
+# events queues one pending run behind the current one, and that run syncs
+# everything anyway.
+concurrency:
+  group: project-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # A fork's PR gets no secrets; the hourly run covers it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Sync the project board
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+        run: bun scripts/sync-project.ts --apply
