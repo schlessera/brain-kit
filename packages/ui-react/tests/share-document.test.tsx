@@ -25,12 +25,18 @@ const lastMessage = (): ChatMessage => {
   return messages[messages.length - 1]!;
 };
 
-/** A `show_block` call as a live turn records it: started, input complete, result later. */
+/**
+ * A `show_block` call as a live turn records it: started, input complete,
+ * result later. A string is a raw result: an error text, or JSON as written.
+ */
 function showBlock(id: string, block: Block | string) {
   store().startToolCall(null, id, SHOW_BLOCK);
   store().completeToolCall(null, id, SHOW_BLOCK, {});
-  return () =>
-    store().setToolResult(null, id, typeof block === "string" ? block : JSON.stringify({ block }), typeof block === "string");
+  return () => {
+    const raw = typeof block === "string";
+    const isError = raw && !block.trimStart().startsWith("{");
+    store().setToolResult(null, id, raw ? block : JSON.stringify({ block }), isError);
+  };
 }
 
 /** The request body sharing sends, captured at the one network call it makes. */
@@ -75,6 +81,36 @@ describe("a message with no blocks", () => {
       };
       expect(await sentBody(message, format)).toEqual(before);
     }
+  });
+});
+
+describe("a message with no usable block, in shapes the live stream does not make", () => {
+  test("history content that differs from its parts is still what is sent", async () => {
+    // A replayed message's `content` comes from the server, not from joining
+    // its parts; with no block, the share sends `content`, never the parts.
+    const message = {
+      id: "h",
+      role: "assistant",
+      content: "The history's own text.",
+      parts: [{ kind: "text", text: "Different text in the parts." }],
+      toolCalls: [],
+      isStreaming: false,
+      timestamp: 0,
+    } as ChatMessage;
+    expect((await sentBody(message, "png")) as { content: string }).toMatchObject({ content: "The history's own text." });
+  });
+
+  test("a payload that is valid JSON but fails the schema is left out", async () => {
+    store().startAssistantMessage(null);
+    store().appendText(null, "Only prose.");
+    // Two columns are the minimum; one is JSON the schema rejects.
+    showBlock("s1", JSON.stringify({ block: { kind: "comparison", columns: [{ label: "Only" }], rows: [] } }))();
+    const message = lastMessage();
+    const tool = message.toolCalls[0]!;
+    expect(tool.isError).toBe(false);
+    expect(() => JSON.parse(tool.output!)).not.toThrow();
+    expect(shareSegments(message).filter((s) => s.kind === "block")).toEqual([]);
+    expect(await shareMarkdown(message, identity)).toBe(message.content);
   });
 });
 
@@ -130,10 +166,29 @@ describe("a message with blocks", () => {
     ]);
   });
 
+  test("counts a whitespace-only text part, as the transcript does, to find a classified block", async () => {
+    store().startAssistantMessage(null, "turn-w");
+    store().appendText(null, "  ");
+    store().appendThinking(null, "Hm.");
+    store().appendText(null, "Intro.\n\n| a | b |\n| - | - |\n| 1 | 2 |");
+    store().finishAssistantMessage(null);
+    const message = lastMessage();
+    expect(message.parts.map((p) => p.kind)).toEqual(["text", "thinking", "text"]);
+    const text = (message.parts[2] as { text: string }).text;
+    // Ordinal 1: the second TEXT part, the whitespace-only one being the first.
+    store().setMessageBlocks(null, [{ partIndex: 1, start: text.indexOf("| a"), end: text.length, block: BLOCKS.table, confidence: 0.9 }], "turn-w");
+    expect(shareSegments(lastMessage()).map((s) => (s.kind === "block" ? `block:${s.block.kind}` : s.text.trim()))).toEqual([
+      "Intro.",
+      "block:table",
+    ]);
+  });
+
   test("a block's HTML is one line, so markdown cannot split it", async () => {
-    const block = { ...BLOCKS.comparison, footnote: "First line.\n\nSecond line." } as Block;
+    // Every line break marked reads: LF, CRLF, and a bare CR.
+    const block = { ...BLOCKS.comparison, footnote: "First line.\n\nSecond.\r\n\r\nThird.\r\rFourth." } as Block;
     const html = await renderBlockHtml(block);
     expect(html).toContain("First line.");
-    expect(html).not.toContain("\n");
+    expect(html).toContain("Fourth.");
+    expect(html).not.toMatch(/[\r\n]/);
   });
 });

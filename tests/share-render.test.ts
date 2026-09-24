@@ -64,6 +64,28 @@ function answerWithEveryBlock(): ChatMessage {
   return { id: "m", role: "assistant", content: "", parts, toolCalls, isStreaming: false, timestamp: 0 };
 }
 
+/**
+ * The same eleven, classified: one text part with a placeholder span per
+ * kind, each span anchored as a block the surface classified out of it.
+ */
+function answerWithEveryClassifiedBlock(): ChatMessage {
+  let text = `## The voyage home\n\nEvery block, classified. ![map](${PIXEL})\n\n`;
+  const blocks: NonNullable<ChatMessage["blocks"]> = [];
+  for (const kind of KINDS) {
+    const placeholder = `(the ${kind} the model typed as markdown)`;
+    const start = text.length;
+    text += placeholder;
+    blocks.push({ partIndex: 0, start, end: text.length, block: BLOCKS[kind], confidence: 0.9 });
+    text += `\n\nAfter the ${kind} block.\n\n`;
+  }
+  return { id: "c", role: "assistant", content: text, parts: [{ kind: "text", text }], toolCalls: [], blocks, isStreaming: false, timestamp: 0 };
+}
+
+const ANSWERS = [
+  ["explicit show_block calls", answerWithEveryBlock],
+  ["classified blocks", answerWithEveryClassifiedBlock],
+] as const;
+
 /** The same shape with no block: plain prose and a table. */
 const PLAIN = "## The voyage home\n\nNo blocks here.\n\n| Island | Nights |\n| --- | --- |\n| Aeaea | 365 |\n";
 const plainAnswer = (): ChatMessage => ({
@@ -103,9 +125,34 @@ afterAll(async () => {
   await inspector?.close();
 });
 
+describe("a block payload cannot write markdown", () => {
+  test("line breaks of every kind stay inside the block, so no link or image escapes", async () => {
+    // The model writes the payload. A bare CR is a line break to `marked`
+    // too: left in, a blank line would end the HTML block and the rest would
+    // be read as markdown.
+    const hostile = "Sing.\r\r![p](data:image/png;base64,AAAA)\r\r[link](https://example.invalid/)\r\rend\n\n![q](data:image/png;base64,BBBB)";
+    const message: ChatMessage = {
+      id: "x",
+      role: "assistant",
+      content: "",
+      parts: [{ kind: "text", text: "Quote:" }, { kind: "tool", toolIndex: 0 }],
+      toolCalls: [
+        { id: "q", name: SHOW_BLOCK, input: {}, inputJson: "{}", output: JSON.stringify({ block: { kind: "quote", quote: hostile } }), status: "complete" } as ChatMessage["toolCalls"][number],
+      ],
+      isStreaming: false,
+      timestamp: 0,
+    };
+    const document = await html(message);
+    expect(document).toContain("data-block=\"quote\"");
+    expect(document).toContain("[link](https://example.invalid/)");
+    expect(document).not.toContain("<img");
+    expect(document).not.toContain("href=\"https://example.invalid/\"");
+  });
+});
+
 describe.skipIf(!chromePath)("a shared answer in real Chrome", () => {
-  test("renders every block kind as PNG and PDF without a single network request", async () => {
-    const document = await html(answerWithEveryBlock());
+  test.each(ANSWERS)("renders every block kind, from %s, as PNG and PDF without a single network request", async (_label, answer) => {
+    const document = await html(answer());
     requested.length = 0;
     const png = await renderer.renderPng({ html: document });
     const pdf = await renderer.renderPdf({ html: document });
@@ -119,12 +166,12 @@ describe.skipIf(!chromePath)("a shared answer in real Chrome", () => {
     expect(requested.filter((url) => !url.startsWith("data:") && url !== "about:blank")).toEqual([]);
   }, 120_000);
 
-  test("draws each block in the print palette: every ground is white, a print mark, or nothing", async () => {
+  test.each(ANSWERS)("draws each block, from %s, in the print palette: every ground is white, a print mark, or nothing", async (_label, answer) => {
     const page = await inspector.newPage();
     await page.setRequestInterception(true);
     page.on("request", (r) => (r.url().startsWith("data:") || r.url() === "about:blank" ? r.continue() : r.abort()));
     await page.setViewport({ width: 768, height: 1000 });
-    await page.setContent(await html(answerWithEveryBlock()));
+    await page.setContent(await html(answer()));
     const drawn = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       const blocks = [...document.querySelectorAll<HTMLElement>("[data-block]")];

@@ -16,11 +16,15 @@
  *      every translucent stroke is flattened onto white at +0.2 alpha, so a
  *      hairline survives a printer and reads in grayscale.
  *   4. Ink is the light theme's ink. Those values already clear 4.5:1 on
- *      paper, so on white they clear it with room, and their luminance
- *      differs enough between tones to stay apart in grayscale.
+ *      paper, so on white they clear it with room. Tone is not luminance:
+ *      printed in grayscale, the tone inks come out as near-equal greys. So
+ *      print relies on what the kit already guarantees, that no block carries
+ *      meaning in colour alone (a recommended column says why beside its tint,
+ *      a status has its label), and not on the greys staying apart.
  *
- * Data marks — bars, pins, hatches, the recommended column — keep their light
- * colour, flattened onto white so they print opaque and identical.
+ * Data marks — bars, pins, hatches, lane gradients — keep their light colour,
+ * flattened onto white so they print opaque and identical. The recommended
+ * column is stronger than that, so its tint still reads in grayscale.
  *
  * Run it after changing a light token, a rule, or an override:
  *
@@ -58,6 +62,9 @@ const GROUNDS = new Set([
 /** Washes that disappear: rule 2. Matched on the token name. */
 const WASH = /(tint|veil|hover|glow|shadow|halo|fade|effect-bg)/;
 
+/** Named like a wash, but data: a lane chart's gradient ends. */
+const DATA_MARK = /^lane-fade-/;
+
 /** Strokes that carry structure: rule 3. Matched on the token name. */
 const STROKE = /(border|rail|ring|line|stroke|edge|graticule|scale)/;
 
@@ -69,10 +76,11 @@ const OVERRIDES: Record<string, string> = {
   "color-edge": "#a89e89",
   // Text set on an ink-solid ground is the page colour.
   "on-ink-solid": WHITE,
-  // The recommended column in a comparison is data, not a wash: it is the
-  // only mark that says which option is recommended, so it keeps a fill.
-  "compare-recommended-head": "#fbeed9",
-  "compare-recommended-cell": "#fdf6ec",
+  // The recommended column in a comparison is data, not a wash, so it keeps
+  // a fill, strong enough to stay visible in grayscale (the header about
+  // 1.33:1 against white, the cells about 1.16:1).
+  "compare-recommended-head": "#f3dcb6",
+  "compare-recommended-cell": "#f9ecd6",
 };
 
 function toHex([r, g, b]: Rgb): string {
@@ -94,7 +102,7 @@ function derive(name: string, light: string): string {
   if (light.startsWith("var(")) return light;
   if (GROUNDS.has(name)) return WHITE;
   if (light.startsWith("#")) return light;
-  if (WASH.test(name)) return "transparent";
+  if (WASH.test(name) && !DATA_MARK.test(name)) return "transparent";
   if (STROKE.test(name)) return onWhite(light, 0.2);
   return onWhite(light);
 }
@@ -102,22 +110,47 @@ function derive(name: string, light: string): string {
 export const PRINT_START = "/* @print-theme:start */";
 export const PRINT_END = "/* @print-theme:end */";
 
+const PRINT_SELECTOR = '[data-theme="print"]';
+
 /**
  * `tokens.css` with the print block cut out, and a way to put it back. The
  * light generator and the token tests read every `--bk-*` declaration as the
  * `:root` pair; the print block re-declares the same names with plain values
  * and must not be read as, or rewritten into, that pair.
+ *
+ * Strict, because a quiet failure here corrupts the print theme: exactly one
+ * start and one end marker, in order, and the print selector only between
+ * them. A stylesheet with no print theme at all has neither.
  */
 export function splitPrintBlock(css: string): { outside: string; restore: (outside: string) => string } {
+  const count = (needle: string) => css.split(needle).length - 1;
+  if (count(PRINT_START) === 0 && count(PRINT_END) === 0 && !css.includes(PRINT_SELECTOR)) {
+    return { outside: css, restore: (outside) => outside };
+  }
+  if (count(PRINT_START) !== 1 || count(PRINT_END) !== 1) {
+    throw new Error("tokens.css must have exactly one @print-theme:start and one @print-theme:end marker");
+  }
   const a = css.indexOf(PRINT_START);
-  const b = css.indexOf(PRINT_END);
-  if (a === -1 && b === -1) return { outside: css, restore: (outside) => outside };
-  if (a === -1 || b === -1 || b < a) throw new Error("tokens.css has an unbalanced @print-theme block");
-  const block = css.slice(a, b + PRINT_END.length);
-  const placeholder = "/* @print-theme:here */";
+  const b = css.indexOf(PRINT_END) + PRINT_END.length;
+  if (b < a) throw new Error("tokens.css has its @print-theme markers out of order");
+  const before = css.slice(0, a);
+  const block = css.slice(a, b);
+  const after = css.slice(b);
+  if (before.includes(PRINT_SELECTOR) || after.includes(PRINT_SELECTOR)) {
+    throw new Error(`tokens.css has a ${PRINT_SELECTOR} rule outside the @print-theme markers`);
+  }
+  // Put back by position: the rewrite only touches declarations, so the text
+  // before the block keeps its length only if nothing there changed. Split
+  // the rewritten text at the same boundary marker instead of a placeholder
+  // that could collide with content.
+  const boundary = "\u0000print\u0000";
   return {
-    outside: css.slice(0, a) + placeholder + css.slice(b + PRINT_END.length),
-    restore: (outside) => outside.replace(placeholder, block),
+    outside: before + boundary + after,
+    restore: (outside) => {
+      const parts = outside.split(boundary);
+      if (parts.length !== 2) throw new Error("the print block's place was lost while rewriting tokens.css");
+      return parts[0] + block + parts[1];
+    },
   };
 }
 
