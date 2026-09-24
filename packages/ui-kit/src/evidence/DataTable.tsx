@@ -1,11 +1,19 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { accent, color, font } from "../tokens.js";
 import type { Tone } from "../types.js";
 
 /**
  * Inline table for model answers. Numbers are always mono and right-aligned; a
  * cell tone is a JUDGEMENT — red = overdue, gold = watch it — never decoration.
+ *
+ * A judged cell also draws its tone's glyph inline before the text
+ * (`internal/tone-cue.ts`, #309). In a right-aligned column that puts the
+ * glyph left of the figure, so the digits keep their right edge; a 44px
+ * numeric column holds a three-digit figure plus the glyph (20 + 4 + 11).
+ * `neutral` cells get nothing, by D33.
  *
  * No interaction states, no sorting, no selection: the design's table states
  * what was found, and a table you can re-sort is a different component with a
@@ -111,22 +119,28 @@ export function DataTable(p: DataTableProps) {
             font: `400 11.5px/1.3 ${font.body}`,
           }}
         >
-          {r.cells.map((c, i) => (
-            <span
-              key={i}
-              style={{
-                width: cols[i]?.w ? cols[i].w : undefined,
-                flex: cols[i]?.w ? "none" : 1,
-                minWidth: 0,
-                textAlign: cols[i]?.align || "left",
-                fontFamily: c.mono ? font.mono : font.body,
-                fontWeight: c.bold ? 600 : 400,
-                color: TONES[c.tone || "ink"] || TONES.ink,
-              }}
-            >
-              {c.v}
-            </span>
-          ))}
+          {r.cells.map((c, i) => {
+            const tone = c.tone || "ink";
+            const cue = VALUE_CUE[tone];
+            return (
+              <span
+                key={i}
+                data-tone={tone}
+                style={{
+                  width: cols[i]?.w ? cols[i].w : undefined,
+                  flex: cols[i]?.w ? "none" : 1,
+                  minWidth: 0,
+                  textAlign: cols[i]?.align || "left",
+                  fontFamily: c.mono ? font.mono : font.body,
+                  fontWeight: c.bold ? 600 : 400,
+                  color: TONES[tone] || TONES.ink,
+                }}
+              >
+                {cue ? <Cue icon={cue} size={11} inline /> : null}
+                {c.v}
+              </span>
+            );
+          })}
         </div>
       ))}
     </div>

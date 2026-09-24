@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { expect } from "storybook/test";
 
 import { straitChoice } from "../../fixtures/projects.js";
 import { digestStats } from "../../fixtures/events.js";
@@ -18,6 +19,7 @@ import { ComparisonTable } from "../../src/conversation/ComparisonTable.js";
 import { BarList } from "../../src/evidence/BarList.js";
 import { DataTable } from "../../src/evidence/DataTable.js";
 import { Receipt } from "../../src/evidence/Receipt.js";
+import { SCHEDULE_CUE, TIMELINE_CUE, VALUE_CUE } from "../../src/internal/tone-cue.js";
 
 /**
  * Every answer block in the print theme: what a shared PNG or PDF draws (#46).
@@ -94,8 +96,51 @@ function Column({ kinds }: { kinds: string[] }) {
 
 const ALL = blocks.map(([kind]) => kind);
 
-/** All eleven kinds, in the order `show_block` lists them. */
-export const AllBlocks = meta.story({ render: () => <Column kinds={ALL} /> });
+/**
+ * Which map each block's tones read from (#309). `StepList`'s cue is the
+ * current step's 2px ring, not a glyph, and `BarList` and `QuoteCard` carry
+ * no judgement in a tone, so the three are not here.
+ */
+const CUE_MAPS: Record<string, Record<string, string | null>> = {
+  comparison: VALUE_CUE,
+  stats: VALUE_CUE,
+  trend: VALUE_CUE,
+  table: VALUE_CUE,
+  receipt: VALUE_CUE,
+  timeline: TIMELINE_CUE,
+  schedule: SCHEDULE_CUE,
+  contact: VALUE_CUE,
+};
+
+/**
+ * All eleven kinds, in the order `show_block` lists them.
+ *
+ * The play is #309's gate: every element drawn in a cued tone contains a
+ * `[data-cue]` SVG naming that tone's glyph, and every element in an uncued
+ * tone contains none, block by block. Each block is also required to have at
+ * least one cued element, so the assertion cannot pass over an empty set.
+ * The SVGs are `aria-hidden` and add no role, name or target, which the a11y
+ * gate at `'error'` confirms in both story projects.
+ */
+export const AllBlocks = meta.story({
+  render: () => <Column kinds={ALL} />,
+  play: async ({ canvasElement }) => {
+    for (const [kind, map] of Object.entries(CUE_MAPS)) {
+      const block = canvasElement.querySelector(`[data-block="${kind}"]`);
+      await expect(block).not.toBeNull();
+      const drawn = [...block!.querySelectorAll<HTMLElement>("[data-tone]")].map((el) => ({
+        tone: el.dataset.tone!,
+        cues: [...el.querySelectorAll("svg[data-cue]")].map((svg) => svg.getAttribute("data-cue")),
+      }));
+      const expected = drawn.map(({ tone }) => ({ tone, cues: map[tone] ? [map[tone]] : [] }));
+      await expect({ kind, drawn }).toEqual({ kind, drawn: expected });
+      await expect({ kind, cued: drawn.filter((d) => d.cues.length).length }).not.toEqual({ kind, cued: 0 });
+    }
+    for (const svg of canvasElement.querySelectorAll("svg[data-cue]")) {
+      await expect(svg.getAttribute("aria-hidden")).toBe("true");
+    }
+  },
+});
 
 /**
  * The same eleven in four parts, each short enough to fit one screen: a

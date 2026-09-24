@@ -127,12 +127,19 @@ export const crewTable: { columns: TableColumn[]; rows: TableRow[] } = {
   })),
 };
 
-/** The same ledger as bars, for the screen that wants proportion, not detail. */
+/**
+ * The same ledger as bars, for the screen that wants proportion, not detail.
+ *
+ * One tone for every row: a bar's tone is the CLASS of work, never a
+ * judgement (`BarList`'s contract, #309), and these rows are one series. The
+ * over-a-hundred judgement lives in `crewTable`'s cells, where a cell tone is
+ * a judgement and draws its glyph.
+ */
 export const crewBars: BarRow[] = crewLosses.map((l) => ({
   label: l.place,
   pct: Math.round((l.lost / crewEmbarked) * 100),
   value: String(l.lost),
-  tone: l.lost > 100 ? "red" : "gold",
+  tone: "neutral",
 }));
 
 /* --------------------------------------------------- ledger 3: the estate */
@@ -165,11 +172,14 @@ const estateHeld = estateStores.reduce((a, s) => a + s.held, 0);
 /** Percentage of the household's stores already gone. */
 export const estateDrawdown = Math.round((estateConsumed / estateHeld) * 100);
 
+/** One series, one tone, as with `crewBars`: the bar says how much, and the
+ * value column says it in words. Whether that is too much is a judgement,
+ * which a bar's tone never is (#309). */
 export const estateBars: BarRow[] = estateStores.map((s) => ({
   label: s.label,
   pct: Math.round((s.consumed / s.held) * 100),
   value: `${s.consumed} of ${s.held}`,
-  tone: s.consumed / s.held > 0.6 ? "red" : "gold",
+  tone: "neutral",
 }));
 
 /** The line under the bars, stated flatly. */

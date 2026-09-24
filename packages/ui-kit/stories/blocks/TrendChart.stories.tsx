@@ -57,9 +57,10 @@ export const SparseAxisHoldsItsSlots = meta.story({
     // Every slot renders SOMETHING — the four blanks are transparent middots.
     for (const t of ticks) await expect(t.textContent).not.toBe("");
 
-    const bars = [...canvasElement.querySelectorAll(":scope span > span")]
-      .map((s) => s.parentElement as HTMLElement)
-      .filter((s, i, all) => all.indexOf(s) === i);
+    // The bars are the row above the axis, one track per bucket. Found by
+    // position rather than by `span > span`: the delta pill holds a glyph in
+    // a span of its own (#309), and a nesting query would count it as a bar.
+    const bars = [...(axis.previousElementSibling as HTMLElement).children] as HTMLElement[];
     await expect(bars).toHaveLength(7);
 
     // Each visible label sits under the bucket it names, to within a pixel.

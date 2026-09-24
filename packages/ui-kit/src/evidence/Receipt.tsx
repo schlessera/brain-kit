@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { DiffBlock } from "../primitives/DiffBlock.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
@@ -13,6 +15,12 @@ import type { Tone, ValueTone } from "../types.js";
  *
  * No interaction states: a receipt is evidence, not a control. The design gives
  * it none and none are invented.
+ *
+ * A judged row draws its tone's glyph leading the value, inline, so the
+ * `break-all` behaviour is unchanged (`internal/tone-cue.ts`, #309). The
+ * title and scope icons need none: each is already a shape, and the text
+ * says what it is. A toned row loses about two mono characters at a phone
+ * width to the glyph.
  */
 export interface ReceiptRow {
   k: string;
@@ -105,22 +113,28 @@ export function Receipt(p: ReceiptProps) {
           {title}
         </div>
       ) : null}
-      {rows.map((row, i) => (
-        <div key={`${row.k}-${i}`} style={rowStyle}>
-          <span style={keyStyle}>{row.k}</span>
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              wordBreak: "break-all",
-              color: TONES[row.tone || "dim"] || TONES.dim,
-              fontWeight: 500,
-            }}
-          >
-            {row.v}
-          </span>
-        </div>
-      ))}
+      {rows.map((row, i) => {
+        const tone = row.tone || "dim";
+        const cue = VALUE_CUE[tone];
+        return (
+          <div key={`${row.k}-${i}`} style={rowStyle}>
+            <span style={keyStyle}>{row.k}</span>
+            <span
+              data-tone={tone}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                wordBreak: "break-all",
+                color: TONES[tone] || TONES.dim,
+                fontWeight: 500,
+              }}
+            >
+              {cue ? <Cue icon={cue} size={11} inline /> : null}
+              {row.v}
+            </span>
+          </div>
+        );
+      })}
       {p.diff ? (
         <div style={diffWrap}>
           <DiffBlock text={p.diff} variant="inset" />

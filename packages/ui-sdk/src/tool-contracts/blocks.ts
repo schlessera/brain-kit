@@ -202,7 +202,9 @@ export const BARS_BLOCK_SCHEMA = z.object({
         label: z.string(),
         pct: z.number().min(0).max(100).describe("The bar length, 0-100."),
         value: z.string().describe("The figure shown beside the bar, pre-formatted."),
-        tone: tone.optional().describe(toneDoc),
+        tone: tone
+          .optional()
+          .describe("The class of work this row is, not a judgement of it; the same class draws the same colour on every chart. Omit for the default."),
       })
     )
     .min(1)
@@ -353,7 +355,7 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
   "comparison: the reader is choosing between 2-4 options. Three columns fit a phone; use four only when the reader is on a wide screen. Mark at most one column recommended, and then give a footnote that states what the recommendation costs.",
-  "stats: 3-4 headline figures with a one-line meta each; they wrap in threes. trend: one figure over time, values oldest first, a delta pill only when there is a comparison. table: records with 2-6 columns, right-align numbers. bars: shares of a whole, pct 0-100.",
+  "stats: 3-4 headline figures with a one-line meta each; they wrap in threes. trend: one figure over time, values oldest first, a delta pill only when there is a comparison. table: records with 2-6 columns, right-align numbers. bars: shares of a whole, pct 0-100; tone is the class of work (the same class draws the same colour on every chart), not a judgement of the row.",
   "receipt: what a tool or a change did, as key/value rows, with a footnote for scope. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).",
   "timeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.",
   "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, so fix the shape rather than retrying it unchanged.",

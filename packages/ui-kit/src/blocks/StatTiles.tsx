@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
 import type { ValueTone } from "../types.js";
@@ -12,6 +14,11 @@ import type { ValueTone } from "../types.js";
  * dashboard, and a tile is only coloured when its number implies something the
  * user should act on. Never more than four: past that it is a table.
  *
+ * A tile that asks for action also draws its tone's glyph AFTER the value
+ * (`internal/tone-cue.ts`, #309): the glyph attaches to the number, not the
+ * label, and the optional `icon` keeps naming the subject (a wallet, the
+ * filer), which is a different question from the judgement. On a tile that
+ * has both, each has its own place.
  */
 export interface StatTile {
   label: string;
@@ -81,7 +88,9 @@ export function StatTiles(p: StatTilesProps) {
   return (
     <div style={grid}>
       {src.map((t, i) => {
-        const c = TONES[t.tone || "ink"] || TONES.dim;
+        const tone = t.tone || "ink";
+        const c = TONES[tone] || TONES.dim;
+        const cue = VALUE_CUE[tone];
         return (
           <div
             key={i}
@@ -102,7 +111,19 @@ export function StatTiles(p: StatTilesProps) {
               {t.icon ? <Icon icon={t.icon} size={13} color={c} /> : null}
               {t.label}
             </div>
-            <div style={{ font: `400 24px/1 ${font.display}`, color: c }}>{t.value}</div>
+            <div
+              data-tone={tone}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                font: `400 24px/1 ${font.display}`,
+                color: c,
+              }}
+            >
+              <span style={{ minWidth: 0 }}>{t.value}</span>
+              {cue ? <Cue icon={cue} size={13} /> : null}
+            </div>
             {t.meta ? (
               <div style={{ font: `400 10px/1.4 ${font.mono}`, color: accent.neutral.ink }}>
                 {t.meta}
