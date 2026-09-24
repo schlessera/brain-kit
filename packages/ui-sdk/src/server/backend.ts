@@ -132,6 +132,12 @@ export interface BackendBridge {
    */
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
   /**
+   * Prune the brain's scratch area after a bridge tool wrote into it (#310).
+   * The host owns the policy (it runs `brain scratch prune` through its CLI
+   * client) and never rejects; absent when the host has no scratch pass.
+   */
+  pruneScratch?(): Promise<void>;
+  /**
    * Side channel for activity enrichment the wire protocol deliberately does
    * not carry to chat clients (subagent lifecycle/usage, transcript
    * excerpts). Present only when the host records activity; backends treat

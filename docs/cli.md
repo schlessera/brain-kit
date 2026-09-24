@@ -57,7 +57,7 @@ hosts; `data:` URIs always render.
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker audit | `{issues, errors, warnings, infos}`; module hygiene checks appended |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |
 | `maintain` | Routine maintenance sequence: incremental index, audit snapshot, scratch prune | exit 2 if any step failed; the hosting container runs it daily. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
-| `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], bytes, files}`; every write into scratch already prunes, and the chat server prunes hourly |
+| `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], bytes, files}`; `render`, `image`, `okf export` and the UI's mask tool prune after writing there, and the chat server prunes hourly |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top |
 
 ## Graph

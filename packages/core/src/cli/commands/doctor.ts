@@ -20,7 +20,7 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
-import { ignoreScratch, SCRATCH_DIR, scratchIgnored } from "../../lib/scratch.js";
+import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 
 const HELP = `brain doctor — health check battery
 
@@ -345,7 +345,14 @@ async function checkSqliteVecMac(): Promise<Check> {
  * line to `.gitignore`.
  */
 function checkScratch(root: string): Check {
-  if (scratchIgnored(root)) return { id: "scratch", status: "pass", detail: `${SCRATCH_DIR}/ is gitignored` };
+  try {
+    if (scratchIgnored(root)) return { id: "scratch", status: "pass", detail: `${SCRATCH_DIR}/ is gitignored` };
+  } catch (error) {
+    if (error instanceof ScratchRedirectedError) {
+      return { id: "scratch", status: "fail", detail: error.message, fix: "remove the symlink" };
+    }
+    throw error;
+  }
   return {
     id: "scratch",
     status: "warn",
@@ -388,7 +395,14 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
       console.error(`doctor --fix: git-hooks fix failed: ${e instanceof Error ? e.message : e}`);
     }
   }
-  if (failing.has("scratch") && ignoreScratch(root)) applied.push("scratch");
+  if (failing.has("scratch")) {
+    // A symlinked scratch is not fixable by a line; the check already said so.
+    try {
+      if (ignoreScratch(root)) applied.push("scratch");
+    } catch (e) {
+      if (!(e instanceof ScratchRedirectedError)) throw e;
+    }
+  }
   if (failing.has("symlinks")) {
     const { emitters } = resolveEmitters(cli.brain);
     syncSkills({ root, modules: cli.brain.modules }, { emitters });

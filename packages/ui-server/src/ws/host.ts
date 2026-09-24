@@ -70,6 +70,12 @@ export interface WsHostOptions {
    * means.
    */
   classifier?: TurnClassifier | null;
+  /**
+   * The scratch prune a bridge tool runs after writing into the scratch area
+   * (#310): the host's own periodic pass, so the policy stays in core's CLI.
+   * Absent means bridge tools do not prune.
+   */
+  scratchPrune?: () => Promise<void>;
   /** Display name used in connection/status copy. */
   appName?: string;
   /** Per-turn timeout in ms (default 10 minutes). */
@@ -163,6 +169,7 @@ export class WsHost {
   readonly activity: ActivityRuntime | null;
   readonly toolPermissions: ToolPermissions | null;
   readonly classifier: TurnClassifier | null;
+  readonly scratchPrune?: () => Promise<void>;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
   private readonly framesDropped: ReturnType<
@@ -202,6 +209,7 @@ export class WsHost {
     this.activity = options.activity ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     this.classifier = options.classifier ?? null;
+    if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
     this.log = this.observability.logger("ws");
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {

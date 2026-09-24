@@ -247,19 +247,17 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     }
     // Output into the scratch area (asked for, or resolved into it) is held
     // to the scratch rules (#310): gitignored, not redirected by a symlink.
-    // Checked now, before the provider is paid, and again before each write,
-    // because the rule can change while the request is in flight.
+    // Pre-flighted now, before the provider is paid; the write checks again,
+    // because the rule and the directory can change while the request is out.
     const scratchOutput = isInScratch(ctx.root, outRel) || isInScratch(ctx.root, outAbs);
-    const guardScratch = (abs: string): boolean => {
+    if (scratchOutput) {
       try {
-        assertScratchWritable(ctx.root, abs);
-        return true;
+        assertScratchWritable(ctx.root, outAbs);
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
-        return false;
+        return 1;
       }
-    };
-    if (scratchOutput && !guardScratch(outAbs)) return 1;
+    }
     const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
@@ -308,14 +306,23 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       renamed = `${report(outAbs)} → ${report(finalAbs)} (model returned ${actualExt})`;
     }
 
-    // A generated scratch name is created exclusively; a name the caller
-    // chose (--out) is theirs to overwrite.
+    // Into scratch, every name the provider's answer produced (the corrected
+    // extension, the `-2` siblings) goes through the one primitive that
+    // checks the target at the moment of the write: a generated name refuses
+    // an existing file, a name the caller chose (--out) is theirs to replace.
     const write = (abs: string, data: Uint8Array): boolean => {
-      if (scratchOutput && !guardScratch(abs)) return false;
-      mkdirSync(dirname(abs), { recursive: true });
-      if (toScratch) writeScratchFile(abs, data);
-      else writeFileSync(abs, data);
-      return true;
+      if (!scratchOutput) {
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, data);
+        return true;
+      }
+      try {
+        writeScratchFile(ctx.root, abs, data, { replace: !toScratch });
+        return true;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return false;
+      }
     };
     if (!write(finalAbs, first.data)) return 1;
     const written = [report(finalAbs)];
@@ -324,7 +331,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       if (!write(alt, extra.data)) return 1;
       written.push(report(alt));
     }
-    // Keep scratch within its bounds on every write into it.
+    // This command's writes into scratch prune it.
     if (scratchOutput) pruneScratch(ctx.root);
 
     const payload = {

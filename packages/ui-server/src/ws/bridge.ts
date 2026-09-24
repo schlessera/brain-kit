@@ -33,6 +33,9 @@ export function makeBridge(
   // classifier is configured: a few string appends.
   const collector = host.classifier ? new TurnTextCollector() : null;
   return {
+    // A bridge tool that wrote into the scratch area prunes it through the
+    // host's pass (#310), the way the CLI's own writers prune after a write.
+    ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),
     emit: (message) => {
       let msg = message;
       if (collector && turn.turnId === turnId) collector.observe(msg);

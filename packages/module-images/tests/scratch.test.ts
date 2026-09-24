@@ -4,7 +4,7 @@
 // write tests stub `fetch` with a Gemini-shaped reply, so no request leaves
 // either.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildTaxonomy, ignoreScratch, SCRATCH_DIR, SCRATCH_TTL_MS } from "@schlessera/brain";
@@ -101,6 +101,37 @@ describe("brain image --scratch", () => {
     expect(await run(["a lighthouse", "--draft", "--scratch"])).toBe(0);
     expect(await run(["a lighthouse", "--draft", "--scratch"])).toBe(0);
     expect(scratchFiles()).toHaveLength(2);
+  });
+
+  test("a planted symlink at the corrected name is refused, and the outside file is byte-identical", async () => {
+    ignoreScratch(root);
+    // --out asks for .jpeg; the provider answers PNG, so the write goes to
+    // draft.png, where a link to an outside file has been planted.
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const victim = join(outside, "victim.png");
+    writeFileSync(victim, "keep me");
+    mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
+    symlinkSync(victim, join(root, SCRATCH_DIR, "draft.png"));
+    stubProvider();
+    expect(await run(["a lighthouse", "--draft", "--out", `${SCRATCH_DIR}/draft.jpeg`])).toBe(1);
+    expect(out.join("\n")).toContain("symlink");
+    expect(readFileSync(victim, "utf8")).toBe("keep me");
+    expect(readlinkSync(join(root, SCRATCH_DIR, "draft.png"))).toBe(victim);
+    expect(scratchFiles()).toEqual(["draft.png"]);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  test("a nested directory swapped for a symlink while the request is out is refused, and nothing lands outside", async () => {
+    ignoreScratch(root);
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const nested = join(root, SCRATCH_DIR, "nested");
+    stubProvider(() => {
+      rmSync(nested, { recursive: true, force: true });
+      symlinkSync(outside, nested);
+    });
+    expect(await run(["a lighthouse", "--draft", "--out", `${SCRATCH_DIR}/nested/draft.png`])).toBe(1);
+    expect(readdirSync(outside)).toEqual([]);
+    rmSync(outside, { recursive: true, force: true });
   });
 
   test("the ignore rule is checked again after the provider call, so a rule lost in flight refuses the write", async () => {

@@ -143,10 +143,10 @@ export const renderCommand: CoreCommand = {
       throw new UsageError(`Output path is not inside the brain: ${outRel}`);
     }
     // Asked for scratch (lexically), or resolved into it: either way the
-    // write is held to the scratch rules, checked here and again just before
-    // the bytes go down.
+    // write is held to the scratch rules, pre-flighted here so a refusal
+    // costs no render, and checked again by the write itself.
     const scratchOutput = isInScratch(root, outRel) || isInScratch(root, outAbs);
-    const guardScratch = () => {
+    if (scratchOutput) {
       try {
         assertScratchWritable(root, outAbs);
       } catch (error) {
@@ -155,8 +155,7 @@ export const renderCommand: CoreCommand = {
         }
         throw error;
       }
-    };
-    if (scratchOutput) guardScratch();
+    }
     if (!existsSync(dirname(outAbs))) {
       throw new UsageError(`Output directory does not exist: ${relative(root, dirname(outAbs))}`);
     }
@@ -169,12 +168,22 @@ export const renderCommand: CoreCommand = {
 
     const html = buildHtmlDocument({ content, contentType, title, allowHosts });
 
-    // --- write. A generated scratch name is created exclusively; a name the
-    // caller chose (--out) is theirs to overwrite.
+    // --- write. Into scratch, through the one primitive that checks the
+    // target at the moment of the write: a generated name refuses an existing
+    // file, a name the caller chose (--out) is theirs to replace.
     const write = (data: string | Uint8Array) => {
-      if (scratchOutput) guardScratch();
-      if (toScratch) writeScratchFile(outAbs, data);
-      else writeFileSync(outAbs, data);
+      if (!scratchOutput) {
+        writeFileSync(outAbs, data);
+        return;
+      }
+      try {
+        writeScratchFile(root, outAbs, data, { replace: !toScratch });
+      } catch (error) {
+        if (error instanceof ScratchNotIgnoredError || error instanceof ScratchRedirectedError) {
+          throw new UsageError(error.message);
+        }
+        throw error;
+      }
     };
     if (format === "html") {
       write(html);
@@ -202,7 +211,7 @@ export const renderCommand: CoreCommand = {
 
     const bytes = Bun.file(outAbs).size;
     const outputRel = relative(root, outAbs);
-    // Keep scratch within its bounds on every write into it.
+    // This command's writes into scratch prune it.
     if (scratchOutput) pruneScratch(root);
     emit(
       cli.json,

@@ -3,9 +3,9 @@
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { buildTaxonomy } from "../src/lib/taxonomy.js";
 import { resolveWritable } from "../src/lib/safe-path.js";
@@ -183,12 +183,57 @@ describe("a symlinked scratch", () => {
 });
 
 describe("a prune beside another process", () => {
+  const outsides: string[] = [];
   afterEach(() => {
     // Every spy below restores itself; this is the belt for a failed assertion.
-    for (const name of ["unlinkSync", "lstatSync", "rmdirSync"] as const) {
+    for (const name of ["unlinkSync", "lstatSync", "rmdirSync", "readdirSync"] as const) {
       const maybe = fs[name] as unknown as { mockRestore?: () => void };
       maybe.mockRestore?.();
     }
+    for (const dir of outsides.splice(0)) cleanup(dir);
+  });
+
+  /**
+   * The listing has just read `nested`; before anything is removed, `nested`
+   * becomes a symlink to a directory outside the brain that holds a file of
+   * the listed name. The old path now names the outside file.
+   */
+  function swapNestedAfterListing(): { file: string } {
+    file("nested/victim.pdf", 7, SCRATCH_TTL_MS + 1000);
+    const outside = outsideDir();
+    outsides.push(outside.dir);
+    const nested = join(root, SCRATCH_DIR, "nested");
+    const real = fs.readdirSync;
+    const spy = spyOn(fs, "readdirSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+      const result = real(path, options as never);
+      if (String(path) === nested && !isSymlinkNow(nested)) {
+        rmSync(nested, { recursive: true, force: true });
+        symlinkSync(outside.dir, nested);
+      }
+      return result;
+    }) as typeof fs.readdirSync);
+    spies.push(spy);
+    return { file: outside.file };
+  }
+  const isSymlinkNow = (p: string) => fs.lstatSync(p, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  const spies: { mockRestore(): void }[] = [];
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  test("prune: an ancestor swapped for a link between the listing and the unlink is skipped, the outside file survives", () => {
+    const outside = swapNestedAfterListing();
+    const report = pruneScratch(root, NOW);
+    expect(existsSync(outside.file)).toBe(true);
+    expect(readFileSync(outside.file, "utf8")).toBe("keep me");
+    expect(report.removed).toEqual([]);
+  });
+
+  test("clean: the same swap, the same outcome", () => {
+    const outside = swapNestedAfterListing();
+    const report = cleanScratch(root);
+    expect(existsSync(outside.file)).toBe(true);
+    expect(report.removed).toEqual([]);
   });
 
   test("a file removed between the listing and the unlink is neither an error nor reported", () => {
@@ -251,8 +296,10 @@ describe("a prune beside another process", () => {
 
 describe("gitignore guard", () => {
   const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
+  const fileIgnored = (rel: string) =>
+    Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0;
 
-  test("outside a git repository the ignore line is required all the same", () => {
+  test("outside a git repository the ignore line is required all the same, and git reads it", () => {
     // A later `git init` would put an unignored scratch into the first commit.
     expect(scratchIgnored(root)).toBe(false);
     expect(() => ensureScratch(root)).toThrow(ScratchNotIgnoredError);
@@ -260,6 +307,9 @@ describe("gitignore guard", () => {
     expect(scratchIgnored(root)).toBe(true);
     expect(() => ensureScratch(root)).not.toThrow();
     expect(ignoreScratch(root)).toBe(false);
+    // The same rules git would apply: a later negation cancels the line.
+    writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n!.brain/scratch/\n");
+    expect(scratchIgnored(root)).toBe(false);
   });
 
   test("in a git repository, writes wait for the ignore line, which ignoreScratch adds once", () => {
@@ -273,17 +323,102 @@ describe("gitignore guard", () => {
     expect(() => ensureScratch(root)).not.toThrow();
   });
 
-  test("the guard asks git about the actual target, which a negation can re-include past the probe", () => {
+  test("only the directory's own exclusion counts: a `/*` rule with a negation is refused, and the fix repairs it", () => {
     git("init", "-q");
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/*\n!.brain/scratch/exposed.pdf\n");
-    expect(scratchIgnored(root)).toBe(true);
-    expect(scratchIgnored(root, `${SCRATCH_DIR}/exposed.pdf`)).toBe(false);
+    expect(fileIgnored(`${SCRATCH_DIR}/exposed.pdf`)).toBe(false);
+    expect(scratchIgnored(root)).toBe(false);
     const exposed = join(realpathSync(root), SCRATCH_DIR, "exposed.pdf");
     expect(() => assertScratchWritable(root, exposed)).toThrow(ScratchNotIgnoredError);
-    expect(() => assertScratchWritable(root, exposed)).toThrow(/exposed\.pdf/);
-    const fine = join(realpathSync(root), SCRATCH_DIR, "nested", "fine.pdf");
-    expect(() => assertScratchWritable(root, fine)).not.toThrow();
-    expect(existsSync(join(root, SCRATCH_DIR, "nested"))).toBe(true);
+    expect(() => writeScratchFile(root, exposed, "x")).toThrow(ScratchNotIgnoredError);
+    expect(existsSync(exposed)).toBe(false);
+    // The prescribed remedy: the appended directory line wins over the negation.
+    expect(ignoreScratch(root)).toBe(true);
+    expect(scratchIgnored(root)).toBe(true);
+    expect(() => writeScratchFile(root, exposed, "x")).not.toThrow();
+    expect(fileIgnored(`${SCRATCH_DIR}/exposed.pdf`)).toBe(true);
+  });
+
+  test("a directory line cancelled by a later negation is refused, and the fix repairs it", () => {
+    git("init", "-q");
+    writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n!.brain/scratch/\n");
+    expect(scratchIgnored(root)).toBe(false);
+    const target = join(realpathSync(root), SCRATCH_DIR, "x.pdf");
+    expect(() => writeScratchFile(root, target, "x")).toThrow(ScratchNotIgnoredError);
+    expect(ignoreScratch(root)).toBe(true);
+    expect(scratchIgnored(root)).toBe(true);
+    expect(() => writeScratchFile(root, target, "x")).not.toThrow();
+    expect(fileIgnored(`${SCRATCH_DIR}/x.pdf`)).toBe(true);
+  });
+});
+
+describe("writeScratchFile", () => {
+  const outsides: string[] = [];
+  afterEach(() => {
+    for (const dir of outsides.splice(0)) cleanup(dir);
+  });
+  const ready = () => {
+    ignoreScratch(root);
+    return realpathSync(root);
+  };
+
+  test("a nested directory swapped for a symlink after the pre-flight is refused, and nothing lands outside", () => {
+    const rootReal = ready();
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    outsides.push(outside);
+    const target = join(rootReal, SCRATCH_DIR, "nested", "x.html");
+    assertScratchWritable(root, target);
+    expect(lstatSync(dirname(target)).isDirectory()).toBe(true);
+    // Between the pre-flight and the write, the directory becomes a link.
+    rmSync(dirname(target), { recursive: true });
+    symlinkSync(outside, dirname(target));
+    expect(() => writeScratchFile(root, target, "x")).toThrow(ScratchRedirectedError);
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  test("a planted symlink at the target is refused, and its target is untouched", () => {
+    const rootReal = ready();
+    const outside = outsideDir();
+    outsides.push(outside.dir);
+    const target = join(rootReal, SCRATCH_DIR, "draft.png");
+    symlinkSync(outside.file, target);
+    expect(() => writeScratchFile(root, target, "new bytes", { replace: true })).toThrow(ScratchRedirectedError);
+    expect(readFileSync(outside.file, "utf8")).toBe("keep me");
+    expect(fs.readlinkSync(target)).toBe(outside.file);
+  });
+
+  test("replacing a hard link of an outside file leaves the outside inode alone", () => {
+    const rootReal = ready();
+    const outside = outsideDir();
+    outsides.push(outside.dir);
+    const target = join(rootReal, SCRATCH_DIR, "x.html");
+    fs.linkSync(outside.file, target);
+    writeScratchFile(root, target, "new bytes", { replace: true });
+    expect(readFileSync(target, "utf8")).toBe("new bytes");
+    expect(readFileSync(outside.file, "utf8")).toBe("keep me");
+    expect(fs.statSync(target).ino).not.toBe(fs.statSync(outside.file).ino);
+  });
+
+  test("a generated name refuses an existing file; a chosen name replaces it; no temp file is left behind", () => {
+    const rootReal = ready();
+    const target = join(rootReal, SCRATCH_DIR, "taken.html");
+    writeScratchFile(root, target, "first");
+    expect(() => writeScratchFile(root, target, "second")).toThrow(/EEXIST/);
+    expect(readFileSync(target, "utf8")).toBe("first");
+    writeScratchFile(root, target, "third", { replace: true });
+    expect(readFileSync(target, "utf8")).toBe("third");
+    expect(readdirSync(join(root, SCRATCH_DIR))).toEqual(["taken.html"]);
+  });
+
+  test("a target outside scratch, or resolving out of it through a link, is refused", () => {
+    const rootReal = ready();
+    mkdirSync(join(root, "notes"), { recursive: true });
+    expect(() => writeScratchFile(root, join(rootReal, "notes", "x.html"), "x")).toThrow(ScratchRedirectedError);
+    symlinkSync(join("..", "..", "notes"), join(root, SCRATCH_DIR, "sub"));
+    expect(() => writeScratchFile(root, join(rootReal, SCRATCH_DIR, "sub", "x.html"), "x")).toThrow(
+      ScratchRedirectedError,
+    );
+    expect(readdirSync(join(root, "notes"))).toEqual([]);
   });
 });
 
@@ -296,13 +431,6 @@ describe("generated names", () => {
     expect(a).toMatch(/^report-20260924T120000000Z-[0-9a-f]{6}\.html$/);
   });
 
-  test("a generated file is created exclusively", () => {
-    mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
-    const abs = join(root, SCRATCH_DIR, "taken.html");
-    writeScratchFile(abs, "first");
-    expect(() => writeScratchFile(abs, "second")).toThrow(/EEXIST/);
-    expect(readFileSync(abs, "utf8")).toBe("first");
-  });
 });
 
 describe("the one exclusion", () => {

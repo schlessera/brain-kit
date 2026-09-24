@@ -1,5 +1,7 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, extname, join, relative, resolve, sep } from "path";
+import { randomBytes } from "crypto";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, dirname, extname, join, relative, resolve, sep } from "path";
 
 import type {
   ImageMaskPayload,
@@ -59,9 +61,16 @@ export async function handleRequestImageMask(
   if (!maskAbs) {
     throw new Error(`Cannot write a mask for ${input.imagePath}`);
   }
-  assertScratchMask(rootReal, maskRel, maskAbs);
-  mkdirSync(dirname(maskAbs), { recursive: true });
-  writeFileSync(maskAbs, png);
+  if (maskInScratch(rootReal, maskRel, maskAbs)) {
+    // Beside a draft in the scratch area: the scratch rules, then the host's
+    // prune, the way the CLI's own writers prune after a write (#310).
+    assertScratchMask(rootReal, maskRel, maskAbs);
+    writeScratchMask(rootReal, maskAbs, png);
+    await bridge.pruneScratch?.();
+  } else {
+    mkdirSync(dirname(maskAbs), { recursive: true });
+    writeFileSync(maskAbs, png);
+  }
 
   // Reporting is adapter-owned and deliberately separate from containment.
   // Claude reports the submitted lexical path through internal symlinks; pi
@@ -84,15 +93,17 @@ export async function handleRequestImageMask(
 /**
  * The brain's scratch area, `.brain/scratch/` (#310). A mask sits beside its
  * image, so an image in scratch puts the mask there too, and the write is
- * held to the scratch rules: not redirected by a symlink, and ignored by git
- * for that very path. Pruning is the server's hourly pass.
+ * held to the scratch rules: not redirected by a symlink, and the directory
+ * excluded by git. The write itself goes to a temporary sibling and is
+ * renamed onto its name, and the host's prune runs after it.
  *
  * Kept in lockstep with `packages/core/src/lib/scratch.ts` (`SCRATCH_DIR`,
- * `scratchIgnored`, `scratchDir`): the SDK ports the rule, as it does for
- * `resolveInRepo`, instead of depending on `@schlessera/brain`.
+ * `scratchIgnored`, `scratchDir`, `writeScratchFile`): the SDK ports the rule,
+ * as it does for `resolveInRepo`, instead of depending on `@schlessera/brain`.
  */
 const SCRATCH_DIR = ".brain/scratch";
-const SCRATCH_IGNORE_LINE = /^\/?\.brain(\/scratch)?\/?$/;
+
+const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
 
 function isSymlink(path: string): boolean {
   try {
@@ -102,35 +113,39 @@ function isSymlink(path: string): boolean {
   }
 }
 
-function scratchIgnored(rootReal: string, rel: string): boolean {
-  const inRepo =
-    existsSync(join(rootReal, ".git")) ||
-    Bun.spawnSync(["git", "-C", rootReal, "rev-parse", "--git-dir"]).exitCode === 0;
-  if (!inRepo) {
-    // Outside a repository the line is required all the same: a later
-    // `git init` would commit an unignored scratch.
-    const ignore = join(rootReal, ".gitignore");
-    if (!existsSync(ignore)) return false;
-    return readFileSync(ignore, "utf8")
-      .split("\n")
-      .some((line) => SCRATCH_IGNORE_LINE.test(line.trim()));
+let emptyGitDir: string | null = null;
+
+/** An empty repository, so `check-ignore` can be asked about a brain that is not one. */
+function emptyRepository(): string {
+  if (emptyGitDir && existsSync(emptyGitDir)) return emptyGitDir;
+  const dir = mkdtempSync(join(tmpdir(), "brain-scratch-ignore-"));
+  const init = Bun.spawnSync(["git", "init", "-q", "--bare", dir], { stderr: "pipe" });
+  if (init.exitCode !== 0) {
+    throw new Error(`git init failed, so .gitignore cannot be consulted: ${new TextDecoder().decode(init.stderr).trim()}`);
   }
-  return (
-    Bun.spawnSync(["git", "-C", rootReal, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0
-  );
+  emptyGitDir = dir;
+  return dir;
 }
 
 /**
- * Refuse a mask write into the scratch area that the rules would not allow.
- * A mask asked for outside scratch, and landing outside it, is not its
- * business.
+ * Whether git excludes the scratch DIRECTORY (the only exclusion nothing
+ * below it can re-include): `check-ignore` on the directory path, which has
+ * to exist, and outside a repository the same question through an empty one.
  */
-export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: string): void {
+function scratchIgnored(rootReal: string): boolean {
+  mkdirSync(join(rootReal, SCRATCH_DIR), { recursive: true });
+  const inRepo =
+    existsSync(join(rootReal, ".git")) ||
+    Bun.spawnSync(["git", "-C", rootReal, "rev-parse", "--git-dir"]).exitCode === 0;
+  const argv = inRepo
+    ? ["git", "check-ignore", "-q", "--no-index", "--", SCRATCH_DIR]
+    : ["git", `--git-dir=${emptyRepository()}`, `--work-tree=${rootReal}`, "check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
+  return Bun.spawnSync(argv, { cwd: rootReal }).exitCode === 0;
+}
+
+/** The scratch directory, verified: neither `.brain` nor `.brain/scratch` is a symlink. */
+function scratchDir(rootReal: string): string {
   const dir = join(rootReal, SCRATCH_DIR);
-  const under = (path: string) => path === dir || path.startsWith(dir + sep);
-  const asked = under(resolve(rootReal, maskRel));
-  const lands = under(maskAbs);
-  if (!asked && !lands) return;
   for (const path of [dirname(dir), dir]) {
     if (isSymlink(path)) {
       throw new Error(
@@ -138,15 +153,81 @@ export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: st
       );
     }
   }
-  if (!lands) {
+  if (existsSync(dir) && realpathSync(dir) !== dir) {
+    throw new Error(`${SCRATCH_DIR}/ resolves to ${realpathSync(dir)}, so no mask is written there.`);
+  }
+  return dir;
+}
+
+/** Whether the mask is asked to go into scratch, or resolves into it. */
+export function maskInScratch(rootReal: string, maskRel: string, maskAbs: string): boolean {
+  const dir = join(rootReal, SCRATCH_DIR);
+  return under(dir, resolve(rootReal, maskRel)) || under(dir, maskAbs);
+}
+
+/**
+ * Refuse a mask write into the scratch area that the rules would not allow:
+ * a redirected scratch, a target resolving out of it, or a directory git
+ * does not exclude. A mask asked for outside scratch, and landing outside
+ * it, is not its business.
+ */
+export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: string): void {
+  if (!maskInScratch(rootReal, maskRel, maskAbs)) return;
+  const dir = scratchDir(rootReal);
+  if (!under(dir, maskAbs)) {
     throw new Error(`${maskRel} resolves outside ${SCRATCH_DIR}/, so no mask is written there.`);
   }
-  const rel = relative(rootReal, maskAbs).split(sep).join("/");
-  if (!scratchIgnored(rootReal, rel)) {
+  if (!scratchIgnored(rootReal)) {
     throw new Error(
-      `${rel} is not gitignored, so a mask written there could be committed to the brain. ` +
+      `${SCRATCH_DIR}/ is not gitignored as a directory, so a mask written there could be committed to the brain. ` +
         "Run `brain doctor --fix` to add it to .gitignore, then try again."
     );
+  }
+}
+
+/**
+ * Write a mask into the scratch area: the port of core's `writeScratchFile`.
+ * At the moment of the write, the chain is re-verified, the target's
+ * directory must be exactly what its path says (no symlink at any segment),
+ * the target's own entry must not be a link or a directory, and the bytes go
+ * to a random temporary sibling that is renamed onto the name. A rename
+ * replaces the directory entry: it never writes through a planted link, nor
+ * into an inode a hard link shares with a file elsewhere. A mask replaces an
+ * earlier mask of the same name, as it always did.
+ */
+export function writeScratchMask(rootReal: string, maskAbs: string, png: Uint8Array): void {
+  const dir = scratchDir(rootReal);
+  if (!scratchIgnored(rootReal)) {
+    throw new Error(`${SCRATCH_DIR}/ is not gitignored as a directory; run \`brain doctor --fix\`.`);
+  }
+  const rel = relative(rootReal, maskAbs);
+  if (!under(dir, maskAbs)) throw new Error(`${rel} is outside ${SCRATCH_DIR}/, so no mask is written there.`);
+  const parent = dirname(maskAbs);
+  let path = dir;
+  for (const segment of ["", ...(parent === dir ? [] : relative(dir, parent).split(sep))]) {
+    if (segment) path = join(path, segment);
+    let s = lstatSync(path, { throwIfNoEntry: false });
+    if (!s) {
+      mkdirSync(path);
+      s = lstatSync(path);
+    }
+    if (s.isSymbolicLink() || !s.isDirectory()) {
+      throw new Error(`${relative(rootReal, path)} is not a directory of its own, so no mask is written there.`);
+    }
+  }
+  if (realpathSync(parent) !== parent) {
+    throw new Error(`${relative(rootReal, parent)} resolves to ${realpathSync(parent)}, so no mask is written there.`);
+  }
+  const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
+  writeFileSync(tmp, png, { flag: "wx" });
+  try {
+    const entry = lstatSync(maskAbs, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) throw new Error(`${rel} is a symlink, so no mask is written there.`);
+    if (entry?.isDirectory()) throw new Error(`${rel} is a directory, so no mask is written there.`);
+    renameSync(tmp, maskAbs);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
   }
 }
 

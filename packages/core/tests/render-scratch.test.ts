@@ -3,7 +3,7 @@
  * the brain, where the UI can open it, and only once git ignores it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -95,7 +95,8 @@ describe("render into the scratch area", () => {
     // directory inside it is contained, and is the case the guard exists for:
     // a "scratch" write would otherwise become content.
     await runCli(root, ["doctor", "--fix"]);
-    mkdirSync(join(root, ".brain"), { recursive: true });
+    // The check created the (empty) directory; the link takes its place.
+    rmSync(join(root, ".brain/scratch"), { recursive: true, force: true });
     symlinkSync(join("..", "notes"), join(root, ".brain/scratch"));
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch"]);
     expect(res.code).toBe(1);
@@ -131,13 +132,17 @@ describe("render into the scratch area", () => {
     expect(scratchFiles()).toEqual(["x.html"]);
   }, CLI_TIMEOUT_MS);
 
-  test("a --out that git would not ignore, under a rule with a negation, is refused by name", async () => {
+  test("a rule that excludes the files but not the directory is refused, and doctor --fix repairs it", async () => {
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/*\n!.brain/scratch/exposed.html\n");
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/exposed.html"]);
     expect(res.code).toBe(1);
-    expect(res.stderr + res.stdout).toContain(".brain/scratch/exposed.html is not gitignored");
+    expect(res.stderr + res.stdout).toContain("not gitignored as a directory");
     expect(scratchFiles()).toEqual([]);
-  });
+    await runCli(root, ["doctor", "--fix"]);
+    const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/exposed.html"]);
+    expect(again.code).toBe(0);
+    expect(git("check-ignore", "-q", "--no-index", "--", ".brain/scratch/exposed.html").exitCode).toBe(0);
+  }, CLI_TIMEOUT_MS);
 });
 
 describe("brain doctor", () => {

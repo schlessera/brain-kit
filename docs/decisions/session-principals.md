@@ -70,9 +70,9 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:391` | mounted **before** the guard at `authGuard(authMode`, `app.ts:404`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:796`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:408` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:485-502` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:392` | mounted **before** the guard at `authGuard(authMode`, `app.ts:405`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:796`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:409` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:486-503` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |

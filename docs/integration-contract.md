@@ -553,12 +553,20 @@ Rules a consumer may rely on:
 - Module data files (e.g. module-jobs' `jobs.db`) are documented by the module
   that owns them.
 - The scratch area `.brain/scratch/` (additive in 0.38.0) holds transient
-  output (`brain render --scratch`, `brain render -`, `brain image --scratch`)
-  and is never canonical: gitignored (a write there is refused until it is —
-  `brain doctor --fix` adds the line), excluded from the index, stats and OKF
-  export, and pruned to 7 days and 1 GB. Every write into it prunes; so does
-  `brain maintain`, `brain scratch prune`, and the chat server hourly. A file
-  there may vanish at any time; a consumer that wants to keep one moves it out.
+  output and is never canonical: excluded from the index, stats and OKF
+  export, and pruned to 7 days and 1 GB. Four writers are held to its rules
+  and prune after writing: `brain render` (`--scratch`, stdin without `--out`,
+  or `--out` into it), `brain image` (`--scratch` or `--out` into it),
+  `brain okf export --out` into it, and the chat UI's `request_image_mask`
+  beside a draft there. Each refuses to write until git excludes the
+  directory itself (`brain doctor --fix` adds the line; a rule on the files
+  alone does not count) and refuses a `.brain` or `.brain/scratch` that is a
+  symlink. Other commands that write where a caller points them (`add`,
+  `import`, pi's `write_file`, module data files) are canonical-content
+  writers and are not held to scratch rules. The periodic pass is `brain
+  maintain` (the hosting container runs it daily), `brain scratch prune`, and
+  the chat server hourly. A file there may vanish at any time; a consumer that
+  wants to keep one moves it out.
 
 ## Extension interfaces
 

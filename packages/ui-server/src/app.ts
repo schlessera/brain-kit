@@ -259,6 +259,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
     classifier,
+    scratchPrune: () => scratchPrune.tick(),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -538,7 +539,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     close: () => {
       host.close();
       subscription.close();
-      scratchPrune.close();
+      void scratchPrune.close();
       activity.close();
       db.close();
     },

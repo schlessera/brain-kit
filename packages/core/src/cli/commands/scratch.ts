@@ -10,8 +10,9 @@ it cannot grow without bound. Move a file out of it to keep it.
 
   clean    Remove everything in the scratch area.
   prune    Remove files older than 7 days, then the oldest until it is under
-           1 GB. Every write into scratch already does this, \`brain maintain\`
-           does it as its last step, and the chat server runs it hourly. A
+           1 GB. render, image and okf export do this after writing there,
+           \`brain maintain\` does it as its last step, and the chat server
+           runs it hourly. A
            brain with no chat server has no other periodic pass: schedule
            \`brain maintain\` (cron), or nothing prunes between writes.
 
