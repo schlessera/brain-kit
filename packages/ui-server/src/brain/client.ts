@@ -47,6 +47,8 @@ export interface BrainClient {
   validate(): Promise<string>;
   /** Run `brain skills sync` — re-materialize every agent's skill links. */
   skillsSync(): Promise<string>;
+  /** Run `brain scratch prune` — the periodic pass over the scratch area (#310). An aborted signal kills the child. */
+  scratchPrune(opts?: { signal?: AbortSignal }): Promise<string>;
 }
 
 interface ExecResult {
@@ -381,6 +383,16 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
       const result = await execBrain(["validate"]);
       if (result.exitCode !== 0) {
         throw new Error(`brain validate failed: ${result.stderr}`);
+      }
+      return result.stdout;
+    },
+
+    async scratchPrune(opts) {
+      const result = await execBrain(["scratch", "prune"], opts?.signal);
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `brain scratch prune failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`
+        );
       }
       return result.stdout;
     },

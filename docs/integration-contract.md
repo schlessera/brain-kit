@@ -31,7 +31,8 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 - Bin name: `brain` (stable). Runs under Bun.
 - Output mode: JSON when stdout is not a TTY; force with `--json` / `--human`.
 - Exit codes: `0` success · `1` usage error · `2` internal failure
-  (`maintain` exits `2` if any step failed).
+  (`maintain` exits `2` if any step failed; `scratch clean|prune` exits `2`
+  when a file could not be removed, with the JSON report still printed).
 - Boolean flags never consume the following argument.
 - End-of-options: a bare `--` stops flag parsing, and every later argument is
   positional verbatim. Output-mode and help flags after it are positional too
@@ -50,6 +51,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain init --check` | preflight object (new in brain-kit). Its `config` block is `{ exists, valid, initialized, path, error? }`; `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0) |
 | `brain okf export --json` | `{ "outDir", "filesExported", "assetsCopied", "linksConverted", "linksDegraded", "degradedLinks", "indexFilesGenerated", "topLevelDirectories", "warnings" }` |
 | `brain okf check [dir] --json` | `{ "directory", "ok", "filesChecked", "errors", "warnings", "issues": [{ "severity", "path", "message" }] }`; exit 1 when `errors > 0` |
+| `brain scratch clean\|prune --json` | `{ "action": "clean"\|"prune", "removed": [{ "path", "bytes", "reason": "age"\|"size"\|"clean" }], "failed": [{ "path", "reason" }], "bytes", "files" }` — `path` is repo-relative; `failed` lists files the OS refused to remove (they are still there, and the exit code is `2`); `bytes` and `files` are what is left in the scratch area afterwards, those included (additive in 0.38.0) |
 | `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
@@ -551,6 +553,21 @@ Rules a consumer may rely on:
   ship them empty.
 - Module data files (e.g. module-jobs' `jobs.db`) are documented by the module
   that owns them.
+- The scratch area `.brain/scratch/` (additive in 0.38.0) holds transient
+  output and is never canonical: excluded from the index, stats and OKF
+  export, and pruned to 7 days and 1 GB. Four writers are held to its rules
+  and prune after writing: `brain render` (`--scratch`, stdin without `--out`,
+  or `--out` into it), `brain image` (`--scratch` or `--out` into it),
+  `brain okf export --out` into it, and the chat UI's `request_image_mask`
+  beside a draft there. Each refuses to write until git excludes the
+  directory itself (`brain doctor --fix` adds the line; a rule on the files
+  alone does not count) and refuses a `.brain` or `.brain/scratch` that is a
+  symlink. Other commands that write where a caller points them (`add`,
+  `import`, pi's `write_file`, module data files) are canonical-content
+  writers and are not held to scratch rules. The periodic pass is `brain
+  maintain` (the hosting container runs it daily), `brain scratch prune`, and
+  the chat server hourly. A file there may vanish at any time; a consumer that
+  wants to keep one moves it out.
 
 ## Extension interfaces
 

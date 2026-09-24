@@ -1,7 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, extname, relative } from "path";
+import { existsSync, readFileSync } from "fs";
+import { basename, dirname, extname, join, relative, resolve, sep } from "path";
 
-import { resolveWritable, safeResolve } from "@schlessera/brain";
+import {
+  SCRATCH_DIR,
+  WriteRefusedError,
+  assertScratchWritable,
+  isInScratch,
+  isWriteRefusal,
+  pruneScratch,
+  resolveWritable,
+  safeResolve,
+  scratchName,
+  writeFileSafely,
+  writeScratchFile,
+} from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { readEnvVar } from "./config/env.js";
@@ -17,6 +29,9 @@ const HELP = `brain image — generate and edit images, routed by capability
 
 Output:
   --out <path>            Where to write, repo-relative. Default: <imagesDir>/<slug>-<date>.<ext>
+  --scratch               Write to the brain's scratch area instead (.brain/scratch/): for a
+                          draft that should not become part of the brain. Never committed;
+                          pruned after 7 days or past 1 GB.
   --format png|jpeg|webp  Default: whatever the chosen model returns
                           (every Gemini image model serves JPEG only)
 
@@ -57,6 +72,7 @@ interface ParsedArgs {
 
 const BOOLEANS = new Set([
   "transparent", "dry-run", "text-in-image", "characters", "no-watermark", "draft", "json", "human",
+  "scratch",
 ]);
 const REPEATABLE = new Set(["ref"]);
 
@@ -215,18 +231,37 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // Gemini serves JPEG whatever the file is called, and writing those bytes
     // into a .png would be a lie that only shows up when something opens it.
     const ext = request.format ?? model.defaultFormat;
-    const outRel =
-      (parsed.flags.out as string | undefined) ??
-      `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`;
-    const out = resolveWritable(ctx.root, outRel);
-    if (!out) {
-      console.error(
-        `Output path is neither inside the brain root nor under the temp directory: ${outRel}`
-      );
+    if (parsed.flags.out !== undefined && parsed.flags.scratch === true) {
+      console.error("--out and --scratch are exclusive");
       return 1;
     }
-    const outAbs = out.abs;
-    const report = (abs: string) => (out.inRepo ? relative(ctx.root, abs) : abs);
+    // A draft's name is unique per run (scratchName): a chat link to an
+    // earlier draft must keep showing that draft.
+    const toScratch = parsed.flags.scratch === true;
+    const outRel =
+      (parsed.flags.out as string | undefined) ??
+      (toScratch
+        ? `${SCRATCH_DIR}/${scratchName(slugify(prompt), ext)}`
+        : `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`);
+    const outAbs = resolveWritable(ctx.root, outRel);
+    if (!outAbs) {
+      console.error(`Output path is not inside the brain: ${outRel}`);
+      return 1;
+    }
+    // Output into the scratch area (asked for, or resolved into it) is held
+    // to the scratch rules (#310): gitignored, not redirected by a symlink.
+    // Pre-flighted now, before the provider is paid; the write checks again,
+    // because the rule and the directory can change while the request is out.
+    const scratchOutput = isInScratch(ctx.root, outRel) || isInScratch(ctx.root, outAbs);
+    if (scratchOutput) {
+      try {
+        assertScratchWritable(ctx.root, outAbs);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+    const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
       const payload = {
@@ -267,21 +302,51 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // under the wrong name only surfaces when something tries to open it.
     const [first, ...rest] = result.images;
     const actualExt = first.mime.replace("image/", "").replace("jpg", "jpeg");
-    let finalAbs = outAbs;
+    let finalRel = outRel;
     let renamed: string | undefined;
-    if (extname(outAbs).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
-      finalAbs = outAbs.replace(/\.[^./\\]+$/, "") + "." + actualExt;
-      renamed = `${report(outAbs)} → ${report(finalAbs)} (model returned ${actualExt})`;
+    if (extname(outRel).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
+      finalRel = outRel.replace(/\.[^./\\]+$/, "") + "." + actualExt;
+      renamed = `${report(outAbs)} → ${relative(ctx.root, resolve(ctx.root, finalRel))} (model returned ${actualExt})`;
     }
 
-    mkdirSync(dirname(finalAbs), { recursive: true });
-    writeFileSync(finalAbs, first.data);
-    const written = [report(finalAbs)];
+    // Every name the provider's answer produced (the corrected extension,
+    // the `-2` siblings) is resolved and classified on its own: into scratch
+    // (asked for, or resolved into it), the scratch primitive; anywhere else,
+    // a write that still never goes through a link. A generated scratch name
+    // refuses an existing file; a name the caller chose (--out) is theirs to
+    // replace.
+    // Refusals by design are reported and exit 1; a filesystem failure
+    // (ENOSPC, ...) propagates as the internal error it is.
+    let wroteScratch = false;
+    const write = (rel: string, data: Uint8Array): boolean => {
+      try {
+        const resolved = resolveWritable(ctx.root, rel);
+        if (isInScratch(ctx.root, rel) || (resolved !== null && isInScratch(ctx.root, resolved))) {
+          writeScratchFile(ctx.root, rel, data, { replace: !toScratch });
+          wroteScratch = true;
+          return true;
+        }
+        const parent = resolveWritable(ctx.root, dirname(rel));
+        if (!parent) throw new WriteRefusedError(`Output path is not inside the brain: ${rel}`);
+        writeFileSafely(join(parent, basename(rel)), data);
+        return true;
+      } catch (error) {
+        if (!isWriteRefusal(error)) throw error;
+        console.error((error as Error).message);
+        return false;
+      }
+    };
+    // Reported repo-relative, like the dry run: the UI opens a link by that.
+    const repoRelative = (rel: string) => relative(ctx.root, resolve(ctx.root, rel)).split(sep).join("/");
+    if (!write(finalRel, first.data)) return 1;
+    const written = [repoRelative(finalRel)];
     for (const [i, extra] of rest.entries()) {
-      const alt = finalAbs.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
-      writeFileSync(alt, extra.data);
-      written.push(report(alt));
+      const alt = finalRel.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
+      if (!write(alt, extra.data)) return 1;
+      written.push(repoRelative(alt));
     }
+    // This command's writes into scratch prune it.
+    if (wroteScratch) pruneScratch(ctx.root);
 
     const payload = {
       output: written[0],

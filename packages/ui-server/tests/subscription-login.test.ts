@@ -170,7 +170,7 @@ describe("a rejected subscription token", () => {
       expect(root.attrs["brain.failure_class"]).toBe("authentication_failed");
       expect(root.outcome).toBe("error");
     } finally {
-      app.close();
+      await app.close();
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((request) => request.xApiKey !== null)).toEqual([]);

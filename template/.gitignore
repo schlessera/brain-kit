@@ -19,4 +19,9 @@ workspaces/*/
 # anything you happened to share — never commit it.
 .brain-ui/
 
+# The brain's scratch area: transient output (renders, image drafts) that is
+# never part of the brain. Pruned after 7 days or past 1 GB; move a file out of
+# it to keep it.
+.brain/scratch/
+
 # Add your own ignores below (local extensions, editor files, OS cruft, …).

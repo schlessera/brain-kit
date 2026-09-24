@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`packages/ui-server/src/ws/bridge.ts:63-112`), so autonomous work is confined to
+   resolve (`packages/ui-server/src/ws/bridge.ts:66-115`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -222,7 +222,7 @@ Stated before the requirements because five of them derive from it.
   history, but `activity/runtime.ts:86-100` already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop poke needs a real auth answer.** Every non-public `/api/*` route is
-  guarded (`packages/ui-server/src/app.ts:282-304`) and password mode accepts only a signed
+  guarded (`packages/ui-server/src/app.ts:288-310`) and password mode accepts only a signed
   cookie (`packages/ui-server/src/middleware/auth.ts:163-173`), so a cookie-less loopback
   request passes only in tailscale/none modes. Either mount the internal route **before** the
   general guard and check the real socket address with proxy headers ignored, or give it a
@@ -243,7 +243,7 @@ Stated before the requirements because five of them derive from it.
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   conversation-shaped and exposes no headless, persistence, or tool-policy mode
-  (`packages/ui-sdk/src/server/backend.ts:172-200`); Claude creates an SDK session, emits
+  (`packages/ui-sdk/src/server/backend.ts:178-206`); Claude creates an SDK session, emits
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
   origin, and prompt configuration; drive it with a synthetic bridge; and generalize the
@@ -258,7 +258,7 @@ Stated before the requirements because five of them derive from it.
   rule that autonomous runs yield or abort when interactive demand arrives. Pick one; do not
   leave it implied.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`ws/bridge.ts:63-112`) — while blocked on it the model cannot write anything, so
+  promise (`ws/bridge.ts:66-115`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, resolve the
   permission as denied, then abort — following the unwind order the timeout path already

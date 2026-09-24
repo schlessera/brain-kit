@@ -1,5 +1,6 @@
-import { tmpdir } from "os";
-import { lstatSync, realpathSync, readlinkSync } from "fs";
+import { randomBytes } from "crypto";
+import { closeSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, readlinkSync, renameSync, rmSync, writeSync } from "fs";
+import type { Stats } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 
 /**
@@ -79,33 +80,98 @@ export function safeResolve(root: string, relPath: string): string | null {
 }
 
 /**
- * Resolve a path the caller may write to: inside the brain root, or under the
- * system temp directory.
+ * Resolve a path the caller may read or write: inside the brain root only.
  *
- * Containment exists so a tool argument cannot wander into `~/.ssh`, not to
- * deny scratch space. Refusing `/tmp` only pushed intermediates into the repo,
- * where they show up as git noise — an HTML file that exists to be rendered
- * two seconds later does not belong in a knowledge base.
- *
- * Returns `{ abs, inRepo }` so callers can warn that anything written outside
- * the repo is invisible to a UI browsing it.
+ * Containment exists so a tool argument cannot wander into `~/.ssh`. It once
+ * also let output land under the system temp directory, for intermediates
+ * that do not belong in the knowledge base. That space is now the brain's own
+ * scratch area (`SCRATCH_DIR`, #310): inside the root, so the UI can open
+ * what lands there, and gitignored and pruned, so it is never canonical. A
+ * write into it goes through `ensureScratch`.
  */
-export function resolveWritable(
-  root: string,
-  relOrAbs: string,
-  tmpDir: string = tmpdir()
-): { abs: string; inRepo: boolean } | null {
-  const contained = safeResolve(root, relOrAbs);
-  if (contained) return { abs: contained, inRepo: true };
+export function resolveWritable(root: string, relOrAbs: string): string | null {
+  return safeResolve(root, relOrAbs);
+}
 
-  if (relOrAbs.includes("\0")) return null;
-  const abs = resolve(relOrAbs);
-  let tmpReal: string;
-  try {
-    tmpReal = realpathSync(tmpDir);
-  } catch {
-    return null;
+/**
+ * A write refused on purpose: the target's entry is a link or a directory,
+ * the name is taken and may not be replaced, or its directory is no longer
+ * the directory it was. Callers turn these into usage errors; anything else
+ * a write throws (ENOSPC, EACCES, ...) is an internal failure and stays one.
+ */
+export class WriteRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WriteRefusedError";
   }
-  // The temp dir itself is not a writable target; something under it is.
-  return abs.startsWith(tmpReal + sep) ? { abs, inRepo: false } : null;
+}
+
+/**
+ * Create `tmp` exclusively and fill it. When it is to replace `existing`, a
+ * regular file, it takes that file's exact mode first (opened with the mode,
+ * then `fchmod` past the umask) so the bytes are never readable more widely
+ * than the file they replace; a new file keeps the default mode.
+ */
+export function writeExclusive(tmp: string, data: string | Uint8Array, existing: Stats | undefined): void {
+  const mode = existing?.isFile() ? existing.mode & 0o7777 : undefined;
+  const fd = openSync(tmp, "wx", mode);
+  try {
+    if (mode !== undefined) fchmodSync(fd, mode);
+    const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : data;
+    let offset = 0;
+    while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset, bytes.byteLength - offset);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Write a file whose directory the caller has already resolved (canonical,
+ * contained) without ever writing through a link or into an inode a hard
+ * link shares: the target's own entry may not be a symlink or a directory,
+ * and the bytes go to a random temporary sibling created exclusively, then
+ * renamed onto the name once the directory is re-verified to be exactly
+ * itself (`realpath` equal, a directory, not a link put in its place). A
+ * rename replaces the directory entry rather than writing through it. A
+ * replaced regular file keeps its mode (`writeExclusive`).
+ * `replace: false` refuses an existing file (EEXIST). The one syscall between
+ * the verification and the rename remains, as it does for any path-based
+ * write in Node. The scratch area has its own primitive on top of the same
+ * shape (`writeScratchFile`); this is for every other write of caller-given
+ * output (`render --out`, `image --out`, the OKF export).
+ */
+export function writeFileSafely(
+  abs: string,
+  data: string | Uint8Array,
+  { replace = true }: { replace?: boolean } = {},
+): void {
+  const parent = dirname(abs);
+  mkdirSync(parent, { recursive: true });
+  const genuine = (): boolean => {
+    try {
+      return realpathSync(parent) === parent && lstatSync(parent).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const swapped = () =>
+    new WriteRefusedError(`${parent} is not a directory of its own; refusing to write ${basename(abs)} there`);
+  if (!genuine()) throw swapped();
+  const entry = lstatSync(abs, { throwIfNoEntry: false });
+  if (entry?.isSymbolicLink()) throw new WriteRefusedError(`${abs} is a symlink; refusing to write through it`);
+  if (entry?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${abs} is a directory`);
+  if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
+  const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
+  writeExclusive(tmp, data, replace ? entry : undefined);
+  try {
+    if (!genuine()) throw swapped();
+    const now = lstatSync(abs, { throwIfNoEntry: false });
+    if (now?.isSymbolicLink()) throw new WriteRefusedError(`${abs} is a symlink; refusing to write through it`);
+    if (now?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${abs} is a directory`);
+    if (now && !replace) throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
+    renameSync(tmp, abs);
+  } catch (error) {
+    if (genuine()) rmSync(tmp, { force: true });
+    throw error;
+  }
 }

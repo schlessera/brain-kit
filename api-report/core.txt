@@ -61,7 +61,15 @@ export "." (./src/index.ts)
   type RerankerConfig
   type ResolvedTypeSpec
   SCHEMA_VERSION
+  SCRATCH_DIR
+  SCRATCH_MAX_BYTES
+  SCRATCH_TTL_MS
   type SchemaOptions
+  type ScratchFailure
+  ScratchNotIgnoredError
+  ScratchRedirectedError
+  type ScratchRemoval
+  type ScratchReport
   type SearchDeps
   type SearchOptions
   type SearchResponse
@@ -79,7 +87,9 @@ export "." (./src/index.ts)
   type ValidationIssue
   type VecSupport
   type VecUnavailableReason
+  WriteRefusedError
   archiveDocument
+  assertScratchWritable
   audit
   brainConfigSchema
   buildTaxonomy
@@ -88,6 +98,7 @@ export "." (./src/index.ts)
   chunkDocument
   chunkTextForEmbedding
   classifyContent
+  cleanScratch
   collectStats
   createEnrichment
   defineAgentRunner
@@ -97,6 +108,7 @@ export "." (./src/index.ts)
   defineModule
   defineSkillEmitter
   discoverSkills
+  ensureScratch
   exportOkfBundle
   extractWikiLinks
   filterSearch
@@ -108,10 +120,13 @@ export "." (./src/index.ts)
   getMeta
   hasVecSupport
   hybridSearch
+  ignoreScratch
   indexAll
   ingest
   initContext
   installBinLinks
+  isInScratch
+  isWriteRefusal
   lintSkills
   loadModules
   loadUserConfig
@@ -119,6 +134,7 @@ export "." (./src/index.ts)
   migrateVecSchema
   normalizeFrontmatterDates
   openDatabase
+  pruneScratch
   readEnvVar
   repoRelativePathSchema
   rerank
@@ -130,11 +146,16 @@ export "." (./src/index.ts)
   resolveWikiLink
   resolveWritable
   safeResolve
+  scratchDir
+  scratchIgnored
+  scratchName
   setContext
   setMeta
   storedVectorWidth
   stringifyDocument
   syncSkills
   validate
+  writeFileSafely
+  writeScratchFile
 
 export "./package.json" (./package.json) [asset]

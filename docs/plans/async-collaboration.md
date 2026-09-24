@@ -36,7 +36,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:63-112`), inbound material
+promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:66-115`), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -136,10 +136,10 @@ Unit numbers are stable identifiers, not build order. Build order:
   owns only manual triggers and history; it does not tick.
 - **Two-process SQLite posture**: WAL + `busy_timeout = 5000` already set for exactly this
   (`packages/ui-server/src/db/client.ts:25-35`); activity writes use immediate transactions.
-- **Auth guard reality**: `packages/ui-server/src/app.ts:282-304` guards every non-public
+- **Auth guard reality**: `packages/ui-server/src/app.ts:288-310` guards every non-public
   `/api/*`; password mode requires a signed cookie
   (`packages/ui-server/src/middleware/auth.ts:163-173`).
-- **Permission parking and the unwind order**: `ws/bridge.ts:63-112` (parked promise, no
+- **Permission parking and the unwind order**: `ws/bridge.ts:66-115` (parked promise, no
   checkpoint hook), `ws/run-session.ts:104-120` (the timeout path's abort → resolve-pending
   sequence), `ui-backend-claude/src/backend.ts:944-951` (lock release).
 - **Auto-allow bypasses `canUseTool`**: `ui-backend-claude/src/backend.ts:57-88, 703-709`; the

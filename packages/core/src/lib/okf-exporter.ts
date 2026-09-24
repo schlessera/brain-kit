@@ -1,7 +1,6 @@
 import { Glob } from "bun";
 import matter from "gray-matter";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   lstatSync,
@@ -9,7 +8,6 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "path";
 
@@ -20,7 +18,8 @@ import {
   resolveAlias,
 } from "./indexer.js";
 import { normalizeFrontmatterDates, stringifyDocument } from "./frontmatter.js";
-import { safeResolve } from "./safe-path.js";
+import { safeResolve, writeFileSafely } from "./safe-path.js";
+import { assertScratchWritable, isInScratch, pruneScratch, writeScratchFile } from "./scratch.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { createWikiLinkResolver } from "./indexer/links.js";
 
@@ -432,10 +431,29 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
 
   // Exclusion from indexing is not permission to delete unrelated data.
   assertDisposableOutput(output.absolute);
+  // The scratch area is excluded too, so it passes the check above; a bundle
+  // written there is held to the scratch rules like any other write (#310).
+  const scratchOutput = isInScratch(root, output.absolute);
+  if (scratchOutput) {
+    try {
+      assertScratchWritable(root, output.absolute);
+    } catch (error) {
+      throw new OkfExportError(error instanceof Error ? error.message : String(error));
+    }
+  }
+  // Into scratch, every file goes through the one write primitive, which
+  // checks the target at the moment of the write.
+  const put = (destination: string, content: string | Uint8Array, replace: boolean): void => {
+    if (scratchOutput) {
+      writeScratchFile(root, destination, content, { replace });
+      return;
+    }
+    writeFileSafely(destination, content, { replace });
+  };
   // All validation and parsing happens before this derived-artifact wipe.
   if (existsSync(output.absolute)) rmSync(output.absolute, { recursive: true, force: true });
   mkdirSync(output.absolute, { recursive: true });
-  writeFileSync(resolve(output.absolute, EXPORT_MARKER), EXPORT_MARKER_CONTENT, { flag: "wx" });
+  put(resolve(output.absolute, EXPORT_MARKER), EXPORT_MARKER_CONTENT, false);
 
   const resolveLink = createWikiLinkResolver(fileMap, options.taxonomy.dirAnchors);
   for (const concept of concepts) {
@@ -446,15 +464,11 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
       aliasMap,
       report
     );
-    const destination = resolve(output.absolute, concept.path);
-    mkdirSync(dirname(destination), { recursive: true });
-    writeFileSync(destination, stringifyDocument(body, concept.exportedData), "utf-8");
+    put(resolve(output.absolute, concept.path), stringifyDocument(body, concept.exportedData), true);
   }
 
   for (const asset of assetFiles) {
-    const destination = resolve(output.absolute, asset.path);
-    mkdirSync(dirname(destination), { recursive: true });
-    copyFileSync(resolve(root, asset.path), destination);
+    put(resolve(output.absolute, asset.path), readFileSync(resolve(root, asset.path)), true);
   }
 
   const directories = new Set<string>();
@@ -463,12 +477,12 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
   }
   directories.add("");
   for (const dir of [...directories].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))) {
-    const destination = resolve(output.absolute, dir, "index.md");
-    mkdirSync(dirname(destination), { recursive: true });
-    writeFileSync(destination, generateIndex(dir, concepts, directories), "utf-8");
+    put(resolve(output.absolute, dir, "index.md"), generateIndex(dir, concepts, directories), true);
     report.indexFilesGenerated++;
   }
 
+  // The exporter's writes into scratch prune it.
+  if (scratchOutput) pruneScratch(root);
   return report;
 }
 

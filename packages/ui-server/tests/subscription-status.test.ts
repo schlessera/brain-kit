@@ -305,7 +305,7 @@ describe("/api/status's subscription", () => {
       expect(typeof subscription.lastProvenAt).toBe("string");
       expect(subscription.lastAuthFailure).toBeNull();
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -314,7 +314,7 @@ describe("/api/status's subscription", () => {
     const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     await turn(first.app);
     const proven = (await status(first.app)).subscription.lastProvenAt;
-    first.app.close();
+    await first.app.close();
     expect(proven).not.toBeNull();
 
     const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
@@ -323,7 +323,7 @@ describe("/api/status's subscription", () => {
       expect(subscription.lastProvenAt).toBe(proven);
       expect(subscription.provenBy).toBe("turn");
     } finally {
-      second.app.close();
+      await second.app.close();
     }
   });
 
@@ -335,13 +335,13 @@ describe("/api/status's subscription", () => {
     // What detail retention does to a digested run after its window, before
     // any status request or hourly pass has looked.
     first.app.db.run("DELETE FROM activity_spans");
-    first.app.close();
+    await first.app.close();
 
     const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     try {
       expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
     } finally {
-      second.app.close();
+      await second.app.close();
     }
   });
 
@@ -352,14 +352,14 @@ describe("/api/status's subscription", () => {
     const ended = (first.app.db.query("SELECT MAX(ended_at) AS at FROM activity_spans").get() as { at: number }).at;
     // As an older server leaves it: the span, and nothing kept.
     first.app.db.run("DELETE FROM settings WHERE key = ?", [LAST_PROVEN_SETTING]);
-    first.app.close();
+    await first.app.close();
 
     const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     second.app.db.run("DELETE FROM activity_spans");
     try {
       expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
     } finally {
-      second.app.close();
+      await second.app.close();
     }
   });
 
@@ -373,7 +373,7 @@ describe("/api/status's subscription", () => {
       await turn(app);
       expect((await status(app)).subscription.lastProvenAt).toBeNull();
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -400,7 +400,7 @@ describe("/api/status's subscription", () => {
           { relogin: "claude setup-token", check_account: "claude.ai", check_config: "apiKeyHelper" }[action]
         );
       } finally {
-        app.close();
+        await app.close();
       }
     });
   }
@@ -432,7 +432,7 @@ describe("/api/status's subscription", () => {
       expect(warnings(observability, SUBSCRIPTION_AUTH_INSTRUCTIONS.relogin)).toEqual([]);
       expect(warnings(observability, "Check that profile's credential")).toHaveLength(1);
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -454,7 +454,7 @@ describe("/api/status's subscription", () => {
       expect(raw).not.toContain(FAKE_TOKEN.slice(0, 30));
       for (const entry of observability.logs.find({})) expect(JSON.stringify(entry)).not.toContain(FAKE_TOKEN);
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -481,7 +481,7 @@ describe("/api/status's subscription", () => {
         for (const secret of [otherKey, "abc123", opaque]) expect(text).not.toContain(secret);
       }
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -501,7 +501,7 @@ describe("/api/status's subscription", () => {
       await turn(app);
       expect((await status(app)).subscription.lastProvenAt).toBe(proven);
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -523,7 +523,7 @@ describe("/api/status's subscription", () => {
         at: "2026-09-21T10:00:00.000Z",
       });
     } finally {
-      app.close();
+      await app.close();
     }
   });
 
@@ -544,7 +544,7 @@ describe("/api/status's subscription", () => {
       insert.run("job", "run-y", null, "cron", "cron", attrs, later, later);
       expect((await status(app)).subscription.lastProvenAt).toBe(proven);
     } finally {
-      app.close();
+      await app.close();
     }
   });
 

@@ -1,9 +1,20 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { dirname, extname, relative } from "path";
+import { existsSync, readFileSync } from "fs";
+import { basename, dirname, extname, join, relative } from "path";
 import matter from "gray-matter";
 import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
 
-import { resolveWritable } from "../../lib/safe-path.js";
+import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
+import {
+  assertScratchWritable,
+  isInScratch,
+  isWriteRefusal,
+  pruneScratch,
+  SCRATCH_DIR,
+  ScratchNotIgnoredError,
+  ScratchRedirectedError,
+  scratchName,
+  writeScratchFile,
+} from "../../lib/scratch.js";
 import {
   noSandboxFromEnv,
   RendererUnavailableError,
@@ -15,8 +26,11 @@ import { emit, parseArgs, UsageError } from "../io.js";
 const HELP = `brain render <path|-> — render a document to PDF, PNG, or standalone HTML
 
   --format <fmt>        pdf (default), png, or html
-  --out <path>          Output path, repo-relative. Default: the input path with
-                        the format's extension. Required when reading stdin.
+  --out <path>          Output path, inside the brain. Default: the input path
+                        with the format's extension; for stdin, the scratch area.
+  --scratch             Write the output to the brain's scratch area
+                        (${SCRATCH_DIR}/): transient, openable in the UI, never
+                        committed, and pruned after 7 days or past 1 GB.
   --as <type>           Treat input as markdown or html. Default: from the file
                         extension; markdown for stdin.
   --title <text>        Document title. Default: the frontmatter title, else the
@@ -89,13 +103,10 @@ export const renderCommand: CoreCommand = {
       raw = await readStdin();
       sourceLabel = "(stdin)";
     } else {
-      const resolved = resolveWritable(root, input);
-      if (!resolved) {
-        throw new UsageError(
-          `Path is neither inside the brain root nor under the temp directory: ${input}`
-        );
+      const abs = resolveWritable(root, input);
+      if (!abs) {
+        throw new UsageError(`Path is not inside the brain: ${input}`);
       }
-      const abs = resolved.abs;
       if (!existsSync(abs)) throw new UsageError(`No such file: ${input}`);
       raw = readFileSync(abs, "utf8");
       sourceLabel = relative(root, abs);
@@ -117,17 +128,35 @@ export const renderCommand: CoreCommand = {
 
     // --- resolve the output path
     const outFlag = typeof flags.out === "string" ? flags.out : undefined;
-    if (!outFlag && fromStdin) {
-      throw new UsageError("--out is required when reading from stdin");
+    if (outFlag && flags.scratch === true) {
+      throw new UsageError("--out and --scratch are exclusive");
     }
-    const outRel = outFlag ?? input.replace(/\.[^./\\]+$/, "") + "." + format;
-    const out = resolveWritable(root, outRel);
-    if (!out) {
-      throw new UsageError(
-        `Output path is neither inside the brain root nor under the temp directory: ${outRel}`
-      );
+    // Transient output goes to the scratch area: on request, and for stdin,
+    // which has no file of its own to sit next to. A generated name is unique
+    // per render (scratchName): the input's directory is not part of it, and
+    // two renders must never replace each other under a link already shared.
+    const toScratch = flags.scratch === true || (!outFlag && fromStdin);
+    const outRel = toScratch
+      ? join(SCRATCH_DIR, scratchName(fromStdin ? "render" : basename(input).replace(/\.[^.]+$/, ""), format))
+      : (outFlag ?? input.replace(/\.[^./\\]+$/, "") + "." + format);
+    const outAbs = resolveWritable(root, outRel);
+    if (!outAbs) {
+      throw new UsageError(`Output path is not inside the brain: ${outRel}`);
     }
-    const outAbs = out.abs;
+    // Asked for scratch (lexically), or resolved into it: either way the
+    // write is held to the scratch rules, pre-flighted here so a refusal
+    // costs no render, and checked again by the write itself.
+    const scratchOutput = isInScratch(root, outRel) || isInScratch(root, outAbs);
+    if (scratchOutput) {
+      try {
+        assertScratchWritable(root, outAbs);
+      } catch (error) {
+        if (error instanceof ScratchNotIgnoredError || error instanceof ScratchRedirectedError) {
+          throw new UsageError(error.message);
+        }
+        throw error;
+      }
+    }
     if (!existsSync(dirname(outAbs))) {
       throw new UsageError(`Output directory does not exist: ${relative(root, dirname(outAbs))}`);
     }
@@ -140,9 +169,33 @@ export const renderCommand: CoreCommand = {
 
     const html = buildHtmlDocument({ content, contentType, title, allowHosts });
 
-    // --- write
+    // --- write. The destination is classified again now, from its name and
+    // its freshly resolved directory: the renderer ran in between, and a
+    // directory that came to resolve into scratch puts the write under the
+    // scratch rules (the primitive, then the prune). A generated name refuses
+    // an existing file; a name the caller chose (--out) is theirs to replace.
+    // Refusals by design are usage errors; a filesystem failure (ENOSPC, ...)
+    // stays an internal error.
+    let wroteScratch = false;
+    const write = (data: string | Uint8Array) => {
+      const parent = resolveWritable(root, dirname(outRel));
+      if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+      const target = join(parent, basename(outRel));
+      const inScratch = scratchOutput || isInScratch(root, outRel) || isInScratch(root, target);
+      try {
+        if (inScratch) {
+          writeScratchFile(root, outRel, data, { replace: !toScratch });
+          wroteScratch = true;
+        } else {
+          writeFileSafely(target, data);
+        }
+      } catch (error) {
+        if (isWriteRefusal(error)) throw new UsageError((error as Error).message);
+        throw error;
+      }
+    };
     if (format === "html") {
-      writeFileSync(outAbs, html, "utf8");
+      write(html);
     } else {
       let renderer;
       try {
@@ -159,17 +212,16 @@ export const renderCommand: CoreCommand = {
           format === "png"
             ? await renderer.renderPng({ html, width })
             : await renderer.renderPdf({ html, width });
-        writeFileSync(outAbs, buf);
+        write(buf);
       } finally {
         await renderer.shutdown();
       }
     }
 
     const bytes = Bun.file(outAbs).size;
-    // A path outside the repo is reported absolute: `../../tmp/x.pdf` is not
-    // a useful thing to hand back, and the caller should see that it landed
-    // somewhere the app cannot browse.
-    const outputRel = out.inRepo ? relative(root, outAbs) : outAbs;
+    const outputRel = relative(root, outAbs);
+    // This command's writes into scratch prune it.
+    if (wroteScratch) pruneScratch(root);
     emit(
       cli.json,
       {
@@ -182,8 +234,8 @@ export const renderCommand: CoreCommand = {
       },
       () => {
         console.log(`Rendered ${sourceLabel} → ${outputRel} (${format}, ${formatBytes(bytes)})`);
-        if (!out.inRepo) {
-          console.log("  outside the brain repo — fine for an intermediate, not viewable in a UI");
+        if (scratchOutput) {
+          console.log("  in the scratch area: openable in the UI, never committed, pruned after 7 days");
         }
         if (allowHosts.length > 0) {
           console.log(`  Images allowed from: ${allowHosts.join(", ")}`);

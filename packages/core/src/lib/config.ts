@@ -5,6 +5,7 @@ import { z } from "zod";
 import { resolveEnv } from "../config/env.js";
 
 import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams.js";
+import { SCRATCH_DIR } from "./scratch.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -254,7 +255,10 @@ export const CORE_TYPES: Record<string, TypeSpec> = {
 };
 
 export const DEFAULT_EXCLUDE = {
-  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist"],
+  // SCRATCH_DIR: the scratch area is never content (#310). The dot already
+  // hides it from the markdown glob; the entry keeps every `isExcludedPath`
+  // caller (MCP listing, stats, OKF export) agreeing on it too.
+  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR],
   files: ["CLAUDE.md", "README.md", "AGENTS.md"],
   segments: [] as string[],
 };

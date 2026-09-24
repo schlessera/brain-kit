@@ -60,6 +60,7 @@ import {
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { createCronScheduler } from "./cron/scheduler.js";
+import { startScratchPrune } from "./cron/scratch-prune.js";
 import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
@@ -134,8 +135,11 @@ export interface BrainUiApp {
   isTurnActive(): boolean;
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
   cancelActiveTurns(): boolean;
-  /** Release process-held resources (the SQLite handle). */
-  close(): void;
+  /**
+   * Release process-held resources (the SQLite handle). Resolves once the
+   * scratch prune pass in flight, if any, has been killed and has exited.
+   */
+  close(): Promise<void>;
 }
 
 function isWebSocketUpgradeAttempt(request: Request): boolean {
@@ -201,6 +205,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   prunePrincipals(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
+  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Model pricing for rollup-time effective cost: constructed here because
   // the config owns enabled/TTL/brainPath, shared through the activity
@@ -257,6 +262,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
     classifier,
+    scratchPrune: () => scratchPrune.tick(),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -533,9 +539,10 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: () => {
+    close: async () => {
       host.close();
       subscription.close();
+      await scratchPrune.close();
       activity.close();
       db.close();
     },

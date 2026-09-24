@@ -391,7 +391,7 @@ async function measure(): Promise<void> {
   } finally {
     await save();
     server.stop(true);
-    app.close();
+    await app.close();
   }
 }
 

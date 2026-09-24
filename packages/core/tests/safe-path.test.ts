@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resolveWritable, safeResolve } from "../src/lib/safe-path";
+import * as fs from "fs";
+import { resolveWritable, safeResolve, WriteRefusedError, writeFileSafely } from "../src/lib/safe-path";
 
 const fixtures: string[] = [];
 afterAll(() => {
@@ -118,29 +119,54 @@ describe("resolveWritable", () => {
 
   test("a repo-relative path resolves inside the repo", () => {
     const r = resolveWritable(root, "notes/x.md");
-    expect(r?.inRepo).toBe(true);
-    expect(r?.abs.startsWith(realpathSync(root))).toBe(true);
+    expect(r?.startsWith(realpathSync(root))).toBe(true);
   });
 
-  test("a path under the temp directory is allowed, flagged as outside", () => {
+  test("the scratch area is inside the repo, so it resolves", () => {
+    expect(resolveWritable(root, ".brain/scratch/x.pdf")).toBe(join(realpathSync(root), ".brain/scratch/x.pdf"));
+  });
+
+  test("a path under the system temp directory but outside the brain is refused (#310)", () => {
+    // Output there could not be opened from the UI; transient output goes to
+    // the brain's scratch area instead.
     const target = join(tmpdir(), "scratch", "x.html");
-    const r = resolveWritable(root, target);
-    expect(r?.inRepo).toBe(false);
-    expect(r?.abs).toBe(target);
+    expect(target.startsWith(realpathSync(root))).toBe(false);
+    expect(resolveWritable(root, target)).toBeNull();
   });
 
-  test("somewhere that is neither is refused", () => {
-    // The whole point of the containment: scratch space, not free rein.
+  test("anywhere else outside the brain is refused", () => {
     for (const bad of ["/etc/passwd", "/etc/cron.d/x", "/root/.ssh/authorized_keys"]) {
       expect(resolveWritable(root, bad)).toBeNull();
     }
   });
 
-  test("the temp directory itself is not a target", () => {
-    expect(resolveWritable(root, tmpdir())).toBeNull();
-  });
-
   test("a NUL byte is refused", () => {
     expect(resolveWritable(root, "\0/etc/passwd")).toBeNull();
+  });
+});
+
+describe("writeFileSafely", () => {
+  const root = mkdtempSync(join(tmpdir(), "brain-write-safely-"));
+  fixtures.push(root);
+  const mode = (p: string) => fs.statSync(p).mode & 0o7777;
+
+  test("a replaced regular file keeps its exact mode; a new file gets the default", () => {
+    const secret = join(root, "secret.txt");
+    fs.writeFileSync(secret, "old", { mode: 0o600 });
+    fs.chmodSync(secret, 0o600);
+    writeFileSafely(secret, "new");
+    expect(fs.readFileSync(secret, "utf8")).toBe("new");
+    expect(mode(secret)).toBe(0o600);
+    const fresh = join(root, "fresh.txt");
+    writeFileSafely(fresh, "x");
+    expect(mode(fresh)).toBe(0o666 & ~process.umask());
+    expect(fs.readdirSync(root).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("a symlink at the name is a refusal by design, typed as one", () => {
+    fs.writeFileSync(join(root, "target.txt"), "keep me");
+    fs.symlinkSync("target.txt", join(root, "link.txt"));
+    expect(() => writeFileSafely(join(root, "link.txt"), "x")).toThrow(WriteRefusedError);
+    expect(fs.readFileSync(join(root, "target.txt"), "utf8")).toBe("keep me");
   });
 });

@@ -208,7 +208,7 @@ describe("brain CLI version probe", () => {
     );
   });
 
-  test("a malformed version string warns and still boots", () => {
+  test("a malformed version string warns and still boots", async () => {
     // "0.32.9-.." is not SemVer: the prerelease identifiers are empty. A loose
     // prerelease pattern would parse it as a real 0.32.9 prerelease and refuse
     // to boot; the contract is that anything unparseable warns and continues.
@@ -225,10 +225,10 @@ describe("brain CLI version probe", () => {
     expect(
       observability.logs.count({ scope: "brain", severity: "WARN" })
     ).toBe(1);
-    app.close();
+    await app.close();
   });
 
-  test("an unresolvable CLI warns and still boots", () => {
+  test("an unresolvable CLI warns and still boots", async () => {
     const root = temporaryBrain();
     const observability = createRecordingObservability();
     const app = createApp({
@@ -244,7 +244,7 @@ describe("brain CLI version probe", () => {
         body: "version probe failed",
       })
     ).toBe(1);
-    app.close();
+    await app.close();
   });
 });
 

@@ -318,7 +318,7 @@ describe("createApp boot validation", () => {
     );
   });
 
-  test("an injected registry skips the resolvability check", () => {
+  test("an injected registry skips the resolvability check", async () => {
     // The embedder took ownership of backend wiring — AGENT_BACKEND is then
     // irrelevant and must not be able to block boot.
     const app = createApp({
@@ -326,10 +326,10 @@ describe("createApp boot validation", () => {
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.config.agent.backend).toBe("gemini");
-    app.close();
+    await app.close();
   });
 
-  test('dbPath: "" is honored (SQLite anonymous temporary database)', () => {
+  test('dbPath: "" is honored (SQLite anonymous temporary database)', async () => {
     // A truthiness check here once made the empty override fall through to
     // the resolved config — exactly the coercion class the injection refactor
     // was meant to end. "" is a valid SQLite database name.
@@ -339,11 +339,11 @@ describe("createApp boot validation", () => {
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.config.dbPath).toBe("");
-    app.close();
+    await app.close();
     expect(existsSync("/tmp/should-not-open.db")).toBe(false);
   });
 
-  test("app.config.dbPath reports the database actually opened", () => {
+  test("app.config.dbPath reports the database actually opened", async () => {
     // The option must fold into the returned config — an embedder inspecting
     // "the configuration this instance runs on" gets one answer, not two.
     const override = `/tmp/brain-ui-boot-config-${process.pid}.db`;
@@ -353,7 +353,7 @@ describe("createApp boot validation", () => {
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.config.dbPath).toBe(override);
-    app.close();
+    await app.close();
     for (const suffix of ["", "-shm", "-wal"]) {
       rmSync(override + suffix, { force: true });
     }
@@ -361,12 +361,12 @@ describe("createApp boot validation", () => {
 });
 
 describe("BrainUiApp handle", () => {
-  test("exposes the resolved authMode so the shell need not re-derive it", () => {
+  test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = createApp({
       config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");
-    app.close();
+    await app.close();
   });
 });

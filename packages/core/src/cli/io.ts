@@ -46,6 +46,7 @@ export const BOOLEAN_FLAGS = new Set([
   "check", "default",
   "no-assets",
   "no-isolates",
+  "scratch",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
