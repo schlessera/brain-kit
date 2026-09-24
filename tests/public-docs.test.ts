@@ -62,9 +62,9 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *   version time, from carrying a reference past this test.
  */
 const RECORDED: Record<string, string> = {
-  "scripts/check-citations.ts": "fa5fe83fed354cef",
+  "scripts/check-citations.ts": "cd6ec22516264d06",
   "scripts/sync-project.ts": "c491185e4368cdc2",
-  "tests/decision-citations.test.ts": "e4984fe589671abb",
+  "tests/decision-citations.test.ts": "7497d11a5f4aa52f",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
   "tests/labels.test.ts": "396f8dde5e38d075",
   "tests/project-sync-main.test.ts": "67116a2297046d31",
@@ -114,8 +114,9 @@ const PRIVATE_REFERENCES: [string, RegExp][] = [
   ["its parts or history", new RegExp(`\\bmirrored in \`scripts/entrypoint\\.sh\`|\`bun install\`ed by entrypoint\\.sh|\\b${NAME}['\u2019]s (?:hardcoded|container|shell|entrypoint|image|cron)\\b|\\bdescends from ${NAME}|\\bconsumer \\(brain-ui\\)`, "i")],
   // The two repositories named side by side, as peers that each keep something.
   ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME} (?:each|both|repos|repositories)\\b`, "i")],
-  // A citation into it, never a Markdown link whose text is the product name.
-  ["a citation into it", /\[brain-ui\](?!\()/i],
+  // A citation into it, in any spelling (`[[brain]]`, `[Schlessera/Brain-UI]`),
+  // never a Markdown link whose text is the product name.
+  ["a citation into it", /\[+\s*(?:schlessera\/)?brain(?:-ui)?\s*\]+(?!\()/i],
 ];
 
 const referencesIn = (text: string) =>
@@ -189,6 +190,9 @@ describe("public documents do not send readers to the private repositories", () 
     "- `docs/decisions.md` (brain-ui) needs two entries: the narrowed amendment to the",
     "- The crontab poke line lands in brain-ui's `entrypoint.sh` — a brain-ui release, not a",
     "(`[brain-ui] config/supervisord.conf:54-62`). The poke detects a *stopped",
+    "(`[[brain]] notes/x.md:1`)",
+    "(`[Schlessera/Brain-UI] Dockerfile:12`)",
+    "(`[ brain ] docs/a file.md:1`)",
     "- brain-ui deployment shell: dependency bump + verifying the cron env allowlist in `scripts/entrypoint.sh` exposes the same credentials the server classifies against — separate PR in the brain-ui repo after release.",
     "worker) lives in the separate `brain-ui` repo. Storybook/Vite would be the",
     "### 3.6 The deployment shell (phase 5, `brain-ui` repo)",

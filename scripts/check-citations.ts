@@ -50,12 +50,22 @@ const LOOSE_CITATION =
  * `[repo] path:12` — a citation into another repository. Only the public
  * repositories of the open-source project may be cited that way (#303); a
  * public record never cites the maintainer's private instance (AGENTS.md,
- * "The five repositories").
+ * "The five repositories"). Read loosely, so a respelling (`[[brain]]`,
+ * `[Schlessera/Brain-UI]`, a path with a space, a URL) is judged rather than
+ * slipping through as some other kind of span.
  */
-const EXTERNAL_CITATION = /^\[([\w.-]+)\]\s+(\S+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
+const EXTERNAL_CITATION = /^\[+([^\]]*)\]+\s+(\S.*(?::\s*\d|#L\d).*)$/;
+
+/** A path inside the named repository, and its lines: `scripts/a b.sh:4-9`. */
+const EXTERNAL_PATH = /^([^:]+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
 
 /** The repositories a `[repo] path:line` citation may name. */
 export const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
+
+/** `[Schlessera/Brain-UI]` and `[ brain-ui ]` name the same repository. */
+export function repoIdentity(prefix: string): string {
+  return prefix.trim().toLowerCase().replace(/^(?:https?:\/\/)?(?:github\.com\/)?schlessera\//, "");
+}
 
 /** A citation anywhere in prose, outside a code span. */
 const BARE_CITATION = new RegExp(
@@ -162,14 +172,15 @@ export function parseCitations(doc: string, body: string): Citation[] {
     const external = content.match(EXTERNAL_CITATION);
     if (external) {
       citationish[i] = true;
+      const target = external[2].trim().match(EXTERNAL_PATH);
       citations.push({
         doc,
         line: lineAt(span.index!),
         text: content,
-        path: external[2],
+        path: target?.[1],
         ranges: [],
         anchor: undefined,
-        repo: external[1],
+        repo: repoIdentity(external[1]),
       });
       continue;
     }
@@ -325,13 +336,23 @@ export function checkCitation(
 ): Verdict {
   if (citation.bare) return { kind: "unanchored", reason: "written outside a code span" };
   if (citation.repo !== undefined) {
-    return CITABLE_REPOS.has(citation.repo)
-      ? { kind: "external", repo: citation.repo }
-      : {
-          kind: "private",
-          repo: citation.repo,
-          reason: `cites ${citation.repo}, which is not a public repository of the project; a public record never cites one`,
-        };
+    if (citation.repo === "brain-kit") {
+      return { kind: "unresolved", reason: "names this repository; cite the path without a prefix" };
+    }
+    if (!CITABLE_REPOS.has(citation.repo)) {
+      return {
+        kind: "private",
+        repo: citation.repo,
+        reason: `cites ${citation.repo}, which is not a public repository of the project; a public record never cites one`,
+      };
+    }
+    // Only a path inside the named repository is that repository's: a URL or
+    // a `../` could point anywhere, whatever the prefix says.
+    const path = citation.path;
+    if (!path || /:\/\/|^\/|(?:^|\/)\.\.(?:\/|$)/.test(path)) {
+      return { kind: "unresolved", reason: `not a \`path:line\` inside ${citation.repo}` };
+    }
+    return { kind: "external", repo: citation.repo };
   }
   if (citation.unreadable) {
     return { kind: "unresolved", reason: "not a `path:line` this check can read: another repository, or a bare line number" };
@@ -547,7 +568,10 @@ export function exceptionMismatches(
 ): { key: string; expected: number; actual: number }[] {
   const actual = new Map<string, number>();
   for (const report of reports) {
-    if (report.verdict.kind === "anchored" || report.verdict.kind === "external" || !report.exception) continue;
+    // An exception never covers an external citation, which needs none, or a
+    // private one, which none may excuse, so an entry for either is stale.
+    const kind = report.verdict.kind;
+    if (kind === "anchored" || kind === "external" || kind === "private" || !report.exception) continue;
     const key = `${report.citation.doc}|${report.citation.text}`;
     actual.set(key, (actual.get(key) ?? 0) + 1);
   }
@@ -587,16 +611,26 @@ export function describe(report: Report): string {
   }
 }
 
-if (import.meta.main) {
-  const reports = checkRecords();
+/** What the command prints: each failure, the counts, each stale exception. */
+export function summarize(
+  reports: Report[],
+  exceptions: Record<string, CitationException> = CITATION_EXCEPTIONS,
+): string[] {
+  const lines: string[] = [];
   const counts: Record<string, number> = {};
   for (const report of reports) {
-    const key = report.exception ? "exception" : report.verdict.kind;
+    const kind = report.verdict.kind;
+    const key = report.exception && kind !== "private" && kind !== "external" ? "exception" : kind;
     counts[key] = (counts[key] ?? 0) + 1;
-    if (failing(report)) console.log(describe(report));
+    if (failing(report)) lines.push(describe(report));
   }
-  console.log(`\n${reports.length} citation(s):`, counts);
-  for (const { key, expected, actual } of exceptionMismatches(reports)) {
-    console.log(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
+  lines.push(`\n${reports.length} citation(s): ${JSON.stringify(counts)}`);
+  for (const { key, expected, actual } of exceptionMismatches(reports, exceptions)) {
+    lines.push(`exception ${key} declares ${expected} citation(s), matches ${actual}`);
   }
+  return lines;
+}
+
+if (import.meta.main) {
+  for (const line of summarize(checkRecords())) console.log(line);
 }
