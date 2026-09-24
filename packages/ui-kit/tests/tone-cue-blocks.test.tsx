@@ -303,7 +303,7 @@ describe("TimelineList", () => {
     // Each mark is the first thing in the gutter column, above its connector
     // and apart from the title: a glyph moved beside the title is not in it.
     const gutters = [...html.matchAll(/<div style="[^"]*flex-direction:column[^"]*width:11px[^"]*"><span data-tone="([^"]+)"[^>]*>(<span[^>]*><svg[^>]*data-cue="([^"]+)")?/g)];
-    expect(gutters.map((m) => [m[1], m[3] ?? null])).toEqual([
+    expect(gutters.map((m): [string, string | null] => [m[1]!, m[3] ?? null])).toEqual([
       ["teal", "confirm"],
       ["amber", "agent"],
       ["red", "failed"],
