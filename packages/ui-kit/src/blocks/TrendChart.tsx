@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { DeltaTone, Tone } from "../types.js";
 
@@ -18,6 +20,13 @@ import type { DeltaTone, Tone } from "../types.js";
  * makes the axis drift by half a bar per missing label — which reads as a
  * chart whose labels are off by one, and is exactly the kind of wrong that
  * survives review.
+ *
+ * The delta pill's good-or-bad reading was ink and border hue alone, which
+ * a grayscale print loses. A red delta now leads with the value map's glyph
+ * inside the pill (`internal/tone-cue.ts`, #309); teal draws none, and with
+ * only two `DeltaTone`s glyph-or-no-glyph is a complete code. The direction
+ * is already the text's sign, the series class is the label's, and the
+ * "today" bar is a lightness step that survives grayscale, so those stay.
  */
 export interface TrendChartProps {
   /** The uppercase mono line above the number. */
@@ -71,6 +80,9 @@ export function TrendChart(p: TrendChartProps) {
   const max = Math.max(...vals, 0.0001);
   const h = Number(p.height) || 62;
   const ticks = p.ticks || ["Thu", "", "", "Sun", "", "", "Wed"];
+  // Two readings and no third: anything but red is the teal pill.
+  const deltaTone = p.deltaTone === "red" ? "red" : "teal";
+  const deltaCue = VALUE_CUE[deltaTone];
 
   const box: CSSProperties = {
     border: `1px solid ${color.line}`,
@@ -104,17 +116,20 @@ export function TrendChart(p: TrendChartProps) {
         </div>
         {p.delta ? (
           <span
+            data-tone={deltaTone}
             style={{
               flex: "none",
-              border: `1px solid ${
-                p.deltaTone === "red" ? token("chip-border-red") : token("chip-border-teal")
-              }`,
-              color: p.deltaTone === "red" ? accent.red.ink : accent.teal.ink,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              border: `1px solid ${deltaTone === "red" ? token("chip-border-red") : token("chip-border-teal")}`,
+              color: deltaTone === "red" ? accent.red.ink : accent.teal.ink,
               borderRadius: 6,
               padding: "3px 7px",
               font: `500 10px/1.3 ${font.mono}`,
             }}
           >
+            {deltaCue ? <Cue icon={deltaCue} size={12} /> : null}
             {p.delta}
           </span>
         ) : null}

@@ -14,6 +14,12 @@ import type { StepListVariant, StepState } from "../types.js";
  *
  * The gutter rail is what makes a long list scannable, and the design says so
  * outright: never drop it for tighter spacing.
+ *
+ * The current step wears a 2px ring where a todo step has 1px (#309). The
+ * print theme drops its wash and printing freezes the breathing, which left
+ * current against todo as 600 against 500 weight in a fallback system font;
+ * a ring is geometry, not colour. The bubble stays 22px under `border-box`,
+ * so the gutter and the rail do not move.
  */
 export interface Step {
   title: string;
@@ -108,6 +114,10 @@ export function StepList(p: StepListProps) {
         const bubble: CSSProperties = {
           width: 22,
           height: 22,
+          // Stated, not inherited from a reset: the share renderer draws these
+          // blocks without the kit's stylesheet, and the ring below must not
+          // widen the bubble there either.
+          boxSizing: "border-box",
           borderRadius: "50%",
           flex: "none",
           display: "flex",
@@ -121,7 +131,9 @@ export function StepList(p: StepListProps) {
             : current
               ? token("step-bubble-tint-current")
               : "transparent",
-          border: done ? "none" : `1px solid ${current ? accent.amber.ink : color.edge}`,
+          // The ring: 2px for the current step, 1px for a todo one. The
+          // difference is the one cue that survives a grayscale print.
+          border: done ? "none" : current ? `2px solid ${accent.amber.ink}` : `1px solid ${color.edge}`,
           color: done ? color.onInkSolid : ink,
           animation: current && p.pulse !== false ? "breathe 2s ease-in-out infinite" : undefined,
         };
@@ -142,7 +154,7 @@ export function StepList(p: StepListProps) {
         return (
           <div key={i} style={row}>
             <div style={gutter}>
-              <span style={bubble}>
+              <span data-state={st} style={bubble}>
                 {done ? <Icon icon="confirm" size={11} color={color.onInkSolid} /> : null}
                 {/* `checklist` numbers nothing: a tick box is not an ordinal. */}
                 {!done && v !== "checklist" ? String(i + 1) : null}

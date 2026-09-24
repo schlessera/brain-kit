@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
+import { SCHEDULE_CUE } from "../internal/tone-cue.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
 
@@ -18,6 +20,11 @@ type RailTone = Tone | "edge";
  * rule, not a grey bar — and its tag border follows, at 40% of that hairline.
  * `neutral` is the grey accent, as everywhere else (D33); before the
  * 2026-09-18 drop this table resolved it to the hairline, ported as found.
+ *
+ * A 2px rail cannot hold a shape, so the claim also draws as an 11px glyph
+ * leading the title (`internal/tone-cue.ts`, #309): a clock for a deadline, a
+ * hand for what is yours, the bot for what the agent will handle. The FYI is
+ * the unmarked item and gets none; a conflict is already the word.
  */
 export interface ScheduleItem {
   time: string;
@@ -179,6 +186,7 @@ export function ScheduleList(p: ScheduleListProps) {
             const conflict = it.tag === "conflict";
             const tagInk = conflict ? accent.gold.ink : TAG_INKS[tone] || TAG_INKS.edge;
             const tagBorder = conflict ? TAG_BORDERS.gold : TAG_BORDERS[tone] || TAG_BORDERS.edge;
+            const cue = tone === "edge" ? null : SCHEDULE_CUE[tone];
             return (
               <div key={i} style={row}>
                 <span style={timeStyle}>{it.time}</span>
@@ -187,7 +195,10 @@ export function ScheduleList(p: ScheduleListProps) {
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={titleRow}>
-                    <span style={titleStyle}>{it.title}</span>
+                    <span data-tone={tone} style={titleStyle}>
+                      {cue ? <Cue icon={cue} size={11} color={TAG_INKS[tone]} inline /> : null}
+                      {it.title}
+                    </span>
                     {it.tag ? (
                       <span
                         style={{

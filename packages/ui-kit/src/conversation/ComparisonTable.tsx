@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { ValueTone } from "../types.js";
@@ -16,6 +18,11 @@ import type { ValueTone } from "../types.js";
  *
  * An untoned cell is primary ink, like `StatTiles`: an unremarkable value in a
  * comparison is still a value to read.
+ *
+ * A judged cell or column also draws its tone's glyph before the text
+ * (`internal/tone-cue.ts`, #309), so the judgement survives a grayscale print.
+ * The recommended column needs none: its fill is data the print theme keeps,
+ * and the weight and the footnote carry it without colour.
  */
 export interface ComparisonColumn {
   label: string;
@@ -112,37 +119,45 @@ export function ComparisonTable(p: ComparisonTableProps) {
         >
           {p.corner ?? ""}
         </span>
-        {cols.map((c, i) => (
-          <span
-            key={i}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: "9px 8px",
-              textAlign: "center",
-              font: `600 11px/1.3 ${font.body}`,
-              color: TONES[c.tone || "ink"] || TONES.dim,
-              background: i === recIdx ? token("compare-recommended-head") : "transparent",
-              borderLeft: `1px solid ${color.line}`,
-            }}
-          >
-            {c.label}
-            {c.note ? (
-              <span
-                style={{
-                  display: "block",
-                  marginTop: 3,
-                  font: `400 9px/1.3 ${font.mono}`,
-                  color: accent.neutral.ink,
-                  textTransform: "none",
-                  fontWeight: 400,
-                }}
-              >
-                {c.note}
-              </span>
-            ) : null}
-          </span>
-        ))}
+        {cols.map((c, i) => {
+          const tone = c.tone || "ink";
+          const cue = VALUE_CUE[tone];
+          return (
+            <span
+              key={i}
+              data-tone={tone}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: "9px 8px",
+                textAlign: "center",
+                font: `600 11px/1.3 ${font.body}`,
+                color: TONES[tone] || TONES.dim,
+                background: i === recIdx ? token("compare-recommended-head") : "transparent",
+                borderLeft: `1px solid ${color.line}`,
+              }}
+            >
+              {/* The column's character, before the label: the glyph the
+                  value map gives its tone, or nothing for an unjudged one. */}
+              {cue ? <Cue icon={cue} size={11} inline /> : null}
+              {c.label}
+              {c.note ? (
+                <span
+                  style={{
+                    display: "block",
+                    marginTop: 3,
+                    font: `400 9px/1.3 ${font.mono}`,
+                    color: accent.neutral.ink,
+                    textTransform: "none",
+                    fontWeight: 400,
+                  }}
+                >
+                  {c.note}
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
       </div>
       {src.map((r, ri) => (
         <div
@@ -163,9 +178,14 @@ export function ComparisonTable(p: ComparisonTableProps) {
           {(r.cells || []).map((raw, i) => {
             const cell = typeof raw === "object" && raw !== null ? raw : { v: raw, tone: undefined };
             const isRec = i === recIdx;
+            // An untoned cell in the recommended column reads teal; every
+            // other untoned cell reads as plain ink.
+            const tone = cell.tone || (isRec ? "teal" : "ink");
+            const cue = VALUE_CUE[tone];
             return (
               <span
                 key={i}
+                data-tone={tone}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -174,11 +194,11 @@ export function ComparisonTable(p: ComparisonTableProps) {
                   borderLeft: `1px solid ${color.line}`,
                   background: isRec ? token("compare-recommended-cell") : "transparent",
                   font: `${isRec ? 600 : 500} 11px/1.4 ${font.mono}`,
-                  // An untoned cell in the recommended column reads teal; every
-                  // other untoned cell reads as plain ink.
-                  color: TONES[cell.tone || (isRec ? "teal" : "ink")] || TONES.dim,
+                  color: TONES[tone] || TONES.dim,
                 }}
               >
+                {/* The judgement, before the text and centred with it. */}
+                {cue ? <Cue icon={cue} size={11} inline /> : null}
                 {/* A blank cell in a comparison reads as zero, so absence is
                     stated with an em dash instead. */}
                 {cell.v === "" || cell.v === null || cell.v === undefined ? "—" : cell.v}

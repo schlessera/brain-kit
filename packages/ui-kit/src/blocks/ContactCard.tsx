@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
+import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
+import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
 import type { IconName } from "../primitives/Icon.js";
@@ -22,6 +24,14 @@ import type { ButtonTone, ContactKind, ContactTone, ValueTone } from "../types.j
  * `gold` and `red`: a relationship twenty years cold is red, not amber. An
  * unlisted fact tone falls back to dim rather than inheriting. Both are the
  * 2026-09-18 drop's answer to design-feedback §2.
+ *
+ * **What survives grayscale (#309).** A person is a circle, which is already
+ * a shape. A company and a project are both rounded squares told apart by
+ * blue against purple, so a mono kind word leads the role line for those two
+ * (`COMPANY ·`, `PROJECT ·`) in the 9px label style `StatTiles` uses. A word,
+ * not a third avatar shape: squares with different corner radii do not
+ * survive a 38px print, and a word cannot be misread. A judged fact draws its
+ * tone's glyph leading the value (`internal/tone-cue.ts`).
  */
 export interface ContactFact {
   k: string;
@@ -103,6 +113,7 @@ export function ContactCard(p: ContactCardProps) {
   const tone = p.tone || (kind === "company" ? "blue" : kind === "project" ? "purple" : "teal");
   const ink = INKS[tone] || INKS.teal;
   const label = p.label ?? "Penelope";
+  const role = p.role ?? "Wife · holding Ithaca";
   const initials =
     p.initials ||
     label
@@ -159,7 +170,22 @@ export function ContactCard(p: ContactCardProps) {
               color: accent.neutral.ink,
             }}
           >
-            {p.role ?? "Wife · holding Ithaca"}
+            {kind !== "person" ? (
+              <span
+                data-kind={kind}
+                style={{
+                  font: `600 9px/1.2 ${font.mono}`,
+                  letterSpacing: ".07em",
+                  textTransform: "uppercase",
+                  color: accent.neutral.ink,
+                  marginRight: 4,
+                }}
+              >
+                {kind}
+                {role ? " ·" : null}
+              </span>
+            ) : null}
+            {role}
           </span>
         </div>
         {p.badge ? <Chip label={p.badge} tone={tone} variant="soft" /> : null}
@@ -174,27 +200,33 @@ export function ContactCard(p: ContactCardProps) {
             borderTop: `1px solid ${color.line}`,
           }}
         >
-          {facts.map((f, i) => (
-            <div key={i} style={factRow}>
-              <span
-                style={{ width: Number(p.keyWidth) || 84, flex: "none", color: accent.neutral.ink }}
-              >
-                {f.k}
-              </span>
-              <span
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  // An untoned fact is dim ink; an unlisted tone falls back to
-                  // the same rather than inheriting.
-                  color: FACT_INKS[f.tone || "dim"] || FACT_INKS.dim,
-                  fontWeight: 500,
-                }}
-              >
-                {f.v}
-              </span>
-            </div>
-          ))}
+          {facts.map((f, i) => {
+            // An untoned fact is dim ink; an unlisted tone falls back to the
+            // same rather than inheriting.
+            const factTone = f.tone || "dim";
+            const cue = VALUE_CUE[factTone];
+            return (
+              <div key={i} style={factRow}>
+                <span
+                  style={{ width: Number(p.keyWidth) || 84, flex: "none", color: accent.neutral.ink }}
+                >
+                  {f.k}
+                </span>
+                <span
+                  data-tone={factTone}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    color: FACT_INKS[factTone] || FACT_INKS.dim,
+                    fontWeight: 500,
+                  }}
+                >
+                  {cue ? <Cue icon={cue} size={11} inline /> : null}
+                  {f.v}
+                </span>
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {actions ? (
